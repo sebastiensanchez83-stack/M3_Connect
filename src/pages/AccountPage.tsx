@@ -16,11 +16,10 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { AlertCircle, Calendar, FileText } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, RefreshCw } from 'lucide-react';
 
 const countries = ['France', 'Monaco', 'Italy', 'Spain', 'Greece', 'Croatia', 'Portugal', 'United Kingdom', 'Germany', 'Netherlands', 'Belgium', 'United States', 'United Arab Emirates', 'Other'];
 
-// Mock data
 const mockRegistrations = [
   { id: '1', event_title: 'Webinar: Energy Efficiency Solutions', event_date: '2025-02-15T14:00:00Z', status: 'upcoming' },
   { id: '2', event_title: 'Marina Managers Roundtable', event_date: '2025-02-22T10:00:00Z', status: 'upcoming' },
@@ -32,7 +31,7 @@ const mockProjects = [
 
 export function AccountPage() {
   const { t, i18n } = useTranslation();
-  const { user, profile, updateProfile, loading: authLoading } = useAuth();
+  const { user, profile, updateProfile, loading: authLoading, profileLoading, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
@@ -46,6 +45,9 @@ export function AccountPage() {
     if (!authLoading && !user) {
       navigate('/');
     }
+  }, [user, authLoading, navigate]);
+
+  useEffect(() => {
     if (profile) {
       setFormData({
         first_name: profile.first_name || '',
@@ -57,7 +59,7 @@ export function AccountPage() {
         capacity: profile.capacity || '',
       });
     }
-  }, [user, profile, authLoading, navigate]);
+  }, [profile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,6 +71,11 @@ export function AccountPage() {
       toast({ title: t('account.saveSuccess') });
     }
     setLoading(false);
+  };
+
+  const handleRefreshProfile = async () => {
+    await refreshProfile();
+    toast({ title: 'Profile refreshed' });
   };
 
   const updateField = (field: string, value: string) => {
@@ -88,11 +95,34 @@ export function AccountPage() {
     }
   };
 
-  if (authLoading) {
-    return <div className="container mx-auto px-4 py-8 text-center">{t('common.loading')}</div>;
+  if (authLoading || profileLoading) {
+    return (
+      <div className="container mx-auto px-4 py-8 text-center">
+        <div className="flex items-center justify-center gap-2">
+          <RefreshCw className="h-5 w-5 animate-spin" />
+          <span>{t('common.loading')}</span>
+        </div>
+      </div>
+    );
   }
 
   if (!user) return null;
+
+  if (!profile) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+          <AlertCircle className="h-8 w-8 text-yellow-600 mx-auto mb-4" />
+          <h2 className="text-lg font-semibold text-yellow-800 mb-2">Profile not found</h2>
+          <p className="text-yellow-700 mb-4">Your profile is being set up. Please try refreshing.</p>
+          <Button onClick={handleRefreshProfile} variant="outline">
+            <RefreshCw className="h-4 w-4 mr-2" />
+            Refresh Profile
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">

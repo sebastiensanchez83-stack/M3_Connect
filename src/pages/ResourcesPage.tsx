@@ -47,7 +47,7 @@ export function ResourcesPage() {
     if (level === 'public') return true;
     if (!user) return false;
     if (level === 'members') return true;
-    if (level === 'marina') return profile?.role === 'marina' && profile?.status === 'verified'
+    if (level === 'marina') return profile?.role === 'marina' && profile?.status === 'verified';
     return false;
   };
 

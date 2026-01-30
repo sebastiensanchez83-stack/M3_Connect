@@ -15,6 +15,7 @@ export function ResetPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [verifying, setVerifying] = useState(true);
+  const [verified, setVerified] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,14 +30,21 @@ export function ResetPasswordPage() {
         return;
       }
 
-      // Verify the token with Supabase
-      const { error } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: 'recovery',
-      });
+      try {
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash: tokenHash,
+          type: 'recovery',
+        });
 
-      if (error) {
-        setError('This reset link has expired or is invalid. Please request a new one.');
+        if (error) {
+          setError('This reset link has expired or is invalid. Please request a new one.');
+        } else if (data.session) {
+          setVerified(true);
+        } else {
+          setError('Could not verify reset link. Please try again.');
+        }
+      } catch (err) {
+        setError('An error occurred. Please try again.');
       }
       
       setVerifying(false);
@@ -60,17 +68,24 @@ export function ResetPasswordPage() {
 
     setLoading(true);
 
-    const { error } = await supabase.auth.updateUser({ password });
+    try {
+      const { error } = await supabase.auth.updateUser({ password });
 
-    if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-    } else {
-      setSuccess(true);
-      toast({ title: 'Success', description: 'Password updated successfully' });
-      setTimeout(() => navigate('/account'), 2000);
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        setLoading(false);
+      } else {
+        setSuccess(true);
+        toast({ title: 'Success', description: 'Password updated successfully' });
+        
+        // Sign out and redirect
+        await supabase.auth.signOut();
+        setTimeout(() => navigate('/'), 2000);
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'An error occurred. Please try again.', variant: 'destructive' });
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   if (verifying) {
@@ -108,7 +123,22 @@ export function ResetPasswordPage() {
           <CardContent className="pt-6 text-center">
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Password Updated!</h2>
-            <p className="text-gray-600">Redirecting to your account...</p>
+            <p className="text-gray-600">Redirecting to login...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!verified) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-md">
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Session Error</h2>
+            <p className="text-gray-600 mb-4">Could not establish session. Please request a new reset link.</p>
+            <Button onClick={() => navigate('/')}>Return Home</Button>
           </CardContent>
         </Card>
       </div>

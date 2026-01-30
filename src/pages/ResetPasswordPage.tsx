@@ -1,15 +1,13 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
-import { toast } from '@/hooks/use-toast';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 export function ResetPasswordPage() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -20,7 +18,6 @@ export function ResetPasswordPage() {
   const tokenHash = searchParams.get('token_hash');
   const type = searchParams.get('type');
 
-  // Show error immediately if no token
   if (!tokenHash || type !== 'recovery') {
     return (
       <div className="container mx-auto px-4 py-16 max-w-md">
@@ -29,7 +26,7 @@ export function ResetPasswordPage() {
             <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Invalid Link</h2>
             <p className="text-gray-600 mb-4">Invalid or missing reset link. Please request a new password reset.</p>
-            <Button onClick={() => navigate('/')}>Return Home</Button>
+            <Button onClick={() => window.location.href = '/'}>Return Home</Button>
           </CardContent>
         </Card>
       </div>
@@ -38,14 +35,14 @@ export function ResetPasswordPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
+    
     if (password !== confirmPassword) {
-      toast({ title: 'Error', description: 'Passwords do not match', variant: 'destructive' });
+      setError('Passwords do not match');
       return;
     }
 
     if (password.length < 6) {
-      toast({ title: 'Error', description: 'Password must be at least 6 characters', variant: 'destructive' });
+      setError('Password must be at least 6 characters');
       return;
     }
 
@@ -53,19 +50,19 @@ export function ResetPasswordPage() {
     setError(null);
 
     try {
-      // Step 1: Verify the token and establish session
-      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+      // Step 1: Verify token
+      const { error: verifyError } = await supabase.auth.verifyOtp({
         token_hash: tokenHash,
         type: 'recovery',
       });
 
-      if (verifyError || !data.session) {
+      if (verifyError) {
         setError('This reset link has expired or is invalid. Please request a new one.');
         setLoading(false);
         return;
       }
 
-      // Step 2: Update the password
+      // Step 2: Update password
       const { error: updateError } = await supabase.auth.updateUser({ password });
 
       if (updateError) {
@@ -74,10 +71,14 @@ export function ResetPasswordPage() {
         return;
       }
 
-      // Step 3: Success - sign out and redirect
+      // Step 3: Success
       setSuccess(true);
+      
+      // Sign out and redirect using window.location (not React Router)
       await supabase.auth.signOut();
-      setTimeout(() => navigate('/'), 2000);
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2000);
 
     } catch (err) {
       setError('An error occurred. Please try again.');

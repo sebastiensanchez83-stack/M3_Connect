@@ -9,13 +9,28 @@ interface Profile {
   last_name: string;
   email: string;
   job_title: string | null;
+  phone: string | null;
+  linkedin_url: string | null;
+  bio: string | null;
+  avatar_url: string | null;
   organization_type: string;
   organization_name: string;
   country: string;
   website: string | null;
   capacity: string | null;
-  role: 'user' | 'marina_pending' | 'marina_verified' | 'admin';
+  // New partnership fields
+  partnership_tier: 'Main Sponsor' | 'Premium Sponsor' | 'Partner' | 'Associate Partner' | 'Innovation Partner' | 'Media Partner' | null;
+  partnership_starts_at: string | null;
+  partnership_expires_at: string | null;
+  solution_categories: string[];
+  company_logo: string | null;
+  company_description: string | null;
+  is_public: boolean;
+  // New validation system
+  status: 'pending' | 'verified' | 'rejected';
+  role: 'user' | 'marina' | 'partner' | 'admin';
   created_at: string;
+  updated_at: string;
 }
 
 interface AuthContextType {
@@ -32,7 +47,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Check if we're on reset password page
 const isResetPasswordPage = () => window.location.pathname === '/reset-password';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -67,7 +81,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Skip everything if on reset password page
     if (isResetPasswordPage()) {
       setLoading(false);
       return;
@@ -83,7 +96,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      // Completely ignore auth changes on reset password page
       if (isResetPasswordPage()) {
         return;
       }
@@ -108,7 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) return { error };
 
     if (data.user) {
-      const role = profileData.organization_type === 'Marina / Port' ? 'marina_pending' : 'user';
+      // Determine role based on organization type
+      const role = profileData.organization_type === 'Marina / Port' ? 'marina' : 'user';
+      
       const { error: profileError } = await supabase.from('profiles').insert({
         user_id: data.user.id,
         email,
@@ -121,7 +135,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         website: profileData.website || null,
         capacity: profileData.capacity || null,
         role,
-      } as any);
+        status: 'pending', // All new users need admin approval
+        is_public: false,
+        solution_categories: [],
+      });
       if (profileError) return { error: profileError };
     }
     return { error: null };
@@ -141,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateProfile = async (data: Partial<Profile>) => {
     if (!user) return { error: new Error('No user logged in') };
-    const { error } = await supabase.from('profiles').update(data as any).eq('user_id', user.id);
+    const { error } = await supabase.from('profiles').update(data).eq('user_id', user.id);
     if (!error) await refreshProfile();
     return { error };
   };

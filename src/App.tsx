@@ -1,4 +1,5 @@
-import { Routes, Route } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { HomePage } from '@/pages/HomePage';
@@ -10,8 +11,29 @@ import { AccountPage } from '@/pages/AccountPage';
 import { SubmitProjectPage } from '@/pages/SubmitProjectPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
+import { supabase } from '@/lib/supabase';
 
 function App() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Listen for password recovery event
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        navigate('/reset-password');
+      }
+    });
+
+    // Check URL hash for recovery token on initial load
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const type = hashParams.get('type');
+    if (type === 'recovery') {
+      navigate('/reset-password');
+    }
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
@@ -34,14 +56,3 @@ function App() {
 }
 
 export default App;
-```
-
-**3. Dans Supabase Dashboard (Authentication → URL Configuration) :**
-
-Ajoute `https://connect.m3monaco.com/reset-password` dans **Redirect URLs**.
-
-**4. Modifie le template email (Authentication → Email Templates → Reset Password) :**
-
-Change le lien pour :
-```
-<a href="{{ .SiteURL }}/reset-password">Reset Password</a>

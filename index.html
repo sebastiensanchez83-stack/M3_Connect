@@ -2,10 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="M3 Connect - The Platform for Marina Innovation. Connecting marinas with industry partners worldwide." />
-    <title>M3 Connect - Marina Industry Platform</title>
+    <title>M3 Connect</title>
+    <script>
+      // Capture recovery hash BEFORE any other JS loads
+      (function() {
+        var hash = window.location.hash;
+        if (hash && hash.indexOf('type=recovery') !== -1) {
+          sessionStorage.setItem('supabase_recovery_hash', hash);
+          if (window.location.pathname !== '/reset-password') {
+            window.location.replace('/reset-password' + hash);
+          }
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

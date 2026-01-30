@@ -56,7 +56,7 @@ export function EventsPage() {
     if (level === 'public') return true;
     if (!user) return false;
     if (level === 'members') return true;
-profile?.role === 'marina' && profile?.status === 'verified'
+    if (level === 'marina') return profile?.role === 'marina' && profile?.status === 'verified';
     return false;
   };
 
@@ -65,12 +65,10 @@ profile?.role === 'marina' && profile?.status === 'verified'
       toast({ title: 'Please login to register', variant: 'destructive' });
       return;
     }
-
     const { error } = await supabase.from('event_registrations').insert({
       event_id: eventId,
       user_id: user.id,
     });
-
     if (error) {
       if (error.code === '23505') {
         toast({ title: 'Already registered', variant: 'destructive' });

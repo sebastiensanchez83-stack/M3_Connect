@@ -20,34 +20,45 @@ export function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const tokenHash = searchParams.get('token_hash');
+    const type = searchParams.get('type');
+
+    console.log('Token hash:', tokenHash);
+    console.log('Type:', type);
+
+    if (!tokenHash || type !== 'recovery') {
+      setError('Invalid or missing reset link. Please request a new password reset.');
+      setVerifying(false);
+      return;
+    }
+
     const verifyToken = async () => {
-      const tokenHash = searchParams.get('token_hash');
-      const type = searchParams.get('type');
-
-      if (!tokenHash || type !== 'recovery') {
-        setError('Invalid or missing reset link. Please request a new password reset.');
-        setVerifying(false);
-        return;
-      }
-
       try {
-        const { data, error } = await supabase.auth.verifyOtp({
+        console.log('Calling verifyOtp...');
+        
+        const { data, error: verifyError } = await supabase.auth.verifyOtp({
           token_hash: tokenHash,
           type: 'recovery',
         });
 
-        if (error) {
+        console.log('verifyOtp response:', { data, verifyError });
+
+        if (verifyError) {
+          console.error('Verify error:', verifyError);
           setError('This reset link has expired or is invalid. Please request a new one.');
-        } else if (data.session) {
+        } else if (data?.session) {
+          console.log('Session established');
           setVerified(true);
         } else {
-          setError('Could not verify reset link. Please try again.');
+          console.log('No session in response');
+          setError('Could not verify reset link. Please request a new one.');
         }
       } catch (err) {
+        console.error('Catch error:', err);
         setError('An error occurred. Please try again.');
+      } finally {
+        setVerifying(false);
       }
-      
-      setVerifying(false);
     };
 
     verifyToken();
@@ -77,13 +88,11 @@ export function ResetPasswordPage() {
       } else {
         setSuccess(true);
         toast({ title: 'Success', description: 'Password updated successfully' });
-        
-        // Sign out and redirect
         await supabase.auth.signOut();
         setTimeout(() => navigate('/'), 2000);
       }
     } catch (err) {
-      toast({ title: 'Error', description: 'An error occurred. Please try again.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'An error occurred.', variant: 'destructive' });
       setLoading(false);
     }
   };
@@ -95,6 +104,7 @@ export function ResetPasswordPage() {
           <CardContent className="pt-6 text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
             <p className="text-gray-600">Verifying reset link...</p>
+            <p className="text-xs text-gray-400 mt-2">Token: {searchParams.get('token_hash')?.slice(0, 10)}...</p>
           </CardContent>
         </Card>
       </div>
@@ -137,7 +147,7 @@ export function ResetPasswordPage() {
           <CardContent className="pt-6 text-center">
             <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Session Error</h2>
-            <p className="text-gray-600 mb-4">Could not establish session. Please request a new reset link.</p>
+            <p className="text-gray-600 mb-4">Could not establish session.</p>
             <Button onClick={() => navigate('/')}>Return Home</Button>
           </CardContent>
         </Card>

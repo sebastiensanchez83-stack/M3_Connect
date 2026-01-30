@@ -1,141 +1,155 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, Session } from '@supabase/supabase-js';
+import { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
+import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
-interface Profile {
-  id: string;
-  user_id: string;
-  first_name: string;
-  last_name: string;
-  email: string;
-  job_title: string | null;
-  organization_type: string;
-  organization_name: string;
-  country: string;
-  website: string | null;
-  capacity: string | null;
-  role: 'user' | 'marina_pending' | 'marina_verified' | 'admin';
-  created_at: string;
-}
+export function ResetPasswordPage() {
+  const [searchParams] = useSearchParams();
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-interface AuthContextType {
-  user: User | null;
-  profile: Profile | null;
-  session: Session | null;
-  loading: boolean;
-  signUp: (email: string, password: string, profileData: Partial<Profile>) => Promise<{ error: Error | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signOut: () => Promise<void>;
-  updateProfile: (data: Partial<Profile>) => Promise<{ error: Error | null }>;
-  refreshProfile: () => Promise<void>;
-}
+  const tokenHash = searchParams.get('token_hash');
+  const type = searchParams.get('type');
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+  if (!tokenHash || type !== 'recovery') {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-md">
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Invalid Link</h2>
+            <p className="text-gray-600 mb-4">Invalid or missing reset link. Please request a new password reset.</p>
+            <Button onClick={() => window.location.href = '/'}>Return Home</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (error) {
-      console.error('Error fetching profile:', error);
-      return null;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
     }
-    return data as Profile;
-  };
 
-  const refreshProfile = async () => {
-    if (user) {
-      const profileData = await fetchProfile(user.id);
-      setProfile(profileData);
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
     }
-  };
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id).then(setProfile);
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Step 1: Verify token
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: 'recovery',
+      });
+
+      if (verifyError) {
+        setError('This reset link has expired or is invalid. Please request a new one.');
+        setLoading(false);
+        return;
       }
-      setLoading(false);
-    });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        const profileData = await fetchProfile(session.user.id);
-        setProfile(profileData);
-      } else {
-        setProfile(null);
+      // Step 2: Update password
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+
+      if (updateError) {
+        setError(updateError.message);
+        setLoading(false);
+        return;
       }
+
+      // Step 3: Success
+      setSuccess(true);
+      
+      // Sign out and redirect using window.location (not React Router)
+      await supabase.auth.signOut();
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2000);
+
+    } catch (err) {
+      setError('An error occurred. Please try again.');
       setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const signUp = async (email: string, password: string, profileData: Partial<Profile>) => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) return { error };
-
-    if (data.user) {
-      const role = profileData.organization_type === 'Marina / Port' ? 'marina_pending' : 'user';
-      const { error: profileError } = await supabase.from('profiles').insert({
-        user_id: data.user.id,
-        email,
-        first_name: profileData.first_name || '',
-        last_name: profileData.last_name || '',
-        job_title: profileData.job_title || null,
-        organization_type: profileData.organization_type || 'Other',
-        organization_name: profileData.organization_name || '',
-        country: profileData.country || '',
-        website: profileData.website || null,
-        capacity: profileData.capacity || null,
-        role,
-      } as any);
-      if (profileError) return { error: profileError };
     }
-    return { error: null };
   };
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
-  };
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-    setSession(null);
-  };
-
-  const updateProfile = async (data: Partial<Profile>) => {
-    if (!user) return { error: new Error('No user logged in') };
-    const { error } = await supabase.from('profiles').update(data as any).eq('user_id', user.id);
-    if (!error) await refreshProfile();
-    return { error };
-  };
+  if (success) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-md">
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Password Updated!</h2>
+            <p className="text-gray-600">Redirecting to homepage...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <AuthContext.Provider value={{ user, profile, session, loading, signUp, signIn, signOut, updateProfile, refreshProfile }}>
-      {children}
-    </AuthContext.Provider>
+    <div className="container mx-auto px-4 py-16 max-w-md">
+      <Card>
+        <CardHeader>
+          <CardTitle>Reset Your Password</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="password">New Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter new password"
+                required
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Confirm new password"
+                required
+                disabled={loading}
+              />
+            </div>
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Updating...
+                </>
+              ) : (
+                'Update Password'
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
-  return context;
 }

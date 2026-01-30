@@ -9,6 +9,7 @@ import { BecomePartnerPage } from '@/pages/BecomePartnerPage';
 import { AccountPage } from '@/pages/AccountPage';
 import { SubmitProjectPage } from '@/pages/SubmitProjectPage';
 import { AdminPage } from '@/pages/AdminPage';
+import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Route path="/account" element={<AccountPage />} />
           <Route path="/submit-project" element={<SubmitProjectPage />} />
           <Route path="/admin/*" element={<AdminPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
         </Routes>
       </main>
       <Footer />
@@ -32,3 +34,14 @@ function App() {
 }
 
 export default App;
+```
+
+**3. Dans Supabase Dashboard (Authentication → URL Configuration) :**
+
+Ajoute `https://connect.m3monaco.com/reset-password` dans **Redirect URLs**.
+
+**4. Modifie le template email (Authentication → Email Templates → Reset Password) :**
+
+Change le lien pour :
+```
+<a href="{{ .SiteURL }}/reset-password">Reset Password</a>

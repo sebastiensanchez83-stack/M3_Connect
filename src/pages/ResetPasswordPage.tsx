@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,13 +18,14 @@ export function ResetPasswordPage() {
   const [verified, setVerified] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasVerified = useRef(false);
 
   useEffect(() => {
+    // Prevent double execution in StrictMode
+    if (hasVerified.current) return;
+    
     const tokenHash = searchParams.get('token_hash');
     const type = searchParams.get('type');
-
-    console.log('Token hash:', tokenHash);
-    console.log('Type:', type);
 
     if (!tokenHash || type !== 'recovery') {
       setError('Invalid or missing reset link. Please request a new password reset.');
@@ -32,29 +33,23 @@ export function ResetPasswordPage() {
       return;
     }
 
+    hasVerified.current = true;
+
     const verifyToken = async () => {
       try {
-        console.log('Calling verifyOtp...');
-        
         const { data, error: verifyError } = await supabase.auth.verifyOtp({
           token_hash: tokenHash,
           type: 'recovery',
         });
 
-        console.log('verifyOtp response:', { data, verifyError });
-
         if (verifyError) {
-          console.error('Verify error:', verifyError);
           setError('This reset link has expired or is invalid. Please request a new one.');
         } else if (data?.session) {
-          console.log('Session established');
           setVerified(true);
         } else {
-          console.log('No session in response');
           setError('Could not verify reset link. Please request a new one.');
         }
       } catch (err) {
-        console.error('Catch error:', err);
         setError('An error occurred. Please try again.');
       } finally {
         setVerifying(false);
@@ -104,7 +99,6 @@ export function ResetPasswordPage() {
           <CardContent className="pt-6 text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
             <p className="text-gray-600">Verifying reset link...</p>
-            <p className="text-xs text-gray-400 mt-2">Token: {searchParams.get('token_hash')?.slice(0, 10)}...</p>
           </CardContent>
         </Card>
       </div>

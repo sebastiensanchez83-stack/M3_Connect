@@ -18,7 +18,6 @@ interface Profile {
   country: string;
   website: string | null;
   capacity: string | null;
-  // New partnership fields
   partnership_tier: 'Main Sponsor' | 'Premium Sponsor' | 'Partner' | 'Associate Partner' | 'Innovation Partner' | 'Media Partner' | null;
   partnership_starts_at: string | null;
   partnership_expires_at: string | null;
@@ -26,7 +25,6 @@ interface Profile {
   company_logo: string | null;
   company_description: string | null;
   is_public: boolean;
-  // New validation system
   status: 'pending' | 'verified' | 'rejected';
   role: 'user' | 'marina' | 'partner' | 'admin';
   created_at: string;
@@ -55,8 +53,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = async (userId: string): Promise<Profile | null> => {
     try {
+      console.log('Fetching profile for:', userId);
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -67,8 +66,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Error fetching profile:', error);
         return null;
       }
+      console.log('Profile fetched:', data);
       return data as Profile;
-    } catch {
+    } catch (err) {
+      console.error('Exception fetching profile:', err);
       return null;
     }
   };
@@ -81,21 +82,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
+    console.log('AuthProvider useEffect running, pathname:', window.location.pathname);
+    
     if (isResetPasswordPage()) {
+      console.log('On reset password page, skipping auth');
       setLoading(false);
       return;
     }
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id).then(setProfile);
+    const initAuth = async () => {
+      try {
+        console.log('Getting session...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          setLoading(false);
+          return;
+        }
+
+        console.log('Session:', session ? 'exists' : 'null');
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          const profileData = await fetchProfile(session.user.id);
+          setProfile(profileData);
+        }
+        
+        console.log('Setting loading to false');
+        setLoading(false);
+      } catch (err) {
+        console.error('Exception in initAuth:', err);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    };
+
+    initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event);
+      
       if (isResetPasswordPage()) {
         return;
       }
@@ -109,7 +136,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setProfile(null);
       }
-      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -120,7 +146,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) return { error };
 
     if (data.user) {
-      // Determine role based on organization type
       const role = profileData.organization_type === 'Marina / Port' ? 'marina' : 'user';
       
       const { error: profileError } = await supabase.from('profiles').insert({
@@ -135,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         website: profileData.website || null,
         capacity: profileData.capacity || null,
         role,
-        status: 'pending', // All new users need admin approval
+        status: 'pending',
         is_public: false,
         solution_categories: [],
       });
@@ -150,19 +175,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
+    console.log('SignOut called');
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('SignOut error:', error);
-      }
-      setUser(null);
-      setProfile(null);
-      setSession(null);
-      window.location.href = '/';
+      await supabase.auth.signOut();
+      console.log('Supabase signOut completed');
     } catch (err) {
-      console.error('SignOut exception:', err);
-      window.location.href = '/';
+      console.error('SignOut error:', err);
     }
+    setUser(null);
+    setProfile(null);
+    setSession(null);
+    window.location.href = '/';
   };
 
   const updateProfile = async (data: Partial<Profile>) => {
@@ -171,6 +194,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!error) await refreshProfile();
     return { error };
   };
+
+  console.log('AuthProvider render - loading:', loading, 'user:', !!user, 'profile:', !!profile);
 
   return (
     <AuthContext.Provider value={{ user, profile, session, loading, signUp, signIn, signOut, updateProfile, refreshProfile }}>

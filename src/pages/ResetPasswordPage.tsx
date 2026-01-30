@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,49 +14,27 @@ export function ResetPasswordPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [verifying, setVerifying] = useState(true);
-  const [verified, setVerified] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasVerified = useRef(false);
 
-  useEffect(() => {
-    if (hasVerified.current) return;
-    
-    const tokenHash = searchParams.get('token_hash');
-    const type = searchParams.get('type');
+  const tokenHash = searchParams.get('token_hash');
+  const type = searchParams.get('type');
 
-    if (!tokenHash || type !== 'recovery') {
-      setError('Invalid or missing reset link. Please request a new password reset.');
-      setVerifying(false);
-      return;
-    }
-
-    hasVerified.current = true;
-
-    const verifyToken = async () => {
-      try {
-        const { data, error: verifyError } = await supabase.auth.verifyOtp({
-          token_hash: tokenHash,
-          type: 'recovery',
-        });
-
-        if (verifyError) {
-          setError('This reset link has expired or is invalid. Please request a new one.');
-        } else if (data?.session) {
-          setVerified(true);
-        } else {
-          setError('Could not verify reset link. Please request a new one.');
-        }
-      } catch (err) {
-        setError('An error occurred. Please try again.');
-      } finally {
-        setVerifying(false);
-      }
-    };
-
-    verifyToken();
-  }, [searchParams]);
+  // Show error immediately if no token
+  if (!tokenHash || type !== 'recovery') {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-md">
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Invalid Link</h2>
+            <p className="text-gray-600 mb-4">Invalid or missing reset link. Please request a new password reset.</p>
+            <Button onClick={() => navigate('/')}>Return Home</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,52 +50,40 @@ export function ResetPasswordPage() {
     }
 
     setLoading(true);
+    setError(null);
 
     try {
-      const { error } = await supabase.auth.updateUser({ password });
+      // Step 1: Verify the token and establish session
+      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: 'recovery',
+      });
 
-      if (error) {
-        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      if (verifyError || !data.session) {
+        setError('This reset link has expired or is invalid. Please request a new one.');
         setLoading(false);
-      } else {
-        setSuccess(true);
-        toast({ title: 'Success', description: 'Password updated successfully' });
-        await supabase.auth.signOut();
-        setTimeout(() => navigate('/'), 2000);
+        return;
       }
+
+      // Step 2: Update the password
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+
+      if (updateError) {
+        setError(updateError.message);
+        setLoading(false);
+        return;
+      }
+
+      // Step 3: Success - sign out and redirect
+      setSuccess(true);
+      await supabase.auth.signOut();
+      setTimeout(() => navigate('/'), 2000);
+
     } catch (err) {
-      toast({ title: 'Error', description: 'An error occurred.', variant: 'destructive' });
+      setError('An error occurred. Please try again.');
       setLoading(false);
     }
   };
-
-  if (verifying) {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-md">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-            <p className="text-gray-600">Verifying reset link...</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-md">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Link Invalid</h2>
-            <p className="text-gray-600 mb-4">{error}</p>
-            <Button onClick={() => navigate('/')}>Return Home</Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   if (success) {
     return (
@@ -133,21 +99,6 @@ export function ResetPasswordPage() {
     );
   }
 
-  if (!verified) {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-md">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Session Error</h2>
-            <p className="text-gray-600 mb-4">Could not establish session.</p>
-            <Button onClick={() => navigate('/')}>Return Home</Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
   return (
     <div className="container mx-auto px-4 py-16 max-w-md">
       <Card>
@@ -155,6 +106,11 @@ export function ResetPasswordPage() {
           <CardTitle>Reset Your Password</CardTitle>
         </CardHeader>
         <CardContent>
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-700 text-sm">{error}</p>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="password">New Password</Label>
@@ -165,6 +121,7 @@ export function ResetPasswordPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter new password"
                 required
+                disabled={loading}
               />
             </div>
             <div className="space-y-2">
@@ -176,11 +133,18 @@ export function ResetPasswordPage() {
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm new password"
                 required
+                disabled={loading}
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Update Password
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Updating...
+                </>
+              ) : (
+                'Update Password'
+              )}
             </Button>
           </form>
         </CardContent>

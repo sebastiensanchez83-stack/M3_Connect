@@ -150,10 +150,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null);
-    setProfile(null);
-    setSession(null);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('SignOut error:', error);
+      }
+      setUser(null);
+      setProfile(null);
+      setSession(null);
+      window.location.href = '/';
+    } catch (err) {
+      console.error('SignOut exception:', err);
+      window.location.href = '/';
+    }
   };
 
   const updateProfile = async (data: Partial<Profile>) => {

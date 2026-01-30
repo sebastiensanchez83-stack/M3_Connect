@@ -56,7 +56,7 @@ export function EventsPage() {
     if (level === 'public') return true;
     if (!user) return false;
     if (level === 'members') return true;
-    if (level === 'marina') return profile?.role === 'marina_verified' || profile?.role === 'admin';
+profile?.role === 'marina' && profile?.status === 'verified'
     return false;
   };
 

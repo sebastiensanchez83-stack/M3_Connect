@@ -36,7 +36,7 @@ export function SubmitProjectPage() {
     }
   }, [user, authLoading, navigate]);
 
-  const isVerifiedMarina = profile?.role === 'marina' && profile?.status === 'verified'
+  const isVerifiedMarina = profile?.role === 'marina' && profile?.status === 'verified';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

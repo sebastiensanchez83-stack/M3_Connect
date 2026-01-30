@@ -21,7 +21,6 @@ export function ResetPasswordPage() {
   const hasVerified = useRef(false);
 
   useEffect(() => {
-    // Prevent double execution in StrictMode
     if (hasVerified.current) return;
     
     const tokenHash = searchParams.get('token_hash');
@@ -127,7 +126,7 @@ export function ResetPasswordPage() {
           <CardContent className="pt-6 text-center">
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Password Updated!</h2>
-            <p className="text-gray-600">Redirecting to login...</p>
+            <p className="text-gray-600">Redirecting to homepage...</p>
           </CardContent>
         </Card>
       </div>

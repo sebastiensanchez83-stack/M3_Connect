@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { HomePage } from '@/pages/HomePage';
@@ -15,24 +15,41 @@ import { supabase } from '@/lib/supabase';
 
 function App() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    // Listen for password recovery event
+    // Check URL hash immediately on load (before Supabase consumes it)
+    const hash = window.location.hash;
+    if (hash && hash.includes('type=recovery')) {
+      navigate('/reset-password');
+      setIsReady(true);
+      return;
+    }
+
+    // Check URL params (some Supabase configs use query params)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('type') === 'recovery') {
+      navigate('/reset-password');
+      setIsReady(true);
+      return;
+    }
+
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'PASSWORD_RECOVERY') {
         navigate('/reset-password');
       }
     });
 
-    // Check URL hash for recovery token on initial load
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const type = hashParams.get('type');
-    if (type === 'recovery') {
-      navigate('/reset-password');
-    }
+    setIsReady(true);
 
     return () => subscription.unsubscribe();
   }, [navigate]);
+
+  if (!isReady) {
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
+  }
 
   return (
     <div className="min-h-screen flex flex-col">

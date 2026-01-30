@@ -67,4 +67,180 @@ export function AccountPage() {
     } else {
       toast({ title: t('account.saveSuccess') });
     }
-    setLoad
+    setLoading(false);
+  };
+
+  const updateField = (field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Updated: check organization_type for marina features
+  const isMarina = profile?.organization_type === 'Marina / Port';
+  
+  // Updated: check status for pending verification
+  const isPending = profile?.status === 'pending';
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'new': return <Badge variant="warning">New</Badge>;
+      case 'in_progress': return <Badge variant="info">In Progress</Badge>;
+      case 'completed': return <Badge variant="success">Completed</Badge>;
+      case 'upcoming': return <Badge variant="info">Upcoming</Badge>;
+      case 'past': return <Badge variant="secondary">Past</Badge>;
+      default: return <Badge>{status}</Badge>;
+    }
+  };
+
+  if (authLoading) {
+    return <div className="container mx-auto px-4 py-8 text-center">{t('common.loading')}</div>;
+  }
+
+  if (!user) return null;
+
+  return (
+    <div className="container mx-auto px-4 py-8 max-w-4xl">
+      <h1 className="text-3xl font-bold text-primary mb-8">{t('account.title')}</h1>
+
+      {isPending && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 flex items-center gap-3">
+          <AlertCircle className="h-5 w-5 text-yellow-600" />
+          <p className="text-yellow-800">{t('account.pendingVerification')}</p>
+        </div>
+      )}
+
+      <Tabs defaultValue={defaultTab}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="profile">{t('account.profile')}</TabsTrigger>
+          <TabsTrigger value="registrations">{t('account.registrations')}</TabsTrigger>
+          {isMarina && <TabsTrigger value="projects">{t('account.projects')}</TabsTrigger>}
+        </TabsList>
+
+        <TabsContent value="profile">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('account.profile')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t('auth.firstName')}</Label>
+                    <Input value={formData.first_name} onChange={e => updateField('first_name', e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('auth.lastName')}</Label>
+                    <Input value={formData.last_name} onChange={e => updateField('last_name', e.target.value)} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('auth.email')}</Label>
+                  <Input value={profile?.email || ''} disabled className="bg-gray-50" />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('auth.jobTitle')}</Label>
+                  <Input value={formData.job_title} onChange={e => updateField('job_title', e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('auth.organizationType')}</Label>
+                  <Input value={profile?.organization_type || ''} disabled className="bg-gray-50" />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('auth.organizationName')}</Label>
+                  <Input value={formData.organization_name} onChange={e => updateField('organization_name', e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>{t('auth.country')}</Label>
+                  <Select value={formData.country} onValueChange={v => updateField('country', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {isMarina && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>{t('auth.website')}</Label>
+                      <Input value={formData.website} onChange={e => updateField('website', e.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t('auth.capacity')}</Label>
+                      <Input value={formData.capacity} onChange={e => updateField('capacity', e.target.value)} />
+                    </div>
+                  </>
+                )}
+                <Button type="submit" disabled={loading}>
+                  {loading ? t('common.loading') : t('account.save')}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="registrations">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('account.registrations')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {mockRegistrations.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">{t('account.noRegistrations')}</p>
+              ) : (
+                <div className="space-y-4">
+                  {mockRegistrations.map(reg => (
+                    <div key={reg.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <Calendar className="h-5 w-5 text-gray-400" />
+                        <div>
+                          <div className="font-medium">{reg.event_title}</div>
+                          <div className="text-sm text-gray-500">
+                            {new Date(reg.event_date).toLocaleDateString(i18n.language === 'fr' ? 'fr-FR' : 'en-US', {
+                              year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                      {getStatusBadge(reg.status)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {isMarina && (
+          <TabsContent value="projects">
+            <Card>
+              <CardHeader>
+                <CardTitle>{t('account.projects')}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {mockProjects.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">{t('account.noProjects')}</p>
+                ) : (
+                  <div className="space-y-4">
+                    {mockProjects.map(project => (
+                      <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center gap-4">
+                          <FileText className="h-5 w-5 text-gray-400" />
+                          <div>
+                            <div className="font-medium">{t(`submitProject.projectTypes.${project.project_type}`)}</div>
+                            <div className="text-sm text-gray-500">
+                              {t(`submitProject.budgets.${project.budget_range}`)} • {t(`submitProject.timelines.${project.timeline}`)}
+                            </div>
+                          </div>
+                        </div>
+                        {getStatusBadge(project.status)}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+      </Tabs>
+    </div>
+  );
+}

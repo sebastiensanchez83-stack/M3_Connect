@@ -37,9 +37,7 @@ export function Navbar() {
 
   const handleLogout = async () => {
     await signOut();
-    toast({
-      title: t('auth.logoutSuccess'),
-    });
+    toast({ title: t('auth.logoutSuccess') });
     navigate('/');
   };
 
@@ -50,6 +48,12 @@ export function Navbar() {
     { href: '/partners', label: t('nav.partners') },
     { href: '/become-partner', label: t('nav.becomePartner') },
   ];
+
+  // Check if user can submit projects (verified marina)
+  const canSubmitProject = profile?.role === 'marina' && profile?.status === 'verified';
+  
+  // Check if user is admin
+  const isAdmin = profile?.role === 'admin';
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
@@ -104,12 +108,12 @@ export function Navbar() {
                   <DropdownMenuItem asChild>
                     <Link to="/account?tab=registrations">{t('nav.myRegistrations')}</Link>
                   </DropdownMenuItem>
-                  {profile?.role === 'marina_verified' && (
+                  {canSubmitProject && (
                     <DropdownMenuItem asChild>
                       <Link to="/submit-project">{t('nav.submitProject')}</Link>
                     </DropdownMenuItem>
                   )}
-                  {profile?.role === 'admin' && (
+                  {isAdmin && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem asChild>
@@ -141,11 +145,7 @@ export function Navbar() {
               className="md:hidden"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
-              {mobileMenuOpen ? (
-                <X className="h-6 w-6" />
-              ) : (
-                <Menu className="h-6 w-6" />
-              )}
+              {mobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </Button>
           </div>
         </div>
@@ -165,12 +165,7 @@ export function Navbar() {
                 </Link>
               ))}
               <div className="pt-4 border-t flex flex-col space-y-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={toggleLanguage}
-                  className="justify-start"
-                >
+                <Button variant="ghost" size="sm" onClick={toggleLanguage} className="justify-start">
                   <Globe className="h-4 w-4 mr-2" />
                   {i18n.language === 'en' ? 'Français' : 'English'}
                 </Button>
@@ -197,13 +192,7 @@ export function Navbar() {
             <DialogTitle>{t('auth.login')}</DialogTitle>
             <DialogDescription>
               {t('auth.noAccount')}{' '}
-              <button
-                className="text-primary hover:underline"
-                onClick={() => {
-                  setLoginOpen(false);
-                  setSignupOpen(true);
-                }}
-              >
+              <button className="text-primary hover:underline" onClick={() => { setLoginOpen(false); setSignupOpen(true); }}>
                 {t('auth.signup')}
               </button>
             </DialogDescription>
@@ -219,13 +208,7 @@ export function Navbar() {
             <DialogTitle>{t('auth.signup')}</DialogTitle>
             <DialogDescription>
               {t('auth.haveAccount')}{' '}
-              <button
-                className="text-primary hover:underline"
-                onClick={() => {
-                  setSignupOpen(false);
-                  setLoginOpen(true);
-                }}
-              >
+              <button className="text-primary hover:underline" onClick={() => { setSignupOpen(false); setLoginOpen(true); }}>
                 {t('auth.login')}
               </button>
             </DialogDescription>

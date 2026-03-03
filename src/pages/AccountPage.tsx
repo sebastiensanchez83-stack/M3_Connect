@@ -51,7 +51,7 @@ export function AccountPage() {
         .select('id, event_id, created_at, events(title, date_time)')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
-      if (regs) setRegistrations(regs as EventRegistration[]);
+      if (regs) setRegistrations(regs as unknown as EventRegistration[]);
 
       if (profile?.persona === 'marina') {
         const { data: proj } = await supabase

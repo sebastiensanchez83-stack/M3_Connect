@@ -12,8 +12,8 @@ import { MarinaProfile, PartnerProfile, MediaPartnerProfile } from '@/types/data
 interface EventRegistration {
   id: string;
   event_id: string;
-  registered_at: string;
-  events: { title: string; event_date: string } | null;
+  created_at: string;
+  events: { title: string; date_time: string } | null;
 }
 
 interface MarinaProject {
@@ -48,9 +48,9 @@ export function AccountPage() {
     const fetchData = async () => {
       const { data: regs } = await supabase
         .from('event_registrations')
-        .select('id, event_id, registered_at, events(title, event_date)')
+        .select('id, event_id, created_at, events(title, date_time)')
         .eq('user_id', user.id)
-        .order('registered_at', { ascending: false });
+        .order('created_at', { ascending: false });
       if (regs) setRegistrations(regs as EventRegistration[]);
 
       if (profile?.persona === 'marina') {
@@ -290,9 +290,9 @@ export function AccountPage() {
                       <Calendar className="h-5 w-5 text-gray-400 shrink-0" />
                       <div>
                         <div className="font-medium">{reg.events?.title ?? '—'}</div>
-                        {reg.events?.event_date && (
+                        {reg.events?.date_time && (
                           <div className="text-sm text-gray-500">
-                            {new Date(reg.events.event_date).toLocaleDateString('fr-FR', {
+                            {new Date(reg.events.date_time).toLocaleDateString('fr-FR', {
                               year: 'numeric', month: 'long', day: 'numeric',
                             })}
                           </div>

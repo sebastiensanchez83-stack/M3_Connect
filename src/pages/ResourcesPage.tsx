@@ -26,7 +26,7 @@ const mockResources = [
 
 export function ResourcesPage() {
   const { t } = useTranslation();
-  const { user, profile } = useAuth();
+  const { user, profile, isVerified } = useAuth();
   const [search, setSearch] = useState('');
   const [typeFilters, setTypeFilters] = useState<string[]>([]);
   const [languageFilter, setLanguageFilter] = useState('all');
@@ -47,7 +47,7 @@ export function ResourcesPage() {
     if (level === 'public') return true;
     if (!user) return false;
     if (level === 'members') return true;
-    if (level === 'marina') return profile?.role === 'marina' && profile?.status === 'verified';
+    if (level === 'marina') return profile?.persona === 'marina' && isVerified;
     return false;
   };
 

@@ -14,12 +14,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { Lock, Anchor } from 'lucide-react';
 
 export function SubmitProjectPage() {
   const { t } = useTranslation();
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, profile, isVerified, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -36,7 +37,7 @@ export function SubmitProjectPage() {
     }
   }, [user, authLoading, navigate]);
 
-  const isVerifiedMarina = profile?.role === 'marina' && profile?.status === 'verified';
+  const isVerifiedMarina = profile?.persona === 'marina' && isVerified;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,12 +45,23 @@ export function SubmitProjectPage() {
       toast({ title: 'Please accept the consent checkbox', variant: 'destructive' });
       return;
     }
+    if (!user) return;
     setLoading(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    toast({ title: t('submitProject.success') });
-    setFormData({ project_type: '', budget_range: '', timeline: '', description: '' });
-    setConsent(false);
+    const { error } = await supabase.from('marina_projects').insert({
+      user_id: user.id,
+      project_type: formData.project_type,
+      budget_range: formData.budget_range,
+      timeline: formData.timeline,
+      description: formData.description,
+      status: 'new',
+    });
+    if (error) {
+      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: t('submitProject.success') });
+      setFormData({ project_type: '', budget_range: '', timeline: '', description: '' });
+      setConsent(false);
+    }
     setLoading(false);
   };
 

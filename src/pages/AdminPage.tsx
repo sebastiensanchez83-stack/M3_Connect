@@ -16,20 +16,12 @@ import { toast } from '@/hooks/use-toast';
 import { LayoutDashboard, Users, FileText, Calendar, Anchor, Building, Download, ChevronRight, UserCheck, Plus, Pencil, Trash2, Eye, RefreshCw, Search } from 'lucide-react';
 
 // Types
-interface Profile { 
-  id: string; 
-  user_id: string; 
-  first_name: string; 
-  last_name: string; 
-  email: string; 
-  organization_name: string; 
-  organization_type: string; 
-  country: string; 
-  role: string; 
-  status: string;
-  partnership_tier: string | null;
-  is_public: boolean;
-  created_at: string; 
+interface AdminProfile {
+  user_id: string;
+  persona: string;
+  access_status: string;
+  onboarding_status: string;
+  created_at: string;
 }
 interface Resource { id: string; title: string; summary: string; content: string | null; type: string; topic: string; language: string; access_level: string; thumbnail_url: string | null; file_url: string | null; published: boolean; created_at: string; }
 interface Event { id: string; title: string; description: string; date_time: string; location: string | null; language: string; access_level: string; speakers: any[]; replay_url: string | null; created_at: string; }
@@ -76,13 +68,13 @@ function Dashboard() {
     try {
       const [{ count: totalUsers }, { count: pendingUsers }, { count: verifiedUsers }, { count: totalResources }, { count: totalEvents }, { count: newProjects }, { count: newLeads }, { data: projects }, { data: leads }] = await Promise.all([
         supabase.from('profiles').select('*', { count: 'exact', head: true }),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('status', 'verified'),
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'pending'),
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'verified'),
         supabase.from('resources').select('*', { count: 'exact', head: true }),
         supabase.from('events').select('*', { count: 'exact', head: true }),
         supabase.from('marina_projects').select('*', { count: 'exact', head: true }).eq('status', 'new'),
         supabase.from('partner_leads').select('*', { count: 'exact', head: true }).eq('status', 'new'),
-        supabase.from('marina_projects').select('*, profiles(first_name, last_name, organization_name)').order('created_at', { ascending: false }).limit(5),
+        supabase.from('marina_projects').select('*, profiles(user_id, persona)').order('created_at', { ascending: false }).limit(5),
         supabase.from('partner_leads').select('*').order('created_at', { ascending: false }).limit(5),
       ]);
       setStats({ totalUsers: totalUsers || 0, pendingUsers: pendingUsers || 0, verifiedUsers: verifiedUsers || 0, totalResources: totalResources || 0, totalEvents: totalEvents || 0, newProjects: newProjects || 0, newLeads: newLeads || 0 });
@@ -111,7 +103,7 @@ function Dashboard() {
         {statCards.map((stat, i) => (<Card key={i}><CardContent className="pt-4 pb-4"><div className="flex flex-col items-center text-center"><stat.icon className={`h-6 w-6 mb-2 ${stat.color}`} /><div className="text-2xl font-bold">{stat.value}</div><div className="text-xs text-gray-500">{stat.label}</div></div></CardContent></Card>))}
       </div>
       <div className="grid md:grid-cols-2 gap-6">
-        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-lg">Recent Marina Projects</CardTitle><Link to="/admin/projects" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link></CardHeader><CardContent>{recentProjects.length === 0 ? <p className="text-gray-500 text-center py-4">No projects yet</p> : <div className="space-y-3">{recentProjects.map(project => (<div key={project.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div><div className="font-medium">{project.profiles?.organization_name || 'Unknown'}</div><div className="text-sm text-gray-500">{project.project_type} • {project.budget_range}</div></div><Badge variant={project.status === 'new' ? 'warning' : project.status === 'in_progress' ? 'info' : 'success'}>{project.status}</Badge></div>))}</div>}</CardContent></Card>
+        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-lg">Recent Marina Projects</CardTitle><Link to="/admin/projects" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link></CardHeader><CardContent>{recentProjects.length === 0 ? <p className="text-gray-500 text-center py-4">No projects yet</p> : <div className="space-y-3">{recentProjects.map(project => (<div key={project.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div><div className="font-medium">{project.profiles?.user_id || 'Unknown'}</div><div className="text-sm text-gray-500">{project.project_type} • {project.budget_range}</div></div><Badge variant={project.status === 'new' ? 'warning' : project.status === 'in_progress' ? 'info' : 'success'}>{project.status}</Badge></div>))}</div>}</CardContent></Card>
         <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-lg">Recent Partner Leads</CardTitle><Link to="/admin/leads" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link></CardHeader><CardContent>{recentLeads.length === 0 ? <p className="text-gray-500 text-center py-4">No leads yet</p> : <div className="space-y-3">{recentLeads.map(lead => (<div key={lead.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div><div className="font-medium">{lead.company}</div><div className="text-sm text-gray-500">{lead.first_name} {lead.last_name} • {lead.actor_type}</div></div><Badge variant={lead.status === 'new' ? 'warning' : lead.status === 'qualified' ? 'success' : 'info'}>{lead.status}</Badge></div>))}</div>}</CardContent></Card>
       </div>
     </div>
@@ -120,56 +112,38 @@ function Dashboard() {
 
 function UsersAdmin() {
   const { t } = useTranslation();
-  const [users, setUsers] = useState<Profile[]>([]);
+  const [users, setUsers] = useState<AdminProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [personaFilter, setPersonaFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => { loadUsers(); }, []);
 
   const loadUsers = async () => {
     setLoading(true);
-    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-    setUsers(data || []);
+    const { data } = await supabase.from('profiles').select('user_id, persona, access_status, onboarding_status, created_at').order('created_at', { ascending: false });
+    setUsers((data || []) as AdminProfile[]);
     setLoading(false);
   };
 
-  const updateUserRole = async (userId: string, newRole: string) => {
-    await supabase.from('profiles').update({ role: newRole }).eq('user_id', userId);
-    toast({ title: `User role updated to ${newRole}` });
-    loadUsers();
-  };
-
   const updateUserStatus = async (userId: string, newStatus: string) => {
-    await supabase.from('profiles').update({ status: newStatus }).eq('user_id', userId);
-    toast({ title: `User status updated to ${newStatus}` });
+    await supabase.from('profiles').update({ access_status: newStatus }).eq('user_id', userId);
+    toast({ title: `Statut mis à jour : ${newStatus}` });
     loadUsers();
   };
 
   const filteredUsers = users.filter(user => {
-    const matchesSearch = user.first_name?.toLowerCase().includes(search.toLowerCase()) || 
-      user.last_name?.toLowerCase().includes(search.toLowerCase()) || 
-      user.email?.toLowerCase().includes(search.toLowerCase()) || 
-      user.organization_name?.toLowerCase().includes(search.toLowerCase());
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
-    return matchesSearch && matchesRole && matchesStatus;
+    const matchesSearch = search === '' || user.user_id.toLowerCase().includes(search.toLowerCase()) || user.persona.includes(search.toLowerCase());
+    const matchesPersona = personaFilter === 'all' || user.persona === personaFilter;
+    const matchesStatus = statusFilter === 'all' || user.access_status === statusFilter;
+    return matchesSearch && matchesPersona && matchesStatus;
   });
 
   const exportCSV = () => {
     const csv = [
-      ['Name', 'Email', 'Organization', 'Type', 'Country', 'Role', 'Status', 'Created'].join(','),
-      ...filteredUsers.map(u => [
-        `${u.first_name} ${u.last_name}`,
-        u.email,
-        u.organization_name,
-        u.organization_type,
-        u.country,
-        u.role,
-        u.status,
-        new Date(u.created_at).toLocaleDateString()
-      ].join(','))
+      ['UserID', 'Persona', 'Access Status', 'Onboarding', 'Created'].join(','),
+      ...filteredUsers.map(u => [u.user_id, u.persona, u.access_status, u.onboarding_status, new Date(u.created_at).toLocaleDateString()].join(','))
     ].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -179,12 +153,13 @@ function UsersAdmin() {
     a.click();
   };
 
-  const getRoleBadge = (role: string) => {
-    switch (role) {
-      case 'admin': return <Badge variant="destructive">Admin</Badge>;
-      case 'partner': return <Badge variant="success">Partner</Badge>;
+  const getPersonaBadge = (persona: string) => {
+    switch (persona) {
+      case 'moderator': return <Badge variant="destructive">Modérateur</Badge>;
+      case 'partner': return <Badge variant="success">Partenaire</Badge>;
       case 'marina': return <Badge variant="info">Marina</Badge>;
-      default: return <Badge variant="secondary">User</Badge>;
+      case 'media_partner': return <Badge variant="secondary">Média</Badge>;
+      default: return <Badge variant="secondary">{persona}</Badge>;
     }
   };
 
@@ -198,33 +173,30 @@ function UsersAdmin() {
           <Download className="h-4 w-4 mr-2" />Export CSV
         </Button>
       </div>
-      
+
       <div className="flex gap-4 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input placeholder="Search by name, email, organization..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+          <Input placeholder="Rechercher par ID ou persona..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
+          <SelectTrigger className="w-40"><SelectValue placeholder="Statut" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="verified">Verified</SelectItem>
-            <SelectItem value="rejected">Rejected</SelectItem>
+            <SelectItem value="all">Tous les statuts</SelectItem>
+            <SelectItem value="pending">En attente</SelectItem>
+            <SelectItem value="verified">Vérifié</SelectItem>
+            <SelectItem value="rejected">Refusé</SelectItem>
+            <SelectItem value="suspended">Suspendu</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={roleFilter} onValueChange={setRoleFilter}>
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="Role" />
-          </SelectTrigger>
+        <Select value={personaFilter} onValueChange={setPersonaFilter}>
+          <SelectTrigger className="w-40"><SelectValue placeholder="Persona" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Roles</SelectItem>
-            <SelectItem value="user">Users</SelectItem>
-            <SelectItem value="marina">Marinas</SelectItem>
-            <SelectItem value="partner">Partners</SelectItem>
-            <SelectItem value="admin">Admins</SelectItem>
+            <SelectItem value="all">Tous</SelectItem>
+            <SelectItem value="marina">Marina</SelectItem>
+            <SelectItem value="partner">Partenaire</SelectItem>
+            <SelectItem value="media_partner">Média</SelectItem>
+            <SelectItem value="moderator">Modérateur</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -235,47 +207,31 @@ function UsersAdmin() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="text-left p-4 font-medium">Name</th>
-                  <th className="text-left p-4 font-medium">Email</th>
-                  <th className="text-left p-4 font-medium">Organization</th>
-                  <th className="text-left p-4 font-medium">Status</th>
-                  <th className="text-left p-4 font-medium">Role</th>
+                  <th className="text-left p-4 font-medium">User ID</th>
+                  <th className="text-left p-4 font-medium">Persona</th>
+                  <th className="text-left p-4 font-medium">Onboarding</th>
+                  <th className="text-left p-4 font-medium">Statut accès</th>
+                  <th className="text-left p-4 font-medium">Créé le</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredUsers.map(user => (
-                  <tr key={user.id} className="border-b hover:bg-gray-50">
-                    <td className="p-4">{user.first_name} {user.last_name}</td>
-                    <td className="p-4 text-gray-600">{user.email}</td>
+                  <tr key={user.user_id} className="border-b hover:bg-gray-50">
+                    <td className="p-4 text-xs text-gray-500 font-mono">{user.user_id}</td>
+                    <td className="p-4">{getPersonaBadge(user.persona)}</td>
+                    <td className="p-4 text-sm capitalize">{user.onboarding_status}</td>
                     <td className="p-4">
-                      <div>{user.organization_name}</div>
-                      <div className="text-xs text-gray-500">{user.organization_type}</div>
-                    </td>
-                    <td className="p-4">
-                      <Select value={user.status || 'pending'} onValueChange={(value) => updateUserStatus(user.user_id, value)}>
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
+                      <Select value={user.access_status} onValueChange={(value) => updateUserStatus(user.user_id, value)}>
+                        <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="verified">Verified</SelectItem>
-                          <SelectItem value="rejected">Rejected</SelectItem>
+                          <SelectItem value="pending">En attente</SelectItem>
+                          <SelectItem value="verified">Vérifié</SelectItem>
+                          <SelectItem value="rejected">Refusé</SelectItem>
+                          <SelectItem value="suspended">Suspendu</SelectItem>
                         </SelectContent>
                       </Select>
                     </td>
-                    <td className="p-4">
-                      <Select value={user.role} onValueChange={(value) => updateUserRole(user.user_id, value)}>
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="user">User</SelectItem>
-                          <SelectItem value="marina">Marina</SelectItem>
-                          <SelectItem value="partner">Partner</SelectItem>
-                          <SelectItem value="admin">Admin</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </td>
+                    <td className="p-4 text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString('fr-FR')}</td>
                   </tr>
                 ))}
               </tbody>
@@ -434,12 +390,12 @@ function ProjectsAdmin() {
   const [adminNotes, setAdminNotes] = useState('');
 
   useEffect(() => { loadProjects(); }, []);
-  const loadProjects = async () => { setLoading(true); const { data } = await supabase.from('marina_projects').select('*, profiles(first_name, last_name, email, organization_name)').order('created_at', { ascending: false }); setProjects(data || []); setLoading(false); };
+  const loadProjects = async () => { setLoading(true); const { data } = await supabase.from('marina_projects').select('*, profiles(user_id, persona)').order('created_at', { ascending: false }); setProjects(data || []); setLoading(false); };
 
   const updateStatus = async (id: string, status: string) => { await supabase.from('marina_projects').update({ status }).eq('id', id); toast({ title: `Status updated to ${status}` }); loadProjects(); };
   const saveNotes = async () => { if (!selectedProject) return; await supabase.from('marina_projects').update({ admin_notes: adminNotes }).eq('id', selectedProject.id); toast({ title: 'Notes saved' }); setSelectedProject(null); loadProjects(); };
 
-  const exportCSV = () => { const csv = [['Marina', 'Email', 'Type', 'Budget', 'Timeline', 'Status', 'Date'].join(','), ...projects.map(p => [p.profiles?.organization_name || '', p.profiles?.email || '', p.project_type, p.budget_range, p.timeline, p.status, new Date(p.created_at).toLocaleDateString()].join(','))].join('\n'); const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'marina-projects.csv'; a.click(); };
+  const exportCSV = () => { const csv = [['UserID', 'Persona', 'Type', 'Budget', 'Timeline', 'Status', 'Date'].join(','), ...projects.map(p => [p.profiles?.user_id || '', p.profiles?.persona || '', p.project_type, p.budget_range, p.timeline, p.status, new Date(p.created_at).toLocaleDateString()].join(','))].join('\n'); const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'marina-projects.csv'; a.click(); };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
@@ -447,9 +403,9 @@ function ProjectsAdmin() {
     <div>
       <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.marinaProjects')} ({projects.length})</h1><Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button></div>
       <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Budget</th><th className="text-left p-4 font-medium">Timeline</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {projects.map(project => (<tr key={project.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-medium">{project.profiles?.organization_name}</div><div className="text-sm text-gray-500">{project.profiles?.email}</div></td><td className="p-4">{project.project_type}</td><td className="p-4">{project.budget_range}</td><td className="p-4">{project.timeline}</td><td className="p-4"><Select value={project.status} onValueChange={v => updateStatus(project.id, v)}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(project.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelectedProject(project); setAdminNotes(project.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
+        {projects.map(project => (<tr key={project.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-medium font-mono text-xs">{project.profiles?.user_id}</div><div className="text-sm text-gray-500 capitalize">{project.profiles?.persona}</div></td><td className="p-4">{project.project_type}</td><td className="p-4">{project.budget_range}</td><td className="p-4">{project.timeline}</td><td className="p-4"><Select value={project.status} onValueChange={v => updateStatus(project.id, v)}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(project.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelectedProject(project); setAdminNotes(project.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
       </tbody></table></CardContent></Card>
-      <Dialog open={!!selectedProject} onOpenChange={() => setSelectedProject(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Project Details</DialogTitle></DialogHeader>{selectedProject && (<div className="space-y-4 mt-4"><div><strong>Marina:</strong> {selectedProject.profiles?.organization_name}</div><div><strong>Contact:</strong> {selectedProject.profiles?.first_name} {selectedProject.profiles?.last_name}</div><div><strong>Email:</strong> {selectedProject.profiles?.email}</div><div><strong>Type:</strong> {selectedProject.project_type}</div><div><strong>Budget:</strong> {selectedProject.budget_range}</div><div><strong>Timeline:</strong> {selectedProject.timeline}</div><div><strong>Description:</strong><p className="mt-1 p-2 bg-gray-50 rounded text-sm">{selectedProject.description}</p></div><div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
+      <Dialog open={!!selectedProject} onOpenChange={() => setSelectedProject(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Project Details</DialogTitle></DialogHeader>{selectedProject && (<div className="space-y-4 mt-4"><div><strong>User ID:</strong> <span className="font-mono text-xs">{selectedProject.profiles?.user_id}</span></div><div><strong>Persona:</strong> {selectedProject.profiles?.persona}</div><div><strong>Type:</strong> {selectedProject.project_type}</div><div><strong>Budget:</strong> {selectedProject.budget_range}</div><div><strong>Timeline:</strong> {selectedProject.timeline}</div><div><strong>Description:</strong><p className="mt-1 p-2 bg-gray-50 rounded text-sm">{selectedProject.description}</p></div><div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
     </div>
   );
 }
@@ -484,18 +440,18 @@ function LeadsAdmin() {
 
 export function AdminPage() {
   const { t } = useTranslation();
-  const { user, profile, loading } = useAuth();
+  const { user, loading, isModerator } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => { 
-    if (!loading && (!user || profile?.role !== 'admin')) { 
-      navigate('/'); 
-      toast({ title: 'Access denied. Admin only.', variant: 'destructive' }); 
-    } 
-  }, [user, profile, loading, navigate]);
+  useEffect(() => {
+    if (!loading && (!user || !isModerator)) {
+      navigate('/');
+      toast({ title: 'Access denied. Admin only.', variant: 'destructive' });
+    }
+  }, [user, isModerator, loading, navigate]);
 
   if (loading) return <div className="flex items-center justify-center h-screen"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
-  if (!user || profile?.role !== 'admin') return null;
+  if (!user || !isModerator) return null;
 
   return (
     <div className="flex">

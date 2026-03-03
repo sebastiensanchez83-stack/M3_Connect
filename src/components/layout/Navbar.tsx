@@ -38,7 +38,7 @@ export function Navbar() {
   const handleLogout = async () => {
     await signOut();
     toast({ title: t('auth.logoutSuccess') });
-    navigate('/');
+    navigate('/', { replace: true });
   };
 
   const navLinks = [

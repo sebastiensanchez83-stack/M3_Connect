@@ -13,8 +13,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle } from 'lucide-react';
-import { Sector } from '@/types/database';
+import { Loader2, CheckCircle, Anchor, Building2, Newspaper } from 'lucide-react';
+import { Sector, PersonaType } from '@/types/database';
 
 const countries = [
   'France', 'Monaco', 'Italie', 'Espagne', 'Grèce', 'Croatie', 'Portugal',
@@ -22,10 +22,32 @@ const countries = [
   'Émirats arabes unis', 'Autre',
 ];
 
+const personaCards = [
+  {
+    value: 'marina' as PersonaType,
+    icon: <Anchor className="h-8 w-8" />,
+    title: 'Marina / Port',
+    desc: 'Opérateurs et gestionnaires de marina, ports de plaisance',
+  },
+  {
+    value: 'partner' as PersonaType,
+    icon: <Building2 className="h-8 w-8" />,
+    title: 'Partenaire Industrie',
+    desc: 'Fournisseurs de services, équipements et solutions pour marinas',
+  },
+  {
+    value: 'media_partner' as PersonaType,
+    icon: <Newspaper className="h-8 w-8" />,
+    title: 'Média Partenaire',
+    desc: 'Journalistes et publications spécialisées dans le secteur maritime',
+  },
+];
+
 export function OnboardingPage() {
   const navigate = useNavigate();
   const { user, profile, refreshProfile, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [creatingProfile, setCreatingProfile] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
 
@@ -39,23 +61,67 @@ export function OnboardingPage() {
     media_name: '', website: '', audience_description: '',
   });
 
+  // Determine if the user needs to select a persona first
+  const needsPersonaSetup = !authLoading && !!user && !profile;
+
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/'); return; }
 
-    // Si déjà soumis ou complété → rediriger vers account
+    // If already submitted or completed → redirect to account
     if (profile?.onboarding_status === 'submitted' || profile?.onboarding_status === 'completed') {
       navigate('/account');
       return;
     }
 
-    supabase
-      .from('sectors')
-      .select('*')
-      .eq('is_active', true)
-      .order('label')
-      .then(({ data }) => { if (data) setSectors(data as Sector[]); });
+    // Fetch sectors for the form (only if profile exists)
+    if (profile) {
+      supabase
+        .from('sectors')
+        .select('*')
+        .eq('is_active', true)
+        .order('label')
+        .then(({ data }) => { if (data) setSectors(data as Sector[]); });
+    }
   }, [user, profile, authLoading, navigate]);
+
+  // Handle persona selection for users without a profile
+  const handlePersonaSelect = async (persona: PersonaType) => {
+    if (!user) return;
+    setCreatingProfile(true);
+
+    try {
+      // Create the profile row
+      const { error: profileError } = await supabase.from('profiles').insert({
+        user_id: user.id,
+        persona,
+        access_status: 'pending',
+        onboarding_status: 'draft',
+      });
+      if (profileError) throw profileError;
+
+      // Create the persona detail row
+      if (persona === 'marina') {
+        await supabase.from('marina_profiles').insert({ user_id: user.id, marina_name: '' });
+      } else if (persona === 'partner') {
+        await supabase.from('partner_profiles').insert({ user_id: user.id, company_name: '' });
+      } else if (persona === 'media_partner') {
+        await supabase.from('media_partner_profiles').insert({ user_id: user.id, media_name: '' });
+      }
+
+      // Refresh the profile in AuthContext so the form renders
+      await refreshProfile();
+      toast({ title: 'Type de profil sélectionné', description: 'Complétez maintenant vos informations.' });
+    } catch (error: unknown) {
+      toast({
+        title: 'Erreur',
+        description: error instanceof Error ? error.message : 'Impossible de créer le profil.',
+        variant: 'destructive',
+      });
+    } finally {
+      setCreatingProfile(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -142,7 +208,8 @@ export function OnboardingPage() {
     setSelectedSectors((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]);
   };
 
-  if (authLoading || !profile) {
+  // Loading state
+  if (authLoading) {
     return (
       <div className="container mx-auto py-16 text-center">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
@@ -150,6 +217,53 @@ export function OnboardingPage() {
     );
   }
 
+  // ── STEP 0: User has no profile → persona selection ──
+  if (needsPersonaSetup) {
+    return (
+      <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold text-primary mb-2">Bienvenue sur M3 Connect</h1>
+          <p className="text-gray-600">Sélectionnez votre type de profil pour commencer.</p>
+        </div>
+
+        <div className="space-y-4">
+          {personaCards.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              disabled={creatingProfile}
+              onClick={() => handlePersonaSelect(p.value)}
+              className="w-full flex items-center gap-5 p-6 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition-all text-left group disabled:opacity-50"
+            >
+              <div className="text-primary shrink-0">{p.icon}</div>
+              <div>
+                <div className="font-semibold text-lg text-gray-900 group-hover:text-primary">{p.title}</div>
+                <div className="text-sm text-gray-500">{p.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {creatingProfile && (
+          <div className="mt-6 text-center text-gray-500 flex items-center justify-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Création du profil...
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // If profile is null for some other reason, show loading
+  if (!profile) {
+    return (
+      <div className="container mx-auto py-16 text-center">
+        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+      </div>
+    );
+  }
+
+  // ── STEP 1: Profile exists → show the onboarding form ──
   const personaLabels = {
     marina: 'Marina / Port',
     partner: 'Partenaire',

@@ -36,33 +36,38 @@ export function AccountPage() {
   const defaultTab = searchParams.get('tab') || 'profile';
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      navigate('/');
-    }
-  }, [user, authLoading, navigate]);
+    if (authLoading) return;
+    if (!user) { navigate('/'); return; }
+    // User logged in but no profile → redirect to onboarding to set up persona
+    if (!profile) { navigate('/onboarding'); return; }
+  }, [user, profile, authLoading, navigate]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !profile) return;
     setDataLoading(true);
 
     const fetchData = async () => {
-      const { data: regs } = await supabase
-        .from('event_registrations')
-        .select('id, event_id, created_at, events(title, date_time)')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-      if (regs) setRegistrations(regs as unknown as EventRegistration[]);
-
-      if (profile?.persona === 'marina') {
-        const { data: proj } = await supabase
-          .from('marina_projects')
-          .select('id, project_type, budget_range, timeline, status, created_at')
+      try {
+        const { data: regs } = await supabase
+          .from('event_registrations')
+          .select('id, event_id, created_at, events(title, date_time)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
-        if (proj) setProjects(proj as MarinaProject[]);
-      }
+        if (regs) setRegistrations(regs as unknown as EventRegistration[]);
 
-      setDataLoading(false);
+        if (profile?.persona === 'marina') {
+          const { data: proj } = await supabase
+            .from('marina_projects')
+            .select('id, project_type, budget_range, timeline, status, created_at')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+          if (proj) setProjects(proj as MarinaProject[]);
+        }
+      } catch (err) {
+        console.error('Error fetching account data:', err);
+      } finally {
+        setDataLoading(false);
+      }
     };
 
     fetchData();

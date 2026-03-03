@@ -24,7 +24,7 @@ import { toast } from '@/hooks/use-toast';
 
 export function Navbar() {
   const { t, i18n } = useTranslation();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, isVerified, isModerator } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -49,11 +49,7 @@ export function Navbar() {
     { href: '/become-partner', label: t('nav.becomePartner') },
   ];
 
-  // Check if user can submit projects (verified marina)
-  const canSubmitProject = profile?.role === 'marina' && profile?.status === 'verified';
-  
-  // Check if user is admin
-  const isAdmin = profile?.role === 'admin';
+  const canSubmitProject = profile?.persona === 'marina' && isVerified;
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
@@ -97,7 +93,7 @@ export function Navbar() {
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="flex items-center space-x-2">
                     <User className="h-5 w-5" />
-                    <span className="hidden sm:inline">{profile?.first_name}</span>
+                    <span className="hidden sm:inline">{user?.email?.split('@')[0]}</span>
                     <ChevronDown className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -113,7 +109,7 @@ export function Navbar() {
                       <Link to="/submit-project">{t('nav.submitProject')}</Link>
                     </DropdownMenuItem>
                   )}
-                  {isAdmin && (
+                  {isModerator && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem asChild>

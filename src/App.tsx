@@ -7,6 +7,7 @@ import { EventsPage } from '@/pages/EventsPage';
 import { PartnersPage } from '@/pages/PartnersPage';
 import { BecomePartnerPage } from '@/pages/BecomePartnerPage';
 import { AccountPage } from '@/pages/AccountPage';
+import { OnboardingPage } from '@/pages/OnboardingPage';
 import { SubmitProjectPage } from '@/pages/SubmitProjectPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
@@ -23,6 +24,7 @@ function App() {
           <Route path="/partners" element={<PartnersPage />} />
           <Route path="/become-partner" element={<BecomePartnerPage />} />
           <Route path="/account" element={<AccountPage />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/submit-project" element={<SubmitProjectPage />} />
           <Route path="/admin/*" element={<AdminPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />

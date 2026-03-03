@@ -1,43 +1,37 @@
 import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
-import { toast } from '@/hooks/use-toast';
-import { AlertCircle, Calendar, FileText } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList } from 'lucide-react';
+import { MarinaProfile, PartnerProfile, MediaPartnerProfile } from '@/types/database';
 
-const countries = ['France', 'Monaco', 'Italy', 'Spain', 'Greece', 'Croatia', 'Portugal', 'United Kingdom', 'Germany', 'Netherlands', 'Belgium', 'United States', 'United Arab Emirates', 'Other'];
+interface EventRegistration {
+  id: string;
+  event_id: string;
+  registered_at: string;
+  events: { title: string; event_date: string } | null;
+}
 
-const mockRegistrations = [
-  { id: '1', event_title: 'Webinar: Energy Efficiency Solutions', event_date: '2025-02-15T14:00:00Z', status: 'upcoming' },
-  { id: '2', event_title: 'Marina Managers Roundtable', event_date: '2025-02-22T10:00:00Z', status: 'upcoming' },
-];
-
-const mockProjects = [
-  { id: '1', project_type: 'energy', budget_range: '50k_100k', timeline: '12_24_months', status: 'new', created_at: '2025-01-15' },
-];
+interface MarinaProject {
+  id: string;
+  project_type: string;
+  budget_range: string | null;
+  timeline: string | null;
+  status: string;
+  created_at: string;
+}
 
 export function AccountPage() {
-  const { t, i18n } = useTranslation();
-  const { user, profile, updateProfile, loading: authLoading } = useAuth();
+  const { user, profile, userDetails, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    first_name: '', last_name: '', job_title: '', organization_name: '', country: '', website: '', capacity: '',
-  });
+  const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
+  const [projects, setProjects] = useState<MarinaProject[]>([]);
+  const [dataLoading, setDataLoading] = useState(false);
 
   const defaultTab = searchParams.get('tab') || 'profile';
 
@@ -45,162 +39,265 @@ export function AccountPage() {
     if (!authLoading && !user) {
       navigate('/');
     }
-    if (profile) {
-      setFormData({
-        first_name: profile.first_name || '',
-        last_name: profile.last_name || '',
-        job_title: profile.job_title || '',
-        organization_name: profile.organization_name || '',
-        country: profile.country || '',
-        website: profile.website || '',
-        capacity: profile.capacity || '',
-      });
-    }
-  }, [user, profile, authLoading, navigate]);
+  }, [user, authLoading, navigate]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    const { error } = await updateProfile(formData);
-    if (error) {
-      toast({ title: t('common.error'), description: error.message, variant: 'destructive' });
-    } else {
-      toast({ title: t('account.saveSuccess') });
+  useEffect(() => {
+    if (!user) return;
+    setDataLoading(true);
+
+    const fetchData = async () => {
+      const { data: regs } = await supabase
+        .from('event_registrations')
+        .select('id, event_id, registered_at, events(title, event_date)')
+        .eq('user_id', user.id)
+        .order('registered_at', { ascending: false });
+      if (regs) setRegistrations(regs as EventRegistration[]);
+
+      if (profile?.persona === 'marina') {
+        const { data: proj } = await supabase
+          .from('marina_projects')
+          .select('id, project_type, budget_range, timeline, status, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+        if (proj) setProjects(proj as MarinaProject[]);
+      }
+
+      setDataLoading(false);
+    };
+
+    fetchData();
+  }, [user, profile]);
+
+  const getAccessBadge = () => {
+    if (!profile) return null;
+    switch (profile.access_status) {
+      case 'verified':
+        return <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3 mr-1" />Vérifié</Badge>;
+      case 'pending':
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="h-3 w-3 mr-1" />En attente</Badge>;
+      case 'rejected':
+        return <Badge className="bg-red-100 text-red-800 border-red-200"><XCircle className="h-3 w-3 mr-1" />Refusé</Badge>;
+      case 'suspended':
+        return <Badge className="bg-gray-100 text-gray-800 border-gray-200"><XCircle className="h-3 w-3 mr-1" />Suspendu</Badge>;
+      default:
+        return null;
     }
-    setLoading(false);
   };
 
-  const updateField = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const getPersonaIcon = () => {
+    switch (profile?.persona) {
+      case 'marina': return <Anchor className="h-5 w-5" />;
+      case 'partner': return <Building2 className="h-5 w-5" />;
+      case 'media_partner': return <Newspaper className="h-5 w-5" />;
+      default: return null;
+    }
   };
 
-  // Updated: check organization_type for marina features
-  const isMarina = profile?.organization_type === 'Marina / Port';
-  
-  // Updated: check status for pending verification
-  const isPending = profile?.status === 'pending';
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'new': return <Badge variant="warning">New</Badge>;
-      case 'in_progress': return <Badge variant="info">In Progress</Badge>;
-      case 'completed': return <Badge variant="success">Completed</Badge>;
-      case 'upcoming': return <Badge variant="info">Upcoming</Badge>;
-      case 'past': return <Badge variant="secondary">Past</Badge>;
-      default: return <Badge>{status}</Badge>;
+  const getPersonaLabel = () => {
+    switch (profile?.persona) {
+      case 'marina': return 'Marina / Port';
+      case 'partner': return 'Partenaire';
+      case 'media_partner': return 'Média';
+      case 'moderator': return 'Modérateur';
+      default: return '';
     }
   };
 
   if (authLoading) {
-    return <div className="container mx-auto px-4 py-8 text-center">{t('common.loading')}</div>;
+    return <div className="container mx-auto px-4 py-8 text-center text-gray-500">Chargement...</div>;
   }
 
-  if (!user) return null;
+  if (!user || !profile) return null;
+
+  const isMarina = profile.persona === 'marina';
+  const marinaDetails = isMarina ? (userDetails as MarinaProfile | null) : null;
+  const partnerDetails = profile.persona === 'partner' ? (userDetails as PartnerProfile | null) : null;
+  const mediaDetails = profile.persona === 'media_partner' ? (userDetails as MediaPartnerProfile | null) : null;
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <h1 className="text-3xl font-bold text-primary mb-8">{t('account.title')}</h1>
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-3xl font-bold text-primary">Mon compte</h1>
+        {getAccessBadge()}
+      </div>
 
-      {isPending && (
+      {/* Bannière onboarding non complété */}
+      {(profile.onboarding_status === 'draft') && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <ClipboardList className="h-5 w-5 text-blue-600 shrink-0" />
+            <p className="text-blue-800">Votre profil est incomplet. Complétez-le pour être validé par notre équipe.</p>
+          </div>
+          <Button size="sm" onClick={() => navigate('/onboarding')}>Compléter</Button>
+        </div>
+      )}
+
+      {/* Bannière en attente de validation */}
+      {profile.onboarding_status === 'submitted' && profile.access_status === 'pending' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 flex items-center gap-3">
-          <AlertCircle className="h-5 w-5 text-yellow-600" />
-          <p className="text-yellow-800">{t('account.pendingVerification')}</p>
+          <AlertCircle className="h-5 w-5 text-yellow-600 shrink-0" />
+          <p className="text-yellow-800">Votre profil est en cours de vérification par notre équipe. Vous recevrez une confirmation par email.</p>
+        </div>
+      )}
+
+      {/* Bannière compte refusé */}
+      {profile.access_status === 'rejected' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center gap-3">
+          <XCircle className="h-5 w-5 text-red-600 shrink-0" />
+          <p className="text-red-800">Votre demande d'accès a été refusée. Contactez-nous pour plus d'informations.</p>
         </div>
       )}
 
       <Tabs defaultValue={defaultTab}>
         <TabsList className="mb-6">
-          <TabsTrigger value="profile">{t('account.profile')}</TabsTrigger>
-          <TabsTrigger value="registrations">{t('account.registrations')}</TabsTrigger>
-          {isMarina && <TabsTrigger value="projects">{t('account.projects')}</TabsTrigger>}
+          <TabsTrigger value="profile">Profil</TabsTrigger>
+          <TabsTrigger value="registrations">Inscriptions</TabsTrigger>
+          {isMarina && <TabsTrigger value="projects">Projets</TabsTrigger>}
         </TabsList>
 
+        {/* ── PROFIL ── */}
         <TabsContent value="profile">
           <Card>
             <CardHeader>
-              <CardTitle>{t('account.profile')}</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                {getPersonaIcon()}
+                {getPersonaLabel()}
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>{t('auth.firstName')}</Label>
-                    <Input value={formData.first_name} onChange={e => updateField('first_name', e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t('auth.lastName')}</Label>
-                    <Input value={formData.last_name} onChange={e => updateField('last_name', e.target.value)} />
-                  </div>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500 block">Email</span>
+                  <span className="font-medium">{user.email}</span>
                 </div>
-                <div className="space-y-2">
-                  <Label>{t('auth.email')}</Label>
-                  <Input value={profile?.email || ''} disabled className="bg-gray-50" />
+                <div>
+                  <span className="text-gray-500 block">Statut</span>
+                  <span className="font-medium capitalize">{profile.access_status}</span>
                 </div>
-                <div className="space-y-2">
-                  <Label>{t('auth.jobTitle')}</Label>
-                  <Input value={formData.job_title} onChange={e => updateField('job_title', e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('auth.organizationType')}</Label>
-                  <Input value={profile?.organization_type || ''} disabled className="bg-gray-50" />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('auth.organizationName')}</Label>
-                  <Input value={formData.organization_name} onChange={e => updateField('organization_name', e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('auth.country')}</Label>
-                  <Select value={formData.country} onValueChange={v => updateField('country', v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {isMarina && (
-                  <>
-                    <div className="space-y-2">
-                      <Label>{t('auth.website')}</Label>
-                      <Input value={formData.website} onChange={e => updateField('website', e.target.value)} />
+              </div>
+
+              {/* Marina details */}
+              {marinaDetails && (
+                <div className="pt-4 border-t space-y-3">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500 block">Marina</span>
+                      <span className="font-medium">{marinaDetails.marina_name || '—'}</span>
                     </div>
-                    <div className="space-y-2">
-                      <Label>{t('auth.capacity')}</Label>
-                      <Input value={formData.capacity} onChange={e => updateField('capacity', e.target.value)} />
+                    <div>
+                      <span className="text-gray-500 block">Anneaux</span>
+                      <span className="font-medium">{marinaDetails.berths_count ?? '—'}</span>
                     </div>
-                  </>
-                )}
-                <Button type="submit" disabled={loading}>
-                  {loading ? t('common.loading') : t('account.save')}
-                </Button>
-              </form>
+                    <div>
+                      <span className="text-gray-500 block">Pays</span>
+                      <span className="font-medium">{marinaDetails.country || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Ville</span>
+                      <span className="font-medium">{marinaDetails.city || '—'}</span>
+                    </div>
+                  </div>
+                  {marinaDetails.website && (
+                    <a href={marinaDetails.website} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      <ExternalLink className="h-3 w-3" />
+                      {marinaDetails.website}
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Partner details */}
+              {partnerDetails && (
+                <div className="pt-4 border-t space-y-3">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500 block">Entreprise</span>
+                      <span className="font-medium">{partnerDetails.company_name || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Pays du siège</span>
+                      <span className="font-medium">{partnerDetails.headquarters_country || '—'}</span>
+                    </div>
+                  </div>
+                  {partnerDetails.description && (
+                    <div className="text-sm">
+                      <span className="text-gray-500 block mb-1">Description</span>
+                      <p className="text-gray-700">{partnerDetails.description}</p>
+                    </div>
+                  )}
+                  {partnerDetails.website && (
+                    <a href={partnerDetails.website} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      <ExternalLink className="h-3 w-3" />
+                      {partnerDetails.website}
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Media details */}
+              {mediaDetails && (
+                <div className="pt-4 border-t space-y-3">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500 block">Média</span>
+                      <span className="font-medium">{mediaDetails.media_name || '—'}</span>
+                    </div>
+                  </div>
+                  {mediaDetails.audience_description && (
+                    <div className="text-sm">
+                      <span className="text-gray-500 block mb-1">Audience</span>
+                      <p className="text-gray-700">{mediaDetails.audience_description}</p>
+                    </div>
+                  )}
+                  {mediaDetails.website && (
+                    <a href={mediaDetails.website} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      <ExternalLink className="h-3 w-3" />
+                      {mediaDetails.website}
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {profile.onboarding_status === 'draft' && (
+                <div className="pt-4">
+                  <Button onClick={() => navigate('/onboarding')} variant="outline">
+                    Compléter mon profil
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
 
+        {/* ── INSCRIPTIONS ── */}
         <TabsContent value="registrations">
           <Card>
             <CardHeader>
-              <CardTitle>{t('account.registrations')}</CardTitle>
+              <CardTitle>Mes inscriptions aux événements</CardTitle>
             </CardHeader>
             <CardContent>
-              {mockRegistrations.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">{t('account.noRegistrations')}</p>
+              {dataLoading ? (
+                <p className="text-gray-500 text-center py-8">Chargement...</p>
+              ) : registrations.length === 0 ? (
+                <p className="text-gray-500 text-center py-8">Aucune inscription pour le moment.</p>
               ) : (
                 <div className="space-y-4">
-                  {mockRegistrations.map(reg => (
-                    <div key={reg.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center gap-4">
-                        <Calendar className="h-5 w-5 text-gray-400" />
-                        <div>
-                          <div className="font-medium">{reg.event_title}</div>
+                  {registrations.map((reg) => (
+                    <div key={reg.id} className="flex items-center gap-4 p-4 border rounded-lg">
+                      <Calendar className="h-5 w-5 text-gray-400 shrink-0" />
+                      <div>
+                        <div className="font-medium">{reg.events?.title ?? '—'}</div>
+                        {reg.events?.event_date && (
                           <div className="text-sm text-gray-500">
-                            {new Date(reg.event_date).toLocaleDateString(i18n.language === 'fr' ? 'fr-FR' : 'en-US', {
-                              year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                            {new Date(reg.events.event_date).toLocaleDateString('fr-FR', {
+                              year: 'numeric', month: 'long', day: 'numeric',
                             })}
                           </div>
-                        </div>
+                        )}
                       </div>
-                      {getStatusBadge(reg.status)}
                     </div>
                   ))}
                 </div>
@@ -209,29 +306,36 @@ export function AccountPage() {
           </Card>
         </TabsContent>
 
+        {/* ── PROJETS (marina uniquement) ── */}
         {isMarina && (
           <TabsContent value="projects">
             <Card>
-              <CardHeader>
-                <CardTitle>{t('account.projects')}</CardTitle>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle>Mes projets</CardTitle>
+                <Button size="sm" onClick={() => navigate('/submit-project')}>
+                  Soumettre un projet
+                </Button>
               </CardHeader>
               <CardContent>
-                {mockProjects.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">{t('account.noProjects')}</p>
+                {dataLoading ? (
+                  <p className="text-gray-500 text-center py-8">Chargement...</p>
+                ) : projects.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">Aucun projet soumis pour le moment.</p>
                 ) : (
                   <div className="space-y-4">
-                    {mockProjects.map(project => (
+                    {projects.map((project) => (
                       <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
                         <div className="flex items-center gap-4">
-                          <FileText className="h-5 w-5 text-gray-400" />
+                          <FileText className="h-5 w-5 text-gray-400 shrink-0" />
                           <div>
-                            <div className="font-medium">{t(`submitProject.projectTypes.${project.project_type}`)}</div>
+                            <div className="font-medium">{project.project_type}</div>
                             <div className="text-sm text-gray-500">
-                              {t(`submitProject.budgets.${project.budget_range}`)} • {t(`submitProject.timelines.${project.timeline}`)}
+                              {new Date(project.created_at).toLocaleDateString('fr-FR')}
+                              {project.budget_range && ` • ${project.budget_range}`}
                             </div>
                           </div>
                         </div>
-                        {getStatusBadge(project.status)}
+                        <Badge variant="outline">{project.status}</Badge>
                       </div>
                     ))}
                   </div>

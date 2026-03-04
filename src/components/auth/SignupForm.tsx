@@ -4,64 +4,88 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { PersonaType } from '@/types/database';
-import { Anchor, Building2, Newspaper, Loader2, ChevronLeft } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 interface SignupFormProps {
   onSuccess?: () => void;
 }
 
-const personas = [
-  { value: 'marina' as PersonaType, icon: <Anchor className="h-6 w-6" />, title: 'Marina / Port', desc: 'Opérateurs et gestionnaires de marina' },
-  { value: 'partner' as PersonaType, icon: <Building2 className="h-6 w-6" />, title: 'Partenaire', desc: 'Fournisseurs de services et équipements' },
-  { value: 'media_partner' as PersonaType, icon: <Newspaper className="h-6 w-6" />, title: 'Média', desc: 'Journalistes et publications spécialisées' },
-];
-
 export function SignupForm({ onSuccess }: SignupFormProps) {
   const { signUp } = useAuth();
-  const [step, setStep] = useState<1 | 2>(1);
-  const [loading, setLoading] = useState(false);
-  const [selectedPersona, setSelectedPersona] = useState<PersonaType | ''>('');
-  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
 
-  const handlePersonaSelect = (persona: PersonaType) => {
-    setSelectedPersona(persona);
-    setStep(2);
-  };
+  const [loading, setLoading] = useState(false);
+  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedPersona) return;
+
     if (formData.password !== formData.confirmPassword) {
       toast({ title: 'Erreur', description: 'Les mots de passe ne correspondent pas.', variant: 'destructive' });
       return;
     }
+
     if (formData.password.length < 8) {
       toast({ title: 'Erreur', description: 'Mot de passe trop court (min. 8 caractères).', variant: 'destructive' });
       return;
     }
+
     setLoading(true);
-    const { error } = await signUp(formData.email, formData.password, selectedPersona);
+    const { error } = await signUp(formData.email, formData.password);
     setLoading(false);
+
     if (error) {
       toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
-    } else {
-      toast({ title: 'Inscription réussie !', description: 'Vérifiez votre email pour confirmer votre compte.' });
-      onSuccess?.();
+      return;
     }
+
+    toast({
+      title: 'Inscription réussie !',
+      description: "Vérifiez votre email pour confirmer votre compte, puis connectez-vous pour compléter votre profil.",
+    });
+
+    onSuccess?.();
   };
 
-  if (step === 1) {
-    return (
-      <div className="space-y-4">
-        <p className="text-sm text-gray-600">Sélectionnez votre type de profil :</p>
-        <div className="space-y-3">
-          {personas.map((p) => (
-            <button key={p.value} type="button" onClick={() => handlePersonaSelect(p.value)}
-              className="w-full flex items-center gap-4 p-4 rounded-lg border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition-all text-left group">
-              <div className="text-primary shrink-0">{p.icon}</div>
-              <div>
-                <div className="font-semibold text-gray-900 group-hover:text-primary">{p.title}</div>
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <Label>Email</Label>
+        <Input
+          type="email"
+          required
+          value={formData.email}
+          onChange={(e) => setFormData((p) => ({ ...p, email: e.target.value }))}
+          placeholder="you@company.com"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Mot de passe</Label>
+        <Input
+          type="password"
+          required
+          value={formData.password}
+          onChange={(e) => setFormData((p) => ({ ...p, password: e.target.value }))}
+          placeholder="Min. 8 caractères"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Confirmer le mot de passe</Label>
+        <Input
+          type="password"
+          required
+          value={formData.confirmPassword}
+          onChange={(e) => setFormData((p) => ({ ...p, confirmPassword: e.target.value }))}
+        />
+      </div>
+
+      <Button type="submit" className="w-full" disabled={loading}>
+        {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Création...</> : 'Créer mon compte'}
+      </Button>
+    </form>
+  );
+}                <div className="font-semibold text-gray-900 group-hover:text-primary">{p.title}</div>
                 <div className="text-sm text-gray-500">{p.desc}</div>
               </div>
             </button>

@@ -1,48 +1,90 @@
 // src/pages/OnboardingPage.tsx
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle, Anchor, Building2, Newspaper } from 'lucide-react';
+import { Loader2, CheckCircle, Anchor, Building2, Newspaper, ChevronRight } from 'lucide-react';
 import { Sector, PersonaType } from '@/types/database';
 
+/* ─── Constants ─── */
 const countries = [
-  'France', 'Monaco', 'Italie', 'Espagne', 'Grèce', 'Croatie', 'Portugal',
-  'Royaume-Uni', 'Allemagne', 'Pays-Bas', 'Belgique', 'États-Unis',
-  'Émirats arabes unis', 'Autre',
+  'France', 'Monaco', 'Italy', 'Spain', 'Greece', 'Croatia', 'Portugal',
+  'United Kingdom', 'Germany', 'Netherlands', 'Belgium', 'United States',
+  'United Arab Emirates', 'Other',
+];
+
+const certificationOptions = [
+  'Blue Flag', 'Clean Marina', 'ISO 14001', 'TYHA Gold Anchor',
+  'Green Marine', 'Five Gold Stars', 'EMAS', 'Ports Propres',
+];
+
+const timelineOptions = [
+  { value: 'immediate', label: 'Immediate' },
+  { value: '0_12_months', label: '0–12 months' },
+  { value: '12_24_months', label: '12–24 months' },
+  { value: '2_5_years', label: '2–5 years' },
+  { value: '5_10_years', label: '5–10 years' },
 ];
 
 const personaCards = [
-  {
-    value: 'marina' as PersonaType,
-    icon: <Anchor className="h-8 w-8" />,
-    title: 'Marina / Port',
-    desc: 'Opérateurs et gestionnaires de marina, ports de plaisance',
-  },
-  {
-    value: 'partner' as PersonaType,
-    icon: <Building2 className="h-8 w-8" />,
-    title: 'Partenaire Industrie',
-    desc: 'Fournisseurs de services, équipements et solutions pour marinas',
-  },
-  {
-    value: 'media_partner' as PersonaType,
-    icon: <Newspaper className="h-8 w-8" />,
-    title: 'Média Partenaire',
-    desc: 'Journalistes et publications spécialisées dans le secteur maritime',
-  },
+  { value: 'marina' as PersonaType, icon: <Anchor className="h-8 w-8" />, title: 'Marina / Port', desc: 'Marina operators and managers, marinas and yacht harbours' },
+  { value: 'partner' as PersonaType, icon: <Building2 className="h-8 w-8" />, title: 'Industry Partner', desc: 'Service providers, equipment suppliers and solutions for marinas' },
+  { value: 'media_partner' as PersonaType, icon: <Newspaper className="h-8 w-8" />, title: 'Media Partner', desc: 'Journalists and specialised publications in the maritime sector' },
 ];
 
+/* ─── Marina form state interface ─── */
+interface MarinaForm {
+  marina_name: string;
+  country: string;
+  city: string;
+  website: string;
+  marina_type: string;
+  completion_date: string;
+  berths_count: string;
+  superyacht_berths: string;
+  longest_berth_meters: string;
+  fresh_water_available: boolean;
+  mix_range_boats: boolean;
+  mix_range_description: string;
+  certifications: string[];
+  certifications_other: string;
+  has_yacht_club: boolean;
+  yacht_club_members: string;
+  has_sailing_school: boolean;
+  has_boat_yard: boolean;
+  has_restaurants: boolean;
+  restaurants_count: string;
+  has_concierge: boolean;
+  marina_description: string;
+  services_description: string;
+  social_media_links: string;
+}
+
+const defaultMarinaForm: MarinaForm = {
+  marina_name: '', country: '', city: '', website: '',
+  marina_type: '', completion_date: '',
+  berths_count: '', superyacht_berths: '', longest_berth_meters: '',
+  fresh_water_available: false, mix_range_boats: false, mix_range_description: '',
+  certifications: [], certifications_other: '',
+  has_yacht_club: false, yacht_club_members: '',
+  has_sailing_school: false, has_boat_yard: false,
+  has_restaurants: false, restaurants_count: '',
+  has_concierge: false,
+  marina_description: '', services_description: '', social_media_links: '',
+};
+
+/* ─── Component ─── */
 export function OnboardingPage() {
   const navigate = useNavigate();
   const { user, profile, refreshProfile, loading: authLoading } = useAuth();
@@ -51,56 +93,39 @@ export function OnboardingPage() {
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
 
-  const [marina, setMarina] = useState({
-    marina_name: '', country: '', city: '', website: '', berths_count: '',
-  });
-  const [partner, setPartner] = useState({
-    company_name: '', website: '', headquarters_country: '', description: '',
-  });
-  const [media, setMedia] = useState({
-    media_name: '', website: '', audience_description: '',
-  });
+  // Marina extended form
+  const [marina, setMarina] = useState<MarinaForm>(defaultMarinaForm);
+  // Future plans: sectorId → timeline
+  const [futurePlans, setFuturePlans] = useState<Record<string, string>>({});
 
-  // Determine if the user needs to select a persona first
+  // Partner & Media forms (unchanged)
+  const [partner, setPartner] = useState({ company_name: '', website: '', headquarters_country: '', description: '' });
+  const [media, setMedia] = useState({ media_name: '', website: '', audience_description: '' });
+
   const needsPersonaSetup = !authLoading && !!user && !profile;
 
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/'); return; }
-
-    // If already submitted or completed → redirect to account
     if (profile?.onboarding_status === 'submitted' || profile?.onboarding_status === 'completed') {
-      navigate('/account');
-      return;
+      navigate('/account'); return;
     }
-
-    // Fetch sectors for the form (only if profile exists)
     if (profile) {
-      supabase
-        .from('sectors')
-        .select('*')
-        .eq('is_active', true)
-        .order('label')
+      supabase.from('sectors').select('*').eq('is_active', true).order('label')
         .then(({ data }) => { if (data) setSectors(data as Sector[]); });
     }
   }, [user, profile, authLoading, navigate]);
 
-  // Handle persona selection for users without a profile
+  /* ─── Persona selection (step 0) ─── */
   const handlePersonaSelect = async (persona: PersonaType) => {
     if (!user) return;
     setCreatingProfile(true);
-
     try {
-      // Create the profile row
       const { error: profileError } = await supabase.from('profiles').insert({
-        user_id: user.id,
-        persona,
-        access_status: 'pending',
-        onboarding_status: 'draft',
+        user_id: user.id, persona, access_status: 'pending', onboarding_status: 'draft',
       });
       if (profileError) throw profileError;
 
-      // Create the persona detail row
       if (persona === 'marina') {
         await supabase.from('marina_profiles').insert({ user_id: user.id, marina_name: '' });
       } else if (persona === 'partner') {
@@ -109,20 +134,42 @@ export function OnboardingPage() {
         await supabase.from('media_partner_profiles').insert({ user_id: user.id, media_name: '' });
       }
 
-      // Refresh the profile in AuthContext so the form renders
       await refreshProfile();
-      toast({ title: 'Type de profil sélectionné', description: 'Complétez maintenant vos informations.' });
+      toast({ title: 'Profile type selected', description: 'Now complete your information.' });
     } catch (error: unknown) {
-      toast({
-        title: 'Erreur',
-        description: error instanceof Error ? error.message : 'Impossible de créer le profil.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error instanceof Error ? error.message : 'Unable to create profile.', variant: 'destructive' });
     } finally {
       setCreatingProfile(false);
     }
   };
 
+  /* ─── Marina helpers ─── */
+  const updateMarina = (field: keyof MarinaForm, value: MarinaForm[keyof MarinaForm]) => {
+    setMarina((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const toggleCertification = (cert: string) => {
+    setMarina((prev) => ({
+      ...prev,
+      certifications: prev.certifications.includes(cert)
+        ? prev.certifications.filter((c) => c !== cert)
+        : [...prev.certifications, cert],
+    }));
+  };
+
+  const setFuturePlan = (sectorId: string, timeline: string) => {
+    setFuturePlans((prev) => {
+      const next = { ...prev };
+      if (timeline === '') {
+        delete next[sectorId];
+      } else {
+        next[sectorId] = timeline;
+      }
+      return next;
+    });
+  };
+
+  /* ─── Submit ─── */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !profile) return;
@@ -130,37 +177,70 @@ export function OnboardingPage() {
 
     try {
       if (profile.persona === 'marina') {
-        if (!marina.marina_name || !marina.country || !marina.city) {
-          toast({ title: 'Champs requis', description: 'Nom, pays et ville sont obligatoires.', variant: 'destructive' });
+        if (!marina.marina_name || !marina.country || !marina.city || !marina.marina_type) {
+          toast({ title: 'Required fields', description: 'Name, country, city and marina type are mandatory.', variant: 'destructive' });
           setLoading(false);
           return;
         }
+
+        // Update marina_profiles with all fields
         const { error } = await supabase.from('marina_profiles').update({
           marina_name: marina.marina_name,
           country: marina.country,
           city: marina.city,
           website: marina.website || null,
+          marina_type: marina.marina_type,
+          completion_date: marina.completion_date || null,
           berths_count: marina.berths_count ? parseInt(marina.berths_count) : null,
+          superyacht_berths: marina.superyacht_berths ? parseInt(marina.superyacht_berths) : null,
+          longest_berth_meters: marina.longest_berth_meters ? parseFloat(marina.longest_berth_meters) : null,
+          fresh_water_available: marina.fresh_water_available,
+          mix_range_boats: marina.mix_range_boats,
+          mix_range_description: marina.mix_range_description || null,
+          certifications: marina.certifications.length > 0 ? marina.certifications : null,
+          certifications_other: marina.certifications_other || null,
+          has_yacht_club: marina.has_yacht_club,
+          yacht_club_members: marina.yacht_club_members ? parseInt(marina.yacht_club_members) : null,
+          has_sailing_school: marina.has_sailing_school,
+          has_boat_yard: marina.has_boat_yard,
+          has_restaurants: marina.has_restaurants,
+          restaurants_count: marina.restaurants_count ? parseInt(marina.restaurants_count) : null,
+          has_concierge: marina.has_concierge,
+          marina_description: marina.marina_description || null,
+          services_description: marina.services_description || null,
+          social_media_links: marina.social_media_links || null,
         }).eq('user_id', user.id);
         if (error) throw error;
 
+        // Save interest sectors
         await supabase.from('marina_interest_sectors').delete().eq('marina_user_id', user.id);
         if (selectedSectors.length > 0) {
           await supabase.from('marina_interest_sectors').insert(
             selectedSectors.map((s) => ({ marina_user_id: user.id, sector_id: s })),
           );
         }
+
+        // Save future plans
+        await supabase.from('marina_future_plans').delete().eq('marina_user_id', user.id);
+        const planEntries = Object.entries(futurePlans).filter(([, tl]) => tl);
+        if (planEntries.length > 0) {
+          await supabase.from('marina_future_plans').insert(
+            planEntries.map(([sectorId, timeline]) => ({
+              marina_user_id: user.id,
+              sector_id: sectorId,
+              timeline,
+            })),
+          );
+        }
+
       } else if (profile.persona === 'partner') {
         if (!partner.company_name || !partner.website || !partner.description) {
-          toast({ title: 'Champs requis', description: 'Nom, site web et description sont obligatoires.', variant: 'destructive' });
-          setLoading(false);
-          return;
+          toast({ title: 'Required fields', description: 'Name, website and description are mandatory.', variant: 'destructive' });
+          setLoading(false); return;
         }
         const { error } = await supabase.from('partner_profiles').update({
-          company_name: partner.company_name,
-          website: partner.website || null,
-          headquarters_country: partner.headquarters_country || null,
-          description: partner.description || null,
+          company_name: partner.company_name, website: partner.website || null,
+          headquarters_country: partner.headquarters_country || null, description: partner.description || null,
         }).eq('user_id', user.id);
         if (error) throw error;
 
@@ -170,35 +250,29 @@ export function OnboardingPage() {
             selectedSectors.map((s) => ({ partner_user_id: user.id, sector_id: s })),
           );
         }
+
       } else if (profile.persona === 'media_partner') {
         if (!media.media_name || !media.website) {
-          toast({ title: 'Champs requis', description: 'Nom du média et site web sont obligatoires.', variant: 'destructive' });
-          setLoading(false);
-          return;
+          toast({ title: 'Required fields', description: 'Media name and website are mandatory.', variant: 'destructive' });
+          setLoading(false); return;
         }
         const { error } = await supabase.from('media_partner_profiles').update({
-          media_name: media.media_name,
-          website: media.website || null,
+          media_name: media.media_name, website: media.website || null,
           audience_description: media.audience_description || null,
         }).eq('user_id', user.id);
         if (error) throw error;
       }
 
+      // Mark as submitted
       const { error: statusError } = await supabase
-        .from('profiles')
-        .update({ onboarding_status: 'submitted' })
-        .eq('user_id', user.id);
+        .from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', user.id);
       if (statusError) throw statusError;
 
       await refreshProfile();
-      toast({ title: 'Profil soumis !', description: 'Votre demande est en cours de validation.' });
+      toast({ title: 'Profile submitted!', description: 'Your application is being reviewed.' });
       navigate('/account');
     } catch (error: unknown) {
-      toast({
-        title: 'Erreur',
-        description: error instanceof Error ? error.message : 'Une erreur est survenue.',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: error instanceof Error ? error.message : 'An error occurred.', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -208,266 +282,369 @@ export function OnboardingPage() {
     setSelectedSectors((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]);
   };
 
-  // Loading state
+  /* ─── Renders ─── */
+
   if (authLoading) {
-    return (
-      <div className="container mx-auto py-16 text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-      </div>
-    );
+    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>;
   }
 
-  // ── STEP 0: User has no profile → persona selection ──
+  // Step 0: persona selection
   if (needsPersonaSetup) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-primary mb-2">Bienvenue sur M3 Connect</h1>
-          <p className="text-gray-600">Sélectionnez votre type de profil pour commencer.</p>
+          <h1 className="text-3xl font-bold text-primary mb-2">Welcome to M3 Connect</h1>
+          <p className="text-gray-600">Select your profile type to get started.</p>
         </div>
-
         <div className="space-y-4">
           {personaCards.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              disabled={creatingProfile}
-              onClick={() => handlePersonaSelect(p.value)}
-              className="w-full flex items-center gap-5 p-6 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition-all text-left group disabled:opacity-50"
-            >
+            <button key={p.value} type="button" disabled={creatingProfile} onClick={() => handlePersonaSelect(p.value)}
+              className="w-full flex items-center gap-5 p-6 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition-all text-left group disabled:opacity-50">
               <div className="text-primary shrink-0">{p.icon}</div>
-              <div>
+              <div className="flex-1">
                 <div className="font-semibold text-lg text-gray-900 group-hover:text-primary">{p.title}</div>
                 <div className="text-sm text-gray-500">{p.desc}</div>
               </div>
+              <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-primary shrink-0" />
             </button>
           ))}
         </div>
-
         {creatingProfile && (
           <div className="mt-6 text-center text-gray-500 flex items-center justify-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Création du profil...
+            <Loader2 className="h-4 w-4 animate-spin" /> Creating profile...
           </div>
         )}
       </div>
     );
   }
 
-  // If profile is null for some other reason, show loading
   if (!profile) {
-    return (
-      <div className="container mx-auto py-16 text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-      </div>
-    );
+    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>;
   }
 
-  // ── STEP 1: Profile exists → show the onboarding form ──
-  const personaLabels = {
-    marina: 'Marina / Port',
-    partner: 'Partenaire',
-    media_partner: 'Média',
-    moderator: 'Modérateur',
-  };
-
+  // Step 1: onboarding form
   return (
-    <div className="container mx-auto px-4 py-8 max-w-2xl">
+    <div className="container mx-auto px-4 py-8 max-w-3xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">Complétez votre profil</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2">Complete your profile</h1>
         <p className="text-gray-600">
-          Ces informations nous permettront de valider votre compte{' '}
-          <span className="font-medium">{personaLabels[profile.persona]}</span>.
+          This information will allow us to validate your{' '}
+          <span className="font-medium">
+            {profile.persona === 'marina' ? 'Marina' : profile.persona === 'partner' ? 'Partner' : 'Media'}
+          </span>{' '}account.
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {profile.persona === 'marina' && 'Informations de la Marina'}
-            {profile.persona === 'partner' && 'Informations de l\'Entreprise'}
-            {profile.persona === 'media_partner' && 'Informations du Média'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-8">
 
-            {/* ── MARINA ── */}
-            {profile.persona === 'marina' && (
-              <>
+        {/* ════════════════════════════════════════════════════════
+            ██  MARINA FORM
+            ════════════════════════════════════════════════════════ */}
+        {profile.persona === 'marina' && (
+          <>
+            {/* ── Section 1: General Information ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle>General Information</CardTitle>
+                <CardDescription>Basic details about your marina</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
                 <div className="space-y-2">
-                  <Label>Nom de la marina *</Label>
-                  <Input
-                    value={marina.marina_name}
-                    onChange={(e) => setMarina({ ...marina, marina_name: e.target.value })}
-                    required
-                    placeholder="Port de Monaco"
-                  />
+                  <Label>Marina Name *</Label>
+                  <Input value={marina.marina_name} onChange={(e) => updateMarina('marina_name', e.target.value)} required placeholder="Port de Monaco" />
                 </div>
+
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Pays *</Label>
-                    <Select value={marina.country} onValueChange={(v) => setMarina({ ...marina, country: v })}>
-                      <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
-                      <SelectContent>
-                        {countries.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                      </SelectContent>
+                    <Label>Country *</Label>
+                    <Select value={marina.country} onValueChange={(v) => updateMarina('country', v)}>
+                      <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectContent>{countries.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Ville *</Label>
-                    <Input
-                      value={marina.city}
-                      onChange={(e) => setMarina({ ...marina, city: e.target.value })}
-                      required
-                      placeholder="Monaco"
-                    />
+                    <Label>City *</Label>
+                    <Input value={marina.city} onChange={(e) => updateMarina('city', e.target.value)} required placeholder="Monaco" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Site web</Label>
-                    <Input
-                      type="url"
-                      value={marina.website}
-                      onChange={(e) => setMarina({ ...marina, website: e.target.value })}
-                      placeholder="https://"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Nombre d'anneaux</Label>
-                    <Input
-                      type="number"
-                      value={marina.berths_count}
-                      onChange={(e) => setMarina({ ...marina, berths_count: e.target.value })}
-                      placeholder="500"
-                      min="0"
-                    />
-                  </div>
-                </div>
+
                 <div className="space-y-2">
-                  <Label>Secteurs d'intérêt</Label>
-                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
-                    {sectors.map((s) => (
-                      <div key={s.id} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={s.id}
-                          checked={selectedSectors.includes(s.id)}
-                          onCheckedChange={() => toggleSector(s.id)}
-                        />
-                        <Label htmlFor={s.id} className="text-sm cursor-pointer font-normal">{s.label}</Label>
+                  <Label>Website</Label>
+                  <Input type="url" value={marina.website} onChange={(e) => updateMarina('website', e.target.value)} placeholder="https://" />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Type of Marina *</Label>
+                  <RadioGroup value={marina.marina_type} onValueChange={(v) => updateMarina('marina_type', v)} className="flex flex-wrap gap-4">
+                    {[
+                      { value: 'in_operation', label: 'In Operation' },
+                      { value: 'under_construction', label: 'Under Construction' },
+                      { value: 'in_project', label: 'In Project' },
+                    ].map((opt) => (
+                      <div key={opt.value} className="flex items-center space-x-2">
+                        <RadioGroupItem value={opt.value} id={`mt-${opt.value}`} />
+                        <Label htmlFor={`mt-${opt.value}`} className="font-normal cursor-pointer">{opt.label}</Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+
+                {(marina.marina_type === 'under_construction' || marina.marina_type === 'in_project') && (
+                  <div className="space-y-2">
+                    <Label>Expected Completion Date</Label>
+                    <Input type="date" value={marina.completion_date} onChange={(e) => updateMarina('completion_date', e.target.value)} />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Total Berths</Label>
+                    <Input type="number" min="0" value={marina.berths_count} onChange={(e) => updateMarina('berths_count', e.target.value)} placeholder="500" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Superyacht Berths</Label>
+                    <Input type="number" min="0" value={marina.superyacht_berths} onChange={(e) => updateMarina('superyacht_berths', e.target.value)} placeholder="20" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Longest Berth (m)</Label>
+                    <Input type="number" min="0" step="0.1" value={marina.longest_berth_meters} onChange={(e) => updateMarina('longest_berth_meters', e.target.value)} placeholder="100" />
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  <Checkbox id="fresh-water" checked={marina.fresh_water_available} onCheckedChange={(c) => updateMarina('fresh_water_available', !!c)} />
+                  <Label htmlFor="fresh-water" className="font-normal cursor-pointer">Fresh water available</Label>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-3">
+                    <Checkbox id="mix-range" checked={marina.mix_range_boats} onCheckedChange={(c) => updateMarina('mix_range_boats', !!c)} />
+                    <Label htmlFor="mix-range" className="font-normal cursor-pointer">Mix range of boats</Label>
+                  </div>
+                  {marina.mix_range_boats && (
+                    <Input value={marina.mix_range_description} onChange={(e) => updateMarina('mix_range_description', e.target.value)}
+                      placeholder="Describe the range (e.g. sailboats, motorboats, catamarans...)" className="mt-2" />
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Certifications</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {certificationOptions.map((cert) => (
+                      <div key={cert} className="flex items-center space-x-2">
+                        <Checkbox id={`cert-${cert}`} checked={marina.certifications.includes(cert)} onCheckedChange={() => toggleCertification(cert)} />
+                        <Label htmlFor={`cert-${cert}`} className="text-sm font-normal cursor-pointer">{cert}</Label>
                       </div>
                     ))}
                   </div>
+                  <Input value={marina.certifications_other} onChange={(e) => updateMarina('certifications_other', e.target.value)}
+                    placeholder="Other certifications..." className="mt-2" />
                 </div>
-              </>
-            )}
+              </CardContent>
+            </Card>
 
-            {/* ── PARTNER ── */}
-            {profile.persona === 'partner' && (
-              <>
-                <div className="space-y-2">
-                  <Label>Nom de l'entreprise *</Label>
-                  <Input
-                    value={partner.company_name}
-                    onChange={(e) => setPartner({ ...partner, company_name: e.target.value })}
-                    required
-                    placeholder="Acme Marine Solutions"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Pays du siège</Label>
-                    <Select value={partner.headquarters_country} onValueChange={(v) => setPartner({ ...partner, headquarters_country: v })}>
-                      <SelectTrigger><SelectValue placeholder="Sélectionner" /></SelectTrigger>
-                      <SelectContent>
-                        {countries.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+            {/* ── Section 2: Facilities & Amenities ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Facilities & Amenities</CardTitle>
+                <CardDescription>What does your marina offer?</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <Checkbox id="yacht-club" checked={marina.has_yacht_club} onCheckedChange={(c) => updateMarina('has_yacht_club', !!c)} />
+                      <Label htmlFor="yacht-club" className="font-normal cursor-pointer">Yacht Club</Label>
+                    </div>
+                    {marina.has_yacht_club && (
+                      <Input type="number" min="0" value={marina.yacht_club_members} onChange={(e) => updateMarina('yacht_club_members', e.target.value)}
+                        placeholder="Number of members" className="w-48" />
+                    )}
                   </div>
-                  <div className="space-y-2">
-                    <Label>Site web *</Label>
-                    <Input
-                      type="url"
-                      value={partner.website}
-                      onChange={(e) => setPartner({ ...partner, website: e.target.value })}
-                      required
-                      placeholder="https://"
-                    />
+
+                  <div className="flex items-center space-x-3">
+                    <Checkbox id="sailing-school" checked={marina.has_sailing_school} onCheckedChange={(c) => updateMarina('has_sailing_school', !!c)} />
+                    <Label htmlFor="sailing-school" className="font-normal cursor-pointer">Sailing School / Watersports Centre</Label>
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <Checkbox id="boat-yard" checked={marina.has_boat_yard} onCheckedChange={(c) => updateMarina('has_boat_yard', !!c)} />
+                    <Label htmlFor="boat-yard" className="font-normal cursor-pointer">Boat Yard</Label>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <Checkbox id="restaurants" checked={marina.has_restaurants} onCheckedChange={(c) => updateMarina('has_restaurants', !!c)} />
+                      <Label htmlFor="restaurants" className="font-normal cursor-pointer">Restaurants</Label>
+                    </div>
+                    {marina.has_restaurants && (
+                      <Input type="number" min="1" value={marina.restaurants_count} onChange={(e) => updateMarina('restaurants_count', e.target.value)}
+                        placeholder="How many?" className="w-48" />
+                    )}
+                  </div>
+
+                  <div className="flex items-center space-x-3">
+                    <Checkbox id="concierge" checked={marina.has_concierge} onCheckedChange={(c) => updateMarina('has_concierge', !!c)} />
+                    <Label htmlFor="concierge" className="font-normal cursor-pointer">Concierge Services</Label>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* ── Section 3: Descriptions & Media ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Descriptions & Media</CardTitle>
+                <CardDescription>Tell us more about your marina</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
                 <div className="space-y-2">
-                  <Label>Description *</Label>
-                  <Textarea
-                    value={partner.description}
-                    onChange={(e) => setPartner({ ...partner, description: e.target.value })}
-                    rows={4}
-                    required
-                    placeholder="Décrivez vos services, votre expertise et votre positionnement dans l'industrie marina..."
-                  />
+                  <Label>Marina Description</Label>
+                  <Textarea value={marina.marina_description} onChange={(e) => updateMarina('marina_description', e.target.value)}
+                    rows={4} placeholder="Describe your marina, its history, location and unique features..." />
                 </div>
                 <div className="space-y-2">
-                  <Label>Secteurs de services *</Label>
-                  <p className="text-xs text-gray-500">Sélectionnez au moins un secteur</p>
-                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
-                    {sectors.map((s) => (
-                      <div key={s.id} className="flex items-center space-x-2">
-                        <Checkbox
-                          id={s.id}
-                          checked={selectedSectors.includes(s.id)}
-                          onCheckedChange={() => toggleSector(s.id)}
-                        />
-                        <Label htmlFor={s.id} className="text-sm cursor-pointer font-normal">{s.label}</Label>
+                  <Label>Description of Services</Label>
+                  <Textarea value={marina.services_description} onChange={(e) => updateMarina('services_description', e.target.value)}
+                    rows={4} placeholder="Describe the services offered to boat owners and visitors..." />
+                </div>
+                <div className="space-y-2">
+                  <Label>Social Media Links</Label>
+                  <Input value={marina.social_media_links} onChange={(e) => updateMarina('social_media_links', e.target.value)}
+                    placeholder="Instagram, LinkedIn, Facebook URLs..." />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ── Section 4: Future Plans ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Future Development Plans</CardTitle>
+                <CardDescription>
+                  For each sector relevant to your marina, select the timeline that best matches your development plans.
+                  Leave unselected if not applicable.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {/* Timeline legend */}
+                <div className="flex flex-wrap gap-3 mb-4 text-xs text-gray-500">
+                  {timelineOptions.map((t) => (
+                    <span key={t.value} className="bg-gray-100 px-2 py-1 rounded">{t.label}</span>
+                  ))}
+                </div>
+
+                <div className="space-y-1 max-h-[600px] overflow-y-auto">
+                  {sectors.map((sector) => (
+                    <div key={sector.id} className="flex items-center gap-3 py-2 px-2 rounded hover:bg-gray-50 border-b border-gray-100 last:border-0">
+                      <span className="text-sm flex-1 min-w-0 truncate" title={sector.label}>{sector.label}</span>
+                      <div className="flex gap-1 shrink-0">
+                        {timelineOptions.map((t) => (
+                          <button
+                            key={t.value}
+                            type="button"
+                            onClick={() => setFuturePlan(sector.id, futurePlans[sector.id] === t.value ? '' : t.value)}
+                            title={t.label}
+                            className={`px-2 py-1 text-xs rounded border transition-colors ${
+                              futurePlans[sector.id] === t.value
+                                ? 'bg-primary text-white border-primary'
+                                : 'bg-white text-gray-500 border-gray-200 hover:border-primary hover:text-primary'
+                            }`}
+                          >
+                            {t.label.replace(' months', 'm').replace(' years', 'y').replace('Immediate', 'Now')}
+                          </button>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              </>
-            )}
 
-            {/* ── MEDIA PARTNER ── */}
-            {profile.persona === 'media_partner' && (
-              <>
-                <div className="space-y-2">
-                  <Label>Nom du média *</Label>
-                  <Input
-                    value={media.media_name}
-                    onChange={(e) => setMedia({ ...media, media_name: e.target.value })}
-                    required
-                    placeholder="Marina World Magazine"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Site web *</Label>
-                  <Input
-                    type="url"
-                    value={media.website}
-                    onChange={(e) => setMedia({ ...media, website: e.target.value })}
-                    required
-                    placeholder="https://"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Description de l'audience</Label>
-                  <Textarea
-                    value={media.audience_description}
-                    onChange={(e) => setMedia({ ...media, audience_description: e.target.value })}
-                    rows={4}
-                    placeholder="Décrivez votre audience, votre ligne éditoriale et votre portée..."
-                  />
-                </div>
-              </>
-            )}
+                {sectors.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-4">Loading sectors...</p>
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
 
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading
-                ? <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                : <CheckCircle className="h-4 w-4 mr-2" />}
-              {loading ? 'Envoi en cours...' : 'Soumettre mon profil'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+        {/* ════════════════════════════════════════════════════════
+            ██  PARTNER FORM (unchanged)
+            ════════════════════════════════════════════════════════ */}
+        {profile.persona === 'partner' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Company Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label>Company Name *</Label>
+                <Input value={partner.company_name} onChange={(e) => setPartner({ ...partner, company_name: e.target.value })} required placeholder="Acme Marine Solutions" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Headquarters Country</Label>
+                  <Select value={partner.headquarters_country} onValueChange={(v) => setPartner({ ...partner, headquarters_country: v })}>
+                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectContent>{countries.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Website *</Label>
+                  <Input type="url" value={partner.website} onChange={(e) => setPartner({ ...partner, website: e.target.value })} required placeholder="https://" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Description *</Label>
+                <Textarea value={partner.description} onChange={(e) => setPartner({ ...partner, description: e.target.value })} rows={4} required
+                  placeholder="Describe your services, expertise and positioning in the marina industry..." />
+              </div>
+              <div className="space-y-2">
+                <Label>Service Sectors *</Label>
+                <p className="text-xs text-gray-500">Select at least one sector</p>
+                <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
+                  {sectors.map((s) => (
+                    <div key={s.id} className="flex items-center space-x-2">
+                      <Checkbox id={`ps-${s.id}`} checked={selectedSectors.includes(s.id)} onCheckedChange={() => toggleSector(s.id)} />
+                      <Label htmlFor={`ps-${s.id}`} className="text-sm cursor-pointer font-normal">{s.label}</Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ════════════════════════════════════════════════════════
+            ██  MEDIA FORM (unchanged)
+            ════════════════════════════════════════════════════════ */}
+        {profile.persona === 'media_partner' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Media Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-2">
+                <Label>Media Name *</Label>
+                <Input value={media.media_name} onChange={(e) => setMedia({ ...media, media_name: e.target.value })} required placeholder="Marina World Magazine" />
+              </div>
+              <div className="space-y-2">
+                <Label>Website *</Label>
+                <Input type="url" value={media.website} onChange={(e) => setMedia({ ...media, website: e.target.value })} required placeholder="https://" />
+              </div>
+              <div className="space-y-2">
+                <Label>Audience Description</Label>
+                <Textarea value={media.audience_description} onChange={(e) => setMedia({ ...media, audience_description: e.target.value })}
+                  rows={4} placeholder="Describe your audience, editorial focus and reach..." />
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── Submit button ── */}
+        <Button type="submit" className="w-full" size="lg" disabled={loading}>
+          {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+          {loading ? 'Submitting...' : 'Submit my profile'}
+        </Button>
+      </form>
     </div>
   );
 }

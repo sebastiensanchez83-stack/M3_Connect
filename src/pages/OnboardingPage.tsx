@@ -1,67 +1,74 @@
-// src/pages/OnboardingPage.tsx
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
-import { toast } from '@/hooks/use-toast';
-import { Loader2, CheckCircle, Anchor, Building2, Newspaper, ChevronRight } from 'lucide-react';
-import { Sector, PersonaType } from '@/types/database';
+const handleSubmit = async () => {
+  if (!user) return;
 
-/* ─── Constants ─── */
-const countries = [
-  'France', 'Monaco', 'Italy', 'Spain', 'Greece', 'Croatia', 'Portugal',
-  'United Kingdom', 'Germany', 'Netherlands', 'Belgium', 'United States',
-  'United Arab Emirates', 'Other',
-];
+  try {
+    setLoading(true);
 
-const certificationOptions = [
-  'Blue Flag', 'Clean Marina', 'ISO 14001', 'TYHA Gold Anchor',
-  'Green Marine', 'Five Gold Stars', 'EMAS', 'Ports Propres',
-];
+    // Save persona specific data first
+    if (persona === 'marina') {
+      const { error } = await supabase
+        .from('marina_profiles')
+        .upsert({
+          user_id: user.id,
+          ...formData,
+        });
 
-const timelineOptions = [
-  { value: 'immediate', label: 'Immediate' },
-  { value: '0_12_months', label: '0–12 months' },
-  { value: '12_24_months', label: '12–24 months' },
-  { value: '2_5_years', label: '2–5 years' },
-  { value: '5_10_years', label: '5–10 years' },
-];
+      if (error) throw error;
+    }
 
-const personaCards = [
-  { value: 'marina' as PersonaType, icon: <Anchor className="h-8 w-8" />, title: 'Marina / Port', desc: 'Marina operators and managers, marinas and yacht harbours' },
-  { value: 'partner' as PersonaType, icon: <Building2 className="h-8 w-8" />, title: 'Industry Partner', desc: 'Service providers, equipment suppliers and solutions for marinas' },
-  { value: 'media_partner' as PersonaType, icon: <Newspaper className="h-8 w-8" />, title: 'Media Partner', desc: 'Journalists and specialised publications in the maritime sector' },
-];
+    if (persona === 'partner') {
+      const { error } = await supabase
+        .from('partner_profiles')
+        .upsert({
+          user_id: user.id,
+          ...formData,
+        });
 
-/* ─── Marina form state interface ─── */
-interface MarinaForm {
-  marina_name: string;
-  country: string;
-  city: string;
-  website: string;
-  marina_type: string;
-  completion_date: string;
-  berths_count: string;
-  superyacht_berths: string;
-  longest_berth_meters: string;
-  fresh_water_available: boolean;
-  mix_range_boats: boolean;
-  mix_range_description: string;
-  certifications: string[];
-  certifications_other: string;
-  has_yacht_club: boolean;
-  yacht_club_members: string;
-  has_sailing_school: boolean;
+      if (error) throw error;
+    }
+
+    if (persona === 'media_partner') {
+      const { error } = await supabase
+        .from('media_partner_profiles')
+        .upsert({
+          user_id: user.id,
+          ...formData,
+        });
+
+      if (error) throw error;
+    }
+
+    // Update profile status (PHASE 4 LOGIC)
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        onboarding_status: 'submitted',
+        access_status: 'pending',
+        rejection_reason: null,
+      })
+      .eq('user_id', user.id);
+
+    if (profileError) throw profileError;
+
+    toast({
+      title: 'Application submitted',
+      description: 'Your profile is now under review by an administrator.',
+    });
+
+    navigate('/account');
+
+  } catch (error: any) {
+    console.error('Onboarding submission error:', error);
+
+    toast({
+      title: 'Submission failed',
+      description: error.message,
+      variant: 'destructive',
+    });
+  } finally {
+    setLoading(false);
+  }
+};  has_sailing_school: boolean;
   has_boat_yard: boolean;
   has_restaurants: boolean;
   restaurants_count: string;

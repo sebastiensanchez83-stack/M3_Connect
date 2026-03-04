@@ -1,67 +1,73 @@
-import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useNavigate, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
-import { toast } from '@/hooks/use-toast';
-import { LayoutDashboard, Users, FileText, Calendar, Anchor, Building, Download, ChevronRight, UserCheck, Plus, Pencil, Trash2, Eye, RefreshCw, Search } from 'lucide-react';
+const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
+const [rejectReason, setRejectReason] = useState('');
 
-// Types
-interface AdminProfile {
-  user_id: string;
-  persona: string;
-  access_status: string;
-  onboarding_status: string;
-  created_at: string;
-}
-interface Resource { id: string; title: string; summary: string; content: string | null; type: string; topic: string; language: string; access_level: string; thumbnail_url: string | null; file_url: string | null; published: boolean; created_at: string; }
-interface Event { id: string; title: string; description: string; date_time: string; location: string | null; language: string; access_level: string; speakers: any[]; replay_url: string | null; created_at: string; }
-interface Partner { id: string; name: string; description: string; logo_url: string | null; website: string | null; sector: string; country: string; is_featured: boolean; created_at: string; }
-interface MarinaProject { id: string; user_id: string; project_type: string; budget_range: string; timeline: string; description: string; status: string; admin_notes: string | null; created_at: string; profiles?: any; }
-interface PartnerLead { id: string; first_name: string; last_name: string; email: string; phone: string | null; company: string; website: string | null; country: string; actor_type: string; solutions: string | null; goals: string | null; engagement_level: string; status: string; admin_notes: string | null; created_at: string; }
+const approveUser = async (userId: string) => {
+  const { error } = await supabase.from('profiles').update({
+    access_status: 'verified',
+    onboarding_status: 'completed',
+    rejection_reason: null,
+  }).eq('user_id', userId);
 
-function AdminSidebar() {
-  const { t } = useTranslation();
-  const location = useLocation();
-  const links = [
-    { to: '/admin', icon: LayoutDashboard, label: t('admin.dashboard'), exact: true },
-    { to: '/admin/users', icon: Users, label: t('admin.users') },
-    { to: '/admin/resources', icon: FileText, label: t('admin.resources') },
-    { to: '/admin/events', icon: Calendar, label: t('admin.events') },
-    { to: '/admin/partners', icon: Building, label: t('admin.partners') },
-    { to: '/admin/projects', icon: Anchor, label: t('admin.marinaProjects') },
-    { to: '/admin/leads', icon: Users, label: t('admin.partnerLeads') },
-  ];
-  return (
-    <div className="w-64 bg-primary text-white min-h-[calc(100vh-64px)] p-4">
-      <div className="mb-6"><h2 className="text-lg font-bold">Admin Panel</h2><p className="text-sm text-gray-300">M3 Connect</p></div>
-      <nav className="space-y-2">
-        {links.map(link => {
-          const isActive = link.exact ? location.pathname === link.to : location.pathname.startsWith(link.to) && link.to !== '/admin';
-          return (<Link key={link.to} to={link.to} className={`flex items-center gap-3 px-4 py-2 rounded-lg transition-colors ${isActive ? 'bg-white/20' : 'hover:bg-white/10'}`}><link.icon className="h-5 w-5" />{link.label}</Link>);
-        })}
-      </nav>
-    </div>
-  );
-}
+  if (error) {
+    toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    return;
+  }
+  toast({ title: 'Utilisateur validé' });
+  loadUsers();
+};
 
-function Dashboard() {
-  const { t } = useTranslation();
-  const [stats, setStats] = useState({ totalUsers: 0, pendingUsers: 0, verifiedUsers: 0, totalResources: 0, totalEvents: 0, newProjects: 0, newLeads: 0 });
-  const [recentProjects, setRecentProjects] = useState<MarinaProject[]>([]);
-  const [recentLeads, setRecentLeads] = useState<PartnerLead[]>([]);
-  const [loading, setLoading] = useState(true);
+const openReject = (userId: string) => {
+  setRejectingUserId(userId);
+  setRejectReason('');
+};
 
-  useEffect(() => { loadDashboard(); }, []);
+const confirmReject = async () => {
+  if (!rejectingUserId) return;
+  if (!rejectReason.trim()) {
+    toast({ title: 'Motif requis', description: "Veuillez saisir un motif de refus.", variant: 'destructive' });
+    return;
+  }
+
+  const { error } = await supabase.from('profiles').update({
+    access_status: 'rejected',
+    onboarding_status: 'draft',
+    rejection_reason: rejectReason.trim(),
+  }).eq('user_id', rejectingUserId);
+
+  if (error) {
+    toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    return;
+  }
+
+  toast({ title: 'Utilisateur refusé' });
+  setRejectingUserId(null);
+  setRejectReason('');
+  loadUsers();
+};
+
+const updateUserStatus = async (userId: string, newStatus: string) => {
+  if (newStatus === 'verified') {
+    await approveUser(userId);
+    return;
+  }
+  if (newStatus === 'rejected') {
+    openReject(userId);
+    return;
+  }
+  // pending / suspended
+  const { error } = await supabase.from('profiles').update({
+    access_status: newStatus,
+    // do not force onboarding_status here
+  }).eq('user_id', userId);
+
+  if (error) {
+    toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+    return;
+  }
+
+  toast({ title: `Statut mis à jour : ${newStatus}` });
+  loadUsers();
+};  useEffect(() => { loadDashboard(); }, []);
 
   const loadDashboard = async () => {
     setLoading(true);

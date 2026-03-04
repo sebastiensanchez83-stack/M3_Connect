@@ -107,7 +107,12 @@ export function OnboardingPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/'); return; }
-    if (profile?.onboarding_status === 'submitted' || profile?.onboarding_status === 'completed') {
+    if (profile?.onboarding_status === 'completed') {
+      navigate('/account'); return;
+    }
+    // Submitted + pending = waiting for review → show account page
+    // Submitted + rejected = allow re-editing → stay on onboarding
+    if (profile?.onboarding_status === 'submitted' && profile?.access_status !== 'rejected') {
       navigate('/account'); return;
     }
     if (profile) {

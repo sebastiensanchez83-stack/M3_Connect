@@ -147,9 +147,19 @@ export function AccountPage() {
 
       {/* Bannière compte refusé */}
       {profile.access_status === 'rejected' && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 flex items-center gap-3">
-          <XCircle className="h-5 w-5 text-red-600 shrink-0" />
-          <p className="text-red-800">Votre demande d'accès a été refusée. Contactez-nous pour plus d'informations.</p>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 space-y-2">
+          <div className="flex items-center gap-3">
+            <XCircle className="h-5 w-5 text-red-600 shrink-0" />
+            <p className="text-red-800 font-medium">Votre demande d'accès a été refusée.</p>
+          </div>
+          {profile.rejection_reason && (
+            <p className="text-red-700 text-sm ml-8">Raison : {profile.rejection_reason}</p>
+          )}
+          <div className="ml-8">
+            <Button size="sm" variant="outline" onClick={() => navigate('/onboarding')}>
+              Modifier et resoumettre
+            </Button>
+          </div>
         </div>
       )}
 

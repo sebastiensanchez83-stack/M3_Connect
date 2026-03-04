@@ -1,42 +1,38 @@
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
-import { User, Session } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 import {
-  Profile,
-  MarinaProfile,
-  PartnerProfile,
-  MediaPartnerProfile,
-  UserDetails,
-} from '@/types/database'
+  Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile,
+  UserDetails, PersonaType,
+} from '@/types/database';
 
 interface AuthContextType {
-  user: User | null
-  session: Session | null
-  loading: boolean
-  profile: Profile | null
-  userDetails: UserDetails | null
-  isVerified: boolean
-  isModerator: boolean
-
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>
-  signOut: () => Promise<void>
-  refreshProfile: () => Promise<void>
+  user: User | null;
+  session: Session | null;
+  loading: boolean;
+  profile: Profile | null;
+  userDetails: UserDetails | null;
+  isVerified: boolean;
+  isModerator: boolean;
+  signUp: (email: string, password: string, persona: PersonaType) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signOut: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const isResetPasswordPage = () => window.location.pathname === '/reset-password'
+const isResetPasswordPage = () => window.location.pathname === '/reset-password';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [userDetails, setUserDetails] = useState<UserDetails | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [userDetails, setUserDetails] = useState<UserDetails | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const isVerified = profile?.access_status === 'verified'
-  const isModerator = profile?.persona === 'moderator' && isVerified
+  const isVerified = profile?.access_status === 'verified';
+  const isModerator = profile?.persona === 'moderator' && isVerified;
 
   const fetchUserData = useCallback(async (userId: string): Promise<{ profile: Profile | null; details: UserDetails | null }> => {
     try {
@@ -44,179 +40,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .from('profiles')
         .select('*')
         .eq('user_id', userId)
-        .maybeSingle()
+        .maybeSingle();
 
-      if (error || !profileData) return { profile: null, details: null }
+      if (error || !profileData) return { profile: null, details: null };
 
-      const p = profileData as Profile
-
-      let details: UserDetails | null = null
-
-      if (p.persona === 'marina') {
-        const { data } = await supabase.from('marina_profiles').select('*').eq('user_id', userId).maybeSingle()
-        details = (data as MarinaProfile) ?? null
-      } else if (p.persona === 'partner') {
-        const { data } = await supabase.from('partner_profiles').select('*').eq('user_id', userId).maybeSingle()
-        details = (data as PartnerProfile) ?? null
-      } else if (p.persona === 'media_partner') {
-        const { data } = await supabase.from('media_partner_profiles').select('*').eq('user_id', userId).maybeSingle()
-        details = (data as MediaPartnerProfile) ?? null
+      let details: UserDetails | null = null;
+      if (profileData.persona === 'marina') {
+        const { data } = await supabase.from('marina_profiles').select('*').eq('user_id', userId).maybeSingle();
+        details = data as MarinaProfile | null;
+      } else if (profileData.persona === 'partner') {
+        const { data } = await supabase.from('partner_profiles').select('*').eq('user_id', userId).maybeSingle();
+        details = data as PartnerProfile | null;
+      } else if (profileData.persona === 'media_partner') {
+        const { data } = await supabase.from('media_partner_profiles').select('*').eq('user_id', userId).maybeSingle();
+        details = data as MediaPartnerProfile | null;
       }
 
-      return { profile: p, details }
-    } catch (e) {
-      console.error('[AuthContext] fetchUserData error:', e)
-      return { profile: null, details: null }
-    }
-  }, [])
-
-  const refreshProfile = useCallback(async () => {
-    if (!user) return
-    const { profile: p, details } = await fetchUserData(user.id)
-    setProfile(p)
-    setUserDetails(details)
-  }, [fetchUserData, user])
-
-  useEffect(() => {
-    if (isResetPasswordPage()) {
-      setLoading(false)
-      return
-    }
-
-    let mounted = true
-
-    const init = async () => {
-      try {
-        // ✅ Deterministic initial session load
-        const { data, error } = await supabase.auth.getSession()
-        if (error) console.warn('[AuthContext] getSession error:', error)
-
-        if (!mounted) return
-
-        const sess = data.session ?? null
-        setSession(sess)
-        setUser(sess?.user ?? null)
-
-        if (sess?.user) {
-          const { profile: p, details } = await fetchUserData(sess.user.id)
-          if (!mounted) return
-          setProfile(p)
-          setUserDetails(details)
-        } else {
-          setProfile(null)
-          setUserDetails(null)
-        }
-      } catch (e) {
-        console.error('[AuthContext] init error:', e)
-      } finally {
-        if (mounted) setLoading(false)
-      }
-    }
-
-    init()
-
-    // ✅ React to later auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
-      if (!mounted) return
-
-      setSession(newSession)
-      setUser(newSession?.user ?? null)
-
-      if (newSession?.user) {
-        const { profile: p, details } = await fetchUserData(newSession.user.id)
-        if (!mounted) return
-        setProfile(p)
-        setUserDetails(details)
-      } else {
-        setProfile(null)
-        setUserDetails(null)
-      }
-    })
-
-    return () => {
-      mounted = false
-      subscription.unsubscribe()
-    }
-  }, [fetchUserData])
-
-  // ✅ Generic signup only
-  const signUp = async (email: string, password: string): Promise<{ error: Error | null }> => {
-    const { error } = await supabase.auth.signUp({ email, password })
-    return { error: error ?? null }
-  }
-
-  const signIn = async (email: string, password: string): Promise<{ error: Error | null }> => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return { error: error ?? null }
-  }
-
-  const signOut = async () => {
-    try {
-      await supabase.auth.signOut()
-    } catch (e) {
-      console.error('[AuthContext] signOut error:', e)
-    }
-    setUser(null)
-    setSession(null)
-    setProfile(null)
-    setUserDetails(null)
-  }
-
-  return (
-    <AuthContext.Provider value={{
-      user,
-      session,
-      loading,
-      profile,
-      userDetails,
-      isVerified,
-      isModerator,
-      signUp,
-      signIn,
-      signOut,
-      refreshProfile,
-    }}>
-      {children}
-    </AuthContext.Provider>
-  )
-}
-
-export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
-  return ctx
-}        const { data } = await supabase.from('media_partner_profiles').select('*').eq('user_id', userId).maybeSingle();
-        details = (data as MediaPartnerProfile) ?? null;
-      } else {
-        details = null;
-      }
-
-      return { profile: p, details };
-    } catch (e) {
-      console.error('[AuthContext] fetchUserData error:', e);
+      return { profile: profileData as Profile, details };
+    } catch {
       return { profile: null, details: null };
     }
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    if (!user) return;
-
-    const { profile: p, details } = await fetchUserData(user.id);
-    setProfile(p);
-    setUserDetails(details);
-  }, [fetchUserData, user]);
+    const currentUser = (await supabase.auth.getUser()).data.user;
+    if (currentUser) {
+      const { profile: p, details } = await fetchUserData(currentUser.id);
+      setProfile(p);
+      setUserDetails(details);
+    }
+  }, [fetchUserData]);
 
   useEffect(() => {
     if (isResetPasswordPage()) { setLoading(false); return; }
 
     let isMounted = true;
 
-    // Safety timeout: if Supabase auth hangs, force loading false after 5s
+    // Safety timeout: if Supabase auth hangs (token refresh, network issue),
+    // force loading to false after 5 seconds so the app doesn't stay stuck.
     const safetyTimeout = setTimeout(() => {
-      if (isMounted) setLoading(false);
+      if (isMounted && loading) {
+        console.warn('[AuthContext] Auth initialization timed out after 5s — forcing loading=false');
+        setLoading(false);
+      }
     }, 5000);
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    // Use ONLY onAuthStateChange (Supabase v2 best practice).
+    // Do NOT also call getSession() — it creates race conditions.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!isMounted) return;
 
       setSession(newSession);
@@ -241,12 +112,26 @@ export function useAuth() {
       clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
-  }, [fetchUserData]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ✅ Generic signup only (no DB inserts here)
-  const signUp = async (email: string, password: string): Promise<{ error: Error | null }> => {
-    const { error } = await supabase.auth.signUp({ email, password });
+  const signUp = async (email: string, password: string, persona: PersonaType): Promise<{ error: Error | null }> => {
+    const { data, error } = await supabase.auth.signUp({ email, password });
     if (error) return { error };
+    if (!data.user) return { error: new Error('No user returned') };
+
+    const { error: profileError } = await supabase.from('profiles').insert({
+      user_id: data.user.id, persona, access_status: 'pending', onboarding_status: 'draft',
+    });
+    if (profileError) return { error: profileError };
+
+    if (persona === 'marina') {
+      await supabase.from('marina_profiles').insert({ user_id: data.user.id, marina_name: '' });
+    } else if (persona === 'partner') {
+      await supabase.from('partner_profiles').insert({ user_id: data.user.id, company_name: '' });
+    } else if (persona === 'media_partner') {
+      await supabase.from('media_partner_profiles').insert({ user_id: data.user.id, media_name: '' });
+    }
+
     return { error: null };
   };
 
@@ -261,8 +146,7 @@ export function useAuth() {
     } catch (error) {
       console.error('[AuthContext] signOut error:', error);
     }
-
-    // Always clear local state
+    // Always clear local state, even if signOut() failed
     setUser(null);
     setProfile(null);
     setUserDetails(null);
@@ -271,17 +155,8 @@ export function useAuth() {
 
   return (
     <AuthContext.Provider value={{
-      user,
-      session,
-      loading,
-      profile,
-      userDetails,
-      isVerified,
-      isModerator,
-      signUp,
-      signIn,
-      signOut,
-      refreshProfile,
+      user, session, loading, profile, userDetails, isVerified, isModerator,
+      signUp, signIn, signOut, refreshProfile,
     }}>
       {children}
     </AuthContext.Provider>
@@ -289,7 +164,7 @@ export function useAuth() {
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
-  return ctx;
+  const context = useContext(AuthContext);
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
+  return context;
 }

@@ -7,6 +7,7 @@ export interface Profile {
   persona: PersonaType;
   access_status: AccessStatus;
   onboarding_status: OnboardingStatus;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
 }

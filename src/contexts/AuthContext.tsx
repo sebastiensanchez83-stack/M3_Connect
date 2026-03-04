@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import {
@@ -34,7 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isVerified = profile?.access_status === 'verified';
   const isModerator = profile?.persona === 'moderator' && isVerified;
 
-  const fetchUserData = async (userId: string): Promise<{ profile: Profile | null; details: UserDetails | null }> => {
+  const fetchUserData = useCallback(async (userId: string): Promise<{ profile: Profile | null; details: UserDetails | null }> => {
     try {
       const { data: profileData, error } = await supabase
         .from('profiles')
@@ -60,53 +60,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return { profile: null, details: null };
     }
-  };
+  }, []);
 
-  const refreshProfile = async () => {
-    if (user) {
-      const { profile: p, details } = await fetchUserData(user.id);
+  const refreshProfile = useCallback(async () => {
+    const currentUser = (await supabase.auth.getUser()).data.user;
+    if (currentUser) {
+      const { profile: p, details } = await fetchUserData(currentUser.id);
       setProfile(p);
       setUserDetails(details);
     }
-  };
+  }, [fetchUserData]);
 
   useEffect(() => {
     if (isResetPasswordPage()) { setLoading(false); return; }
 
     let isMounted = true;
 
-    const initAuth = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error || !isMounted) { setLoading(false); return; }
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          const { profile: p, details } = await fetchUserData(session.user.id);
-          if (isMounted) { setProfile(p); setUserDetails(details); }
+    // Safety timeout: if Supabase auth hangs (token refresh, network issue),
+    // force loading to false after 5 seconds so the app doesn't stay stuck.
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted && loading) {
+        console.warn('[AuthContext] Auth initialization timed out after 5s — forcing loading=false');
+        setLoading(false);
+      }
+    }, 5000);
+
+    // Use ONLY onAuthStateChange (Supabase v2 best practice).
+    // Do NOT also call getSession() — it creates race conditions.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (!isMounted) return;
+
+      setSession(newSession);
+      setUser(newSession?.user ?? null);
+
+      if (newSession?.user) {
+        const { profile: p, details } = await fetchUserData(newSession.user.id);
+        if (isMounted) {
+          setProfile(p);
+          setUserDetails(details);
         }
-      } finally {
-        if (isMounted) setLoading(false);
-      }
-    };
-
-    initAuth();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
-      if (!isMounted || isResetPasswordPage()) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        const { profile: p, details } = await fetchUserData(session.user.id);
-        if (isMounted) { setProfile(p); setUserDetails(details); }
       } else {
-        setProfile(null); setUserDetails(null);
+        setProfile(null);
+        setUserDetails(null);
       }
+
       if (isMounted) setLoading(false);
     });
 
-    return () => { isMounted = false; subscription.unsubscribe(); };
-  }, []);
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyTimeout);
+      subscription.unsubscribe();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const signUp = async (email: string, password: string, persona: PersonaType): Promise<{ error: Error | null }> => {
     const { data, error } = await supabase.auth.signUp({ email, password });
@@ -135,8 +141,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setUser(null); setProfile(null); setUserDetails(null); setSession(null);
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('[AuthContext] signOut error:', error);
+    }
+    // Always clear local state, even if signOut() failed
+    setUser(null);
+    setProfile(null);
+    setUserDetails(null);
+    setSession(null);
   };
 
   return (

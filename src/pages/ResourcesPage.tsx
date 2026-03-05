@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Search, Lock, FileText, RefreshCw, Calendar, Clock, ArrowRight, BookOpen, Tag,
+  Search, Lock, FileText, RefreshCw, Calendar, Clock, ArrowRight, BookOpen, Tag, Users,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -32,6 +32,7 @@ interface Resource {
   created_at: string;
   published_at: string | null;
   tags: string[];
+  resource_speakers?: { id: string; full_name: string; profile_id: string | null; display_order: number }[];
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -60,7 +61,7 @@ export function ResourcesPage() {
       try {
         const { data, error } = await supabase
           .from('resources')
-          .select('*')
+          .select('*, resource_speakers(id, full_name, profile_id, display_order)')
           .eq('published', true)
           .order('published_at', { ascending: false, nullsFirst: false });
 
@@ -294,6 +295,17 @@ export function ResourcesPage() {
                           {estimateReadTime(featuredResource.content)} {t('resourceDetail.minRead')}
                         </span>
                       </div>
+                      {featuredResource.resource_speakers && featuredResource.resource_speakers.length > 0 && (
+                        <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+                          <Users className="h-4 w-4 shrink-0" />
+                          <span>
+                            {featuredResource.resource_speakers
+                              .sort((a, b) => a.display_order - b.display_order)
+                              .map(s => s.full_name)
+                              .join(', ')}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center gap-1 text-primary font-semibold text-sm group-hover:gap-2 transition-all">
                         {t('resources.readMore')} <ArrowRight className="h-4 w-4" />
                       </div>
@@ -405,6 +417,19 @@ function ResourceCard({
         <p className="text-gray-500 text-sm line-clamp-2 leading-relaxed">
           {resource.summary}
         </p>
+
+        {/* Speakers */}
+        {resource.resource_speakers && resource.resource_speakers.length > 0 && (
+          <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-2">
+            <Users className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {resource.resource_speakers
+                .sort((a, b) => a.display_order - b.display_order)
+                .map(s => s.full_name)
+                .join(', ')}
+            </span>
+          </div>
+        )}
 
         {/* Tags */}
         {resource.tags && resource.tags.length > 0 && (

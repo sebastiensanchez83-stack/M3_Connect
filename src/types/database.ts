@@ -61,4 +61,15 @@ export interface Sector {
   created_at: string;
 }
 
+export interface ResourceSpeaker {
+  id: string;
+  resource_id: string;
+  profile_id: string | null;
+  full_name: string;
+  job_title: string | null;
+  company_name: string | null;
+  display_order: number;
+  created_at: string;
+}
+
 export type UserDetails = MarinaProfile | PartnerProfile | MediaPartnerProfile | ModeratorProfile;

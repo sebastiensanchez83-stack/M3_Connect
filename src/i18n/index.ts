@@ -89,6 +89,8 @@ const resources = {
         joinToAccess: 'Join to Access',
         goToAccount: 'Go to Account',
         relatedResources: 'Related Resources',
+        speakers: 'Speakers',
+        viewProfile: 'View Profile',
       },
       // Events
       events: {
@@ -610,6 +612,8 @@ const resources = {
         joinToAccess: "S'inscrire pour Accéder",
         goToAccount: 'Aller à Mon Compte',
         relatedResources: 'Ressources Associées',
+        speakers: 'Intervenants',
+        viewProfile: 'Voir le Profil',
       },
       // Events
       events: {

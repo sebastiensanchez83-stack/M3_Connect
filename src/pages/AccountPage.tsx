@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare } from 'lucide-react';
 import { MarinaProfile, PartnerProfile, MediaPartnerProfile } from '@/types/database';
 
 interface EventRegistration {
@@ -36,6 +36,35 @@ interface WebinarRequest {
   created_at: string;
 }
 
+interface RFPItem {
+  id: string;
+  title: string;
+  scope: string;
+  sector_id: string | null;
+  deadline_date: string | null;
+  is_open: boolean;
+  created_at: string;
+}
+
+interface ConsultationItem {
+  id: string;
+  title: string;
+  description: string;
+  sector_id: string | null;
+  is_open: boolean;
+  created_at: string;
+}
+
+interface PartnerRequestItem {
+  id: string;
+  partner_user_id: string;
+  marina_user_id: string;
+  sector_id: string | null;
+  message: string;
+  status: string;
+  created_at: string;
+}
+
 export function AccountPage() {
   const { user, profile, userDetails, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -43,6 +72,9 @@ export function AccountPage() {
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
   const [projects, setProjects] = useState<MarinaProject[]>([]);
   const [webinarRequests, setWebinarRequests] = useState<WebinarRequest[]>([]);
+  const [rfps, setRfps] = useState<RFPItem[]>([]);
+  const [consultations, setConsultations] = useState<ConsultationItem[]>([]);
+  const [partnerRequests, setPartnerRequests] = useState<PartnerRequestItem[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
 
   const defaultTab = searchParams.get('tab') || 'profile';
@@ -82,6 +114,31 @@ export function AccountPage() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
         if (webinars) setWebinarRequests(webinars as WebinarRequest[]);
+
+        // Fetch RFPs (marina only)
+        if (profile?.persona === 'marina') {
+          const { data: rfpData } = await supabase
+            .from('rfps')
+            .select('id, title, scope, sector_id, deadline_date, is_open, created_at')
+            .eq('marina_user_id', user.id)
+            .order('created_at', { ascending: false });
+          if (rfpData) setRfps(rfpData as RFPItem[]);
+
+          const { data: consultData } = await supabase
+            .from('consultations')
+            .select('id, title, description, sector_id, is_open, created_at')
+            .eq('marina_user_id', user.id)
+            .order('created_at', { ascending: false });
+          if (consultData) setConsultations(consultData as ConsultationItem[]);
+        }
+
+        // Fetch partner requests received (for any user)
+        const { data: prData } = await supabase
+          .from('partner_requests')
+          .select('id, partner_user_id, marina_user_id, sector_id, message, status, created_at')
+          .or(`partner_user_id.eq.${user.id},marina_user_id.eq.${user.id}`)
+          .order('created_at', { ascending: false });
+        if (prData) setPartnerRequests(prData as PartnerRequestItem[]);
       } catch (err) {
         console.error('Error fetching account data:', err);
       } finally {
@@ -190,6 +247,9 @@ export function AccountPage() {
           <TabsTrigger value="registrations">Inscriptions</TabsTrigger>
           {isMarina && <TabsTrigger value="projects">Projets</TabsTrigger>}
           <TabsTrigger value="webinars">Webinars</TabsTrigger>
+          {isMarina && <TabsTrigger value="rfps">RFPs</TabsTrigger>}
+          {isMarina && <TabsTrigger value="consultations">Consultations</TabsTrigger>}
+          <TabsTrigger value="b2b-requests">B2B</TabsTrigger>
         </TabsList>
 
         {/* ── PROFIL ── */}
@@ -428,8 +488,161 @@ export function AccountPage() {
           </Card>
         </TabsContent>
 
+        {/* ── RFPs (marina uniquement) ── */}
+        {isMarina && (
+          <TabsContent value="rfps">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <ClipboardList className="h-5 w-5" />
+                  Mes appels d'offres (RFPs)
+                </CardTitle>
+                <Button size="sm" onClick={() => navigate('/submit-rfp')}>
+                  <Plus className="h-4 w-4 mr-2" />Soumettre un RFP
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {dataLoading ? (
+                  <p className="text-gray-500 text-center py-8">Chargement...</p>
+                ) : rfps.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <ClipboardList className="h-8 w-8 mx-auto mb-3 text-gray-300" />
+                    <p>Aucun appel d'offres soumis.</p>
+                    <Button className="mt-4" size="sm" onClick={() => navigate('/submit-rfp')}>
+                      Créer un RFP
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {rfps.map((rfp) => (
+                      <div key={rfp.id} className="p-4 border rounded-lg space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="font-medium">{rfp.title}</div>
+                          <Badge variant={rfp.is_open ? 'success' : 'secondary'}>
+                            {rfp.is_open ? 'Ouvert' : 'Fermé'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-600 line-clamp-2">{rfp.scope}</p>
+                        <div className="text-sm text-gray-500">
+                          {rfp.deadline_date && `Échéance : ${new Date(rfp.deadline_date).toLocaleDateString('fr-FR')} · `}
+                          Créé le {new Date(rfp.created_at).toLocaleDateString('fr-FR')}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* ── CONSULTATIONS (marina uniquement) ── */}
+        {isMarina && (
+          <TabsContent value="consultations">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5" />
+                  Mes consultations
+                </CardTitle>
+                <Button size="sm" onClick={() => navigate('/submit-consultation')}>
+                  <Plus className="h-4 w-4 mr-2" />Nouvelle consultation
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {dataLoading ? (
+                  <p className="text-gray-500 text-center py-8">Chargement...</p>
+                ) : consultations.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <MessageSquare className="h-8 w-8 mx-auto mb-3 text-gray-300" />
+                    <p>Aucune consultation soumise.</p>
+                    <Button className="mt-4" size="sm" onClick={() => navigate('/submit-consultation')}>
+                      Poser une question
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {consultations.map((c) => (
+                      <div key={c.id} className="p-4 border rounded-lg space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="font-medium">{c.title}</div>
+                          <Badge variant={c.is_open ? 'success' : 'secondary'}>
+                            {c.is_open ? 'Ouverte' : 'Fermée'}
+                          </Badge>
+                        </div>
+                        <p className="text-sm text-gray-600 line-clamp-2">{c.description}</p>
+                        <div className="text-sm text-gray-500">
+                          Créée le {new Date(c.created_at).toLocaleDateString('fr-FR')}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* ── B2B PARTNER REQUESTS ── */}
+        <TabsContent value="b2b-requests">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Link2 className="h-5 w-5" />
+                Demandes B2B
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {dataLoading ? (
+                <p className="text-gray-500 text-center py-8">Chargement...</p>
+              ) : partnerRequests.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Link2 className="h-8 w-8 mx-auto mb-3 text-gray-300" />
+                  <p>Aucune demande B2B pour le moment.</p>
+                  <p className="text-sm mt-1">
+                    {isMarina
+                      ? 'Les partenaires peuvent vous contacter via le Marketplace.'
+                      : 'Retrouvez vos demandes de contact vers les marinas ici.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {partnerRequests.map((pr) => (
+                    <div key={pr.id} className="p-4 border rounded-lg space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-sm text-gray-500">
+                            {pr.partner_user_id === user?.id ? 'Envoyée' : 'Reçue'}
+                            {' · '}{new Date(pr.created_at).toLocaleDateString('fr-FR')}
+                          </div>
+                          <p className="text-sm mt-1">{pr.message}</p>
+                        </div>
+                        <B2BStatusBadge status={pr.status} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
       </Tabs>
     </div>
+  );
+}
+
+function B2BStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    pending: { label: 'En attente', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    accepted: { label: 'Acceptée', className: 'bg-green-100 text-green-800 border-green-200' },
+    rejected: { label: 'Refusée', className: 'bg-red-100 text-red-800 border-red-200' },
+  };
+  const s = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-800' };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${s.className}`}>
+      {s.label}
+    </span>
   );
 }
 

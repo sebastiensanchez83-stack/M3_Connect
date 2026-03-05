@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Users, UserCheck, FileText, Calendar, Anchor, RefreshCw, Search,
   Download, Plus, Pencil, Trash2, Eye, ChevronRight, Radio,
+  Link2, ClipboardList, MessageSquare, BookOpen, FolderOpen,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -111,6 +112,64 @@ interface WebinarRequest {
   created_at: string;
 }
 
+interface PartnerRequest {
+  id: string;
+  partner_user_id: string;
+  marina_user_id: string;
+  sector_id: string | null;
+  message: string;
+  status: string;
+  created_at: string;
+}
+
+interface RFP {
+  id: string;
+  marina_user_id: string;
+  title: string;
+  scope: string;
+  sector_id: string | null;
+  deadline_date: string | null;
+  is_open: boolean;
+  created_at: string;
+}
+
+interface Consultation {
+  id: string;
+  marina_user_id: string;
+  title: string;
+  description: string;
+  sector_id: string | null;
+  is_open: boolean;
+  created_at: string;
+}
+
+interface ContentDraft {
+  id: string;
+  content_item_id: string | null;
+  title: string;
+  summary: string | null;
+  body_markdown: string;
+  tags: string[];
+  status: string;
+  created_by: string;
+  created_at: string;
+}
+
+interface ResourceDraft {
+  id: string;
+  resource_id: string | null;
+  title: string;
+  summary: string | null;
+  content: string;
+  type: string | null;
+  topic: string | null;
+  language: string | null;
+  access_level: string | null;
+  status: string;
+  created_by: string;
+  created_at: string;
+}
+
 /* ─── Sidebar ─── */
 function AdminSidebar() {
   const { t } = useTranslation();
@@ -123,6 +182,11 @@ function AdminSidebar() {
     { to: '/admin/projects', label: t('admin.marinaProjects'), icon: <Anchor className="h-4 w-4" /> },
     { to: '/admin/leads', label: t('admin.partnerLeads'), icon: <Users className="h-4 w-4" /> },
     { to: '/admin/webinars', label: 'Webinar Requests', icon: <Radio className="h-4 w-4" /> },
+    { to: '/admin/partner-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" /> },
+    { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" /> },
+    { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" /> },
+    { to: '/admin/content', label: 'CMS Content', icon: <BookOpen className="h-4 w-4" /> },
+    { to: '/admin/resource-drafts', label: 'Resource Drafts', icon: <FolderOpen className="h-4 w-4" /> },
   ];
   return (
     <div className="w-56 shrink-0 bg-white border-r min-h-[calc(100vh-64px)] p-4">
@@ -149,9 +213,8 @@ function Dashboard() {
   const [stats, setStats] = useState({
     totalUsers: 0, pendingUsers: 0, verifiedUsers: 0,
     totalResources: 0, totalEvents: 0, newProjects: 0, newLeads: 0, newWebinars: 0,
+    pendingB2B: 0, openRFPs: 0, openConsultations: 0, contentDrafts: 0,
   });
-  const [recentProjects, setRecentProjects] = useState<MarinaProject[]>([]);
-  const [recentLeads, setRecentLeads] = useState<PartnerLead[]>([]);
 
   useEffect(() => { loadDashboard(); }, []);
 
@@ -162,7 +225,7 @@ function Dashboard() {
         { count: totalUsers }, { count: pendingUsers }, { count: verifiedUsers },
         { count: totalResources }, { count: totalEvents },
         { count: newProjects }, { count: newLeads }, { count: newWebinars },
-        { data: projects }, { data: leads },
+        { count: pendingB2B }, { count: openRFPs }, { count: openConsultations }, { count: contentDrafts },
       ] = await Promise.all([
         supabase.from('profiles').select('*', { count: 'exact', head: true }),
         supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'pending'),
@@ -172,16 +235,17 @@ function Dashboard() {
         supabase.from('marina_projects').select('*', { count: 'exact', head: true }).eq('status', 'new'),
         supabase.from('partner_leads').select('*', { count: 'exact', head: true }).eq('status', 'new'),
         supabase.from('webinar_requests').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
-        supabase.from('marina_projects').select('*').order('created_at', { ascending: false }).limit(5),
-        supabase.from('partner_leads').select('*').order('created_at', { ascending: false }).limit(5),
+        supabase.from('partner_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+        supabase.from('rfps').select('*', { count: 'exact', head: true }).eq('is_open', true),
+        supabase.from('consultations').select('*', { count: 'exact', head: true }).eq('is_open', true),
+        supabase.from('content_drafts').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
       ]);
       setStats({
         totalUsers: totalUsers || 0, pendingUsers: pendingUsers || 0, verifiedUsers: verifiedUsers || 0,
         totalResources: totalResources || 0, totalEvents: totalEvents || 0,
         newProjects: newProjects || 0, newLeads: newLeads || 0, newWebinars: newWebinars || 0,
+        pendingB2B: pendingB2B || 0, openRFPs: openRFPs || 0, openConsultations: openConsultations || 0, contentDrafts: contentDrafts || 0,
       });
-      setRecentProjects(projects || []);
-      setRecentLeads(leads || []);
     } catch (error) { console.error('Error loading dashboard:', error); }
     setLoading(false);
   };
@@ -195,6 +259,10 @@ function Dashboard() {
     { label: 'New Projects', value: stats.newProjects, icon: Anchor, color: 'text-orange-600' },
     { label: 'New Leads', value: stats.newLeads, icon: Users, color: 'text-teal-600' },
     { label: 'New Webinars', value: stats.newWebinars, icon: Radio, color: 'text-indigo-600' },
+    { label: 'Pending B2B', value: stats.pendingB2B, icon: Link2, color: 'text-rose-600' },
+    { label: 'Open RFPs', value: stats.openRFPs, icon: ClipboardList, color: 'text-amber-600' },
+    { label: 'Open Consults', value: stats.openConsultations, icon: MessageSquare, color: 'text-cyan-600' },
+    { label: 'Content Drafts', value: stats.contentDrafts, icon: BookOpen, color: 'text-violet-600' },
   ];
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -205,7 +273,7 @@ function Dashboard() {
         <h1 className="text-2xl font-bold">{t('admin.dashboard')}</h1>
         <Button variant="outline" size="sm" onClick={loadDashboard}><RefreshCw className="h-4 w-4 mr-2" />Refresh</Button>
       </div>
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-8">
         {statCards.map((stat, i) => (
           <Card key={i}><CardContent className="pt-4 pb-4">
             <div className="flex flex-col items-center text-center">
@@ -215,50 +283,6 @@ function Dashboard() {
             </div>
           </CardContent></Card>
         ))}
-      </div>
-      <div className="grid md:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg">Recent Marina Projects</CardTitle>
-            <Link to="/admin/projects" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link>
-          </CardHeader>
-          <CardContent>
-            {recentProjects.length === 0 ? <p className="text-gray-500 text-center py-4">No projects yet</p> : (
-              <div className="space-y-3">
-                {recentProjects.map(project => (
-                  <div key={project.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div>
-                      <div className="font-medium font-mono text-xs">{project.user_id || 'Unknown'}</div>
-                      <div className="text-sm text-gray-500">{project.project_type} • {project.budget_range}</div>
-                    </div>
-                    <Badge variant={project.status === 'new' ? 'warning' : project.status === 'in_progress' ? 'info' : 'success'}>{project.status}</Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-lg">Recent Partner Leads</CardTitle>
-            <Link to="/admin/leads" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link>
-          </CardHeader>
-          <CardContent>
-            {recentLeads.length === 0 ? <p className="text-gray-500 text-center py-4">No leads yet</p> : (
-              <div className="space-y-3">
-                {recentLeads.map(lead => (
-                  <div key={lead.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div>
-                      <div className="font-medium">{lead.company}</div>
-                      <div className="text-sm text-gray-500">{lead.first_name} {lead.last_name} • {lead.actor_type}</div>
-                    </div>
-                    <Badge variant={lead.status === 'new' ? 'warning' : lead.status === 'qualified' ? 'success' : 'info'}>{lead.status}</Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
   );
@@ -279,51 +303,28 @@ function UsersAdmin() {
 
   const loadUsers = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from('profiles')
-      .select('user_id, persona, access_status, onboarding_status, created_at')
-      .order('created_at', { ascending: false });
+    const { data } = await supabase.from('profiles').select('user_id, persona, access_status, onboarding_status, created_at').order('created_at', { ascending: false });
     setUsers((data || []) as AdminProfile[]);
     setLoading(false);
   };
 
   const approveUser = async (userId: string) => {
-    const { error } = await supabase.from('profiles').update({
-      access_status: 'verified', onboarding_status: 'completed', rejection_reason: null,
-    }).eq('user_id', userId);
-    if (error) { toast({ title: 'Erreur', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: 'Utilisateur validé' });
-    loadUsers();
+    const { error } = await supabase.from('profiles').update({ access_status: 'verified', onboarding_status: 'completed', rejection_reason: null }).eq('user_id', userId);
+    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'User approved' }); loadUsers();
   };
-
-  const openReject = (userId: string) => {
-    setRejectingUserId(userId);
-    setRejectReason('');
-  };
-
+  const openReject = (userId: string) => { setRejectingUserId(userId); setRejectReason(''); };
   const confirmReject = async () => {
-    if (!rejectingUserId) return;
-    if (!rejectReason.trim()) {
-      toast({ title: 'Motif requis', description: 'Veuillez saisir un motif de refus.', variant: 'destructive' });
-      return;
-    }
-    const { error } = await supabase.from('profiles').update({
-      access_status: 'rejected', onboarding_status: 'draft', rejection_reason: rejectReason.trim(),
-    }).eq('user_id', rejectingUserId);
-    if (error) { toast({ title: 'Erreur', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: 'Utilisateur refusé' });
-    setRejectingUserId(null);
-    setRejectReason('');
-    loadUsers();
+    if (!rejectingUserId || !rejectReason.trim()) { toast({ title: 'Reason required', variant: 'destructive' }); return; }
+    const { error } = await supabase.from('profiles').update({ access_status: 'rejected', onboarding_status: 'draft', rejection_reason: rejectReason.trim() }).eq('user_id', rejectingUserId);
+    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'User rejected' }); setRejectingUserId(null); loadUsers();
   };
-
   const updateUserStatus = async (userId: string, newStatus: string) => {
     if (newStatus === 'verified') { await approveUser(userId); return; }
     if (newStatus === 'rejected') { openReject(userId); return; }
-    const { error } = await supabase.from('profiles').update({ access_status: newStatus }).eq('user_id', userId);
-    if (error) { toast({ title: 'Erreur', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: `Statut mis à jour : ${newStatus}` });
-    loadUsers();
+    await supabase.from('profiles').update({ access_status: newStatus }).eq('user_id', userId);
+    toast({ title: `Status: ${newStatus}` }); loadUsers();
   };
 
   const filteredUsers = users.filter(user => {
@@ -334,22 +335,17 @@ function UsersAdmin() {
   });
 
   const exportCSV = () => {
-    const csv = [
-      ['UserID', 'Persona', 'Access Status', 'Onboarding', 'Created'].join(','),
-      ...filteredUsers.map(u => [u.user_id, u.persona, u.access_status, u.onboarding_status, new Date(u.created_at).toLocaleDateString()].join(','))
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'users.csv'; a.click();
+    const csv = [['UserID', 'Persona', 'Access Status', 'Onboarding', 'Created'].join(','), ...filteredUsers.map(u => [u.user_id, u.persona, u.access_status, u.onboarding_status, new Date(u.created_at).toLocaleDateString()].join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'users.csv'; a.click();
   };
 
   const getPersonaBadge = (persona: string) => {
     switch (persona) {
       case 'admin': return <Badge variant="destructive">Admin</Badge>;
-      case 'moderator': return <Badge variant="destructive">Modérateur</Badge>;
-      case 'partner': return <Badge variant="success">Partenaire</Badge>;
+      case 'moderator': return <Badge variant="destructive">Moderator</Badge>;
+      case 'partner': return <Badge variant="success">Partner</Badge>;
       case 'marina': return <Badge variant="info">Marina</Badge>;
-      case 'media_partner': return <Badge variant="secondary">Média</Badge>;
+      case 'media_partner': return <Badge variant="secondary">Media</Badge>;
       default: return <Badge variant="secondary">{persona}</Badge>;
     }
   };
@@ -365,87 +361,57 @@ function UsersAdmin() {
       <div className="flex gap-4 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input placeholder="Rechercher par ID ou persona..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+          <Input placeholder="Search by ID or persona..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40"><SelectValue placeholder="Statut" /></SelectTrigger>
+          <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Tous les statuts</SelectItem>
-            <SelectItem value="pending">En attente</SelectItem>
-            <SelectItem value="verified">Vérifié</SelectItem>
-            <SelectItem value="rejected">Refusé</SelectItem>
-            <SelectItem value="suspended">Suspendu</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="verified">Verified</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+            <SelectItem value="suspended">Suspended</SelectItem>
           </SelectContent>
         </Select>
         <Select value={personaFilter} onValueChange={setPersonaFilter}>
           <SelectTrigger className="w-40"><SelectValue placeholder="Persona" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Tous</SelectItem>
+            <SelectItem value="all">All</SelectItem>
             <SelectItem value="marina">Marina</SelectItem>
-            <SelectItem value="partner">Partenaire</SelectItem>
-            <SelectItem value="media_partner">Média</SelectItem>
-            <SelectItem value="moderator">Modérateur</SelectItem>
+            <SelectItem value="partner">Partner</SelectItem>
+            <SelectItem value="media_partner">Media</SelectItem>
+            <SelectItem value="moderator">Moderator</SelectItem>
             <SelectItem value="admin">Admin</SelectItem>
           </SelectContent>
         </Select>
       </div>
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left p-4 font-medium">User ID</th>
-                  <th className="text-left p-4 font-medium">Persona</th>
-                  <th className="text-left p-4 font-medium">Onboarding</th>
-                  <th className="text-left p-4 font-medium">Statut accès</th>
-                  <th className="text-left p-4 font-medium">Créé le</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUsers.map(user => (
-                  <tr key={user.user_id} className="border-b hover:bg-gray-50">
-                    <td className="p-4 text-xs text-gray-500 font-mono">{user.user_id}</td>
-                    <td className="p-4">{getPersonaBadge(user.persona)}</td>
-                    <td className="p-4 text-sm capitalize">{user.onboarding_status}</td>
-                    <td className="p-4">
-                      <Select value={user.access_status} onValueChange={(value) => updateUserStatus(user.user_id, value)}>
-                        <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pending">En attente</SelectItem>
-                          <SelectItem value="verified">Vérifié</SelectItem>
-                          <SelectItem value="rejected">Refusé</SelectItem>
-                          <SelectItem value="suspended">Suspendu</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </td>
-                    <td className="p-4 text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString('fr-FR')}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Rejection dialog */}
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">User ID</th><th className="text-left p-4 font-medium">Persona</th><th className="text-left p-4 font-medium">Onboarding</th><th className="text-left p-4 font-medium">Access Status</th><th className="text-left p-4 font-medium">Created</th>
+      </tr></thead><tbody>
+        {filteredUsers.map(user => (
+          <tr key={user.user_id} className="border-b hover:bg-gray-50">
+            <td className="p-4 text-xs text-gray-500 font-mono">{user.user_id}</td>
+            <td className="p-4">{getPersonaBadge(user.persona)}</td>
+            <td className="p-4 text-sm capitalize">{user.onboarding_status}</td>
+            <td className="p-4">
+              <Select value={user.access_status} onValueChange={(v) => updateUserStatus(user.user_id, v)}>
+                <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">Pending</SelectItem><SelectItem value="verified">Verified</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem><SelectItem value="suspended">Suspended</SelectItem>
+                </SelectContent>
+              </Select>
+            </td>
+            <td className="p-4 text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
+          </tr>
+        ))}
+      </tbody></table></div></CardContent></Card>
       <Dialog open={!!rejectingUserId} onOpenChange={() => setRejectingUserId(null)}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Refuser cet utilisateur</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Reject User</DialogTitle><DialogDescription>Provide a reason for rejection.</DialogDescription></DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-2">
-              <Label>Motif de refus *</Label>
-              <Textarea
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                rows={3}
-                placeholder="Expliquez la raison du refus à l'utilisateur..."
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setRejectingUserId(null)}>Annuler</Button>
-              <Button variant="destructive" onClick={confirmReject}>Confirmer le refus</Button>
-            </div>
+            <div className="space-y-2"><Label>Rejection Reason *</Label><Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="Explain the reason..." /></div>
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRejectingUserId(null)}>Cancel</Button><Button variant="destructive" onClick={confirmReject}>Confirm Rejection</Button></div>
           </div>
         </DialogContent>
       </Dialog>
@@ -474,8 +440,7 @@ function ResourcesAdmin() {
     else { await supabase.from('resources').insert(payload); toast({ title: 'Resource created!' }); }
     setIsDialogOpen(false); loadResources();
   };
-
-  const handleDelete = async (id: string) => { if (!confirm('Delete this resource?')) return; await supabase.from('resources').delete().eq('id', id); toast({ title: 'Resource deleted' }); loadResources(); };
+  const handleDelete = async (id: string) => { if (!confirm('Delete this resource?')) return; await supabase.from('resources').delete().eq('id', id); toast({ title: 'Deleted' }); loadResources(); };
 
   const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
   const topics = ['Sustainability', 'Technology', 'Energy', 'Management', 'Events', 'Infrastructure'];
@@ -486,16 +451,16 @@ function ResourcesAdmin() {
     <div>
       <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.resources')} ({resources.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Resource</Button></div>
       <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Access</th><th className="text-left p-4 font-medium">Lang</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {resources.map(resource => (<tr key={resource.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-medium">{resource.title}</div><div className="text-sm text-gray-500 truncate max-w-xs">{resource.summary}</div></td><td className="p-4"><Badge variant="outline">{resource.type}</Badge></td><td className="p-4"><Badge variant={resource.access_level === 'public' ? 'success' : resource.access_level === 'members' ? 'info' : 'purple'}>{resource.access_level}</Badge></td><td className="p-4">{resource.language}</td><td className="p-4"><Badge variant={resource.published ? 'success' : 'secondary'}>{resource.published ? 'Published' : 'Draft'}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(resource)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(resource.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
+        {resources.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-medium">{r.title}</div><div className="text-sm text-gray-500 truncate max-w-xs">{r.summary}</div></td><td className="p-4"><Badge variant="outline">{r.type}</Badge></td><td className="p-4"><Badge variant={r.access_level === 'public' ? 'success' : 'info'}>{r.access_level}</Badge></td><td className="p-4">{r.language}</td><td className="p-4"><Badge variant={r.published ? 'success' : 'secondary'}>{r.published ? 'Published' : 'Draft'}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(r.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
       </tbody></table></div></CardContent></Card>
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editingResource ? 'Edit Resource' : 'Add Resource'}</DialogTitle></DialogHeader><div className="space-y-4 mt-4">
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editingResource ? 'Edit Resource' : 'Add Resource'}</DialogTitle><DialogDescription>Fill in the resource details below.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
         <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
         <div className="space-y-2"><Label>Summary *</Label><Textarea value={formData.summary} onChange={e => setFormData({ ...formData, summary: e.target.value })} rows={2} /></div>
-        <div className="space-y-2"><Label>Content (optional)</Label><Textarea value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} rows={4} /></div>
-        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Type *</Label><Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{types.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Topic *</Label><Select value={formData.topic} onValueChange={v => setFormData({ ...formData, topic: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{topics.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div></div>
-        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Language *</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access Level *</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina</SelectItem></SelectContent></Select></div></div>
+        <div className="space-y-2"><Label>Content</Label><Textarea value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} rows={4} /></div>
+        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Type</Label><Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{types.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Topic</Label><Select value={formData.topic} onValueChange={v => setFormData({ ...formData, topic: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{topics.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div></div>
+        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina</SelectItem></SelectContent></Select></div></div>
         <div className="space-y-2"><Label>Thumbnail URL</Label><Input value={formData.thumbnail_url} onChange={e => setFormData({ ...formData, thumbnail_url: e.target.value })} placeholder="https://..." /></div>
-        <div className="space-y-2"><Label>File URL (PDF, etc.)</Label><Input value={formData.file_url} onChange={e => setFormData({ ...formData, file_url: e.target.value })} placeholder="https://..." /></div>
+        <div className="space-y-2"><Label>File URL</Label><Input value={formData.file_url} onChange={e => setFormData({ ...formData, file_url: e.target.value })} placeholder="https://..." /></div>
         <div className="flex items-center space-x-2"><Checkbox id="published" checked={formData.published} onCheckedChange={(c) => setFormData({ ...formData, published: c as boolean })} /><Label htmlFor="published">Published</Label></div>
         <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editingResource ? 'Update' : 'Create'}</Button></div>
       </div></DialogContent></Dialog>
@@ -526,24 +491,23 @@ function EventsAdmin() {
     else { await supabase.from('events').insert(payload); toast({ title: 'Event created!' }); }
     setIsDialogOpen(false); loadEvents();
   };
-
-  const handleDelete = async (id: string) => { if (!confirm('Delete this event?')) return; await supabase.from('events').delete().eq('id', id); toast({ title: 'Event deleted' }); loadEvents(); };
+  const handleDelete = async (id: string) => { if (!confirm('Delete this event?')) return; await supabase.from('events').delete().eq('id', id); toast({ title: 'Deleted' }); loadEvents(); };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.events')} ({events.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Event</Button></div>
-      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Location</th><th className="text-left p-4 font-medium">Access</th><th className="text-left p-4 font-medium">Replay</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {events.map(event => (<tr key={event.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{event.title}</td><td className="p-4">{new Date(event.date_time).toLocaleDateString()}</td><td className="p-4">{event.location || 'Online'}</td><td className="p-4"><Badge variant={event.access_level === 'public' ? 'success' : event.access_level === 'members' ? 'info' : 'purple'}>{event.access_level}</Badge></td><td className="p-4">{event.replay_url ? <Badge variant="success">Yes</Badge> : <Badge variant="secondary">No</Badge>}</td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(event)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(event.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Location</th><th className="text-left p-4 font-medium">Access</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
+        {events.map(e => (<tr key={e.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{e.title}</td><td className="p-4">{new Date(e.date_time).toLocaleDateString()}</td><td className="p-4">{e.location || 'Online'}</td><td className="p-4"><Badge variant={e.access_level === 'public' ? 'success' : 'info'}>{e.access_level}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(e)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(e.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
       </tbody></table></div></CardContent></Card>
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editingEvent ? 'Edit Event' : 'Add Event'}</DialogTitle></DialogHeader><div className="space-y-4 mt-4">
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editingEvent ? 'Edit Event' : 'Add Event'}</DialogTitle><DialogDescription>Manage event details.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
         <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
         <div className="space-y-2"><Label>Description *</Label><Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
-        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Date & Time *</Label><Input type="datetime-local" value={formData.date_time} onChange={e => setFormData({ ...formData, date_time: e.target.value })} /></div><div className="space-y-2"><Label>Location (empty = online)</Label><Input value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} placeholder="Monaco Yacht Club" /></div></div>
-        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Language *</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access Level *</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina Only</SelectItem></SelectContent></Select></div></div>
-        <div className="space-y-2"><Label>Speakers (JSON)</Label><Textarea value={formData.speakers} onChange={e => setFormData({ ...formData, speakers: e.target.value })} placeholder='[{"name": "John Doe", "title": "CEO"}]' rows={2} /></div>
-        <div className="space-y-2"><Label>Replay URL</Label><Input value={formData.replay_url} onChange={e => setFormData({ ...formData, replay_url: e.target.value })} placeholder="https://..." /></div>
+        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Date & Time *</Label><Input type="datetime-local" value={formData.date_time} onChange={e => setFormData({ ...formData, date_time: e.target.value })} /></div><div className="space-y-2"><Label>Location</Label><Input value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} placeholder="Monaco Yacht Club" /></div></div>
+        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access Level</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina Only</SelectItem></SelectContent></Select></div></div>
+        <div className="space-y-2"><Label>Speakers (JSON)</Label><Textarea value={formData.speakers} onChange={e => setFormData({ ...formData, speakers: e.target.value })} placeholder='[{"name":"John","title":"CEO"}]' rows={2} /></div>
+        <div className="space-y-2"><Label>Replay URL</Label><Input value={formData.replay_url} onChange={e => setFormData({ ...formData, replay_url: e.target.value })} /></div>
         <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editingEvent ? 'Update' : 'Create'}</Button></div>
       </div></DialogContent></Dialog>
     </div>
@@ -564,16 +528,15 @@ function PartnersAdmin() {
   const loadPartners = async () => { setLoading(true); const { data } = await supabase.from('partners').select('*').order('name'); setPartners(data || []); setLoading(false); };
 
   const openCreate = () => { setEditingPartner(null); setFormData({ name: '', description: '', logo_url: '', website: '', sector: 'services', country: '', is_featured: false }); setIsDialogOpen(true); };
-  const openEdit = (partner: Partner) => { setEditingPartner(partner); setFormData({ name: partner.name, description: partner.description, logo_url: partner.logo_url || '', website: partner.website || '', sector: partner.sector, country: partner.country, is_featured: partner.is_featured }); setIsDialogOpen(true); };
+  const openEdit = (p: Partner) => { setEditingPartner(p); setFormData({ name: p.name, description: p.description, logo_url: p.logo_url || '', website: p.website || '', sector: p.sector, country: p.country, is_featured: p.is_featured }); setIsDialogOpen(true); };
 
   const handleSave = async () => {
     const payload = { ...formData, logo_url: formData.logo_url || null, website: formData.website || null };
-    if (editingPartner) { await supabase.from('partners').update(payload).eq('id', editingPartner.id); toast({ title: 'Partner updated!' }); }
-    else { await supabase.from('partners').insert(payload); toast({ title: 'Partner created!' }); }
+    if (editingPartner) { await supabase.from('partners').update(payload).eq('id', editingPartner.id); toast({ title: 'Updated!' }); }
+    else { await supabase.from('partners').insert(payload); toast({ title: 'Created!' }); }
     setIsDialogOpen(false); loadPartners();
   };
-
-  const handleDelete = async (id: string) => { if (!confirm('Delete this partner?')) return; await supabase.from('partners').delete().eq('id', id); toast({ title: 'Partner deleted' }); loadPartners(); };
+  const handleDelete = async (id: string) => { if (!confirm('Delete?')) return; await supabase.from('partners').delete().eq('id', id); toast({ title: 'Deleted' }); loadPartners(); };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
@@ -581,15 +544,15 @@ function PartnersAdmin() {
     <div>
       <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.partners')} ({partners.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Partner</Button></div>
       <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Name</th><th className="text-left p-4 font-medium">Sector</th><th className="text-left p-4 font-medium">Country</th><th className="text-left p-4 font-medium">Featured</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {partners.map(partner => (<tr key={partner.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{partner.name}</td><td className="p-4"><Badge variant="outline">{partner.sector}</Badge></td><td className="p-4">{partner.country}</td><td className="p-4">{partner.is_featured ? '⭐' : '-'}</td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(partner)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(partner.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
+        {partners.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{p.name}</td><td className="p-4"><Badge variant="outline">{p.sector}</Badge></td><td className="p-4">{p.country}</td><td className="p-4">{p.is_featured ? 'Yes' : '-'}</td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(p)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(p.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
       </tbody></table></CardContent></Card>
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{editingPartner ? 'Edit Partner' : 'Add Partner'}</DialogTitle></DialogHeader><div className="space-y-4 mt-4">
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{editingPartner ? 'Edit Partner' : 'Add Partner'}</DialogTitle><DialogDescription>Manage partner information.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
         <div className="space-y-2"><Label>Name *</Label><Input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
         <div className="space-y-2"><Label>Description *</Label><Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} /></div>
-        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Sector *</Label><Select value={formData.sector} onValueChange={v => setFormData({ ...formData, sector: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{sectors.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Country *</Label><Input value={formData.country} onChange={e => setFormData({ ...formData, country: e.target.value })} /></div></div>
-        <div className="space-y-2"><Label>Logo URL</Label><Input value={formData.logo_url} onChange={e => setFormData({ ...formData, logo_url: e.target.value })} placeholder="https://..." /></div>
-        <div className="space-y-2"><Label>Website</Label><Input value={formData.website} onChange={e => setFormData({ ...formData, website: e.target.value })} placeholder="https://..." /></div>
-        <div className="flex items-center space-x-2"><Checkbox id="featured" checked={formData.is_featured} onCheckedChange={(c) => setFormData({ ...formData, is_featured: c as boolean })} /><Label htmlFor="featured">Featured on homepage</Label></div>
+        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Sector</Label><Select value={formData.sector} onValueChange={v => setFormData({ ...formData, sector: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{sectors.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Country</Label><Input value={formData.country} onChange={e => setFormData({ ...formData, country: e.target.value })} /></div></div>
+        <div className="space-y-2"><Label>Logo URL</Label><Input value={formData.logo_url} onChange={e => setFormData({ ...formData, logo_url: e.target.value })} /></div>
+        <div className="space-y-2"><Label>Website</Label><Input value={formData.website} onChange={e => setFormData({ ...formData, website: e.target.value })} /></div>
+        <div className="flex items-center space-x-2"><Checkbox id="featured" checked={formData.is_featured} onCheckedChange={(c) => setFormData({ ...formData, is_featured: c as boolean })} /><Label htmlFor="featured">Featured</Label></div>
         <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editingPartner ? 'Update' : 'Create'}</Button></div>
       </div></DialogContent></Dialog>
     </div>
@@ -606,24 +569,18 @@ function ProjectsAdmin() {
 
   useEffect(() => { loadProjects(); }, []);
   const loadProjects = async () => { setLoading(true); const { data } = await supabase.from('marina_projects').select('*').order('created_at', { ascending: false }); setProjects(data || []); setLoading(false); };
-
-  const updateStatus = async (id: string, status: string) => { await supabase.from('marina_projects').update({ status }).eq('id', id); toast({ title: `Status updated to ${status}` }); loadProjects(); };
+  const updateStatus = async (id: string, status: string) => { await supabase.from('marina_projects').update({ status }).eq('id', id); toast({ title: `Status: ${status}` }); loadProjects(); };
   const saveNotes = async () => { if (!selectedProject) return; await supabase.from('marina_projects').update({ admin_notes: adminNotes }).eq('id', selectedProject.id); toast({ title: 'Notes saved' }); setSelectedProject(null); loadProjects(); };
-
-  const exportCSV = () => {
-    const csv = [['UserID', 'Type', 'Budget', 'Timeline', 'Status', 'Date'].join(','), ...projects.map(p => [p.user_id || '', p.project_type, p.budget_range, p.timeline, p.status, new Date(p.created_at).toLocaleDateString()].join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'marina-projects.csv'; a.click();
-  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.marinaProjects')} ({projects.length})</h1><Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button></div>
-      <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Budget</th><th className="text-left p-4 font-medium">Timeline</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {projects.map(project => (<tr key={project.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-mono text-xs text-gray-600">{project.user_id}</div></td><td className="p-4">{project.project_type}</td><td className="p-4">{project.budget_range}</td><td className="p-4">{project.timeline}</td><td className="p-4"><Select value={project.status} onValueChange={v => updateStatus(project.id, v)}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(project.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelectedProject(project); setAdminNotes(project.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
+      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.marinaProjects')} ({projects.length})</h1></div>
+      <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Budget</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
+        {projects.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-4 font-mono text-xs text-gray-600">{p.user_id}</td><td className="p-4">{p.project_type}</td><td className="p-4">{p.budget_range}</td><td className="p-4"><Select value={p.status} onValueChange={v => updateStatus(p.id, v)}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(p.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelectedProject(p); setAdminNotes(p.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
       </tbody></table></CardContent></Card>
-      <Dialog open={!!selectedProject} onOpenChange={() => setSelectedProject(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Project Details</DialogTitle></DialogHeader>{selectedProject && (<div className="space-y-4 mt-4"><div><strong>User ID:</strong> <span className="font-mono text-xs">{selectedProject.user_id}</span></div><div><strong>Type:</strong> {selectedProject.project_type}</div><div><strong>Budget:</strong> {selectedProject.budget_range}</div><div><strong>Timeline:</strong> {selectedProject.timeline}</div><div><strong>Description:</strong><p className="mt-1 p-2 bg-gray-50 rounded text-sm">{selectedProject.description}</p></div><div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
+      <Dialog open={!!selectedProject} onOpenChange={() => setSelectedProject(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Project Details</DialogTitle><DialogDescription>View and manage project notes.</DialogDescription></DialogHeader>{selectedProject && (<div className="space-y-4 mt-4"><div><strong>Type:</strong> {selectedProject.project_type}</div><div><strong>Budget:</strong> {selectedProject.budget_range}</div><div><strong>Description:</strong><p className="mt-1 p-2 bg-gray-50 rounded text-sm">{selectedProject.description}</p></div><div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
     </div>
   );
 }
@@ -638,24 +595,18 @@ function LeadsAdmin() {
 
   useEffect(() => { loadLeads(); }, []);
   const loadLeads = async () => { setLoading(true); const { data } = await supabase.from('partner_leads').select('*').order('created_at', { ascending: false }); setLeads(data || []); setLoading(false); };
-
-  const updateStatus = async (id: string, status: string) => { await supabase.from('partner_leads').update({ status }).eq('id', id); toast({ title: `Status updated to ${status}` }); loadLeads(); };
+  const updateStatus = async (id: string, status: string) => { await supabase.from('partner_leads').update({ status }).eq('id', id); toast({ title: `Status: ${status}` }); loadLeads(); };
   const saveNotes = async () => { if (!selectedLead) return; await supabase.from('partner_leads').update({ admin_notes: adminNotes }).eq('id', selectedLead.id); toast({ title: 'Notes saved' }); setSelectedLead(null); loadLeads(); };
-
-  const exportCSV = () => {
-    const csv = [['Company', 'Contact', 'Email', 'Phone', 'Type', 'Engagement', 'Status', 'Date'].join(','), ...leads.map(l => [l.company, `${l.first_name} ${l.last_name}`, l.email, l.phone || '', l.actor_type, l.engagement_level, l.status, new Date(l.created_at).toLocaleDateString()].join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'partner-leads.csv'; a.click();
-  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.partnerLeads')} ({leads.length})</h1><Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button></div>
-      <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Company</th><th className="text-left p-4 font-medium">Contact</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Engagement</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {leads.map(lead => (<tr key={lead.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-medium">{lead.company}</div><div className="text-sm text-gray-500">{lead.country}</div></td><td className="p-4"><div>{lead.first_name} {lead.last_name}</div><div className="text-sm text-gray-500">{lead.email}</div></td><td className="p-4"><Badge variant="outline">{lead.actor_type}</Badge></td><td className="p-4 capitalize">{lead.engagement_level}</td><td className="p-4"><Select value={lead.status} onValueChange={v => updateStatus(lead.id, v)}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="qualified">Qualified</SelectItem><SelectItem value="in_discussion">In Discussion</SelectItem><SelectItem value="signed">Signed</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(lead.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelectedLead(lead); setAdminNotes(lead.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
+      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.partnerLeads')} ({leads.length})</h1></div>
+      <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Company</th><th className="text-left p-4 font-medium">Contact</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
+        {leads.map(l => (<tr key={l.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-medium">{l.company}</div><div className="text-sm text-gray-500">{l.country}</div></td><td className="p-4"><div>{l.first_name} {l.last_name}</div><div className="text-sm text-gray-500">{l.email}</div></td><td className="p-4"><Badge variant="outline">{l.actor_type}</Badge></td><td className="p-4"><Select value={l.status} onValueChange={v => updateStatus(l.id, v)}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="qualified">Qualified</SelectItem><SelectItem value="in_discussion">In Discussion</SelectItem><SelectItem value="signed">Signed</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(l.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelectedLead(l); setAdminNotes(l.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
       </tbody></table></CardContent></Card>
-      <Dialog open={!!selectedLead} onOpenChange={() => setSelectedLead(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Lead Details</DialogTitle></DialogHeader>{selectedLead && (<div className="space-y-4 mt-4"><div className="grid grid-cols-2 gap-4"><div><strong>Company:</strong> {selectedLead.company}</div><div><strong>Country:</strong> {selectedLead.country}</div><div><strong>Contact:</strong> {selectedLead.first_name} {selectedLead.last_name}</div><div><strong>Email:</strong> {selectedLead.email}</div><div><strong>Phone:</strong> {selectedLead.phone || '-'}</div><div><strong>Website:</strong> {selectedLead.website || '-'}</div><div><strong>Type:</strong> {selectedLead.actor_type}</div><div><strong>Engagement:</strong> {selectedLead.engagement_level}</div></div>{selectedLead.solutions && (<div><strong>Solutions:</strong><p className="mt-1 p-2 bg-gray-50 rounded text-sm">{selectedLead.solutions}</p></div>)}{selectedLead.goals && (<div><strong>Goals:</strong><p className="mt-1 p-2 bg-gray-50 rounded text-sm">{selectedLead.goals}</p></div>)}<div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder="Add your notes here..." /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
+      <Dialog open={!!selectedLead} onOpenChange={() => setSelectedLead(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Lead Details</DialogTitle><DialogDescription>View lead information and manage notes.</DialogDescription></DialogHeader>{selectedLead && (<div className="space-y-4 mt-4"><div className="grid grid-cols-2 gap-4"><div><strong>Company:</strong> {selectedLead.company}</div><div><strong>Country:</strong> {selectedLead.country}</div><div><strong>Contact:</strong> {selectedLead.first_name} {selectedLead.last_name}</div><div><strong>Email:</strong> {selectedLead.email}</div></div><div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
     </div>
   );
 }
@@ -668,138 +619,297 @@ function WebinarRequestsAdmin() {
   const [moderatorNotes, setModeratorNotes] = useState('');
 
   useEffect(() => { loadRequests(); }, []);
+  const loadRequests = async () => { setLoading(true); const { data } = await supabase.from('webinar_requests').select('*').order('created_at', { ascending: false }); setRequests(data || []); setLoading(false); };
+  const updateStatus = async (id: string, status: string) => { await supabase.from('webinar_requests').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id); toast({ title: `Status: ${status}` }); loadRequests(); };
+  const saveNotes = async () => { if (!selected) return; await supabase.from('webinar_requests').update({ moderator_notes: moderatorNotes.trim() || null }).eq('id', selected.id); toast({ title: 'Notes saved' }); setSelected(null); loadRequests(); };
 
-  const loadRequests = async () => {
-    setLoading(true);
-    const { data } = await supabase
-      .from('webinar_requests')
-      .select('id, user_id, title, description, preferred_language, preferred_timeframe, status, moderator_notes, reviewed_at, created_at')
-      .order('created_at', { ascending: false });
-    setRequests(data || []);
-    setLoading(false);
-  };
+  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
-  const updateStatus = async (id: string, status: string) => {
-    const { error } = await supabase.from('webinar_requests').update({
-      status,
-      reviewed_at: new Date().toISOString(),
-    }).eq('id', id);
-    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: `Status updated: ${status}` });
-    loadRequests();
-  };
+  return (
+    <div>
+      <h1 className="text-2xl font-bold mb-6">Webinar Requests ({requests.length})</h1>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Lang</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
+        {requests.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium max-w-xs truncate">{r.title}</td><td className="p-4">{r.preferred_language}</td><td className="p-4"><Select value={r.status} onValueChange={v => updateStatus(r.id, v)}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="submitted">Submitted</SelectItem><SelectItem value="under_review">Under Review</SelectItem><SelectItem value="accepted">Accepted</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelected(r); setModeratorNotes(r.moderator_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
+        {requests.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No requests yet</td></tr>}
+      </tbody></table></div></CardContent></Card>
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Webinar Request Details</DialogTitle><DialogDescription>Review and add moderator notes.</DialogDescription></DialogHeader>{selected && (<div className="space-y-4 mt-2"><div><strong>Title:</strong> {selected.title}</div><div><strong>Description:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.description}</p></div><div className="space-y-2"><Label>Moderator Notes</Label><Textarea value={moderatorNotes} onChange={e => setModeratorNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
+    </div>
+  );
+}
 
-  const saveNotes = async () => {
-    if (!selected) return;
-    const { error } = await supabase.from('webinar_requests').update({
-      moderator_notes: moderatorNotes.trim() || null,
-    }).eq('id', selected.id);
-    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: 'Notes saved' });
-    setSelected(null);
-    loadRequests();
-  };
+/* ═══════════════════════════════════════════════════════════
+   NEW ADMIN SECTIONS
+   ═══════════════════════════════════════════════════════════ */
 
-  const statusBadge = (status: string) => {
-    const map: Record<string, string> = {
-      submitted: 'warning',
-      under_review: 'info',
-      accepted: 'success',
-      rejected: 'destructive',
-    };
-    return <Badge variant={(map[status] as 'warning' | 'info' | 'success' | 'destructive') || 'secondary'}>{status}</Badge>;
+/* ─── Partner Requests Admin (B2B Matching) ─── */
+function PartnerRequestsAdmin() {
+  const [requests, setRequests] = useState<PartnerRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { load(); }, []);
+  const load = async () => { setLoading(true); const { data } = await supabase.from('partner_requests').select('*').order('created_at', { ascending: false }); setRequests(data || []); setLoading(false); };
+
+  const statusBadge = (s: string) => {
+    const m: Record<string, 'warning' | 'success' | 'destructive' | 'secondary'> = { pending: 'warning', accepted: 'success', rejected: 'destructive', withdrawn: 'secondary' };
+    return <Badge variant={m[s] || 'secondary'}>{s}</Badge>;
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Webinar Requests ({requests.length})</h1>
-      </div>
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left p-4 font-medium">Title</th>
-                  <th className="text-left p-4 font-medium">User</th>
-                  <th className="text-left p-4 font-medium">Lang</th>
-                  <th className="text-left p-4 font-medium">Timeframe</th>
-                  <th className="text-left p-4 font-medium">Status</th>
-                  <th className="text-left p-4 font-medium">Date</th>
-                  <th className="text-left p-4 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {requests.map(req => (
-                  <tr key={req.id} className="border-b hover:bg-gray-50">
-                    <td className="p-4">
-                      <div className="font-medium max-w-xs truncate">{req.title}</div>
-                      {req.moderator_notes && <div className="text-xs text-blue-600 mt-0.5 truncate max-w-xs">Note: {req.moderator_notes}</div>}
-                    </td>
-                    <td className="p-4 text-xs font-mono text-gray-500 max-w-[120px] truncate">{req.user_id}</td>
-                    <td className="p-4">{req.preferred_language}</td>
-                    <td className="p-4 text-sm text-gray-500">{req.preferred_timeframe || '—'}</td>
-                    <td className="p-4">
-                      <Select value={req.status} onValueChange={v => updateStatus(req.id, v)}>
-                        <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="submitted">Submitted</SelectItem>
-                          <SelectItem value="under_review">Under Review</SelectItem>
-                          <SelectItem value="accepted">Accepted</SelectItem>
-                          <SelectItem value="rejected">Rejected</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </td>
-                    <td className="p-4 text-sm text-gray-500">{new Date(req.created_at).toLocaleDateString()}</td>
-                    <td className="p-4">
-                      <Button size="sm" variant="ghost" onClick={() => { setSelected(req); setModeratorNotes(req.moderator_notes || ''); }}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {requests.length === 0 && (
-                  <tr><td colSpan={7} className="p-8 text-center text-gray-400">No webinar requests yet</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      <h1 className="text-2xl font-bold mb-6">B2B Partner Requests ({requests.length})</h1>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">Partner</th><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Message</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th>
+      </tr></thead><tbody>
+        {requests.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50">
+          <td className="p-4 text-xs font-mono text-gray-500">{r.partner_user_id.slice(0, 8)}...</td>
+          <td className="p-4 text-xs font-mono text-gray-500">{r.marina_user_id.slice(0, 8)}...</td>
+          <td className="p-4 text-sm max-w-xs truncate">{r.message}</td>
+          <td className="p-4">{statusBadge(r.status)}</td>
+          <td className="p-4 text-sm text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
+        </tr>))}
+        {requests.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No B2B requests yet</td></tr>}
+      </tbody></table></div></CardContent></Card>
+    </div>
+  );
+}
 
-      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Webinar Request Details</DialogTitle></DialogHeader>
-          {selected && (
-            <div className="space-y-4 mt-2">
-              <div><strong>Title:</strong> {selected.title}</div>
-              <div>
-                <strong>Description:</strong>
-                <p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.description}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><strong>Language:</strong> {selected.preferred_language}</div>
-                <div><strong>Timeframe:</strong> {selected.preferred_timeframe || '—'}</div>
-                <div><strong>Status:</strong> {statusBadge(selected.status)}</div>
-                <div><strong>Submitted:</strong> {new Date(selected.created_at).toLocaleDateString()}</div>
-              </div>
-              <div className="space-y-2">
-                <Label>Moderator Notes (visible to member)</Label>
-                <Textarea
-                  value={moderatorNotes}
-                  onChange={e => setModeratorNotes(e.target.value)}
-                  rows={3}
-                  placeholder="Add feedback or notes visible to the requester..."
-                />
-              </div>
-              <Button onClick={saveNotes} className="w-full">Save Notes</Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+/* ─── RFPs Admin ─── */
+function RFPsAdmin() {
+  const [rfps, setRfps] = useState<RFP[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<RFP | null>(null);
+
+  useEffect(() => { load(); }, []);
+  const load = async () => { setLoading(true); const { data } = await supabase.from('rfps').select('*').order('created_at', { ascending: false }); setRfps(data || []); setLoading(false); };
+  const toggleOpen = async (id: string, is_open: boolean) => { await supabase.from('rfps').update({ is_open }).eq('id', id); toast({ title: is_open ? 'RFP reopened' : 'RFP closed' }); load(); };
+
+  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold mb-6">RFPs ({rfps.length})</h1>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Deadline</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Actions</th>
+      </tr></thead><tbody>
+        {rfps.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50">
+          <td className="p-4 font-medium max-w-xs truncate">{r.title}</td>
+          <td className="p-4 text-xs font-mono text-gray-500">{r.marina_user_id.slice(0, 8)}...</td>
+          <td className="p-4 text-sm text-gray-500">{r.deadline_date ? new Date(r.deadline_date).toLocaleDateString() : '—'}</td>
+          <td className="p-4"><Badge variant={r.is_open ? 'success' : 'secondary'}>{r.is_open ? 'Open' : 'Closed'}</Badge></td>
+          <td className="p-4"><div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelected(r)}><Eye className="h-4 w-4" /></Button>
+            <Button size="sm" variant="outline" onClick={() => toggleOpen(r.id, !r.is_open)}>{r.is_open ? 'Close' : 'Reopen'}</Button>
+          </div></td>
+        </tr>))}
+        {rfps.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No RFPs yet</td></tr>}
+      </tbody></table></div></CardContent></Card>
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>RFP Details</DialogTitle><DialogDescription>View the full scope of this RFP.</DialogDescription></DialogHeader>{selected && (<div className="space-y-4 mt-2"><div><strong>Title:</strong> {selected.title}</div><div><strong>Scope:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.scope}</p></div><div className="grid grid-cols-2 gap-4 text-sm"><div><strong>Deadline:</strong> {selected.deadline_date || '—'}</div><div><strong>Status:</strong> {selected.is_open ? 'Open' : 'Closed'}</div></div></div>)}</DialogContent></Dialog>
+    </div>
+  );
+}
+
+/* ─── Consultations Admin ─── */
+function ConsultationsAdmin() {
+  const [consultations, setConsultations] = useState<Consultation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Consultation | null>(null);
+
+  useEffect(() => { load(); }, []);
+  const load = async () => { setLoading(true); const { data } = await supabase.from('consultations').select('*').order('created_at', { ascending: false }); setConsultations(data || []); setLoading(false); };
+  const toggleOpen = async (id: string, is_open: boolean) => { await supabase.from('consultations').update({ is_open }).eq('id', id); toast({ title: is_open ? 'Reopened' : 'Closed' }); load(); };
+
+  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold mb-6">Consultations ({consultations.length})</h1>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th>
+      </tr></thead><tbody>
+        {consultations.map(c => (<tr key={c.id} className="border-b hover:bg-gray-50">
+          <td className="p-4 font-medium max-w-xs truncate">{c.title}</td>
+          <td className="p-4 text-xs font-mono text-gray-500">{c.marina_user_id.slice(0, 8)}...</td>
+          <td className="p-4"><Badge variant={c.is_open ? 'success' : 'secondary'}>{c.is_open ? 'Open' : 'Closed'}</Badge></td>
+          <td className="p-4 text-sm text-gray-500">{new Date(c.created_at).toLocaleDateString()}</td>
+          <td className="p-4"><div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelected(c)}><Eye className="h-4 w-4" /></Button>
+            <Button size="sm" variant="outline" onClick={() => toggleOpen(c.id, !c.is_open)}>{c.is_open ? 'Close' : 'Reopen'}</Button>
+          </div></td>
+        </tr>))}
+        {consultations.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No consultations yet</td></tr>}
+      </tbody></table></div></CardContent></Card>
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Consultation Details</DialogTitle><DialogDescription>View the consultation question.</DialogDescription></DialogHeader>{selected && (<div className="space-y-4 mt-2"><div><strong>Title:</strong> {selected.title}</div><div><strong>Description:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.description}</p></div></div>)}</DialogContent></Dialog>
+    </div>
+  );
+}
+
+/* ─── CMS Content Drafts Admin ─── */
+function ContentDraftsAdmin() {
+  const { user } = useAuth();
+  const [drafts, setDrafts] = useState<ContentDraft[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<ContentDraft | null>(null);
+  const [formData, setFormData] = useState({ title: '', summary: '', body_markdown: '', tags: '' });
+
+  useEffect(() => { load(); }, []);
+  const load = async () => { setLoading(true); const { data } = await supabase.from('content_drafts').select('*').order('created_at', { ascending: false }); setDrafts(data || []); setLoading(false); };
+
+  const openCreate = () => { setEditing(null); setFormData({ title: '', summary: '', body_markdown: '', tags: '' }); setIsDialogOpen(true); };
+  const openEdit = (d: ContentDraft) => { setEditing(d); setFormData({ title: d.title, summary: d.summary || '', body_markdown: d.body_markdown, tags: d.tags.join(', ') }); setIsDialogOpen(true); };
+
+  const handleSave = async () => {
+    const tags = formData.tags.split(',').map(t => t.trim()).filter(Boolean);
+    const payload = { title: formData.title, summary: formData.summary || null, body_markdown: formData.body_markdown, tags, created_by: user!.id };
+    if (editing) { await supabase.from('content_drafts').update(payload).eq('id', editing.id); toast({ title: 'Draft updated' }); }
+    else { await supabase.from('content_drafts').insert({ ...payload, status: 'draft' }); toast({ title: 'Draft created' }); }
+    setIsDialogOpen(false); load();
+  };
+
+  const updateStatus = async (id: string, status: string) => {
+    if (status === 'published') {
+      // Publish: create content_item from draft
+      const draft = drafts.find(d => d.id === id);
+      if (!draft) return;
+      const { error: pubError } = await supabase.from('content_items').insert({
+        title: draft.title, summary: draft.summary, body_markdown: draft.body_markdown,
+        tags: draft.tags, is_published: true, published_at: new Date().toISOString(), published_by: user!.id,
+      });
+      if (pubError) { toast({ title: 'Publish failed', description: pubError.message, variant: 'destructive' }); return; }
+      await supabase.from('content_drafts').update({ status: 'published' }).eq('id', id);
+      toast({ title: 'Content published!' }); load(); return;
+    }
+    await supabase.from('content_drafts').update({ status }).eq('id', id);
+    toast({ title: `Status: ${status}` }); load();
+  };
+
+  const statusColor = (s: string): 'secondary' | 'warning' | 'info' | 'success' | 'destructive' => {
+    const m: Record<string, 'secondary' | 'warning' | 'info' | 'success' | 'destructive'> = { draft: 'secondary', submitted: 'warning', review_1: 'info', review_2: 'info', approved: 'success', published: 'success', rejected: 'destructive' };
+    return m[s] || 'secondary';
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">CMS Content ({drafts.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />New Draft</Button></div>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Tags</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th>
+      </tr></thead><tbody>
+        {drafts.map(d => (<tr key={d.id} className="border-b hover:bg-gray-50">
+          <td className="p-4"><div className="font-medium">{d.title}</div>{d.summary && <div className="text-sm text-gray-500 truncate max-w-xs">{d.summary}</div>}</td>
+          <td className="p-4"><div className="flex flex-wrap gap-1">{d.tags.map(t => <Badge key={t} variant="outline" className="text-xs">{t}</Badge>)}</div></td>
+          <td className="p-4">
+            <Select value={d.status} onValueChange={v => updateStatus(d.id, v)}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="draft">Draft</SelectItem><SelectItem value="submitted">Submitted</SelectItem>
+                <SelectItem value="review_1">Review 1</SelectItem><SelectItem value="review_2">Review 2</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem><SelectItem value="published">Publish</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+          </td>
+          <td className="p-4 text-sm text-gray-500">{new Date(d.created_at).toLocaleDateString()}</td>
+          <td className="p-4"><Button size="sm" variant="ghost" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button></td>
+        </tr>))}
+        {drafts.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No content drafts</td></tr>}
+      </tbody></table></div></CardContent></Card>
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Draft' : 'New Content Draft'}</DialogTitle><DialogDescription>Write content for the platform.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
+        <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
+        <div className="space-y-2"><Label>Summary</Label><Textarea value={formData.summary} onChange={e => setFormData({ ...formData, summary: e.target.value })} rows={2} /></div>
+        <div className="space-y-2"><Label>Body (Markdown) *</Label><Textarea value={formData.body_markdown} onChange={e => setFormData({ ...formData, body_markdown: e.target.value })} rows={10} className="font-mono text-sm" /></div>
+        <div className="space-y-2"><Label>Tags (comma-separated)</Label><Input value={formData.tags} onChange={e => setFormData({ ...formData, tags: e.target.value })} placeholder="sustainability, technology, marina" /></div>
+        <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editing ? 'Update' : 'Create'}</Button></div>
+      </div></DialogContent></Dialog>
+    </div>
+  );
+}
+
+/* ─── Resource Drafts Admin ─── */
+function ResourceDraftsAdmin() {
+  const { user } = useAuth();
+  const [drafts, setDrafts] = useState<ResourceDraft[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<ResourceDraft | null>(null);
+  const [formData, setFormData] = useState({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public' });
+
+  const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
+  const topics = ['Sustainability', 'Technology', 'Energy', 'Management', 'Events', 'Infrastructure'];
+
+  useEffect(() => { load(); }, []);
+  const load = async () => { setLoading(true); const { data } = await supabase.from('resource_drafts').select('*').order('created_at', { ascending: false }); setDrafts(data || []); setLoading(false); };
+
+  const openCreate = () => { setEditing(null); setFormData({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public' }); setIsDialogOpen(true); };
+  const openEdit = (d: ResourceDraft) => { setEditing(d); setFormData({ title: d.title, summary: d.summary || '', content: d.content, type: d.type || 'article', topic: d.topic || 'Sustainability', language: d.language || 'EN', access_level: d.access_level || 'public' }); setIsDialogOpen(true); };
+
+  const handleSave = async () => {
+    const payload = { title: formData.title, summary: formData.summary || null, content: formData.content, type: formData.type, topic: formData.topic, language: formData.language, access_level: formData.access_level, created_by: user!.id };
+    if (editing) { await supabase.from('resource_drafts').update(payload).eq('id', editing.id); toast({ title: 'Draft updated' }); }
+    else { await supabase.from('resource_drafts').insert({ ...payload, status: 'draft' }); toast({ title: 'Draft created' }); }
+    setIsDialogOpen(false); load();
+  };
+
+  const updateStatus = async (id: string, status: string) => {
+    if (status === 'published') {
+      const draft = drafts.find(d => d.id === id);
+      if (!draft) return;
+      const { error: pubError } = await supabase.from('resources').insert({
+        title: draft.title, summary: draft.summary, content: draft.content, type: draft.type, topic: draft.topic,
+        language: draft.language, access_level: draft.access_level, published: true,
+      });
+      if (pubError) { toast({ title: 'Publish failed', description: pubError.message, variant: 'destructive' }); return; }
+      await supabase.from('resource_drafts').update({ status: 'published' }).eq('id', id);
+      toast({ title: 'Resource published!' }); load(); return;
+    }
+    await supabase.from('resource_drafts').update({ status }).eq('id', id);
+    toast({ title: `Status: ${status}` }); load();
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">Resource Drafts ({drafts.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />New Draft</Button></div>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th>
+      </tr></thead><tbody>
+        {drafts.map(d => (<tr key={d.id} className="border-b hover:bg-gray-50">
+          <td className="p-4"><div className="font-medium">{d.title}</div></td>
+          <td className="p-4"><Badge variant="outline">{d.type || '—'}</Badge></td>
+          <td className="p-4">
+            <Select value={d.status} onValueChange={v => updateStatus(d.id, v)}>
+              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="draft">Draft</SelectItem><SelectItem value="submitted">Submitted</SelectItem>
+                <SelectItem value="review_1">Review 1</SelectItem><SelectItem value="review_2">Review 2</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem><SelectItem value="published">Publish</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+          </td>
+          <td className="p-4 text-sm text-gray-500">{new Date(d.created_at).toLocaleDateString()}</td>
+          <td className="p-4"><Button size="sm" variant="ghost" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button></td>
+        </tr>))}
+        {drafts.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No resource drafts</td></tr>}
+      </tbody></table></div></CardContent></Card>
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Resource Draft' : 'New Resource Draft'}</DialogTitle><DialogDescription>Create or edit a resource draft for review.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
+        <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
+        <div className="space-y-2"><Label>Summary</Label><Textarea value={formData.summary} onChange={e => setFormData({ ...formData, summary: e.target.value })} rows={2} /></div>
+        <div className="space-y-2"><Label>Content *</Label><Textarea value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} rows={6} /></div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2"><Label>Type</Label><Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{types.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+          <div className="space-y-2"><Label>Topic</Label><Select value={formData.topic} onValueChange={v => setFormData({ ...formData, topic: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{topics.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div>
+          <div className="space-y-2"><Label>Access</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina</SelectItem></SelectContent></Select></div>
+        </div>
+        <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editing ? 'Update' : 'Create'}</Button></div>
+      </div></DialogContent></Dialog>
     </div>
   );
 }
@@ -832,6 +942,11 @@ export function AdminPage() {
           <Route path="/projects" element={<ProjectsAdmin />} />
           <Route path="/leads" element={<LeadsAdmin />} />
           <Route path="/webinars" element={<WebinarRequestsAdmin />} />
+          <Route path="/partner-requests" element={<PartnerRequestsAdmin />} />
+          <Route path="/rfps" element={<RFPsAdmin />} />
+          <Route path="/consultations" element={<ConsultationsAdmin />} />
+          <Route path="/content" element={<ContentDraftsAdmin />} />
+          <Route path="/resource-drafts" element={<ResourceDraftsAdmin />} />
         </Routes>
       </div>
     </div>

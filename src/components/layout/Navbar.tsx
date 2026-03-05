@@ -46,10 +46,13 @@ export function Navbar() {
     { href: '/resources', label: t('nav.resources') },
     { href: '/events', label: t('nav.events') },
     { href: '/partners', label: t('nav.partners') },
+    { href: '/marketplace', label: 'Marketplace' },
     { href: '/become-partner', label: t('nav.becomePartner') },
   ];
 
   const canSubmitProject = profile?.persona === 'marina' && isVerified;
+  const canSubmitRFP = profile?.persona === 'marina' && isVerified;
+  const canSubmitConsultation = profile?.persona === 'marina' && isVerified;
   const canRequestWebinar = isVerified;
 
   return (
@@ -108,6 +111,16 @@ export function Navbar() {
                   {canSubmitProject && (
                     <DropdownMenuItem asChild>
                       <Link to="/submit-project">{t('nav.submitProject')}</Link>
+                    </DropdownMenuItem>
+                  )}
+                  {canSubmitRFP && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/submit-rfp">Submit an RFP</Link>
+                    </DropdownMenuItem>
+                  )}
+                  {canSubmitConsultation && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/submit-consultation">Request Consultation</Link>
                     </DropdownMenuItem>
                   )}
                   {canRequestWebinar && (

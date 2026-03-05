@@ -11,6 +11,9 @@ import { OnboardingPage } from '@/pages/OnboardingPage';
 import { SubmitProjectPage } from '@/pages/SubmitProjectPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { WebinarRequestPage } from '@/pages/WebinarRequestPage';
+import { SubmitRFPPage } from '@/pages/SubmitRFPPage';
+import { SubmitConsultationPage } from '@/pages/SubmitConsultationPage';
+import { MarketplacePage } from '@/pages/MarketplacePage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 
 function App() {
@@ -28,6 +31,9 @@ function App() {
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/submit-project" element={<SubmitProjectPage />} />
           <Route path="/request-webinar" element={<WebinarRequestPage />} />
+          <Route path="/submit-rfp" element={<SubmitRFPPage />} />
+          <Route path="/submit-consultation" element={<SubmitConsultationPage />} />
+          <Route path="/marketplace" element={<MarketplacePage />} />
           <Route path="/admin/*" element={<AdminPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
         </Routes>

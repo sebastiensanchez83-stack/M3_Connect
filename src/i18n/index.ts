@@ -48,8 +48,9 @@ const resources = {
       // Resources
       resources: {
         title: 'Resource Library',
-        subtitle: 'Access our collection of guides, case studies, and industry insights.',
-        search: 'Search resources...',
+        subtitle: 'Access our collection of guides, case studies, and industry insights to stay ahead in the marina industry.',
+        heroTag: 'Knowledge Hub',
+        search: 'Search articles, guides, whitepapers...',
         filters: {
           type: 'Type',
           topic: 'Topic',
@@ -73,6 +74,21 @@ const resources = {
         watchReplay: 'Watch Replay',
         signupToAccess: 'Sign up to access this resource',
         verifyMarinaToAccess: 'Verify your marina to access exclusive content',
+        featured: 'Featured',
+        readMore: 'Read more',
+        resultsCount: 'resources found',
+        noResources: 'No resources available yet.',
+        noMatch: 'No resources found matching your criteria.',
+        clearFilters: 'Clear filters',
+      },
+      resourceDetail: {
+        backToResources: 'Back to Resources',
+        minRead: 'min read',
+        share: 'Share',
+        restrictedTitle: 'Restricted Content',
+        joinToAccess: 'Join to Access',
+        goToAccount: 'Go to Account',
+        relatedResources: 'Related Resources',
       },
       // Events
       events: {
@@ -553,8 +569,9 @@ const resources = {
       // Resources
       resources: {
         title: 'Bibliothèque de Ressources',
-        subtitle: 'Accédez à notre collection de guides, études de cas et analyses sectorielles.',
-        search: 'Rechercher...',
+        subtitle: 'Accédez à notre collection de guides, études de cas et analyses sectorielles pour rester à la pointe du secteur marina.',
+        heroTag: 'Centre de Connaissances',
+        search: 'Rechercher articles, guides, livres blancs...',
         filters: {
           type: 'Type',
           topic: 'Thématique',
@@ -578,6 +595,21 @@ const resources = {
         watchReplay: 'Voir le Replay',
         signupToAccess: 'Inscrivez-vous pour accéder à cette ressource',
         verifyMarinaToAccess: 'Vérifiez votre marina pour accéder au contenu exclusif',
+        featured: 'À la Une',
+        readMore: 'Lire la suite',
+        resultsCount: 'ressources trouvées',
+        noResources: 'Aucune ressource disponible pour le moment.',
+        noMatch: 'Aucune ressource ne correspond à vos critères.',
+        clearFilters: 'Effacer les filtres',
+      },
+      resourceDetail: {
+        backToResources: 'Retour aux Ressources',
+        minRead: 'min de lecture',
+        share: 'Partager',
+        restrictedTitle: 'Contenu Restreint',
+        joinToAccess: "S'inscrire pour Accéder",
+        goToAccount: 'Aller à Mon Compte',
+        relatedResources: 'Ressources Associées',
       },
       // Events
       events: {

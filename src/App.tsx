@@ -3,6 +3,7 @@ import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { HomePage } from '@/pages/HomePage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
+import { ResourceDetailPage } from '@/pages/ResourceDetailPage';
 import { EventsPage } from '@/pages/EventsPage';
 import { PartnersPage } from '@/pages/PartnersPage';
 import { BecomePartnerPage } from '@/pages/BecomePartnerPage';
@@ -24,6 +25,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/resources" element={<ResourcesPage />} />
+          <Route path="/resources/:id" element={<ResourceDetailPage />} />
           <Route path="/events" element={<EventsPage />} />
           <Route path="/partners" element={<PartnersPage />} />
           <Route path="/become-partner" element={<BecomePartnerPage />} />

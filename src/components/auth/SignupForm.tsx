@@ -41,7 +41,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
       return;
     }
     setLoading(true);
-    const { error } = await signUp(formData.email, formData.password, selectedPersona);
+    const { error } = await signUp(formData.email, formData.password);
     setLoading(false);
     if (error) {
       toast({ title: 'Erreur', description: error.message, variant: 'destructive' });

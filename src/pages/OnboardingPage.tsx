@@ -1,74 +1,38 @@
-const handleSubmit = async () => {
-  if (!user) return;
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { Sector, PersonaType } from '@/types/database';
+import { toast } from '@/hooks/use-toast';
 
-  try {
-    setLoading(true);
-
-    // Save persona specific data first
-    if (persona === 'marina') {
-      const { error } = await supabase
-        .from('marina_profiles')
-        .upsert({
-          user_id: user.id,
-          ...formData,
-        });
-
-      if (error) throw error;
-    }
-
-    if (persona === 'partner') {
-      const { error } = await supabase
-        .from('partner_profiles')
-        .upsert({
-          user_id: user.id,
-          ...formData,
-        });
-
-      if (error) throw error;
-    }
-
-    if (persona === 'media_partner') {
-      const { error } = await supabase
-        .from('media_partner_profiles')
-        .upsert({
-          user_id: user.id,
-          ...formData,
-        });
-
-      if (error) throw error;
-    }
-
-    // Update profile status (PHASE 4 LOGIC)
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .update({
-        onboarding_status: 'submitted',
-        access_status: 'pending',
-        rejection_reason: null,
-      })
-      .eq('user_id', user.id);
-
-    if (profileError) throw profileError;
-
-    toast({
-      title: 'Application submitted',
-      description: 'Your profile is now under review by an administrator.',
-    });
-
-    navigate('/account');
-
-  } catch (error: any) {
-    console.error('Onboarding submission error:', error);
-
-    toast({
-      title: 'Submission failed',
-      description: error.message,
-      variant: 'destructive',
-    });
-  } finally {
-    setLoading(false);
-  }
-};  has_sailing_school: boolean;
+/* ─── Types ─── */
+interface MarinaForm {
+  marina_name: string;
+  country: string;
+  city: string;
+  website: string;
+  marina_type: string;
+  completion_date: string;
+  berths_count: string;
+  superyacht_berths: string;
+  longest_berth_meters: string;
+  fresh_water_available: boolean;
+  mix_range_boats: boolean;
+  mix_range_description: string;
+  certifications: string[];
+  certifications_other: string;
+  has_yacht_club: boolean;
+  yacht_club_members: string;
+  has_sailing_school: boolean;
   has_boat_yard: boolean;
   has_restaurants: boolean;
   restaurants_count: string;
@@ -77,6 +41,57 @@ const handleSubmit = async () => {
   services_description: string;
   social_media_links: string;
 }
+
+/* ─── Constants ─── */
+const countries = [
+  'Albania', 'Algeria', 'Bahrain', 'Belgium', 'Brazil', 'Canada', 'Chile', 'China',
+  'Croatia', 'Cyprus', 'Denmark', 'Egypt', 'Estonia', 'Finland', 'France', 'Germany',
+  'Gibraltar', 'Greece', 'Indonesia', 'Ireland', 'Israel', 'Italy', 'Japan', 'Jordan',
+  'Kuwait', 'Latvia', 'Lebanon', 'Libya', 'Lithuania', 'Malta', 'Mauritius', 'Mexico',
+  'Monaco', 'Montenegro', 'Morocco', 'Netherlands', 'New Zealand', 'Norway', 'Oman',
+  'Philippines', 'Poland', 'Portugal', 'Qatar', 'Romania', 'Saudi Arabia', 'Singapore',
+  'Slovenia', 'South Africa', 'Spain', 'Sweden', 'Thailand', 'Tunisia', 'Turkey',
+  'United Arab Emirates', 'United Kingdom', 'United States', 'Other',
+];
+
+const certificationOptions = [
+  'Blue Flag',
+  'ISO 14001',
+  'PIANC Green Marina',
+  'Clean Marina',
+  'Gold Anchor',
+  'Silver Anchor',
+  'Five Gold Anchors',
+];
+
+const personaCards: { value: PersonaType; icon: JSX.Element; title: string; desc: string }[] = [
+  {
+    value: 'marina',
+    icon: <Anchor className="h-8 w-8" />,
+    title: 'Marina',
+    desc: 'I manage or represent a marina or port. I want to connect with industry partners and peers.',
+  },
+  {
+    value: 'partner',
+    icon: <Briefcase className="h-8 w-8" />,
+    title: 'Industry Partner',
+    desc: 'I provide products or services to the marina sector and want to reach new marina clients.',
+  },
+  {
+    value: 'media_partner',
+    icon: <Newspaper className="h-8 w-8" />,
+    title: 'Media Partner',
+    desc: 'I represent a media outlet or publication covering the marina and yachting industry.',
+  },
+];
+
+const timelineOptions = [
+  { value: 'immediate', label: 'Immediate' },
+  { value: '0-3months', label: '0-3 months' },
+  { value: '3-12months', label: '3-12 months' },
+  { value: '1-3years', label: '1-3 years' },
+  { value: '3+years', label: '3+ years' },
+];
 
 const defaultMarinaForm: MarinaForm = {
   marina_name: '', country: '', city: '', website: '',

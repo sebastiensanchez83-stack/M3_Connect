@@ -1,78 +1,169 @@
-const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
-const [rejectReason, setRejectReason] = useState('');
+import { useState, useEffect } from 'react';
+import { Routes, Route, Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import {
+  Users, UserCheck, FileText, Calendar, Anchor, RefreshCw, Search,
+  Download, Plus, Pencil, Trash2, Eye, ChevronRight, Radio,
+} from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { toast } from '@/hooks/use-toast';
 
-const approveUser = async (userId: string) => {
-  const { error } = await supabase.from('profiles').update({
-    access_status: 'verified',
-    onboarding_status: 'completed',
-    rejection_reason: null,
-  }).eq('user_id', userId);
+/* ─── Types ─── */
+interface AdminProfile {
+  user_id: string;
+  persona: string;
+  access_status: string;
+  onboarding_status: string;
+  created_at: string;
+}
 
-  if (error) {
-    toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
-    return;
-  }
-  toast({ title: 'Utilisateur validé' });
-  loadUsers();
-};
+interface Resource {
+  id: string;
+  title: string;
+  summary: string;
+  content: string | null;
+  type: string;
+  topic: string;
+  language: string;
+  access_level: string;
+  thumbnail_url: string | null;
+  file_url: string | null;
+  published: boolean;
+}
 
-const openReject = (userId: string) => {
-  setRejectingUserId(userId);
-  setRejectReason('');
-};
+interface Event {
+  id: string;
+  title: string;
+  description: string;
+  date_time: string;
+  location: string | null;
+  language: string;
+  access_level: string;
+  speakers: { name: string; title: string }[];
+  replay_url: string | null;
+}
 
-const confirmReject = async () => {
-  if (!rejectingUserId) return;
-  if (!rejectReason.trim()) {
-    toast({ title: 'Motif requis', description: "Veuillez saisir un motif de refus.", variant: 'destructive' });
-    return;
-  }
+interface Partner {
+  id: string;
+  name: string;
+  description: string;
+  logo_url: string | null;
+  website: string | null;
+  sector: string;
+  country: string;
+  is_featured: boolean;
+}
 
-  const { error } = await supabase.from('profiles').update({
-    access_status: 'rejected',
-    onboarding_status: 'draft',
-    rejection_reason: rejectReason.trim(),
-  }).eq('user_id', rejectingUserId);
+interface MarinaProject {
+  id: string;
+  user_id: string;
+  project_type: string;
+  budget_range: string;
+  timeline: string;
+  description: string;
+  status: string;
+  admin_notes: string | null;
+  created_at: string;
+}
 
-  if (error) {
-    toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
-    return;
-  }
+interface PartnerLead {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  company: string;
+  website: string | null;
+  country: string;
+  actor_type: string;
+  solutions: string | null;
+  goals: string | null;
+  engagement_level: string;
+  status: string;
+  admin_notes: string | null;
+  created_at: string;
+}
 
-  toast({ title: 'Utilisateur refusé' });
-  setRejectingUserId(null);
-  setRejectReason('');
-  loadUsers();
-};
+interface WebinarRequest {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string;
+  preferred_language: string;
+  preferred_timeframe: string | null;
+  status: string;
+  moderator_notes: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
 
-const updateUserStatus = async (userId: string, newStatus: string) => {
-  if (newStatus === 'verified') {
-    await approveUser(userId);
-    return;
-  }
-  if (newStatus === 'rejected') {
-    openReject(userId);
-    return;
-  }
-  // pending / suspended
-  const { error } = await supabase.from('profiles').update({
-    access_status: newStatus,
-    // do not force onboarding_status here
-  }).eq('user_id', userId);
+/* ─── Sidebar ─── */
+function AdminSidebar() {
+  const { t } = useTranslation();
+  const links = [
+    { to: '/admin', label: t('admin.dashboard'), icon: <RefreshCw className="h-4 w-4" />, exact: true },
+    { to: '/admin/users', label: t('admin.users'), icon: <Users className="h-4 w-4" /> },
+    { to: '/admin/resources', label: t('admin.resources'), icon: <FileText className="h-4 w-4" /> },
+    { to: '/admin/events', label: t('admin.events'), icon: <Calendar className="h-4 w-4" /> },
+    { to: '/admin/partners', label: t('admin.partners'), icon: <UserCheck className="h-4 w-4" /> },
+    { to: '/admin/projects', label: t('admin.marinaProjects'), icon: <Anchor className="h-4 w-4" /> },
+    { to: '/admin/leads', label: t('admin.partnerLeads'), icon: <Users className="h-4 w-4" /> },
+    { to: '/admin/webinars', label: 'Webinar Requests', icon: <Radio className="h-4 w-4" /> },
+  ];
+  return (
+    <div className="w-56 shrink-0 bg-white border-r min-h-[calc(100vh-64px)] p-4">
+      <nav className="space-y-1">
+        {links.map((l) => (
+          <Link
+            key={l.to}
+            to={l.to}
+            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-700 hover:bg-gray-100 hover:text-primary transition-colors"
+          >
+            {l.icon}
+            {l.label}
+          </Link>
+        ))}
+      </nav>
+    </div>
+  );
+}
 
-  if (error) {
-    toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
-    return;
-  }
+/* ─── Dashboard ─── */
+function Dashboard() {
+  const { t } = useTranslation();
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalUsers: 0, pendingUsers: 0, verifiedUsers: 0,
+    totalResources: 0, totalEvents: 0, newProjects: 0, newLeads: 0, newWebinars: 0,
+  });
+  const [recentProjects, setRecentProjects] = useState<MarinaProject[]>([]);
+  const [recentLeads, setRecentLeads] = useState<PartnerLead[]>([]);
 
-  toast({ title: `Statut mis à jour : ${newStatus}` });
-  loadUsers();
-};  useEffect(() => { loadDashboard(); }, []);
+  useEffect(() => { loadDashboard(); }, []);
 
   const loadDashboard = async () => {
     setLoading(true);
     try {
-      const [{ count: totalUsers }, { count: pendingUsers }, { count: verifiedUsers }, { count: totalResources }, { count: totalEvents }, { count: newProjects }, { count: newLeads }, { data: projects }, { data: leads }] = await Promise.all([
+      const [
+        { count: totalUsers }, { count: pendingUsers }, { count: verifiedUsers },
+        { count: totalResources }, { count: totalEvents },
+        { count: newProjects }, { count: newLeads }, { count: newWebinars },
+        { data: projects }, { data: leads },
+      ] = await Promise.all([
         supabase.from('profiles').select('*', { count: 'exact', head: true }),
         supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'pending'),
         supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'verified'),
@@ -80,10 +171,15 @@ const updateUserStatus = async (userId: string, newStatus: string) => {
         supabase.from('events').select('*', { count: 'exact', head: true }),
         supabase.from('marina_projects').select('*', { count: 'exact', head: true }).eq('status', 'new'),
         supabase.from('partner_leads').select('*', { count: 'exact', head: true }).eq('status', 'new'),
+        supabase.from('webinar_requests').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
         supabase.from('marina_projects').select('*').order('created_at', { ascending: false }).limit(5),
         supabase.from('partner_leads').select('*').order('created_at', { ascending: false }).limit(5),
       ]);
-      setStats({ totalUsers: totalUsers || 0, pendingUsers: pendingUsers || 0, verifiedUsers: verifiedUsers || 0, totalResources: totalResources || 0, totalEvents: totalEvents || 0, newProjects: newProjects || 0, newLeads: newLeads || 0 });
+      setStats({
+        totalUsers: totalUsers || 0, pendingUsers: pendingUsers || 0, verifiedUsers: verifiedUsers || 0,
+        totalResources: totalResources || 0, totalEvents: totalEvents || 0,
+        newProjects: newProjects || 0, newLeads: newLeads || 0, newWebinars: newWebinars || 0,
+      });
       setRecentProjects(projects || []);
       setRecentLeads(leads || []);
     } catch (error) { console.error('Error loading dashboard:', error); }
@@ -98,24 +194,77 @@ const updateUserStatus = async (userId: string, newStatus: string) => {
     { label: 'Events', value: stats.totalEvents, icon: Calendar, color: 'text-pink-600' },
     { label: 'New Projects', value: stats.newProjects, icon: Anchor, color: 'text-orange-600' },
     { label: 'New Leads', value: stats.newLeads, icon: Users, color: 'text-teal-600' },
+    { label: 'New Webinars', value: stats.newWebinars, icon: Radio, color: 'text-indigo-600' },
   ];
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.dashboard')}</h1><Button variant="outline" size="sm" onClick={loadDashboard}><RefreshCw className="h-4 w-4 mr-2" />Refresh</Button></div>
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-8">
-        {statCards.map((stat, i) => (<Card key={i}><CardContent className="pt-4 pb-4"><div className="flex flex-col items-center text-center"><stat.icon className={`h-6 w-6 mb-2 ${stat.color}`} /><div className="text-2xl font-bold">{stat.value}</div><div className="text-xs text-gray-500">{stat.label}</div></div></CardContent></Card>))}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">{t('admin.dashboard')}</h1>
+        <Button variant="outline" size="sm" onClick={loadDashboard}><RefreshCw className="h-4 w-4 mr-2" />Refresh</Button>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4 mb-8">
+        {statCards.map((stat, i) => (
+          <Card key={i}><CardContent className="pt-4 pb-4">
+            <div className="flex flex-col items-center text-center">
+              <stat.icon className={`h-6 w-6 mb-2 ${stat.color}`} />
+              <div className="text-2xl font-bold">{stat.value}</div>
+              <div className="text-xs text-gray-500">{stat.label}</div>
+            </div>
+          </CardContent></Card>
+        ))}
       </div>
       <div className="grid md:grid-cols-2 gap-6">
-        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-lg">Recent Marina Projects</CardTitle><Link to="/admin/projects" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link></CardHeader><CardContent>{recentProjects.length === 0 ? <p className="text-gray-500 text-center py-4">No projects yet</p> : <div className="space-y-3">{recentProjects.map(project => (<div key={project.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div><div className="font-medium font-mono text-xs">{project.user_id || 'Unknown'}</div><div className="text-sm text-gray-500">{project.project_type} • {project.budget_range}</div></div><Badge variant={project.status === 'new' ? 'warning' : project.status === 'in_progress' ? 'info' : 'success'}>{project.status}</Badge></div>))}</div>}</CardContent></Card>
-        <Card><CardHeader className="flex flex-row items-center justify-between pb-2"><CardTitle className="text-lg">Recent Partner Leads</CardTitle><Link to="/admin/leads" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link></CardHeader><CardContent>{recentLeads.length === 0 ? <p className="text-gray-500 text-center py-4">No leads yet</p> : <div className="space-y-3">{recentLeads.map(lead => (<div key={lead.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"><div><div className="font-medium">{lead.company}</div><div className="text-sm text-gray-500">{lead.first_name} {lead.last_name} • {lead.actor_type}</div></div><Badge variant={lead.status === 'new' ? 'warning' : lead.status === 'qualified' ? 'success' : 'info'}>{lead.status}</Badge></div>))}</div>}</CardContent></Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-lg">Recent Marina Projects</CardTitle>
+            <Link to="/admin/projects" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link>
+          </CardHeader>
+          <CardContent>
+            {recentProjects.length === 0 ? <p className="text-gray-500 text-center py-4">No projects yet</p> : (
+              <div className="space-y-3">
+                {recentProjects.map(project => (
+                  <div key={project.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <div className="font-medium font-mono text-xs">{project.user_id || 'Unknown'}</div>
+                      <div className="text-sm text-gray-500">{project.project_type} • {project.budget_range}</div>
+                    </div>
+                    <Badge variant={project.status === 'new' ? 'warning' : project.status === 'in_progress' ? 'info' : 'success'}>{project.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-lg">Recent Partner Leads</CardTitle>
+            <Link to="/admin/leads" className="text-sm text-secondary flex items-center">View all <ChevronRight className="h-4 w-4" /></Link>
+          </CardHeader>
+          <CardContent>
+            {recentLeads.length === 0 ? <p className="text-gray-500 text-center py-4">No leads yet</p> : (
+              <div className="space-y-3">
+                {recentLeads.map(lead => (
+                  <div key={lead.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <div className="font-medium">{lead.company}</div>
+                      <div className="text-sm text-gray-500">{lead.first_name} {lead.last_name} • {lead.actor_type}</div>
+                    </div>
+                    <Badge variant={lead.status === 'new' ? 'warning' : lead.status === 'qualified' ? 'success' : 'info'}>{lead.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
 }
 
+/* ─── Users Admin ─── */
 function UsersAdmin() {
   const { t } = useTranslation();
   const [users, setUsers] = useState<AdminProfile[]>([]);
@@ -123,18 +272,56 @@ function UsersAdmin() {
   const [search, setSearch] = useState('');
   const [personaFilter, setPersonaFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
 
   useEffect(() => { loadUsers(); }, []);
 
   const loadUsers = async () => {
     setLoading(true);
-    const { data } = await supabase.from('profiles').select('user_id, persona, access_status, onboarding_status, created_at').order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('profiles')
+      .select('user_id, persona, access_status, onboarding_status, created_at')
+      .order('created_at', { ascending: false });
     setUsers((data || []) as AdminProfile[]);
     setLoading(false);
   };
 
+  const approveUser = async (userId: string) => {
+    const { error } = await supabase.from('profiles').update({
+      access_status: 'verified', onboarding_status: 'completed', rejection_reason: null,
+    }).eq('user_id', userId);
+    if (error) { toast({ title: 'Erreur', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Utilisateur validé' });
+    loadUsers();
+  };
+
+  const openReject = (userId: string) => {
+    setRejectingUserId(userId);
+    setRejectReason('');
+  };
+
+  const confirmReject = async () => {
+    if (!rejectingUserId) return;
+    if (!rejectReason.trim()) {
+      toast({ title: 'Motif requis', description: 'Veuillez saisir un motif de refus.', variant: 'destructive' });
+      return;
+    }
+    const { error } = await supabase.from('profiles').update({
+      access_status: 'rejected', onboarding_status: 'draft', rejection_reason: rejectReason.trim(),
+    }).eq('user_id', rejectingUserId);
+    if (error) { toast({ title: 'Erreur', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Utilisateur refusé' });
+    setRejectingUserId(null);
+    setRejectReason('');
+    loadUsers();
+  };
+
   const updateUserStatus = async (userId: string, newStatus: string) => {
-    await supabase.from('profiles').update({ access_status: newStatus }).eq('user_id', userId);
+    if (newStatus === 'verified') { await approveUser(userId); return; }
+    if (newStatus === 'rejected') { openReject(userId); return; }
+    const { error } = await supabase.from('profiles').update({ access_status: newStatus }).eq('user_id', userId);
+    if (error) { toast({ title: 'Erreur', description: error.message, variant: 'destructive' }); return; }
     toast({ title: `Statut mis à jour : ${newStatus}` });
     loadUsers();
   };
@@ -153,14 +340,12 @@ function UsersAdmin() {
     ].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'users.csv';
-    a.click();
+    const a = document.createElement('a'); a.href = url; a.download = 'users.csv'; a.click();
   };
 
   const getPersonaBadge = (persona: string) => {
     switch (persona) {
+      case 'admin': return <Badge variant="destructive">Admin</Badge>;
       case 'moderator': return <Badge variant="destructive">Modérateur</Badge>;
       case 'partner': return <Badge variant="success">Partenaire</Badge>;
       case 'marina': return <Badge variant="info">Marina</Badge>;
@@ -175,11 +360,8 @@ function UsersAdmin() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">{t('admin.users')} ({users.length})</h1>
-        <Button variant="outline" size="sm" onClick={exportCSV}>
-          <Download className="h-4 w-4 mr-2" />Export CSV
-        </Button>
+        <Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
       </div>
-
       <div className="flex gap-4 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -203,10 +385,10 @@ function UsersAdmin() {
             <SelectItem value="partner">Partenaire</SelectItem>
             <SelectItem value="media_partner">Média</SelectItem>
             <SelectItem value="moderator">Modérateur</SelectItem>
+            <SelectItem value="admin">Admin</SelectItem>
           </SelectContent>
         </Select>
       </div>
-
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -245,10 +427,33 @@ function UsersAdmin() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Rejection dialog */}
+      <Dialog open={!!rejectingUserId} onOpenChange={() => setRejectingUserId(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Refuser cet utilisateur</DialogTitle></DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <Label>Motif de refus *</Label>
+              <Textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                rows={3}
+                placeholder="Expliquez la raison du refus à l'utilisateur..."
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setRejectingUserId(null)}>Annuler</Button>
+              <Button variant="destructive" onClick={confirmReject}>Confirmer le refus</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
+/* ─── Resources Admin ─── */
 function ResourcesAdmin() {
   const { t } = useTranslation();
   const [resources, setResources] = useState<Resource[]>([]);
@@ -298,6 +503,7 @@ function ResourcesAdmin() {
   );
 }
 
+/* ─── Events Admin ─── */
 function EventsAdmin() {
   const { t } = useTranslation();
   const [events, setEvents] = useState<Event[]>([]);
@@ -313,7 +519,8 @@ function EventsAdmin() {
   const openEdit = (event: Event) => { setEditingEvent(event); setFormData({ title: event.title, description: event.description, date_time: event.date_time ? new Date(event.date_time).toISOString().slice(0, 16) : '', location: event.location || '', language: event.language, access_level: event.access_level, speakers: event.speakers ? JSON.stringify(event.speakers) : '', replay_url: event.replay_url || '' }); setIsDialogOpen(true); };
 
   const handleSave = async () => {
-    let speakers = []; try { if (formData.speakers) speakers = JSON.parse(formData.speakers); } catch { toast({ title: 'Invalid speakers JSON', variant: 'destructive' }); return; }
+    let speakers: { name: string; title: string }[] = [];
+    try { if (formData.speakers) speakers = JSON.parse(formData.speakers); } catch { toast({ title: 'Invalid speakers JSON', variant: 'destructive' }); return; }
     const payload = { title: formData.title, description: formData.description, date_time: formData.date_time, location: formData.location || null, language: formData.language, access_level: formData.access_level, speakers, replay_url: formData.replay_url || null };
     if (editingEvent) { await supabase.from('events').update(payload).eq('id', editingEvent.id); toast({ title: 'Event updated!' }); }
     else { await supabase.from('events').insert(payload); toast({ title: 'Event created!' }); }
@@ -343,6 +550,7 @@ function EventsAdmin() {
   );
 }
 
+/* ─── Partners Admin ─── */
 function PartnersAdmin() {
   const { t } = useTranslation();
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -388,6 +596,7 @@ function PartnersAdmin() {
   );
 }
 
+/* ─── Projects Admin ─── */
 function ProjectsAdmin() {
   const { t } = useTranslation();
   const [projects, setProjects] = useState<MarinaProject[]>([]);
@@ -401,7 +610,10 @@ function ProjectsAdmin() {
   const updateStatus = async (id: string, status: string) => { await supabase.from('marina_projects').update({ status }).eq('id', id); toast({ title: `Status updated to ${status}` }); loadProjects(); };
   const saveNotes = async () => { if (!selectedProject) return; await supabase.from('marina_projects').update({ admin_notes: adminNotes }).eq('id', selectedProject.id); toast({ title: 'Notes saved' }); setSelectedProject(null); loadProjects(); };
 
-  const exportCSV = () => { const csv = [['UserID', 'Type', 'Budget', 'Timeline', 'Status', 'Date'].join(','), ...projects.map(p => [p.user_id || '', p.project_type, p.budget_range, p.timeline, p.status, new Date(p.created_at).toLocaleDateString()].join(','))].join('\n'); const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'marina-projects.csv'; a.click(); };
+  const exportCSV = () => {
+    const csv = [['UserID', 'Type', 'Budget', 'Timeline', 'Status', 'Date'].join(','), ...projects.map(p => [p.user_id || '', p.project_type, p.budget_range, p.timeline, p.status, new Date(p.created_at).toLocaleDateString()].join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'marina-projects.csv'; a.click();
+  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
@@ -416,6 +628,7 @@ function ProjectsAdmin() {
   );
 }
 
+/* ─── Leads Admin ─── */
 function LeadsAdmin() {
   const { t } = useTranslation();
   const [leads, setLeads] = useState<PartnerLead[]>([]);
@@ -429,7 +642,10 @@ function LeadsAdmin() {
   const updateStatus = async (id: string, status: string) => { await supabase.from('partner_leads').update({ status }).eq('id', id); toast({ title: `Status updated to ${status}` }); loadLeads(); };
   const saveNotes = async () => { if (!selectedLead) return; await supabase.from('partner_leads').update({ admin_notes: adminNotes }).eq('id', selectedLead.id); toast({ title: 'Notes saved' }); setSelectedLead(null); loadLeads(); };
 
-  const exportCSV = () => { const csv = [['Company', 'Contact', 'Email', 'Phone', 'Type', 'Engagement', 'Status', 'Date'].join(','), ...leads.map(l => [l.company, `${l.first_name} ${l.last_name}`, l.email, l.phone || '', l.actor_type, l.engagement_level, l.status, new Date(l.created_at).toLocaleDateString()].join(','))].join('\n'); const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'partner-leads.csv'; a.click(); };
+  const exportCSV = () => {
+    const csv = [['Company', 'Contact', 'Email', 'Phone', 'Type', 'Engagement', 'Status', 'Date'].join(','), ...leads.map(l => [l.company, `${l.first_name} ${l.last_name}`, l.email, l.phone || '', l.actor_type, l.engagement_level, l.status, new Date(l.created_at).toLocaleDateString()].join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'partner-leads.csv'; a.click();
+  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
@@ -444,8 +660,152 @@ function LeadsAdmin() {
   );
 }
 
+/* ─── Webinar Requests Admin ─── */
+function WebinarRequestsAdmin() {
+  const [requests, setRequests] = useState<WebinarRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<WebinarRequest | null>(null);
+  const [moderatorNotes, setModeratorNotes] = useState('');
+
+  useEffect(() => { loadRequests(); }, []);
+
+  const loadRequests = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('webinar_requests')
+      .select('id, user_id, title, description, preferred_language, preferred_timeframe, status, moderator_notes, reviewed_at, created_at')
+      .order('created_at', { ascending: false });
+    setRequests(data || []);
+    setLoading(false);
+  };
+
+  const updateStatus = async (id: string, status: string) => {
+    const { error } = await supabase.from('webinar_requests').update({
+      status,
+      reviewed_at: new Date().toISOString(),
+    }).eq('id', id);
+    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: `Status updated: ${status}` });
+    loadRequests();
+  };
+
+  const saveNotes = async () => {
+    if (!selected) return;
+    const { error } = await supabase.from('webinar_requests').update({
+      moderator_notes: moderatorNotes.trim() || null,
+    }).eq('id', selected.id);
+    if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Notes saved' });
+    setSelected(null);
+    loadRequests();
+  };
+
+  const statusBadge = (status: string) => {
+    const map: Record<string, string> = {
+      submitted: 'warning',
+      under_review: 'info',
+      accepted: 'success',
+      rejected: 'destructive',
+    };
+    return <Badge variant={(map[status] as 'warning' | 'info' | 'success' | 'destructive') || 'secondary'}>{status}</Badge>;
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Webinar Requests ({requests.length})</h1>
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left p-4 font-medium">Title</th>
+                  <th className="text-left p-4 font-medium">User</th>
+                  <th className="text-left p-4 font-medium">Lang</th>
+                  <th className="text-left p-4 font-medium">Timeframe</th>
+                  <th className="text-left p-4 font-medium">Status</th>
+                  <th className="text-left p-4 font-medium">Date</th>
+                  <th className="text-left p-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {requests.map(req => (
+                  <tr key={req.id} className="border-b hover:bg-gray-50">
+                    <td className="p-4">
+                      <div className="font-medium max-w-xs truncate">{req.title}</div>
+                      {req.moderator_notes && <div className="text-xs text-blue-600 mt-0.5 truncate max-w-xs">Note: {req.moderator_notes}</div>}
+                    </td>
+                    <td className="p-4 text-xs font-mono text-gray-500 max-w-[120px] truncate">{req.user_id}</td>
+                    <td className="p-4">{req.preferred_language}</td>
+                    <td className="p-4 text-sm text-gray-500">{req.preferred_timeframe || '—'}</td>
+                    <td className="p-4">
+                      <Select value={req.status} onValueChange={v => updateStatus(req.id, v)}>
+                        <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="submitted">Submitted</SelectItem>
+                          <SelectItem value="under_review">Under Review</SelectItem>
+                          <SelectItem value="accepted">Accepted</SelectItem>
+                          <SelectItem value="rejected">Rejected</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="p-4 text-sm text-gray-500">{new Date(req.created_at).toLocaleDateString()}</td>
+                    <td className="p-4">
+                      <Button size="sm" variant="ghost" onClick={() => { setSelected(req); setModeratorNotes(req.moderator_notes || ''); }}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {requests.length === 0 && (
+                  <tr><td colSpan={7} className="p-8 text-center text-gray-400">No webinar requests yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Webinar Request Details</DialogTitle></DialogHeader>
+          {selected && (
+            <div className="space-y-4 mt-2">
+              <div><strong>Title:</strong> {selected.title}</div>
+              <div>
+                <strong>Description:</strong>
+                <p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.description}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><strong>Language:</strong> {selected.preferred_language}</div>
+                <div><strong>Timeframe:</strong> {selected.preferred_timeframe || '—'}</div>
+                <div><strong>Status:</strong> {statusBadge(selected.status)}</div>
+                <div><strong>Submitted:</strong> {new Date(selected.created_at).toLocaleDateString()}</div>
+              </div>
+              <div className="space-y-2">
+                <Label>Moderator Notes (visible to member)</Label>
+                <Textarea
+                  value={moderatorNotes}
+                  onChange={e => setModeratorNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Add feedback or notes visible to the requester..."
+                />
+              </div>
+              <Button onClick={saveNotes} className="w-full">Save Notes</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ─── Admin Page (root) ─── */
 export function AdminPage() {
-  const { t } = useTranslation();
   const { user, loading, isModerator } = useAuth();
   const navigate = useNavigate();
 
@@ -471,6 +831,7 @@ export function AdminPage() {
           <Route path="/partners" element={<PartnersAdmin />} />
           <Route path="/projects" element={<ProjectsAdmin />} />
           <Route path="/leads" element={<LeadsAdmin />} />
+          <Route path="/webinars" element={<WebinarRequestsAdmin />} />
         </Routes>
       </div>
     </div>

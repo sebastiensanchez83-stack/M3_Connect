@@ -1,4 +1,4 @@
-export type PersonaType = 'marina' | 'partner' | 'media_partner' | 'moderator';
+export type PersonaType = 'marina' | 'partner' | 'media_partner' | 'moderator' | 'admin' | 'individual';
 export type AccessStatus = 'pending' | 'verified' | 'rejected' | 'suspended';
 export type OnboardingStatus = 'draft' | 'submitted' | 'under_review' | 'completed';
 

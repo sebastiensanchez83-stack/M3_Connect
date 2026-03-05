@@ -50,6 +50,7 @@ export function Navbar() {
   ];
 
   const canSubmitProject = profile?.persona === 'marina' && isVerified;
+  const canRequestWebinar = isVerified;
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
@@ -107,6 +108,11 @@ export function Navbar() {
                   {canSubmitProject && (
                     <DropdownMenuItem asChild>
                       <Link to="/submit-project">{t('nav.submitProject')}</Link>
+                    </DropdownMenuItem>
+                  )}
+                  {canRequestWebinar && (
+                    <DropdownMenuItem asChild>
+                      <Link to="/request-webinar">Propose a Webinar</Link>
                     </DropdownMenuItem>
                   )}
                   {isModerator && (

@@ -29,7 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const isVerified = profile?.access_status === 'verified'
-  const isModerator = profile?.persona === 'moderator' && isVerified
+  const isModerator = (profile?.persona === 'moderator' || profile?.persona === 'admin') && isVerified
 
   const fetchUserData = useCallback(async (userId: string) => {
     const { data: profileData, error } = await supabase

@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus } from 'lucide-react';
 import { MarinaProfile, PartnerProfile, MediaPartnerProfile } from '@/types/database';
 
 interface EventRegistration {
@@ -25,12 +25,24 @@ interface MarinaProject {
   created_at: string;
 }
 
+interface WebinarRequest {
+  id: string;
+  title: string;
+  description: string;
+  preferred_language: string;
+  preferred_timeframe: string | null;
+  status: string;
+  moderator_notes: string | null;
+  created_at: string;
+}
+
 export function AccountPage() {
   const { user, profile, userDetails, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
   const [projects, setProjects] = useState<MarinaProject[]>([]);
+  const [webinarRequests, setWebinarRequests] = useState<WebinarRequest[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
 
   const defaultTab = searchParams.get('tab') || 'profile';
@@ -63,6 +75,13 @@ export function AccountPage() {
             .order('created_at', { ascending: false });
           if (proj) setProjects(proj as MarinaProject[]);
         }
+
+        const { data: webinars } = await supabase
+          .from('webinar_requests')
+          .select('id, title, description, preferred_language, preferred_timeframe, status, moderator_notes, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+        if (webinars) setWebinarRequests(webinars as WebinarRequest[]);
       } catch (err) {
         console.error('Error fetching account data:', err);
       } finally {
@@ -104,6 +123,8 @@ export function AccountPage() {
       case 'partner': return 'Partenaire';
       case 'media_partner': return 'Média';
       case 'moderator': return 'Modérateur';
+      case 'admin': return 'Administrateur';
+      case 'individual': return 'Individuel';
       default: return '';
     }
   };
@@ -168,6 +189,7 @@ export function AccountPage() {
           <TabsTrigger value="profile">Profil</TabsTrigger>
           <TabsTrigger value="registrations">Inscriptions</TabsTrigger>
           {isMarina && <TabsTrigger value="projects">Projets</TabsTrigger>}
+          <TabsTrigger value="webinars">Webinars</TabsTrigger>
         </TabsList>
 
         {/* ── PROFIL ── */}
@@ -359,7 +381,69 @@ export function AccountPage() {
             </Card>
           </TabsContent>
         )}
+        {/* ── WEBINAR REQUESTS ── */}
+        <TabsContent value="webinars">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Mes demandes de webinar</CardTitle>
+              <Button size="sm" onClick={() => navigate('/request-webinar')}>
+                <Plus className="h-4 w-4 mr-2" />Proposer un webinar
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {dataLoading ? (
+                <p className="text-gray-500 text-center py-8">Chargement...</p>
+              ) : webinarRequests.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Radio className="h-8 w-8 mx-auto mb-3 text-gray-300" />
+                  <p>Aucune demande de webinar soumise.</p>
+                  <Button className="mt-4" size="sm" onClick={() => navigate('/request-webinar')}>
+                    Proposer un sujet
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {webinarRequests.map((req) => (
+                    <div key={req.id} className="p-4 border rounded-lg space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-medium">{req.title}</div>
+                        <WebinarStatusBadge status={req.status} />
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {req.preferred_language === 'EN' ? 'English' : 'Français'}
+                        {req.preferred_timeframe && ` · ${req.preferred_timeframe}`}
+                        {' · '}{new Date(req.created_at).toLocaleDateString('fr-FR')}
+                      </div>
+                      {req.moderator_notes && (
+                        <div className="text-sm bg-blue-50 border border-blue-100 rounded p-3 text-blue-800">
+                          <span className="font-medium">Note de l'équipe : </span>
+                          {req.moderator_notes}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
       </Tabs>
     </div>
+  );
+}
+
+function WebinarStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    submitted: { label: 'Soumis', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    under_review: { label: 'En cours d\'examen', className: 'bg-blue-100 text-blue-800 border-blue-200' },
+    accepted: { label: 'Accepté', className: 'bg-green-100 text-green-800 border-green-200' },
+    rejected: { label: 'Refusé', className: 'bg-red-100 text-red-800 border-red-200' },
+  };
+  const s = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-800' };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${s.className}`}>
+      {s.label}
+    </span>
   );
 }

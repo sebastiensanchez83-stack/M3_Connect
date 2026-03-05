@@ -53,18 +53,4 @@ export function AuthRedirector() {
   }, [user, loading, profile, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute])
 
   return null
-}    if (!onboardingDone) {
-      if (!allowOnboardingRoutes.has(path)) {
-        navigate('/onboarding', { replace: true })
-      }
-      return
-    }
-
-    // 5) If onboarding done, prevent them from staying on /onboarding
-    if (onboardingDone && path === '/onboarding') {
-      navigate('/account', { replace: true })
-    }
-  }, [user, loading, profile, path, navigate, isModerator, isAdminRoute])
-
-  return null
 }

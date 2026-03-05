@@ -91,7 +91,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(null)
           setUserDetails(null)
         }
-      } catch (e) {
+      } catch (e: unknown) {
+        // AbortError from navigator.locks is expected in React Strict Mode
+        // (double-mount causes the second render to steal the auth lock)
+        if (e instanceof Error && e.name === 'AbortError') return
         console.error('[AuthContext] init error:', e)
       } finally {
         if (mounted) setLoading(false)
@@ -107,10 +110,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(newSession?.user ?? null)
 
       if (newSession?.user) {
-        const { profile: p, details } = await fetchUserData(newSession.user.id)
-        if (!mounted) return
-        setProfile(p)
-        setUserDetails(details)
+        try {
+          const { profile: p, details } = await fetchUserData(newSession.user.id)
+          if (!mounted) return
+          setProfile(p)
+          setUserDetails(details)
+        } catch (e: unknown) {
+          if (e instanceof Error && e.name === 'AbortError') return
+          console.error('[AuthContext] onAuthStateChange fetch error:', e)
+        }
       } else {
         setProfile(null)
         setUserDetails(null)

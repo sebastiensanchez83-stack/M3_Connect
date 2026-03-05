@@ -5,7 +5,7 @@ import {
   Users, UserCheck, FileText, Calendar, Anchor, RefreshCw, Search,
   Download, Plus, Pencil, Trash2, Eye, ChevronRight, Radio,
   Link2, ClipboardList, MessageSquare, BookOpen, FolderOpen,
-  ChevronUp, ChevronDown, UserPlus, X,
+  ChevronUp, ChevronDown, UserPlus, X, AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
@@ -472,22 +472,29 @@ function UsersAdmin() {
   const [detailData, setDetailData] = useState<Record<string, unknown> | null>(null);
   const [detailSectors, setDetailSectors] = useState<string[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [emailStatusMap, setEmailStatusMap] = useState<Record<string, boolean>>({});
+  const [unconfirmedUsers, setUnconfirmedUsers] = useState<{ id: string; email: string; created_at: string; first_name: string | null; last_name: string | null; persona: string | null }[]>([]);
+  const [showUnconfirmed, setShowUnconfirmed] = useState(false);
 
   useEffect(() => { loadUsers(); }, []);
 
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(`
-          user_id, first_name, last_name, email, persona,
-          access_status, onboarding_status, rejection_reason, created_at,
-          marina_profiles(marina_name),
-          partner_profiles(company_name),
-          media_partner_profiles(media_name)
-        `)
-        .order('created_at', { ascending: false });
+      const [{ data, error }, { data: emailData }, { data: unconfData }] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select(`
+            user_id, first_name, last_name, email, persona,
+            access_status, onboarding_status, rejection_reason, created_at,
+            marina_profiles(marina_name),
+            partner_profiles(company_name),
+            media_partner_profiles(media_name)
+          `)
+          .order('created_at', { ascending: false }),
+        supabase.rpc('get_users_email_status'),
+        supabase.rpc('get_unconfirmed_users'),
+      ]);
       if (error) { console.error('Error loading users:', error); toast({ title: 'Error loading users', description: error.message, variant: 'destructive' }); }
       // Normalize: PostgREST may return arrays for embedded resources
       const normalized = (data || []).map((row: Record<string, unknown>) => ({
@@ -497,6 +504,11 @@ function UsersAdmin() {
         media_partner_profiles: Array.isArray(row.media_partner_profiles) ? row.media_partner_profiles[0] || null : row.media_partner_profiles,
       }));
       setUsers(normalized as unknown as AdminProfile[]);
+      // Build email confirmation status map
+      const statusMap: Record<string, boolean> = {};
+      (emailData || []).forEach((row: { user_id: string; email_confirmed: boolean }) => { statusMap[row.user_id] = row.email_confirmed; });
+      setEmailStatusMap(statusMap);
+      setUnconfirmedUsers((unconfData || []) as typeof unconfirmedUsers);
     } catch (err) { console.error('Error loading users:', err); }
     setLoading(false);
   };
@@ -622,8 +634,41 @@ function UsersAdmin() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">{t('admin.users')} ({users.length})</h1>
-        <Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />{t('admin.export')}</Button>
+        <div className="flex items-center gap-2">
+          {unconfirmedUsers.length > 0 && (
+            <Button variant={showUnconfirmed ? 'default' : 'outline'} size="sm" onClick={() => setShowUnconfirmed(!showUnconfirmed)}>
+              <AlertTriangle className="h-4 w-4 mr-2" />
+              {unconfirmedUsers.length} Unconfirmed Email{unconfirmedUsers.length > 1 ? 's' : ''}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />{t('admin.export')}</Button>
+        </div>
       </div>
+
+      {/* Unconfirmed emails section */}
+      {showUnconfirmed && unconfirmedUsers.length > 0 && (
+        <Card className="mb-6 border-amber-200 bg-amber-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              <h3 className="font-semibold text-amber-800">Users who haven't confirmed their email</h3>
+            </div>
+            <p className="text-sm text-amber-700 mb-3">These accounts were created but the email address was never confirmed. They don't have a profile yet.</p>
+            <div className="space-y-2">
+              {unconfirmedUsers.map(u => (
+                <div key={u.id} className="flex items-center justify-between bg-white rounded-lg p-3 border border-amber-200">
+                  <div>
+                    <span className="font-medium text-gray-900">{u.first_name || u.last_name ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : 'No name'}</span>
+                    <span className="text-gray-500 text-sm ml-2">{u.email}</span>
+                    {u.persona && <Badge variant="secondary" className="ml-2 text-xs">{u.persona}</Badge>}
+                  </div>
+                  <span className="text-xs text-gray-400">{new Date(u.created_at).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
       <div className="flex gap-4 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -663,7 +708,14 @@ function UsersAdmin() {
           <tr key={user.user_id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => openUserDetail(user)}>
             <td className="p-4">
               <div className="font-medium text-gray-900">{getUserName(user)}</div>
-              <div className="text-xs text-gray-500">{user.email || ''}</div>
+              <div className="flex items-center gap-1 text-xs text-gray-500">
+                {user.email || ''}
+                {emailStatusMap[user.user_id] === false && (
+                  <span className="inline-flex items-center gap-0.5 text-amber-600" title="Email not confirmed">
+                    <AlertTriangle className="h-3 w-3" />
+                  </span>
+                )}
+              </div>
             </td>
             <td className="p-4 text-sm text-gray-700">{getOrgName(user) || <span className="text-gray-400">—</span>}</td>
             <td className="p-4">{getPersonaBadge(user.persona)}</td>

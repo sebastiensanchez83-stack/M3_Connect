@@ -7,6 +7,7 @@ import {
   Link2, ClipboardList, MessageSquare, BookOpen, FolderOpen,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,10 +27,17 @@ import { toast } from '@/hooks/use-toast';
 /* ─── Types ─── */
 interface AdminProfile {
   user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
   persona: string;
   access_status: string;
   onboarding_status: string;
+  rejection_reason: string | null;
   created_at: string;
+  marina_profiles: { marina_name: string } | null;
+  partner_profiles: { company_name: string } | null;
+  media_partner_profiles: { media_name: string } | null;
 }
 
 interface Resource {
@@ -298,14 +306,67 @@ function UsersAdmin() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [selectedUser, setSelectedUser] = useState<AdminProfile | null>(null);
+  const [detailData, setDetailData] = useState<Record<string, unknown> | null>(null);
+  const [detailSectors, setDetailSectors] = useState<string[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => { loadUsers(); }, []);
 
   const loadUsers = async () => {
     setLoading(true);
-    const { data } = await supabase.from('profiles').select('user_id, persona, access_status, onboarding_status, created_at').order('created_at', { ascending: false });
-    setUsers((data || []) as AdminProfile[]);
+    const { data } = await supabase
+      .from('profiles')
+      .select(`
+        user_id, first_name, last_name, email, persona,
+        access_status, onboarding_status, rejection_reason, created_at,
+        marina_profiles(marina_name),
+        partner_profiles(company_name),
+        media_partner_profiles(media_name)
+      `)
+      .order('created_at', { ascending: false });
+    setUsers((data || []) as unknown as AdminProfile[]);
     setLoading(false);
+  };
+
+  const getUserName = (u: AdminProfile) => {
+    if (u.first_name || u.last_name) return `${u.first_name || ''} ${u.last_name || ''}`.trim();
+    return u.email?.split('@')[0] || t('admin.userDetail.noName');
+  };
+
+  const getOrgName = (u: AdminProfile) => {
+    if (u.marina_profiles?.marina_name) return u.marina_profiles.marina_name;
+    if (u.partner_profiles?.company_name) return u.partner_profiles.company_name;
+    if (u.media_partner_profiles?.media_name) return u.media_partner_profiles.media_name;
+    return '';
+  };
+
+  const openUserDetail = async (u: AdminProfile) => {
+    setSelectedUser(u);
+    setDetailData(null);
+    setDetailSectors([]);
+    setDetailLoading(true);
+    try {
+      if (u.persona === 'marina') {
+        const [{ data: mp }, { data: sectors }] = await Promise.all([
+          supabase.from('marina_profiles').select('*').eq('user_id', u.user_id).maybeSingle(),
+          supabase.from('marina_interest_sectors').select('sectors(label)').eq('user_id', u.user_id),
+        ]);
+        setDetailData(mp as Record<string, unknown> | null);
+        setDetailSectors((sectors || []).map((s: Record<string, unknown>) => ((s.sectors as Record<string, unknown> | null)?.label as string) || '').filter(Boolean));
+      } else if (u.persona === 'partner') {
+        const [{ data: pp }, { data: sectors }] = await Promise.all([
+          supabase.from('partner_profiles').select('*').eq('user_id', u.user_id).maybeSingle(),
+          supabase.from('partner_service_sectors').select('sectors(label)').eq('user_id', u.user_id),
+        ]);
+        setDetailData(pp as Record<string, unknown> | null);
+        setDetailSectors((sectors || []).map((s: Record<string, unknown>) => ((s.sectors as Record<string, unknown> | null)?.label as string) || '').filter(Boolean));
+      } else if (u.persona === 'media_partner') {
+        const { data: mpp } = await supabase.from('media_partner_profiles').select('*').eq('user_id', u.user_id).maybeSingle();
+        setDetailData(mpp as Record<string, unknown> | null);
+      }
+    } catch (err) { console.error('Error loading user detail:', err); }
+    setDetailLoading(false);
   };
 
   const approveUser = async (userId: string) => {
@@ -315,7 +376,7 @@ function UsersAdmin() {
   };
   const openReject = (userId: string) => { setRejectingUserId(userId); setRejectReason(''); };
   const confirmReject = async () => {
-    if (!rejectingUserId || !rejectReason.trim()) { toast({ title: 'Reason required', variant: 'destructive' }); return; }
+    if (!rejectingUserId || !rejectReason.trim()) { toast({ title: t('admin.userDetail.reasonRequired'), variant: 'destructive' }); return; }
     const { error } = await supabase.from('profiles').update({ access_status: 'rejected', onboarding_status: 'draft', rejection_reason: rejectReason.trim() }).eq('user_id', rejectingUserId);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
     toast({ title: 'User rejected' }); setRejectingUserId(null); loadUsers();
@@ -328,14 +389,23 @@ function UsersAdmin() {
   };
 
   const filteredUsers = users.filter(user => {
-    const matchesSearch = search === '' || user.user_id.toLowerCase().includes(search.toLowerCase()) || user.persona.includes(search.toLowerCase());
+    const name = getUserName(user).toLowerCase();
+    const org = getOrgName(user).toLowerCase();
+    const email = (user.email || '').toLowerCase();
+    const q = search.toLowerCase();
+    const matchesSearch = search === '' || name.includes(q) || org.includes(q) || email.includes(q) || user.persona.includes(q);
     const matchesPersona = personaFilter === 'all' || user.persona === personaFilter;
     const matchesStatus = statusFilter === 'all' || user.access_status === statusFilter;
     return matchesSearch && matchesPersona && matchesStatus;
   });
 
   const exportCSV = () => {
-    const csv = [['UserID', 'Persona', 'Access Status', 'Onboarding', 'Created'].join(','), ...filteredUsers.map(u => [u.user_id, u.persona, u.access_status, u.onboarding_status, new Date(u.created_at).toLocaleDateString()].join(','))].join('\n');
+    const csv = [['Name', 'Email', 'Organization', 'Persona', 'Access Status', 'Onboarding', 'Created'].join(','),
+      ...filteredUsers.map(u => [
+        `"${getUserName(u)}"`, `"${u.email || ''}"`, `"${getOrgName(u)}"`,
+        u.persona, u.access_status, u.onboarding_status, new Date(u.created_at).toLocaleDateString()
+      ].join(','))
+    ].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'users.csv'; a.click();
   };
 
@@ -350,18 +420,38 @@ function UsersAdmin() {
     }
   };
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'verified': return <Badge variant="success">Verified</Badge>;
+      case 'pending': return <Badge variant="warning">Pending</Badge>;
+      case 'rejected': return <Badge variant="destructive">Rejected</Badge>;
+      case 'suspended': return <Badge variant="destructive">Suspended</Badge>;
+      default: return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  const DetailRow = ({ label, value }: { label: string; value: React.ReactNode }) => {
+    if (!value) return null;
+    return (
+      <div className="flex justify-between py-2 border-b border-gray-100 last:border-0">
+        <span className="text-sm text-gray-500 font-medium">{label}</span>
+        <span className="text-sm text-gray-900 text-right max-w-[60%]">{value}</span>
+      </div>
+    );
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">{t('admin.users')} ({users.length})</h1>
-        <Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />Export CSV</Button>
+        <Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />{t('admin.export')}</Button>
       </div>
       <div className="flex gap-4 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input placeholder="Search by ID or persona..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+          <Input placeholder={t('admin.userDetail.searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
@@ -386,16 +476,25 @@ function UsersAdmin() {
         </Select>
       </div>
       <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
-        <th className="text-left p-4 font-medium">User ID</th><th className="text-left p-4 font-medium">Persona</th><th className="text-left p-4 font-medium">Onboarding</th><th className="text-left p-4 font-medium">Access Status</th><th className="text-left p-4 font-medium">Created</th>
+        <th className="text-left p-4 font-medium">{t('admin.userDetail.name')}</th>
+        <th className="text-left p-4 font-medium">{t('admin.userDetail.organization')}</th>
+        <th className="text-left p-4 font-medium">{t('admin.userDetail.persona')}</th>
+        <th className="text-left p-4 font-medium">{t('admin.userDetail.onboarding')}</th>
+        <th className="text-left p-4 font-medium">{t('admin.userDetail.accessStatus')}</th>
+        <th className="text-left p-4 font-medium">{t('admin.userDetail.created')}</th>
       </tr></thead><tbody>
         {filteredUsers.map(user => (
-          <tr key={user.user_id} className="border-b hover:bg-gray-50">
-            <td className="p-4 text-xs text-gray-500 font-mono">{user.user_id}</td>
+          <tr key={user.user_id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => openUserDetail(user)}>
+            <td className="p-4">
+              <div className="font-medium text-gray-900">{getUserName(user)}</div>
+              <div className="text-xs text-gray-500">{user.email || ''}</div>
+            </td>
+            <td className="p-4 text-sm text-gray-700">{getOrgName(user) || <span className="text-gray-400">—</span>}</td>
             <td className="p-4">{getPersonaBadge(user.persona)}</td>
             <td className="p-4 text-sm capitalize">{user.onboarding_status}</td>
             <td className="p-4">
-              <Select value={user.access_status} onValueChange={(v) => updateUserStatus(user.user_id, v)}>
-                <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+              <Select value={user.access_status} onValueChange={(v) => { v !== user.access_status && updateUserStatus(user.user_id, v); }}>
+                <SelectTrigger className="w-36" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pending">Pending</SelectItem><SelectItem value="verified">Verified</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem><SelectItem value="suspended">Suspended</SelectItem>
@@ -405,13 +504,119 @@ function UsersAdmin() {
             <td className="p-4 text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
           </tr>
         ))}
+        {filteredUsers.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">No users found</td></tr>}
       </tbody></table></div></CardContent></Card>
+
+      {/* ─── User Detail Dialog ─── */}
+      <Dialog open={!!selectedUser} onOpenChange={() => setSelectedUser(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('admin.userDetail.title')}</DialogTitle>
+            <DialogDescription>{selectedUser?.email || ''}</DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <div className="space-y-6 mt-2">
+              {/* Header */}
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold">{getUserName(selectedUser)}</h3>
+                  <p className="text-sm text-gray-500">{selectedUser.email}</p>
+                </div>
+                <div className="flex gap-2">
+                  {getPersonaBadge(selectedUser.persona)}
+                  {getStatusBadge(selectedUser.access_status)}
+                </div>
+              </div>
+
+              {/* Base info */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <DetailRow label={t('admin.userDetail.name')} value={selectedUser.first_name || selectedUser.last_name ? `${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() : t('admin.userDetail.noName')} />
+                <DetailRow label={t('admin.userDetail.email')} value={selectedUser.email} />
+                <DetailRow label={t('admin.userDetail.organization')} value={getOrgName(selectedUser) || t('admin.userDetail.noOrg')} />
+                <DetailRow label={t('admin.userDetail.persona')} value={selectedUser.persona} />
+                <DetailRow label={t('admin.userDetail.onboarding')} value={selectedUser.onboarding_status} />
+                <DetailRow label={t('admin.userDetail.accessStatus')} value={selectedUser.access_status} />
+                <DetailRow label={t('admin.userDetail.created')} value={new Date(selectedUser.created_at).toLocaleDateString()} />
+                {selectedUser.rejection_reason && (
+                  <DetailRow label={t('admin.userDetail.rejectionReason')} value={<span className="text-red-600">{selectedUser.rejection_reason}</span>} />
+                )}
+              </div>
+
+              {/* Persona-specific details */}
+              {detailLoading ? (
+                <div className="flex justify-center py-4"><RefreshCw className="h-5 w-5 animate-spin text-gray-400" /></div>
+              ) : detailData && (
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm text-gray-700">
+                    {selectedUser.persona === 'marina' ? t('admin.userDetail.marinaInfo')
+                      : selectedUser.persona === 'partner' ? t('admin.userDetail.partnerInfo')
+                      : t('admin.userDetail.mediaInfo')}
+                  </h4>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    {selectedUser.persona === 'marina' && (
+                      <>
+                        <DetailRow label={t('admin.userDetail.marinaName')} value={detailData.marina_name as string} />
+                        <DetailRow label={t('admin.userDetail.country')} value={detailData.country as string} />
+                        <DetailRow label={t('admin.userDetail.city')} value={detailData.city as string} />
+                        <DetailRow label={t('admin.userDetail.website')} value={detailData.website ? <a href={detailData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{detailData.website as string}</a> : null} />
+                        <DetailRow label={t('admin.userDetail.berths')} value={detailData.berths_count as number} />
+                        <DetailRow label={t('admin.userDetail.marinaType')} value={detailData.marina_type as string} />
+                        <DetailRow label={t('admin.userDetail.superyachtBerths')} value={detailData.superyacht_berths as number} />
+                        <DetailRow label={t('admin.userDetail.longestBerth')} value={detailData.longest_berth_meters as number} />
+                        <DetailRow label={t('admin.userDetail.certifications')} value={detailData.certifications ? (detailData.certifications as string[]).join(', ') : null} />
+                      </>
+                    )}
+                    {selectedUser.persona === 'partner' && (
+                      <>
+                        <DetailRow label={t('admin.userDetail.companyName')} value={detailData.company_name as string} />
+                        <DetailRow label={t('admin.userDetail.headquartersCountry')} value={detailData.headquarters_country as string} />
+                        <DetailRow label={t('admin.userDetail.website')} value={detailData.website ? <a href={detailData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{detailData.website as string}</a> : null} />
+                        <DetailRow label={t('admin.userDetail.description')} value={detailData.description as string} />
+                      </>
+                    )}
+                    {selectedUser.persona === 'media_partner' && (
+                      <>
+                        <DetailRow label={t('admin.userDetail.mediaName')} value={detailData.media_name as string} />
+                        <DetailRow label={t('admin.userDetail.website')} value={detailData.website ? <a href={detailData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{detailData.website as string}</a> : null} />
+                        <DetailRow label={t('admin.userDetail.audienceDescription')} value={detailData.audience_description as string} />
+                      </>
+                    )}
+                    {detailSectors.length > 0 && (
+                      <DetailRow label={t('admin.userDetail.sectors')} value={
+                        <div className="flex flex-wrap gap-1 justify-end">
+                          {detailSectors.map(s => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)}
+                        </div>
+                      } />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2 justify-end pt-2 border-t">
+                {selectedUser.access_status !== 'verified' && (
+                  <Button size="sm" onClick={() => { approveUser(selectedUser.user_id); setSelectedUser(null); }}>
+                    <UserCheck className="h-4 w-4 mr-1" />{t('admin.userDetail.approve')}
+                  </Button>
+                )}
+                {selectedUser.access_status !== 'rejected' && (
+                  <Button size="sm" variant="destructive" onClick={() => { openReject(selectedUser.user_id); setSelectedUser(null); }}>
+                    {t('admin.userDetail.reject')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Reject Dialog ─── */}
       <Dialog open={!!rejectingUserId} onOpenChange={() => setRejectingUserId(null)}>
         <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>Reject User</DialogTitle><DialogDescription>Provide a reason for rejection.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>{t('admin.userDetail.rejectUser')}</DialogTitle><DialogDescription>{t('admin.userDetail.rejectReason')}</DialogDescription></DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-2"><Label>Rejection Reason *</Label><Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="Explain the reason..." /></div>
-            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRejectingUserId(null)}>Cancel</Button><Button variant="destructive" onClick={confirmReject}>Confirm Rejection</Button></div>
+            <div className="space-y-2"><Label>{t('admin.userDetail.rejectionReason')} *</Label><Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="..." /></div>
+            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRejectingUserId(null)}>{t('admin.userDetail.cancel')}</Button><Button variant="destructive" onClick={confirmReject}>{t('admin.userDetail.confirmRejection')}</Button></div>
           </div>
         </DialogContent>
       </Dialog>
@@ -456,7 +661,7 @@ function ResourcesAdmin() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editingResource ? 'Edit Resource' : 'Add Resource'}</DialogTitle><DialogDescription>Fill in the resource details below.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
         <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
         <div className="space-y-2"><Label>Summary *</Label><Textarea value={formData.summary} onChange={e => setFormData({ ...formData, summary: e.target.value })} rows={2} /></div>
-        <div className="space-y-2"><Label>Content</Label><Textarea value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} rows={4} /></div>
+        <div className="space-y-2"><Label>Content</Label><RichTextEditor content={formData.content} onChange={(html) => setFormData({ ...formData, content: html })} placeholder="Write the resource content..." /></div>
         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Type</Label><Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{types.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Topic</Label><Select value={formData.topic} onValueChange={v => setFormData({ ...formData, topic: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{topics.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div></div>
         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina</SelectItem></SelectContent></Select></div></div>
         <div className="space-y-2"><Label>Thumbnail URL</Label><Input value={formData.thumbnail_url} onChange={e => setFormData({ ...formData, thumbnail_url: e.target.value })} placeholder="https://..." /></div>
@@ -899,7 +1104,7 @@ function ResourceDraftsAdmin() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Resource Draft' : 'New Resource Draft'}</DialogTitle><DialogDescription>Create or edit a resource draft for review.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
         <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
         <div className="space-y-2"><Label>Summary</Label><Textarea value={formData.summary} onChange={e => setFormData({ ...formData, summary: e.target.value })} rows={2} /></div>
-        <div className="space-y-2"><Label>Content *</Label><Textarea value={formData.content} onChange={e => setFormData({ ...formData, content: e.target.value })} rows={6} /></div>
+        <div className="space-y-2"><Label>Content *</Label><RichTextEditor content={formData.content} onChange={(html) => setFormData({ ...formData, content: html })} placeholder="Write the resource content..." /></div>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2"><Label>Type</Label><Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{types.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
           <div className="space-y-2"><Label>Topic</Label><Select value={formData.topic} onValueChange={v => setFormData({ ...formData, topic: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{topics.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>

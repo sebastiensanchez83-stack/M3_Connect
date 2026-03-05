@@ -45,3 +45,64 @@
 .card-hover {
   @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
 }
+
+/* Tiptap / ProseMirror editor styles */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af;
+  pointer-events: none;
+  height: 0;
+}
+
+.ProseMirror {
+  outline: none;
+}
+
+.ProseMirror h2 {
+  @apply text-xl font-bold mt-4 mb-2;
+}
+
+.ProseMirror h3 {
+  @apply text-lg font-semibold mt-3 mb-1;
+}
+
+.ProseMirror p {
+  @apply mb-2;
+}
+
+.ProseMirror ul {
+  @apply list-disc ml-6 mb-2;
+}
+
+.ProseMirror ol {
+  @apply list-decimal ml-6 mb-2;
+}
+
+.ProseMirror li {
+  @apply mb-1;
+}
+
+.ProseMirror a {
+  @apply text-primary underline;
+}
+
+.ProseMirror hr {
+  @apply my-4 border-gray-300;
+}
+
+.ProseMirror blockquote {
+  @apply border-l-4 border-gray-300 pl-4 italic text-gray-600 my-2;
+}
+
+.ProseMirror code {
+  @apply bg-gray-100 px-1 py-0.5 rounded text-sm font-mono;
+}
+
+.ProseMirror pre {
+  @apply bg-gray-900 text-gray-100 p-4 rounded-lg my-2 overflow-x-auto;
+}
+
+.ProseMirror pre code {
+  @apply bg-transparent p-0 text-inherit;
+}

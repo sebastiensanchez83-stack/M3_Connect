@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,18 +12,19 @@ interface SignupFormProps {
   onSuccess?: () => void;
 }
 
-const personas = [
-  { value: 'marina' as PersonaType, icon: <Anchor className="h-6 w-6" />, title: 'Marina / Port', desc: 'Opérateurs et gestionnaires de marina' },
-  { value: 'partner' as PersonaType, icon: <Building2 className="h-6 w-6" />, title: 'Partenaire', desc: 'Fournisseurs de services et équipements' },
-  { value: 'media_partner' as PersonaType, icon: <Newspaper className="h-6 w-6" />, title: 'Média', desc: 'Journalistes et publications spécialisées' },
-];
-
 export function SignupForm({ onSuccess }: SignupFormProps) {
+  const { t } = useTranslation();
   const { signUp } = useAuth();
   const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<PersonaType | ''>('');
-  const [formData, setFormData] = useState({ email: '', password: '', confirmPassword: '' });
+  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', password: '', confirmPassword: '' });
+
+  const personas = [
+    { value: 'marina' as PersonaType, icon: <Anchor className="h-6 w-6" />, title: t('auth.personaMarina'), desc: t('auth.personaMarinaDesc') },
+    { value: 'partner' as PersonaType, icon: <Building2 className="h-6 w-6" />, title: t('auth.personaPartner'), desc: t('auth.personaPartnerDesc') },
+    { value: 'media_partner' as PersonaType, icon: <Newspaper className="h-6 w-6" />, title: t('auth.personaMedia'), desc: t('auth.personaMediaDesc') },
+  ];
 
   const handlePersonaSelect = (persona: PersonaType) => {
     setSelectedPersona(persona);
@@ -33,20 +35,20 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
     e.preventDefault();
     if (!selectedPersona) return;
     if (formData.password !== formData.confirmPassword) {
-      toast({ title: 'Erreur', description: 'Les mots de passe ne correspondent pas.', variant: 'destructive' });
+      toast({ title: t('auth.error'), description: t('auth.passwordMismatch'), variant: 'destructive' });
       return;
     }
     if (formData.password.length < 8) {
-      toast({ title: 'Erreur', description: 'Mot de passe trop court (min. 8 caractères).', variant: 'destructive' });
+      toast({ title: t('auth.error'), description: t('auth.passwordTooShort'), variant: 'destructive' });
       return;
     }
     setLoading(true);
-    const { error } = await signUp(formData.email, formData.password);
+    const { error } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim());
     setLoading(false);
     if (error) {
-      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+      toast({ title: t('auth.error'), description: error.message, variant: 'destructive' });
     } else {
-      toast({ title: 'Inscription réussie !', description: 'Vérifiez votre email pour confirmer votre compte.' });
+      toast({ title: t('auth.signupSuccess'), description: t('auth.signupSuccessDesc') });
       onSuccess?.();
     }
   };
@@ -54,7 +56,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
   if (step === 1) {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-gray-600">Sélectionnez votre type de profil :</p>
+        <p className="text-sm text-gray-600">{t('auth.selectPersona')}</p>
         <div className="space-y-3">
           {personas.map((p) => (
             <button key={p.value} type="button" onClick={() => handlePersonaSelect(p.value)}
@@ -76,7 +78,7 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <button type="button" onClick={() => setStep(1)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-        <ChevronLeft className="h-4 w-4" /> Retour
+        <ChevronLeft className="h-4 w-4" /> {t('auth.back')}
       </button>
       {selected && (
         <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
@@ -84,21 +86,31 @@ export function SignupForm({ onSuccess }: SignupFormProps) {
           <div><div className="font-medium text-primary">{selected.title}</div><div className="text-xs text-gray-500">{selected.desc}</div></div>
         </div>
       )}
-      <div className="space-y-2">
-        <Label htmlFor="email">Email professionnel *</Label>
-        <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder="vous@exemple.com" />
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <Label htmlFor="firstName">{t('auth.firstName')} *</Label>
+          <Input id="firstName" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required placeholder={t('auth.firstNamePlaceholder')} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="lastName">{t('auth.lastName')} *</Label>
+          <Input id="lastName" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required placeholder={t('auth.lastNamePlaceholder')} />
+        </div>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="password">Mot de passe *</Label>
-        <Input id="password" type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required minLength={8} placeholder="Min. 8 caractères" />
+        <Label htmlFor="email">{t('auth.emailPro')} *</Label>
+        <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="confirmPassword">Confirmer le mot de passe *</Label>
+        <Label htmlFor="password">{t('auth.password')} *</Label>
+        <Input id="password" type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required minLength={8} placeholder={t('auth.passwordPlaceholder')} />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="confirmPassword">{t('auth.confirmPassword')} *</Label>
         <Input id="confirmPassword" type="password" value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} required />
       </div>
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-        {loading ? 'Création...' : 'Créer mon compte'}
+        {loading ? t('auth.creating') : t('auth.createAccount')}
       </Button>
     </form>
   );

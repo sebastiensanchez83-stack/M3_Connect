@@ -11,7 +11,7 @@ interface AuthContextType {
   userDetails: UserDetails | null
   isVerified: boolean
   isModerator: boolean
-  signUp: (email: string, password: string) => Promise<{ error: Error | null }>
+  signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string) => Promise<{ error: Error | null }>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -123,8 +123,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [fetchUserData])
 
-  const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
+  const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          persona: persona || 'individual',
+          first_name: firstName || '',
+          last_name: lastName || '',
+        },
+      },
+    })
     return { error: error ?? null }
   }
 

@@ -4,6 +4,9 @@ export type OnboardingStatus = 'draft' | 'submitted' | 'under_review' | 'complet
 
 export interface Profile {
   user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
   persona: PersonaType;
   access_status: AccessStatus;
   onboarding_status: OnboardingStatus;

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
 
 export function SubmitConsultationPage() {
+  const { t } = useTranslation();
   const { user, profile, isVerified, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -37,7 +39,7 @@ export function SubmitConsultationPage() {
     e.preventDefault();
     if (!user) return;
     if (!form.title.trim() || !form.description.trim()) {
-      toast({ title: 'Required fields', description: 'Title and description are mandatory.', variant: 'destructive' });
+      toast({ title: t('submitConsultation.errorRequired'), description: t('submitConsultation.errorRequiredDesc'), variant: 'destructive' });
       return;
     }
 
@@ -56,14 +58,14 @@ export function SubmitConsultationPage() {
       if (error) throw error;
 
       toast({
-        title: 'Consultation request submitted!',
-        description: 'Your question is now visible to relevant partners who can offer their expertise.',
+        title: t('submitConsultation.success'),
+        description: t('submitConsultation.successDesc'),
       });
       navigate('/account?tab=consultations');
     } catch (err: unknown) {
       toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'An error occurred while submitting your consultation.',
+        title: t('submitConsultation.error'),
+        description: err instanceof Error ? err.message : t('submitConsultation.errorGeneric'),
         variant: 'destructive',
       });
     } finally {
@@ -83,22 +85,22 @@ export function SubmitConsultationPage() {
   if (!user || profile?.persona !== 'marina' || !isVerified) {
     return (
       <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Marina Members Only</h1>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('submitConsultation.restrictedTitle')}</h1>
         <p className="text-gray-500 mb-6">
           {!user
-            ? 'Please log in to request a consultation.'
+            ? t('submitConsultation.restrictedNoUser')
             : profile?.persona !== 'marina'
-              ? 'Only marina accounts can request consultations.'
-              : 'Your account must be verified before you can request a consultation.'}
+              ? t('submitConsultation.restrictedNotMarina')
+              : t('submitConsultation.restrictedNotVerified')}
         </p>
         {!user && (
-          <Button onClick={() => navigate('/')}>Go to Homepage</Button>
+          <Button onClick={() => navigate('/')}>{t('common.goHome')}</Button>
         )}
         {user && !isVerified && (
-          <Button onClick={() => navigate('/account')}>View Account Status</Button>
+          <Button onClick={() => navigate('/account')}>{t('common.viewAccountStatus')}</Button>
         )}
         {user && isVerified && profile?.persona !== 'marina' && (
-          <Button onClick={() => navigate('/account')}>Back to Account</Button>
+          <Button onClick={() => navigate('/account')}>{t('common.backToAccount')}</Button>
         )}
       </div>
     );
@@ -107,49 +109,48 @@ export function SubmitConsultationPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">Request a Consultation</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2">{t('submitConsultation.title')}</h1>
         <p className="text-gray-600">
-          Post a question or topic you need expert guidance on. Industry partners
-          with relevant expertise will be able to offer their insights and assistance.
+          {t('submitConsultation.subtitle')}
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Consultation Details</CardTitle>
-            <CardDescription>Describe what you need help with</CardDescription>
+            <CardTitle>{t('submitConsultation.cardTitle')}</CardTitle>
+            <CardDescription>{t('submitConsultation.cardDescription')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
-              <Label>Title *</Label>
+              <Label>{t('submitConsultation.fieldTitle')} *</Label>
               <Input
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 required
-                placeholder="e.g. Best practices for superyacht berth management"
+                placeholder={t('submitConsultation.titlePlaceholder')}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Description *</Label>
+              <Label>{t('submitConsultation.fieldDescription')} *</Label>
               <Textarea
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 required
                 rows={6}
-                placeholder="Describe your question or topic in detail: what challenge are you facing, what context is important, what kind of expertise or advice are you looking for..."
+                placeholder={t('submitConsultation.descriptionPlaceholder')}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Sector</Label>
+              <Label>{t('submitConsultation.fieldSector')}</Label>
               <Select
                 value={form.sector_id}
                 onValueChange={(v) => setForm({ ...form, sector_id: v })}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a sector" />
+                  <SelectValue placeholder={t('submitConsultation.selectSector')} />
                 </SelectTrigger>
                 <SelectContent>
                   {sectors.map((s) => (
@@ -163,8 +164,8 @@ export function SubmitConsultationPage() {
 
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
           {loading
-            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting...</>
-            : <><CheckCircle className="h-4 w-4 mr-2" />Submit Consultation Request</>
+            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('submitConsultation.submitting')}</>
+            : <><CheckCircle className="h-4 w-4 mr-2" />{t('submitConsultation.submitBtn')}</>
           }
         </Button>
       </form>

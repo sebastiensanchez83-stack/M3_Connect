@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -50,14 +51,15 @@ function truncate(text: string | null | undefined, maxLen = 160): string {
   return text.length > maxLen ? text.slice(0, maxLen).trimEnd() + '...' : text;
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, locale: string): string {
   if (!iso) return '';
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(iso).toLocaleDateString(locale === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 /* ========== component ========== */
 
 export function MarketplacePage() {
+  const { t, i18n } = useTranslation();
   const { user, profile, isVerified, loading: authLoading } = useAuth();
 
   /* --- data states --- */
@@ -102,7 +104,6 @@ export function MarketplacePage() {
 
     const fetchPartners = async () => {
       try {
-        // 1. get verified partner profiles
         const { data: partnerRows, error: pErr } = await supabase
           .from('partner_profiles')
           .select('user_id, company_name, website, headquarters_country, description, profiles!inner(access_status)')
@@ -114,14 +115,12 @@ export function MarketplacePage() {
           return;
         }
 
-        // 2. get sector mappings for all partner user_ids
         const userIds = partnerRows.map((p: any) => p.user_id);
         const { data: sectorLinks } = await supabase
           .from('partner_service_sectors')
           .select('partner_user_id, sector_id, sectors(id, label)')
           .in('partner_user_id', userIds);
 
-        // build a map: user_id -> sectors[]
         const sectorMap: Record<string, { id: string; label: string }[]> = {};
         if (sectorLinks) {
           for (const link of sectorLinks as any[]) {
@@ -234,11 +233,11 @@ export function MarketplacePage() {
   const handleSendRequest = async () => {
     if (!user || !contactPartner) return;
     if (!contactSectorId) {
-      toast({ title: 'Sector required', description: 'Please select a sector for your request.', variant: 'destructive' });
+      toast({ title: t('marketplace.sectorRequired'), description: t('marketplace.sectorRequiredDesc'), variant: 'destructive' });
       return;
     }
     if (!contactMessage.trim()) {
-      toast({ title: 'Message required', description: 'Please write a message for the partner.', variant: 'destructive' });
+      toast({ title: t('marketplace.messageRequired'), description: t('marketplace.messageRequiredDesc'), variant: 'destructive' });
       return;
     }
 
@@ -254,12 +253,12 @@ export function MarketplacePage() {
 
       if (error) throw error;
 
-      toast({ title: 'Request sent!', description: `Your message has been sent to ${contactPartner.company_name}.` });
+      toast({ title: t('marketplace.requestSent'), description: t('marketplace.requestSentDesc', { name: contactPartner.company_name }) });
       setContactOpen(false);
     } catch (err: unknown) {
       toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'Could not send request.',
+        title: t('marketplace.error'),
+        description: err instanceof Error ? err.message : t('marketplace.errorSending'),
         variant: 'destructive',
       });
     } finally {
@@ -293,17 +292,17 @@ export function MarketplacePage() {
     return (
       <div className="container mx-auto px-4 py-16 max-w-lg text-center">
         <Briefcase className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Marketplace</h1>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('marketplace.title')}</h1>
         <p className="text-gray-500 mb-6">
-          Only verified members can access the marketplace.
+          {t('marketplace.verifiedOnly')}
         </p>
         {!user ? (
           <Link to="/">
-            <Button>Go to Homepage</Button>
+            <Button>{t('marketplace.goHome')}</Button>
           </Link>
         ) : (
           <Link to="/account">
-            <Button>View Account Status</Button>
+            <Button>{t('marketplace.viewAccountStatus')}</Button>
           </Link>
         )}
       </div>
@@ -316,9 +315,9 @@ export function MarketplacePage() {
     <div className="container mx-auto px-4 py-8">
       {/* Page header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">Marketplace</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2">{t('marketplace.title')}</h1>
         <p className="text-gray-600">
-          Explore verified partners, open requests for proposals, and consultation opportunities across the marina industry.
+          {t('marketplace.subtitle')}
         </p>
       </div>
 
@@ -326,28 +325,27 @@ export function MarketplacePage() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="partners" className="flex items-center gap-2">
             <Briefcase className="h-4 w-4" />
-            <span className="hidden sm:inline">Partner Directory</span>
-            <span className="sm:hidden">Partners</span>
+            <span className="hidden sm:inline">{t('marketplace.partnerDirectory')}</span>
+            <span className="sm:hidden">{t('marketplace.partners')}</span>
           </TabsTrigger>
           <TabsTrigger value="rfps" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">Open RFPs</span>
-            <span className="sm:hidden">RFPs</span>
+            <span className="hidden sm:inline">{t('marketplace.openRfps')}</span>
+            <span className="sm:hidden">{t('marketplace.rfps')}</span>
           </TabsTrigger>
           <TabsTrigger value="consultations" className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4" />
-            <span className="hidden sm:inline">Open Consultations</span>
-            <span className="sm:hidden">Consults</span>
+            <span className="hidden sm:inline">{t('marketplace.openConsultations')}</span>
+            <span className="sm:hidden">{t('marketplace.consults')}</span>
           </TabsTrigger>
         </TabsList>
 
         {/* ====== TAB 1: Partner Directory ====== */}
         <TabsContent value="partners" className="space-y-6">
-          {/* search bar */}
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
-              placeholder="Search by name, country, sector..."
+              placeholder={t('marketplace.searchPartners')}
               value={partnerSearch}
               onChange={(e) => setPartnerSearch(e.target.value)}
               className="pl-10"
@@ -357,15 +355,15 @@ export function MarketplacePage() {
           {loadingPartners ? (
             <div className="py-12 text-center">
               <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-              <p className="text-sm text-gray-400 mt-2">Loading partners...</p>
+              <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingPartners')}</p>
             </div>
           ) : filteredPartners.length === 0 ? (
             <div className="py-12 text-center">
               <Briefcase className="h-10 w-10 mx-auto text-gray-300 mb-3" />
               <p className="text-gray-500">
                 {partnerSearch.trim()
-                  ? 'No partners match your search.'
-                  : 'No verified partners yet.'}
+                  ? t('marketplace.noMatchingPartners')
+                  : t('marketplace.noVerifiedPartners')}
               </p>
             </div>
           ) : (
@@ -382,14 +380,12 @@ export function MarketplacePage() {
                     )}
                   </CardHeader>
                   <CardContent className="flex flex-col flex-1 gap-4">
-                    {/* description */}
                     {partner.description && (
                       <p className="text-sm text-gray-600 leading-relaxed">
                         {truncate(partner.description)}
                       </p>
                     )}
 
-                    {/* sectors */}
                     {partner.sectors.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         {partner.sectors.map((s) => (
@@ -400,7 +396,6 @@ export function MarketplacePage() {
                       </div>
                     )}
 
-                    {/* footer actions */}
                     <div className="mt-auto flex items-center gap-2 pt-2">
                       {partner.website && (
                         <a
@@ -410,14 +405,14 @@ export function MarketplacePage() {
                         >
                           <Button variant="outline" size="sm" className="flex items-center gap-1.5">
                             <Globe className="h-3.5 w-3.5" />
-                            Website
+                            {t('marketplace.website')}
                           </Button>
                         </a>
                       )}
 
                       {isMarina && (
                         <Button size="sm" onClick={() => openContactDialog(partner)}>
-                          Contact
+                          {t('marketplace.contact')}
                         </Button>
                       )}
                     </div>
@@ -433,12 +428,12 @@ export function MarketplacePage() {
           {loadingRfps ? (
             <div className="py-12 text-center">
               <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-              <p className="text-sm text-gray-400 mt-2">Loading RFPs...</p>
+              <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingRfps')}</p>
             </div>
           ) : rfps.length === 0 ? (
             <div className="py-12 text-center">
               <FileText className="h-10 w-10 mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500">No open requests for proposals at this time.</p>
+              <p className="text-gray-500">{t('marketplace.noOpenRfps')}</p>
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
@@ -455,7 +450,7 @@ export function MarketplacePage() {
                     </div>
                     {rfp.deadline_date && (
                       <CardDescription>
-                        Deadline: {formatDate(rfp.deadline_date)}
+                        {t('marketplace.deadline')}: {formatDate(rfp.deadline_date, i18n.language)}
                       </CardDescription>
                     )}
                   </CardHeader>
@@ -466,7 +461,7 @@ export function MarketplacePage() {
                       </p>
                     )}
                     <p className="text-xs text-gray-400">
-                      Posted {formatDate(rfp.created_at)}
+                      {t('marketplace.posted')} {formatDate(rfp.created_at, i18n.language)}
                     </p>
                   </CardContent>
                 </Card>
@@ -480,12 +475,12 @@ export function MarketplacePage() {
           {loadingConsultations ? (
             <div className="py-12 text-center">
               <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-              <p className="text-sm text-gray-400 mt-2">Loading consultations...</p>
+              <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingConsultations')}</p>
             </div>
           ) : consultations.length === 0 ? (
             <div className="py-12 text-center">
               <MessageSquare className="h-10 w-10 mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500">No open consultations at this time.</p>
+              <p className="text-gray-500">{t('marketplace.noOpenConsultations')}</p>
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
@@ -508,7 +503,7 @@ export function MarketplacePage() {
                       </p>
                     )}
                     <p className="text-xs text-gray-400">
-                      Posted {formatDate(c.created_at)}
+                      {t('marketplace.posted')} {formatDate(c.created_at, i18n.language)}
                     </p>
                   </CardContent>
                 </Card>
@@ -522,21 +517,20 @@ export function MarketplacePage() {
       <Dialog open={contactOpen} onOpenChange={setContactOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Contact {contactPartner?.company_name}</DialogTitle>
+            <DialogTitle>{t('marketplace.contactPartner', { name: contactPartner?.company_name })}</DialogTitle>
             <DialogDescription>
-              Send a request to this partner. They will receive your message and can respond directly.
+              {t('marketplace.contactDescription')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 pt-2">
             <div className="space-y-2">
-              <Label>Sector *</Label>
+              <Label>{t('marketplace.sector')} *</Label>
               <Select value={contactSectorId} onValueChange={setContactSectorId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a sector" />
+                  <SelectValue placeholder={t('marketplace.selectSector')} />
                 </SelectTrigger>
                 <SelectContent>
-                  {/* Show partner's sectors first if available, otherwise all sectors */}
                   {(contactPartner?.sectors && contactPartner.sectors.length > 0
                     ? contactPartner.sectors
                     : sectors
@@ -550,27 +544,27 @@ export function MarketplacePage() {
             </div>
 
             <div className="space-y-2">
-              <Label>Message *</Label>
+              <Label>{t('marketplace.message')} *</Label>
               <Textarea
                 value={contactMessage}
                 onChange={(e) => setContactMessage(e.target.value)}
                 rows={4}
-                placeholder="Describe what you are looking for, your marina's needs, timeline, etc."
+                placeholder={t('marketplace.messagePlaceholder')}
               />
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setContactOpen(false)} disabled={contactSending}>
-                Cancel
+                {t('common.cancel')}
               </Button>
               <Button onClick={handleSendRequest} disabled={contactSending}>
                 {contactSending ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    Sending...
+                    {t('marketplace.sending')}
                   </>
                 ) : (
-                  'Send Request'
+                  t('marketplace.sendRequest')
                 )}
               </Button>
             </div>

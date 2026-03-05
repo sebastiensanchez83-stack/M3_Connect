@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,21 +12,29 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Search, Download, Play, Lock } from 'lucide-react';
+import { Search, Download, Play, Lock, FileText, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 
-const mockResources = [
-  { id: '1', title: 'Sustainable Marina Operations Guide', summary: 'Best practices for implementing sustainable operations in modern marinas. Learn how to reduce environmental impact while improving efficiency.', type: 'guide', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=400', file_url: '#' },
-  { id: '2', title: 'Digital Transformation in Ports', summary: 'How technology is reshaping the marina industry. Discover the latest trends in port digitalization.', type: 'whitepaper', topic: 'Technology', language: 'EN', access_level: 'members', thumbnail_url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400', file_url: '#' },
-  { id: '3', title: 'Smart Marina 2024 Highlights', summary: 'Key takeaways from our annual conference featuring industry leaders and innovators.', type: 'replay', topic: 'Events', language: 'EN', access_level: 'marina', thumbnail_url: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=400', file_url: '#' },
-  { id: '4', title: 'Guide des Marinas Durables', summary: 'Meilleures pratiques pour une gestion durable des ports de plaisance en Méditerranée.', type: 'guide', topic: 'Sustainability', language: 'FR', access_level: 'public', thumbnail_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400', file_url: '#' },
-  { id: '5', title: 'Energy Efficiency Case Study: Port Monaco', summary: 'How Port Monaco reduced energy consumption by 40% through smart technologies.', type: 'case_study', topic: 'Energy', language: 'EN', access_level: 'members', thumbnail_url: 'https://images.unsplash.com/photo-1569263979104-865ab7cd8d13?w=400', file_url: '#' },
-  { id: '6', title: 'Marina Management Best Practices', summary: 'Comprehensive article on modern marina management techniques and strategies.', type: 'article', topic: 'Management', language: 'EN', access_level: 'public', thumbnail_url: 'https://images.unsplash.com/photo-1540946485063-a40da27545f8?w=400', file_url: '#' },
-];
+interface Resource {
+  id: string;
+  title: string;
+  summary: string;
+  content: string | null;
+  type: string;
+  topic: string;
+  language: string;
+  access_level: string;
+  thumbnail_url: string | null;
+  file_url: string | null;
+  published: boolean;
+}
 
 export function ResourcesPage() {
   const { t } = useTranslation();
   const { user, profile, isVerified } = useAuth();
+  const [resources, setResources] = useState<Resource[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [typeFilters, setTypeFilters] = useState<string[]>([]);
   const [languageFilter, setLanguageFilter] = useState('all');
@@ -34,7 +42,29 @@ export function ResourcesPage() {
 
   const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
 
-  const filteredResources = mockResources.filter((resource) => {
+  useEffect(() => {
+    const fetchResources = async () => {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('resources')
+          .select('*')
+          .eq('published', true)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setResources((data || []) as Resource[]);
+      } catch (err) {
+        console.error('Error fetching resources:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchResources();
+  }, []);
+
+  const filteredResources = resources.filter((resource) => {
     const matchesSearch = resource.title.toLowerCase().includes(search.toLowerCase()) ||
       resource.summary.toLowerCase().includes(search.toLowerCase());
     const matchesType = typeFilters.length === 0 || typeFilters.includes(resource.type);
@@ -64,9 +94,9 @@ export function ResourcesPage() {
 
   const getAccessBadge = (level: string) => {
     switch (level) {
-      case 'public': return <Badge variant="success">🌍 {t('resources.accessLevels.public')}</Badge>;
-      case 'members': return <Badge variant="info">👤 {t('resources.accessLevels.members')}</Badge>;
-      case 'marina': return <Badge variant="purple">⚓ {t('resources.accessLevels.marina')}</Badge>;
+      case 'public': return <Badge variant="success">{t('resources.accessLevels.public')}</Badge>;
+      case 'members': return <Badge variant="info">{t('resources.accessLevels.members')}</Badge>;
+      case 'marina': return <Badge variant="purple">{t('resources.accessLevels.marina')}</Badge>;
       default: return null;
     }
   };
@@ -120,7 +150,7 @@ export function ResourcesPage() {
               <SelectContent>
                 <SelectItem value="all">{t('resources.filters.all')}</SelectItem>
                 <SelectItem value="EN">English</SelectItem>
-                <SelectItem value="FR">Français</SelectItem>
+                <SelectItem value="FR">Fran&ccedil;ais</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -141,44 +171,69 @@ export function ResourcesPage() {
 
         {/* Resources Grid */}
         <div className="flex-1">
-          <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredResources.map((resource) => (
-              <Card key={resource.id} className="card-hover overflow-hidden">
-                <div className="relative">
-                  <img src={resource.thumbnail_url} alt={resource.title} className="w-full h-40 object-cover" />
-                  {!canAccess(resource.access_level) && (
-                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                      <div className="text-center text-white p-4">
-                        <Lock className="h-8 w-8 mx-auto mb-2" />
-                        <p className="text-sm">
-                          {resource.access_level === 'members' ? t('resources.signupToAccess') : t('resources.verifyMarinaToAccess')}
-                        </p>
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
+            </div>
+          ) : filteredResources.length === 0 ? (
+            <div className="text-center py-16">
+              <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+              <p className="text-gray-500 text-lg mb-2">
+                {resources.length === 0
+                  ? t('resources.noResources', 'No resources available yet.')
+                  : t('resources.noMatch', 'No resources found matching your criteria.')}
+              </p>
+              {resources.length > 0 && (
+                <Button variant="outline" size="sm" onClick={() => { setSearch(''); setTypeFilters([]); setLanguageFilter('all'); setAccessFilter('all'); }}>
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {filteredResources.map((resource) => (
+                <Card key={resource.id} className="card-hover overflow-hidden">
+                  <div className="relative">
+                    {resource.thumbnail_url ? (
+                      <img src={resource.thumbnail_url} alt={resource.title} className="w-full h-40 object-cover" />
+                    ) : (
+                      <div className="w-full h-40 bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                        <FileText className="h-12 w-12 text-primary/30" />
                       </div>
-                    </div>
-                  )}
-                </div>
-                <CardContent className="p-4">
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {getTypeBadge(resource.type)}
-                    {getAccessBadge(resource.access_level)}
+                    )}
+                    {!canAccess(resource.access_level) && (
+                      <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                        <div className="text-center text-white p-4">
+                          <Lock className="h-8 w-8 mx-auto mb-2" />
+                          <p className="text-sm">
+                            {resource.access_level === 'members' ? t('resources.signupToAccess') : t('resources.verifyMarinaToAccess')}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <h3 className="font-semibold mb-2 line-clamp-2">{resource.title}</h3>
-                  <p className="text-gray-600 text-sm line-clamp-2 mb-4">{resource.summary}</p>
-                  {canAccess(resource.access_level) && (
-                    <Button size="sm" variant="outline" className="w-full">
-                      {resource.type === 'replay' ? (
-                        <><Play className="h-4 w-4 mr-2" />{t('resources.watchReplay')}</>
-                      ) : (
-                        <><Download className="h-4 w-4 mr-2" />{t('resources.download')}</>
-                      )}
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-          {filteredResources.length === 0 && (
-            <div className="text-center py-12 text-gray-500">No resources found matching your criteria.</div>
+                  <CardContent className="p-4">
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {getTypeBadge(resource.type)}
+                      {getAccessBadge(resource.access_level)}
+                    </div>
+                    <h3 className="font-semibold mb-2 line-clamp-2">{resource.title}</h3>
+                    <p className="text-gray-600 text-sm line-clamp-2 mb-4">{resource.summary}</p>
+                    {canAccess(resource.access_level) && resource.file_url && (
+                      <a href={resource.file_url} target="_blank" rel="noopener noreferrer">
+                        <Button size="sm" variant="outline" className="w-full">
+                          {resource.type === 'replay' ? (
+                            <><Play className="h-4 w-4 mr-2" />{t('resources.watchReplay')}</>
+                          ) : (
+                            <><Download className="h-4 w-4 mr-2" />{t('resources.download')}</>
+                          )}
+                        </Button>
+                      </a>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           )}
         </div>
       </div>

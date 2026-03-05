@@ -46,7 +46,7 @@ export function Navbar() {
     { href: '/resources', label: t('nav.resources') },
     { href: '/events', label: t('nav.events') },
     { href: '/partners', label: t('nav.partners') },
-    { href: '/marketplace', label: 'Marketplace' },
+    { href: '/marketplace', label: t('nav.marketplace') },
     { href: '/become-partner', label: t('nav.becomePartner') },
   ];
 
@@ -115,17 +115,17 @@ export function Navbar() {
                   )}
                   {canSubmitRFP && (
                     <DropdownMenuItem asChild>
-                      <Link to="/submit-rfp">Submit an RFP</Link>
+                      <Link to="/submit-rfp">{t('nav.submitRfp')}</Link>
                     </DropdownMenuItem>
                   )}
                   {canSubmitConsultation && (
                     <DropdownMenuItem asChild>
-                      <Link to="/submit-consultation">Request Consultation</Link>
+                      <Link to="/submit-consultation">{t('nav.requestConsultation')}</Link>
                     </DropdownMenuItem>
                   )}
                   {canRequestWebinar && (
                     <DropdownMenuItem asChild>
-                      <Link to="/request-webinar">Propose a Webinar</Link>
+                      <Link to="/request-webinar">{t('nav.proposeWebinar')}</Link>
                     </DropdownMenuItem>
                   )}
                   {isModerator && (

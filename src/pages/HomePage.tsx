@@ -1,82 +1,110 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Anchor, 
-  ArrowRight
-} from 'lucide-react';
+import { Anchor, ArrowRight, FileText, Calendar } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
-// Demo data
-const featuredResources = [
-  {
-    id: '1',
-    title: 'Sustainable Marina Operations Guide',
-    summary: 'Best practices for implementing sustainable operations in modern marinas.',
-    type: 'guide',
-    access_level: 'public',
-    thumbnail_url: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=400',
-  },
-  {
-    id: '2',
-    title: 'Digital Transformation in Ports',
-    summary: 'How technology is reshaping the marina industry.',
-    type: 'whitepaper',
-    access_level: 'members',
-    thumbnail_url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400',
-  },
-  {
-    id: '3',
-    title: 'Smart Marina 2024 Highlights',
-    summary: 'Key takeaways from our annual conference.',
-    type: 'replay',
-    access_level: 'marina',
-    thumbnail_url: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=400',
-  },
-];
+interface FeaturedResource {
+  id: string;
+  title: string;
+  summary: string;
+  type: string;
+  access_level: string;
+  thumbnail_url: string | null;
+}
 
-const upcomingEvents = [
-  {
-    id: '1',
-    title: 'Webinar: Energy Efficiency Solutions',
-    date_time: '2025-02-15T14:00:00Z',
-    access_level: 'public',
-  },
-  {
-    id: '2',
-    title: 'Marina Managers Roundtable',
-    date_time: '2025-02-22T10:00:00Z',
-    access_level: 'marina',
-  },
-  {
-    id: '3',
-    title: 'Partner Showcase: Digital Tools',
-    date_time: '2025-03-01T15:00:00Z',
-    access_level: 'members',
-  },
-];
+interface UpcomingEvent {
+  id: string;
+  title: string;
+  date_time: string;
+  access_level: string;
+}
 
-const partners = [
-  { name: 'Marina Tech', logo: 'MT' },
-  { name: 'EcoPorts', logo: 'EP' },
-  { name: 'Digital Marina', logo: 'DM' },
-  { name: 'GreenShore', logo: 'GS' },
-  { name: 'PortConnect', logo: 'PC' },
-  { name: 'AquaSmart', logo: 'AS' },
-];
+interface PartnerPreview {
+  user_id: string;
+  company_name: string;
+}
+
+interface HomeStats {
+  marinas: number;
+  partners: number;
+  resources: number;
+  events: number;
+}
 
 export function HomePage() {
   const { t } = useTranslation();
+  const [featuredResources, setFeaturedResources] = useState<FeaturedResource[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
+  const [partnerPreviews, setPartnerPreviews] = useState<PartnerPreview[]>([]);
+  const [stats, setStats] = useState<HomeStats>({ marinas: 0, partners: 0, resources: 0, events: 0 });
+
+  useEffect(() => {
+    // Fetch everything in parallel
+    const fetchAll = async () => {
+      try {
+        const [resourcesRes, eventsRes, partnersRes, marinasCount, partnersCount, resourcesCount, eventsCount] = await Promise.all([
+          // Featured resources (latest 3 published public)
+          supabase
+            .from('resources')
+            .select('id, title, summary, type, access_level, thumbnail_url')
+            .eq('published', true)
+            .order('created_at', { ascending: false })
+            .limit(3),
+          // Upcoming events (next 3 future events)
+          supabase
+            .from('events')
+            .select('id, title, date_time, access_level')
+            .gte('date_time', new Date().toISOString())
+            .order('date_time', { ascending: true })
+            .limit(3),
+          // Partner previews (verified, up to 6)
+          supabase
+            .from('partner_profiles')
+            .select('user_id, company_name, profiles!inner(access_status)')
+            .eq('profiles.access_status', 'verified')
+            .limit(6),
+          // Stats counts
+          supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'marina'),
+          supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'partner'),
+          supabase.from('resources').select('*', { count: 'exact', head: true }).eq('published', true),
+          supabase.from('events').select('*', { count: 'exact', head: true }),
+        ]);
+
+        if (resourcesRes.data) setFeaturedResources(resourcesRes.data as FeaturedResource[]);
+        if (eventsRes.data) setUpcomingEvents(eventsRes.data as UpcomingEvent[]);
+        if (partnersRes.data) {
+          setPartnerPreviews(partnersRes.data.map((p: any) => ({
+            user_id: p.user_id,
+            company_name: p.company_name,
+          })));
+        }
+
+        setStats({
+          marinas: marinasCount.count || 0,
+          partners: partnersCount.count || 0,
+          resources: resourcesCount.count || 0,
+          events: eventsCount.count || 0,
+        });
+      } catch (err) {
+        console.error('Error fetching homepage data:', err);
+      }
+    };
+
+    fetchAll();
+  }, []);
 
   const getAccessBadge = (level: string) => {
     switch (level) {
       case 'public':
-        return <Badge variant="success">🌍 {t('resources.accessLevels.public')}</Badge>;
+        return <Badge variant="success">{t('resources.accessLevels.public')}</Badge>;
       case 'members':
-        return <Badge variant="info">👤 {t('resources.accessLevels.members')}</Badge>;
+        return <Badge variant="info">{t('resources.accessLevels.members')}</Badge>;
       case 'marina':
-        return <Badge variant="purple">⚓ {t('resources.accessLevels.marina')}</Badge>;
+        return <Badge variant="purple">{t('resources.accessLevels.marina')}</Badge>;
       default:
         return null;
     }
@@ -96,6 +124,9 @@ export function HomePage() {
       </span>
     );
   };
+
+  const getInitials = (name: string) =>
+    name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   return (
     <div className="flex flex-col">
@@ -124,24 +155,24 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* Stats Bar */}
+      {/* Stats Bar — live counts */}
       <section className="bg-white py-8 border-b">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">500+</div>
+              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.marinas || '—'}</div>
               <div className="text-gray-600">{t('home.stats.marinas')}</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">50+</div>
+              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.partners || '—'}</div>
               <div className="text-gray-600">{t('home.stats.partners')}</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">100+</div>
+              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.resources || '—'}</div>
               <div className="text-gray-600">{t('home.stats.resources')}</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">20+</div>
+              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.events || '—'}</div>
               <div className="text-gray-600">{t('home.stats.events')}</div>
             </div>
           </div>
@@ -157,25 +188,38 @@ export function HomePage() {
               {t('home.viewAll')} <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {featuredResources.map((resource) => (
-              <Card key={resource.id} className="card-hover overflow-hidden">
-                <img
-                  src={resource.thumbnail_url}
-                  alt={resource.title}
-                  className="w-full h-48 object-cover"
-                />
-                <CardContent className="p-4">
-                  <div className="flex gap-2 mb-2">
-                    {getTypeBadge(resource.type)}
-                    {getAccessBadge(resource.access_level)}
-                  </div>
-                  <h3 className="font-semibold text-lg mb-2">{resource.title}</h3>
-                  <p className="text-gray-600 text-sm line-clamp-2">{resource.summary}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {featuredResources.length === 0 ? (
+            <div className="text-center py-12">
+              <FileText className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500">{t('home.noResources', 'Resources coming soon.')}</p>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-6">
+              {featuredResources.map((resource) => (
+                <Card key={resource.id} className="card-hover overflow-hidden">
+                  {resource.thumbnail_url ? (
+                    <img
+                      src={resource.thumbnail_url}
+                      alt={resource.title}
+                      className="w-full h-48 object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-48 bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                      <FileText className="h-12 w-12 text-primary/30" />
+                    </div>
+                  )}
+                  <CardContent className="p-4">
+                    <div className="flex gap-2 mb-2">
+                      {getTypeBadge(resource.type)}
+                      {getAccessBadge(resource.access_level)}
+                    </div>
+                    <h3 className="font-semibold text-lg mb-2">{resource.title}</h3>
+                    <p className="text-gray-600 text-sm line-clamp-2">{resource.summary}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -188,28 +232,35 @@ export function HomePage() {
               {t('home.viewCalendar')} <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
           </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {upcomingEvents.map((event) => (
-              <Card key={event.id} className="card-hover">
-                <CardContent className="p-6">
-                  <div className="flex items-start gap-4">
-                    <div className="bg-primary/10 rounded-lg p-3 text-center min-w-[60px]">
-                      <div className="text-2xl font-bold text-primary">
-                        {new Date(event.date_time).getDate()}
+          {upcomingEvents.length === 0 ? (
+            <div className="text-center py-12">
+              <Calendar className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500">{t('home.noEvents', 'No upcoming events. Check back soon!')}</p>
+            </div>
+          ) : (
+            <div className="grid md:grid-cols-3 gap-6">
+              {upcomingEvents.map((event) => (
+                <Card key={event.id} className="card-hover">
+                  <CardContent className="p-6">
+                    <div className="flex items-start gap-4">
+                      <div className="bg-primary/10 rounded-lg p-3 text-center min-w-[60px]">
+                        <div className="text-2xl font-bold text-primary">
+                          {new Date(event.date_time).getDate()}
+                        </div>
+                        <div className="text-xs text-gray-600">
+                          {new Date(event.date_time).toLocaleString('default', { month: 'short' })}
+                        </div>
                       </div>
-                      <div className="text-xs text-gray-600">
-                        {new Date(event.date_time).toLocaleString('default', { month: 'short' })}
+                      <div>
+                        <h3 className="font-semibold mb-2">{event.title}</h3>
+                        {getAccessBadge(event.access_level)}
                       </div>
                     </div>
-                    <div>
-                      <h3 className="font-semibold mb-2">{event.title}</h3>
-                      {getAccessBadge(event.access_level)}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -222,18 +273,25 @@ export function HomePage() {
               {t('home.viewAllPartners')} <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
           </div>
-          <div className="grid grid-cols-3 md:grid-cols-6 gap-6">
-            {partners.map((partner) => (
-              <div
-                key={partner.name}
-                className="bg-white rounded-lg p-6 flex items-center justify-center shadow-sm hover:shadow-md transition-shadow"
-              >
-                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-xl">
-                  {partner.logo}
+          {partnerPreviews.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-gray-500">{t('home.noPartners', 'Partner directory launching soon.')}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-6">
+              {partnerPreviews.map((partner) => (
+                <div
+                  key={partner.user_id}
+                  className="bg-white rounded-lg p-6 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow"
+                >
+                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-xl">
+                    {getInitials(partner.company_name)}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2 text-center truncate max-w-full">{partner.company_name}</p>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -245,8 +303,10 @@ export function HomePage() {
           <p className="text-xl text-gray-100 mb-8 max-w-2xl mx-auto">
             {t('home.ctaSubtitle')}
           </p>
-          <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-secondary">
-            {t('home.joinNow')}
+          <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-secondary" asChild>
+            <Link to="/become-partner">
+              {t('home.joinNow')}
+            </Link>
           </Button>
         </div>
       </section>

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,83 +12,90 @@ import {
 } from '@/components/ui/dialog';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import {
   Anchor, Building2, Newspaper, CheckCircle, ArrowRight,
   Globe, Users, Award, Shield,
 } from 'lucide-react';
 
-const memberTypes = [
-  {
-    id: 'marina',
-    icon: <Anchor className="h-10 w-10" />,
-    title: 'Marina / Port',
-    desc: 'Opérateurs et gestionnaires de marina, ports de plaisance et installations nautiques.',
-    benefits: [
-      'Accès aux ressources exclusives du réseau',
-      'Mise en relation avec des partenaires qualifiés',
-      'Soumission de projets et appels d\'offres',
-      'Événements et webinars sectoriels',
-    ],
-    cta: 'Rejoindre en tant que Marina',
-    color: 'blue',
-  },
-  {
-    id: 'partner',
-    icon: <Building2 className="h-10 w-10" />,
-    title: 'Partenaire Industrie',
-    desc: 'Fournisseurs de services, équipements et solutions pour l\'industrie marina.',
-    benefits: [
-      'Visibilité auprès de 500+ marinas',
-      'Accès aux projets et appels d\'offres',
-      'Référencement dans l\'annuaire partenaires',
-      'Co-développement et innovation',
-    ],
-    cta: 'Devenir Partenaire',
-    color: 'green',
-  },
-  {
-    id: 'media_partner',
-    icon: <Newspaper className="h-10 w-10" />,
-    title: 'Média Partenaire',
-    desc: 'Journalistes et publications spécialisées dans le secteur maritime et nautique.',
-    benefits: [
-      'Accès aux communiqués et actualités',
-      'Invitations aux événements exclusifs',
-      'Contenus et études de cas partagées',
-      'Réseau d\'experts du secteur',
-    ],
-    cta: 'Rejoindre en tant que Média',
-    color: 'purple',
-  },
-];
-
-const platformBenefits = [
-  { icon: <Globe className="h-8 w-8" />, title: 'Réseau International', desc: 'Connectez-vous avec des professionnels de l\'industrie marina dans plus de 8 pays.' },
-  { icon: <Users className="h-8 w-8" />, title: 'Communauté Vérifiée', desc: 'Chaque membre est vérifié par notre équipe pour garantir la qualité des échanges.' },
-  { icon: <Award className="h-8 w-8" />, title: 'Innovation', desc: 'Accédez aux dernières innovations et projets du secteur maritime.' },
-  { icon: <Shield className="h-8 w-8" />, title: 'Accompagnement', desc: 'Notre équipe vous accompagne à chaque étape de votre intégration.' },
-];
-
 export function BecomePartnerPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const [signupOpen, setSignupOpen] = useState(false);
+  const [stats, setStats] = useState({ marinas: 0, partners: 0 });
 
-  const handleJoin = (typeId: string) => {
+  useEffect(() => {
+    const fetchStats = async () => {
+      const [marinasRes, partnersRes] = await Promise.all([
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'marina'),
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'partner'),
+      ]);
+      setStats({
+        marinas: marinasRes.count || 0,
+        partners: partnersRes.count || 0,
+      });
+    };
+    fetchStats();
+  }, []);
+
+  const memberTypes = [
+    {
+      id: 'marina',
+      icon: <Anchor className="h-10 w-10" />,
+      title: t('join.marina.title'),
+      desc: t('join.marina.desc'),
+      benefits: [
+        t('join.marina.benefits.0'),
+        t('join.marina.benefits.1'),
+        t('join.marina.benefits.2'),
+        t('join.marina.benefits.3'),
+      ],
+      cta: t('join.marina.cta'),
+    },
+    {
+      id: 'partner',
+      icon: <Building2 className="h-10 w-10" />,
+      title: t('join.partner.title'),
+      desc: t('join.partner.desc'),
+      benefits: [
+        t('join.partner.benefits.0'),
+        t('join.partner.benefits.1'),
+        t('join.partner.benefits.2'),
+        t('join.partner.benefits.3'),
+      ],
+      cta: t('join.partner.cta'),
+    },
+    {
+      id: 'media_partner',
+      icon: <Newspaper className="h-10 w-10" />,
+      title: t('join.mediaPartner.title'),
+      desc: t('join.mediaPartner.desc'),
+      benefits: [
+        t('join.mediaPartner.benefits.0'),
+        t('join.mediaPartner.benefits.1'),
+        t('join.mediaPartner.benefits.2'),
+        t('join.mediaPartner.benefits.3'),
+      ],
+      cta: t('join.mediaPartner.cta'),
+    },
+  ];
+
+  const platformBenefits = [
+    { icon: <Globe className="h-8 w-8" />, title: t('join.benefit1Title'), desc: t('join.benefit1Desc') },
+    { icon: <Users className="h-8 w-8" />, title: t('join.benefit2Title'), desc: t('join.benefit2Desc') },
+    { icon: <Award className="h-8 w-8" />, title: t('join.benefit3Title'), desc: t('join.benefit3Desc') },
+    { icon: <Shield className="h-8 w-8" />, title: t('join.benefit4Title'), desc: t('join.benefit4Desc') },
+  ];
+
+  const handleJoin = () => {
     if (user) {
-      // User is already logged in
-      if (!profile) {
-        // No profile yet → go to onboarding (which handles persona selection)
-        navigate('/onboarding');
-      } else if (profile.onboarding_status === 'draft') {
-        // Profile exists but not completed → go to onboarding form
+      if (!profile || profile.onboarding_status === 'draft') {
         navigate('/onboarding');
       } else {
-        // Already submitted or completed
         navigate('/account');
       }
     } else {
-      // Not logged in → open signup dialog
       setSignupOpen(true);
     }
   };
@@ -97,9 +105,9 @@ export function BecomePartnerPage() {
       {/* Hero */}
       <section className="gradient-hero text-white py-20">
         <div className="container mx-auto px-4 text-center">
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">Rejoignez M3 Connect</h1>
+          <h1 className="text-4xl md:text-5xl font-bold mb-4">{t('join.heroTitle')}</h1>
           <p className="text-xl text-gray-200 max-w-2xl mx-auto mb-8">
-            La plateforme qui connecte l'industrie marina. Choisissez votre profil et accédez à un réseau de professionnels vérifiés.
+            {t('join.heroSubtitle')}
           </p>
         </div>
       </section>
@@ -107,9 +115,9 @@ export function BecomePartnerPage() {
       {/* Member Types */}
       <section className="py-16">
         <div className="container mx-auto px-4">
-          <h2 className="text-3xl font-bold text-center text-primary mb-4">Choisissez votre profil</h2>
+          <h2 className="text-3xl font-bold text-center text-primary mb-4">{t('join.chooseProfile')}</h2>
           <p className="text-gray-600 text-center mb-12 max-w-xl mx-auto">
-            Sélectionnez le type de membre qui correspond à votre activité pour découvrir les avantages associés.
+            {t('join.chooseProfileDesc')}
           </p>
 
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
@@ -130,7 +138,7 @@ export function BecomePartnerPage() {
                   </div>
 
                   <Button
-                    onClick={() => handleJoin(type.id)}
+                    onClick={() => handleJoin()}
                     className="w-full group"
                   >
                     {type.cta}
@@ -146,7 +154,7 @@ export function BecomePartnerPage() {
       {/* Platform Benefits */}
       <section className="py-16 bg-slate-50">
         <div className="container mx-auto px-4">
-          <h2 className="text-3xl font-bold text-center text-primary mb-12">Pourquoi M3 Connect ?</h2>
+          <h2 className="text-3xl font-bold text-center text-primary mb-12">{t('join.whyTitle')}</h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
             {platformBenefits.map((b, i) => (
               <Card key={i} className="text-center">
@@ -161,24 +169,24 @@ export function BecomePartnerPage() {
         </div>
       </section>
 
-      {/* Stats */}
+      {/* Live Stats */}
       <section className="py-12 bg-primary text-white">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-3 gap-8 text-center max-w-3xl mx-auto">
             <div>
               <Anchor className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">500+</div>
-              <div className="text-gray-300">Marinas</div>
+              <div className="text-3xl font-bold">{stats.marinas || '—'}</div>
+              <div className="text-gray-300">{t('home.stats.marinas')}</div>
             </div>
             <div>
               <Globe className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">8</div>
-              <div className="text-gray-300">Pays</div>
+              <div className="text-3xl font-bold">8+</div>
+              <div className="text-gray-300">{t('becomePartner.stats.countries')}</div>
             </div>
             <div>
               <Building2 className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">50+</div>
-              <div className="text-gray-300">Partenaires</div>
+              <div className="text-3xl font-bold">{stats.partners || '—'}</div>
+              <div className="text-gray-300">{t('home.stats.partners')}</div>
             </div>
           </div>
         </div>
@@ -187,18 +195,18 @@ export function BecomePartnerPage() {
       {/* CTA */}
       <section className="py-16 text-center">
         <div className="container mx-auto px-4">
-          <h2 className="text-3xl font-bold text-primary mb-4">Prêt à nous rejoindre ?</h2>
+          <h2 className="text-3xl font-bold text-primary mb-4">{t('join.readyTitle')}</h2>
           <p className="text-gray-600 mb-8 max-w-xl mx-auto">
-            Créez votre compte gratuitement et commencez à explorer les opportunités du réseau M3 Connect.
+            {t('join.readySubtitle')}
           </p>
           {user ? (
             <Button size="lg" onClick={() => navigate(profile ? '/account' : '/onboarding')}>
-              Accéder à mon espace
+              {t('join.accessMySpace')}
               <ArrowRight className="h-5 w-5 ml-2" />
             </Button>
           ) : (
             <Button size="lg" onClick={() => setSignupOpen(true)}>
-              Créer mon compte
+              {t('join.createAccount')}
               <ArrowRight className="h-5 w-5 ml-2" />
             </Button>
           )}
@@ -209,9 +217,9 @@ export function BecomePartnerPage() {
       <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Créer un compte</DialogTitle>
+            <DialogTitle>{t('join.signupTitle')}</DialogTitle>
             <DialogDescription>
-              Sélectionnez votre type de profil puis renseignez vos identifiants.
+              {t('join.signupDesc')}
             </DialogDescription>
           </DialogHeader>
           <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />

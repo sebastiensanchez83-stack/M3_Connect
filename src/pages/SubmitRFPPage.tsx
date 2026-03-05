@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,7 @@ import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
 
 export function SubmitRFPPage() {
+  const { t } = useTranslation();
   const { user, profile, isVerified, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,7 @@ export function SubmitRFPPage() {
     e.preventDefault();
     if (!user) return;
     if (!form.title.trim() || !form.scope.trim()) {
-      toast({ title: 'Required fields', description: 'Title and scope are mandatory.', variant: 'destructive' });
+      toast({ title: t('submitRfp.errorRequired'), description: t('submitRfp.errorRequiredDesc'), variant: 'destructive' });
       return;
     }
 
@@ -58,14 +60,14 @@ export function SubmitRFPPage() {
       if (error) throw error;
 
       toast({
-        title: 'RFP submitted successfully!',
-        description: 'Your Request for Proposals is now live. Partners in the relevant sector will be able to respond.',
+        title: t('submitRfp.success'),
+        description: t('submitRfp.successDesc'),
       });
       navigate('/account?tab=rfps');
     } catch (err: unknown) {
       toast({
-        title: 'Error',
-        description: err instanceof Error ? err.message : 'An error occurred while submitting your RFP.',
+        title: t('submitRfp.error'),
+        description: err instanceof Error ? err.message : t('submitRfp.errorGeneric'),
         variant: 'destructive',
       });
     } finally {
@@ -85,22 +87,22 @@ export function SubmitRFPPage() {
   if (!user || profile?.persona !== 'marina' || !isVerified) {
     return (
       <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Marina Members Only</h1>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('submitRfp.restrictedTitle')}</h1>
         <p className="text-gray-500 mb-6">
           {!user
-            ? 'Please log in to submit a Request for Proposals.'
+            ? t('submitRfp.restrictedNoUser')
             : profile?.persona !== 'marina'
-              ? 'Only marina accounts can submit RFPs.'
-              : 'Your account must be verified before you can submit an RFP.'}
+              ? t('submitRfp.restrictedNotMarina')
+              : t('submitRfp.restrictedNotVerified')}
         </p>
         {!user && (
-          <Button onClick={() => navigate('/')}>Go to Homepage</Button>
+          <Button onClick={() => navigate('/')}>{t('common.goHome')}</Button>
         )}
         {user && !isVerified && (
-          <Button onClick={() => navigate('/account')}>View Account Status</Button>
+          <Button onClick={() => navigate('/account')}>{t('common.viewAccountStatus')}</Button>
         )}
         {user && isVerified && profile?.persona !== 'marina' && (
-          <Button onClick={() => navigate('/account')}>Back to Account</Button>
+          <Button onClick={() => navigate('/account')}>{t('common.backToAccount')}</Button>
         )}
       </div>
     );
@@ -109,50 +111,49 @@ export function SubmitRFPPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">Submit a Request for Proposals</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2">{t('submitRfp.title')}</h1>
         <p className="text-gray-600">
-          Describe your project or need and let qualified partners submit their proposals.
-          Our network of vetted industry partners will be able to respond to your RFP.
+          {t('submitRfp.subtitle')}
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>RFP Details</CardTitle>
-            <CardDescription>Provide the details of your project or requirement</CardDescription>
+            <CardTitle>{t('submitRfp.cardTitle')}</CardTitle>
+            <CardDescription>{t('submitRfp.cardDescription')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
-              <Label>Title *</Label>
+              <Label>{t('submitRfp.fieldTitle')} *</Label>
               <Input
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 required
-                placeholder="e.g. Marina electrical infrastructure upgrade"
+                placeholder={t('submitRfp.titlePlaceholder')}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Scope *</Label>
+              <Label>{t('submitRfp.fieldScope')} *</Label>
               <Textarea
                 value={form.scope}
                 onChange={(e) => setForm({ ...form, scope: e.target.value })}
                 required
                 rows={6}
-                placeholder="Describe the project in detail: objectives, constraints, expected deliverables, technical requirements, budget range if applicable..."
+                placeholder={t('submitRfp.scopePlaceholder')}
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Sector</Label>
+                <Label>{t('submitRfp.fieldSector')}</Label>
                 <Select
                   value={form.sector_id}
                   onValueChange={(v) => setForm({ ...form, sector_id: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a sector" />
+                    <SelectValue placeholder={t('submitRfp.selectSector')} />
                   </SelectTrigger>
                   <SelectContent>
                     {sectors.map((s) => (
@@ -163,7 +164,7 @@ export function SubmitRFPPage() {
               </div>
 
               <div className="space-y-2">
-                <Label>Deadline</Label>
+                <Label>{t('submitRfp.fieldDeadline')}</Label>
                 <Input
                   type="date"
                   value={form.deadline_date}
@@ -176,8 +177,8 @@ export function SubmitRFPPage() {
 
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
           {loading
-            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting...</>
-            : <><CheckCircle className="h-4 w-4 mr-2" />Submit RFP</>
+            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('submitRfp.submitting')}</>
+            : <><CheckCircle className="h-4 w-4 mr-2" />{t('submitRfp.submitBtn')}</>
           }
         </Button>
       </form>

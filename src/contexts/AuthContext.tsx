@@ -67,17 +67,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserDetails(details)
   }, [user, fetchUserData])
 
+  // Track whether initial session has been handled to differentiate
+  // a fresh sign-in from Supabase re-firing SIGNED_IN on tab focus
+  const initializedRef = useRef(false)
+  // Track current user ID to detect genuine user changes
+  const currentUserIdRef = useRef<string | null>(null)
+
   // ─── Core auth effect ───────────────────────────────────────────────
   // Uses ONLY onAuthStateChange as the single source of truth.
-  // NO getSession() call — avoids race condition between init() and the
-  // INITIAL_SESSION event that caused the infinite loading bug.
   //
-  // Flow:
-  //   INITIAL_SESSION → first event on page load, replaces old init()
-  //   SIGNED_IN       → after signIn(), loading=true → fetch profile → loading=false
-  //   SIGNED_OUT      → clear everything, loading=false
-  //   TOKEN_REFRESHED → update session only (no profile refetch needed)
-  //   PASSWORD_RECOVERY / USER_UPDATED → update session if present
+  // Key insight: Supabase fires SIGNED_IN not only after signIn() but
+  // also when the tab regains focus and the token is auto-refreshed.
+  // We must NOT set loading=true on these "background" re-fires or the
+  // user sees a loading flash / redirect every time they switch tabs.
+  //
+  // Strategy:
+  //   - Track whether we've initialized (initializedRef)
+  //   - On SIGNED_IN: only set loading=true if it's a NEW user (fresh login)
+  //   - On TOKEN_REFRESHED: silently update session, no loading change
+  //   - On visibilitychange: proactively tell Supabase to refresh
   // ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isResetPasswordPage()) {
@@ -86,9 +94,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     mountedRef.current = true
+    initializedRef.current = false
 
     // Safety timeout: if loading doesn't resolve in 15s, force it false.
-    // This prevents infinite loading if something truly unexpected happens.
     const safetyTimer = setTimeout(() => {
       if (mountedRef.current) {
         setLoading((prev) => {
@@ -113,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null)
         setProfile(null)
         setUserDetails(null)
+        currentUserIdRef.current = null
         if (shouldSetLoading) setLoading(false)
         return
       }
@@ -120,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Set user + session FIRST so components know auth exists
       setSession(sess)
       setUser(sess.user)
+      currentUserIdRef.current = sess.user.id
 
       // Fetch profile with timeout protection
       try {
@@ -150,19 +160,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // ── INITIAL_SESSION ──────────────────────────────────────
         // First event on page load. Replaces the old init()/getSession().
-        // If there's a valid session in storage, we get it here.
-        // If the stored session is expired, Supabase auto-refreshes it
-        // before firing this event (or gives us null if refresh fails).
         if (event === 'INITIAL_SESSION') {
+          initializedRef.current = true
           await handleSession(newSession, true)
           return
         }
 
         // ── SIGNED_IN ────────────────────────────────────────────
-        // Fires after signIn(). CRITICAL: set loading=true FIRST so that
-        // pages like AccountPage see authLoading=true and DON'T redirect
-        // to /onboarding while we're still fetching the profile.
+        // Fires after signIn() BUT ALSO when Supabase auto-refreshes
+        // the token on tab focus. We must distinguish the two:
+        //  - Fresh login (new user) → set loading=true, fetch profile
+        //  - Same user re-fire → silently update session, no loading
         if (event === 'SIGNED_IN') {
+          const isSameUser = newSession?.user?.id === currentUserIdRef.current
+          const isRefire = initializedRef.current && isSameUser
+
+          if (isRefire) {
+            // Same user, just token refresh disguised as SIGNED_IN.
+            // Silently update session without loading flash.
+            if (newSession?.user) {
+              setSession(newSession)
+              setUser(newSession.user)
+            }
+            return
+          }
+
+          // Genuine new sign-in: set loading=true so pages wait
+          initializedRef.current = true
           setLoading(true)
           await handleSession(newSession, true)
           return
@@ -174,17 +198,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(null)
           setProfile(null)
           setUserDetails(null)
+          currentUserIdRef.current = null
           setLoading(false)
           return
         }
 
         // ── TOKEN_REFRESHED ──────────────────────────────────────
-        // Session token was refreshed. Update session/user but don't
-        // re-fetch profile (it hasn't changed, saves a DB round-trip).
+        // Session token was refreshed. Update session/user silently.
+        // If we have no profile yet (e.g. interrupted load), fetch it.
         if (event === 'TOKEN_REFRESHED') {
           if (newSession?.user) {
             setSession(newSession)
             setUser(newSession.user)
+            currentUserIdRef.current = newSession.user.id
           } else {
             // Token refresh returned no session — session is truly expired
             console.warn('[AuthContext] Token refresh failed — clearing session')
@@ -192,6 +218,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setSession(null)
             setProfile(null)
             setUserDetails(null)
+            currentUserIdRef.current = null
             setLoading(false)
           }
           return
@@ -205,10 +232,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     )
 
+    // ── Visibility change handler ──────────────────────────────────
+    // When the user returns to this tab, proactively tell Supabase to
+    // check the session. This ensures the access token is refreshed
+    // before it expires, rather than discovering it's expired lazily.
+    // Supabase's getSession() will auto-refresh if needed, triggering
+    // TOKEN_REFRESHED which we handle silently above.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && currentUserIdRef.current) {
+        // getSession() triggers auto-refresh if the access token is close
+        // to expiry. This fires TOKEN_REFRESHED which we handle above.
+        supabase.auth.getSession().catch((err) => {
+          console.warn('[AuthContext] Visibility session check failed:', err)
+        })
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       mountedRef.current = false
+      initializedRef.current = false
       clearTimeout(safetyTimer)
       subscription.unsubscribe()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [fetchUserData])
 

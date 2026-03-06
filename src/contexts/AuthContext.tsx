@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile, UserDetails } from '@/types/database'
@@ -21,25 +21,15 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const isResetPasswordPage = () => window.location.pathname === '/reset-password'
 
-/** Clear all auth state (used on expired sessions and sign-out) */
-function clearAuthState(
-  setUser: (u: User | null) => void,
-  setSession: (s: Session | null) => void,
-  setProfile: (p: Profile | null) => void,
-  setUserDetails: (d: UserDetails | null) => void,
-) {
-  setUser(null)
-  setSession(null)
-  setProfile(null)
-  setUserDetails(null)
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [userDetails, setUserDetails] = useState<UserDetails | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Ref to track mount status across async operations
+  const mountedRef = useRef(true)
 
   const isVerified = profile?.access_status === 'verified'
   const isModerator = (profile?.persona === 'moderator' || profile?.persona === 'admin') && isVerified
@@ -77,108 +67,152 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserDetails(details)
   }, [user, fetchUserData])
 
+  // ─── Core auth effect ───────────────────────────────────────────────
+  // Uses ONLY onAuthStateChange as the single source of truth.
+  // NO getSession() call — avoids race condition between init() and the
+  // INITIAL_SESSION event that caused the infinite loading bug.
+  //
+  // Flow:
+  //   INITIAL_SESSION → first event on page load, replaces old init()
+  //   SIGNED_IN       → after signIn(), loading=true → fetch profile → loading=false
+  //   SIGNED_OUT      → clear everything, loading=false
+  //   TOKEN_REFRESHED → update session only (no profile refetch needed)
+  //   PASSWORD_RECOVERY / USER_UPDATED → update session if present
+  // ────────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isResetPasswordPage()) {
       setLoading(false)
       return
     }
 
-    let mounted = true
+    mountedRef.current = true
 
-    const init = async () => {
-      try {
-        const { data, error } = await supabase.auth.getSession()
-
-        if (!mounted) return
-
-        // If getSession fails or returns no session, clear state and stop loading
-        if (error || !data.session) {
-          if (error) {
-            console.warn('[AuthContext] getSession error — clearing stale session:', error.message)
-            // Force clear any stale token from storage
-            try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* ignore */ }
+    // Safety timeout: if loading doesn't resolve in 15s, force it false.
+    // This prevents infinite loading if something truly unexpected happens.
+    const safetyTimer = setTimeout(() => {
+      if (mountedRef.current) {
+        setLoading((prev) => {
+          if (prev) {
+            console.warn('[AuthContext] Safety timeout — forcing loading to false after 15s')
+            return false
           }
-          clearAuthState(setUser, setSession, setProfile, setUserDetails)
+          return prev
+        })
+      }
+    }, 15000)
+
+    /**
+     * Handles a session: sets user/session, fetches profile, then sets loading=false.
+     * If session is null/expired, clears everything.
+     */
+    const handleSession = async (sess: Session | null, shouldSetLoading: boolean) => {
+      if (!mountedRef.current) return
+
+      if (!sess?.user) {
+        setUser(null)
+        setSession(null)
+        setProfile(null)
+        setUserDetails(null)
+        if (shouldSetLoading) setLoading(false)
+        return
+      }
+
+      // Set user + session FIRST so components know auth exists
+      setSession(sess)
+      setUser(sess.user)
+
+      // Fetch profile with timeout protection
+      try {
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Profile fetch timeout')), 10000)
+        )
+        const { profile: p, details } = await Promise.race([
+          fetchUserData(sess.user.id),
+          timeoutPromise,
+        ])
+        if (!mountedRef.current) return
+        setProfile(p)
+        setUserDetails(details)
+      } catch (err) {
+        console.warn('[AuthContext] Profile fetch failed or timed out:', err)
+        if (!mountedRef.current) return
+        // User/session are valid, just no profile data
+        setProfile(null)
+        setUserDetails(null)
+      }
+
+      if (shouldSetLoading) setLoading(false)
+    }
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event: AuthChangeEvent, newSession) => {
+        if (!mountedRef.current) return
+
+        // ── INITIAL_SESSION ──────────────────────────────────────
+        // First event on page load. Replaces the old init()/getSession().
+        // If there's a valid session in storage, we get it here.
+        // If the stored session is expired, Supabase auto-refreshes it
+        // before firing this event (or gives us null if refresh fails).
+        if (event === 'INITIAL_SESSION') {
+          await handleSession(newSession, true)
+          return
+        }
+
+        // ── SIGNED_IN ────────────────────────────────────────────
+        // Fires after signIn(). CRITICAL: set loading=true FIRST so that
+        // pages like AccountPage see authLoading=true and DON'T redirect
+        // to /onboarding while we're still fetching the profile.
+        if (event === 'SIGNED_IN') {
+          setLoading(true)
+          await handleSession(newSession, true)
+          return
+        }
+
+        // ── SIGNED_OUT ───────────────────────────────────────────
+        if (event === 'SIGNED_OUT') {
+          setUser(null)
+          setSession(null)
+          setProfile(null)
+          setUserDetails(null)
           setLoading(false)
           return
         }
 
-        const sess = data.session
-        setSession(sess)
-        setUser(sess.user)
-
-        // Fetch profile with a timeout to avoid infinite loading
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Profile fetch timeout')), 10000)
-        )
-
-        try {
-          const { profile: p, details } = await Promise.race([
-            fetchUserData(sess.user.id),
-            timeoutPromise,
-          ])
-          if (!mounted) return
-          setProfile(p)
-          setUserDetails(details)
-        } catch (fetchErr) {
-          console.warn('[AuthContext] Profile fetch failed or timed out:', fetchErr)
-          // Session exists but profile fetch failed — still set user, just no profile
-          if (!mounted) return
-          setProfile(null)
-          setUserDetails(null)
+        // ── TOKEN_REFRESHED ──────────────────────────────────────
+        // Session token was refreshed. Update session/user but don't
+        // re-fetch profile (it hasn't changed, saves a DB round-trip).
+        if (event === 'TOKEN_REFRESHED') {
+          if (newSession?.user) {
+            setSession(newSession)
+            setUser(newSession.user)
+          } else {
+            // Token refresh returned no session — session is truly expired
+            console.warn('[AuthContext] Token refresh failed — clearing session')
+            setUser(null)
+            setSession(null)
+            setProfile(null)
+            setUserDetails(null)
+            setLoading(false)
+          }
+          return
         }
-      } catch (e: unknown) {
-        if (e instanceof Error && e.name === 'AbortError') return
-        console.error('[AuthContext] init error:', e)
-        if (mounted) clearAuthState(setUser, setSession, setProfile, setUserDetails)
-      } finally {
-        if (mounted) setLoading(false)
-      }
-    }
 
-    init()
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, newSession) => {
-      if (!mounted) return
-
-      // Handle sign-out and token expiry explicitly
-      if (event === 'SIGNED_OUT' || (!newSession && event !== 'INITIAL_SESSION')) {
-        clearAuthState(setUser, setSession, setProfile, setUserDetails)
-        setLoading(false)
-        return
-      }
-
-      // Handle token refresh failure — the session is gone
-      if (event === 'TOKEN_REFRESHED' && !newSession) {
-        console.warn('[AuthContext] Token refresh returned no session — signing out')
-        clearAuthState(setUser, setSession, setProfile, setUserDetails)
-        setLoading(false)
-        return
-      }
-
-      if (newSession?.user) {
-        setSession(newSession)
-        setUser(newSession.user)
-
-        try {
-          const { profile: p, details } = await fetchUserData(newSession.user.id)
-          if (!mounted) return
-          setProfile(p)
-          setUserDetails(details)
-        } catch (e: unknown) {
-          if (e instanceof Error && e.name === 'AbortError') return
-          console.error('[AuthContext] onAuthStateChange fetch error:', e)
-          // Don't clear user/session — just profile fetch failed
+        // ── PASSWORD_RECOVERY / USER_UPDATED / other events ──────
+        if (newSession?.user) {
+          setSession(newSession)
+          setUser(newSession.user)
         }
       }
-    })
+    )
 
     return () => {
-      mounted = false
+      mountedRef.current = false
+      clearTimeout(safetyTimer)
       subscription.unsubscribe()
     }
   }, [fetchUserData])
 
+  // ─── signUp ─────────────────────────────────────────────────────────
   const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string) => {
     const { error } = await supabase.auth.signUp({
       email,
@@ -194,14 +228,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error ?? null }
   }
 
+  // ─── signIn ─────────────────────────────────────────────────────────
+  // Sets loading=true SYNCHRONOUSLY before the API call. This ensures
+  // that if the calling component navigates after signIn returns,
+  // every page sees authLoading=true and waits for profile to load.
   const signIn = async (email: string, password: string) => {
+    setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      // Sign-in failed — restore loading to false
+      setLoading(false)
+    }
+    // On success, loading stays true until onAuthStateChange SIGNED_IN handler
+    // fetches the profile and sets loading=false
     return { error: error ?? null }
   }
 
+  // ─── signOut ────────────────────────────────────────────────────────
   const signOut = async () => {
-    // Clear state immediately, then attempt server-side sign out
-    clearAuthState(setUser, setSession, setProfile, setUserDetails)
+    // Clear state immediately so UI updates instantly
+    setUser(null)
+    setSession(null)
+    setProfile(null)
+    setUserDetails(null)
     try {
       await supabase.auth.signOut()
     } catch (e) {

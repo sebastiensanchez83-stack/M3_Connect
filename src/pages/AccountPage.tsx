@@ -8,7 +8,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { MarinaProfile, PartnerProfile, MediaPartnerProfile } from '@/types/database';
+import { OrganizationTab } from '@/components/organization/OrganizationTab';
 
 interface EventRegistration {
   id: string;
@@ -67,6 +69,7 @@ interface PartnerRequestItem {
 }
 
 export function AccountPage() {
+  const { t } = useTranslation();
   const { user, profile, userDetails, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -328,6 +331,7 @@ export function AccountPage() {
       <Tabs defaultValue={defaultTab}>
         <TabsList className="mb-6 flex-wrap">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="organization">{t('org.tabTitle')}</TabsTrigger>
           <TabsTrigger value="profile">Profil</TabsTrigger>
           <TabsTrigger value="registrations">Inscriptions</TabsTrigger>
           {isMarina && <TabsTrigger value="projects">Projets</TabsTrigger>}
@@ -478,6 +482,11 @@ export function AccountPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* ── ORGANIZATION ── */}
+        <TabsContent value="organization">
+          <OrganizationTab />
         </TabsContent>
 
         {/* ── PROFIL ── */}

@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/lib/supabase';
 import { PersonaType } from '@/types/database';
-import { Anchor, Building2, Newspaper, Loader2, ChevronLeft, Eye, EyeOff } from 'lucide-react';
+import { Anchor, Building2, Newspaper, Loader2, ChevronLeft, Eye, EyeOff, Info } from 'lucide-react';
 
 interface SignupFormProps {
   onSuccess?: () => void;
@@ -22,6 +23,44 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', companyName: '', companyWebsite: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
+
+  // Public email domain blacklist
+  const PUBLIC_DOMAINS = [
+    'gmail.com','yahoo.com','yahoo.fr','hotmail.com','hotmail.fr',
+    'outlook.com','outlook.fr','live.com','live.fr',
+    'aol.com','icloud.com','me.com','mac.com',
+    'mail.com','protonmail.com','proton.me','gmx.com','gmx.fr',
+    'wanadoo.fr','orange.fr','free.fr','sfr.fr','laposte.net',
+    'msn.com','ymail.com','fastmail.com','zoho.com',
+  ];
+
+  // Domain detection: check if an organization exists for this email domain
+  const checkDomain = useCallback(async (email: string) => {
+    if (!email.includes('@')) { setDetectedOrg(null); return; }
+    const domain = email.split('@')[1]?.toLowerCase();
+    if (!domain || PUBLIC_DOMAINS.includes(domain)) { setDetectedOrg(null); return; }
+    // Only detect for partner/media_partner (marinas often use personal emails)
+    if (selectedPersona === 'marina') { setDetectedOrg(null); return; }
+    try {
+      const { data } = await supabase
+        .from('organizations')
+        .select('id, name')
+        .eq('primary_domain', domain)
+        .maybeSingle();
+      setDetectedOrg(data || null);
+    } catch {
+      setDetectedOrg(null);
+    }
+  }, [selectedPersona]);
+
+  // Debounced email domain check
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (formData.email) checkDomain(formData.email);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [formData.email, checkDomain]);
 
   const personas = [
     { value: 'marina' as PersonaType, icon: <Anchor className="h-6 w-6" />, title: t('auth.personaMarina'), desc: t('auth.personaMarinaDesc') },
@@ -57,7 +96,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         return;
       }
     }
-    const { error } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim());
+    const { error } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim(), detectedOrg?.id);
     setLoading(false);
     if (error) {
       toast({ title: t('auth.error'), description: error.message, variant: 'destructive' });
@@ -114,6 +153,15 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         <Label htmlFor="email">{t('auth.emailPro')} *</Label>
         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
       </div>
+      {/* Domain detection banner */}
+      {detectedOrg && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm">
+          <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
+          <span className="text-blue-800">
+            {t('auth.orgDetected', { orgName: detectedOrg.name })}
+          </span>
+        </div>
+      )}
       <div className="space-y-2">
         <Label htmlFor="companyName">{t('auth.companyName')} *</Label>
         <Input id="companyName" value={formData.companyName} onChange={(e) => setFormData({ ...formData, companyName: e.target.value })} required placeholder={t('auth.companyNamePlaceholder')} />

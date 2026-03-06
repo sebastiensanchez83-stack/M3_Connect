@@ -17,6 +17,7 @@ import { SubmitRFPPage } from '@/pages/SubmitRFPPage';
 import { SubmitConsultationPage } from '@/pages/SubmitConsultationPage';
 import { MarketplacePage } from '@/pages/MarketplacePage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
+import { OrganizationPublicPage } from '@/pages/OrganizationPublicPage';
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function App() {
           <Route path="/submit-rfp" element={<SubmitRFPPage />} />
           <Route path="/submit-consultation" element={<SubmitConsultationPage />} />
           <Route path="/marketplace" element={<MarketplacePage />} />
+          <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
           <Route path="/admin/*" element={<AdminPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
         </Routes>

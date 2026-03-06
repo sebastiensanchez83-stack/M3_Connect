@@ -6,7 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { MarinaProfile, PartnerProfile, MediaPartnerProfile } from '@/types/database';
 
 interface EventRegistration {
@@ -77,7 +78,14 @@ export function AccountPage() {
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequestItem[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
 
-  const defaultTab = searchParams.get('tab') || 'profile';
+  // Dashboard analytics state
+  const [profileViewCount, setProfileViewCount] = useState(0);
+  const [connectionRequestCount, setConnectionRequestCount] = useState(0);
+  const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [feedResources, setFeedResources] = useState<{ id: string; title: string; type: string; summary: string }[]>([]);
+  const [feedEvents, setFeedEvents] = useState<{ id: string; title: string; date_time: string }[]>([]);
+
+  const defaultTab = searchParams.get('tab') || 'dashboard';
 
   useEffect(() => {
     if (authLoading) return;
@@ -139,6 +147,82 @@ export function AccountPage() {
           .or(`partner_user_id.eq.${user.id},marina_user_id.eq.${user.id}`)
           .order('created_at', { ascending: false });
         if (prData) setPartnerRequests(prData as PartnerRequestItem[]);
+
+        // Dashboard analytics
+        // Profile views count
+        const { count: viewCount } = await supabase
+          .from('profile_views')
+          .select('*', { count: 'exact', head: true })
+          .eq('viewed_user_id', user.id);
+        setProfileViewCount(viewCount || 0);
+
+        // Connection requests
+        const allRequests = prData || [];
+        setConnectionRequestCount(allRequests.length);
+        setPendingRequestCount(allRequests.filter((r: any) => r.status === 'pending').length);
+
+        // Personalized feed: get user's sectors
+        const sectorTable = profile.persona === 'marina'
+          ? 'marina_interest_sectors'
+          : profile.persona === 'partner'
+          ? 'partner_service_sectors'
+          : null;
+
+        if (sectorTable) {
+          const userIdCol = profile.persona === 'marina' ? 'user_id' : 'partner_user_id';
+          const { data: userSectors } = await supabase
+            .from(sectorTable)
+            .select('sector_id')
+            .eq(userIdCol, user.id);
+
+          const sectorIds = (userSectors || []).map((s: any) => s.sector_id);
+
+          if (sectorIds.length > 0) {
+            // Resources matching sectors
+            const { data: feedRes } = await supabase
+              .from('resource_sectors')
+              .select('resource_id, resources!inner(id, title, type, summary, published)')
+              .in('sector_id', sectorIds)
+              .eq('resources.published', true)
+              .limit(6);
+
+            if (feedRes) {
+              const uniqueResources = new Map<string, { id: string; title: string; type: string; summary: string }>();
+              for (const r of feedRes as any[]) {
+                if (r.resources && !uniqueResources.has(r.resources.id)) {
+                  uniqueResources.set(r.resources.id, {
+                    id: r.resources.id,
+                    title: r.resources.title,
+                    type: r.resources.type,
+                    summary: r.resources.summary,
+                  });
+                }
+              }
+              setFeedResources(Array.from(uniqueResources.values()).slice(0, 4));
+            }
+
+            // Events matching sectors
+            const { data: feedEvt } = await supabase
+              .from('event_sectors')
+              .select('event_id, events!inner(id, title, date_time)')
+              .in('sector_id', sectorIds)
+              .limit(6);
+
+            if (feedEvt) {
+              const uniqueEvents = new Map<string, { id: string; title: string; date_time: string }>();
+              for (const e of feedEvt as any[]) {
+                if (e.events && !uniqueEvents.has(e.events.id)) {
+                  uniqueEvents.set(e.events.id, {
+                    id: e.events.id,
+                    title: e.events.title,
+                    date_time: e.events.date_time,
+                  });
+                }
+              }
+              setFeedEvents(Array.from(uniqueEvents.values()).slice(0, 4));
+            }
+          }
+        }
       } catch (err) {
         console.error('Error fetching account data:', err);
       } finally {
@@ -242,7 +326,8 @@ export function AccountPage() {
       )}
 
       <Tabs defaultValue={defaultTab}>
-        <TabsList className="mb-6">
+        <TabsList className="mb-6 flex-wrap">
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="profile">Profil</TabsTrigger>
           <TabsTrigger value="registrations">Inscriptions</TabsTrigger>
           {isMarina && <TabsTrigger value="projects">Projets</TabsTrigger>}
@@ -251,6 +336,149 @@ export function AccountPage() {
           {isMarina && <TabsTrigger value="consultations">Consultations</TabsTrigger>}
           <TabsTrigger value="b2b-requests">B2B</TabsTrigger>
         </TabsList>
+
+        {/* ── DASHBOARD ── */}
+        <TabsContent value="dashboard">
+          <div className="space-y-6">
+            {/* Analytics Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-100 rounded-lg"><Eye className="h-5 w-5 text-blue-600" /></div>
+                    <div>
+                      <div className="text-2xl font-bold text-gray-900">{profileViewCount}</div>
+                      <div className="text-sm text-gray-500">Profile Views</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-green-100 rounded-lg"><Users className="h-5 w-5 text-green-600" /></div>
+                    <div>
+                      <div className="text-2xl font-bold text-gray-900">{connectionRequestCount}</div>
+                      <div className="text-sm text-gray-500">Connection Requests</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-amber-100 rounded-lg"><Clock className="h-5 w-5 text-amber-600" /></div>
+                    <div>
+                      <div className="text-2xl font-bold text-gray-900">{pendingRequestCount}</div>
+                      <div className="text-sm text-gray-500">Pending Requests</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Personalized Feed */}
+            <div className="grid md:grid-cols-2 gap-6">
+              {/* Recommended Resources */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    Recommended Resources
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {feedResources.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-4 text-center">No resources matching your sectors yet.</p>
+                  ) : (
+                    <div className="divide-y">
+                      {feedResources.map(r => (
+                        <Link key={r.id} to={`/resources/${r.id}`} className="block py-3 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors">
+                          <div className="flex items-start gap-2">
+                            <Badge variant="outline" className="text-xs shrink-0 mt-0.5">{r.type}</Badge>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-gray-900 truncate">{r.title}</div>
+                              <div className="text-xs text-gray-500 truncate">{r.summary}</div>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  <Link to="/resources" className="text-xs text-primary hover:underline flex items-center gap-1 mt-3">
+                    View all resources <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </CardContent>
+              </Card>
+
+              {/* Upcoming Events */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-primary" />
+                    Upcoming Events for You
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {feedEvents.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-4 text-center">No events matching your sectors yet.</p>
+                  ) : (
+                    <div className="divide-y">
+                      {feedEvents.map(e => (
+                        <Link key={e.id} to={`/events/${e.id}`} className="block py-3 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className="bg-primary/10 rounded-lg p-2 text-center min-w-[48px] shrink-0">
+                              <div className="text-lg font-bold text-primary leading-none">{new Date(e.date_time).getDate()}</div>
+                              <div className="text-[10px] text-gray-600">{new Date(e.date_time).toLocaleString('default', { month: 'short' })}</div>
+                            </div>
+                            <div className="text-sm font-medium text-gray-900 truncate">{e.title}</div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  <Link to="/events" className="text-xs text-primary hover:underline flex items-center gap-1 mt-3">
+                    View all events <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Quick Activity */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-primary" />
+                  Quick Summary
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-xl font-bold text-primary">{registrations.length}</div>
+                    <div className="text-xs text-gray-500">Event Registrations</div>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-xl font-bold text-primary">{webinarRequests.length}</div>
+                    <div className="text-xs text-gray-500">Webinar Requests</div>
+                  </div>
+                  {isMarina && (
+                    <>
+                      <div className="p-3 bg-gray-50 rounded-lg">
+                        <div className="text-xl font-bold text-primary">{projects.length}</div>
+                        <div className="text-xs text-gray-500">Projects</div>
+                      </div>
+                      <div className="p-3 bg-gray-50 rounded-lg">
+                        <div className="text-xl font-bold text-primary">{rfps.length + consultations.length}</div>
+                        <div className="text-xs text-gray-500">RFPs & Consultations</div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
 
         {/* ── PROFIL ── */}
         <TabsContent value="profile">

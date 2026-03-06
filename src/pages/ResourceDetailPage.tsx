@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { LoginForm } from '@/components/auth/LoginForm';
+import { SignupForm } from '@/components/auth/SignupForm';
 import {
   ChevronLeft, Download, Play, Lock, Calendar, Clock, Tag, FileText,
-  RefreshCw, Share2, MapPin, ExternalLink,
+  RefreshCw, Share2, MapPin, ExternalLink, LogIn,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -65,6 +67,8 @@ export function ResourceDetailPage() {
   const [speakers, setSpeakers] = useState<ResourceSpeaker[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSpeakerProfile, setSelectedSpeakerProfile] = useState<SpeakerProfile | null>(null);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [signupOpen, setSignupOpen] = useState(false);
 
   useEffect(() => {
     const fetchResource = async () => {
@@ -340,23 +344,51 @@ export function ResourceDetailPage() {
             )}
           </>
         ) : (
-          <div className="py-12 text-center">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gray-100 mb-4">
-              <Lock className="h-10 w-10 text-gray-400" />
-            </div>
-            <h3 className="text-xl font-semibold text-gray-800 mb-2">{t('resourceDetail.restrictedTitle')}</h3>
-            <p className="text-gray-500 mb-6 max-w-md mx-auto">
-              {resource.access_level === 'members' ? t('resources.signupToAccess') : t('resources.verifyMarinaToAccess')}
-            </p>
-            {!user ? (
-              <Link to="/become-partner">
-                <Button size="lg" className="bg-primary hover:bg-primary/90">{t('resourceDetail.joinToAccess')}</Button>
-              </Link>
-            ) : (
-              <Link to="/account">
-                <Button size="lg" className="bg-primary hover:bg-primary/90">{t('resourceDetail.goToAccount')}</Button>
-              </Link>
+          <div className="relative">
+            {/* Blurred preview of content */}
+            {resource.content && (
+              <div className="relative overflow-hidden max-h-64">
+                <div
+                  className="article-content text-gray-700 leading-relaxed select-none"
+                  dangerouslySetInnerHTML={{ __html: resource.content }}
+                  style={{ filter: 'blur(5px)', pointerEvents: 'none' }}
+                />
+                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/60 to-white" />
+              </div>
             )}
+            {/* CTA overlay */}
+            <div className="relative py-12 text-center bg-white">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
+                <Lock className="h-8 w-8 text-primary" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                {!user
+                  ? t('resourceDetail.signupToRead', 'Sign up to read the full article')
+                  : t('resourceDetail.restrictedTitle')}
+              </h3>
+              <p className="text-gray-500 mb-6 max-w-md mx-auto">
+                {!user
+                  ? t('resourceDetail.signupToReadDesc', 'Create a free account or log in to access this content and all member resources.')
+                  : resource.access_level === 'members'
+                  ? t('resources.signupToAccess')
+                  : t('resources.verifyMarinaToAccess')}
+              </p>
+              {!user ? (
+                <div className="flex items-center justify-center gap-3">
+                  <Button size="lg" onClick={() => setSignupOpen(true)}>
+                    {t('auth.signup', 'Sign Up')}
+                  </Button>
+                  <Button size="lg" variant="outline" onClick={() => setLoginOpen(true)}>
+                    <LogIn className="h-4 w-4 mr-2" />
+                    {t('auth.login', 'Log In')}
+                  </Button>
+                </div>
+              ) : (
+                <Link to="/account">
+                  <Button size="lg" className="bg-primary hover:bg-primary/90">{t('resourceDetail.goToAccount')}</Button>
+                </Link>
+              )}
+            </div>
           </div>
         )}
 
@@ -405,6 +437,38 @@ export function ResourceDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Login Dialog */}
+      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('auth.login')}</DialogTitle>
+            <DialogDescription>
+              {t('auth.noAccount')}{' '}
+              <button className="text-primary hover:underline" onClick={() => { setLoginOpen(false); setSignupOpen(true); }}>
+                {t('auth.signup')}
+              </button>
+            </DialogDescription>
+          </DialogHeader>
+          <LoginForm onSuccess={() => setLoginOpen(false)} />
+        </DialogContent>
+      </Dialog>
+
+      {/* Signup Dialog */}
+      <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{t('auth.signup')}</DialogTitle>
+            <DialogDescription>
+              {t('auth.haveAccount')}{' '}
+              <button className="text-primary hover:underline" onClick={() => { setSignupOpen(false); setLoginOpen(true); }}>
+                {t('auth.login')}
+              </button>
+            </DialogDescription>
+          </DialogHeader>
+          <SignupForm onSuccess={() => setSignupOpen(false)} />
+        </DialogContent>
+      </Dialog>
 
       {/* Speaker Profile Dialog */}
       <Dialog open={!!selectedSpeakerProfile} onOpenChange={() => setSelectedSpeakerProfile(null)}>

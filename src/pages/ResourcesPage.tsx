@@ -185,16 +185,6 @@ export function ResourcesPage() {
             <div className="flex-1" />
             {/* Additional filters */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              <Select value={languageFilter} onValueChange={setLanguageFilter}>
-                <SelectTrigger className="h-8 w-[110px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('resources.filters.language')}</SelectItem>
-                  <SelectItem value="EN">English</SelectItem>
-                  <SelectItem value="FR">Fran&ccedil;ais</SelectItem>
-                </SelectContent>
-              </Select>
               <Select value={accessFilter} onValueChange={setAccessFilter}>
                 <SelectTrigger className="h-8 w-[120px] text-xs">
                   <SelectValue />
@@ -203,7 +193,6 @@ export function ResourcesPage() {
                   <SelectItem value="all">{t('resources.filters.accessLevel')}</SelectItem>
                   <SelectItem value="public">{t('resources.accessLevels.public')}</SelectItem>
                   <SelectItem value="members">{t('resources.accessLevels.members')}</SelectItem>
-                  <SelectItem value="marina">{t('resources.accessLevels.marina')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

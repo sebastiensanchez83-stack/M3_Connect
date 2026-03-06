@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
+import { ImageUpload } from '@/components/ui/ImageUpload';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -475,6 +476,10 @@ function UsersAdmin() {
   const [emailStatusMap, setEmailStatusMap] = useState<Record<string, boolean>>({});
   const [unconfirmedUsers, setUnconfirmedUsers] = useState<{ id: string; email: string; created_at: string; first_name: string | null; last_name: string | null; persona: string | null }[]>([]);
   const [showUnconfirmed, setShowUnconfirmed] = useState(false);
+  const [createAdminOpen, setCreateAdminOpen] = useState(false);
+  const [createAdminForm, setCreateAdminForm] = useState({ email: '', password: '', firstName: '', lastName: '' });
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
+  const [changingPersona, setChangingPersona] = useState(false);
 
   useEffect(() => { loadUsers(); }, []);
 
@@ -576,6 +581,54 @@ function UsersAdmin() {
     toast({ title: `Status: ${newStatus}` }); loadUsers();
   };
 
+  const handleChangePersona = async (userId: string, newPersona: string) => {
+    setChangingPersona(true);
+    const { error } = await supabase.from('profiles').update({ persona: newPersona }).eq('user_id', userId);
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: `Role updated to ${newPersona}` });
+      if (selectedUser) setSelectedUser({ ...selectedUser, persona: newPersona });
+      loadUsers();
+    }
+    setChangingPersona(false);
+  };
+
+  const handleCreateAdmin = async () => {
+    const { email, password, firstName, lastName } = createAdminForm;
+    if (!email || !password || !firstName || !lastName) {
+      toast({ title: 'All fields are required', variant: 'destructive' });
+      return;
+    }
+    if (password.length < 8) {
+      toast({ title: 'Password must be at least 8 characters', variant: 'destructive' });
+      return;
+    }
+    setCreatingAdmin(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { toast({ title: 'Not authenticated', variant: 'destructive' }); setCreatingAdmin(false); return; }
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL || 'https://djjbgzasuomhyfvtlidi.supabase.co'}/functions/v1/create-admin-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ email, password, first_name: firstName, last_name: lastName }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        toast({ title: 'Error', description: result.error || 'Failed to create admin', variant: 'destructive' });
+      } else {
+        toast({ title: 'Admin user created', description: `${firstName} ${lastName} (${email}) has been created as admin.` });
+        setCreateAdminOpen(false);
+        setCreateAdminForm({ email: '', password: '', firstName: '', lastName: '' });
+        loadUsers();
+      }
+    } catch (err) {
+      console.error('Create admin error:', err);
+      toast({ title: 'Error', description: 'Network error', variant: 'destructive' });
+    }
+    setCreatingAdmin(false);
+  };
+
   const filteredUsers = users.filter(user => {
     const name = getUserName(user).toLowerCase();
     const org = getOrgName(user).toLowerCase();
@@ -642,6 +695,7 @@ function UsersAdmin() {
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />{t('admin.export')}</Button>
+          <Button size="sm" onClick={() => setCreateAdminOpen(true)}><UserPlus className="h-4 w-4 mr-2" />Create Admin</Button>
         </div>
       </div>
 
@@ -761,7 +815,18 @@ function UsersAdmin() {
                 <DetailRow label={t('admin.userDetail.name')} value={selectedUser.first_name || selectedUser.last_name ? `${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() : t('admin.userDetail.noName')} />
                 <DetailRow label={t('admin.userDetail.email')} value={selectedUser.email} />
                 <DetailRow label={t('admin.userDetail.organization')} value={getOrgName(selectedUser) || t('admin.userDetail.noOrg')} />
-                <DetailRow label={t('admin.userDetail.persona')} value={selectedUser.persona} />
+                <DetailRow label={t('admin.userDetail.persona')} value={
+                  <Select value={selectedUser.persona} onValueChange={(v) => handleChangePersona(selectedUser.user_id, v)} disabled={changingPersona}>
+                    <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="marina">Marina</SelectItem>
+                      <SelectItem value="partner">Partner</SelectItem>
+                      <SelectItem value="media_partner">Media Partner</SelectItem>
+                      <SelectItem value="moderator">Moderator</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                } />
                 <DetailRow label={t('admin.userDetail.onboarding')} value={selectedUser.onboarding_status} />
                 <DetailRow label={t('admin.userDetail.accessStatus')} value={selectedUser.access_status} />
                 <DetailRow label={t('admin.userDetail.created')} value={new Date(selectedUser.created_at).toLocaleDateString()} />
@@ -845,6 +910,43 @@ function UsersAdmin() {
           <div className="space-y-4 mt-2">
             <div className="space-y-2"><Label>{t('admin.userDetail.rejectionReason')} *</Label><Textarea value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="..." /></div>
             <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setRejectingUserId(null)}>{t('admin.userDetail.cancel')}</Button><Button variant="destructive" onClick={confirmReject}>{t('admin.userDetail.confirmRejection')}</Button></div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Create Admin Dialog ─── */}
+      <Dialog open={createAdminOpen} onOpenChange={setCreateAdminOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Admin User</DialogTitle>
+            <DialogDescription>Create a new admin account with full platform access. The user will be automatically verified.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>First Name *</Label>
+                <Input value={createAdminForm.firstName} onChange={(e) => setCreateAdminForm({ ...createAdminForm, firstName: e.target.value })} placeholder="John" />
+              </div>
+              <div className="space-y-2">
+                <Label>Last Name *</Label>
+                <Input value={createAdminForm.lastName} onChange={(e) => setCreateAdminForm({ ...createAdminForm, lastName: e.target.value })} placeholder="Doe" />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Email *</Label>
+              <Input type="email" value={createAdminForm.email} onChange={(e) => setCreateAdminForm({ ...createAdminForm, email: e.target.value })} placeholder="admin@example.com" />
+            </div>
+            <div className="space-y-2">
+              <Label>Password *</Label>
+              <Input type="password" value={createAdminForm.password} onChange={(e) => setCreateAdminForm({ ...createAdminForm, password: e.target.value })} placeholder="Minimum 8 characters" />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setCreateAdminOpen(false)}>Cancel</Button>
+              <Button onClick={handleCreateAdmin} disabled={creatingAdmin}>
+                {creatingAdmin && <RefreshCw className="h-4 w-4 animate-spin mr-2" />}
+                Create Admin
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -1004,7 +1106,7 @@ function ResourcesAdmin() {
         <div className="space-y-2"><Label>Content</Label><RichTextEditor content={formData.content} onChange={(html) => setFormData({ ...formData, content: html })} placeholder="Write the resource content..." /></div>
         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Type</Label><Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{types.map(tp => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Topic</Label><Select value={formData.topic} onValueChange={v => setFormData({ ...formData, topic: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{topics.map(tp => <SelectItem key={tp} value={tp}>{tp}</SelectItem>)}</SelectContent></Select></div></div>
         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina</SelectItem></SelectContent></Select></div></div>
-        <div className="space-y-2"><Label>Thumbnail URL</Label><Input value={formData.thumbnail_url} onChange={e => setFormData({ ...formData, thumbnail_url: e.target.value })} placeholder="https://..." /></div>
+        <ImageUpload label="Thumbnail Image" value={formData.thumbnail_url} onChange={(url) => setFormData({ ...formData, thumbnail_url: url })} />
         <div className="space-y-2"><Label>File URL</Label><Input value={formData.file_url} onChange={e => setFormData({ ...formData, file_url: e.target.value })} placeholder="https://..." /></div>
 
         {/* ── Speakers Section ── */}

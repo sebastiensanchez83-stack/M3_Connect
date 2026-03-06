@@ -196,27 +196,29 @@ export function HomePage() {
           ) : (
             <div className="grid md:grid-cols-3 gap-6">
               {featuredResources.map((resource) => (
-                <Card key={resource.id} className="card-hover overflow-hidden">
-                  {resource.thumbnail_url ? (
-                    <img
-                      src={resource.thumbnail_url}
-                      alt={resource.title}
-                      className="w-full h-48 object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-48 bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                      <FileText className="h-12 w-12 text-primary/30" />
-                    </div>
-                  )}
-                  <CardContent className="p-4">
-                    <div className="flex gap-2 mb-2">
-                      {getTypeBadge(resource.type)}
-                      {getAccessBadge(resource.access_level)}
-                    </div>
-                    <h3 className="font-semibold text-lg mb-2">{resource.title}</h3>
-                    <p className="text-gray-600 text-sm line-clamp-2">{resource.summary}</p>
-                  </CardContent>
-                </Card>
+                <Link key={resource.id} to={`/resources/${resource.id}`} className="block">
+                  <Card className="card-hover overflow-hidden h-full">
+                    {resource.thumbnail_url ? (
+                      <img
+                        src={resource.thumbnail_url}
+                        alt={resource.title}
+                        className="w-full h-48 object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-48 bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
+                        <FileText className="h-12 w-12 text-primary/30" />
+                      </div>
+                    )}
+                    <CardContent className="p-4">
+                      <div className="flex gap-2 mb-2">
+                        {getTypeBadge(resource.type)}
+                        {getAccessBadge(resource.access_level)}
+                      </div>
+                      <h3 className="font-semibold text-lg mb-2">{resource.title}</h3>
+                      <p className="text-gray-600 text-sm line-clamp-2">{resource.summary}</p>
+                    </CardContent>
+                  </Card>
+                </Link>
               ))}
             </div>
           )}
@@ -240,24 +242,26 @@ export function HomePage() {
           ) : (
             <div className="grid md:grid-cols-3 gap-6">
               {upcomingEvents.map((event) => (
-                <Card key={event.id} className="card-hover">
-                  <CardContent className="p-6">
-                    <div className="flex items-start gap-4">
-                      <div className="bg-primary/10 rounded-lg p-3 text-center min-w-[60px]">
-                        <div className="text-2xl font-bold text-primary">
-                          {new Date(event.date_time).getDate()}
+                <Link key={event.id} to={`/events/${event.id}`} className="block">
+                  <Card className="card-hover h-full">
+                    <CardContent className="p-6">
+                      <div className="flex items-start gap-4">
+                        <div className="bg-primary/10 rounded-lg p-3 text-center min-w-[60px]">
+                          <div className="text-2xl font-bold text-primary">
+                            {new Date(event.date_time).getDate()}
+                          </div>
+                          <div className="text-xs text-gray-600">
+                            {new Date(event.date_time).toLocaleString('default', { month: 'short' })}
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-600">
-                          {new Date(event.date_time).toLocaleString('default', { month: 'short' })}
+                        <div>
+                          <h3 className="font-semibold mb-2">{event.title}</h3>
+                          {getAccessBadge(event.access_level)}
                         </div>
                       </div>
-                      <div>
-                        <h3 className="font-semibold mb-2">{event.title}</h3>
-                        {getAccessBadge(event.access_level)}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
+                </Link>
               ))}
             </div>
           )}

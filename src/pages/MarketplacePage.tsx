@@ -10,7 +10,10 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Briefcase, FileText, MessageSquare, Globe, MapPin, Loader2 } from 'lucide-react';
+import {
+  Search, Briefcase, FileText, MessageSquare, Globe, MapPin, Loader2,
+  ExternalLink, Calendar, BookOpen, Users,
+} from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
@@ -24,6 +27,7 @@ interface PartnerCard {
   website: string | null;
   headquarters_country: string | null;
   description: string | null;
+  logo_url: string | null;
   sectors: { id: string; label: string }[];
 }
 
@@ -44,6 +48,18 @@ interface ConsultationCard {
   sector: { id: string; label: string } | null;
 }
 
+interface PartnerResource {
+  id: string;
+  title: string;
+  type: string;
+}
+
+interface PartnerEvent {
+  id: string;
+  title: string;
+  date_time: string;
+}
+
 /* ---------- helpers ---------- */
 
 function truncate(text: string | null | undefined, maxLen = 160): string {
@@ -54,6 +70,10 @@ function truncate(text: string | null | undefined, maxLen = 160): string {
 function formatDate(iso: string | null, locale: string): string {
   if (!iso) return '';
   return new Date(iso).toLocaleDateString(locale === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function getInitials(name: string) {
+  return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 }
 
 /* ========== component ========== */
@@ -72,8 +92,15 @@ export function MarketplacePage() {
   const [loadingRfps, setLoadingRfps] = useState(false);
   const [loadingConsultations, setLoadingConsultations] = useState(false);
 
-  /* --- search --- */
+  /* --- search & filters --- */
   const [partnerSearch, setPartnerSearch] = useState('');
+  const [sectorFilter, setSectorFilter] = useState('all');
+
+  /* --- partner profile dialog --- */
+  const [selectedPartner, setSelectedPartner] = useState<PartnerCard | null>(null);
+  const [partnerResources, setPartnerResources] = useState<PartnerResource[]>([]);
+  const [partnerEvents, setPartnerEvents] = useState<PartnerEvent[]>([]);
+  const [loadingProfile, setLoadingProfile] = useState(false);
 
   /* --- contact dialog state --- */
   const [contactOpen, setContactOpen] = useState(false);
@@ -84,9 +111,8 @@ export function MarketplacePage() {
 
   const isMarina = profile?.persona === 'marina';
 
-  /* ---- fetch sectors (used by contact dialog) ---- */
+  /* ---- fetch sectors ---- */
   useEffect(() => {
-    if (!isVerified) return;
     supabase
       .from('sectors')
       .select('*')
@@ -95,18 +121,16 @@ export function MarketplacePage() {
       .then(({ data }) => {
         if (data) setSectors(data as Sector[]);
       });
-  }, [isVerified]);
+  }, []);
 
   /* ---- fetch partners ---- */
   useEffect(() => {
-    if (!isVerified) return;
     setLoadingPartners(true);
-
     const fetchPartners = async () => {
       try {
         const { data: partnerRows, error: pErr } = await supabase
           .from('partner_profiles')
-          .select('user_id, company_name, website, headquarters_country, description, profiles!inner(access_status)')
+          .select('user_id, company_name, website, headquarters_country, description, logo_url, profiles!inner(access_status)')
           .eq('profiles.access_status', 'verified');
 
         if (pErr) throw pErr;
@@ -138,6 +162,7 @@ export function MarketplacePage() {
           website: p.website,
           headquarters_country: p.headquarters_country,
           description: p.description,
+          logo_url: p.logo_url || null,
           sectors: sectorMap[p.user_id] || [],
         }));
 
@@ -150,7 +175,7 @@ export function MarketplacePage() {
     };
 
     fetchPartners();
-  }, [isVerified]);
+  }, []);
 
   /* ---- fetch RFPs ---- */
   useEffect(() => {
@@ -221,9 +246,63 @@ export function MarketplacePage() {
     fetchConsultations();
   }, [isVerified]);
 
-  /* ---- contact dialog helpers ---- */
+  /* ---- partner profile dialog ---- */
+  const openPartnerProfile = async (partner: PartnerCard) => {
+    setSelectedPartner(partner);
+    setPartnerResources([]);
+    setPartnerEvents([]);
+    setLoadingProfile(true);
 
+    try {
+      // Fetch resources where this partner is a speaker
+      const { data: speakerLinks } = await supabase
+        .from('resource_speakers')
+        .select('resource_id, resources!inner(id, title, type, published)')
+        .eq('profile_id', partner.user_id)
+        .eq('resources.published', true)
+        .limit(10);
+
+      if (speakerLinks) {
+        setPartnerResources(
+          (speakerLinks as any[]).map((sl: any) => ({
+            id: sl.resources.id,
+            title: sl.resources.title,
+            type: sl.resources.type,
+          }))
+        );
+      }
+
+      // Fetch events where this partner is a speaker (using the JSONB speakers array)
+      const { data: eventsData } = await supabase
+        .from('events')
+        .select('id, title, date_time')
+        .order('date_time', { ascending: false })
+        .limit(50);
+
+      // Filter events where partner's name appears in speakers
+      if (eventsData) {
+        const partnerEvents = eventsData.filter((e: any) => {
+          if (!e.speakers || !Array.isArray(e.speakers)) return false;
+          const partnerName = partner.company_name.toLowerCase();
+          return e.speakers.some((s: any) =>
+            s.name?.toLowerCase().includes(partnerName) ||
+            s.title?.toLowerCase().includes(partnerName)
+          );
+        });
+        setPartnerEvents(partnerEvents.slice(0, 5).map((e: any) => ({ id: e.id, title: e.title, date_time: e.date_time })));
+      }
+    } catch (err) {
+      console.error('Error loading partner profile:', err);
+    }
+    setLoadingProfile(false);
+  };
+
+  /* ---- contact dialog helpers ---- */
   const openContactDialog = (partner: PartnerCard) => {
+    if (!user) {
+      toast({ title: t('marketplace.loginRequired', 'Please log in to contact partners'), variant: 'destructive' });
+      return;
+    }
     setContactPartner(partner);
     setContactSectorId('');
     setContactMessage('');
@@ -268,17 +347,17 @@ export function MarketplacePage() {
 
   /* ---- filtered partners ---- */
   const filteredPartners = partners.filter((p) => {
-    if (!partnerSearch.trim()) return true;
-    const q = partnerSearch.toLowerCase();
-    return (
-      p.company_name.toLowerCase().includes(q) ||
-      (p.headquarters_country || '').toLowerCase().includes(q) ||
-      (p.description || '').toLowerCase().includes(q) ||
-      p.sectors.some((s) => s.label.toLowerCase().includes(q))
+    const matchesSearch = !partnerSearch.trim() || (
+      p.company_name.toLowerCase().includes(partnerSearch.toLowerCase()) ||
+      (p.headquarters_country || '').toLowerCase().includes(partnerSearch.toLowerCase()) ||
+      (p.description || '').toLowerCase().includes(partnerSearch.toLowerCase()) ||
+      p.sectors.some((s) => s.label.toLowerCase().includes(partnerSearch.toLowerCase()))
     );
+    const matchesSector = sectorFilter === 'all' || p.sectors.some(s => s.id === sectorFilter);
+    return matchesSearch && matchesSector;
   });
 
-  /* ========== render guards ========== */
+  /* ========== render ========== */
 
   if (authLoading) {
     return (
@@ -288,239 +367,354 @@ export function MarketplacePage() {
     );
   }
 
-  if (!user || !isVerified) {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <Briefcase className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('marketplace.title')}</h1>
-        <p className="text-gray-500 mb-6">
-          {t('marketplace.verifiedOnly')}
-        </p>
-        {!user ? (
-          <Link to="/">
-            <Button>{t('marketplace.goHome')}</Button>
-          </Link>
-        ) : (
-          <Link to="/account">
-            <Button>{t('marketplace.viewAccountStatus')}</Button>
-          </Link>
-        )}
-      </div>
-    );
-  }
-
-  /* ========== main render ========== */
-
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Page header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">{t('marketplace.title')}</h1>
-        <p className="text-gray-600">
-          {t('marketplace.subtitle')}
-        </p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Hero */}
+      <section className="bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] text-white">
+        <div className="container mx-auto px-4 py-12 lg:py-16">
+          <h1 className="text-3xl lg:text-4xl font-bold mb-3">{t('marketplace.title')}</h1>
+          <p className="text-white/80 text-lg max-w-2xl">{t('marketplace.subtitle')}</p>
+        </div>
+      </section>
+
+      <div className="container mx-auto px-4 py-8">
+        <Tabs defaultValue="partners" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="partners" className="flex items-center gap-2">
+              <Briefcase className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('marketplace.partnerDirectory')}</span>
+              <span className="sm:hidden">{t('marketplace.partners')}</span>
+            </TabsTrigger>
+            <TabsTrigger value="rfps" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('marketplace.openRfps')}</span>
+              <span className="sm:hidden">{t('marketplace.rfps')}</span>
+            </TabsTrigger>
+            <TabsTrigger value="consultations" className="flex items-center gap-2">
+              <MessageSquare className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('marketplace.openConsultations')}</span>
+              <span className="sm:hidden">{t('marketplace.consults')}</span>
+            </TabsTrigger>
+          </TabsList>
+
+          {/* ====== TAB 1: Partner Directory ====== */}
+          <TabsContent value="partners" className="space-y-6">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder={t('marketplace.searchPartners')}
+                  value={partnerSearch}
+                  onChange={(e) => setPartnerSearch(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                <SelectTrigger className="w-full sm:w-64">
+                  <SelectValue placeholder={t('marketplace.filterBySector', 'Filter by sector')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('marketplace.allSectors', 'All Sectors')}</SelectItem>
+                  {sectors.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {loadingPartners ? (
+              <div className="py-12 text-center">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
+                <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingPartners')}</p>
+              </div>
+            ) : filteredPartners.length === 0 ? (
+              <div className="py-12 text-center">
+                <Briefcase className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500">
+                  {partnerSearch.trim() || sectorFilter !== 'all'
+                    ? t('marketplace.noMatchingPartners')
+                    : t('marketplace.noVerifiedPartners')}
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {filteredPartners.map((partner) => (
+                  <Card
+                    key={partner.user_id}
+                    className="card-hover cursor-pointer flex flex-col"
+                    onClick={() => openPartnerProfile(partner)}
+                  >
+                    <CardContent className="p-6 flex flex-col flex-1">
+                      <div className="flex items-center gap-3 mb-3">
+                        {partner.logo_url ? (
+                          <img src={partner.logo_url} alt={partner.company_name} className="w-14 h-14 rounded-lg object-cover border" />
+                        ) : (
+                          <div className="w-14 h-14 bg-primary/10 rounded-lg flex items-center justify-center text-primary font-bold text-lg shrink-0">
+                            {getInitials(partner.company_name)}
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate">{partner.company_name}</h3>
+                          {partner.headquarters_country && (
+                            <span className="text-xs text-gray-500 flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />
+                              {partner.headquarters_country}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {partner.description && (
+                        <p className="text-sm text-gray-600 leading-relaxed mb-3 line-clamp-3">
+                          {partner.description}
+                        </p>
+                      )}
+
+                      {partner.sectors.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-auto pt-2">
+                          {partner.sectors.slice(0, 3).map((s) => (
+                            <Badge key={s.id} variant="secondary" className="text-xs">
+                              {s.label}
+                            </Badge>
+                          ))}
+                          {partner.sectors.length > 3 && (
+                            <Badge variant="outline" className="text-xs">+{partner.sectors.length - 3}</Badge>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ====== TAB 2: Open RFPs ====== */}
+          <TabsContent value="rfps" className="space-y-6">
+            {!isVerified ? (
+              <div className="py-12 text-center">
+                <FileText className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500 mb-4">{t('marketplace.verifiedOnly')}</p>
+                {!user ? (
+                  <Link to="/become-partner"><Button>{t('marketplace.signUp', 'Sign Up')}</Button></Link>
+                ) : (
+                  <Link to="/account"><Button>{t('marketplace.viewAccountStatus')}</Button></Link>
+                )}
+              </div>
+            ) : loadingRfps ? (
+              <div className="py-12 text-center">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
+                <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingRfps')}</p>
+              </div>
+            ) : rfps.length === 0 ? (
+              <div className="py-12 text-center">
+                <FileText className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500">{t('marketplace.noOpenRfps')}</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {rfps.map((rfp) => (
+                  <Card key={rfp.id}>
+                    <CardHeader>
+                      <div className="flex items-start justify-between gap-3">
+                        <CardTitle className="text-lg">{rfp.title}</CardTitle>
+                        {rfp.sector && (
+                          <Badge variant="secondary" className="shrink-0 text-xs">{rfp.sector.label}</Badge>
+                        )}
+                      </div>
+                      {rfp.deadline_date && (
+                        <CardDescription>
+                          {t('marketplace.deadline')}: {formatDate(rfp.deadline_date, i18n.language)}
+                        </CardDescription>
+                      )}
+                    </CardHeader>
+                    <CardContent>
+                      {rfp.scope && (
+                        <p className="text-sm text-gray-600 mb-3 leading-relaxed">{truncate(rfp.scope, 200)}</p>
+                      )}
+                      <p className="text-xs text-gray-400">
+                        {t('marketplace.posted')} {formatDate(rfp.created_at, i18n.language)}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ====== TAB 3: Open Consultations ====== */}
+          <TabsContent value="consultations" className="space-y-6">
+            {!isVerified ? (
+              <div className="py-12 text-center">
+                <MessageSquare className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500 mb-4">{t('marketplace.verifiedOnly')}</p>
+                {!user ? (
+                  <Link to="/become-partner"><Button>{t('marketplace.signUp', 'Sign Up')}</Button></Link>
+                ) : (
+                  <Link to="/account"><Button>{t('marketplace.viewAccountStatus')}</Button></Link>
+                )}
+              </div>
+            ) : loadingConsultations ? (
+              <div className="py-12 text-center">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
+                <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingConsultations')}</p>
+              </div>
+            ) : consultations.length === 0 ? (
+              <div className="py-12 text-center">
+                <MessageSquare className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500">{t('marketplace.noOpenConsultations')}</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {consultations.map((c) => (
+                  <Card key={c.id}>
+                    <CardHeader>
+                      <div className="flex items-start justify-between gap-3">
+                        <CardTitle className="text-lg">{c.title}</CardTitle>
+                        {c.sector && (
+                          <Badge variant="secondary" className="shrink-0 text-xs">{c.sector.label}</Badge>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {c.description && (
+                        <p className="text-sm text-gray-600 mb-3 leading-relaxed">{truncate(c.description, 200)}</p>
+                      )}
+                      <p className="text-xs text-gray-400">
+                        {t('marketplace.posted')} {formatDate(c.created_at, i18n.language)}
+                      </p>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </div>
 
-      <Tabs defaultValue="partners" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="partners" className="flex items-center gap-2">
-            <Briefcase className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('marketplace.partnerDirectory')}</span>
-            <span className="sm:hidden">{t('marketplace.partners')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="rfps" className="flex items-center gap-2">
-            <FileText className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('marketplace.openRfps')}</span>
-            <span className="sm:hidden">{t('marketplace.rfps')}</span>
-          </TabsTrigger>
-          <TabsTrigger value="consultations" className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4" />
-            <span className="hidden sm:inline">{t('marketplace.openConsultations')}</span>
-            <span className="sm:hidden">{t('marketplace.consults')}</span>
-          </TabsTrigger>
-        </TabsList>
-
-        {/* ====== TAB 1: Partner Directory ====== */}
-        <TabsContent value="partners" className="space-y-6">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder={t('marketplace.searchPartners')}
-              value={partnerSearch}
-              onChange={(e) => setPartnerSearch(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-
-          {loadingPartners ? (
-            <div className="py-12 text-center">
-              <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-              <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingPartners')}</p>
-            </div>
-          ) : filteredPartners.length === 0 ? (
-            <div className="py-12 text-center">
-              <Briefcase className="h-10 w-10 mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500">
-                {partnerSearch.trim()
-                  ? t('marketplace.noMatchingPartners')
-                  : t('marketplace.noVerifiedPartners')}
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-              {filteredPartners.map((partner) => (
-                <Card key={partner.user_id} className="flex flex-col">
-                  <CardHeader>
-                    <CardTitle className="text-lg">{partner.company_name}</CardTitle>
-                    {partner.headquarters_country && (
-                      <CardDescription className="flex items-center gap-1">
+      {/* ====== Partner Profile Dialog ====== */}
+      <Dialog open={!!selectedPartner} onOpenChange={() => setSelectedPartner(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          {selectedPartner && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-4">
+                  {selectedPartner.logo_url ? (
+                    <img src={selectedPartner.logo_url} alt={selectedPartner.company_name} className="w-16 h-16 rounded-lg object-cover border shrink-0" />
+                  ) : (
+                    <div className="w-16 h-16 bg-primary/10 rounded-lg flex items-center justify-center text-primary font-bold text-xl shrink-0">
+                      {getInitials(selectedPartner.company_name)}
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-lg">{selectedPartner.company_name}</div>
+                    {selectedPartner.headquarters_country && (
+                      <span className="text-sm text-gray-500 font-normal flex items-center gap-1 mt-1">
                         <MapPin className="h-3.5 w-3.5" />
-                        {partner.headquarters_country}
-                      </CardDescription>
+                        {selectedPartner.headquarters_country}
+                      </span>
                     )}
-                  </CardHeader>
-                  <CardContent className="flex flex-col flex-1 gap-4">
-                    {partner.description && (
-                      <p className="text-sm text-gray-600 leading-relaxed">
-                        {truncate(partner.description)}
-                      </p>
-                    )}
+                  </div>
+                </DialogTitle>
+                <DialogDescription className="sr-only">
+                  {selectedPartner.company_name} profile
+                </DialogDescription>
+              </DialogHeader>
 
-                    {partner.sectors.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {partner.sectors.map((s) => (
-                          <Badge key={s.id} variant="secondary" className="text-xs">
-                            {s.label}
-                          </Badge>
-                        ))}
+              <div className="space-y-5 mt-2">
+                {/* Sectors */}
+                {selectedPartner.sectors.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedPartner.sectors.map((s) => (
+                      <Badge key={s.id} variant="secondary" className="text-xs">{s.label}</Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Description */}
+                {selectedPartner.description && (
+                  <p className="text-gray-600 leading-relaxed">{selectedPartner.description}</p>
+                )}
+
+                {/* Published Articles */}
+                {loadingProfile ? (
+                  <div className="flex justify-center py-2"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
+                ) : (
+                  <>
+                    {partnerResources.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-2">
+                          <BookOpen className="h-4 w-4 text-primary" />
+                          {t('marketplace.publishedArticles', 'Published Articles')}
+                        </h4>
+                        <div className="space-y-1.5">
+                          {partnerResources.map(r => (
+                            <Link key={r.id} to={`/resources/${r.id}`} onClick={() => setSelectedPartner(null)}
+                              className="flex items-center gap-2 text-sm text-primary hover:underline p-2 rounded hover:bg-gray-50">
+                              <FileText className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">{r.title}</span>
+                              <Badge variant="outline" className="text-xs ml-auto shrink-0">{r.type}</Badge>
+                            </Link>
+                          ))}
+                        </div>
                       </div>
                     )}
 
-                    <div className="mt-auto flex items-center gap-2 pt-2">
-                      {partner.website && (
-                        <a
-                          href={partner.website.startsWith('http') ? partner.website : `https://${partner.website}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <Button variant="outline" size="sm" className="flex items-center gap-1.5">
-                            <Globe className="h-3.5 w-3.5" />
-                            {t('marketplace.website')}
-                          </Button>
-                        </a>
-                      )}
-
-                      {isMarina && (
-                        <Button size="sm" onClick={() => openContactDialog(partner)}>
-                          {t('marketplace.contact')}
-                        </Button>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        {/* ====== TAB 2: Open RFPs ====== */}
-        <TabsContent value="rfps" className="space-y-6">
-          {loadingRfps ? (
-            <div className="py-12 text-center">
-              <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-              <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingRfps')}</p>
-            </div>
-          ) : rfps.length === 0 ? (
-            <div className="py-12 text-center">
-              <FileText className="h-10 w-10 mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500">{t('marketplace.noOpenRfps')}</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {rfps.map((rfp) => (
-                <Card key={rfp.id}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-3">
-                      <CardTitle className="text-lg">{rfp.title}</CardTitle>
-                      {rfp.sector && (
-                        <Badge variant="secondary" className="shrink-0 text-xs">
-                          {rfp.sector.label}
-                        </Badge>
-                      )}
-                    </div>
-                    {rfp.deadline_date && (
-                      <CardDescription>
-                        {t('marketplace.deadline')}: {formatDate(rfp.deadline_date, i18n.language)}
-                      </CardDescription>
+                    {partnerEvents.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-2">
+                          <Calendar className="h-4 w-4 text-primary" />
+                          {t('marketplace.hostedWebinars', 'Webinars & Events')}
+                        </h4>
+                        <div className="space-y-1.5">
+                          {partnerEvents.map(e => (
+                            <Link key={e.id} to={`/events/${e.id}`} onClick={() => setSelectedPartner(null)}
+                              className="flex items-center gap-2 text-sm text-primary hover:underline p-2 rounded hover:bg-gray-50">
+                              <Calendar className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">{e.title}</span>
+                              <span className="text-xs text-gray-400 ml-auto shrink-0">{formatDate(e.date_time, i18n.language)}</span>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
                     )}
-                  </CardHeader>
-                  <CardContent>
-                    {rfp.scope && (
-                      <p className="text-sm text-gray-600 mb-3 leading-relaxed">
-                        {truncate(rfp.scope, 200)}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-400">
-                      {t('marketplace.posted')} {formatDate(rfp.created_at, i18n.language)}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </TabsContent>
+                  </>
+                )}
 
-        {/* ====== TAB 3: Open Consultations ====== */}
-        <TabsContent value="consultations" className="space-y-6">
-          {loadingConsultations ? (
-            <div className="py-12 text-center">
-              <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
-              <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingConsultations')}</p>
-            </div>
-          ) : consultations.length === 0 ? (
-            <div className="py-12 text-center">
-              <MessageSquare className="h-10 w-10 mx-auto text-gray-300 mb-3" />
-              <p className="text-gray-500">{t('marketplace.noOpenConsultations')}</p>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              {consultations.map((c) => (
-                <Card key={c.id}>
-                  <CardHeader>
-                    <div className="flex items-start justify-between gap-3">
-                      <CardTitle className="text-lg">{c.title}</CardTitle>
-                      {c.sector && (
-                        <Badge variant="secondary" className="shrink-0 text-xs">
-                          {c.sector.label}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {c.description && (
-                      <p className="text-sm text-gray-600 mb-3 leading-relaxed">
-                        {truncate(c.description, 200)}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-400">
-                      {t('marketplace.posted')} {formatDate(c.created_at, i18n.language)}
-                    </p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                {/* Actions */}
+                <div className="flex items-center gap-2 pt-2 border-t">
+                  {selectedPartner.website && (
+                    <a
+                      href={selectedPartner.website.startsWith('http') ? selectedPartner.website : `https://${selectedPartner.website}`}
+                      target="_blank" rel="noopener noreferrer"
+                    >
+                      <Button variant="outline" size="sm" className="flex items-center gap-1.5">
+                        <Globe className="h-3.5 w-3.5" />
+                        {t('marketplace.website')}
+                        <ExternalLink className="h-3 w-3" />
+                      </Button>
+                    </a>
+                  )}
+
+                  {isMarina && (
+                    <Button size="sm" onClick={() => { setSelectedPartner(null); openContactDialog(selectedPartner); }}>
+                      <Users className="h-3.5 w-3.5 mr-1.5" />
+                      {t('marketplace.contact')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </>
           )}
-        </TabsContent>
-      </Tabs>
+        </DialogContent>
+      </Dialog>
 
       {/* ====== Contact Partner Dialog ====== */}
       <Dialog open={contactOpen} onOpenChange={setContactOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t('marketplace.contactPartner', { name: contactPartner?.company_name })}</DialogTitle>
-            <DialogDescription>
-              {t('marketplace.contactDescription')}
-            </DialogDescription>
+            <DialogDescription>{t('marketplace.contactDescription')}</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 pt-2">
@@ -535,9 +729,7 @@ export function MarketplacePage() {
                     ? contactPartner.sectors
                     : sectors
                   ).map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.label}
-                    </SelectItem>
+                    <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -559,10 +751,7 @@ export function MarketplacePage() {
               </Button>
               <Button onClick={handleSendRequest} disabled={contactSending}>
                 {contactSending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    {t('marketplace.sending')}
-                  </>
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('marketplace.sending')}</>
                 ) : (
                   t('marketplace.sendRequest')
                 )}

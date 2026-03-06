@@ -5,6 +5,7 @@ import { HomePage } from '@/pages/HomePage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
 import { ResourceDetailPage } from '@/pages/ResourceDetailPage';
 import { EventsPage } from '@/pages/EventsPage';
+import { EventDetailPage } from '@/pages/EventDetailPage';
 import { PartnersPage } from '@/pages/PartnersPage';
 import { BecomePartnerPage } from '@/pages/BecomePartnerPage';
 import { AccountPage } from '@/pages/AccountPage';
@@ -27,6 +28,7 @@ function App() {
           <Route path="/resources" element={<ResourcesPage />} />
           <Route path="/resources/:id" element={<ResourceDetailPage />} />
           <Route path="/events" element={<EventsPage />} />
+          <Route path="/events/:id" element={<EventDetailPage />} />
           <Route path="/partners" element={<PartnersPage />} />
           <Route path="/become-partner" element={<BecomePartnerPage />} />
           <Route path="/account" element={<AccountPage />} />

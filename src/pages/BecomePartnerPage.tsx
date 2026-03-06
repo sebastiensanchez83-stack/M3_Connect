@@ -13,6 +13,7 @@ import {
 import { SignupForm } from '@/components/auth/SignupForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { PersonaType } from '@/types/database';
 import {
   Anchor, Building2, Newspaper, CheckCircle, ArrowRight,
   Globe, Users, Award, Shield,
@@ -23,6 +24,7 @@ export function BecomePartnerPage() {
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const [signupOpen, setSignupOpen] = useState(false);
+  const [selectedPersonaType, setSelectedPersonaType] = useState<PersonaType | undefined>(undefined);
   const [stats, setStats] = useState({ marinas: 0, partners: 0 });
 
   useEffect(() => {
@@ -88,7 +90,7 @@ export function BecomePartnerPage() {
     { icon: <Shield className="h-8 w-8" />, title: t('join.benefit4Title'), desc: t('join.benefit4Desc') },
   ];
 
-  const handleJoin = () => {
+  const handleJoin = (persona?: PersonaType) => {
     if (user) {
       if (!profile || profile.onboarding_status === 'draft') {
         navigate('/onboarding');
@@ -96,6 +98,7 @@ export function BecomePartnerPage() {
         navigate('/account');
       }
     } else {
+      setSelectedPersonaType(persona);
       setSignupOpen(true);
     }
   };
@@ -138,7 +141,7 @@ export function BecomePartnerPage() {
                   </div>
 
                   <Button
-                    onClick={() => handleJoin()}
+                    onClick={() => handleJoin(type.id as PersonaType)}
                     className="w-full group"
                   >
                     {type.cta}
@@ -222,7 +225,7 @@ export function BecomePartnerPage() {
               {t('join.signupDesc')}
             </DialogDescription>
           </DialogHeader>
-          <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+          <SignupForm defaultPersona={selectedPersonaType} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
         </DialogContent>
       </Dialog>
     </div>

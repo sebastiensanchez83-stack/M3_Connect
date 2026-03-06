@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react'
-import { User, Session } from '@supabase/supabase-js'
+import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile, UserDetails } from '@/types/database'
 
@@ -20,6 +20,19 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const isResetPasswordPage = () => window.location.pathname === '/reset-password'
+
+/** Clear all auth state (used on expired sessions and sign-out) */
+function clearAuthState(
+  setUser: (u: User | null) => void,
+  setSession: (s: Session | null) => void,
+  setProfile: (p: Profile | null) => void,
+  setUserDetails: (d: UserDetails | null) => void,
+) {
+  setUser(null)
+  setSession(null)
+  setProfile(null)
+  setUserDetails(null)
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -75,27 +88,49 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const init = async () => {
       try {
         const { data, error } = await supabase.auth.getSession()
-        if (error) console.warn('[AuthContext] getSession error:', error)
+
         if (!mounted) return
 
-        const sess = data.session ?? null
-        setSession(sess)
-        setUser(sess?.user ?? null)
+        // If getSession fails or returns no session, clear state and stop loading
+        if (error || !data.session) {
+          if (error) {
+            console.warn('[AuthContext] getSession error — clearing stale session:', error.message)
+            // Force clear any stale token from storage
+            try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* ignore */ }
+          }
+          clearAuthState(setUser, setSession, setProfile, setUserDetails)
+          setLoading(false)
+          return
+        }
 
-        if (sess?.user) {
-          const { profile: p, details } = await fetchUserData(sess.user.id)
+        const sess = data.session
+        setSession(sess)
+        setUser(sess.user)
+
+        // Fetch profile with a timeout to avoid infinite loading
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Profile fetch timeout')), 10000)
+        )
+
+        try {
+          const { profile: p, details } = await Promise.race([
+            fetchUserData(sess.user.id),
+            timeoutPromise,
+          ])
           if (!mounted) return
           setProfile(p)
           setUserDetails(details)
-        } else {
+        } catch (fetchErr) {
+          console.warn('[AuthContext] Profile fetch failed or timed out:', fetchErr)
+          // Session exists but profile fetch failed — still set user, just no profile
+          if (!mounted) return
           setProfile(null)
           setUserDetails(null)
         }
       } catch (e: unknown) {
-        // AbortError from navigator.locks is expected in React Strict Mode
-        // (double-mount causes the second render to steal the auth lock)
         if (e instanceof Error && e.name === 'AbortError') return
         console.error('[AuthContext] init error:', e)
+        if (mounted) clearAuthState(setUser, setSession, setProfile, setUserDetails)
       } finally {
         if (mounted) setLoading(false)
       }
@@ -103,13 +138,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     init()
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: AuthChangeEvent, newSession) => {
       if (!mounted) return
 
-      setSession(newSession)
-      setUser(newSession?.user ?? null)
+      // Handle sign-out and token expiry explicitly
+      if (event === 'SIGNED_OUT' || (!newSession && event !== 'INITIAL_SESSION')) {
+        clearAuthState(setUser, setSession, setProfile, setUserDetails)
+        setLoading(false)
+        return
+      }
+
+      // Handle token refresh failure — the session is gone
+      if (event === 'TOKEN_REFRESHED' && !newSession) {
+        console.warn('[AuthContext] Token refresh returned no session — signing out')
+        clearAuthState(setUser, setSession, setProfile, setUserDetails)
+        setLoading(false)
+        return
+      }
 
       if (newSession?.user) {
+        setSession(newSession)
+        setUser(newSession.user)
+
         try {
           const { profile: p, details } = await fetchUserData(newSession.user.id)
           if (!mounted) return
@@ -118,10 +168,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (e: unknown) {
           if (e instanceof Error && e.name === 'AbortError') return
           console.error('[AuthContext] onAuthStateChange fetch error:', e)
+          // Don't clear user/session — just profile fetch failed
         }
-      } else {
-        setProfile(null)
-        setUserDetails(null)
       }
     })
 
@@ -152,8 +200,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => {
-    try { await supabase.auth.signOut() } catch (e) { console.error('[AuthContext] signOut error:', e) }
-    setUser(null); setSession(null); setProfile(null); setUserDetails(null)
+    // Clear state immediately, then attempt server-side sign out
+    clearAuthState(setUser, setSession, setProfile, setUserDetails)
+    try {
+      await supabase.auth.signOut()
+    } catch (e) {
+      // If signOut fails (e.g. token already expired), force local cleanup
+      console.warn('[AuthContext] signOut API error (session cleared locally):', e)
+      try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* ignore */ }
+    }
   }
 
   return (

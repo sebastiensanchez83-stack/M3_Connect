@@ -11,6 +11,7 @@ export interface Profile {
   access_status: AccessStatus;
   onboarding_status: OnboardingStatus;
   rejection_reason: string | null;
+  avatar_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -22,6 +23,7 @@ export interface MarinaProfile {
   city: string | null;
   website: string | null;
   berths_count: number | null;
+  logo_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +35,7 @@ export interface PartnerProfile {
   headquarters_country: string | null;
   description: string | null;
   recommendation_proof_path: string | null;
+  logo_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -42,6 +45,7 @@ export interface MediaPartnerProfile {
   media_name: string;
   website: string | null;
   audience_description: string | null;
+  logo_url: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -190,9 +190,9 @@ export function ResourcesPage() {
               ))}
             </div>
             <div className="flex-1" />
-            {/* Additional filters — only show access filter when logged in */}
+            {/* Additional filters — hide access filter for verified users (they see all) and logged-out users */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              {user && (
+              {user && !isVerified && (
                 <Select value={accessFilter} onValueChange={setAccessFilter}>
                   <SelectTrigger className="h-8 w-[120px] text-xs">
                     <SelectValue />
@@ -365,12 +365,13 @@ function ResourceCard({
       className="group block bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 hover:-translate-y-0.5"
     >
       {/* Image */}
-      <div className="relative h-44 overflow-hidden">
+      <div className="relative aspect-[16/10] overflow-hidden">
         {resource.thumbnail_url ? (
           <img
             src={resource.thumbnail_url}
             alt={resource.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            loading="lazy"
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">

@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Anchor, ArrowRight, FileText, Calendar } from 'lucide-react';
+import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2, Newspaper, BarChart3 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 
 interface FeaturedResource {
@@ -38,10 +39,88 @@ interface HomeStats {
 
 export function HomePage() {
   const { t } = useTranslation();
+  const { user, profile } = useAuth();
   const [featuredResources, setFeaturedResources] = useState<FeaturedResource[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [partnerPreviews, setPartnerPreviews] = useState<PartnerPreview[]>([]);
   const [stats, setStats] = useState<HomeStats>({ marinas: 0, partners: 0, resources: 0, events: 0 });
+
+  // Personalized data for logged-in users
+  const [personalResources, setPersonalResources] = useState<FeaturedResource[]>([]);
+  const [personalEvents, setPersonalEvents] = useState<UpcomingEvent[]>([]);
+  const [myRegistrations, setMyRegistrations] = useState<{ event_id: string; title: string; date_time: string }[]>([]);
+
+  // Fetch personalized feed for logged-in users
+  useEffect(() => {
+    if (!user || !profile) return;
+    const fetchPersonal = async () => {
+      const sectorTable = profile.persona === 'marina'
+        ? 'marina_interest_sectors'
+        : profile.persona === 'partner'
+        ? 'partner_service_sectors'
+        : null;
+
+      if (sectorTable) {
+        const userIdCol = profile.persona === 'marina' ? 'user_id' : 'partner_user_id';
+        const { data: userSectors } = await supabase
+          .from(sectorTable)
+          .select('sector_id')
+          .eq(userIdCol, user.id);
+        const sectorIds = (userSectors || []).map((s: any) => s.sector_id);
+
+        if (sectorIds.length > 0) {
+          const { data: feedRes } = await supabase
+            .from('resource_sectors')
+            .select('resource_id, resources!inner(id, title, summary, type, access_level, thumbnail_url, published)')
+            .in('sector_id', sectorIds)
+            .eq('resources.published', true)
+            .limit(8);
+
+          if (feedRes) {
+            const unique = new Map<string, FeaturedResource>();
+            for (const r of feedRes as any[]) {
+              if (r.resources && !unique.has(r.resources.id)) {
+                unique.set(r.resources.id, r.resources);
+              }
+            }
+            setPersonalResources(Array.from(unique.values()).slice(0, 6));
+          }
+
+          const { data: feedEvt } = await supabase
+            .from('event_sectors')
+            .select('event_id, events!inner(id, title, date_time, access_level)')
+            .in('sector_id', sectorIds)
+            .limit(8);
+
+          if (feedEvt) {
+            const unique = new Map<string, UpcomingEvent>();
+            for (const e of feedEvt as any[]) {
+              if (e.events && new Date(e.events.date_time) > new Date() && !unique.has(e.events.id)) {
+                unique.set(e.events.id, e.events);
+              }
+            }
+            setPersonalEvents(Array.from(unique.values()).slice(0, 4));
+          }
+        }
+      }
+
+      // My registrations
+      const { data: regs } = await supabase
+        .from('event_registrations')
+        .select('event_id, events(title, date_time)')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (regs) {
+        setMyRegistrations(
+          (regs as any[])
+            .filter(r => r.events)
+            .map(r => ({ event_id: r.event_id, title: r.events.title, date_time: r.events.date_time }))
+        );
+      }
+    };
+    fetchPersonal();
+  }, [user, profile]);
 
   useEffect(() => {
     // Fetch everything in parallel
@@ -141,27 +220,149 @@ export function HomePage() {
       {/* Hero Section */}
       <section className="gradient-hero text-white py-20 md:py-32">
         <div className="container mx-auto px-4 text-center">
-          <h1 className="text-4xl md:text-6xl font-bold mb-6">
-            {t('home.heroTitle')}
-          </h1>
-          <p className="text-xl md:text-2xl text-gray-200 mb-8 max-w-3xl mx-auto">
-            {t('home.heroSubtitle')}
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button size="lg" variant="secondary" asChild>
-              <Link to="/resources">
-                {t('home.exploreResources')}
-                <ArrowRight className="ml-2 h-5 w-5" />
-              </Link>
-            </Button>
-            <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10" asChild>
-              <Link to="/become-partner">
-                {t('home.becomePartner')}
-              </Link>
-            </Button>
-          </div>
+          {user ? (
+            <>
+              <h1 className="text-3xl md:text-5xl font-bold mb-4">
+                {t('home.welcomeBack', 'Welcome back')}{profile?.first_name ? `, ${profile.first_name}` : ''}!
+              </h1>
+              <p className="text-lg md:text-xl text-gray-200 mb-8 max-w-2xl mx-auto">
+                {t('home.personalizedSubtitle', 'Here\'s what\'s happening in the marina industry for you.')}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Button size="lg" variant="secondary" asChild>
+                  <Link to="/resources">
+                    {t('home.exploreResources')}
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10" asChild>
+                  <Link to="/account">
+                    {t('home.myAccount', 'My Account')}
+                  </Link>
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h1 className="text-4xl md:text-6xl font-bold mb-6">
+                {t('home.heroTitle')}
+              </h1>
+              <p className="text-xl md:text-2xl text-gray-200 mb-8 max-w-3xl mx-auto">
+                {t('home.heroSubtitle')}
+              </p>
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <Button size="lg" variant="secondary" asChild>
+                  <Link to="/resources">
+                    {t('home.exploreResources')}
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10" asChild>
+                  <Link to="/become-partner">
+                    {t('home.becomePartner')}
+                  </Link>
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       </section>
+
+      {/* Personalized Feed for logged-in users */}
+      {user && (
+        <section className="py-10 bg-white border-b">
+          <div className="container mx-auto px-4">
+            <div className="grid md:grid-cols-3 gap-6">
+              {/* My Upcoming Registrations */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Calendar className="h-4 w-4 text-primary" />
+                    {t('home.myRegistrations', 'My Registrations')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {myRegistrations.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-2 text-center">{t('home.noRegistrations', 'No event registrations yet.')}</p>
+                  ) : (
+                    <div className="divide-y">
+                      {myRegistrations.map((r) => (
+                        <Link key={r.event_id} to={`/events/${r.event_id}`} className="flex items-center gap-3 py-2.5 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors">
+                          <div className="bg-primary/10 rounded-lg p-1.5 text-center min-w-[40px] shrink-0">
+                            <div className="text-sm font-bold text-primary leading-none">{new Date(r.date_time).getDate()}</div>
+                            <div className="text-[9px] text-gray-600">{new Date(r.date_time).toLocaleString('default', { month: 'short' })}</div>
+                          </div>
+                          <div className="text-sm font-medium text-gray-900 truncate">{r.title}</div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  <Link to="/account?tab=registrations" className="text-xs text-primary hover:underline flex items-center gap-1 mt-2">
+                    {t('home.viewAllRegistrations', 'View all')} <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </CardContent>
+              </Card>
+
+              {/* Recommended Resources */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-primary" />
+                    {t('home.forYou', 'For You')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {personalResources.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-2 text-center">{t('home.noPersonalResources', 'Complete your profile to get recommendations.')}</p>
+                  ) : (
+                    <div className="divide-y">
+                      {personalResources.slice(0, 4).map((r) => (
+                        <Link key={r.id} to={`/resources/${r.id}`} className="flex items-start gap-2 py-2.5 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors">
+                          <Badge variant="outline" className="text-[10px] shrink-0 mt-0.5">{r.type}</Badge>
+                          <div className="text-sm font-medium text-gray-900 truncate">{r.title}</div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  <Link to="/resources" className="text-xs text-primary hover:underline flex items-center gap-1 mt-2">
+                    {t('home.browseAll', 'Browse all')} <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </CardContent>
+              </Card>
+
+              {/* Upcoming Events for You */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-primary" />
+                    {t('home.eventsForYou', 'Events for You')}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  {personalEvents.length === 0 ? (
+                    <p className="text-sm text-gray-400 py-2 text-center">{t('home.noPersonalEvents', 'No upcoming events matching your sectors.')}</p>
+                  ) : (
+                    <div className="divide-y">
+                      {personalEvents.map((e) => (
+                        <Link key={e.id} to={`/events/${e.id}`} className="flex items-center gap-3 py-2.5 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors">
+                          <div className="bg-primary/10 rounded-lg p-1.5 text-center min-w-[40px] shrink-0">
+                            <div className="text-sm font-bold text-primary leading-none">{new Date(e.date_time).getDate()}</div>
+                            <div className="text-[9px] text-gray-600">{new Date(e.date_time).toLocaleString('default', { month: 'short' })}</div>
+                          </div>
+                          <div className="text-sm font-medium text-gray-900 truncate">{e.title}</div>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  <Link to="/events" className="text-xs text-primary hover:underline flex items-center gap-1 mt-2">
+                    {t('home.viewAllEvents', 'View all events')} <ArrowRight className="h-3 w-3" />
+                  </Link>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Stats Bar — live counts */}
       <section className="bg-white py-8 border-b">
@@ -307,21 +508,23 @@ export function HomePage() {
         </div>
       </section>
 
-      {/* CTA Banner */}
-      <section className="py-16 bg-secondary text-white">
-        <div className="container mx-auto px-4 text-center">
-          <Anchor className="h-12 w-12 mx-auto mb-4" />
-          <h2 className="text-3xl font-bold mb-4">{t('home.ctaTitle')}</h2>
-          <p className="text-xl text-gray-100 mb-8 max-w-2xl mx-auto">
-            {t('home.ctaSubtitle')}
-          </p>
-          <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-secondary" asChild>
-            <Link to="/become-partner">
-              {t('home.joinNow')}
-            </Link>
-          </Button>
-        </div>
-      </section>
+      {/* CTA Banner — only for logged-out users */}
+      {!user && (
+        <section className="py-16 bg-secondary text-white">
+          <div className="container mx-auto px-4 text-center">
+            <Anchor className="h-12 w-12 mx-auto mb-4" />
+            <h2 className="text-3xl font-bold mb-4">{t('home.ctaTitle')}</h2>
+            <p className="text-xl text-gray-100 mb-8 max-w-2xl mx-auto">
+              {t('home.ctaSubtitle')}
+            </p>
+            <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-secondary" asChild>
+              <Link to="/become-partner">
+                {t('home.joinNow')}
+              </Link>
+            </Button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

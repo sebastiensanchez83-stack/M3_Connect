@@ -6,11 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { MarinaProfile, PartnerProfile, MediaPartnerProfile } from '@/types/database';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrganizationTab } from '@/components/organization/OrganizationTab';
+import { toast } from '@/hooks/use-toast';
 
 interface EventRegistration {
   id: string;
@@ -89,6 +91,61 @@ export function AccountPage() {
   const [feedEvents, setFeedEvents] = useState<{ id: string; title: string; date_time: string }[]>([]);
 
   const defaultTab = searchParams.get('tab') || 'dashboard';
+
+  const handleB2BResponse = async (requestId: string, newStatus: 'accepted' | 'rejected') => {
+    try {
+      const { error } = await supabase
+        .from('partner_requests')
+        .update({ status: newStatus })
+        .eq('id', requestId);
+      if (error) throw error;
+      setPartnerRequests((prev) => prev.map((pr) => pr.id === requestId ? { ...pr, status: newStatus } : pr));
+      toast({ title: newStatus === 'accepted' ? 'Request accepted' : 'Request rejected' });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const uploadImage = async (file: File, type: 'avatar' | 'logo') => {
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP)', variant: 'destructive' });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 5MB', variant: 'destructive' });
+      return;
+    }
+    const setter = type === 'avatar' ? setUploadingAvatar : setUploadingLogo;
+    setter(true);
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const prefix = type === 'avatar' ? 'avatars' : 'logos';
+      const fileName = `${prefix}/${user!.id}-${Date.now()}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('profile-images').upload(fileName, file, { cacheControl: '3600', upsert: true });
+      if (uploadErr) throw uploadErr;
+      const { data: urlData } = supabase.storage.from('profile-images').getPublicUrl(fileName);
+      const publicUrl = urlData.publicUrl;
+
+      if (type === 'avatar') {
+        await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('user_id', user!.id);
+        toast({ title: 'Profile image updated' });
+      } else {
+        // Update logo on persona-specific table
+        const table = profile?.persona === 'marina' ? 'marina_profiles' : profile?.persona === 'partner' ? 'partner_profiles' : 'media_partner_profiles';
+        await supabase.from(table).update({ logo_url: publicUrl }).eq('user_id', user!.id);
+        toast({ title: 'Company logo updated' });
+      }
+      // Refresh profile data
+      window.location.reload();
+    } catch (err: any) {
+      toast({ title: 'Upload failed', description: err.message, variant: 'destructive' });
+    }
+    setter(false);
+  };
 
   useEffect(() => {
     if (authLoading) return;
@@ -458,24 +515,24 @@ export function AccountPage() {
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-                  <div className="p-3 bg-gray-50 rounded-lg">
+                  <Link to="/account?tab=registrations" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
                     <div className="text-xl font-bold text-primary">{registrations.length}</div>
                     <div className="text-xs text-gray-500">Event Registrations</div>
-                  </div>
-                  <div className="p-3 bg-gray-50 rounded-lg">
+                  </Link>
+                  <Link to="/account?tab=webinars" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
                     <div className="text-xl font-bold text-primary">{webinarRequests.length}</div>
                     <div className="text-xs text-gray-500">Webinar Requests</div>
-                  </div>
+                  </Link>
                   {isMarina && (
                     <>
-                      <div className="p-3 bg-gray-50 rounded-lg">
+                      <Link to="/account?tab=projects" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
                         <div className="text-xl font-bold text-primary">{projects.length}</div>
                         <div className="text-xs text-gray-500">Projects</div>
-                      </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
+                      </Link>
+                      <Link to="/account?tab=rfps" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
                         <div className="text-xl font-bold text-primary">{rfps.length + consultations.length}</div>
                         <div className="text-xs text-gray-500">RFPs & Consultations</div>
-                      </div>
+                      </Link>
                     </>
                   )}
                 </div>
@@ -499,6 +556,32 @@ export function AccountPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Profile Image Upload */}
+              <div className="flex items-center gap-4">
+                <div className="relative group">
+                  {profile.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Avatar" className="w-20 h-20 rounded-full object-cover border-2 border-gray-200" />
+                  ) : (
+                    <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl border-2 border-gray-200">
+                      {(profile.first_name?.[0] || '').toUpperCase()}{(profile.last_name?.[0] || '').toUpperCase()}
+                    </div>
+                  )}
+                  <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                    {uploadingAvatar ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-white" />
+                    ) : (
+                      <Camera className="h-5 w-5 text-white" />
+                    )}
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'avatar'); }} disabled={uploadingAvatar} />
+                  </label>
+                </div>
+                <div>
+                  <div className="font-semibold text-gray-900">{profile.first_name} {profile.last_name}</div>
+                  <div className="text-sm text-gray-500">{user.email}</div>
+                  <div className="text-xs text-gray-400 mt-1">Hover photo to change</div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="text-gray-500 block">Email</span>
@@ -513,11 +596,27 @@ export function AccountPage() {
               {/* Marina details */}
               {marinaDetails && (
                 <div className="pt-4 border-t space-y-3">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500 block">Marina</span>
-                      <span className="font-medium">{marinaDetails.marina_name || '—'}</span>
+                  {/* Marina Logo */}
+                  <div className="flex items-center gap-3">
+                    <div className="relative group">
+                      {marinaDetails.logo_url ? (
+                        <img src={marinaDetails.logo_url} alt="Marina logo" className="w-14 h-14 rounded-lg object-cover border" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
+                          <Anchor className="h-6 w-6 text-gray-300" />
+                        </div>
+                      )}
+                      <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                        {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Upload className="h-4 w-4 text-white" />}
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'logo'); }} disabled={uploadingLogo} />
+                      </label>
                     </div>
+                    <div className="text-sm">
+                      <div className="font-medium text-gray-900">{marinaDetails.marina_name || '—'}</div>
+                      <div className="text-xs text-gray-400">Marina logo</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="text-gray-500 block">Anneaux</span>
                       <span className="font-medium">{marinaDetails.berths_count ?? '—'}</span>
@@ -544,11 +643,27 @@ export function AccountPage() {
               {/* Partner details */}
               {partnerDetails && (
                 <div className="pt-4 border-t space-y-3">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500 block">Entreprise</span>
-                      <span className="font-medium">{partnerDetails.company_name || '—'}</span>
+                  {/* Company Logo */}
+                  <div className="flex items-center gap-3">
+                    <div className="relative group">
+                      {partnerDetails.logo_url ? (
+                        <img src={partnerDetails.logo_url} alt="Company logo" className="w-14 h-14 rounded-lg object-cover border" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
+                          <Building2 className="h-6 w-6 text-gray-300" />
+                        </div>
+                      )}
+                      <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                        {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Upload className="h-4 w-4 text-white" />}
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'logo'); }} disabled={uploadingLogo} />
+                      </label>
                     </div>
+                    <div className="text-sm">
+                      <div className="font-medium text-gray-900">{partnerDetails.company_name || '—'}</div>
+                      <div className="text-xs text-gray-400">Company logo</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="text-gray-500 block">Pays du siège</span>
                       <span className="font-medium">{partnerDetails.headquarters_country || '—'}</span>
@@ -573,10 +688,24 @@ export function AccountPage() {
               {/* Media details */}
               {mediaDetails && (
                 <div className="pt-4 border-t space-y-3">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500 block">Média</span>
-                      <span className="font-medium">{mediaDetails.media_name || '—'}</span>
+                  {/* Media Logo */}
+                  <div className="flex items-center gap-3">
+                    <div className="relative group">
+                      {mediaDetails.logo_url ? (
+                        <img src={mediaDetails.logo_url} alt="Media logo" className="w-14 h-14 rounded-lg object-cover border" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
+                          <Newspaper className="h-6 w-6 text-gray-300" />
+                        </div>
+                      )}
+                      <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
+                        {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Upload className="h-4 w-4 text-white" />}
+                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'logo'); }} disabled={uploadingLogo} />
+                      </label>
+                    </div>
+                    <div className="text-sm">
+                      <div className="font-medium text-gray-900">{mediaDetails.media_name || '—'}</div>
+                      <div className="text-xs text-gray-400">Media logo</div>
                     </div>
                   </div>
                   {mediaDetails.audience_description && (
@@ -602,6 +731,14 @@ export function AccountPage() {
                   </Button>
                 </div>
               )}
+
+              {/* Preview profile button */}
+              <div className="pt-4 border-t">
+                <Button variant="outline" onClick={() => setPreviewOpen(true)} className="gap-2">
+                  <Eye className="h-4 w-4" />
+                  Preview my profile
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -620,9 +757,9 @@ export function AccountPage() {
               ) : (
                 <div className="space-y-4">
                   {registrations.map((reg) => (
-                    <div key={reg.id} className="flex items-center gap-4 p-4 border rounded-lg">
+                    <Link key={reg.id} to={`/events/${reg.event_id}`} className="flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 hover:border-primary/30 transition-colors">
                       <Calendar className="h-5 w-5 text-gray-400 shrink-0" />
-                      <div>
+                      <div className="flex-1">
                         <div className="font-medium">{reg.events?.title ?? '—'}</div>
                         {reg.events?.date_time && (
                           <div className="text-sm text-gray-500">
@@ -632,7 +769,8 @@ export function AccountPage() {
                           </div>
                         )}
                       </div>
-                    </div>
+                      <ArrowRight className="h-4 w-4 text-gray-400" />
+                    </Link>
                   ))}
                 </div>
               )}
@@ -844,20 +982,35 @@ export function AccountPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {partnerRequests.map((pr) => (
-                    <div key={pr.id} className="p-4 border rounded-lg space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <div className="text-sm text-gray-500">
-                            {pr.partner_user_id === user?.id ? 'Envoyée' : 'Reçue'}
-                            {' · '}{new Date(pr.created_at).toLocaleDateString('fr-FR')}
+                  {partnerRequests.map((pr) => {
+                    const isReceived = pr.partner_user_id !== user?.id;
+                    const isPending = pr.status === 'pending';
+                    return (
+                      <div key={pr.id} className="p-4 border rounded-lg space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="text-sm text-gray-500">
+                              {isReceived ? 'Reçue' : 'Envoyée'}
+                              {' · '}{new Date(pr.created_at).toLocaleDateString('fr-FR')}
+                            </div>
+                            <p className="text-sm mt-1">{pr.message}</p>
                           </div>
-                          <p className="text-sm mt-1">{pr.message}</p>
+                          <B2BStatusBadge status={pr.status} />
                         </div>
-                        <B2BStatusBadge status={pr.status} />
+                        {/* Accept / Reject buttons for received pending requests */}
+                        {isReceived && isPending && (
+                          <div className="flex gap-2 pt-1">
+                            <Button size="sm" variant="default" onClick={() => handleB2BResponse(pr.id, 'accepted')}>
+                              <Check className="h-3 w-3 mr-1" /> Accept
+                            </Button>
+                            <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => handleB2BResponse(pr.id, 'rejected')}>
+                              <X className="h-3 w-3 mr-1" /> Reject
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -865,6 +1018,131 @@ export function AccountPage() {
         </TabsContent>
 
       </Tabs>
+
+      {/* ── PROFILE PREVIEW DIALOG ── */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-center">Profile Preview</DialogTitle>
+            <p className="text-xs text-gray-500 text-center">This is how other users see your profile</p>
+          </DialogHeader>
+
+          <div className="space-y-6 pt-2">
+            {/* Avatar + Name + Persona */}
+            <div className="flex flex-col items-center text-center gap-3">
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="Avatar" className="w-24 h-24 rounded-full object-cover border-2 border-primary/20 shadow" />
+              ) : (
+                <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-2xl border-2 border-primary/20 shadow">
+                  {(profile.first_name?.[0] || '').toUpperCase()}{(profile.last_name?.[0] || '').toUpperCase()}
+                </div>
+              )}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {profile.first_name} {profile.last_name}
+                </h3>
+                <Badge variant="outline" className="mt-1 gap-1">
+                  {getPersonaIcon()} {getPersonaLabel()}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Company / Organization Card */}
+            {(marinaDetails || partnerDetails || mediaDetails) && (
+              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                {/* Logo + Company Name */}
+                <div className="flex items-center gap-3">
+                  {(() => {
+                    const logoUrl = marinaDetails?.logo_url || partnerDetails?.logo_url || mediaDetails?.logo_url;
+                    const companyName = marinaDetails?.marina_name || partnerDetails?.company_name || mediaDetails?.media_name || '';
+                    const FallbackIcon = marinaDetails ? Anchor : partnerDetails ? Building2 : Newspaper;
+                    return (
+                      <>
+                        {logoUrl ? (
+                          <img src={logoUrl} alt="Logo" className="w-12 h-12 rounded-lg object-cover border" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center border">
+                            <FallbackIcon className="h-5 w-5 text-gray-300" />
+                          </div>
+                        )}
+                        <div className="font-semibold text-gray-900">{companyName}</div>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* Details grid */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  {marinaDetails && (
+                    <>
+                      {marinaDetails.country && (
+                        <div>
+                          <span className="text-gray-500 text-xs">Location</span>
+                          <div className="text-gray-800">{marinaDetails.city ? `${marinaDetails.city}, ` : ''}{marinaDetails.country}</div>
+                        </div>
+                      )}
+                      {marinaDetails.berths_count && (
+                        <div>
+                          <span className="text-gray-500 text-xs">Berths</span>
+                          <div className="text-gray-800">{marinaDetails.berths_count}</div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {partnerDetails && (
+                    <>
+                      {partnerDetails.headquarters_country && (
+                        <div>
+                          <span className="text-gray-500 text-xs">Headquarters</span>
+                          <div className="text-gray-800">{partnerDetails.headquarters_country}</div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Description / Audience */}
+                {partnerDetails?.description && (
+                  <div className="text-sm">
+                    <span className="text-gray-500 text-xs block mb-1">About</span>
+                    <p className="text-gray-700 line-clamp-3">{partnerDetails.description}</p>
+                  </div>
+                )}
+                {mediaDetails?.audience_description && (
+                  <div className="text-sm">
+                    <span className="text-gray-500 text-xs block mb-1">Audience</span>
+                    <p className="text-gray-700 line-clamp-3">{mediaDetails.audience_description}</p>
+                  </div>
+                )}
+
+                {/* Website */}
+                {(() => {
+                  const website = marinaDetails?.website || partnerDetails?.website || mediaDetails?.website;
+                  if (!website) return null;
+                  return (
+                    <a href={website} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      <ExternalLink className="h-3 w-3" />
+                      {website}
+                    </a>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Contact info */}
+            <div className="flex items-center gap-2 text-sm text-gray-500 justify-center">
+              <span>{user.email}</span>
+            </div>
+
+            <div className="flex justify-center pt-2">
+              <Button variant="outline" size="sm" onClick={() => setPreviewOpen(false)}>
+                Close preview
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

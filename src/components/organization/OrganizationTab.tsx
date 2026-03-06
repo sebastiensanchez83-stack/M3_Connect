@@ -146,9 +146,13 @@ export function OrganizationTab() {
     if (!createForm.name.trim()) return;
     setCreating(true);
     try {
+      // Only pass organization_type if persona is a valid org type
+      const validOrgTypes = ['marina', 'partner', 'media_partner'];
+      const orgType = profile?.persona && validOrgTypes.includes(profile.persona) ? profile.persona : null;
+
       const { data, error } = await supabase.rpc('create_organization', {
         p_name: createForm.name.trim(),
-        p_organization_type: profile?.persona || null,
+        p_organization_type: orgType,
         p_primary_domain: createForm.domain.trim() || null,
         p_website: createForm.website.trim() || null,
         p_description: createForm.description.trim() || null,

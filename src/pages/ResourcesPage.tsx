@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -124,6 +125,12 @@ export function ResourcesPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <Helmet>
+        <title>Resources — M3 Connect</title>
+        <meta name="description" content="Browse articles, whitepapers, guides and case studies about the marina industry on M3 Connect." />
+        <meta property="og:title" content="Resources — M3 Connect" />
+        <meta property="og:description" content="Explore marina industry resources: articles, whitepapers, guides and case studies." />
+      </Helmet>
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] text-white">
         <div className="container mx-auto px-4 py-14 lg:py-20">
@@ -183,18 +190,20 @@ export function ResourcesPage() {
               ))}
             </div>
             <div className="flex-1" />
-            {/* Additional filters */}
+            {/* Additional filters — only show access filter when logged in */}
             <div className="flex items-center gap-2 flex-shrink-0">
-              <Select value={accessFilter} onValueChange={setAccessFilter}>
-                <SelectTrigger className="h-8 w-[120px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('resources.filters.accessLevel')}</SelectItem>
-                  <SelectItem value="public">{t('resources.accessLevels.public')}</SelectItem>
-                  <SelectItem value="members">{t('resources.accessLevels.members')}</SelectItem>
-                </SelectContent>
-              </Select>
+              {user && (
+                <Select value={accessFilter} onValueChange={setAccessFilter}>
+                  <SelectTrigger className="h-8 w-[120px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('resources.filters.accessLevel')}</SelectItem>
+                    <SelectItem value="public">{t('resources.accessLevels.public')}</SelectItem>
+                    <SelectItem value="members">{t('resources.accessLevels.members')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
         </div>

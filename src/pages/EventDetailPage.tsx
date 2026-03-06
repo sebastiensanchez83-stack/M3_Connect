@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -192,6 +193,13 @@ export function EventDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <Helmet>
+        <title>{event.title} — Events — M3 Connect</title>
+        <meta name="description" content={event.description?.substring(0, 160) || `Join ${event.title} on M3 Connect`} />
+        <meta property="og:title" content={`${event.title} — M3 Connect`} />
+        <meta property="og:description" content={event.description?.substring(0, 160) || ''} />
+        <meta property="og:type" content="event" />
+      </Helmet>
       {/* Hero */}
       <section className="bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] text-white">
         <div className="container mx-auto px-4 py-12 lg:py-16">

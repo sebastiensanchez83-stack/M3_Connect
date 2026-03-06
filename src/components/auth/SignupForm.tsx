@@ -19,7 +19,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [step, setStep] = useState<1 | 2>(defaultPersona ? 2 : 1);
   const [loading, setLoading] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<PersonaType | ''>(defaultPersona || '');
-  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', password: '', confirmPassword: '' });
+  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', companyName: '', companyWebsite: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
@@ -46,7 +46,18 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
       return;
     }
     setLoading(true);
-    const { error } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim());
+    // Validate company website URL format if provided
+    if (formData.companyWebsite.trim()) {
+      try {
+        const url = formData.companyWebsite.trim().startsWith('http') ? formData.companyWebsite.trim() : `https://${formData.companyWebsite.trim()}`;
+        new URL(url);
+      } catch {
+        toast({ title: t('auth.error'), description: t('auth.invalidWebsite'), variant: 'destructive' });
+        setLoading(false);
+        return;
+      }
+    }
+    const { error } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim());
     setLoading(false);
     if (error) {
       toast({ title: t('auth.error'), description: error.message, variant: 'destructive' });
@@ -102,6 +113,14 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
       <div className="space-y-2">
         <Label htmlFor="email">{t('auth.emailPro')} *</Label>
         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="companyName">{t('auth.companyName')} *</Label>
+        <Input id="companyName" value={formData.companyName} onChange={(e) => setFormData({ ...formData, companyName: e.target.value })} required placeholder={t('auth.companyNamePlaceholder')} />
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="companyWebsite">{t('auth.companyWebsite')}</Label>
+        <Input id="companyWebsite" type="url" value={formData.companyWebsite} onChange={(e) => setFormData({ ...formData, companyWebsite: e.target.value })} placeholder={t('auth.companyWebsitePlaceholder')} />
       </div>
       <div className="space-y-2">
         <Label htmlFor="password">{t('auth.password')} *</Label>

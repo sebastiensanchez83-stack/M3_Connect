@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -130,6 +131,13 @@ export function HomePage() {
 
   return (
     <div className="flex flex-col">
+      <Helmet>
+        <title>M3 Connect — B2B Platform for the Marina Industry</title>
+        <meta name="description" content="M3 Connect connects marina operators, service providers and media professionals. Browse resources, events, and find partners for the marina industry." />
+        <meta property="og:title" content="M3 Connect — B2B Platform for the Marina Industry" />
+        <meta property="og:description" content="Connect with marina operators, service providers and media professionals worldwide." />
+        <meta property="og:url" content="https://m3connect.com/" />
+      </Helmet>
       {/* Hero Section */}
       <section className="gradient-hero text-white py-20 md:py-32">
         <div className="container mx-auto px-4 text-center">

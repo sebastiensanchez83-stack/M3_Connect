@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -171,6 +172,12 @@ export function EventsPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <Helmet>
+        <title>Events — M3 Connect</title>
+        <meta name="description" content="Discover upcoming marina industry events, webinars and conferences on M3 Connect." />
+        <meta property="og:title" content="Events — M3 Connect" />
+        <meta property="og:description" content="Marina industry events, webinars and conferences. Register and connect with professionals." />
+      </Helmet>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-primary mb-2">{t('events.title')}</h1>
         <p className="text-gray-600">{t('events.subtitle')}</p>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -369,6 +370,12 @@ export function MarketplacePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <Helmet>
+        <title>Marketplace — M3 Connect</title>
+        <meta name="description" content="Find marina industry partners, service providers and experts. Browse open RFPs and consultation requests." />
+        <meta property="og:title" content="Marketplace — M3 Connect" />
+        <meta property="og:description" content="B2B marketplace connecting marina operators with service providers." />
+      </Helmet>
       {/* Hero */}
       <section className="bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] text-white">
         <div className="container mx-auto px-4 py-12 lg:py-16">

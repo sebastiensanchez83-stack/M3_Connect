@@ -143,6 +143,67 @@ export function OnboardingPage() {
     }
   }, [user, profile, authLoading, navigate]);
 
+  // Load existing profile data into form (for re-editing after rejection or pre-fill from signup)
+  useEffect(() => {
+    if (!user || !profile) return;
+    const loadExistingData = async () => {
+      if (profile.persona === 'marina') {
+        const { data } = await supabase.from('marina_profiles').select('*').eq('user_id', user.id).maybeSingle();
+        if (data) {
+          setMarina((prev) => ({
+            ...prev,
+            marina_name: data.marina_name || prev.marina_name,
+            country: data.country || prev.country,
+            city: data.city || prev.city,
+            website: data.website || prev.website,
+            marina_type: data.marina_type || prev.marina_type,
+            completion_date: data.completion_date || prev.completion_date,
+            berths_count: data.berths_count?.toString() || prev.berths_count,
+            superyacht_berths: data.superyacht_berths?.toString() || prev.superyacht_berths,
+            longest_berth_meters: data.longest_berth_meters?.toString() || prev.longest_berth_meters,
+            fresh_water_available: data.fresh_water_available ?? prev.fresh_water_available,
+            mix_range_boats: data.mix_range_boats ?? prev.mix_range_boats,
+            mix_range_description: data.mix_range_description || prev.mix_range_description,
+            certifications: data.certifications || prev.certifications,
+            certifications_other: data.certifications_other || prev.certifications_other,
+            has_yacht_club: data.has_yacht_club ?? prev.has_yacht_club,
+            yacht_club_members: data.yacht_club_members?.toString() || prev.yacht_club_members,
+            has_sailing_school: data.has_sailing_school ?? prev.has_sailing_school,
+            has_boat_yard: data.has_boat_yard ?? prev.has_boat_yard,
+            has_restaurants: data.has_restaurants ?? prev.has_restaurants,
+            restaurants_count: data.restaurants_count?.toString() || prev.restaurants_count,
+            has_concierge: data.has_concierge ?? prev.has_concierge,
+            marina_description: data.marina_description || prev.marina_description,
+            services_description: data.services_description || prev.services_description,
+            social_media_links: data.social_media_links || prev.social_media_links,
+          }));
+        }
+      } else if (profile.persona === 'partner') {
+        const { data } = await supabase.from('partner_profiles').select('*').eq('user_id', user.id).maybeSingle();
+        if (data) {
+          setPartner((prev) => ({
+            ...prev,
+            company_name: data.company_name || prev.company_name,
+            website: data.website || prev.website,
+            headquarters_country: data.headquarters_country || prev.headquarters_country,
+            description: data.description || prev.description,
+          }));
+        }
+      } else if (profile.persona === 'media_partner') {
+        const { data } = await supabase.from('media_partner_profiles').select('*').eq('user_id', user.id).maybeSingle();
+        if (data) {
+          setMedia((prev) => ({
+            ...prev,
+            media_name: data.media_name || prev.media_name,
+            website: data.website || prev.website,
+            audience_description: data.audience_description || prev.audience_description,
+          }));
+        }
+      }
+    };
+    loadExistingData();
+  }, [user, profile]);
+
   /* ─── Persona selection (step 0) ─── */
   const handlePersonaSelect = async (persona: PersonaType) => {
     if (!user) return;
@@ -153,12 +214,28 @@ export function OnboardingPage() {
       });
       if (profileError) throw profileError;
 
+      // Pre-fill company name and website from signup metadata
+      const metaCompanyName = user.user_metadata?.company_name || '';
+      const metaCompanyWebsite = user.user_metadata?.company_website || '';
+
       if (persona === 'marina') {
-        await supabase.from('marina_profiles').insert({ user_id: user.id, marina_name: '' });
+        await supabase.from('marina_profiles').insert({
+          user_id: user.id,
+          marina_name: metaCompanyName,
+          website: metaCompanyWebsite || null,
+        });
       } else if (persona === 'partner') {
-        await supabase.from('partner_profiles').insert({ user_id: user.id, company_name: '' });
+        await supabase.from('partner_profiles').insert({
+          user_id: user.id,
+          company_name: metaCompanyName,
+          website: metaCompanyWebsite || null,
+        });
       } else if (persona === 'media_partner') {
-        await supabase.from('media_partner_profiles').insert({ user_id: user.id, media_name: '' });
+        await supabase.from('media_partner_profiles').insert({
+          user_id: user.id,
+          media_name: metaCompanyName,
+          website: metaCompanyWebsite || null,
+        });
       }
 
       await refreshProfile();

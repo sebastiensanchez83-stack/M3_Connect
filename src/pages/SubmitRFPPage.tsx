@@ -50,6 +50,7 @@ export function SubmitRFPPage() {
         .from('rfps')
         .insert({
           marina_user_id: user.id,
+          organization_id: organization?.id || null,
           title: form.title.trim(),
           scope: form.scope.trim(),
           sector_id: form.sector_id || null,

@@ -12,10 +12,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -23,7 +24,6 @@ import { PersonaType } from '@/types/database';
 import {
   Anchor, Building2, Newspaper, CheckCircle, ArrowRight,
   Globe, Users, Award, Shield, UserPlus, FileText, ShieldCheck, Unlock,
-  ChevronDown,
 } from 'lucide-react';
 
 export function BecomePartnerPage() {
@@ -32,18 +32,20 @@ export function BecomePartnerPage() {
   const { user, profile } = useAuth();
   const [signupOpen, setSignupOpen] = useState(false);
   const [selectedPersonaType, setSelectedPersonaType] = useState<PersonaType | undefined>(undefined);
-  const [stats, setStats] = useState({ marinas: 0, partners: 0 });
-  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [stats, setStats] = useState({ marinas: 0, partners: 0, countries: 0 });
 
   useEffect(() => {
     const fetchStats = async () => {
-      const [marinasRes, partnersRes] = await Promise.all([
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'marina'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'partner'),
+      const [marinasRes, partnersRes, countriesRes] = await Promise.all([
+        supabase.from('organizations').select('*', { count: 'exact', head: true }).eq('access_status', 'verified').eq('organization_type', 'marina'),
+        supabase.from('organizations').select('*', { count: 'exact', head: true }).eq('access_status', 'verified').eq('organization_type', 'partner'),
+        supabase.from('organizations').select('country').eq('access_status', 'verified').not('country', 'is', null),
       ]);
+      const uniqueCountries = new Set((countriesRes.data || []).map((o: any) => o.country)).size;
       setStats({
         marinas: marinasRes.count || 0,
         partners: partnersRes.count || 0,
+        countries: uniqueCountries,
       });
     };
     fetchStats();
@@ -52,7 +54,8 @@ export function BecomePartnerPage() {
   const memberTypes = [
     {
       id: 'marina',
-      icon: <Anchor className="h-10 w-10" />,
+      icon: <Anchor className="h-8 w-8 text-blue-600" />,
+      iconBg: 'bg-blue-50',
       title: t('join.marina.title'),
       desc: t('join.marina.desc'),
       benefits: [
@@ -65,7 +68,8 @@ export function BecomePartnerPage() {
     },
     {
       id: 'partner',
-      icon: <Building2 className="h-10 w-10" />,
+      icon: <Building2 className="h-8 w-8 text-orange-600" />,
+      iconBg: 'bg-orange-50',
       title: t('join.partner.title'),
       desc: t('join.partner.desc'),
       benefits: [
@@ -78,7 +82,8 @@ export function BecomePartnerPage() {
     },
     {
       id: 'media_partner',
-      icon: <Newspaper className="h-10 w-10" />,
+      icon: <Newspaper className="h-8 w-8 text-purple-600" />,
+      iconBg: 'bg-purple-50',
       title: t('join.mediaPartner.title'),
       desc: t('join.mediaPartner.desc'),
       benefits: [
@@ -205,9 +210,9 @@ export function BecomePartnerPage() {
 
           <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
             {memberTypes.map((type) => (
-              <Card key={type.id} className="relative overflow-hidden hover:shadow-lg transition-shadow border-2 hover:border-primary/30 flex flex-col">
+              <Card key={type.id} className="relative overflow-hidden hover:shadow-xl transition-all border-2 hover:border-primary flex flex-col">
                 <CardContent className="pt-8 pb-6 flex flex-col flex-1">
-                  <div className="text-primary mb-4">{type.icon}</div>
+                  <div className={`w-16 h-16 ${type.iconBg} rounded-full flex items-center justify-center mb-4`}>{type.icon}</div>
                   <h3 className="text-xl font-bold mb-2">{type.title}</h3>
                   <p className="text-gray-600 text-sm mb-6">{type.desc}</p>
 
@@ -258,18 +263,18 @@ export function BecomePartnerPage() {
           <div className="grid grid-cols-3 gap-8 text-center max-w-3xl mx-auto">
             <div>
               <Anchor className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">{stats.marinas || '—'}</div>
-              <div className="text-gray-300">{t('home.stats.marinas')}</div>
+              <div className="text-3xl font-bold">{stats.marinas ? `${stats.marinas}+` : '—'}</div>
+              <div className="text-gray-300">{t('home.stats.marinas', 'Marinas')}</div>
             </div>
             <div>
               <Globe className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">8+</div>
-              <div className="text-gray-300">{t('becomePartner.stats.countries')}</div>
+              <div className="text-3xl font-bold">{stats.countries ? `${stats.countries}+` : '—'}</div>
+              <div className="text-gray-300">{t('becomePartner.stats.countries', 'Countries')}</div>
             </div>
             <div>
               <Building2 className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">{stats.partners || '—'}</div>
-              <div className="text-gray-300">{t('home.stats.partners')}</div>
+              <div className="text-3xl font-bold">{stats.partners ? `${stats.partners}+` : '—'}</div>
+              <div className="text-gray-300">{t('home.stats.partners', 'Partners')}</div>
             </div>
           </div>
         </div>
@@ -281,24 +286,19 @@ export function BecomePartnerPage() {
           <h2 className="text-3xl font-bold text-center text-primary mb-4">{t('join.faq.title')}</h2>
           <p className="text-gray-600 text-center mb-10 max-w-xl mx-auto">{t('join.faq.subtitle')}</p>
 
-          <div className="max-w-2xl mx-auto space-y-3">
-            {faqItems.map((item, i) => (
-              <Collapsible key={i} open={openFaq === i} onOpenChange={(open) => setOpenFaq(open ? i : null)}>
-                <Card className="border">
-                  <CollapsibleTrigger className="w-full">
-                    <CardContent className="flex items-center justify-between py-4 px-5 cursor-pointer hover:bg-gray-50 transition-colors">
-                      <span className="font-medium text-left text-gray-900">{item.q}</span>
-                      <ChevronDown className={`h-5 w-5 text-gray-400 shrink-0 ml-4 transition-transform ${openFaq === i ? 'rotate-180' : ''}`} />
-                    </CardContent>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <div className="px-5 pb-4 text-gray-600 text-sm leading-relaxed border-t pt-3">
-                      {item.a}
-                    </div>
-                  </CollapsibleContent>
-                </Card>
-              </Collapsible>
-            ))}
+          <div className="max-w-2xl mx-auto">
+            <Accordion type="single" collapsible className="space-y-3">
+              {faqItems.map((item, i) => (
+                <AccordionItem key={i} value={`faq-${i}`} className="border rounded-lg bg-white px-5">
+                  <AccordionTrigger className="text-left font-medium text-gray-900 hover:no-underline">
+                    {item.q}
+                  </AccordionTrigger>
+                  <AccordionContent className="text-gray-600 text-sm leading-relaxed">
+                    {item.a}
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
           </div>
         </div>
       </section>

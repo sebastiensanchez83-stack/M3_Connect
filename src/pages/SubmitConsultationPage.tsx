@@ -49,6 +49,7 @@ export function SubmitConsultationPage() {
         .from('consultations')
         .insert({
           marina_user_id: user.id,
+          organization_id: organization?.id || null,
           title: form.title.trim(),
           description: form.description.trim(),
           sector_id: form.sector_id || null,

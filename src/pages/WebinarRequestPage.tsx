@@ -56,6 +56,7 @@ export function WebinarRequestPage() {
         .from('webinar_requests')
         .insert({
           user_id: user.id,
+          organization_id: organization?.id || null,
           title: form.title.trim(),
           description: form.description.trim(),
           preferred_language: form.preferred_language,

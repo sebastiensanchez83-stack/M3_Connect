@@ -5,7 +5,7 @@ import { Helmet } from 'react-helmet-async';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2, Newspaper, BarChart3 } from 'lucide-react';
+import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2, Newspaper, BarChart3, CheckCircle, Globe, Shield, UserPlus, ClipboardCheck, Unlock } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 
@@ -217,10 +217,11 @@ export function HomePage() {
   return (
     <div className="flex flex-col">
       <Helmet>
-        <title>M3 Connect — B2B Platform for the Marina Industry</title>
-        <meta name="description" content="M3 Connect connects marina operators, service providers and media professionals. Browse resources, events, and find partners for the marina industry." />
-        <meta property="og:title" content="M3 Connect — B2B Platform for the Marina Industry" />
-        <meta property="og:description" content="Connect with marina operators, service providers and media professionals worldwide." />
+        <title>M3 Connect — The B2B Platform for the Marina &amp; Yachting Industry</title>
+        <meta name="description" content="M3 Connect is the professional B2B network connecting marinas, service providers, and media partners worldwide. Access exclusive resources, industry events, RFPs, and grow your marina business." />
+        <meta property="og:title" content="M3 Connect — The B2B Platform for the Marina & Yachting Industry" />
+        <meta property="og:description" content="Connect marinas, service providers, and media partners. Share expertise, find solutions, and grow your marina business on the industry's professional network." />
+        <meta property="og:type" content="website" />
         <meta property="og:url" content="https://m3connect.com/" />
       </Helmet>
       {/* Hero Section */}
@@ -251,28 +252,110 @@ export function HomePage() {
           ) : (
             <>
               <h1 className="text-4xl md:text-6xl font-bold mb-6">
-                {t('home.heroTitle')}
+                {t('home.heroTitle', 'The B2B Network for the Marina & Yachting Industry')}
               </h1>
               <p className="text-xl md:text-2xl text-gray-200 mb-8 max-w-3xl mx-auto">
-                {t('home.heroSubtitle')}
+                {t('home.heroSubtitle', 'Connect marinas, service providers, and media partners. Share expertise, find solutions, grow your business.')}
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <Button size="lg" variant="secondary" asChild>
-                  <Link to="/resources">
-                    {t('home.exploreResources')}
+                  <Link to="/become-partner">
+                    {t('home.joinNowFree', 'Join Now — It\'s Free')}
                     <ArrowRight className="ml-2 h-5 w-5" />
                   </Link>
                 </Button>
                 <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10" asChild>
-                  <Link to="/become-partner">
-                    {t('home.becomePartner')}
+                  <Link to="/marketplace">
+                    {t('home.exploreMarketplace', 'Explore the Marketplace')}
                   </Link>
                 </Button>
+              </div>
+              {/* Trust indicators */}
+              <div className="flex flex-wrap justify-center gap-6 mt-8 text-sm text-gray-200">
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustFree', 'Free for Marinas')}</span>
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustVerified', 'Verified Partners')}</span>
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustEvents', 'Industry Events & Resources')}</span>
               </div>
             </>
           )}
         </div>
       </section>
+
+      {/* "Why Join?" Section — only for logged-out visitors */}
+      {!user && (
+        <section className="py-16 bg-white">
+          <div className="container mx-auto px-4">
+            <h2 className="text-3xl font-bold text-center text-primary mb-3">
+              {t('home.whyJoinTitle', 'Why Join M3 Connect?')}
+            </h2>
+            <p className="text-gray-600 text-center max-w-2xl mx-auto mb-10">
+              {t('home.whyJoinSubtitle', 'A dedicated platform for every stakeholder in the marina ecosystem.')}
+            </p>
+            <div className="grid md:grid-cols-3 gap-6">
+              <Card className="text-center hover:shadow-lg transition-shadow">
+                <CardContent className="pt-8 pb-6 px-6">
+                  <div className="w-14 h-14 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Anchor className="h-7 w-7 text-blue-600" />
+                  </div>
+                  <h3 className="font-semibold text-lg mb-2">{t('home.whyMarinas', 'For Marinas')}</h3>
+                  <p className="text-sm text-gray-600">
+                    {t('home.whyMarinasDesc', 'Post RFPs, find certified service providers, access exclusive resources and events tailored to your operations.')}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="text-center hover:shadow-lg transition-shadow">
+                <CardContent className="pt-8 pb-6 px-6">
+                  <div className="w-14 h-14 bg-orange-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Building2 className="h-7 w-7 text-orange-600" />
+                  </div>
+                  <h3 className="font-semibold text-lg mb-2">{t('home.whyPartners', 'For Partners')}</h3>
+                  <p className="text-sm text-gray-600">
+                    {t('home.whyPartnersDesc', 'Showcase your services, respond to marina RFPs, and connect directly with decision-makers.')}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card className="text-center hover:shadow-lg transition-shadow">
+                <CardContent className="pt-8 pb-6 px-6">
+                  <div className="w-14 h-14 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Newspaper className="h-7 w-7 text-purple-600" />
+                  </div>
+                  <h3 className="font-semibold text-lg mb-2">{t('home.whyMedia', 'For Media')}</h3>
+                  <p className="text-sm text-gray-600">
+                    {t('home.whyMediaDesc', 'Reach the marina industry audience, share content, and participate in community events.')}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* "How It Works" Section — only for logged-out visitors */}
+      {!user && (
+        <section className="py-16 bg-slate-50 border-b">
+          <div className="container mx-auto px-4">
+            <h2 className="text-3xl font-bold text-center text-primary mb-10">
+              {t('home.howItWorksTitle', 'How It Works')}
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto">
+              {[
+                { icon: <UserPlus className="h-6 w-6 text-white" />, title: t('home.step1', 'Create Your Free Account'), num: '1' },
+                { icon: <Building2 className="h-6 w-6 text-white" />, title: t('home.step2', 'Complete Your Organization Profile'), num: '2' },
+                { icon: <ClipboardCheck className="h-6 w-6 text-white" />, title: t('home.step3', 'Get Verified by Our Team'), num: '3' },
+                { icon: <Unlock className="h-6 w-6 text-white" />, title: t('home.step4', 'Access the Full Platform'), num: '4' },
+              ].map((step) => (
+                <div key={step.num} className="text-center">
+                  <div className="w-14 h-14 bg-primary rounded-full flex items-center justify-center mx-auto mb-3 relative">
+                    {step.icon}
+                    <span className="absolute -top-1 -right-1 w-6 h-6 bg-secondary rounded-full text-white text-xs font-bold flex items-center justify-center">{step.num}</span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-700">{step.title}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Personalized Feed for logged-in users */}
       {user && (
@@ -375,20 +458,20 @@ export function HomePage() {
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.marinas || '—'}</div>
-              <div className="text-gray-600">{t('home.stats.marinas')}</div>
+              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.marinas ? `${stats.marinas}+` : '—'}</div>
+              <div className="text-gray-600">{t('home.stats.marinas', 'Marinas Worldwide')}</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.partners || '—'}</div>
-              <div className="text-gray-600">{t('home.stats.partners')}</div>
+              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.partners ? `${stats.partners}+` : '—'}</div>
+              <div className="text-gray-600">{t('home.stats.partners', 'Verified Partners')}</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.resources || '—'}</div>
-              <div className="text-gray-600">{t('home.stats.resources')}</div>
+              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.resources ? `${stats.resources}+` : '—'}</div>
+              <div className="text-gray-600">{t('home.stats.resources', 'Resources')}</div>
             </div>
             <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.events || '—'}</div>
-              <div className="text-gray-600">{t('home.stats.events')}</div>
+              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.events ? `${stats.events}+` : '—'}</div>
+              <div className="text-gray-600">{t('home.stats.events', 'Events')}</div>
             </div>
           </div>
         </div>
@@ -487,7 +570,7 @@ export function HomePage() {
       <section className="py-16 bg-slate-50">
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-center mb-8">
-            <h2 className="text-3xl font-bold text-primary">{t('home.ourPartners')}</h2>
+            <h2 className="text-3xl font-bold text-primary">{t('home.ourPartners', 'Trusted by Industry Leaders')}</h2>
             <Link to="/partners" className="text-secondary hover:underline flex items-center">
               {t('home.viewAllPartners')} <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
@@ -524,13 +607,14 @@ export function HomePage() {
         <section className="py-16 bg-secondary text-white">
           <div className="container mx-auto px-4 text-center">
             <Anchor className="h-12 w-12 mx-auto mb-4" />
-            <h2 className="text-3xl font-bold mb-4">{t('home.ctaTitle')}</h2>
+            <h2 className="text-3xl font-bold mb-4">{t('home.ctaTitle', 'Ready to Grow Your Marina Business?')}</h2>
             <p className="text-xl text-gray-100 mb-8 max-w-2xl mx-auto">
-              {t('home.ctaSubtitle')}
+              {t('home.ctaSubtitle', 'Join hundreds of marina professionals already on M3 Connect. It\'s free to get started.')}
             </p>
             <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-secondary" asChild>
               <Link to="/become-partner">
-                {t('home.joinNow')}
+                {t('home.joinNow', 'Create Free Account')}
+                <ArrowRight className="ml-2 h-5 w-5" />
               </Link>
             </Button>
           </div>

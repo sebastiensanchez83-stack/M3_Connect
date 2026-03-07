@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MapPin, Users, Play, CalendarPlus, Loader2, ArrowRight } from 'lucide-react';
+import { MapPin, Users, Play, CalendarPlus, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
@@ -117,66 +117,62 @@ export function EventsPage() {
     const hasAccess = canAccess(event.access_level);
 
     return (
-      <Card className="card-hover group">
-        <CardContent className="p-6">
-          <div className="flex gap-4">
-            <Link to={`/events/${event.id}`} className="bg-primary/10 rounded-lg p-3 text-center min-w-[70px] hover:bg-primary/20 transition-colors">
-              <div className="text-2xl font-bold text-primary">{day}</div>
-              <div className="text-sm text-gray-600">{month}</div>
-              <div className="text-xs text-gray-500">{time}</div>
-            </Link>
-            <div className="flex-1">
-              <div className="flex flex-wrap gap-2 mb-2">
-                {getAccessBadge(event.access_level)}
-                {event.location ? (
-                  <Badge variant="outline"><MapPin className="h-3 w-3 mr-1" />{t('events.inPerson')}</Badge>
-                ) : (
-                  <Badge variant="outline">{t('events.online')}</Badge>
-                )}
-                {isPast && event.replay_url && (
-                  <Badge variant="secondary">Replay</Badge>
-                )}
+      <Link to={`/events/${event.id}`} className="block">
+        <Card className="card-hover group cursor-pointer">
+          <CardContent className="p-6">
+            <div className="flex gap-4">
+              <div className="bg-primary/10 rounded-lg p-3 text-center min-w-[70px]">
+                <div className="text-2xl font-bold text-primary">{day}</div>
+                <div className="text-sm text-gray-600">{month}</div>
+                <div className="text-xs text-gray-500">{time}</div>
               </div>
-              <Link to={`/events/${event.id}`} className="block mb-2 hover:text-primary transition-colors">
-                <h3 className="font-semibold text-lg group-hover:text-primary transition-colors">{event.title}</h3>
-              </Link>
-              <p className="text-gray-600 text-sm mb-3 line-clamp-2">{event.description}</p>
-              {event.speakers && event.speakers.length > 0 && (
-                <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-                  <Users className="h-4 w-4" />
-                  {event.speakers.map(s => s.name).join(', ')}
+              <div className="flex-1">
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {getAccessBadge(event.access_level)}
+                  {event.location ? (
+                    <Badge variant="outline"><MapPin className="h-3 w-3 mr-1" />{t('events.inPerson')}</Badge>
+                  ) : (
+                    <Badge variant="outline">{t('events.online')}</Badge>
+                  )}
+                  {isPast && event.replay_url && (
+                    <Badge variant="secondary">Replay</Badge>
+                  )}
                 </div>
-              )}
-              <div className="flex gap-2">
-                {isPast && event.replay_url ? (
-                  <Button size="sm" disabled={!hasAccess}>
-                    <Play className="h-4 w-4 mr-2" />{t('events.watchReplay')}
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    disabled={!hasAccess || isRegistered}
-                    onClick={(e) => { e.preventDefault(); handleRegister(event.id); }}
-                    variant={isRegistered ? 'secondary' : 'default'}
-                  >
-                    {isRegistered ? t('events.registered') : t('events.register')}
-                  </Button>
+                <h3 className="font-semibold text-lg mb-2 group-hover:text-primary transition-colors">{event.title}</h3>
+                <p className="text-gray-600 text-sm mb-3 line-clamp-2">{event.description}</p>
+                {event.speakers && event.speakers.length > 0 && (
+                  <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
+                    <Users className="h-4 w-4" />
+                    {event.speakers.map(s => s.name).join(', ')}
+                  </div>
                 )}
-                {!isPast && (
-                  <Button size="sm" variant="outline">
-                    <CalendarPlus className="h-4 w-4 mr-2" />{t('events.addToCalendar')}
-                  </Button>
-                )}
-                <Button size="sm" variant="ghost" className="ml-auto" asChild>
-                  <Link to={`/events/${event.id}`}>
-                    {t('events.viewDetails', 'View details')} <ArrowRight className="h-4 w-4 ml-1" />
-                  </Link>
-                </Button>
+                {/* Stop propagation so button clicks don't trigger card navigation */}
+                <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                  {isPast && event.replay_url ? (
+                    <Button size="sm" disabled={!hasAccess}>
+                      <Play className="h-4 w-4 mr-2" />{t('events.watchReplay')}
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      disabled={!hasAccess || isRegistered}
+                      onClick={() => handleRegister(event.id)}
+                      variant={isRegistered ? 'secondary' : 'default'}
+                    >
+                      {isRegistered ? t('events.registered') : t('events.register')}
+                    </Button>
+                  )}
+                  {!isPast && (
+                    <Button size="sm" variant="outline">
+                      <CalendarPlus className="h-4 w-4 mr-2" />{t('events.addToCalendar')}
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </Link>
     );
   };
 

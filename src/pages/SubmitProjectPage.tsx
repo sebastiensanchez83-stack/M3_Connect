@@ -49,6 +49,7 @@ export function SubmitProjectPage() {
     setLoading(true);
     const { error } = await supabase.from('marina_projects').insert({
       user_id: user.id,
+      organization_id: organization?.id || null,
       project_type: formData.project_type,
       budget_range: formData.budget_range,
       timeline: formData.timeline,

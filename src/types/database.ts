@@ -12,6 +12,7 @@ export interface Profile {
   onboarding_status: OnboardingStatus;
   rejection_reason: string | null;
   avatar_url: string | null;
+  job_title: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -98,6 +99,12 @@ export interface Organization {
   website: string | null;
   country: string | null;
   city: string | null;
+  access_status: AccessStatus;
+  onboarding_status: 'draft' | 'submitted' | 'completed';
+  rejection_reason: string | null;
+  audience_description: string | null;
+  headquarters_country: string | null;
+  social_media_links: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -140,4 +147,57 @@ export interface OrgTierConfig {
   max_seats: number;
   can_invite: boolean;
   label: string;
+}
+
+// Organization marina details (org-level marina-specific data)
+export interface OrganizationMarinaDetails {
+  organization_id: string;
+  marina_type: string | null;
+  completion_date: string | null;
+  berths_count: number | null;
+  superyacht_berths: number | null;
+  longest_berth_meters: number | null;
+  fresh_water_available: boolean;
+  mix_range_boats: boolean;
+  mix_range_description: string | null;
+  certifications: string[];
+  certifications_other: string | null;
+  has_yacht_club: boolean;
+  yacht_club_members: number | null;
+  has_sailing_school: boolean;
+  has_boat_yard: boolean;
+  has_restaurants: boolean;
+  restaurants_count: number | null;
+  has_concierge: boolean;
+  marina_description: string | null;
+  services_description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Organization-level sector junction types
+export interface OrganizationInterestSector {
+  organization_id: string;
+  sector_id: string;
+  created_at: string;
+}
+
+export interface OrganizationServiceSector {
+  organization_id: string;
+  sector_id: string;
+  created_at: string;
+}
+
+export interface OrganizationFuturePlan {
+  organization_id: string;
+  sector_id: string;
+  timeline: string;
+}
+
+// Invitation check result
+export interface PendingInvitationResult {
+  invitation_id: string;
+  organization_id: string;
+  organization_name: string;
+  invited_by_name: string;
 }

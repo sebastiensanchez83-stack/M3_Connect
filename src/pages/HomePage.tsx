@@ -39,7 +39,7 @@ interface HomeStats {
 
 export function HomePage() {
   const { t } = useTranslation();
-  const { user, profile } = useAuth();
+  const { user, profile, organization } = useAuth();
   const [featuredResources, setFeaturedResources] = useState<FeaturedResource[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [partnerPreviews, setPartnerPreviews] = useState<PartnerPreview[]>([]);
@@ -50,22 +50,23 @@ export function HomePage() {
   const [personalEvents, setPersonalEvents] = useState<UpcomingEvent[]>([]);
   const [myRegistrations, setMyRegistrations] = useState<{ event_id: string; title: string; date_time: string }[]>([]);
 
-  // Fetch personalized feed for logged-in users
+  // Fetch personalized feed for logged-in users (from org-level sectors)
   useEffect(() => {
     if (!user || !profile) return;
     const fetchPersonal = async () => {
-      const sectorTable = profile.persona === 'marina'
-        ? 'marina_interest_sectors'
+      const orgSectorTable = profile.persona === 'marina'
+        ? 'organization_interest_sectors'
         : profile.persona === 'partner'
-        ? 'partner_service_sectors'
+        ? 'organization_service_sectors'
         : null;
 
-      if (sectorTable) {
-        const userIdCol = profile.persona === 'marina' ? 'user_id' : 'partner_user_id';
+      const feedOrgId = organization?.id;
+
+      if (orgSectorTable && feedOrgId) {
         const { data: userSectors } = await supabase
-          .from(sectorTable)
+          .from(orgSectorTable)
           .select('sector_id')
-          .eq(userIdCol, user.id);
+          .eq('organization_id', feedOrgId);
         const sectorIds = (userSectors || []).map((s: any) => s.sector_id);
 
         if (sectorIds.length > 0) {
@@ -120,7 +121,7 @@ export function HomePage() {
       }
     };
     fetchPersonal();
-  }, [user, profile]);
+  }, [user, profile, organization]);
 
   useEffect(() => {
     // Fetch everything in parallel

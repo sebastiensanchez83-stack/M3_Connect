@@ -20,7 +20,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [step, setStep] = useState<1 | 2>(defaultPersona ? 2 : 1);
   const [loading, setLoading] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<PersonaType | ''>(defaultPersona || '');
-  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', companyName: '', companyWebsite: '', password: '', confirmPassword: '' });
+  const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', jobTitle: '', companyName: '', companyWebsite: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
@@ -96,7 +96,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         return;
       }
     }
-    const { error } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim(), detectedOrg?.id);
+    const { error } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim(), detectedOrg?.id, formData.jobTitle.trim());
     setLoading(false);
     if (error) {
       toast({ title: t('auth.error'), description: error.message, variant: 'destructive' });
@@ -148,6 +148,10 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
           <Label htmlFor="lastName">{t('auth.lastName')} *</Label>
           <Input id="lastName" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required placeholder={t('auth.lastNamePlaceholder')} />
         </div>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="jobTitle">{t('auth.jobTitle', 'Job Title / Position')}</Label>
+        <Input id="jobTitle" value={formData.jobTitle} onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })} placeholder={t('auth.jobTitlePlaceholder', 'e.g. Marina Director, Sales Manager...')} />
       </div>
       <div className="space-y-2">
         <Label htmlFor="email">{t('auth.emailPro')} *</Label>

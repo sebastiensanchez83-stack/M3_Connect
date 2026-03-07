@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Search, Briefcase, FileText, MessageSquare, Globe, MapPin, Loader2,
-  ExternalLink, Calendar, BookOpen, Users,
+  Users, Anchor, Building2, Newspaper,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -22,15 +22,23 @@ import { toast } from '@/hooks/use-toast';
 
 /* ---------- local types ---------- */
 
-interface PartnerCard {
-  user_id: string;
-  company_name: string;
+interface OrgCard {
+  id: string;
+  slug: string;
+  name: string;
+  organization_type: string | null;
   website: string | null;
+  country: string | null;
+  city: string | null;
   headquarters_country: string | null;
   description: string | null;
+  audience_description: string | null;
   logo_url: string | null;
   sectors: { id: string; label: string }[];
 }
+
+// Keep old interface name as alias for backward compat in contact dialog
+type PartnerCard = OrgCard & { company_name: string; user_id: string };
 
 interface RfpCard {
   id: string;
@@ -49,17 +57,6 @@ interface ConsultationCard {
   sector: { id: string; label: string } | null;
 }
 
-interface PartnerResource {
-  id: string;
-  title: string;
-  type: string;
-}
-
-interface PartnerEvent {
-  id: string;
-  title: string;
-  date_time: string;
-}
 
 /* ---------- helpers ---------- */
 
@@ -84,24 +81,19 @@ export function MarketplacePage() {
   const { user, profile, isVerified, loading: authLoading } = useAuth();
 
   /* --- data states --- */
-  const [partners, setPartners] = useState<PartnerCard[]>([]);
+  const [orgs, setOrgs] = useState<OrgCard[]>([]);
   const [rfps, setRfps] = useState<RfpCard[]>([]);
   const [consultations, setConsultations] = useState<ConsultationCard[]>([]);
   const [sectors, setSectors] = useState<Sector[]>([]);
 
-  const [loadingPartners, setLoadingPartners] = useState(false);
+  const [loadingOrgs, setLoadingOrgs] = useState(false);
   const [loadingRfps, setLoadingRfps] = useState(false);
   const [loadingConsultations, setLoadingConsultations] = useState(false);
 
   /* --- search & filters --- */
   const [partnerSearch, setPartnerSearch] = useState('');
   const [sectorFilter, setSectorFilter] = useState('all');
-
-  /* --- partner profile dialog --- */
-  const [selectedPartner, setSelectedPartner] = useState<PartnerCard | null>(null);
-  const [partnerResources, setPartnerResources] = useState<PartnerResource[]>([]);
-  const [partnerEvents, setPartnerEvents] = useState<PartnerEvent[]>([]);
-  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('all');
 
   /* --- contact dialog state --- */
   const [contactOpen, setContactOpen] = useState(false);
@@ -124,58 +116,69 @@ export function MarketplacePage() {
       });
   }, []);
 
-  /* ---- fetch partners ---- */
+  /* ---- fetch organizations ---- */
   useEffect(() => {
-    setLoadingPartners(true);
-    const fetchPartners = async () => {
+    setLoadingOrgs(true);
+    const fetchOrgs = async () => {
       try {
-        const { data: partnerRows, error: pErr } = await supabase
-          .from('partner_profiles')
-          .select('user_id, company_name, website, headquarters_country, description, logo_url, profiles!inner(access_status)')
-          .eq('profiles.access_status', 'verified');
+        const { data: orgRows, error: oErr } = await supabase
+          .from('organizations')
+          .select('id, slug, name, organization_type, website, country, city, headquarters_country, description, audience_description, logo_url, access_status')
+          .eq('access_status', 'verified');
 
-        if (pErr) throw pErr;
-        if (!partnerRows || partnerRows.length === 0) {
-          setPartners([]);
+        if (oErr) throw oErr;
+        if (!orgRows || orgRows.length === 0) {
+          setOrgs([]);
           return;
         }
 
-        const userIds = partnerRows.map((p: any) => p.user_id);
-        const { data: sectorLinks } = await supabase
-          .from('partner_service_sectors')
-          .select('partner_user_id, sector_id, sectors(id, label)')
-          .in('partner_user_id', userIds);
+        const orgIds = orgRows.map((o: any) => o.id);
+
+        // Fetch service sectors (partners) and interest sectors (marinas)
+        const [{ data: serviceSectors }, { data: interestSectors }] = await Promise.all([
+          supabase
+            .from('organization_service_sectors')
+            .select('organization_id, sector_id, sectors(id, label)')
+            .in('organization_id', orgIds),
+          supabase
+            .from('organization_interest_sectors')
+            .select('organization_id, sector_id, sectors(id, label)')
+            .in('organization_id', orgIds),
+        ]);
 
         const sectorMap: Record<string, { id: string; label: string }[]> = {};
-        if (sectorLinks) {
-          for (const link of sectorLinks as any[]) {
-            const uid = link.partner_user_id;
-            if (!sectorMap[uid]) sectorMap[uid] = [];
-            if (link.sectors) {
-              sectorMap[uid].push({ id: link.sectors.id, label: link.sectors.label });
-            }
+        for (const link of [...(serviceSectors || []), ...(interestSectors || [])] as any[]) {
+          const oid = link.organization_id;
+          if (!sectorMap[oid]) sectorMap[oid] = [];
+          if (link.sectors && !sectorMap[oid].some((s: any) => s.id === link.sectors.id)) {
+            sectorMap[oid].push({ id: link.sectors.id, label: link.sectors.label });
           }
         }
 
-        const cards: PartnerCard[] = partnerRows.map((p: any) => ({
-          user_id: p.user_id,
-          company_name: p.company_name,
-          website: p.website,
-          headquarters_country: p.headquarters_country,
-          description: p.description,
-          logo_url: p.logo_url || null,
-          sectors: sectorMap[p.user_id] || [],
+        const cards: OrgCard[] = orgRows.map((o: any) => ({
+          id: o.id,
+          slug: o.slug,
+          name: o.name,
+          organization_type: o.organization_type,
+          website: o.website,
+          country: o.country,
+          city: o.city,
+          headquarters_country: o.headquarters_country,
+          description: o.description,
+          audience_description: o.audience_description,
+          logo_url: o.logo_url || null,
+          sectors: sectorMap[o.id] || [],
         }));
 
-        setPartners(cards);
+        setOrgs(cards);
       } catch (err) {
-        console.error('Error fetching partners:', err);
+        console.error('Error fetching organizations:', err);
       } finally {
-        setLoadingPartners(false);
+        setLoadingOrgs(false);
       }
     };
 
-    fetchPartners();
+    fetchOrgs();
   }, []);
 
   /* ---- fetch RFPs ---- */
@@ -247,64 +250,19 @@ export function MarketplacePage() {
     fetchConsultations();
   }, [isVerified]);
 
-  /* ---- partner profile dialog ---- */
-  const openPartnerProfile = async (partner: PartnerCard) => {
-    setSelectedPartner(partner);
-    setPartnerResources([]);
-    setPartnerEvents([]);
-    setLoadingProfile(true);
-
-    try {
-      // Fetch resources where this partner is a speaker
-      const { data: speakerLinks } = await supabase
-        .from('resource_speakers')
-        .select('resource_id, resources!inner(id, title, type, published)')
-        .eq('profile_id', partner.user_id)
-        .eq('resources.published', true)
-        .limit(10);
-
-      if (speakerLinks) {
-        setPartnerResources(
-          (speakerLinks as any[]).map((sl: any) => ({
-            id: sl.resources.id,
-            title: sl.resources.title,
-            type: sl.resources.type,
-          }))
-        );
-      }
-
-      // Fetch events where this partner is a speaker (using the JSONB speakers array)
-      const { data: eventsData } = await supabase
-        .from('events')
-        .select('id, title, date_time')
-        .order('date_time', { ascending: false })
-        .limit(50);
-
-      // Filter events where partner's name appears in speakers
-      if (eventsData) {
-        const partnerEvents = eventsData.filter((e: any) => {
-          if (!e.speakers || !Array.isArray(e.speakers)) return false;
-          const partnerName = partner.company_name.toLowerCase();
-          return e.speakers.some((s: any) =>
-            s.name?.toLowerCase().includes(partnerName) ||
-            s.title?.toLowerCase().includes(partnerName)
-          );
-        });
-        setPartnerEvents(partnerEvents.slice(0, 5).map((e: any) => ({ id: e.id, title: e.title, date_time: e.date_time })));
-      }
-    } catch (err) {
-      console.error('Error loading partner profile:', err);
-    }
-    setLoadingProfile(false);
-  };
-
   /* ---- contact dialog helpers ---- */
-  const openContactDialog = (partner: PartnerCard) => {
+  const openContactDialog = (orgCard: OrgCard) => {
     if (!user) {
-      toast({ title: t('marketplace.loginRequired', 'Please log in to contact partners'), variant: 'destructive' });
+      toast({ title: t('marketplace.loginRequired', 'Please log in to contact organizations'), variant: 'destructive' });
       return;
     }
-    setContactPartner(partner);
+    // Build PartnerCard-compatible object for contact dialog
+    const contactTarget: PartnerCard = {
+      ...orgCard,
+      company_name: orgCard.name,
+      user_id: orgCard.id, // org id, used as key
+    };
+    setContactPartner(contactTarget);
     setContactSectorId('');
     setContactMessage('');
     setContactOpen(true);
@@ -323,8 +281,18 @@ export function MarketplacePage() {
 
     setContactSending(true);
     try {
+      // Get the owner of the target org to use as partner_user_id
+      const { data: ownerMember } = await supabase
+        .from('organization_members')
+        .select('user_id')
+        .eq('organization_id', contactPartner.id)
+        .eq('role', 'owner')
+        .maybeSingle();
+
+      const targetUserId = ownerMember?.user_id || contactPartner.id;
+
       const { error } = await supabase.from('partner_requests').insert({
-        partner_user_id: contactPartner.user_id,
+        partner_user_id: targetUserId,
         marina_user_id: user.id,
         sector_id: contactSectorId,
         message: contactMessage.trim(),
@@ -346,16 +314,38 @@ export function MarketplacePage() {
     }
   };
 
-  /* ---- filtered partners ---- */
-  const filteredPartners = partners.filter((p) => {
+  /* ---- org type helpers ---- */
+  const getOrgTypeIcon = (type: string | null) => {
+    switch (type) {
+      case 'marina': return <Anchor className="h-3.5 w-3.5" />;
+      case 'partner': return <Building2 className="h-3.5 w-3.5" />;
+      case 'media_partner': return <Newspaper className="h-3.5 w-3.5" />;
+      default: return <Building2 className="h-3.5 w-3.5" />;
+    }
+  };
+
+  const getOrgTypeLabel = (type: string | null) => {
+    switch (type) {
+      case 'marina': return 'Marina';
+      case 'partner': return 'Partner';
+      case 'media_partner': return 'Media';
+      default: return 'Organization';
+    }
+  };
+
+  /* ---- filtered organizations ---- */
+  const filteredOrgs = orgs.filter((o) => {
     const matchesSearch = !partnerSearch.trim() || (
-      p.company_name.toLowerCase().includes(partnerSearch.toLowerCase()) ||
-      (p.headquarters_country || '').toLowerCase().includes(partnerSearch.toLowerCase()) ||
-      (p.description || '').toLowerCase().includes(partnerSearch.toLowerCase()) ||
-      p.sectors.some((s) => s.label.toLowerCase().includes(partnerSearch.toLowerCase()))
+      o.name.toLowerCase().includes(partnerSearch.toLowerCase()) ||
+      (o.country || '').toLowerCase().includes(partnerSearch.toLowerCase()) ||
+      (o.city || '').toLowerCase().includes(partnerSearch.toLowerCase()) ||
+      (o.headquarters_country || '').toLowerCase().includes(partnerSearch.toLowerCase()) ||
+      (o.description || '').toLowerCase().includes(partnerSearch.toLowerCase()) ||
+      o.sectors.some((s) => s.label.toLowerCase().includes(partnerSearch.toLowerCase()))
     );
-    const matchesSector = sectorFilter === 'all' || p.sectors.some(s => s.id === sectorFilter);
-    return matchesSearch && matchesSector;
+    const matchesSector = sectorFilter === 'all' || o.sectors.some(s => s.id === sectorFilter);
+    const matchesType = typeFilter === 'all' || o.organization_type === typeFilter;
+    return matchesSearch && matchesSector && matchesType;
   });
 
   /* ========== render ========== */
@@ -404,7 +394,7 @@ export function MarketplacePage() {
             </TabsTrigger>
           </TabsList>
 
-          {/* ====== TAB 1: Partner Directory ====== */}
+          {/* ====== TAB 1: Organization Directory ====== */}
           <TabsContent value="partners" className="space-y-6">
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1 max-w-md">
@@ -416,6 +406,17 @@ export function MarketplacePage() {
                   className="pl-10"
                 />
               </div>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger className="w-full sm:w-48">
+                  <SelectValue placeholder={t('marketplace.filterByType', 'All Types')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('marketplace.allTypes', 'All Types')}</SelectItem>
+                  <SelectItem value="marina">{t('marketplace.typeMarina', 'Marinas')}</SelectItem>
+                  <SelectItem value="partner">{t('marketplace.typePartner', 'Partners')}</SelectItem>
+                  <SelectItem value="media_partner">{t('marketplace.typeMedia', 'Media')}</SelectItem>
+                </SelectContent>
+              </Select>
               <Select value={sectorFilter} onValueChange={setSectorFilter}>
                 <SelectTrigger className="w-full sm:w-64">
                   <SelectValue placeholder={t('marketplace.filterBySector', 'Filter by sector')} />
@@ -429,68 +430,76 @@ export function MarketplacePage() {
               </Select>
             </div>
 
-            {loadingPartners ? (
+            {loadingOrgs ? (
               <div className="py-12 text-center">
                 <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
                 <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingPartners')}</p>
               </div>
-            ) : filteredPartners.length === 0 ? (
+            ) : filteredOrgs.length === 0 ? (
               <div className="py-12 text-center">
                 <Briefcase className="h-10 w-10 mx-auto text-gray-300 mb-3" />
                 <p className="text-gray-500">
-                  {partnerSearch.trim() || sectorFilter !== 'all'
+                  {partnerSearch.trim() || sectorFilter !== 'all' || typeFilter !== 'all'
                     ? t('marketplace.noMatchingPartners')
                     : t('marketplace.noVerifiedPartners')}
                 </p>
               </div>
             ) : (
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {filteredPartners.map((partner) => (
-                  <Card
-                    key={partner.user_id}
-                    className="card-hover cursor-pointer flex flex-col"
-                    onClick={() => openPartnerProfile(partner)}
+                {filteredOrgs.map((orgCard) => (
+                  <Link
+                    key={orgCard.id}
+                    to={`/organizations/${orgCard.slug}`}
+                    className="block"
                   >
-                    <CardContent className="p-6 flex flex-col flex-1">
-                      <div className="flex items-center gap-3 mb-3">
-                        {partner.logo_url ? (
-                          <img src={partner.logo_url} alt={partner.company_name} className="w-14 h-14 rounded-lg object-cover border" />
-                        ) : (
-                          <div className="w-14 h-14 bg-primary/10 rounded-lg flex items-center justify-center text-primary font-bold text-lg shrink-0">
-                            {getInitials(partner.company_name)}
+                    <Card className="card-hover cursor-pointer flex flex-col h-full">
+                      <CardContent className="p-6 flex flex-col flex-1">
+                        <div className="flex items-center gap-3 mb-3">
+                          {orgCard.logo_url ? (
+                            <img src={orgCard.logo_url} alt={orgCard.name} className="w-14 h-14 rounded-lg object-cover border" />
+                          ) : (
+                            <div className="w-14 h-14 bg-primary/10 rounded-lg flex items-center justify-center text-primary font-bold text-lg shrink-0">
+                              {getInitials(orgCard.name)}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <h3 className="font-semibold text-gray-900 truncate">{orgCard.name}</h3>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <Badge variant="outline" className="text-xs gap-1 py-0">
+                                {getOrgTypeIcon(orgCard.organization_type)}
+                                {getOrgTypeLabel(orgCard.organization_type)}
+                              </Badge>
+                            </div>
+                            {(orgCard.city || orgCard.country) && (
+                              <span className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                                <MapPin className="h-3 w-3" />
+                                {[orgCard.city, orgCard.country].filter(Boolean).join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {(orgCard.description || orgCard.audience_description) && (
+                          <p className="text-sm text-gray-600 leading-relaxed mb-3 line-clamp-3">
+                            {orgCard.description || orgCard.audience_description}
+                          </p>
+                        )}
+
+                        {orgCard.sectors.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-auto pt-2">
+                            {orgCard.sectors.slice(0, 3).map((s) => (
+                              <Badge key={s.id} variant="secondary" className="text-xs">
+                                {s.label}
+                              </Badge>
+                            ))}
+                            {orgCard.sectors.length > 3 && (
+                              <Badge variant="outline" className="text-xs">+{orgCard.sectors.length - 3}</Badge>
+                            )}
                           </div>
                         )}
-                        <div className="min-w-0">
-                          <h3 className="font-semibold text-gray-900 truncate">{partner.company_name}</h3>
-                          {partner.headquarters_country && (
-                            <span className="text-xs text-gray-500 flex items-center gap-1">
-                              <MapPin className="h-3 w-3" />
-                              {partner.headquarters_country}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {partner.description && (
-                        <p className="text-sm text-gray-600 leading-relaxed mb-3 line-clamp-3">
-                          {partner.description}
-                        </p>
-                      )}
-
-                      {partner.sectors.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-auto pt-2">
-                          {partner.sectors.slice(0, 3).map((s) => (
-                            <Badge key={s.id} variant="secondary" className="text-xs">
-                              {s.label}
-                            </Badge>
-                          ))}
-                          {partner.sectors.length > 3 && (
-                            <Badge variant="outline" className="text-xs">+{partner.sectors.length - 3}</Badge>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                      </CardContent>
+                    </Card>
+                  </Link>
                 ))}
               </div>
             )}
@@ -599,124 +608,7 @@ export function MarketplacePage() {
         </Tabs>
       </div>
 
-      {/* ====== Partner Profile Dialog ====== */}
-      <Dialog open={!!selectedPartner} onOpenChange={() => setSelectedPartner(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          {selectedPartner && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-4">
-                  {selectedPartner.logo_url ? (
-                    <img src={selectedPartner.logo_url} alt={selectedPartner.company_name} className="w-16 h-16 rounded-lg object-cover border shrink-0" />
-                  ) : (
-                    <div className="w-16 h-16 bg-primary/10 rounded-lg flex items-center justify-center text-primary font-bold text-xl shrink-0">
-                      {getInitials(selectedPartner.company_name)}
-                    </div>
-                  )}
-                  <div>
-                    <div className="text-lg">{selectedPartner.company_name}</div>
-                    {selectedPartner.headquarters_country && (
-                      <span className="text-sm text-gray-500 font-normal flex items-center gap-1 mt-1">
-                        <MapPin className="h-3.5 w-3.5" />
-                        {selectedPartner.headquarters_country}
-                      </span>
-                    )}
-                  </div>
-                </DialogTitle>
-                <DialogDescription className="sr-only">
-                  {selectedPartner.company_name} profile
-                </DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-5 mt-2">
-                {/* Sectors */}
-                {selectedPartner.sectors.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedPartner.sectors.map((s) => (
-                      <Badge key={s.id} variant="secondary" className="text-xs">{s.label}</Badge>
-                    ))}
-                  </div>
-                )}
-
-                {/* Description */}
-                {selectedPartner.description && (
-                  <p className="text-gray-600 leading-relaxed">{selectedPartner.description}</p>
-                )}
-
-                {/* Published Articles */}
-                {loadingProfile ? (
-                  <div className="flex justify-center py-2"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
-                ) : (
-                  <>
-                    {partnerResources.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-2">
-                          <BookOpen className="h-4 w-4 text-primary" />
-                          {t('marketplace.publishedArticles', 'Published Articles')}
-                        </h4>
-                        <div className="space-y-1.5">
-                          {partnerResources.map(r => (
-                            <Link key={r.id} to={`/resources/${r.id}`} onClick={() => setSelectedPartner(null)}
-                              className="flex items-center gap-2 text-sm text-primary hover:underline p-2 rounded hover:bg-gray-50">
-                              <FileText className="h-3.5 w-3.5 shrink-0" />
-                              <span className="truncate">{r.title}</span>
-                              <Badge variant="outline" className="text-xs ml-auto shrink-0">{r.type}</Badge>
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {partnerEvents.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2 mb-2">
-                          <Calendar className="h-4 w-4 text-primary" />
-                          {t('marketplace.hostedWebinars', 'Webinars & Events')}
-                        </h4>
-                        <div className="space-y-1.5">
-                          {partnerEvents.map(e => (
-                            <Link key={e.id} to={`/events/${e.id}`} onClick={() => setSelectedPartner(null)}
-                              className="flex items-center gap-2 text-sm text-primary hover:underline p-2 rounded hover:bg-gray-50">
-                              <Calendar className="h-3.5 w-3.5 shrink-0" />
-                              <span className="truncate">{e.title}</span>
-                              <span className="text-xs text-gray-400 ml-auto shrink-0">{formatDate(e.date_time, i18n.language)}</span>
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Actions */}
-                <div className="flex items-center gap-2 pt-2 border-t">
-                  {selectedPartner.website && (
-                    <a
-                      href={selectedPartner.website.startsWith('http') ? selectedPartner.website : `https://${selectedPartner.website}`}
-                      target="_blank" rel="noopener noreferrer"
-                    >
-                      <Button variant="outline" size="sm" className="flex items-center gap-1.5">
-                        <Globe className="h-3.5 w-3.5" />
-                        {t('marketplace.website')}
-                        <ExternalLink className="h-3 w-3" />
-                      </Button>
-                    </a>
-                  )}
-
-                  {isMarina && (
-                    <Button size="sm" onClick={() => { setSelectedPartner(null); openContactDialog(selectedPartner); }}>
-                      <Users className="h-3.5 w-3.5 mr-1.5" />
-                      {t('marketplace.contact')}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ====== Contact Partner Dialog ====== */}
+      {/* ====== Contact Organization Dialog ====== */}
       <Dialog open={contactOpen} onOpenChange={setContactOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>

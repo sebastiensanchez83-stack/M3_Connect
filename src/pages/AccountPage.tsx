@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { MarinaProfile, PartnerProfile, MediaPartnerProfile } from '@/types/database';
+import { Organization } from '@/types/database';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrganizationTab } from '@/components/organization/OrganizationTab';
 import { toast } from '@/hooks/use-toast';
@@ -72,7 +72,7 @@ interface PartnerRequestItem {
 
 export function AccountPage() {
   const { t } = useTranslation();
-  const { user, profile, userDetails, loading: authLoading } = useAuth();
+  const { user, profile, organization, orgRole, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
@@ -134,9 +134,10 @@ export function AccountPage() {
         await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('user_id', user!.id);
         toast({ title: 'Profile image updated' });
       } else {
-        // Update logo on persona-specific table
-        const table = profile?.persona === 'marina' ? 'marina_profiles' : profile?.persona === 'partner' ? 'partner_profiles' : 'media_partner_profiles';
-        await supabase.from(table).update({ logo_url: publicUrl }).eq('user_id', user!.id);
+        // Update logo on organization
+        if (organization) {
+          await supabase.from('organizations').update({ logo_url: publicUrl }).eq('id', organization.id);
+        }
         toast({ title: 'Company logo updated' });
       }
       // Refresh profile data
@@ -221,19 +222,21 @@ export function AccountPage() {
         setConnectionRequestCount(allRequests.length);
         setPendingRequestCount(allRequests.filter((r: any) => r.status === 'pending').length);
 
-        // Personalized feed: get user's sectors
-        const sectorTable = profile.persona === 'marina'
-          ? 'marina_interest_sectors'
+        // Personalized feed: get user's sectors from org-level tables
+        const orgSectorTable = profile.persona === 'marina'
+          ? 'organization_interest_sectors'
           : profile.persona === 'partner'
-          ? 'partner_service_sectors'
+          ? 'organization_service_sectors'
           : null;
 
-        if (sectorTable) {
-          const userIdCol = profile.persona === 'marina' ? 'user_id' : 'partner_user_id';
+        // Get org ID from context or membership
+        const feedOrgId = organization?.id;
+
+        if (orgSectorTable && feedOrgId) {
           const { data: userSectors } = await supabase
-            .from(sectorTable)
+            .from(orgSectorTable)
             .select('sector_id')
-            .eq(userIdCol, user.id);
+            .eq('organization_id', feedOrgId);
 
           const sectorIds = (userSectors || []).map((s: any) => s.sector_id);
 
@@ -291,7 +294,7 @@ export function AccountPage() {
     };
 
     fetchData();
-  }, [user, profile]);
+  }, [user, profile, organization]);
 
   const getAccessBadge = () => {
     if (!profile) return null;
@@ -337,9 +340,7 @@ export function AccountPage() {
   if (!user || !profile) return null;
 
   const isMarina = profile.persona === 'marina';
-  const marinaDetails = isMarina ? (userDetails as MarinaProfile | null) : null;
-  const partnerDetails = profile.persona === 'partner' ? (userDetails as PartnerProfile | null) : null;
-  const mediaDetails = profile.persona === 'media_partner' ? (userDetails as MediaPartnerProfile | null) : null;
+  const org = organization;
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
@@ -591,19 +592,31 @@ export function AccountPage() {
                   <span className="text-gray-500 block">Statut</span>
                   <span className="font-medium capitalize">{profile.access_status}</span>
                 </div>
+                {profile.job_title && (
+                  <div>
+                    <span className="text-gray-500 block">Poste</span>
+                    <span className="font-medium">{profile.job_title}</span>
+                  </div>
+                )}
+                {orgRole && (
+                  <div>
+                    <span className="text-gray-500 block">Rôle organisation</span>
+                    <span className="font-medium capitalize">{orgRole}</span>
+                  </div>
+                )}
               </div>
 
-              {/* Marina details */}
-              {marinaDetails && (
+              {/* Organization details (from org context) */}
+              {org && (
                 <div className="pt-4 border-t space-y-3">
-                  {/* Marina Logo */}
+                  {/* Org Logo */}
                   <div className="flex items-center gap-3">
                     <div className="relative group">
-                      {marinaDetails.logo_url ? (
-                        <img src={marinaDetails.logo_url} alt="Marina logo" className="w-14 h-14 rounded-lg object-cover border" />
+                      {org.logo_url ? (
+                        <img src={org.logo_url} alt="Organization logo" className="w-14 h-14 rounded-lg object-cover border" />
                       ) : (
                         <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
-                          <Anchor className="h-6 w-6 text-gray-300" />
+                          {isMarina ? <Anchor className="h-6 w-6 text-gray-300" /> : profile.persona === 'partner' ? <Building2 className="h-6 w-6 text-gray-300" /> : <Newspaper className="h-6 w-6 text-gray-300" />}
                         </div>
                       )}
                       <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
@@ -612,113 +625,47 @@ export function AccountPage() {
                       </label>
                     </div>
                     <div className="text-sm">
-                      <div className="font-medium text-gray-900">{marinaDetails.marina_name || '—'}</div>
-                      <div className="text-xs text-gray-400">Marina logo</div>
+                      <div className="font-medium text-gray-900">{org.name || '—'}</div>
+                      <div className="text-xs text-gray-400">Organization logo</div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500 block">Anneaux</span>
-                      <span className="font-medium">{marinaDetails.berths_count ?? '—'}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Pays</span>
-                      <span className="font-medium">{marinaDetails.country || '—'}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Ville</span>
-                      <span className="font-medium">{marinaDetails.city || '—'}</span>
-                    </div>
+                    {org.country && (
+                      <div>
+                        <span className="text-gray-500 block">Pays</span>
+                        <span className="font-medium">{org.country}</span>
+                      </div>
+                    )}
+                    {org.city && (
+                      <div>
+                        <span className="text-gray-500 block">Ville</span>
+                        <span className="font-medium">{org.city}</span>
+                      </div>
+                    )}
+                    {org.headquarters_country && (
+                      <div>
+                        <span className="text-gray-500 block">Pays du siège</span>
+                        <span className="font-medium">{org.headquarters_country}</span>
+                      </div>
+                    )}
                   </div>
-                  {marinaDetails.website && (
-                    <a href={marinaDetails.website} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                      <ExternalLink className="h-3 w-3" />
-                      {marinaDetails.website}
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* Partner details */}
-              {partnerDetails && (
-                <div className="pt-4 border-t space-y-3">
-                  {/* Company Logo */}
-                  <div className="flex items-center gap-3">
-                    <div className="relative group">
-                      {partnerDetails.logo_url ? (
-                        <img src={partnerDetails.logo_url} alt="Company logo" className="w-14 h-14 rounded-lg object-cover border" />
-                      ) : (
-                        <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
-                          <Building2 className="h-6 w-6 text-gray-300" />
-                        </div>
-                      )}
-                      <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                        {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Upload className="h-4 w-4 text-white" />}
-                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'logo'); }} disabled={uploadingLogo} />
-                      </label>
-                    </div>
-                    <div className="text-sm">
-                      <div className="font-medium text-gray-900">{partnerDetails.company_name || '—'}</div>
-                      <div className="text-xs text-gray-400">Company logo</div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500 block">Pays du siège</span>
-                      <span className="font-medium">{partnerDetails.headquarters_country || '—'}</span>
-                    </div>
-                  </div>
-                  {partnerDetails.description && (
+                  {org.description && (
                     <div className="text-sm">
                       <span className="text-gray-500 block mb-1">Description</span>
-                      <p className="text-gray-700">{partnerDetails.description}</p>
+                      <p className="text-gray-700">{org.description}</p>
                     </div>
                   )}
-                  {partnerDetails.website && (
-                    <a href={partnerDetails.website} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                      <ExternalLink className="h-3 w-3" />
-                      {partnerDetails.website}
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {/* Media details */}
-              {mediaDetails && (
-                <div className="pt-4 border-t space-y-3">
-                  {/* Media Logo */}
-                  <div className="flex items-center gap-3">
-                    <div className="relative group">
-                      {mediaDetails.logo_url ? (
-                        <img src={mediaDetails.logo_url} alt="Media logo" className="w-14 h-14 rounded-lg object-cover border" />
-                      ) : (
-                        <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
-                          <Newspaper className="h-6 w-6 text-gray-300" />
-                        </div>
-                      )}
-                      <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                        {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Upload className="h-4 w-4 text-white" />}
-                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'logo'); }} disabled={uploadingLogo} />
-                      </label>
-                    </div>
-                    <div className="text-sm">
-                      <div className="font-medium text-gray-900">{mediaDetails.media_name || '—'}</div>
-                      <div className="text-xs text-gray-400">Media logo</div>
-                    </div>
-                  </div>
-                  {mediaDetails.audience_description && (
+                  {org.audience_description && (
                     <div className="text-sm">
                       <span className="text-gray-500 block mb-1">Audience</span>
-                      <p className="text-gray-700">{mediaDetails.audience_description}</p>
+                      <p className="text-gray-700">{org.audience_description}</p>
                     </div>
                   )}
-                  {mediaDetails.website && (
-                    <a href={mediaDetails.website} target="_blank" rel="noopener noreferrer"
+                  {org.website && (
+                    <a href={org.website} target="_blank" rel="noopener noreferrer"
                       className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
                       <ExternalLink className="h-3 w-3" />
-                      {mediaDetails.website}
+                      {org.website}
                     </a>
                   )}
                 </div>
@@ -1047,86 +994,65 @@ export function AccountPage() {
               </div>
             </div>
 
-            {/* Company / Organization Card */}
-            {(marinaDetails || partnerDetails || mediaDetails) && (
+            {/* Organization Card */}
+            {org && (
               <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-                {/* Logo + Company Name */}
+                {/* Logo + Org Name */}
                 <div className="flex items-center gap-3">
-                  {(() => {
-                    const logoUrl = marinaDetails?.logo_url || partnerDetails?.logo_url || mediaDetails?.logo_url;
-                    const companyName = marinaDetails?.marina_name || partnerDetails?.company_name || mediaDetails?.media_name || '';
-                    const FallbackIcon = marinaDetails ? Anchor : partnerDetails ? Building2 : Newspaper;
-                    return (
-                      <>
-                        {logoUrl ? (
-                          <img src={logoUrl} alt="Logo" className="w-12 h-12 rounded-lg object-cover border" />
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center border">
-                            <FallbackIcon className="h-5 w-5 text-gray-300" />
-                          </div>
-                        )}
-                        <div className="font-semibold text-gray-900">{companyName}</div>
-                      </>
-                    );
-                  })()}
+                  {org.logo_url ? (
+                    <img src={org.logo_url} alt="Logo" className="w-12 h-12 rounded-lg object-cover border" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center border">
+                      {isMarina ? <Anchor className="h-5 w-5 text-gray-300" /> : profile.persona === 'partner' ? <Building2 className="h-5 w-5 text-gray-300" /> : <Newspaper className="h-5 w-5 text-gray-300" />}
+                    </div>
+                  )}
+                  <div className="font-semibold text-gray-900">{org.name}</div>
                 </div>
 
                 {/* Details grid */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  {marinaDetails && (
-                    <>
-                      {marinaDetails.country && (
-                        <div>
-                          <span className="text-gray-500 text-xs">Location</span>
-                          <div className="text-gray-800">{marinaDetails.city ? `${marinaDetails.city}, ` : ''}{marinaDetails.country}</div>
-                        </div>
-                      )}
-                      {marinaDetails.berths_count && (
-                        <div>
-                          <span className="text-gray-500 text-xs">Berths</span>
-                          <div className="text-gray-800">{marinaDetails.berths_count}</div>
-                        </div>
-                      )}
-                    </>
+                  {(org.city || org.country) && (
+                    <div>
+                      <span className="text-gray-500 text-xs">Location</span>
+                      <div className="text-gray-800">{[org.city, org.country].filter(Boolean).join(', ')}</div>
+                    </div>
                   )}
-                  {partnerDetails && (
-                    <>
-                      {partnerDetails.headquarters_country && (
-                        <div>
-                          <span className="text-gray-500 text-xs">Headquarters</span>
-                          <div className="text-gray-800">{partnerDetails.headquarters_country}</div>
-                        </div>
-                      )}
-                    </>
+                  {org.headquarters_country && (
+                    <div>
+                      <span className="text-gray-500 text-xs">Headquarters</span>
+                      <div className="text-gray-800">{org.headquarters_country}</div>
+                    </div>
+                  )}
+                  {profile.job_title && (
+                    <div>
+                      <span className="text-gray-500 text-xs">Position</span>
+                      <div className="text-gray-800">{profile.job_title}</div>
+                    </div>
                   )}
                 </div>
 
                 {/* Description / Audience */}
-                {partnerDetails?.description && (
+                {org.description && (
                   <div className="text-sm">
                     <span className="text-gray-500 text-xs block mb-1">About</span>
-                    <p className="text-gray-700 line-clamp-3">{partnerDetails.description}</p>
+                    <p className="text-gray-700 line-clamp-3">{org.description}</p>
                   </div>
                 )}
-                {mediaDetails?.audience_description && (
+                {org.audience_description && (
                   <div className="text-sm">
                     <span className="text-gray-500 text-xs block mb-1">Audience</span>
-                    <p className="text-gray-700 line-clamp-3">{mediaDetails.audience_description}</p>
+                    <p className="text-gray-700 line-clamp-3">{org.audience_description}</p>
                   </div>
                 )}
 
                 {/* Website */}
-                {(() => {
-                  const website = marinaDetails?.website || partnerDetails?.website || mediaDetails?.website;
-                  if (!website) return null;
-                  return (
-                    <a href={website} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                      <ExternalLink className="h-3 w-3" />
-                      {website}
-                    </a>
-                  );
-                })()}
+                {org.website && (
+                  <a href={org.website} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                    <ExternalLink className="h-3 w-3" />
+                    {org.website}
+                  </a>
+                )}
               </div>
             )}
 

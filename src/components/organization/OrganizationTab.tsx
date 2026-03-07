@@ -17,7 +17,7 @@ import {
 } from '@/types/database';
 import {
   Building2, Users, Mail, Crown, UserPlus, Loader2, ExternalLink,
-  Trash2, LogOut, ArrowRightLeft, Globe, MapPin, Shield,
+  Trash2, LogOut, ArrowRightLeft, Globe, MapPin, Shield, CheckCircle, Clock, XCircle,
 } from 'lucide-react';
 
 export function OrganizationTab() {
@@ -198,9 +198,9 @@ export function OrganizationTab() {
 
   const handleInvite = async () => {
     if (!org || !inviteForm.email.trim()) return;
-    // Domain check
+    // Domain check — skip for marina orgs (marinas use personal emails, invite-only)
     const inviteDomain = inviteForm.email.split('@')[1]?.toLowerCase();
-    if (org.primary_domain && inviteDomain !== org.primary_domain) {
+    if (org.primary_domain && org.organization_type !== 'marina' && inviteDomain !== org.primary_domain) {
       toast({ title: t('common.error'), description: t('org.inviteDomainMismatch'), variant: 'destructive' });
       return;
     }
@@ -412,9 +412,24 @@ export function OrganizationTab() {
             )}
             <div>
               <CardTitle className="text-xl">{org.name}</CardTitle>
-              <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline">{t(`org.${isOwner ? 'owner' : 'collaborator'}`)}</Badge>
                 <Badge variant="secondary">{org.tier.charAt(0).toUpperCase() + org.tier.slice(1)}</Badge>
+                {org.access_status === 'verified' && (
+                  <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3 mr-1" />{t('org.statusVerified', 'Verified')}</Badge>
+                )}
+                {org.access_status === 'pending' && (
+                  <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="h-3 w-3 mr-1" />{t('org.statusPending', 'Pending')}</Badge>
+                )}
+                {org.access_status === 'rejected' && (
+                  <Badge className="bg-red-100 text-red-800 border-red-200"><XCircle className="h-3 w-3 mr-1" />{t('org.statusRejected', 'Rejected')}</Badge>
+                )}
+                {org.access_status === 'suspended' && (
+                  <Badge className="bg-gray-100 text-gray-800 border-gray-200"><XCircle className="h-3 w-3 mr-1" />{t('org.statusSuspended', 'Suspended')}</Badge>
+                )}
+                {org.onboarding_status === 'submitted' && org.access_status === 'pending' && (
+                  <Badge variant="outline" className="text-blue-600 border-blue-200">{t('org.onboardingSubmitted', 'Under Review')}</Badge>
+                )}
               </div>
             </div>
           </div>

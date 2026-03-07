@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile, UserDetails } from '@/types/database'
+import { Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile, UserDetails, Organization, OrgMemberRole } from '@/types/database'
 
 interface AuthContextType {
   user: User | null
@@ -9,9 +9,12 @@ interface AuthContextType {
   loading: boolean
   profile: Profile | null
   userDetails: UserDetails | null
+  organization: Organization | null
+  orgRole: OrgMemberRole | null
+  hasOrganization: boolean
   isVerified: boolean
   isModerator: boolean
-  signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string) => Promise<{ error: Error | null }>
+  signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => Promise<{ error: Error | null }>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -26,6 +29,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [userDetails, setUserDetails] = useState<UserDetails | null>(null)
+  const [organization, setOrganization] = useState<Organization | null>(null)
+  const [orgRole, setOrgRole] = useState<OrgMemberRole | null>(null)
   const [loading, setLoading] = useState(true)
 
   // Ref to track mount status across async operations
@@ -33,6 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isVerified = profile?.access_status === 'verified'
   const isModerator = (profile?.persona === 'moderator' || profile?.persona === 'admin') && isVerified
+  const hasOrganization = organization !== null
 
   const fetchUserData = useCallback(async (userId: string) => {
     const { data: profileData, error } = await supabase
@@ -41,10 +47,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq('user_id', userId)
       .maybeSingle()
 
-    if (error || !profileData) return { profile: null as Profile | null, details: null as UserDetails | null }
+    if (error || !profileData) return { profile: null as Profile | null, details: null as UserDetails | null, org: null as Organization | null, role: null as OrgMemberRole | null }
 
     const p = profileData as Profile
 
+    // Legacy persona profile loading (kept for backward compat)
     let details: UserDetails | null = null
     if (p.persona === 'marina') {
       const { data } = await supabase.from('marina_profiles').select('*').eq('user_id', userId).maybeSingle()
@@ -57,14 +64,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       details = (data as MediaPartnerProfile) ?? null
     }
 
-    return { profile: p, details }
+    // Load organization membership + org data
+    let org: Organization | null = null
+    let role: OrgMemberRole | null = null
+    const { data: membership } = await supabase
+      .from('organization_members')
+      .select('organization_id, role')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (membership) {
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('*')
+        .eq('id', membership.organization_id)
+        .single()
+      org = (orgData as Organization) ?? null
+      role = membership.role as OrgMemberRole
+    }
+
+    return { profile: p, details, org, role }
   }, [])
 
   const refreshProfile = useCallback(async () => {
     if (!user) return
-    const { profile: p, details } = await fetchUserData(user.id)
+    const { profile: p, details, org, role } = await fetchUserData(user.id)
     setProfile(p)
     setUserDetails(details)
+    setOrganization(org)
+    setOrgRole(role)
   }, [user, fetchUserData])
 
   // Track whether initial session has been handled to differentiate
@@ -121,6 +149,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null)
         setProfile(null)
         setUserDetails(null)
+        setOrganization(null)
+        setOrgRole(null)
         currentUserIdRef.current = null
         if (shouldSetLoading) setLoading(false)
         return
@@ -136,19 +166,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Profile fetch timeout')), 10000)
         )
-        const { profile: p, details } = await Promise.race([
+        const { profile: p, details, org, role } = await Promise.race([
           fetchUserData(sess.user.id),
           timeoutPromise,
         ])
         if (!mountedRef.current) return
         setProfile(p)
         setUserDetails(details)
+        setOrganization(org)
+        setOrgRole(role)
       } catch (err) {
         console.warn('[AuthContext] Profile fetch failed or timed out:', err)
         if (!mountedRef.current) return
         // User/session are valid, just no profile data
         setProfile(null)
         setUserDetails(null)
+        setOrganization(null)
+        setOrgRole(null)
       }
 
       if (shouldSetLoading) setLoading(false)
@@ -198,6 +232,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setSession(null)
           setProfile(null)
           setUserDetails(null)
+          setOrganization(null)
+          setOrgRole(null)
           currentUserIdRef.current = null
           setLoading(false)
           return
@@ -259,7 +295,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUserData])
 
   // ─── signUp ─────────────────────────────────────────────────────────
-  const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string) => {
+  const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => {
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -271,6 +307,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           company_name: companyName || '',
           company_website: companyWebsite || '',
           detected_org_id: detectedOrgId || '',
+          job_title: jobTitle || '',
         },
       },
     })
@@ -300,6 +337,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null)
     setProfile(null)
     setUserDetails(null)
+    setOrganization(null)
+    setOrgRole(null)
     try {
       await supabase.auth.signOut()
     } catch (e) {
@@ -311,8 +350,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, session, loading, profile, userDetails, isVerified, isModerator,
-      signUp, signIn, signOut, refreshProfile
+      user, session, loading, profile, userDetails, organization, orgRole, hasOrganization,
+      isVerified, isModerator, signUp, signIn, signOut, refreshProfile
     }}>
       {children}
     </AuthContext.Provider>

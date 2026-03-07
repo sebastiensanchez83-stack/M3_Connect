@@ -37,9 +37,8 @@ interface AdminProfile {
   onboarding_status: string;
   rejection_reason: string | null;
   created_at: string;
-  marina_profiles: { marina_name: string } | null;
-  partner_profiles: { company_name: string } | null;
-  media_partner_profiles: { media_name: string } | null;
+  org_name: string | null;
+  org_id: string | null;
 }
 
 interface Resource {
@@ -492,23 +491,30 @@ function UsersAdmin() {
           .select(`
             user_id, first_name, last_name, email, persona,
             access_status, onboarding_status, rejection_reason, created_at,
-            marina_profiles(marina_name),
-            partner_profiles(company_name),
-            media_partner_profiles(media_name)
+            organization_members(organization_id, organizations(id, name))
           `)
           .order('created_at', { ascending: false }),
         supabase.rpc('get_users_email_status'),
         supabase.rpc('get_unconfirmed_users'),
       ]);
       if (error) { console.error('Error loading users:', error); toast({ title: 'Error loading users', description: error.message, variant: 'destructive' }); }
-      // Normalize: PostgREST may return arrays for embedded resources
-      const normalized = (data || []).map((row: Record<string, unknown>) => ({
-        ...row,
-        marina_profiles: Array.isArray(row.marina_profiles) ? row.marina_profiles[0] || null : row.marina_profiles,
-        partner_profiles: Array.isArray(row.partner_profiles) ? row.partner_profiles[0] || null : row.partner_profiles,
-        media_partner_profiles: Array.isArray(row.media_partner_profiles) ? row.media_partner_profiles[0] || null : row.media_partner_profiles,
-      }));
-      setUsers(normalized as unknown as AdminProfile[]);
+      // Normalize: extract org name from organization_members join
+      const normalized = (data || []).map((row: Record<string, unknown>) => {
+        const members = Array.isArray(row.organization_members) ? row.organization_members : [];
+        const firstMember = members[0] as Record<string, unknown> | undefined;
+        const org = firstMember?.organizations as Record<string, unknown> | null;
+        return {
+          ...row,
+          org_name: (org?.name as string) || null,
+          org_id: (org?.id as string) || null,
+        };
+      });
+      // Clean up the raw join field
+      const cleaned = normalized.map((item) => {
+        const { organization_members: _, ...rest } = item as Record<string, unknown>;
+        return rest;
+      });
+      setUsers(cleaned as unknown as AdminProfile[]);
       // Build email confirmation status map
       const statusMap: Record<string, boolean> = {};
       (emailData || []).forEach((row: { user_id: string; email_confirmed: boolean }) => { statusMap[row.user_id] = row.email_confirmed; });
@@ -526,12 +532,7 @@ function UsersAdmin() {
   };
 
   const getOrgName = (u: AdminProfile) => {
-    try {
-      if (u.marina_profiles?.marina_name) return u.marina_profiles.marina_name;
-      if (u.partner_profiles?.company_name) return u.partner_profiles.company_name;
-      if (u.media_partner_profiles?.media_name) return u.media_partner_profiles.media_name;
-      return '';
-    } catch { return ''; }
+    return u.org_name || '';
   };
 
   const openUserDetail = async (u: AdminProfile) => {
@@ -540,24 +541,33 @@ function UsersAdmin() {
     setDetailSectors([]);
     setDetailLoading(true);
     try {
-      if (u.persona === 'marina') {
-        const [{ data: mp }, { data: sectors }] = await Promise.all([
-          supabase.from('marina_profiles').select('*').eq('user_id', u.user_id).maybeSingle(),
-          supabase.from('marina_interest_sectors').select('sectors(label)').eq('user_id', u.user_id),
-        ]);
-        setDetailData(mp as Record<string, unknown> | null);
-        setDetailSectors((sectors || []).map((s: Record<string, unknown>) => ((s.sectors as Record<string, unknown> | null)?.label as string) || '').filter(Boolean));
-      } else if (u.persona === 'partner') {
-        const [{ data: pp }, { data: sectors }] = await Promise.all([
-          supabase.from('partner_profiles').select('*').eq('user_id', u.user_id).maybeSingle(),
-          supabase.from('partner_service_sectors').select('sectors(label)').eq('user_id', u.user_id),
-        ]);
-        setDetailData(pp as Record<string, unknown> | null);
-        setDetailSectors((sectors || []).map((s: Record<string, unknown>) => ((s.sectors as Record<string, unknown> | null)?.label as string) || '').filter(Boolean));
-      } else if (u.persona === 'media_partner') {
-        const { data: mpp } = await supabase.from('media_partner_profiles').select('*').eq('user_id', u.user_id).maybeSingle();
-        setDetailData(mpp as Record<string, unknown> | null);
+      if (!u.org_id) {
+        // No organization — nothing to load
+        setDetailLoading(false);
+        return;
       }
+      // Load organization data
+      const { data: org } = await supabase.from('organizations').select('*').eq('id', u.org_id).maybeSingle();
+      // Determine sector table based on persona
+      const sectorTable = u.persona === 'marina' || u.persona === 'media_partner'
+        ? 'organization_interest_sectors'
+        : 'organization_service_sectors';
+      const { data: sectors } = await supabase
+        .from(sectorTable)
+        .select('sectors(label)')
+        .eq('organization_id', u.org_id);
+      // For marina, also load marina_details
+      if (u.persona === 'marina') {
+        const { data: marinaDetails } = await supabase
+          .from('organization_marina_details')
+          .select('*')
+          .eq('organization_id', u.org_id)
+          .maybeSingle();
+        setDetailData({ ...org, marina_details: marinaDetails } as Record<string, unknown>);
+      } else {
+        setDetailData(org as Record<string, unknown> | null);
+      }
+      setDetailSectors((sectors || []).map((s: Record<string, unknown>) => ((s.sectors as Record<string, unknown> | null)?.label as string) || '').filter(Boolean));
     } catch (err) { console.error('Error loading user detail:', err); }
     setDetailLoading(false);
   };
@@ -565,6 +575,11 @@ function UsersAdmin() {
   const approveUser = async (userId: string) => {
     const { error } = await supabase.from('profiles').update({ access_status: 'verified', onboarding_status: 'completed', rejection_reason: null }).eq('user_id', userId);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    // Also verify the user's organization
+    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', userId).maybeSingle();
+    if (membership?.organization_id) {
+      await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id);
+    }
     toast({ title: 'User approved' }); loadUsers();
   };
   const openReject = (userId: string) => { setRejectingUserId(userId); setRejectReason(''); };
@@ -572,6 +587,11 @@ function UsersAdmin() {
     if (!rejectingUserId || !rejectReason.trim()) { toast({ title: t('admin.userDetail.reasonRequired'), variant: 'destructive' }); return; }
     const { error } = await supabase.from('profiles').update({ access_status: 'rejected', onboarding_status: 'draft', rejection_reason: rejectReason.trim() }).eq('user_id', rejectingUserId);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
+    // Also reject the user's organization
+    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', rejectingUserId).maybeSingle();
+    if (membership?.organization_id) {
+      await supabase.from('organizations').update({ access_status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', membership.organization_id);
+    }
     toast({ title: 'User rejected' }); setRejectingUserId(null); loadUsers();
   };
   const updateUserStatus = async (userId: string, newStatus: string) => {
@@ -1058,12 +1078,17 @@ function ResourcesAdmin() {
       .eq('access_status', 'verified')
       .limit(10);
     if (!data) { setProfileResults([]); return; }
-    // Enrich partners with company_name
-    const partnerIds = data.filter(p => p.persona === 'partner').map(p => p.user_id);
+    // Enrich all users with their org name
+    const userIds = data.map(p => p.user_id);
     const companyMap: Record<string, string> = {};
-    if (partnerIds.length > 0) {
-      const { data: partners } = await supabase.from('partner_profiles').select('user_id, company_name').in('user_id', partnerIds);
-      if (partners) partners.forEach((p: Record<string, unknown>) => { companyMap[p.user_id as string] = p.company_name as string; });
+    if (userIds.length > 0) {
+      const { data: members } = await supabase.from('organization_members')
+        .select('user_id, organizations(name)')
+        .in('user_id', userIds);
+      if (members) members.forEach((m: Record<string, unknown>) => {
+        const org = m.organizations as Record<string, unknown> | null;
+        if (org?.name) companyMap[m.user_id as string] = org.name as string;
+      });
     }
     setProfileResults(data.map(p => ({ ...p, company_name: companyMap[p.user_id] })));
   };

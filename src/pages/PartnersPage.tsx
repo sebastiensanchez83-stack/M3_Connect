@@ -1,76 +1,77 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { ExternalLink, Globe, Search, RefreshCw, Building2, MapPin } from 'lucide-react';
+import { Search, RefreshCw, Building2, MapPin } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
-interface PartnerCard {
-  user_id: string;
-  company_name: string;
+interface OrgCard {
+  id: string;
+  slug: string;
+  name: string;
+  organization_type: string;
   description: string | null;
   website: string | null;
+  country: string | null;
   headquarters_country: string | null;
+  logo_url: string | null;
   sectors: { id: string; label: string }[];
 }
 
 export function PartnersPage() {
   const { t } = useTranslation();
-  const [partners, setPartners] = useState<PartnerCard[]>([]);
+  const [partners, setPartners] = useState<OrgCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [selectedPartner, setSelectedPartner] = useState<PartnerCard | null>(null);
 
   useEffect(() => {
     const fetchPartners = async () => {
       setLoading(true);
       try {
-        // Get verified partner profiles
-        const { data: partnerRows, error } = await supabase
-          .from('partner_profiles')
-          .select('user_id, company_name, website, headquarters_country, description, profiles!inner(access_status)')
-          .eq('profiles.access_status', 'verified');
+        // Get verified partner organizations
+        const { data: orgRows, error } = await supabase
+          .from('organizations')
+          .select('id, slug, name, organization_type, website, country, headquarters_country, description, logo_url, access_status')
+          .eq('access_status', 'verified')
+          .eq('organization_type', 'partner');
 
         if (error) throw error;
-        if (!partnerRows || partnerRows.length === 0) {
+        if (!orgRows || orgRows.length === 0) {
           setPartners([]);
           return;
         }
 
-        // Get sector mappings
-        const userIds = partnerRows.map((p: any) => p.user_id);
+        // Get sector mappings from organization_service_sectors
+        const orgIds = orgRows.map((o: any) => o.id);
         const { data: sectorLinks } = await supabase
-          .from('partner_service_sectors')
-          .select('partner_user_id, sector_id, sectors(id, label)')
-          .in('partner_user_id', userIds);
+          .from('organization_service_sectors')
+          .select('organization_id, sector_id, sectors(id, label)')
+          .in('organization_id', orgIds);
 
         const sectorMap: Record<string, { id: string; label: string }[]> = {};
         if (sectorLinks) {
           for (const link of sectorLinks as any[]) {
-            const uid = link.partner_user_id;
-            if (!sectorMap[uid]) sectorMap[uid] = [];
+            const oid = link.organization_id;
+            if (!sectorMap[oid]) sectorMap[oid] = [];
             if (link.sectors) {
-              sectorMap[uid].push({ id: link.sectors.id, label: link.sectors.label });
+              sectorMap[oid].push({ id: link.sectors.id, label: link.sectors.label });
             }
           }
         }
 
-        const cards: PartnerCard[] = partnerRows.map((p: any) => ({
-          user_id: p.user_id,
-          company_name: p.company_name,
-          website: p.website,
-          headquarters_country: p.headquarters_country,
-          description: p.description,
-          sectors: sectorMap[p.user_id] || [],
+        const cards: OrgCard[] = orgRows.map((o: any) => ({
+          id: o.id,
+          slug: o.slug,
+          name: o.name,
+          organization_type: o.organization_type,
+          website: o.website,
+          country: o.country,
+          headquarters_country: o.headquarters_country,
+          description: o.description,
+          logo_url: o.logo_url,
+          sectors: sectorMap[o.id] || [],
         }));
 
         setPartners(cards);
@@ -88,8 +89,9 @@ export function PartnersPage() {
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
-      p.company_name.toLowerCase().includes(q) ||
+      p.name.toLowerCase().includes(q) ||
       (p.headquarters_country || '').toLowerCase().includes(q) ||
+      (p.country || '').toLowerCase().includes(q) ||
       (p.description || '').toLowerCase().includes(q) ||
       p.sectors.some((s) => s.label.toLowerCase().includes(q))
     );
@@ -134,92 +136,41 @@ export function PartnersPage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {filteredPartners.map(partner => (
-            <Card
-              key={partner.user_id}
-              className="card-hover cursor-pointer"
-              onClick={() => setSelectedPartner(partner)}
-            >
-              <CardContent className="p-6 text-center">
-                <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-2xl mx-auto mb-4">
-                  {getInitials(partner.company_name)}
-                </div>
-                <h3 className="font-semibold mb-2">{partner.company_name}</h3>
-                {partner.sectors.length > 0 && (
-                  <div className="flex flex-wrap gap-1 justify-center mb-2">
-                    {partner.sectors.slice(0, 2).map((s) => (
-                      <Badge key={s.id} variant="secondary" className="text-xs">
-                        {s.label}
-                      </Badge>
-                    ))}
-                    {partner.sectors.length > 2 && (
-                      <Badge variant="outline" className="text-xs">+{partner.sectors.length - 2}</Badge>
-                    )}
-                  </div>
-                )}
-                {partner.headquarters_country && (
-                  <div className="text-sm text-gray-500 flex items-center justify-center gap-1">
-                    <MapPin className="h-3 w-3" />
-                    {partner.headquarters_country}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      <Dialog open={!!selectedPartner} onOpenChange={() => setSelectedPartner(null)}>
-        <DialogContent className="max-w-lg">
-          {selectedPartner && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-4">
-                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-xl shrink-0">
-                    {getInitials(selectedPartner.company_name)}
-                  </div>
-                  <div>
-                    <div>{selectedPartner.company_name}</div>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {selectedPartner.sectors.map((s) => (
-                        <Badge key={s.id} variant="secondary" className="text-xs font-normal">
+            <Link key={partner.id} to={`/organizations/${partner.slug}`}>
+              <Card className="card-hover cursor-pointer h-full">
+                <CardContent className="p-6 text-center">
+                  {partner.logo_url ? (
+                    <img src={partner.logo_url} alt={partner.name} className="w-20 h-20 rounded-full object-cover mx-auto mb-4" />
+                  ) : (
+                    <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-2xl mx-auto mb-4">
+                      {getInitials(partner.name)}
+                    </div>
+                  )}
+                  <h3 className="font-semibold mb-2">{partner.name}</h3>
+                  {partner.sectors.length > 0 && (
+                    <div className="flex flex-wrap gap-1 justify-center mb-2">
+                      {partner.sectors.slice(0, 2).map((s) => (
+                        <Badge key={s.id} variant="secondary" className="text-xs">
                           {s.label}
                         </Badge>
                       ))}
-                      {selectedPartner.headquarters_country && (
-                        <span className="text-sm text-gray-500 flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {selectedPartner.headquarters_country}
-                        </span>
+                      {partner.sectors.length > 2 && (
+                        <Badge variant="outline" className="text-xs">+{partner.sectors.length - 2}</Badge>
                       )}
                     </div>
-                  </div>
-                </DialogTitle>
-                <DialogDescription className="sr-only">
-                  Details about {selectedPartner.company_name}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="mt-4">
-                {selectedPartner.description && (
-                  <p className="text-gray-600 mb-6">{selectedPartner.description}</p>
-                )}
-                {selectedPartner.website && (
-                  <a
-                    href={selectedPartner.website.startsWith('http') ? selectedPartner.website : `https://${selectedPartner.website}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Button>
-                      <Globe className="h-4 w-4 mr-2" />
-                      {t('partners.visitWebsite')}
-                      <ExternalLink className="h-4 w-4 ml-2" />
-                    </Button>
-                  </a>
-                )}
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+                  )}
+                  {(partner.headquarters_country || partner.country) && (
+                    <div className="text-sm text-gray-500 flex items-center justify-center gap-1">
+                      <MapPin className="h-3 w-3" />
+                      {partner.headquarters_country || partner.country}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -14,7 +14,7 @@ import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
 
 export function WebinarRequestPage() {
-  const { user, profile, isVerified, loading: authLoading } = useAuth();
+  const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
@@ -30,11 +30,11 @@ export function WebinarRequestPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/'); return; }
-    if (isVerified) {
+    if (isVerified && organization?.access_status === 'verified') {
       supabase.from('sectors').select('*').eq('is_active', true).order('label')
         .then(({ data }) => { if (data) setSectors(data as Sector[]); });
     }
-  }, [user, isVerified, authLoading, navigate]);
+  }, [user, isVerified, organization, authLoading, navigate]);
 
   const toggleSector = (id: string) => {
     setSelectedSectors((prev) =>
@@ -97,8 +97,8 @@ export function WebinarRequestPage() {
     );
   }
 
-  // Not logged in or not verified
-  if (!user || !isVerified) {
+  // Not logged in, not verified, or org not verified
+  if (!user || !isVerified || organization?.access_status !== 'verified') {
     return (
       <div className="container mx-auto px-4 py-16 max-w-lg text-center">
         <Lock className="h-12 w-12 mx-auto text-gray-300 mb-4" />

@@ -20,7 +20,7 @@ import { Lock, Anchor } from 'lucide-react';
 
 export function SubmitProjectPage() {
   const { t } = useTranslation();
-  const { user, profile, isVerified, loading: authLoading } = useAuth();
+  const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [consent, setConsent] = useState(false);
@@ -37,7 +37,7 @@ export function SubmitProjectPage() {
     }
   }, [user, authLoading, navigate]);
 
-  const isVerifiedMarina = profile?.persona === 'marina' && isVerified;
+  const isVerifiedMarina = profile?.persona === 'marina' && isVerified && organization?.access_status === 'verified';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

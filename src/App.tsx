@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
+import { AuthRedirector } from '@/components/auth/AuthRedirector';
 import { HomePage } from '@/pages/HomePage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
 import { ResourceDetailPage } from '@/pages/ResourceDetailPage';
@@ -18,11 +19,16 @@ import { SubmitConsultationPage } from '@/pages/SubmitConsultationPage';
 import { MarketplacePage } from '@/pages/MarketplacePage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { OrganizationPublicPage } from '@/pages/OrganizationPublicPage';
+import { AboutPage } from '@/pages/AboutPage';
+import { ContactPage } from '@/pages/ContactPage';
+import { PrivacyPage } from '@/pages/PrivacyPage';
+import { TermsPage } from '@/pages/TermsPage';
 
 function App() {
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
+      <AuthRedirector />
       <main className="flex-1">
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -42,6 +48,10 @@ function App() {
           <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
           <Route path="/admin/*" element={<AdminPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
         </Routes>
       </main>
       <Footer />

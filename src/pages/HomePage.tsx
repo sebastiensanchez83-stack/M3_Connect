@@ -26,8 +26,10 @@ interface UpcomingEvent {
 }
 
 interface PartnerPreview {
-  user_id: string;
-  company_name: string;
+  id: string;
+  slug: string;
+  name: string;
+  logo_url: string | null;
 }
 
 interface HomeStats {
@@ -142,11 +144,12 @@ export function HomePage() {
             .gte('date_time', new Date().toISOString())
             .order('date_time', { ascending: true })
             .limit(3),
-          // Partner previews (verified, up to 6)
+          // Partner previews (verified orgs, up to 6)
           supabase
-            .from('partner_profiles')
-            .select('user_id, company_name, profiles!inner(access_status)')
-            .eq('profiles.access_status', 'verified')
+            .from('organizations')
+            .select('id, slug, name, logo_url')
+            .eq('access_status', 'verified')
+            .eq('organization_type', 'partner')
             .limit(6),
           // Stats counts
           supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'marina'),
@@ -158,9 +161,11 @@ export function HomePage() {
         if (resourcesRes.data) setFeaturedResources(resourcesRes.data as FeaturedResource[]);
         if (eventsRes.data) setUpcomingEvents(eventsRes.data as UpcomingEvent[]);
         if (partnersRes.data) {
-          setPartnerPreviews(partnersRes.data.map((p: any) => ({
-            user_id: p.user_id,
-            company_name: p.company_name,
+          setPartnerPreviews(partnersRes.data.map((o: any) => ({
+            id: o.id,
+            slug: o.slug,
+            name: o.name,
+            logo_url: o.logo_url,
           })));
         }
 
@@ -494,15 +499,20 @@ export function HomePage() {
           ) : (
             <div className="grid grid-cols-3 md:grid-cols-6 gap-6">
               {partnerPreviews.map((partner) => (
-                <div
-                  key={partner.user_id}
+                <Link
+                  key={partner.id}
+                  to={`/organizations/${partner.slug}`}
                   className="bg-white rounded-lg p-6 flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow"
                 >
-                  <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-xl">
-                    {getInitials(partner.company_name)}
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2 text-center truncate max-w-full">{partner.company_name}</p>
-                </div>
+                  {partner.logo_url ? (
+                    <img src={partner.logo_url} alt={partner.name} className="w-16 h-16 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-xl">
+                      {getInitials(partner.name)}
+                    </div>
+                  )}
+                  <p className="text-xs text-gray-500 mt-2 text-center truncate max-w-full">{partner.name}</p>
+                </Link>
               ))}
             </div>
           )}

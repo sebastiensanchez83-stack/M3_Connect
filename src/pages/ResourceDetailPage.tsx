@@ -162,22 +162,25 @@ export function ResourceDetailPage() {
       .single();
     if (!profileData) return;
 
+    // Look up the speaker's organization via organization_members
     let extra: Record<string, unknown> = {};
-    if (profileData.persona === 'partner') {
-      const { data } = await supabase.from('partner_profiles')
-        .select('company_name, description, website, headquarters_country')
-        .eq('user_id', profileId).single();
-      if (data) extra = data;
-    } else if (profileData.persona === 'marina') {
-      const { data } = await supabase.from('marina_profiles')
-        .select('marina_name, website, country, city')
-        .eq('user_id', profileId).single();
-      if (data) extra = data;
-    } else if (profileData.persona === 'media_partner') {
-      const { data } = await supabase.from('media_partner_profiles')
-        .select('media_name, website, audience_description')
-        .eq('user_id', profileId).single();
-      if (data) extra = { media_name: data.media_name, website: data.website, description: data.audience_description };
+    const { data: membership } = await supabase
+      .from('organization_members')
+      .select('organization_id, organizations(name, description, website, country, city, headquarters_country, audience_description, organization_type)')
+      .eq('user_id', profileId)
+      .maybeSingle();
+
+    if (membership?.organizations) {
+      const rawOrg = membership.organizations;
+      const org = (Array.isArray(rawOrg) ? rawOrg[0] : rawOrg) as Record<string, unknown>;
+      const orgType = org.organization_type as string;
+      if (orgType === 'partner') {
+        extra = { company_name: org.name, description: org.description, website: org.website, headquarters_country: org.headquarters_country };
+      } else if (orgType === 'marina') {
+        extra = { marina_name: org.name, website: org.website, country: org.country, city: org.city };
+      } else if (orgType === 'media') {
+        extra = { media_name: org.name, website: org.website, description: org.audience_description };
+      }
     }
 
     setSelectedSpeakerProfile({ ...profileData, ...extra } as SpeakerProfile);

@@ -15,7 +15,7 @@ import { toast } from '@/hooks/use-toast';
 
 export function SubmitConsultationPage() {
   const { t } = useTranslation();
-  const { user, profile, isVerified, loading: authLoading } = useAuth();
+  const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
@@ -29,11 +29,11 @@ export function SubmitConsultationPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/'); return; }
-    if (profile?.persona === 'marina' && isVerified) {
+    if (profile?.persona === 'marina' && isVerified && organization?.access_status === 'verified') {
       supabase.from('sectors').select('*').eq('is_active', true).order('label')
         .then(({ data }) => { if (data) setSectors(data as Sector[]); });
     }
-  }, [user, profile, isVerified, authLoading, navigate]);
+  }, [user, profile, isVerified, organization, authLoading, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -81,8 +81,8 @@ export function SubmitConsultationPage() {
     );
   }
 
-  // Access guard: only verified marina users
-  if (!user || profile?.persona !== 'marina' || !isVerified) {
+  // Access guard: only verified marina users with verified org
+  if (!user || profile?.persona !== 'marina' || !isVerified || organization?.access_status !== 'verified') {
     return (
       <div className="container mx-auto px-4 py-16 max-w-lg text-center">
         <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('submitConsultation.restrictedTitle')}</h1>

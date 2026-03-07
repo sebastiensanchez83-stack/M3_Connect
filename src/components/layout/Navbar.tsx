@@ -24,7 +24,7 @@ import { toast } from '@/hooks/use-toast';
 
 export function Navbar() {
   const { t, i18n } = useTranslation();
-  const { user, profile, signOut, isVerified, isModerator } = useAuth();
+  const { user, profile, signOut, isVerified, isModerator, organization } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
@@ -50,10 +50,11 @@ export function Navbar() {
     { href: '/become-partner', label: t('nav.becomePartner') },
   ];
 
-  const canSubmitProject = profile?.persona === 'marina' && isVerified;
-  const canSubmitRFP = profile?.persona === 'marina' && isVerified;
-  const canSubmitConsultation = profile?.persona === 'marina' && isVerified;
-  const canRequestWebinar = isVerified;
+  const orgVerified = organization?.access_status === 'verified';
+  const canSubmitProject = profile?.persona === 'marina' && isVerified && orgVerified;
+  const canSubmitRFP = profile?.persona === 'marina' && isVerified && orgVerified;
+  const canSubmitConsultation = profile?.persona === 'marina' && isVerified && orgVerified;
+  const canRequestWebinar = isVerified && orgVerified;
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">

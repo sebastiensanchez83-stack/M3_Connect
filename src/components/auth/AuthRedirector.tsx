@@ -2,12 +2,26 @@ import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 
+// Exact public routes (no auth required)
+const publicExactRoutes = new Set<string>([
+  '/', '/reset-password', '/about', '/contact', '/privacy', '/terms',
+  '/resources', '/events', '/partners', '/become-partner', '/marketplace',
+])
+
+// Public route prefixes (dynamic routes accessible without auth)
+const publicPrefixes = [
+  '/resources/', '/events/', '/organizations/',
+]
+
+function isPublicRoute(pathname: string): boolean {
+  if (publicExactRoutes.has(pathname)) return true
+  return publicPrefixes.some((prefix) => pathname.startsWith(prefix))
+}
+
 export function AuthRedirector() {
   const { user, loading, profile, isModerator } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
-
-  const publicRoutes = new Set<string>(['/', '/reset-password'])
 
   const isAdminRoute = pathname.startsWith('/admin')
   const isOnboardingRoute = pathname === '/onboarding'
@@ -17,7 +31,7 @@ export function AuthRedirector() {
 
     // Logged out: allow public routes only
     if (!user) {
-      if (!publicRoutes.has(pathname)) navigate('/', { replace: true })
+      if (!isPublicRoute(pathname)) navigate('/', { replace: true })
       return
     }
 
@@ -42,7 +56,7 @@ export function AuthRedirector() {
     const isRejected = profile.access_status === 'rejected'
     const isCompleted = profile.onboarding_status === 'completed'
 
-    if ((isDraft || isRejected) && !isOnboardingRoute) {
+    if ((isDraft || isRejected) && !isOnboardingRoute && !isPublicRoute(pathname)) {
       navigate('/onboarding', { replace: true })
       return
     }

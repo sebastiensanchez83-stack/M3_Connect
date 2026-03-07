@@ -142,6 +142,20 @@ export function OnboardingPage() {
     if (hasOrganization) {
       navigate('/account'); return;
     }
+    // If AuthContext didn't load org (timeout), double-check directly
+    if (profile && !hasOrganization) {
+      supabase
+        .from('organization_members')
+        .select('organization_id')
+        .eq('user_id', user.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data?.organization_id) {
+            // User already has an org — AuthContext just missed it. Redirect.
+            navigate('/account');
+          }
+        });
+    }
     if (profile) {
       supabase.from('sectors').select('*').eq('is_active', true).order('label')
         .then(({ data }) => { if (data) setSectors(data as Sector[]); });
@@ -150,7 +164,15 @@ export function OnboardingPage() {
 
   /* ─── Organization resolution: check invitation + domain ─── */
   useEffect(() => {
-    if (!user || !profile || needsPersonaSetup || hasOrganization) return;
+    // If profile is null (e.g. after AuthContext timeout), don't stay stuck on resolving
+    if (!user || needsPersonaSetup) {
+      setResolving(false);
+      return;
+    }
+    if (!profile || hasOrganization) {
+      setResolving(false);
+      return;
+    }
     const resolveOrg = async () => {
       setResolving(true);
       try {
@@ -605,7 +627,15 @@ export function OnboardingPage() {
   }
 
   if (resolving) {
-    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /><p className="text-gray-500 mt-2">Checking for existing organization...</p></div>;
+    return (
+      <div className="container mx-auto py-16 text-center">
+        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+        <p className="text-gray-500 mt-2">Checking for existing organization...</p>
+        <Button variant="link" className="mt-4 text-sm" onClick={() => { setResolving(false); setStep('org-form'); }}>
+          Taking too long? Skip to form
+        </Button>
+      </div>
+    );
   }
 
   // Step 2: Organization creation form

@@ -151,9 +151,9 @@ export function AccountPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/'); return; }
-    // User logged in but no profile → redirect to onboarding to set up persona
-    if (!profile) { navigate('/onboarding'); return; }
-  }, [user, profile, authLoading, navigate]);
+    // User logged in but no profile → could be new user or a fetch timeout.
+    // Don't redirect immediately; the render below shows a retry option.
+  }, [user, authLoading, navigate]);
 
   useEffect(() => {
     if (!user || !profile) return;
@@ -337,7 +337,25 @@ export function AccountPage() {
     return <div className="container mx-auto px-4 py-8 text-center text-gray-500">Chargement...</div>;
   }
 
-  if (!user || !profile) return null;
+  if (!user) return null;
+
+  if (!profile) {
+    return (
+      <div className="container mx-auto px-4 py-16 text-center">
+        <AlertCircle className="h-10 w-10 mx-auto text-amber-500 mb-3" />
+        <p className="text-gray-600 mb-2">Could not load your profile.</p>
+        <p className="text-sm text-gray-400 mb-4">This may be due to a slow connection. Please try again.</p>
+        <div className="flex gap-3 justify-center">
+          <Button onClick={() => window.location.reload()}>
+            Retry
+          </Button>
+          <Button variant="outline" onClick={() => navigate('/onboarding')}>
+            Go to Onboarding
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   const isMarina = profile.persona === 'marina';
   const org = organization;

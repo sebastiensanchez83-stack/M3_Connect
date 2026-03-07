@@ -42,8 +42,13 @@ export function AuthRedirector() {
     }
 
     // Logged in, no profile yet => onboarding (persona selection)
+    // BUT: allow /account so the user can see a retry/loading state
+    // when profile is null due to a fetch timeout (not a new user).
     if (!profile) {
-      if (!isOnboardingRoute) navigate('/onboarding', { replace: true })
+      const isAccountRoute = pathname === '/account'
+      if (!isOnboardingRoute && !isAccountRoute && !isPublicRoute(pathname)) {
+        navigate('/onboarding', { replace: true })
+      }
       return
     }
 

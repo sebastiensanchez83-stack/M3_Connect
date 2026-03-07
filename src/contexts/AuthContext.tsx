@@ -41,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hasOrganization = organization !== null
 
   const fetchUserData = useCallback(async (userId: string) => {
+    // Step 1: Fetch profile first (needed to determine persona detail table)
     const { data: profileData, error } = await supabase
       .from('profiles')
       .select('*')
@@ -51,28 +52,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const p = profileData as Profile
 
-    // Legacy persona profile loading (kept for backward compat)
-    let details: UserDetails | null = null
-    if (p.persona === 'marina') {
-      const { data } = await supabase.from('marina_profiles').select('*').eq('user_id', userId).maybeSingle()
-      details = (data as MarinaProfile) ?? null
-    } else if (p.persona === 'partner') {
-      const { data } = await supabase.from('partner_profiles').select('*').eq('user_id', userId).maybeSingle()
-      details = (data as PartnerProfile) ?? null
-    } else if (p.persona === 'media_partner') {
-      const { data } = await supabase.from('media_partner_profiles').select('*').eq('user_id', userId).maybeSingle()
-      details = (data as MediaPartnerProfile) ?? null
-    }
+    // Step 2: Fetch persona details + org membership IN PARALLEL (they're independent)
+    const detailsPromise = (async (): Promise<UserDetails | null> => {
+      if (p.persona === 'marina') {
+        const { data } = await supabase.from('marina_profiles').select('*').eq('user_id', userId).maybeSingle()
+        return (data as MarinaProfile) ?? null
+      } else if (p.persona === 'partner') {
+        const { data } = await supabase.from('partner_profiles').select('*').eq('user_id', userId).maybeSingle()
+        return (data as PartnerProfile) ?? null
+      } else if (p.persona === 'media_partner') {
+        const { data } = await supabase.from('media_partner_profiles').select('*').eq('user_id', userId).maybeSingle()
+        return (data as MediaPartnerProfile) ?? null
+      }
+      return null
+    })()
 
-    // Load organization membership + org data
-    let org: Organization | null = null
-    let role: OrgMemberRole | null = null
-    const { data: membership } = await supabase
+    const membershipPromise = supabase
       .from('organization_members')
       .select('organization_id, role')
       .eq('user_id', userId)
       .maybeSingle()
 
+    const [details, { data: membership }] = await Promise.all([detailsPromise, membershipPromise])
+
+    // Step 3: If membership found, fetch org data
+    let org: Organization | null = null
+    let role: OrgMemberRole | null = null
     if (membership) {
       const { data: orgData } = await supabase
         .from('organizations')
@@ -124,18 +129,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mountedRef.current = true
     initializedRef.current = false
 
-    // Safety timeout: if loading doesn't resolve in 15s, force it false.
+    // Safety timeout: if loading doesn't resolve in 35s, force it false.
+    // (Allows for 2 fetch attempts × 15s each + buffer)
     const safetyTimer = setTimeout(() => {
       if (mountedRef.current) {
         setLoading((prev) => {
           if (prev) {
-            console.warn('[AuthContext] Safety timeout — forcing loading to false after 15s')
+            console.warn('[AuthContext] Safety timeout — forcing loading to false after 35s')
             return false
           }
           return prev
         })
       }
-    }, 15000)
+    }, 35000)
 
     /**
      * Handles a session: sets user/session, fetches profile, then sets loading=false.
@@ -161,22 +167,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(sess.user)
       currentUserIdRef.current = sess.user.id
 
-      // Fetch profile with timeout protection
-      try {
+      // Fetch profile with timeout protection + retry
+      const attemptFetch = async (timeoutMs: number) => {
         const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Profile fetch timeout')), 10000)
+          setTimeout(() => reject(new Error('Profile fetch timeout')), timeoutMs)
         )
-        const { profile: p, details, org, role } = await Promise.race([
-          fetchUserData(sess.user.id),
-          timeoutPromise,
-        ])
+        return Promise.race([fetchUserData(sess.user.id), timeoutPromise])
+      }
+
+      try {
+        let result: Awaited<ReturnType<typeof fetchUserData>>
+        try {
+          result = await attemptFetch(15000)
+        } catch (firstErr) {
+          console.warn('[AuthContext] First profile fetch attempt failed, retrying...', firstErr)
+          if (!mountedRef.current) return
+          result = await attemptFetch(15000)
+        }
         if (!mountedRef.current) return
-        setProfile(p)
-        setUserDetails(details)
-        setOrganization(org)
-        setOrgRole(role)
+        setProfile(result.profile)
+        setUserDetails(result.details)
+        setOrganization(result.org)
+        setOrgRole(result.role)
       } catch (err) {
-        console.warn('[AuthContext] Profile fetch failed or timed out:', err)
+        console.warn('[AuthContext] Profile fetch failed after retry:', err)
         if (!mountedRef.current) return
         // User/session are valid, just no profile data
         setProfile(null)

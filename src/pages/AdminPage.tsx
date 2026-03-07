@@ -5,7 +5,7 @@ import {
   Users, UserCheck, FileText, Calendar, Anchor, RefreshCw, Search,
   Download, Plus, Pencil, Trash2, Eye, ChevronRight, Radio,
   Link2, ClipboardList, MessageSquare, BookOpen, FolderOpen,
-  ChevronUp, ChevronDown, UserPlus, X, AlertTriangle,
+  ChevronUp, ChevronDown, UserPlus, X, AlertTriangle, ExternalLink,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
@@ -87,12 +87,15 @@ interface Event {
 interface Partner {
   id: string;
   name: string;
-  description: string;
+  description: string | null;
   logo_url: string | null;
   website: string | null;
-  sector: string;
-  country: string;
-  is_featured: boolean;
+  organization_type: string;
+  country: string | null;
+  city: string | null;
+  access_status: string;
+  onboarding_status: string;
+  owner_user_id: string | null;
 }
 
 interface MarinaProject {
@@ -485,36 +488,37 @@ function UsersAdmin() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const [{ data, error }, { data: emailData }, { data: unconfData }] = await Promise.all([
+      // Split into separate queries to avoid Supabase relationship join error
+      const [{ data: profilesData, error }, { data: membershipsData }, { data: emailData }, { data: unconfData }] = await Promise.all([
         supabase
           .from('profiles')
-          .select(`
-            user_id, first_name, last_name, email, persona,
-            access_status, onboarding_status, rejection_reason, created_at,
-            organization_members(organization_id, organizations(id, name))
-          `)
+          .select('user_id, first_name, last_name, email, persona, access_status, onboarding_status, rejection_reason, created_at')
           .order('created_at', { ascending: false }),
+        supabase
+          .from('organization_members')
+          .select('user_id, organization_id, organizations(id, name)'),
         supabase.rpc('get_users_email_status'),
         supabase.rpc('get_unconfirmed_users'),
       ]);
       if (error) { console.error('Error loading users:', error); toast({ title: 'Error loading users', description: error.message, variant: 'destructive' }); }
-      // Normalize: extract org name from organization_members join
-      const normalized = (data || []).map((row: Record<string, unknown>) => {
-        const members = Array.isArray(row.organization_members) ? row.organization_members : [];
-        const firstMember = members[0] as Record<string, unknown> | undefined;
-        const org = firstMember?.organizations as Record<string, unknown> | null;
+      // Build a map from user_id → org info
+      const orgMap = new Map<string, { org_id: string; org_name: string }>();
+      (membershipsData || []).forEach((m: Record<string, unknown>) => {
+        const org = m.organizations as Record<string, unknown> | null;
+        if (org) {
+          orgMap.set(m.user_id as string, { org_id: org.id as string, org_name: org.name as string });
+        }
+      });
+      // Merge profiles with org info
+      const merged = (profilesData || []).map((row: Record<string, unknown>) => {
+        const orgInfo = orgMap.get(row.user_id as string);
         return {
           ...row,
-          org_name: (org?.name as string) || null,
-          org_id: (org?.id as string) || null,
+          org_name: orgInfo?.org_name || null,
+          org_id: orgInfo?.org_id || null,
         };
       });
-      // Clean up the raw join field
-      const cleaned = normalized.map((item) => {
-        const { organization_members: _, ...rest } = item as Record<string, unknown>;
-        return rest;
-      });
-      setUsers(cleaned as unknown as AdminProfile[]);
+      setUsers(merged as unknown as AdminProfile[]);
       // Build email confirmation status map
       const statusMap: Record<string, boolean> = {};
       (emailData || []).forEach((row: { user_id: string; email_confirmed: boolean }) => { statusMap[row.user_id] = row.email_confirmed; });
@@ -1255,42 +1259,91 @@ function PartnersAdmin() {
   const { t } = useTranslation();
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', description: '', logo_url: '', website: '', sector: 'services', country: '', is_featured: false });
-  const sectors = ['energy', 'equipment', 'digital', 'environment', 'services', 'institution'];
+  const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
+  const [typeFilter, setTypeFilter] = useState('all');
 
   useEffect(() => { loadPartners(); }, []);
-  const loadPartners = async () => { setLoading(true); const { data } = await supabase.from('partners').select('*').order('name'); setPartners(data || []); setLoading(false); };
-
-  const openCreate = () => { setEditingPartner(null); setFormData({ name: '', description: '', logo_url: '', website: '', sector: 'services', country: '', is_featured: false }); setIsDialogOpen(true); };
-  const openEdit = (p: Partner) => { setEditingPartner(p); setFormData({ name: p.name, description: p.description, logo_url: p.logo_url || '', website: p.website || '', sector: p.sector, country: p.country, is_featured: p.is_featured }); setIsDialogOpen(true); };
-
-  const handleSave = async () => {
-    const payload = { ...formData, logo_url: formData.logo_url || null, website: formData.website || null };
-    if (editingPartner) { await supabase.from('partners').update(payload).eq('id', editingPartner.id); toast({ title: 'Updated!' }); }
-    else { await supabase.from('partners').insert(payload); toast({ title: 'Created!' }); }
-    setIsDialogOpen(false); loadPartners();
+  const loadPartners = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('organizations')
+      .select('id, name, description, logo_url, website, organization_type, country, city, access_status, onboarding_status, owner_user_id')
+      .in('organization_type', ['partner', 'media_partner'])
+      .order('name');
+    setPartners((data || []) as Partner[]);
+    setLoading(false);
   };
-  const handleDelete = async (id: string) => { if (!confirm('Delete?')) return; await supabase.from('partners').delete().eq('id', id); toast({ title: 'Deleted' }); loadPartners(); };
+
+  const updateStatus = async (id: string, status: string) => {
+    await supabase.from('organizations').update({ access_status: status }).eq('id', id);
+    toast({ title: `Status updated to ${status}` });
+    loadPartners();
+  };
+
+  const filteredPartners = typeFilter === 'all' ? partners : partners.filter(p => p.organization_type === typeFilter);
+
+  const statusBadge = (s: string) => {
+    const m: Record<string, string> = { verified: 'bg-green-100 text-green-800', pending: 'bg-yellow-100 text-yellow-800', submitted: 'bg-blue-100 text-blue-800', rejected: 'bg-red-100 text-red-800', suspended: 'bg-gray-100 text-gray-800' };
+    return <Badge className={m[s] || 'bg-gray-100 text-gray-800'}>{s}</Badge>;
+  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.partners')} ({partners.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Partner</Button></div>
-      <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Name</th><th className="text-left p-4 font-medium">Sector</th><th className="text-left p-4 font-medium">Country</th><th className="text-left p-4 font-medium">Featured</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {partners.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{p.name}</td><td className="p-4"><Badge variant="outline">{p.sector}</Badge></td><td className="p-4">{p.country}</td><td className="p-4">{p.is_featured ? 'Yes' : '-'}</td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(p)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(p.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
-      </tbody></table></CardContent></Card>
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{editingPartner ? 'Edit Partner' : 'Add Partner'}</DialogTitle><DialogDescription>Manage partner information.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
-        <div className="space-y-2"><Label>Name *</Label><Input value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} /></div>
-        <div className="space-y-2"><Label>Description *</Label><Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} /></div>
-        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Sector</Label><Select value={formData.sector} onValueChange={v => setFormData({ ...formData, sector: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{sectors.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select></div><div className="space-y-2"><Label>Country</Label><Input value={formData.country} onChange={e => setFormData({ ...formData, country: e.target.value })} /></div></div>
-        <div className="space-y-2"><Label>Logo URL</Label><Input value={formData.logo_url} onChange={e => setFormData({ ...formData, logo_url: e.target.value })} /></div>
-        <div className="space-y-2"><Label>Website</Label><Input value={formData.website} onChange={e => setFormData({ ...formData, website: e.target.value })} /></div>
-        <div className="flex items-center space-x-2"><Checkbox id="featured" checked={formData.is_featured} onCheckedChange={(c) => setFormData({ ...formData, is_featured: c as boolean })} /><Label htmlFor="featured">Featured</Label></div>
-        <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editingPartner ? 'Update' : 'Create'}</Button></div>
-      </div></DialogContent></Dialog>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">{t('admin.partners')} ({filteredPartners.length})</h1>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            <SelectItem value="partner">Partners</SelectItem>
+            <SelectItem value="media_partner">Media Partners</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">Name</th>
+        <th className="text-left p-4 font-medium">Type</th>
+        <th className="text-left p-4 font-medium">Country</th>
+        <th className="text-left p-4 font-medium">Status</th>
+        <th className="text-left p-4 font-medium">Actions</th>
+      </tr></thead><tbody>
+        {filteredPartners.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50">
+          <td className="p-4"><div className="font-medium">{p.name}</div>{p.website && <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.website}</div>}</td>
+          <td className="p-4"><Badge variant="outline">{p.organization_type === 'media_partner' ? 'Media' : 'Partner'}</Badge></td>
+          <td className="p-4">{[p.city, p.country].filter(Boolean).join(', ') || '—'}</td>
+          <td className="p-4">{statusBadge(p.access_status)}</td>
+          <td className="p-4"><div className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelectedPartner(p)}><Eye className="h-4 w-4" /></Button>
+            {p.access_status !== 'verified' && <Button size="sm" variant="outline" onClick={() => updateStatus(p.id, 'verified')}>Verify</Button>}
+            {p.access_status === 'verified' && <Button size="sm" variant="outline" className="text-red-600" onClick={() => updateStatus(p.id, 'suspended')}>Suspend</Button>}
+          </div></td>
+        </tr>))}
+        {filteredPartners.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No partner organizations found</td></tr>}
+      </tbody></table></div></CardContent></Card>
+      <Dialog open={!!selectedPartner} onOpenChange={() => setSelectedPartner(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Partner Details</DialogTitle><DialogDescription>View partner organization information.</DialogDescription></DialogHeader>
+          {selectedPartner && (
+            <div className="space-y-4 mt-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div><strong>Name:</strong> {selectedPartner.name}</div>
+                <div><strong>Type:</strong> {selectedPartner.organization_type === 'media_partner' ? 'Media Partner' : 'Partner'}</div>
+                <div><strong>Country:</strong> {selectedPartner.country || '—'}</div>
+                <div><strong>City:</strong> {selectedPartner.city || '—'}</div>
+                <div><strong>Status:</strong> {selectedPartner.access_status}</div>
+                <div><strong>Onboarding:</strong> {selectedPartner.onboarding_status}</div>
+              </div>
+              {selectedPartner.website && <div><strong>Website:</strong> <a href={selectedPartner.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{selectedPartner.website}</a></div>}
+              {selectedPartner.description && <div><strong>Description:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm">{selectedPartner.description}</p></div>}
+              <div className="flex gap-2 pt-2">
+                <Link to={`/organizations/${selectedPartner.id}`} target="_blank"><Button variant="outline" size="sm"><ExternalLink className="h-4 w-4 mr-2" />View Public Page</Button></Link>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

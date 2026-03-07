@@ -244,7 +244,8 @@ export function OrganizationTab() {
 
   const handleRemoveMember = async (member: OrganizationMember) => {
     if (!org) return;
-    const name = member.profiles ? `${member.profiles.first_name || ''} ${member.profiles.last_name || ''}`.trim() : 'this member';
+    const fullN = member.profiles ? `${member.profiles.first_name || ''} ${member.profiles.last_name || ''}`.trim() : '';
+    const name = fullN || member.profiles?.email?.split('@')[0] || 'this member';
     if (!window.confirm(t('org.removeMemberConfirm', { name }))) return;
     try {
       const { error } = await supabase
@@ -549,12 +550,16 @@ export function OrganizationTab() {
           <div className="divide-y">
             {members.map((member) => {
               const p = member.profiles;
-              const name = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : 'Unknown';
+              const fullName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : '';
+              const name = fullName || p?.email?.split('@')[0] || 'Unknown';
+              const initials = fullName
+                ? fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+                : name.slice(0, 2).toUpperCase();
               return (
                 <div key={member.id} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                      {name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                      {initials}
                     </div>
                     <div>
                       <div className="font-medium text-gray-900 flex items-center gap-2">
@@ -706,9 +711,9 @@ export function OrganizationTab() {
             <DialogTitle>{t('org.transferOwnership')}</DialogTitle>
             <DialogDescription>
               {transferTarget && t('org.transferConfirm', {
-                name: transferTarget.profiles
+                name: (transferTarget.profiles
                   ? `${transferTarget.profiles.first_name || ''} ${transferTarget.profiles.last_name || ''}`.trim()
-                  : 'this member',
+                  : '') || transferTarget.profiles?.email?.split('@')[0] || 'this member',
               })}
             </DialogDescription>
           </DialogHeader>

@@ -300,13 +300,13 @@ export function AccountPage() {
     if (!profile) return null;
     switch (profile.access_status) {
       case 'verified':
-        return <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3 mr-1" />Vérifié</Badge>;
+        return <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3 mr-1" />Verified</Badge>;
       case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="h-3 w-3 mr-1" />En attente</Badge>;
+        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
       case 'rejected':
-        return <Badge className="bg-red-100 text-red-800 border-red-200"><XCircle className="h-3 w-3 mr-1" />Refusé</Badge>;
+        return <Badge className="bg-red-100 text-red-800 border-red-200"><XCircle className="h-3 w-3 mr-1" />Rejected</Badge>;
       case 'suspended':
-        return <Badge className="bg-gray-100 text-gray-800 border-gray-200"><XCircle className="h-3 w-3 mr-1" />Suspendu</Badge>;
+        return <Badge className="bg-gray-100 text-gray-800 border-gray-200"><XCircle className="h-3 w-3 mr-1" />Suspended</Badge>;
       default:
         return null;
     }
@@ -324,17 +324,17 @@ export function AccountPage() {
   const getPersonaLabel = () => {
     switch (profile?.persona) {
       case 'marina': return 'Marina / Port';
-      case 'partner': return 'Partenaire';
-      case 'media_partner': return 'Média';
-      case 'moderator': return 'Modérateur';
-      case 'admin': return 'Administrateur';
-      case 'individual': return 'Individuel';
+      case 'partner': return 'Partner';
+      case 'media_partner': return 'Media Partner';
+      case 'moderator': return 'Moderator';
+      case 'admin': return 'Administrator';
+      case 'individual': return 'Individual';
       default: return '';
     }
   };
 
   if (authLoading) {
-    return <div className="container mx-auto px-4 py-8 text-center text-gray-500">Chargement...</div>;
+    return <div className="container mx-auto px-4 py-8 text-center text-gray-500">Loading...</div>;
   }
 
   if (!user) return null;
@@ -363,42 +363,42 @@ export function AccountPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold text-primary">Mon compte</h1>
+        <h1 className="text-3xl font-bold text-primary">My Account</h1>
         {getAccessBadge()}
       </div>
 
-      {/* Bannière onboarding non complété */}
+      {/* Incomplete onboarding banner */}
       {(profile.onboarding_status === 'draft') && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <ClipboardList className="h-5 w-5 text-blue-600 shrink-0" />
-            <p className="text-blue-800">Votre profil est incomplet. Complétez-le pour être validé par notre équipe.</p>
+            <p className="text-blue-800">Your profile is incomplete. Complete it to be validated by our team.</p>
           </div>
-          <Button size="sm" onClick={() => navigate('/onboarding')}>Compléter</Button>
+          <Button size="sm" onClick={() => navigate('/onboarding')}>Complete</Button>
         </div>
       )}
 
-      {/* Bannière en attente de validation */}
+      {/* Pending validation banner */}
       {profile.onboarding_status === 'submitted' && profile.access_status === 'pending' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 flex items-center gap-3">
           <AlertCircle className="h-5 w-5 text-yellow-600 shrink-0" />
-          <p className="text-yellow-800">Votre profil est en cours de vérification par notre équipe. Vous recevrez une confirmation par email.</p>
+          <p className="text-yellow-800">Your profile is being reviewed by our team. You will receive a confirmation email.</p>
         </div>
       )}
 
-      {/* Bannière compte refusé */}
+      {/* Rejected account banner */}
       {profile.access_status === 'rejected' && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 space-y-2">
           <div className="flex items-center gap-3">
             <XCircle className="h-5 w-5 text-red-600 shrink-0" />
-            <p className="text-red-800 font-medium">Votre demande d'accès a été refusée.</p>
+            <p className="text-red-800 font-medium">Your access request has been rejected.</p>
           </div>
           {profile.rejection_reason && (
-            <p className="text-red-700 text-sm ml-8">Raison : {profile.rejection_reason}</p>
+            <p className="text-red-700 text-sm ml-8">Reason: {profile.rejection_reason}</p>
           )}
           <div className="ml-8">
             <Button size="sm" variant="outline" onClick={() => navigate('/onboarding')}>
-              Modifier et resoumettre
+              Edit and Resubmit
             </Button>
           </div>
         </div>
@@ -607,18 +607,18 @@ export function AccountPage() {
                   <span className="font-medium">{user.email}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500 block">Statut</span>
+                  <span className="text-gray-500 block">Status</span>
                   <span className="font-medium capitalize">{profile.access_status}</span>
                 </div>
                 {profile.job_title && (
                   <div>
-                    <span className="text-gray-500 block">Poste</span>
+                    <span className="text-gray-500 block">Job Title</span>
                     <span className="font-medium">{profile.job_title}</span>
                   </div>
                 )}
                 {orgRole && (
                   <div>
-                    <span className="text-gray-500 block">Rôle organisation</span>
+                    <span className="text-gray-500 block">Organization Role</span>
                     <span className="font-medium capitalize">{orgRole}</span>
                   </div>
                 )}
@@ -692,7 +692,7 @@ export function AccountPage() {
               {profile.onboarding_status === 'draft' && (
                 <div className="pt-4">
                   <Button onClick={() => navigate('/onboarding')} variant="outline">
-                    Compléter mon profil
+                    Complete my profile
                   </Button>
                 </div>
               )}
@@ -716,9 +716,9 @@ export function AccountPage() {
             </CardHeader>
             <CardContent>
               {dataLoading ? (
-                <p className="text-gray-500 text-center py-8">Chargement...</p>
+                <p className="text-gray-500 text-center py-8">Loading...</p>
               ) : registrations.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">Aucune inscription pour le moment.</p>
+                <p className="text-gray-500 text-center py-8">No registrations yet.</p>
               ) : (
                 <div className="space-y-4">
                   {registrations.map((reg) => (
@@ -755,9 +755,9 @@ export function AccountPage() {
               </CardHeader>
               <CardContent>
                 {dataLoading ? (
-                  <p className="text-gray-500 text-center py-8">Chargement...</p>
+                  <p className="text-gray-500 text-center py-8">Loading...</p>
                 ) : projects.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">Aucun projet soumis pour le moment.</p>
+                  <p className="text-gray-500 text-center py-8">No projects submitted yet.</p>
                 ) : (
                   <div className="space-y-4">
                     {projects.map((project) => (
@@ -792,11 +792,11 @@ export function AccountPage() {
             </CardHeader>
             <CardContent>
               {dataLoading ? (
-                <p className="text-gray-500 text-center py-8">Chargement...</p>
+                <p className="text-gray-500 text-center py-8">Loading...</p>
               ) : webinarRequests.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Radio className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                  <p>Aucune demande de webinar soumise.</p>
+                  <p>No webinar requests submitted.</p>
                   <Button className="mt-4" size="sm" onClick={() => navigate('/request-webinar')}>
                     Proposer un sujet
                   </Button>
@@ -843,11 +843,11 @@ export function AccountPage() {
               </CardHeader>
               <CardContent>
                 {dataLoading ? (
-                  <p className="text-gray-500 text-center py-8">Chargement...</p>
+                  <p className="text-gray-500 text-center py-8">Loading...</p>
                 ) : rfps.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <ClipboardList className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                    <p>Aucun appel d'offres soumis.</p>
+                    <p>No RFPs submitted.</p>
                     <Button className="mt-4" size="sm" onClick={() => navigate('/submit-rfp')}>
                       Créer un RFP
                     </Button>
@@ -891,11 +891,11 @@ export function AccountPage() {
               </CardHeader>
               <CardContent>
                 {dataLoading ? (
-                  <p className="text-gray-500 text-center py-8">Chargement...</p>
+                  <p className="text-gray-500 text-center py-8">Loading...</p>
                 ) : consultations.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <MessageSquare className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                    <p>Aucune consultation soumise.</p>
+                    <p>No consultations submitted.</p>
                     <Button className="mt-4" size="sm" onClick={() => navigate('/submit-consultation')}>
                       Poser une question
                     </Button>
@@ -934,15 +934,15 @@ export function AccountPage() {
             </CardHeader>
             <CardContent>
               {dataLoading ? (
-                <p className="text-gray-500 text-center py-8">Chargement...</p>
+                <p className="text-gray-500 text-center py-8">Loading...</p>
               ) : partnerRequests.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Link2 className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                  <p>Aucune demande B2B pour le moment.</p>
+                  <p>No B2B requests yet.</p>
                   <p className="text-sm mt-1">
                     {isMarina
-                      ? 'Les partenaires peuvent vous contacter via le Marketplace.'
-                      : 'Retrouvez vos demandes de contact vers les marinas ici.'}
+                      ? 'Partners can contact you through the Marketplace.'
+                      : 'Your contact requests to marinas will appear here.'}
                   </p>
                 </div>
               ) : (
@@ -1093,9 +1093,9 @@ export function AccountPage() {
 
 function B2BStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; className: string }> = {
-    pending: { label: 'En attente', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    accepted: { label: 'Acceptée', className: 'bg-green-100 text-green-800 border-green-200' },
-    rejected: { label: 'Refusée', className: 'bg-red-100 text-red-800 border-red-200' },
+    pending: { label: 'Pending', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    accepted: { label: 'Accepted', className: 'bg-green-100 text-green-800 border-green-200' },
+    rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-200' },
   };
   const s = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-800' };
   return (
@@ -1107,10 +1107,10 @@ function B2BStatusBadge({ status }: { status: string }) {
 
 function WebinarStatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; className: string }> = {
-    submitted: { label: 'Soumis', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    under_review: { label: 'En cours d\'examen', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-    accepted: { label: 'Accepté', className: 'bg-green-100 text-green-800 border-green-200' },
-    rejected: { label: 'Refusé', className: 'bg-red-100 text-red-800 border-red-200' },
+    submitted: { label: 'Submitted', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    under_review: { label: 'Under Review', className: 'bg-blue-100 text-blue-800 border-blue-200' },
+    accepted: { label: 'Accepted', className: 'bg-green-100 text-green-800 border-green-200' },
+    rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-200' },
   };
   const s = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-800' };
   return (

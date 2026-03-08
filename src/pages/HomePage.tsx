@@ -5,7 +5,7 @@ import { Helmet } from 'react-helmet-async';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2, Newspaper, BarChart3, CheckCircle, Globe, Shield, UserPlus, ClipboardCheck, Unlock } from 'lucide-react';
+import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2, Newspaper, BarChart3, CheckCircle, Globe, Shield, UserPlus, ClipboardCheck, Unlock, Eye, Link2, Inbox } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 
@@ -51,6 +51,7 @@ export function HomePage() {
   const [personalResources, setPersonalResources] = useState<FeaturedResource[]>([]);
   const [personalEvents, setPersonalEvents] = useState<UpcomingEvent[]>([]);
   const [myRegistrations, setMyRegistrations] = useState<{ event_id: string; title: string; date_time: string }[]>([]);
+  const [personalStats, setPersonalStats] = useState<{ profileViews: number; connectionRequests: number; pendingItems: number } | null>(null);
 
   // Fetch personalized feed for logged-in users (from org-level sectors)
   useEffect(() => {
@@ -121,6 +122,29 @@ export function HomePage() {
             .map(r => ({ event_id: r.event_id, title: r.events.title, date_time: r.events.date_time }))
         );
       }
+
+      // Personal stats: profile views, connection requests, pending items
+      const [viewsRes, connectionsRes, pendingRes] = await Promise.all([
+        supabase
+          .from('profile_views')
+          .select('*', { count: 'exact', head: true })
+          .eq('viewed_user_id', user.id),
+        supabase
+          .from('partner_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('marina_user_id', user.id)
+          .in('status', ['pending', 'accepted']),
+        supabase
+          .from('partner_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('marina_user_id', user.id)
+          .eq('status', 'pending'),
+      ]);
+      setPersonalStats({
+        profileViews: viewsRes.count || 0,
+        connectionRequests: connectionsRes.count || 0,
+        pendingItems: pendingRes.count || 0,
+      });
     };
     fetchPersonal();
   }, [user, profile, organization]);
@@ -453,27 +477,53 @@ export function HomePage() {
         </section>
       )}
 
-      {/* Stats Bar — live counts */}
+      {/* Stats Bar — personalized for logged-in, global for visitors */}
       <section className="bg-white py-8 border-b">
         <div className="container mx-auto px-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-            <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.marinas ? `${stats.marinas}+` : '—'}</div>
-              <div className="text-gray-600">{t('home.stats.marinas', 'Marinas Worldwide')}</div>
+          {user && personalStats ? (
+            <div className="grid grid-cols-3 gap-6 max-w-2xl mx-auto">
+              <Link to="/account?tab=b2b-requests" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
+                <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 text-blue-600 mb-2 group-hover:scale-110 transition-transform">
+                  <Eye className="h-5 w-5" />
+                </div>
+                <div className="text-2xl md:text-3xl font-bold text-primary">{personalStats.profileViews}</div>
+                <div className="text-sm text-gray-600">{t('home.personalStats.profileViews', 'Profile Views')}</div>
+              </Link>
+              <Link to="/account?tab=b2b-requests" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
+                <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-teal-50 text-teal-600 mb-2 group-hover:scale-110 transition-transform">
+                  <Link2 className="h-5 w-5" />
+                </div>
+                <div className="text-2xl md:text-3xl font-bold text-primary">{personalStats.connectionRequests}</div>
+                <div className="text-sm text-gray-600">{t('home.personalStats.connections', 'Connections')}</div>
+              </Link>
+              <Link to="/account?tab=b2b-requests" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
+                <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-50 text-amber-600 mb-2 group-hover:scale-110 transition-transform">
+                  <Inbox className="h-5 w-5" />
+                </div>
+                <div className="text-2xl md:text-3xl font-bold text-primary">{personalStats.pendingItems}</div>
+                <div className="text-sm text-gray-600">{t('home.personalStats.pending', 'Pending Requests')}</div>
+              </Link>
             </div>
-            <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.partners ? `${stats.partners}+` : '—'}</div>
-              <div className="text-gray-600">{t('home.stats.partners', 'Verified Partners')}</div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+              <div>
+                <div className="text-3xl md:text-4xl font-bold text-primary">{stats.marinas ? `${stats.marinas}+` : '—'}</div>
+                <div className="text-gray-600">{t('home.stats.marinas', 'Marinas Worldwide')}</div>
+              </div>
+              <div>
+                <div className="text-3xl md:text-4xl font-bold text-primary">{stats.partners ? `${stats.partners}+` : '—'}</div>
+                <div className="text-gray-600">{t('home.stats.partners', 'Verified Partners')}</div>
+              </div>
+              <div>
+                <div className="text-3xl md:text-4xl font-bold text-primary">{stats.resources ? `${stats.resources}+` : '—'}</div>
+                <div className="text-gray-600">{t('home.stats.resources', 'Resources')}</div>
+              </div>
+              <div>
+                <div className="text-3xl md:text-4xl font-bold text-primary">{stats.events ? `${stats.events}+` : '—'}</div>
+                <div className="text-gray-600">{t('home.stats.events', 'Events')}</div>
+              </div>
             </div>
-            <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.resources ? `${stats.resources}+` : '—'}</div>
-              <div className="text-gray-600">{t('home.stats.resources', 'Resources')}</div>
-            </div>
-            <div>
-              <div className="text-3xl md:text-4xl font-bold text-primary">{stats.events ? `${stats.events}+` : '—'}</div>
-              <div className="text-gray-600">{t('home.stats.events', 'Events')}</div>
-            </div>
-          </div>
+          )}
         </div>
       </section>
 

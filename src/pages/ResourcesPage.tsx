@@ -13,10 +13,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Search, Lock, FileText, RefreshCw, Calendar, Clock, ArrowRight, BookOpen, Tag, Users,
+  Search, Lock, FileText, RefreshCw, Calendar, Clock, ArrowRight, BookOpen, Tag, Users, X,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+
+interface Sector {
+  id: string;
+  name: string;
+}
 
 interface Resource {
   id: string;
@@ -34,6 +39,7 @@ interface Resource {
   published_at: string | null;
   tags: string[];
   resource_speakers?: { id: string; full_name: string; profile_id: string | null; display_order: number }[];
+  resource_sectors?: { sector_id: string }[];
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -53,8 +59,19 @@ export function ResourcesPage() {
   const [activeType, setActiveType] = useState('all');
   const [languageFilter, setLanguageFilter] = useState('all');
   const [accessFilter, setAccessFilter] = useState('all');
+  const [allSectors, setAllSectors] = useState<Sector[]>([]);
+  const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
 
   const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
+
+  // Fetch available sectors
+  useEffect(() => {
+    const fetchSectors = async () => {
+      const { data } = await supabase.from('sectors').select('id, name').order('name');
+      if (data) setAllSectors(data as Sector[]);
+    };
+    fetchSectors();
+  }, []);
 
   useEffect(() => {
     const fetchResources = async () => {
@@ -62,7 +79,7 @@ export function ResourcesPage() {
       try {
         const { data, error } = await supabase
           .from('resources')
-          .select('*, resource_speakers(id, full_name, profile_id, display_order)')
+          .select('*, resource_speakers(id, full_name, profile_id, display_order), resource_sectors(sector_id)')
           .eq('published', true)
           .order('published_at', { ascending: false, nullsFirst: false });
 
@@ -87,9 +104,11 @@ export function ResourcesPage() {
       const matchesType = activeType === 'all' || r.type === activeType;
       const matchesLang = languageFilter === 'all' || r.language === languageFilter;
       const matchesAccess = accessFilter === 'all' || r.access_level === accessFilter;
-      return matchesSearch && matchesType && matchesLang && matchesAccess;
+      const matchesSectors = selectedSectors.length === 0 ||
+        (r.resource_sectors || []).some((rs) => selectedSectors.includes(rs.sector_id));
+      return matchesSearch && matchesType && matchesLang && matchesAccess && matchesSectors;
     });
-  }, [resources, search, activeType, languageFilter, accessFilter]);
+  }, [resources, search, activeType, languageFilter, accessFilter, selectedSectors]);
 
   const featuredResource = filteredResources[0] || null;
   const remainingResources = filteredResources.slice(1);
@@ -121,6 +140,15 @@ export function ResourcesPage() {
     setActiveType('all');
     setLanguageFilter('all');
     setAccessFilter('all');
+    setSelectedSectors([]);
+  };
+
+  const toggleSector = (sectorId: string) => {
+    setSelectedSectors((prev) =>
+      prev.includes(sectorId)
+        ? prev.filter((s) => s !== sectorId)
+        : [...prev, sectorId]
+    );
   };
 
   return (
@@ -189,6 +217,43 @@ export function ResourcesPage() {
                 </button>
               ))}
             </div>
+            {/* Sector filter */}
+            {allSectors.length > 0 && (
+              <div className="flex items-center gap-1.5 flex-shrink-0 ml-2 border-l pl-3 border-gray-200">
+                <Select
+                  value=""
+                  onValueChange={(val) => { if (val && !selectedSectors.includes(val)) toggleSector(val); }}
+                >
+                  <SelectTrigger className="h-8 w-[140px] text-xs">
+                    <SelectValue placeholder={t('resources.filters.sector', 'Sector')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {allSectors.map((s) => (
+                      <SelectItem key={s.id} value={s.id} disabled={selectedSectors.includes(s.id)}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedSectors.length > 0 && (
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {selectedSectors.map((sid) => {
+                      const sector = allSectors.find((s) => s.id === sid);
+                      return (
+                        <button
+                          key={sid}
+                          onClick={() => toggleSector(sid)}
+                          className="inline-flex items-center gap-0.5 px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                        >
+                          {sector?.name || sid}
+                          <X className="h-3 w-3" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="flex-1" />
             {/* Additional filters — hide access filter for verified users (they see all) and logged-out users */}
             <div className="flex items-center gap-2 flex-shrink-0">

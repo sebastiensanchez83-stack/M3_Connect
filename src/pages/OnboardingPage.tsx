@@ -156,10 +156,9 @@ export function OnboardingPage() {
           }
         });
     }
-    if (profile) {
-      supabase.from('sectors').select('*').eq('is_active', true).order('label')
-        .then(({ data }) => { if (data) setSectors(data as Sector[]); });
-    }
+    // Load sectors unconditionally (needed for Future Plans even before profile loads)
+    supabase.from('sectors').select('*').eq('is_active', true).order('label')
+      .then(({ data }) => { if (data) setSectors(data as Sector[]); });
   }, [user, profile, authLoading, hasOrganization, navigate]);
 
   /* ─── Organization resolution: check invitation + domain ─── */
@@ -222,6 +221,11 @@ export function OnboardingPage() {
     resolveOrg();
   }, [user, profile, needsPersonaSetup, hasOrganization]);
 
+  /* ─── Post-invite profile completion ─── */
+  const [showProfileCompletion, setShowProfileCompletion] = useState(false);
+  const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', jobTitle: '' });
+  const [savingProfile, setSavingProfile] = useState(false);
+
   /* ─── Accept invitation ─── */
   const handleAcceptInvitation = async () => {
     if (!pendingInvitation) return;
@@ -231,11 +235,36 @@ export function OnboardingPage() {
       if (error) throw error;
       await refreshProfile();
       toast({ title: 'Welcome!', description: `You've joined ${pendingInvitation.organization_name}` });
-      navigate('/account');
+      // Check if profile has name — if not, show completion form
+      if (!profile?.first_name || !profile?.last_name) {
+        setShowProfileCompletion(true);
+      } else {
+        navigate('/account');
+      }
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
     }
     setAcceptingInvite(false);
+  };
+
+  const handleSaveProfileCompletion = async () => {
+    if (!user) return;
+    setSavingProfile(true);
+    try {
+      const { error } = await supabase.from('profiles').update({
+        first_name: profileForm.firstName.trim() || null,
+        last_name: profileForm.lastName.trim() || null,
+        job_title: profileForm.jobTitle.trim() || null,
+        onboarding_status: 'completed',
+      }).eq('user_id', user.id);
+      if (error) throw error;
+      await refreshProfile();
+      toast({ title: 'Profile updated!' });
+      navigate('/account');
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+    setSavingProfile(false);
   };
 
   /* ─── Join via domain match ─── */
@@ -563,7 +592,7 @@ export function OnboardingPage() {
           <p className="text-gray-600">We found an existing organization for you.</p>
         </div>
 
-        {pendingInvitation && (
+        {pendingInvitation && !showProfileCompletion && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -587,6 +616,62 @@ export function OnboardingPage() {
                 </Button>
                 <Button variant="outline" onClick={() => { setPendingInvitation(null); setStep('org-form'); }}>
                   Create my own organization
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Post-invitation profile completion form */}
+        {showProfileCompletion && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+                Complete Your Profile
+              </CardTitle>
+              <CardDescription>
+                You've joined the organization! Please add your name and job title.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>First Name *</Label>
+                  <Input
+                    value={profileForm.firstName}
+                    onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
+                    placeholder="Your first name"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Last Name *</Label>
+                  <Input
+                    value={profileForm.lastName}
+                    onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
+                    placeholder="Your last name"
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Job Title</Label>
+                <Input
+                  value={profileForm.jobTitle}
+                  onChange={(e) => setProfileForm({ ...profileForm, jobTitle: e.target.value })}
+                  placeholder="e.g. Sales Manager"
+                />
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  className="flex-1"
+                  onClick={handleSaveProfileCompletion}
+                  disabled={savingProfile || !profileForm.firstName.trim() || !profileForm.lastName.trim()}
+                >
+                  {savingProfile && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  Save & Continue
+                </Button>
+                <Button variant="outline" onClick={() => navigate('/account')}>
+                  Skip for now
                 </Button>
               </div>
             </CardContent>

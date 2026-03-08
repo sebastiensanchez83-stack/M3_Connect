@@ -200,25 +200,43 @@ interface ResourceDraft {
 }
 
 /* ─── Sidebar ─── */
+// Admin-only route paths — moderators are blocked from these
+const ADMIN_ONLY_ROUTES = new Set([
+  '/admin/users', '/admin/events', '/admin/partners',
+  '/admin/projects', '/admin/leads', '/admin/partner-requests',
+  '/admin/rfps', '/admin/consultations', '/admin/content',
+]);
+
 function AdminSidebar() {
   const { t } = useTranslation();
-  const links = [
+  const { profile } = useAuth();
+  const isAdmin = profile?.persona === 'admin';
+
+  const allLinks = [
     { to: '/admin', label: t('admin.dashboard'), icon: <RefreshCw className="h-4 w-4" />, exact: true },
-    { to: '/admin/users', label: t('admin.users'), icon: <Users className="h-4 w-4" /> },
+    { to: '/admin/users', label: t('admin.users'), icon: <Users className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/resources', label: t('admin.resources'), icon: <FileText className="h-4 w-4" /> },
-    { to: '/admin/events', label: t('admin.events'), icon: <Calendar className="h-4 w-4" /> },
-    { to: '/admin/partners', label: t('admin.partners'), icon: <UserCheck className="h-4 w-4" /> },
-    { to: '/admin/projects', label: t('admin.marinaProjects'), icon: <Anchor className="h-4 w-4" /> },
-    { to: '/admin/leads', label: t('admin.partnerLeads'), icon: <Users className="h-4 w-4" /> },
+    { to: '/admin/events', label: t('admin.events'), icon: <Calendar className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/partners', label: t('admin.partners'), icon: <UserCheck className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/projects', label: t('admin.marinaProjects'), icon: <Anchor className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/leads', label: t('admin.partnerLeads'), icon: <Users className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/webinars', label: 'Webinar Requests', icon: <Radio className="h-4 w-4" /> },
-    { to: '/admin/partner-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" /> },
-    { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" /> },
-    { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" /> },
-    { to: '/admin/content', label: 'CMS Content', icon: <BookOpen className="h-4 w-4" /> },
+    { to: '/admin/partner-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/content', label: 'CMS Content', icon: <BookOpen className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/resource-drafts', label: 'Resource Drafts', icon: <FolderOpen className="h-4 w-4" /> },
   ];
+
+  const links = isAdmin ? allLinks : allLinks.filter((l) => !l.adminOnly);
+
   return (
     <div className="w-56 shrink-0 bg-white border-r min-h-[calc(100vh-64px)] p-4">
+      {!isAdmin && (
+        <div className="mb-3 px-3 py-1.5 bg-amber-50 text-amber-700 text-xs rounded-lg font-medium">
+          Moderator View
+        </div>
+      )}
       <nav className="space-y-1">
         {links.map((l) => (
           <Link
@@ -981,11 +999,14 @@ function UsersAdmin() {
 /* ─── Resources Admin ─── */
 function ResourcesAdmin() {
   const { t } = useTranslation();
+  const { profile: authProfile } = useAuth();
+  const isAdmin = authProfile?.persona === 'admin';
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '', published: true });
+  // Moderators create resources as unpublished (require admin approval)
+  const [formData, setFormData] = useState({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '', published: isAdmin });
 
   // Speaker management state
   const [speakers, setSpeakers] = useState<SpeakerFormRow[]>([]);
@@ -998,7 +1019,7 @@ function ResourcesAdmin() {
 
   const openCreate = () => {
     setEditingResource(null);
-    setFormData({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '', published: true });
+    setFormData({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '', published: isAdmin });
     setSpeakers([]);
     setIsDialogOpen(true);
   };
@@ -1031,10 +1052,12 @@ function ResourcesAdmin() {
       resourceId = editingResource.id;
       toast({ title: 'Resource updated!' });
     } else {
+      // Moderators cannot publish directly — force unpublished
+      if (!isAdmin) payload.published = false;
       const { data, error } = await supabase.from('resources').insert(payload).select('id').single();
       if (error || !data) { toast({ title: 'Error creating resource', variant: 'destructive' }); return; }
       resourceId = data.id;
-      toast({ title: 'Resource created!' });
+      toast({ title: isAdmin ? 'Resource created!' : 'Resource saved as draft — pending admin approval' });
     }
 
     // Save speakers: delete all existing, re-insert with current order
@@ -1201,8 +1224,12 @@ function ResourcesAdmin() {
         {/* ── Content (moved to end so metadata is filled first) ── */}
         <div className="space-y-2 border-t pt-4"><Label>Content</Label><RichTextEditor content={formData.content} onChange={(html) => setFormData({ ...formData, content: html })} placeholder="Write the resource content..." /></div>
 
-        <div className="flex items-center space-x-2"><Checkbox id="published" checked={formData.published} onCheckedChange={(c) => setFormData({ ...formData, published: c as boolean })} /><Label htmlFor="published">Published</Label></div>
-        <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editingResource ? 'Update' : 'Create'}</Button></div>
+        <div className="flex items-center space-x-2">
+          <Checkbox id="published" checked={formData.published} onCheckedChange={(c) => setFormData({ ...formData, published: c as boolean })} disabled={!isAdmin && !editingResource} />
+          <Label htmlFor="published">Published</Label>
+          {!isAdmin && !editingResource && <span className="text-xs text-amber-600 ml-2">(Requires admin approval to publish)</span>}
+        </div>
+        <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editingResource ? 'Update' : isAdmin ? 'Create' : 'Submit for Review'}</Button></div>
       </div></DialogContent></Dialog>
     </div>
   );
@@ -1402,13 +1429,53 @@ function LeadsAdmin() {
 
 /* ─── Webinar Requests Admin ─── */
 function WebinarRequestsAdmin() {
+  const { profile, organization } = useAuth();
+  const isAdmin = profile?.persona === 'admin';
   const [requests, setRequests] = useState<WebinarRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<WebinarRequest | null>(null);
   const [moderatorNotes, setModeratorNotes] = useState('');
 
   useEffect(() => { loadRequests(); }, []);
-  const loadRequests = async () => { setLoading(true); const { data } = await supabase.from('webinar_requests').select('*').order('created_at', { ascending: false }); setRequests(data || []); setLoading(false); };
+  const loadRequests = async () => {
+    setLoading(true);
+    if (isAdmin) {
+      // Admin sees all webinar requests
+      const { data } = await supabase.from('webinar_requests').select('*').order('created_at', { ascending: false });
+      setRequests(data || []);
+    } else if (organization?.id) {
+      // Moderator sees only webinars matching their org's service sectors
+      const { data: orgSectors } = await supabase
+        .from('organization_service_sectors')
+        .select('sector_id')
+        .eq('organization_id', organization.id);
+      const sectorIds = (orgSectors || []).map((s: any) => s.sector_id);
+
+      if (sectorIds.length > 0) {
+        // Fetch webinar requests that have at least one matching sector
+        const { data: matchedWRS } = await supabase
+          .from('webinar_request_sectors')
+          .select('webinar_request_id')
+          .in('sector_id', sectorIds);
+        const matchedIds = [...new Set((matchedWRS || []).map((wr: any) => wr.webinar_request_id))];
+        if (matchedIds.length > 0) {
+          const { data } = await supabase
+            .from('webinar_requests')
+            .select('*')
+            .in('id', matchedIds)
+            .order('created_at', { ascending: false });
+          setRequests(data || []);
+        } else {
+          setRequests([]);
+        }
+      } else {
+        setRequests([]);
+      }
+    } else {
+      setRequests([]);
+    }
+    setLoading(false);
+  };
   const updateStatus = async (id: string, status: string) => { await supabase.from('webinar_requests').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id); toast({ title: `Status: ${status}` }); loadRequests(); };
   const saveNotes = async () => { if (!selected) return; await supabase.from('webinar_requests').update({ moderator_notes: moderatorNotes.trim() || null }).eq('id', selected.id); toast({ title: 'Notes saved' }); setSelected(null); loadRequests(); };
 
@@ -1416,7 +1483,10 @@ function WebinarRequestsAdmin() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Webinar Requests ({requests.length})</h1>
+      <div className="flex items-center gap-3 mb-6">
+        <h1 className="text-2xl font-bold">Webinar Requests ({requests.length})</h1>
+        {!isAdmin && <Badge variant="outline" className="text-xs">Filtered by your sectors</Badge>}
+      </div>
       <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Lang</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
         {requests.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium max-w-xs truncate">{r.title}</td><td className="p-4">{r.preferred_language}</td><td className="p-4"><Select value={r.status} onValueChange={v => updateStatus(r.id, v)}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="submitted">Submitted</SelectItem><SelectItem value="under_review">Under Review</SelectItem><SelectItem value="accepted">Accepted</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelected(r); setModeratorNotes(r.moderator_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
         {requests.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No requests yet</td></tr>}
@@ -1703,6 +1773,23 @@ function ResourceDraftsAdmin() {
   );
 }
 
+/* ─── Admin-only Route Guard ─── */
+function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
+  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const isAdmin = profile?.persona === 'admin';
+
+  useEffect(() => {
+    if (!isAdmin) {
+      navigate('/admin', { replace: true });
+      toast({ title: 'Admin access required', variant: 'destructive' });
+    }
+  }, [isAdmin, navigate]);
+
+  if (!isAdmin) return null;
+  return <>{children}</>;
+}
+
 /* ─── Admin Page (root) ─── */
 export function AdminPage() {
   const { user, loading, isModerator } = useAuth();
@@ -1724,17 +1811,17 @@ export function AdminPage() {
       <div className="flex-1 p-8 bg-gray-50 min-h-[calc(100vh-64px)] overflow-auto">
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/users" element={<UsersAdmin />} />
+          <Route path="/users" element={<AdminOnlyGuard><UsersAdmin /></AdminOnlyGuard>} />
           <Route path="/resources" element={<ResourcesAdmin />} />
-          <Route path="/events" element={<EventsAdmin />} />
-          <Route path="/partners" element={<PartnersAdmin />} />
-          <Route path="/projects" element={<ProjectsAdmin />} />
-          <Route path="/leads" element={<LeadsAdmin />} />
+          <Route path="/events" element={<AdminOnlyGuard><EventsAdmin /></AdminOnlyGuard>} />
+          <Route path="/partners" element={<AdminOnlyGuard><PartnersAdmin /></AdminOnlyGuard>} />
+          <Route path="/projects" element={<AdminOnlyGuard><ProjectsAdmin /></AdminOnlyGuard>} />
+          <Route path="/leads" element={<AdminOnlyGuard><LeadsAdmin /></AdminOnlyGuard>} />
           <Route path="/webinars" element={<WebinarRequestsAdmin />} />
-          <Route path="/partner-requests" element={<PartnerRequestsAdmin />} />
-          <Route path="/rfps" element={<RFPsAdmin />} />
-          <Route path="/consultations" element={<ConsultationsAdmin />} />
-          <Route path="/content" element={<ContentDraftsAdmin />} />
+          <Route path="/partner-requests" element={<AdminOnlyGuard><PartnerRequestsAdmin /></AdminOnlyGuard>} />
+          <Route path="/rfps" element={<AdminOnlyGuard><RFPsAdmin /></AdminOnlyGuard>} />
+          <Route path="/consultations" element={<AdminOnlyGuard><ConsultationsAdmin /></AdminOnlyGuard>} />
+          <Route path="/content" element={<AdminOnlyGuard><ContentDraftsAdmin /></AdminOnlyGuard>} />
           <Route path="/resource-drafts" element={<ResourceDraftsAdmin />} />
         </Routes>
       </div>

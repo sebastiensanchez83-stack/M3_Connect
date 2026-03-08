@@ -13,7 +13,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import {
-  Organization, OrganizationMember, OrganizationInvitation,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Organization, OrganizationMember, OrganizationInvitation, OrganizationMarinaDetails,
 } from '@/types/database';
 import {
   Building2, Users, Mail, Crown, UserPlus, Loader2, ExternalLink,
@@ -41,6 +45,17 @@ export function OrganizationTab() {
   const [saving, setSaving] = useState(false);
   const [editForm, setEditForm] = useState({
     name: '', website: '', description: '', country: '', city: '',
+    // Partner / Media fields
+    headquarters_country: '', audience_description: '',
+    // Marina detail fields
+    marina_type: '' as string, berths_count: '' as string, superyacht_berths: '' as string,
+    longest_berth_meters: '' as string, fresh_water_available: false,
+    certifications: [] as string[],
+    has_yacht_club: false, yacht_club_members: '' as string,
+    has_sailing_school: false, has_boat_yard: false,
+    has_restaurants: false, restaurants_count: '' as string,
+    has_concierge: false,
+    marina_description: '', services_description: '',
   });
 
   // Invite dialog
@@ -80,12 +95,41 @@ export function OrganizationTab() {
       if (orgData) {
         setOrg(orgData as Organization);
         setIsOwner(membership.role === 'owner');
+
+        // Fetch marina details if marina org
+        let md: OrganizationMarinaDetails | null = null;
+        if (orgData.organization_type === 'marina') {
+          const { data: marinaData } = await supabase
+            .from('organization_marina_details')
+            .select('*')
+            .eq('organization_id', orgData.id)
+            .maybeSingle();
+          md = marinaData as OrganizationMarinaDetails | null;
+        }
+
         setEditForm({
           name: orgData.name || '',
           website: orgData.website || '',
           description: orgData.description || '',
           country: orgData.country || '',
           city: orgData.city || '',
+          headquarters_country: orgData.headquarters_country || '',
+          audience_description: orgData.audience_description || '',
+          marina_type: md?.marina_type || '',
+          berths_count: md?.berths_count?.toString() || '',
+          superyacht_berths: md?.superyacht_berths?.toString() || '',
+          longest_berth_meters: md?.longest_berth_meters?.toString() || '',
+          fresh_water_available: md?.fresh_water_available || false,
+          certifications: md?.certifications || [],
+          has_yacht_club: md?.has_yacht_club || false,
+          yacht_club_members: md?.yacht_club_members?.toString() || '',
+          has_sailing_school: md?.has_sailing_school || false,
+          has_boat_yard: md?.has_boat_yard || false,
+          has_restaurants: md?.has_restaurants || false,
+          restaurants_count: md?.restaurants_count?.toString() || '',
+          has_concierge: md?.has_concierge || false,
+          marina_description: md?.marina_description || '',
+          services_description: md?.services_description || '',
         });
       }
 
@@ -174,19 +218,55 @@ export function OrganizationTab() {
     if (!org) return;
     setSaving(true);
     try {
+      // Save organization base fields
+      const orgPayload: Record<string, unknown> = {
+        name: editForm.name.trim(),
+        website: editForm.website.trim() || null,
+        description: editForm.description.trim() || null,
+        country: editForm.country.trim() || null,
+        city: editForm.city.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
+      if (org.organization_type === 'partner') {
+        orgPayload.headquarters_country = editForm.headquarters_country.trim() || null;
+      }
+      if (org.organization_type === 'media_partner') {
+        orgPayload.audience_description = editForm.audience_description.trim() || null;
+      }
+
       const { error } = await supabase
         .from('organizations')
-        .update({
-          name: editForm.name.trim(),
-          website: editForm.website.trim() || null,
-          description: editForm.description.trim() || null,
-          country: editForm.country.trim() || null,
-          city: editForm.city.trim() || null,
-          updated_at: new Date().toISOString(),
-        })
+        .update(orgPayload)
         .eq('id', org.id);
-
       if (error) throw error;
+
+      // Save marina details if applicable
+      if (org.organization_type === 'marina') {
+        const marinaPayload = {
+          organization_id: org.id,
+          marina_type: editForm.marina_type || null,
+          berths_count: editForm.berths_count ? parseInt(editForm.berths_count) : null,
+          superyacht_berths: editForm.superyacht_berths ? parseInt(editForm.superyacht_berths) : null,
+          longest_berth_meters: editForm.longest_berth_meters ? parseFloat(editForm.longest_berth_meters) : null,
+          fresh_water_available: editForm.fresh_water_available,
+          certifications: editForm.certifications.length > 0 ? editForm.certifications : null,
+          has_yacht_club: editForm.has_yacht_club,
+          yacht_club_members: editForm.yacht_club_members ? parseInt(editForm.yacht_club_members) : null,
+          has_sailing_school: editForm.has_sailing_school,
+          has_boat_yard: editForm.has_boat_yard,
+          has_restaurants: editForm.has_restaurants,
+          restaurants_count: editForm.restaurants_count ? parseInt(editForm.restaurants_count) : null,
+          has_concierge: editForm.has_concierge,
+          marina_description: editForm.marina_description.trim() || null,
+          services_description: editForm.services_description.trim() || null,
+          updated_at: new Date().toISOString(),
+        };
+        const { error: mdError } = await supabase
+          .from('organization_marina_details')
+          .upsert(marinaPayload, { onConflict: 'organization_id' });
+        if (mdError) throw mdError;
+      }
+
       toast({ title: t('org.saved') });
       setEditing(false);
       fetchOrg();
@@ -396,7 +476,7 @@ export function OrganizationTab() {
   }
 
   // ── HAS ORG: Show org details ──
-  const canInvite = isOwner && org.tier !== 'member' && members.length < org.max_seats;
+  const canInvite = isOwner;
 
   return (
     <div className="space-y-6">
@@ -473,7 +553,7 @@ export function OrganizationTab() {
             )}
             <div className="flex items-center gap-2 text-gray-600">
               <Users className="h-4 w-4 text-primary" />
-              <span>{t('org.seatUsage', { used: members.length, max: org.max_seats })}</span>
+              <span>{members.length} {members.length === 1 ? 'member' : 'members'}</span>
             </div>
           </div>
 
@@ -481,17 +561,10 @@ export function OrganizationTab() {
             <p className="text-gray-600 text-sm">{org.description}</p>
           )}
 
-          {/* Seat usage bar */}
-          <div className="w-full bg-gray-100 rounded-full h-2">
-            <div
-              className="bg-primary rounded-full h-2 transition-all"
-              style={{ width: `${Math.min(100, (members.length / org.max_seats) * 100)}%` }}
-            />
-          </div>
-
           {/* Edit form */}
           {editing && isOwner && (
             <div className="border-t pt-4 space-y-4">
+              {/* Base fields */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>{t('org.orgName')}</Label>
@@ -520,6 +593,133 @@ export function OrganizationTab() {
                   onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                 />
               </div>
+
+              {/* Partner-specific fields */}
+              {org.organization_type === 'partner' && (
+                <div className="space-y-2">
+                  <Label>Headquarters Country</Label>
+                  <Input value={editForm.headquarters_country} onChange={(e) => setEditForm({ ...editForm, headquarters_country: e.target.value })} placeholder="e.g. France" />
+                </div>
+              )}
+
+              {/* Media-specific fields */}
+              {org.organization_type === 'media_partner' && (
+                <div className="space-y-2">
+                  <Label>Audience Description</Label>
+                  <textarea
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                    value={editForm.audience_description}
+                    onChange={(e) => setEditForm({ ...editForm, audience_description: e.target.value })}
+                    placeholder="Describe your target audience..."
+                  />
+                </div>
+              )}
+
+              {/* Marina-specific fields */}
+              {org.organization_type === 'marina' && (
+                <div className="space-y-4 border-t pt-4">
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Marina Details</h4>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>Marina Type</Label>
+                      <Select value={editForm.marina_type} onValueChange={(v) => setEditForm({ ...editForm, marina_type: v })}>
+                        <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="in_operation">In Operation</SelectItem>
+                          <SelectItem value="under_construction">Under Construction</SelectItem>
+                          <SelectItem value="in_project">In Project</SelectItem>
+                          <SelectItem value="renovation">Renovation</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Total Berths</Label>
+                      <Input type="number" value={editForm.berths_count} onChange={(e) => setEditForm({ ...editForm, berths_count: e.target.value })} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-2">
+                      <Label>Superyacht Berths</Label>
+                      <Input type="number" value={editForm.superyacht_berths} onChange={(e) => setEditForm({ ...editForm, superyacht_berths: e.target.value })} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Longest Berth (m)</Label>
+                      <Input type="number" value={editForm.longest_berth_meters} onChange={(e) => setEditForm({ ...editForm, longest_berth_meters: e.target.value })} />
+                    </div>
+                    <div className="flex items-end pb-2">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="fresh_water"
+                          checked={editForm.fresh_water_available}
+                          onCheckedChange={(c) => setEditForm({ ...editForm, fresh_water_available: c as boolean })}
+                        />
+                        <Label htmlFor="fresh_water">Fresh Water</Label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Certifications (comma-separated)</Label>
+                    <Input
+                      value={editForm.certifications.join(', ')}
+                      onChange={(e) => setEditForm({ ...editForm, certifications: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                      placeholder="e.g. Blue Flag, ISO 14001, Gold Anchor"
+                    />
+                  </div>
+
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide pt-2">Facilities</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="yacht_club" checked={editForm.has_yacht_club} onCheckedChange={(c) => setEditForm({ ...editForm, has_yacht_club: c as boolean })} />
+                      <Label htmlFor="yacht_club">Yacht Club</Label>
+                      {editForm.has_yacht_club && (
+                        <Input type="number" className="w-24 ml-2" placeholder="Members" value={editForm.yacht_club_members} onChange={(e) => setEditForm({ ...editForm, yacht_club_members: e.target.value })} />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="sailing_school" checked={editForm.has_sailing_school} onCheckedChange={(c) => setEditForm({ ...editForm, has_sailing_school: c as boolean })} />
+                      <Label htmlFor="sailing_school">Sailing School</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="boat_yard" checked={editForm.has_boat_yard} onCheckedChange={(c) => setEditForm({ ...editForm, has_boat_yard: c as boolean })} />
+                      <Label htmlFor="boat_yard">Boat Yard</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="restaurants" checked={editForm.has_restaurants} onCheckedChange={(c) => setEditForm({ ...editForm, has_restaurants: c as boolean })} />
+                      <Label htmlFor="restaurants">Restaurants</Label>
+                      {editForm.has_restaurants && (
+                        <Input type="number" className="w-20 ml-2" placeholder="Count" value={editForm.restaurants_count} onChange={(e) => setEditForm({ ...editForm, restaurants_count: e.target.value })} />
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox id="concierge" checked={editForm.has_concierge} onCheckedChange={(c) => setEditForm({ ...editForm, has_concierge: c as boolean })} />
+                      <Label htmlFor="concierge">Concierge Service</Label>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Marina Description</Label>
+                    <textarea
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                      value={editForm.marina_description}
+                      onChange={(e) => setEditForm({ ...editForm, marina_description: e.target.value })}
+                      placeholder="Describe your marina..."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Services Description</Label>
+                    <textarea
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                      value={editForm.services_description}
+                      onChange={(e) => setEditForm({ ...editForm, services_description: e.target.value })}
+                      placeholder="Describe the services you offer..."
+                    />
+                  </div>
+                </div>
+              )}
+
               <div className="flex gap-3 justify-end">
                 <Button variant="outline" onClick={() => setEditing(false)}>{t('common.cancel')}</Button>
                 <Button onClick={handleSaveEdit} disabled={saving}>

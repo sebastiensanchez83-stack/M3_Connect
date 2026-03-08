@@ -408,9 +408,9 @@ export function AccountPage() {
         <TabsList className="mb-6 flex-wrap">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="organization">{t('org.tabTitle')}</TabsTrigger>
-          <TabsTrigger value="profile">Profil</TabsTrigger>
-          <TabsTrigger value="registrations">Inscriptions</TabsTrigger>
-          {isMarina && <TabsTrigger value="projects">Projets</TabsTrigger>}
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="registrations">Registrations</TabsTrigger>
+          {isMarina && <TabsTrigger value="projects">Projects</TabsTrigger>}
           <TabsTrigger value="webinars">Webinars</TabsTrigger>
           {isMarina && <TabsTrigger value="rfps">RFPs</TabsTrigger>}
           {isMarina && <TabsTrigger value="consultations">Consultations</TabsTrigger>}
@@ -422,39 +422,45 @@ export function AccountPage() {
           <div className="space-y-6">
             {/* Analytics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-blue-100 rounded-lg"><Eye className="h-5 w-5 text-blue-600" /></div>
-                    <div>
-                      <div className="text-2xl font-bold text-gray-900">{profileViewCount}</div>
-                      <div className="text-sm text-gray-500">Profile Views</div>
+              <Link to="/account?tab=b2b-requests" className="block">
+                <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-blue-100 rounded-lg"><Eye className="h-5 w-5 text-blue-600" /></div>
+                      <div>
+                        <div className="text-2xl font-bold text-gray-900">{profileViewCount}</div>
+                        <div className="text-sm text-gray-500">Profile Views</div>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-green-100 rounded-lg"><Users className="h-5 w-5 text-green-600" /></div>
-                    <div>
-                      <div className="text-2xl font-bold text-gray-900">{connectionRequestCount}</div>
-                      <div className="text-sm text-gray-500">Connection Requests</div>
+                  </CardContent>
+                </Card>
+              </Link>
+              <Link to="/account?tab=b2b-requests" className="block">
+                <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-green-100 rounded-lg"><Users className="h-5 w-5 text-green-600" /></div>
+                      <div>
+                        <div className="text-2xl font-bold text-gray-900">{connectionRequestCount}</div>
+                        <div className="text-sm text-gray-500">Connection Requests</div>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-amber-100 rounded-lg"><Clock className="h-5 w-5 text-amber-600" /></div>
-                    <div>
-                      <div className="text-2xl font-bold text-gray-900">{pendingRequestCount}</div>
-                      <div className="text-sm text-gray-500">Pending Requests</div>
+                  </CardContent>
+                </Card>
+              </Link>
+              <Link to="/account?tab=b2b-requests" className="block">
+                <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-amber-100 rounded-lg"><Clock className="h-5 w-5 text-amber-600" /></div>
+                      <div>
+                        <div className="text-2xl font-bold text-gray-900">{pendingRequestCount}</div>
+                        <div className="text-sm text-gray-500">Pending Requests</div>
+                      </div>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </Link>
             </div>
 
             {/* Personalized Feed */}
@@ -565,16 +571,22 @@ export function AccountPage() {
           <OrganizationTab />
         </TabsContent>
 
-        {/* ── PROFIL ── */}
+        {/* ── PROFILE ── */}
         <TabsContent value="profile">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                {getPersonaIcon()}
-                {getPersonaLabel()}
+                {profile.first_name || profile.last_name
+                  ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
+                  : user.email?.split('@')[0] || 'My Profile'}
               </CardTitle>
+              <div className="flex items-center gap-2 mt-1">
+                {profile.job_title && <span className="text-sm text-gray-500">{profile.job_title}</span>}
+                {profile.job_title && <span className="text-gray-300">·</span>}
+                <Badge variant="outline" className="text-xs">{getPersonaIcon()} <span className="ml-1">{getPersonaLabel()}</span></Badge>
+              </div>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               {/* Profile Image Upload */}
               <div className="flex items-center gap-4">
                 <div className="relative group">
@@ -601,27 +613,46 @@ export function AccountPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-500 block">Email</span>
-                  <span className="font-medium">{user.email}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500 block">Status</span>
-                  <span className="font-medium capitalize">{profile.access_status}</span>
-                </div>
-                {profile.job_title && (
+              {/* Personal Information */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Personal Information</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <span className="text-gray-500 block">Job Title</span>
-                    <span className="font-medium">{profile.job_title}</span>
+                    <span className="text-gray-500 block">Email</span>
+                    <span className="font-medium">{user.email}</span>
+                  </div>
+                  {profile.job_title && (
+                    <div>
+                      <span className="text-gray-500 block">Job Title</span>
+                      <span className="font-medium">{profile.job_title}</span>
                   </div>
                 )}
-                {orgRole && (
+                </div>
+              </div>
+
+              {/* Account Details */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Account Details</h3>
+                <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
-                    <span className="text-gray-500 block">Organization Role</span>
-                    <span className="font-medium capitalize">{orgRole}</span>
+                    <span className="text-gray-500 block">Persona</span>
+                    <span className="font-medium">{getPersonaLabel()}</span>
                   </div>
-                )}
+                  <div>
+                    <span className="text-gray-500 block">Status</span>
+                    <span className="font-medium capitalize">{profile.access_status}</span>
+                  </div>
+                  {orgRole && (
+                    <div>
+                      <span className="text-gray-500 block">Organization Role</span>
+                      <span className="font-medium capitalize">{orgRole}</span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-gray-500 block">Registered</span>
+                    <span className="font-medium">{new Date(profile.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                  </div>
+                </div>
               </div>
 
               {/* Organization details (from org context) */}
@@ -708,17 +739,30 @@ export function AccountPage() {
           </Card>
         </TabsContent>
 
-        {/* ── INSCRIPTIONS ── */}
+        {/* ── REGISTRATIONS ── */}
         <TabsContent value="registrations">
           <Card>
-            <CardHeader>
-              <CardTitle>Mes inscriptions aux événements</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>My Event Registrations</CardTitle>
+              <Link to="/events">
+                <Button variant="outline" size="sm">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Browse Events
+                </Button>
+              </Link>
             </CardHeader>
             <CardContent>
               {dataLoading ? (
                 <p className="text-gray-500 text-center py-8">Loading...</p>
               ) : registrations.length === 0 ? (
-                <p className="text-gray-500 text-center py-8">No registrations yet.</p>
+                <div className="text-center py-8 text-gray-500">
+                  <Calendar className="h-8 w-8 mx-auto mb-3 text-gray-300" />
+                  <p>No registrations yet.</p>
+                  <p className="text-sm mt-1">Browse upcoming events and register to attend.</p>
+                  <Link to="/events" className="inline-block mt-3">
+                    <Button variant="outline" size="sm">Browse Events</Button>
+                  </Link>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {registrations.map((reg) => (
@@ -728,7 +772,7 @@ export function AccountPage() {
                         <div className="font-medium">{reg.events?.title ?? '—'}</div>
                         {reg.events?.date_time && (
                           <div className="text-sm text-gray-500">
-                            {new Date(reg.events.date_time).toLocaleDateString('fr-FR', {
+                            {new Date(reg.events.date_time).toLocaleDateString('en-US', {
                               year: 'numeric', month: 'long', day: 'numeric',
                             })}
                           </div>

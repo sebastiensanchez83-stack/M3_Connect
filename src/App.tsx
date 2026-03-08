@@ -19,6 +19,7 @@ import { SubmitConsultationPage } from '@/pages/SubmitConsultationPage';
 import { MarketplacePage } from '@/pages/MarketplacePage';
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage';
 import { OrganizationPublicPage } from '@/pages/OrganizationPublicPage';
+import { UserProfilePage } from '@/pages/UserProfilePage';
 import { AboutPage } from '@/pages/AboutPage';
 import { ContactPage } from '@/pages/ContactPage';
 import { PrivacyPage } from '@/pages/PrivacyPage';
@@ -46,6 +47,7 @@ function App() {
           <Route path="/submit-consultation" element={<SubmitConsultationPage />} />
           <Route path="/marketplace" element={<MarketplacePage />} />
           <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
+          <Route path="/users/:id" element={<UserProfilePage />} />
           <Route path="/admin/*" element={<AdminPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/about" element={<AboutPage />} />

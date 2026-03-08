@@ -6,22 +6,36 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { toast } from '@/hooks/use-toast';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Building2, Globe, MapPin, Users, Mail, ChevronLeft,
   Loader2, ExternalLink, Anchor, Newspaper, Ship, Droplets,
-  CheckCircle, GraduationCap, Wrench, UtensilsCrossed, Sparkles,
+  CheckCircle, GraduationCap, Wrench, UtensilsCrossed, Sparkles, Link2,
 } from 'lucide-react';
 import { Organization, OrganizationMember, OrganizationMarinaDetails, Sector } from '@/types/database';
 
 export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
   const { t } = useTranslation();
+  const { user, profile, organization, isVerified } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<(OrganizationMember & { profiles: { first_name: string | null; last_name: string | null; email: string | null; persona: string; job_title: string | null } })[]>([]);
   const [marinaDetails, setMarinaDetails] = useState<OrganizationMarinaDetails | null>(null);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Connect request state
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [connectMessage, setConnectMessage] = useState('');
+  const [connectSending, setConnectSending] = useState(false);
+  const [hasExistingRequest, setHasExistingRequest] = useState(false);
 
   useEffect(() => {
     if (!slug) return;
@@ -82,6 +96,46 @@ export function OrganizationPublicPage() {
     };
     fetchOrg();
   }, [slug]);
+
+  // Check for existing connect request when user or org changes
+  useEffect(() => {
+    if (!user || !org) return;
+    const checkExisting = async () => {
+      const { data } = await supabase
+        .from('partner_requests')
+        .select('id')
+        .eq('partner_user_id', user.id)
+        .eq('marina_user_id', org.owner_user_id!)
+        .in('status', ['pending', 'accepted'])
+        .maybeSingle();
+      setHasExistingRequest(!!data);
+    };
+    checkExisting();
+  }, [user, org]);
+
+  const handleSendConnectRequest = async () => {
+    if (!user || !org) return;
+    setConnectSending(true);
+    try {
+      const { error } = await supabase.from('partner_requests').insert({
+        partner_user_id: user.id,
+        marina_user_id: org.owner_user_id,
+        message: connectMessage.trim(),
+        status: 'pending',
+      });
+      if (error) throw error;
+      toast({ title: 'Connection request sent!', description: `Your request has been sent to ${org.name}.` });
+      setConnectOpen(false);
+      setConnectMessage('');
+      setHasExistingRequest(true);
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+    setConnectSending(false);
+  };
+
+  const isMemberOfThisOrg = organization?.id === org?.id;
+  const canConnect = user && isVerified && !isMemberOfThisOrg && !hasExistingRequest;
 
   const getPersonaIcon = (persona: string) => {
     switch (persona) {
@@ -183,6 +237,22 @@ export function OrganizationPublicPage() {
                   <span>{members.length} {t('org.members').toLowerCase()}</span>
                 </div>
               </div>
+              {/* Connect button */}
+              {canConnect && (
+                <Button
+                  className="mt-4 bg-white text-primary hover:bg-white/90"
+                  onClick={() => setConnectOpen(true)}
+                >
+                  <Link2 className="h-4 w-4 mr-2" />
+                  Request to Connect
+                </Button>
+              )}
+              {hasExistingRequest && (
+                <Badge className="mt-4 bg-white/20 text-white border-white/30">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Connection Request Sent
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -290,17 +360,7 @@ export function OrganizationPublicPage() {
                         </div>
                       </div>
                     )}
-                    {org.primary_domain && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-                          <Mail className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <div className="text-xs text-gray-500 uppercase tracking-wide">{t('org.domain')}</div>
-                          <div className="font-medium text-gray-900">{org.primary_domain}</div>
-                        </div>
-                      </div>
-                    )}
+                    {/* Primary domain removed from public display */}
                   </div>
                 </CardContent>
               </Card>
@@ -442,30 +502,63 @@ export function OrganizationPublicPage() {
           <TabsContent value="representatives">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {members.map((member) => {
-                const name = `${member.profiles?.first_name || ''} ${member.profiles?.last_name || ''}`.trim();
-                const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+                const fullName = `${member.profiles?.first_name || ''} ${member.profiles?.last_name || ''}`.trim();
+                const displayName = fullName || member.profiles?.email?.split('@')[0] || 'Team Member';
+                const initials = fullName
+                  ? fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+                  : displayName.slice(0, 2).toUpperCase();
                 const jobTitle = member.profiles?.job_title;
                 return (
-                  <Card key={member.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="pt-6 text-center">
-                      <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
-                        {initials || '??'}
-                      </div>
-                      <h3 className="font-semibold text-gray-900 mb-1">{name || 'Unknown'}</h3>
-                      {jobTitle && (
-                        <p className="text-sm text-gray-500 mb-1">{jobTitle}</p>
-                      )}
-                      <Badge variant="outline" className="mt-2 text-xs">
-                        {t(`org.${member.role}`)}
-                      </Badge>
-                    </CardContent>
-                  </Card>
+                  <Link key={member.id} to={`/users/${member.user_id}`}>
+                    <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                      <CardContent className="pt-6 text-center">
+                        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
+                          {initials || '??'}
+                        </div>
+                        <h3 className="font-semibold text-gray-900 mb-1">{displayName}</h3>
+                        {jobTitle && (
+                          <p className="text-sm text-gray-500 mb-1">{jobTitle}</p>
+                        )}
+                        <Badge variant="outline" className="mt-2 text-xs">
+                          Team Member
+                        </Badge>
+                      </CardContent>
+                    </Card>
+                  </Link>
                 );
               })}
             </div>
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Connect Request Dialog */}
+      <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Request to Connect</DialogTitle>
+            <DialogDescription>Send a connection request to {org?.name}.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <Label>Message (optional)</Label>
+              <Textarea
+                value={connectMessage}
+                onChange={(e) => setConnectMessage(e.target.value)}
+                placeholder="Introduce yourself and explain why you'd like to connect..."
+                rows={4}
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <Button variant="outline" onClick={() => setConnectOpen(false)}>Cancel</Button>
+              <Button onClick={handleSendConnectRequest} disabled={connectSending}>
+                {connectSending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Send Request
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

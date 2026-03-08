@@ -10,7 +10,7 @@ const publicExactRoutes = new Set<string>([
 
 // Public route prefixes (dynamic routes accessible without auth)
 const publicPrefixes = [
-  '/resources/', '/events/', '/organizations/',
+  '/resources/', '/events/', '/organizations/', '/users/',
 ]
 
 function isPublicRoute(pathname: string): boolean {

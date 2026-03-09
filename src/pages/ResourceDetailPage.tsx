@@ -11,7 +11,7 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import {
   ChevronLeft, Download, Play, Lock, Calendar, Clock, Tag, FileText,
-  RefreshCw, Share2, MapPin, ExternalLink, LogIn,
+  RefreshCw, Share2, LogIn,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -42,22 +42,6 @@ interface ResourceSpeaker {
   display_order: number;
 }
 
-interface SpeakerProfile {
-  user_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  persona: string;
-  company_name?: string;
-  marina_name?: string;
-  media_name?: string;
-  description?: string;
-  website?: string;
-  headquarters_country?: string;
-  city?: string;
-  country?: string;
-}
-
 export function ResourceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -67,7 +51,6 @@ export function ResourceDetailPage() {
   const [relatedResources, setRelatedResources] = useState<Resource[]>([]);
   const [speakers, setSpeakers] = useState<ResourceSpeaker[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedSpeakerProfile, setSelectedSpeakerProfile] = useState<SpeakerProfile | null>(null);
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
 
@@ -154,38 +137,6 @@ export function ResourceDetailPage() {
   const getInitials = (name: string) =>
     name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
-  const openSpeakerProfile = async (profileId: string) => {
-    const { data: profileData } = await supabase
-      .from('profiles')
-      .select('user_id, first_name, last_name, email, persona')
-      .eq('user_id', profileId)
-      .single();
-    if (!profileData) return;
-
-    // Look up the speaker's organization via organization_members
-    let extra: Record<string, unknown> = {};
-    const { data: membership } = await supabase
-      .from('organization_members')
-      .select('organization_id, organizations(name, description, website, country, city, headquarters_country, audience_description, organization_type)')
-      .eq('user_id', profileId)
-      .maybeSingle();
-
-    if (membership?.organizations) {
-      const rawOrg = membership.organizations;
-      const org = (Array.isArray(rawOrg) ? rawOrg[0] : rawOrg) as Record<string, unknown>;
-      const orgType = org.organization_type as string;
-      if (orgType === 'partner') {
-        extra = { company_name: org.name, description: org.description, website: org.website, headquarters_country: org.headquarters_country };
-      } else if (orgType === 'marina') {
-        extra = { marina_name: org.name, website: org.website, country: org.country, city: org.city };
-      } else if (orgType === 'media') {
-        extra = { media_name: org.name, website: org.website, description: org.audience_description };
-      }
-    }
-
-    setSelectedSpeakerProfile({ ...profileData, ...extra } as SpeakerProfile);
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
@@ -199,10 +150,6 @@ export function ResourceDetailPage() {
   const hasAccess = canAccess(resource.access_level);
   const readTime = estimateReadTime(resource.content);
   const displayDate = resource.published_at || resource.created_at;
-  const orgName = selectedSpeakerProfile?.company_name || selectedSpeakerProfile?.marina_name || selectedSpeakerProfile?.media_name;
-  const speakerLocation = selectedSpeakerProfile?.city && selectedSpeakerProfile?.country
-    ? `${selectedSpeakerProfile.city}, ${selectedSpeakerProfile.country}`
-    : selectedSpeakerProfile?.headquarters_country || selectedSpeakerProfile?.country || null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -302,12 +249,12 @@ export function ResourceDetailPage() {
                   </div>
                   <div>
                     {speaker.profile_id ? (
-                      <button
-                        onClick={() => openSpeakerProfile(speaker.profile_id!)}
-                        className="font-medium text-primary hover:underline cursor-pointer text-left"
+                      <Link
+                        to={`/users/${speaker.profile_id}`}
+                        className="font-medium text-primary hover:underline"
                       >
                         {speaker.full_name}
-                      </button>
+                      </Link>
                     ) : (
                       <span className="font-medium text-gray-800">{speaker.full_name}</span>
                     )}
@@ -482,54 +429,6 @@ export function ResourceDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Speaker Profile Dialog */}
-      <Dialog open={!!selectedSpeakerProfile} onOpenChange={() => setSelectedSpeakerProfile(null)}>
-        <DialogContent className="max-w-md" aria-describedby={undefined}>
-          {selectedSpeakerProfile && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-lg shrink-0">
-                    {getInitials(`${selectedSpeakerProfile.first_name || ''} ${selectedSpeakerProfile.last_name || ''}`.trim())}
-                  </div>
-                  <div>
-                    <div>{selectedSpeakerProfile.first_name} {selectedSpeakerProfile.last_name}</div>
-                    {orgName && (
-                      <p className="text-sm font-normal text-gray-500 mt-0.5">{orgName}</p>
-                    )}
-                    <Badge variant="secondary" className="text-xs mt-1 capitalize">
-                      {selectedSpeakerProfile.persona.replace('_', ' ')}
-                    </Badge>
-                  </div>
-                </DialogTitle>
-                <DialogDescription className="sr-only">
-                  Profile of {selectedSpeakerProfile.first_name} {selectedSpeakerProfile.last_name}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="mt-4 space-y-3">
-                {selectedSpeakerProfile.description && (
-                  <p className="text-gray-600 text-sm leading-relaxed">{selectedSpeakerProfile.description}</p>
-                )}
-                {speakerLocation && (
-                  <p className="text-sm text-gray-500 flex items-center gap-1.5">
-                    <MapPin className="h-3.5 w-3.5" /> {speakerLocation}
-                  </p>
-                )}
-                {selectedSpeakerProfile.website && (
-                  <a
-                    href={selectedSpeakerProfile.website.startsWith('http') ? selectedSpeakerProfile.website : `https://${selectedSpeakerProfile.website}`}
-                    target="_blank" rel="noopener noreferrer"
-                  >
-                    <Button size="sm" variant="outline" className="mt-2">
-                      <ExternalLink className="h-3.5 w-3.5 mr-1.5" /> Website
-                    </Button>
-                  </a>
-                )}
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

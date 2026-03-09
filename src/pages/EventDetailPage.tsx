@@ -26,7 +26,7 @@ interface EventDetail {
   location: string | null;
   language: string;
   access_level: string;
-  speakers: { name: string; title: string }[];
+  speakers: { name: string; title: string; profile_id?: string }[];
   replay_url: string | null;
   pdf_url: string | null;
   fees: string | null;
@@ -260,19 +260,30 @@ export function EventDetailPage() {
                   {t('events.speakers', 'Speakers')}
                 </h2>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  {event.speakers.map((speaker, idx) => (
-                    <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
-                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                        {speaker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  {event.speakers.map((speaker, idx) => {
+                    const inner = (
+                      <>
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                          {speaker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className={`font-medium ${speaker.profile_id ? 'text-primary' : 'text-gray-900'}`}>{speaker.name}</div>
+                          {speaker.title && (
+                            <div className="text-sm text-gray-500">{speaker.title}</div>
+                          )}
+                        </div>
+                      </>
+                    );
+                    return speaker.profile_id ? (
+                      <Link key={idx} to={`/users/${speaker.profile_id}`} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors">
+                        {inner}
+                      </Link>
+                    ) : (
+                      <div key={idx} className="flex items-center gap-3 p-3 rounded-lg bg-gray-50">
+                        {inner}
                       </div>
-                      <div>
-                        <div className="font-medium text-gray-900">{speaker.name}</div>
-                        {speaker.title && (
-                          <div className="text-sm text-gray-500">{speaker.title}</div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

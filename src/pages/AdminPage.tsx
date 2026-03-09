@@ -437,7 +437,7 @@ function Dashboard() {
         <CardContent className="pt-0">
           <div className="divide-y">
             {recentUsers.map((u) => (
-              <div key={u.user_id} className="flex items-center justify-between py-3">
+              <Link key={u.user_id} to={`/users/${u.user_id}`} className="flex items-center justify-between py-3 hover:bg-gray-50 -mx-2 px-2 rounded-lg transition-colors">
                 <div className="flex items-center gap-3">
                   <div className="h-9 w-9 rounded-full bg-gray-100 flex items-center justify-center text-sm font-medium text-gray-600">
                     {(u.first_name?.[0] || u.email?.[0] || '?').toUpperCase()}
@@ -454,7 +454,7 @@ function Dashboard() {
                   {getStatusDot(u.access_status)}
                   <span className="text-xs text-gray-400">{new Date(u.created_at).toLocaleDateString()}</span>
                 </div>
-              </div>
+              </Link>
             ))}
             {recentUsers.length === 0 && <p className="py-4 text-center text-sm text-gray-400">No users yet</p>}
           </div>
@@ -803,7 +803,7 @@ function UsersAdmin() {
         {filteredUsers.map(user => (
           <tr key={user.user_id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => openUserDetail(user)}>
             <td className="p-4">
-              <div className="font-medium text-gray-900">{getUserName(user)}</div>
+              <Link to={`/users/${user.user_id}`} className="font-medium text-primary hover:underline" onClick={(e) => e.stopPropagation()}>{getUserName(user)}</Link>
               <div className="flex items-center gap-1 text-xs text-gray-500">
                 {user.email || ''}
                 {emailStatusMap[user.user_id] === false && (

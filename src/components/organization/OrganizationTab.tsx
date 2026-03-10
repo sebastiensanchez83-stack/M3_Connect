@@ -17,12 +17,20 @@ import {
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Organization, OrganizationMember, OrganizationInvitation, OrganizationMarinaDetails,
+  Organization, OrganizationMember, OrganizationInvitation, OrganizationMarinaDetails, Sector,
 } from '@/types/database';
 import {
   Building2, Users, Mail, Crown, UserPlus, Loader2, ExternalLink,
   Trash2, LogOut, ArrowRightLeft, Globe, MapPin, Shield, CheckCircle, Clock, XCircle,
 } from 'lucide-react';
+
+const timelineOptions = [
+  { value: 'immediate', label: 'Immediate' },
+  { value: '0-3months', label: '0-3 months' },
+  { value: '3-12months', label: '3-12 months' },
+  { value: '1-3years', label: '1-3 years' },
+  { value: '3+years', label: '3+ years' },
+];
 
 export function OrganizationTab() {
   const { t } = useTranslation();
@@ -67,6 +75,11 @@ export function OrganizationTab() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTarget, setTransferTarget] = useState<OrganizationMember | null>(null);
   const [transferring, setTransferring] = useState(false);
+
+  // Future plans (marina only)
+  const [allSectors, setAllSectors] = useState<Sector[]>([]);
+  const [interestSectors, setInterestSectors] = useState<string[]>([]);
+  const [futurePlans, setFuturePlans] = useState<Record<string, string>>({});
 
   const fetchOrg = useCallback(async () => {
     if (!user) return;
@@ -131,6 +144,22 @@ export function OrganizationTab() {
           marina_description: md?.marina_description || '',
           services_description: md?.services_description || '',
         });
+      }
+
+      // Fetch marina interest sectors + future plans
+      if (orgData.organization_type === 'marina') {
+        const [{ data: sectorsList }, { data: interestData }, { data: plansData }] = await Promise.all([
+          supabase.from('sectors').select('*').eq('is_active', true).order('label'),
+          supabase.from('organization_interest_sectors').select('sector_id').eq('organization_id', orgData.id),
+          supabase.from('organization_future_plans').select('sector_id, timeline').eq('organization_id', orgData.id),
+        ]);
+        if (sectorsList) setAllSectors(sectorsList as Sector[]);
+        if (interestData) setInterestSectors(interestData.map((d: any) => d.sector_id));
+        if (plansData) {
+          const plans: Record<string, string> = {};
+          (plansData as any[]).forEach((p) => { plans[p.sector_id] = p.timeline; });
+          setFuturePlans(plans);
+        }
       }
 
       // Fetch members with profile info
@@ -265,6 +294,23 @@ export function OrganizationTab() {
           .from('organization_marina_details')
           .upsert(marinaPayload, { onConflict: 'organization_id' });
         if (mdError) throw mdError;
+
+        // Save interest sectors
+        await supabase.from('organization_interest_sectors').delete().eq('organization_id', org.id);
+        if (interestSectors.length > 0) {
+          await supabase.from('organization_interest_sectors').insert(
+            interestSectors.map(s => ({ organization_id: org.id, sector_id: s }))
+          );
+        }
+
+        // Save future plans
+        await supabase.from('organization_future_plans').delete().eq('organization_id', org.id);
+        const planEntries = Object.entries(futurePlans).filter(([, tl]) => tl);
+        if (planEntries.length > 0) {
+          await supabase.from('organization_future_plans').insert(
+            planEntries.map(([sectorId, timeline]) => ({ organization_id: org.id, sector_id: sectorId, timeline }))
+          );
+        }
       }
 
       toast({ title: t('org.saved') });
@@ -716,6 +762,60 @@ export function OrganizationTab() {
                       onChange={(e) => setEditForm({ ...editForm, services_description: e.target.value })}
                       placeholder="Describe the services you offer..."
                     />
+                  </div>
+
+                  {/* Sectors of Interest */}
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide pt-2">Sectors of Interest</h4>
+                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
+                    {allSectors.map(s => (
+                      <div key={s.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`is-${s.id}`}
+                          checked={interestSectors.includes(s.id)}
+                          onCheckedChange={() => {
+                            setInterestSectors(prev =>
+                              prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                            );
+                          }}
+                        />
+                        <Label htmlFor={`is-${s.id}`} className="text-sm cursor-pointer font-normal">{s.label}</Label>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Future Development Plans */}
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide pt-2">Future Development Plans</h4>
+                  <p className="text-xs text-gray-500">For each sector of interest, select the timeline that best matches your development plans.</p>
+                  <div className="space-y-1 max-h-[400px] overflow-y-auto border rounded-lg p-3">
+                    {allSectors.filter(s => interestSectors.includes(s.id)).map(sector => (
+                      <div key={sector.id} className="flex items-center gap-3 py-2 px-2 rounded hover:bg-gray-50 border-b border-gray-100 last:border-0">
+                        <span className="text-sm flex-1 min-w-0 truncate" title={sector.label}>{sector.label}</span>
+                        <div className="flex gap-1 shrink-0">
+                          {timelineOptions.map(tOpt => (
+                            <button key={tOpt.value} type="button"
+                              onClick={() => {
+                                setFuturePlans(prev => {
+                                  const next = { ...prev };
+                                  if (next[sector.id] === tOpt.value) { delete next[sector.id]; } else { next[sector.id] = tOpt.value; }
+                                  return next;
+                                });
+                              }}
+                              title={tOpt.label}
+                              className={`px-2 py-1 text-xs rounded border transition-colors ${
+                                futurePlans[sector.id] === tOpt.value
+                                  ? 'bg-primary text-white border-primary'
+                                  : 'bg-white text-gray-500 border-gray-200 hover:border-primary hover:text-primary'
+                              }`}
+                            >
+                              {tOpt.label.replace(' months', 'm').replace(' years', 'y').replace('Immediate', 'Now')}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    {interestSectors.length === 0 && (
+                      <p className="text-sm text-gray-400 text-center py-4">Select sectors of interest above to set development timelines.</p>
+                    )}
                   </div>
                 </div>
               )}

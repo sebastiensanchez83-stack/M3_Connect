@@ -29,6 +29,7 @@ export function OrganizationPublicPage() {
   const [members, setMembers] = useState<(OrganizationMember & { profiles: { first_name: string | null; last_name: string | null; email: string | null; persona: string; job_title: string | null } })[]>([]);
   const [marinaDetails, setMarinaDetails] = useState<OrganizationMarinaDetails | null>(null);
   const [sectors, setSectors] = useState<Sector[]>([]);
+  const [futurePlans, setFuturePlans] = useState<{ sector_label: string; timeline: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Connect request state
@@ -88,6 +89,23 @@ export function OrganizationPublicPage() {
               (sectorLinks as any[])
                 .filter((sl: any) => sl.sectors)
                 .map((sl: any) => sl.sectors as Sector)
+            );
+          }
+        }
+
+        // Fetch future plans for marinas
+        if (o.organization_type === 'marina') {
+          const { data: plansData } = await supabase
+            .from('organization_future_plans')
+            .select('sector_id, timeline, sectors(label)')
+            .eq('organization_id', o.id);
+
+          if (plansData && plansData.length > 0) {
+            setFuturePlans(
+              (plansData as any[])
+                .filter((p: any) => p.sectors)
+                .map((p: any) => ({ sector_label: p.sectors.label, timeline: p.timeline }))
+                .sort((a: any, b: any) => a.sector_label.localeCompare(b.sector_label))
             );
           }
         }
@@ -470,6 +488,41 @@ export function OrganizationPublicPage() {
                             {marinaDetails.certifications_other}
                           </Badge>
                         )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Future Development Plans */}
+                {futurePlans.length > 0 && (
+                  <Card>
+                    <CardContent className="pt-6">
+                      <h2 className="text-lg font-semibold text-gray-900 mb-4">Future Development Plans</h2>
+                      <div className="space-y-2">
+                        {futurePlans.map((plan) => {
+                          const timelineLabels: Record<string, string> = {
+                            'immediate': 'Immediate',
+                            '0-3months': '0-3 months',
+                            '3-12months': '3-12 months',
+                            '1-3years': '1-3 years',
+                            '3+years': '3+ years',
+                          };
+                          const timelineColors: Record<string, string> = {
+                            'immediate': 'bg-green-100 text-green-800',
+                            '0-3months': 'bg-blue-100 text-blue-800',
+                            '3-12months': 'bg-yellow-100 text-yellow-800',
+                            '1-3years': 'bg-orange-100 text-orange-800',
+                            '3+years': 'bg-gray-100 text-gray-800',
+                          };
+                          return (
+                            <div key={plan.sector_label} className="flex items-center justify-between py-2 px-3 rounded-lg bg-gray-50">
+                              <span className="text-sm font-medium text-gray-700">{plan.sector_label}</span>
+                              <Badge className={`text-xs ${timelineColors[plan.timeline] || 'bg-gray-100 text-gray-800'}`}>
+                                {timelineLabels[plan.timeline] || plan.timeline}
+                              </Badge>
+                            </div>
+                          );
+                        })}
                       </div>
                     </CardContent>
                   </Card>

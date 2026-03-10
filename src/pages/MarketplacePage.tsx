@@ -36,6 +36,7 @@ interface OrgCard {
   audience_description: string | null;
   logo_url: string | null;
   sectors: { id: string; label: string }[];
+  member_count: number;
 }
 
 // Keep old interface name as alias for backward compat in contact dialog
@@ -153,6 +154,19 @@ export function MarketplacePage() {
 
         const orgIds = orgRows.map((o: any) => o.id);
 
+        // Fetch member counts per org
+        const { data: memberRows } = await supabase
+          .from('organization_members')
+          .select('organization_id')
+          .in('organization_id', orgIds);
+
+        const memberCountMap: Record<string, number> = {};
+        if (memberRows) {
+          for (const row of memberRows as any[]) {
+            memberCountMap[row.organization_id] = (memberCountMap[row.organization_id] || 0) + 1;
+          }
+        }
+
         // Fetch service sectors (partners) and interest sectors (marinas)
         const [{ data: serviceSectors }, { data: interestSectors }] = await Promise.all([
           supabase
@@ -187,6 +201,7 @@ export function MarketplacePage() {
           audience_description: o.audience_description,
           logo_url: o.logo_url || null,
           sectors: sectorMap[o.id] || [],
+          member_count: memberCountMap[o.id] || 0,
         }));
 
         setOrgs(cards);
@@ -617,8 +632,16 @@ export function MarketplacePage() {
                               </div>
                             )}
 
-                            <div className="flex items-center gap-1 mt-3 pt-2 border-t text-xs text-primary font-medium">
-                              {t('marketplace.viewProfile', 'View Profile')} <ArrowRight className="h-3 w-3" />
+                            <div className="flex items-center justify-between mt-3 pt-2 border-t">
+                              {orgCard.member_count > 0 && (
+                                <span className="text-xs text-gray-500 flex items-center gap-1">
+                                  <Users className="h-3 w-3" />
+                                  {orgCard.member_count} {orgCard.member_count === 1 ? 'member' : 'members'}
+                                </span>
+                              )}
+                              <span className="text-xs text-primary font-medium flex items-center gap-1 ml-auto">
+                                {t('marketplace.viewProfile', 'View Profile')} <ArrowRight className="h-3 w-3" />
+                              </span>
                             </div>
                           </CardContent>
                         </Card>

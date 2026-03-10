@@ -8,9 +8,9 @@ export function Footer() {
   return (
     <footer className="bg-primary text-white">
       <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-8">
           {/* Logo & Tagline */}
-          <div className="col-span-1 md:col-span-2">
+          <div className="col-span-1 sm:col-span-2">
             <div className="flex items-center space-x-2 mb-4">
               <Anchor className="h-8 w-8" />
               <span className="text-xl font-bold">M3 Connect</span>
@@ -53,9 +53,9 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Legal */}
+          {/* Company */}
           <div>
-            <h3 className="font-semibold mb-4">Legal</h3>
+            <h3 className="font-semibold mb-4">{t('footer.company', 'Company')}</h3>
             <ul className="space-y-2">
               <li>
                 <Link to="/about" className="text-gray-300 hover:text-white transition-colors">
@@ -67,14 +67,36 @@ export function Footer() {
                   {t('footer.contact')}
                 </Link>
               </li>
+            </ul>
+          </div>
+
+          {/* Legal */}
+          <div>
+            <h3 className="font-semibold mb-4">Legal</h3>
+            <ul className="space-y-2">
+              <li>
+                <Link to="/terms" className="text-gray-300 hover:text-white transition-colors">
+                  {t('footer.terms')}
+                </Link>
+              </li>
               <li>
                 <Link to="/privacy" className="text-gray-300 hover:text-white transition-colors">
                   {t('footer.privacy')}
                 </Link>
               </li>
               <li>
-                <Link to="/terms" className="text-gray-300 hover:text-white transition-colors">
-                  {t('footer.terms')}
+                <Link to="/mentions-legales" className="text-gray-300 hover:text-white transition-colors">
+                  Mentions Légales
+                </Link>
+              </li>
+              <li>
+                <Link to="/conditions-commerciales" className="text-gray-300 hover:text-white transition-colors">
+                  Conditions Commerciales
+                </Link>
+              </li>
+              <li>
+                <Link to="/cookies" className="text-gray-300 hover:text-white transition-colors">
+                  Politique Cookies
                 </Link>
               </li>
             </ul>

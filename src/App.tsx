@@ -24,6 +24,9 @@ import { AboutPage } from '@/pages/AboutPage';
 import { ContactPage } from '@/pages/ContactPage';
 import { PrivacyPage } from '@/pages/PrivacyPage';
 import { TermsPage } from '@/pages/TermsPage';
+import { MentionsLegalesPage } from '@/pages/MentionsLegalesPage';
+import { ConditionsCommercialesPage } from '@/pages/ConditionsCommercialesPage';
+import { CookiePolicyPage } from '@/pages/CookiePolicyPage';
 
 function App() {
   return (
@@ -54,6 +57,9 @@ function App() {
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/terms" element={<TermsPage />} />
+          <Route path="/mentions-legales" element={<MentionsLegalesPage />} />
+          <Route path="/conditions-commerciales" element={<ConditionsCommercialesPage />} />
+          <Route path="/cookies" element={<CookiePolicyPage />} />
         </Routes>
       </main>
       <Footer />

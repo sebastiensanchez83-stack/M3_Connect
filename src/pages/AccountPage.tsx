@@ -12,6 +12,8 @@ import { useTranslation } from 'react-i18next';
 import { Organization } from '@/types/database';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrganizationTab } from '@/components/organization/OrganizationTab';
+import { PreAuditTab } from '@/components/preaudit/PreAuditTab';
+import { ReferenceRequestForm } from '@/components/references/ReferenceRequestForm';
 import { toast } from '@/hooks/use-toast';
 
 interface EventRegistration {
@@ -358,6 +360,7 @@ export function AccountPage() {
   }
 
   const isMarina = profile.persona === 'marina';
+  const isPartner = profile.persona === 'partner' || profile.persona === 'media_partner';
   const org = organization;
 
   return (
@@ -414,6 +417,8 @@ export function AccountPage() {
           <TabsTrigger value="webinars">Webinars</TabsTrigger>
           {isMarina && <TabsTrigger value="rfps">RFPs</TabsTrigger>}
           {isMarina && <TabsTrigger value="consultations">Consultations</TabsTrigger>}
+          {isMarina && <TabsTrigger value="pre-audit">S3 Pre-Audit</TabsTrigger>}
+          {isPartner && <TabsTrigger value="references">References</TabsTrigger>}
           <TabsTrigger value="b2b-requests">B2B</TabsTrigger>
         </TabsList>
 
@@ -964,6 +969,20 @@ export function AccountPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+        )}
+
+        {/* ── S3 PRE-AUDIT ── */}
+        {isMarina && (
+          <TabsContent value="pre-audit">
+            <PreAuditTab />
+          </TabsContent>
+        )}
+
+        {/* ── REFERENCES (Partner only) ── */}
+        {isPartner && (
+          <TabsContent value="references">
+            <ReferenceRequestForm />
           </TabsContent>
         )}
 

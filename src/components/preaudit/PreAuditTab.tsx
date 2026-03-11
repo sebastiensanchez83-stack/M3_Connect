@@ -35,7 +35,7 @@ import {
 
 export function PreAuditTab() {
   const { user, organization, orgRole } = useAuth();
-  const canEdit = orgRole === 'owner' || orgRole === 'admin';
+  const canEdit = orgRole === 'owner' || orgRole === 'collaborator';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -361,7 +361,7 @@ export function PreAuditTab() {
                     <div className="text-sm font-medium">
                       {pillarAnswered}/5
                     </div>
-                    {rawScore !== null && (
+                    {rawScore != null && (
                       <div className="text-xs text-gray-500">{rawScore.toFixed(2)}/5</div>
                     )}
                   </div>

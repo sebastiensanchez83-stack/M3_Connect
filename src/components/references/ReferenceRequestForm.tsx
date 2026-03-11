@@ -150,13 +150,16 @@ export function ReferenceRequestForm() {
 
       // Send emails via edge function
       const { data: { session } } = await supabase.auth.getSession();
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://djjbgzasuomhyfvtlidi.supabase.co';
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
       const emailResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL || 'https://djjbgzasuomhyfvtlidi.supabase.co'}/functions/v1/send-reference-email`,
+        `${supabaseUrl}/functions/v1/send-reference-email`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`,
+            'Authorization': `Bearer ${session?.access_token || anonKey}`,
+            'apikey': anonKey,
           },
           body: JSON.stringify({
             reference_request_id: refReq.id,

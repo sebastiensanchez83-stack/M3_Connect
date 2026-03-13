@@ -92,7 +92,7 @@ export function AccountPage() {
   const [feedResources, setFeedResources] = useState<{ id: string; title: string; type: string; summary: string }[]>([]);
   const [feedEvents, setFeedEvents] = useState<{ id: string; title: string; date_time: string }[]>([]);
 
-  const defaultTab = searchParams.get('tab') || 'dashboard';
+  const activeTab = searchParams.get('tab') || 'dashboard';
 
   const handleB2BResponse = async (requestId: string, newStatus: 'accepted' | 'rejected') => {
     try {
@@ -363,6 +363,17 @@ export function AccountPage() {
   const isPartner = profile.persona === 'partner' || profile.persona === 'media_partner';
   const org = organization;
 
+  // Notification badge counts for tabs
+  const orgNeedsAction = profile.onboarding_status === 'draft' || !org;
+  const pendingB2B = partnerRequests.filter(r => r.status === 'pending').length;
+
+  const NotifDot = ({ show }: { show: boolean }) => show ? (
+    <span className="ml-1.5 inline-flex items-center justify-center w-2 h-2 rounded-full bg-red-500" />
+  ) : null;
+  const NotifBadge = ({ count }: { count: number }) => count > 0 ? (
+    <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">{count}</span>
+  ) : null;
+
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="flex items-center justify-between mb-8">
@@ -375,9 +386,9 @@ export function AccountPage() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <ClipboardList className="h-5 w-5 text-blue-600 shrink-0" />
-            <p className="text-blue-800">Your profile is incomplete. Complete it to be validated by our team.</p>
+            <p className="text-blue-800">Your profile is incomplete. Complete your organization details to be validated by our team.</p>
           </div>
-          <Button size="sm" onClick={() => navigate('/onboarding')}>Complete</Button>
+          <Button size="sm" onClick={() => navigate('/account?tab=organization', { replace: true })}>Complete my profile</Button>
         </div>
       )}
 
@@ -407,10 +418,10 @@ export function AccountPage() {
         </div>
       )}
 
-      <Tabs defaultValue={defaultTab}>
+      <Tabs value={activeTab} onValueChange={(val) => navigate(`/account?tab=${val}`, { replace: true })}>
         <TabsList className="mb-6 flex-wrap">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="organization">{t('org.tabTitle')}</TabsTrigger>
+          <TabsTrigger value="organization" className="flex items-center">{t('org.tabTitle')}<NotifDot show={orgNeedsAction} /></TabsTrigger>
           <TabsTrigger value="profile">Profile</TabsTrigger>
           <TabsTrigger value="registrations">Registrations</TabsTrigger>
           {isMarina && <TabsTrigger value="projects">Projects</TabsTrigger>}
@@ -419,7 +430,7 @@ export function AccountPage() {
           {isMarina && <TabsTrigger value="consultations">Consultations</TabsTrigger>}
           {isMarina && <TabsTrigger value="pre-audit">S3 Pre-Audit</TabsTrigger>}
           {isPartner && <TabsTrigger value="references">References</TabsTrigger>}
-          <TabsTrigger value="b2b-requests">B2B</TabsTrigger>
+          <TabsTrigger value="b2b-requests" className="flex items-center">B2B<NotifBadge count={pendingB2B} /></TabsTrigger>
         </TabsList>
 
         {/* ── DASHBOARD ── */}
@@ -727,7 +738,7 @@ export function AccountPage() {
 
               {profile.onboarding_status === 'draft' && (
                 <div className="pt-4">
-                  <Button onClick={() => navigate('/onboarding')} variant="outline">
+                  <Button onClick={() => navigate('/account?tab=organization', { replace: true })} variant="outline">
                     Complete my profile
                   </Button>
                 </div>

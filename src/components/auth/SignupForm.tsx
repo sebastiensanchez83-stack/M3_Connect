@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { PersonaType } from '@/types/database';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Anchor, Building2, Newspaper, Loader2, ChevronLeft, Eye, EyeOff, Info } from 'lucide-react';
 
 interface SignupFormProps {
@@ -23,6 +24,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', jobTitle: '', companyName: '', companyWebsite: '', password: '', confirmPassword: '' });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
 
   // Public email domain blacklist
@@ -192,7 +194,25 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
           </button>
         </div>
       </div>
-      <Button type="submit" className="w-full" disabled={loading}>
+      <div className="flex items-start gap-2.5">
+        <Checkbox
+          id="acceptTerms"
+          checked={acceptTerms}
+          onCheckedChange={(checked) => setAcceptTerms(checked === true)}
+          className="mt-0.5"
+        />
+        <label htmlFor="acceptTerms" className="text-sm text-gray-600 leading-snug cursor-pointer">
+          {t('auth.acceptTerms', 'I accept the')}{' '}
+          <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">
+            {t('auth.termsAndConditions', 'Terms and Conditions')}
+          </a>{' '}
+          {t('auth.andThe', 'and the')}{' '}
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">
+            {t('auth.privacyPolicy', 'Privacy Policy')}
+          </a>
+        </label>
+      </div>
+      <Button type="submit" className="w-full" disabled={loading || !acceptTerms}>
         {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         {loading ? t('auth.creating') : t('auth.createAccount')}
       </Button>

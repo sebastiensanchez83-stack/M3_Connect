@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MapPin, Users, Play, CalendarPlus, Loader2 } from 'lucide-react';
+import { MapPin, Users, Play, CalendarPlus, Loader2, Video, Building2 as Building2Icon } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
@@ -19,6 +19,7 @@ interface Event {
   location: string | null;
   language: string;
   access_level: string;
+  event_type: 'webinar' | 'on_site';
   speakers: { name: string; title: string }[];
   replay_url: string | null;
 }
@@ -129,10 +130,17 @@ export function EventsPage() {
               <div className="flex-1">
                 <div className="flex flex-wrap gap-2 mb-2">
                   {getAccessBadge(event.access_level)}
-                  {event.location ? (
-                    <Badge variant="outline"><MapPin className="h-3 w-3 mr-1" />{t('events.inPerson')}</Badge>
+                  {event.event_type === 'webinar' ? (
+                    <Badge className="bg-violet-100 text-violet-700 border-violet-200">
+                      <Video className="h-3 w-3 mr-1" />Webinar
+                    </Badge>
                   ) : (
-                    <Badge variant="outline">{t('events.online')}</Badge>
+                    <Badge className="bg-amber-100 text-amber-700 border-amber-200">
+                      <Building2Icon className="h-3 w-3 mr-1" />On-site Event
+                    </Badge>
+                  )}
+                  {event.location && (
+                    <Badge variant="outline"><MapPin className="h-3 w-3 mr-1" />{event.location}</Badge>
                   )}
                   {isPast && event.replay_url && (
                     <Badge variant="secondary">Replay</Badge>
@@ -140,7 +148,7 @@ export function EventsPage() {
                 </div>
                 <h3 className="font-semibold text-lg mb-2 group-hover:text-primary transition-colors">{event.title}</h3>
                 <p className="text-gray-600 text-sm mb-3 line-clamp-2">{event.description}</p>
-                {event.speakers && event.speakers.length > 0 && (
+                {event.event_type === 'webinar' && event.speakers && event.speakers.length > 0 && (
                   <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
                     <Users className="h-4 w-4" />
                     {event.speakers.map(s => s.name).join(', ')}

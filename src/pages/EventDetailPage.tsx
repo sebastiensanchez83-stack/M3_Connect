@@ -13,11 +13,20 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import {
   ChevronLeft, Calendar, Clock, MapPin, Users, Play, RefreshCw,
   Download, DollarSign, UserCheck, AlertCircle, Loader2,
+  Video, Building2, ExternalLink, FileDown, Globe, Users as UsersIcon,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow';
+
+type EventType = 'webinar' | 'on_site';
+
+interface EventPartner {
+  name: string;
+  logo_url?: string;
+  website?: string;
+}
 
 interface EventDetail {
   id: string;
@@ -27,9 +36,14 @@ interface EventDetail {
   location: string | null;
   language: string;
   access_level: string;
+  event_type: EventType;
   speakers: { name: string; title: string; profile_id?: string }[];
   replay_url: string | null;
   pdf_url: string | null;
+  brochure_url: string | null;
+  event_website_url: string | null;
+  event_partners: EventPartner[];
+  location_details: { lat?: number; lng?: number; address?: string; map_url?: string } | null;
   fees: string | null;
   max_attendance: number | null;
   created_at: string;
@@ -149,6 +163,17 @@ export function EventDetailPage() {
           </Link>
           <div className="max-w-3xl">
             <div className="flex items-center gap-3 mb-4">
+              {/* Event type badge */}
+              <Badge className={event.event_type === 'webinar'
+                ? 'bg-violet-500/90 text-white border-0'
+                : 'bg-amber-500/90 text-white border-0'
+              }>
+                {event.event_type === 'webinar' ? (
+                  <><Video className="h-3 w-3 mr-1" /> Webinar</>
+                ) : (
+                  <><Building2 className="h-3 w-3 mr-1" /> On-site Event</>
+                )}
+              </Badge>
               {getAccessBadge(event.access_level)}
               {isPast && (
                 <Badge variant="outline" className="border-white/30 text-white">
@@ -192,8 +217,8 @@ export function EventDetailPage() {
               </div>
             )}
 
-            {/* Speakers */}
-            {event.speakers && event.speakers.length > 0 && (
+            {/* Speakers — only for webinars (on-site events have too many) */}
+            {event.event_type === 'webinar' && event.speakers && event.speakers.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
                 <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
                   <Users className="h-5 w-5 text-primary" />
@@ -226,6 +251,94 @@ export function EventDetailPage() {
                   })}
                 </div>
               </div>
+            )}
+
+            {/* On-site event extras: partners, brochure, website, map */}
+            {event.event_type === 'on_site' && (
+              <>
+                {/* Event Partners */}
+                {event.event_partners && event.event_partners.length > 0 && (
+                  <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <UsersIcon className="h-5 w-5 text-primary" />
+                      Event Partners
+                    </h2>
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {event.event_partners.map((partner, idx) => (
+                        <div key={idx} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50">
+                          {partner.logo_url ? (
+                            <img src={partner.logo_url} alt={partner.name} className="w-10 h-10 rounded-lg object-cover" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
+                              {partner.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                            </div>
+                          )}
+                          <div>
+                            <div className="font-medium text-gray-900 text-sm">{partner.name}</div>
+                            {partner.website && (
+                              <a href={partner.website} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline flex items-center gap-1">
+                                <Globe className="h-3 w-3" /> Website
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Brochure + Event Website */}
+                {(event.brochure_url || event.event_website_url) && (
+                  <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Event Resources</h2>
+                    <div className="flex flex-wrap gap-3">
+                      {event.brochure_url && (
+                        <Button variant="outline" className="rounded-xl" asChild>
+                          <a href={event.brochure_url} target="_blank" rel="noopener noreferrer">
+                            <FileDown className="h-4 w-4 mr-2" />
+                            Download Brochure
+                          </a>
+                        </Button>
+                      )}
+                      {event.event_website_url && (
+                        <Button variant="outline" className="rounded-xl" asChild>
+                          <a href={event.event_website_url} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            Event Website & Program
+                          </a>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Map location */}
+                {event.location_details && (event.location_details.map_url || event.location_details.address) && (
+                  <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <MapPin className="h-5 w-5 text-primary" />
+                      Location
+                    </h2>
+                    {event.location_details.address && (
+                      <p className="text-gray-600 mb-3">{event.location_details.address}</p>
+                    )}
+                    {event.location_details.map_url && (
+                      <div className="rounded-xl overflow-hidden border h-64">
+                        <iframe
+                          src={event.location_details.map_url}
+                          width="100%"
+                          height="100%"
+                          style={{ border: 0 }}
+                          allowFullScreen
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          title="Event Location"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
 
             {/* Replay */}

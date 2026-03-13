@@ -117,6 +117,8 @@ export function OnboardingPage() {
   // Org creation state
   const [orgCreated, setOrgCreated] = useState(false);
   const [orgId, setOrgId] = useState<string | null>(null);
+  // Prevent re-render loop after submission
+  const [submitted, setSubmitted] = useState(false);
 
   // Marina org form
   const [marina, setMarina] = useState<MarinaOrgForm>(defaultMarinaForm);
@@ -130,17 +132,30 @@ export function OnboardingPage() {
 
   const needsPersonaSetup = !authLoading && !!user && !profile;
 
-  /* ─── Navigation guards ─── */
+  // Load sectors independently (not inside navigation guards so it always runs)
   useEffect(() => {
-    if (authLoading) return;
+    supabase.from('sectors').select('*').eq('is_active', true).order('label')
+      .then(({ data }) => { if (data) setSectors(data as Sector[]); });
+  }, []);
+
+  /* ─── Navigation guards ─── */
+  // After email confirmation, users go to /account and complete their profile
+  // from the Organization tab. OnboardingPage is only used for rejected re-submissions.
+  useEffect(() => {
+    if (authLoading || submitted) return;
     if (!user) { navigate('/'); return; }
-    if (profile?.onboarding_status === 'completed') { navigate('/account'); return; }
+    // Completed or submitted → always go to account
+    if (profile?.onboarding_status === 'completed') { navigate('/account', { replace: true }); return; }
     if (profile?.onboarding_status === 'submitted' && profile?.access_status !== 'rejected') {
-      navigate('/account'); return;
+      navigate('/account', { replace: true }); return;
     }
-    // If already has org, skip to org-form step to fill details or redirect
+    // Draft status (new user after email confirm) → go to account, complete from there
+    if (profile?.onboarding_status === 'draft' && profile?.access_status !== 'rejected') {
+      navigate('/account?tab=organization', { replace: true }); return;
+    }
+    // If already has org, redirect to account
     if (hasOrganization) {
-      navigate('/account'); return;
+      navigate('/account', { replace: true }); return;
     }
     // If AuthContext didn't load org (timeout), double-check directly
     if (profile && !hasOrganization) {
@@ -151,15 +166,11 @@ export function OnboardingPage() {
         .maybeSingle()
         .then(({ data }) => {
           if (data?.organization_id) {
-            // User already has an org — AuthContext just missed it. Redirect.
-            navigate('/account');
+            navigate('/account', { replace: true });
           }
         });
     }
-    // Load sectors unconditionally (needed for Future Plans even before profile loads)
-    supabase.from('sectors').select('*').eq('is_active', true).order('label')
-      .then(({ data }) => { if (data) setSectors(data as Sector[]); });
-  }, [user, profile, authLoading, hasOrganization, navigate]);
+  }, [user, profile, authLoading, hasOrganization, submitted, navigate]);
 
   /* ─── Organization resolution: check invitation + domain ─── */
   useEffect(() => {
@@ -533,9 +544,10 @@ export function OnboardingPage() {
       }
       await supabase.from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', user.id);
 
+      setSubmitted(true);
       await refreshProfile();
       toast({ title: 'Organization profile submitted!', description: 'Your application is being reviewed.' });
-      navigate('/account');
+      navigate('/account', { replace: true });
     } catch (error: unknown) {
       toast({ title: 'Error', description: error instanceof Error ? error.message : 'An error occurred.', variant: 'destructive' });
     } finally {
@@ -545,8 +557,8 @@ export function OnboardingPage() {
 
   /* ─── Renders ─── */
 
-  if (authLoading) {
-    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>;
+  if (authLoading || submitted) {
+    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />{submitted && <p className="text-sm text-gray-500 mt-3">Redirecting to your account...</p>}</div>;
   }
 
   // Step 0: persona selection (rare — only if handle_new_user trigger didn't fire)

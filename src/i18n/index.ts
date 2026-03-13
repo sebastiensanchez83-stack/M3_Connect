@@ -16,7 +16,7 @@ const resources = {
         myAccount: 'My Account',
         myRegistrations: 'My Registrations',
         submitProject: 'Submit Project',
-        marketplace: 'Marketplace',
+        marketplace: 'Network',
         submitRfp: 'Submit an RFP',
         requestConsultation: 'Request Consultation',
         proposeWebinar: 'Propose Webinar',
@@ -423,9 +423,9 @@ const resources = {
           searchPlaceholder: 'Search by name, email, or organization...',
         },
       },
-      // Marketplace
+      // Network (formerly Marketplace)
       marketplace: {
-        title: 'Marketplace',
+        title: 'Network',
         subtitle: 'Explore verified partners, open requests for proposals, and consultation opportunities across the marina industry.',
         partnerDirectory: 'Partner Directory',
         openRfps: 'Open RFPs',
@@ -640,7 +640,7 @@ const resources = {
         myAccount: 'Mon Compte',
         myRegistrations: 'Mes Inscriptions',
         submitProject: 'Soumettre un Projet',
-        marketplace: 'Marketplace',
+        marketplace: 'Network',
         submitRfp: "Soumettre un Appel d'Offres",
         requestConsultation: 'Demander une Consultation',
         proposeWebinar: 'Proposer un Webinar',
@@ -1047,9 +1047,9 @@ const resources = {
           searchPlaceholder: 'Rechercher par nom, email ou organisation...',
         },
       },
-      // Marketplace
+      // Network (formerly Marketplace)
       marketplace: {
-        title: 'Marketplace',
+        title: 'Network',
         subtitle: "Explorez les partenaires vérifiés, les appels d'offres ouverts et les opportunités de consultation dans l'industrie marina.",
         partnerDirectory: 'Annuaire Partenaires',
         openRfps: "Appels d'Offres",

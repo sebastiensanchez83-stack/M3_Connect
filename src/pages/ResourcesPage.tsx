@@ -17,10 +17,11 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { Organization } from '@/types/database';
 
 interface Sector {
   id: string;
-  name: string;
+  label: string;
 }
 
 interface Resource {
@@ -52,7 +53,7 @@ const TYPE_COLORS: Record<string, string> = {
 
 export function ResourcesPage() {
   const { t } = useTranslation();
-  const { user, profile, isVerified } = useAuth();
+  const { user, profile, isVerified, organization } = useAuth();
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -67,11 +68,28 @@ export function ResourcesPage() {
   // Fetch available sectors
   useEffect(() => {
     const fetchSectors = async () => {
-      const { data } = await supabase.from('sectors').select('id, name').order('name');
+      const { data } = await supabase.from('sectors').select('id, label').eq('is_active', true).order('label');
       if (data) setAllSectors(data as Sector[]);
     };
     fetchSectors();
   }, []);
+
+  // Pre-select sectors based on user's organization (like marketplace)
+  useEffect(() => {
+    if (!user || !organization) return;
+    const table = organization.organization_type === 'marina'
+      ? 'organization_interest_sectors'
+      : 'organization_service_sectors';
+    supabase
+      .from(table)
+      .select('sector_id')
+      .eq('organization_id', organization.id)
+      .then(({ data }) => {
+        if (data && data.length > 0) {
+          setSelectedSectors(data.map((d: any) => d.sector_id));
+        }
+      });
+  }, [user, organization]);
 
   useEffect(() => {
     const fetchResources = async () => {
@@ -230,7 +248,7 @@ export function ResourcesPage() {
                   <SelectContent>
                     {allSectors.map((s) => (
                       <SelectItem key={s.id} value={s.id} disabled={selectedSectors.includes(s.id)}>
-                        {s.name}
+                        {s.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -245,7 +263,7 @@ export function ResourcesPage() {
                           onClick={() => toggleSector(sid)}
                           className="inline-flex items-center gap-0.5 px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
                         >
-                          {sector?.name || sid}
+                          {sector?.label || sid}
                           <X className="h-3 w-3" />
                         </button>
                       );

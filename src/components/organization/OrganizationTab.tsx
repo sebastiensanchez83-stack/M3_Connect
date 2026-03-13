@@ -112,15 +112,18 @@ export function OrganizationTab() {
     }
   };
 
+  // Use user.id as stable dependency (user object reference changes on every auth state update)
+  const userId = user?.id;
+
   const fetchOrg = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     setLoading(true);
     try {
       // Get user's org membership
       const { data: membership } = await supabase
         .from('organization_members')
         .select('organization_id, role')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .maybeSingle();
 
       if (!membership) {
@@ -202,22 +205,26 @@ export function OrganizationTab() {
 
       if (membersData) setMembers(membersData as unknown as OrganizationMember[]);
 
-      // Fetch pending invitations (owner only)
+      // Fetch pending invitations (owner only — catch 403 gracefully)
       if (membership.role === 'owner') {
-        const { data: invData } = await supabase
-          .from('organization_invitations')
-          .select('*')
-          .eq('organization_id', membership.organization_id)
-          .eq('status', 'pending')
-          .order('created_at', { ascending: false });
+        try {
+          const { data: invData } = await supabase
+            .from('organization_invitations')
+            .select('*')
+            .eq('organization_id', membership.organization_id)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
 
-        if (invData) setInvitations(invData as OrganizationInvitation[]);
+          if (invData) setInvitations(invData as OrganizationInvitation[]);
+        } catch {
+          // RLS may block — ignore silently
+        }
       }
     } catch (err) {
       console.error('Error fetching org:', err);
     }
     setLoading(false);
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => { fetchOrg(); }, [fetchOrg]);
 

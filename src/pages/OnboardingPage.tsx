@@ -561,6 +561,15 @@ export function OnboardingPage() {
     return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />{submitted && <p className="text-sm text-gray-500 mt-3">Redirecting to your account...</p>}</div>;
   }
 
+  // Synchronous redirect guard — prevent form from flashing before useEffect fires
+  // Draft users go to /account to complete their profile from the Organization tab
+  if (profile?.onboarding_status === 'draft' && profile?.access_status !== 'rejected') {
+    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /><p className="text-sm text-gray-500 mt-3">Redirecting to your account...</p></div>;
+  }
+  if (profile?.onboarding_status === 'completed' || (profile?.onboarding_status === 'submitted' && profile?.access_status !== 'rejected')) {
+    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>;
+  }
+
   // Step 0: persona selection (rare — only if handle_new_user trigger didn't fire)
   if (needsPersonaSetup) {
     return (

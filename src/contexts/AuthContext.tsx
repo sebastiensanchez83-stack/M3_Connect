@@ -131,19 +131,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     mountedRef.current = true
     initializedRef.current = false
 
-    // Safety timeout: if loading doesn't resolve in 12s, force it false.
-    // (Allows for 2 fetch attempts × 5s each + buffer)
+    // Safety timeout: if loading doesn't resolve in 20s, force it false.
+    // (Allows for 2 fetch attempts × 8s each + buffer)
     const safetyTimer = setTimeout(() => {
       if (mountedRef.current) {
         setLoading((prev) => {
           if (prev) {
-            console.warn('[AuthContext] Safety timeout — forcing loading to false after 12s')
+            console.warn('[AuthContext] Safety timeout — forcing loading to false after 20s')
             return false
           }
           return prev
         })
       }
-    }, 12000)
+    }, 20000)
 
     /**
      * Handles a session: sets user/session, fetches profile, then sets loading=false.
@@ -170,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       currentUserIdRef.current = sess.user.id
 
       // Fetch profile with timeout protection + retry
+      // Use 8s per attempt — new users need time for the handle_new_user trigger
       const attemptFetch = async (timeoutMs: number) => {
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Profile fetch timeout')), timeoutMs)
@@ -180,11 +181,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         let result: Awaited<ReturnType<typeof fetchUserData>>
         try {
-          result = await attemptFetch(5000)
+          result = await attemptFetch(8000)
         } catch (firstErr) {
-          console.warn('[AuthContext] First profile fetch attempt failed, retrying...', firstErr)
+          console.warn('[AuthContext] First profile fetch attempt failed, retrying after 1s...', firstErr)
           if (!mountedRef.current) return
-          result = await attemptFetch(5000)
+          // Wait 1s before retry — gives the DB trigger time to complete
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          if (!mountedRef.current) return
+          result = await attemptFetch(8000)
         }
         if (!mountedRef.current) return
         setProfile(result.profile)

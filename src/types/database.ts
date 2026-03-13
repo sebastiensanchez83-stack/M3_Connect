@@ -80,7 +80,7 @@ export interface ResourceSpeaker {
 export type UserDetails = MarinaProfile | PartnerProfile | MediaPartnerProfile | ModeratorProfile;
 
 // Organization types
-export type OrgTier = 'member' | 'premium' | 'enterprise';
+export type OrgTier = 'member' | 'innovation_partner' | 'associate_partner' | 'premium_partner' | 'main_sponsor';
 export type OrgMemberRole = 'owner' | 'collaborator';
 export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'cancelled';
 
@@ -105,6 +105,7 @@ export interface Organization {
   audience_description: string | null;
   headquarters_country: string | null;
   social_media_links: string | null;
+  marina_subtype: 'visitor' | 'exhibitor' | null;
   created_at: string;
   updated_at: string;
 }
@@ -201,3 +202,62 @@ export interface PendingInvitationResult {
   organization_name: string;
   invited_by_name: string;
 }
+
+// Sponsorship request
+export type SponsorshipRequestStatus = 'pending' | 'invoice_sent' | 'paid' | 'approved' | 'rejected';
+
+export interface SponsorshipRequest {
+  id: string;
+  organization_id: string;
+  requested_by: string;
+  requested_tier: string;
+  current_tier: string;
+  status: SponsorshipRequestStatus;
+  admin_notes: string | null;
+  invoice_reference: string | null;
+  amount_due: number | null;
+  amount_already_paid: number;
+  payment_confirmed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  // Joined data
+  organizations?: Pick<Organization, 'id' | 'name' | 'logo_url' | 'tier'>;
+}
+
+// Exposition request (marina exhibitor)
+export type ExpositionRequestStatus = 'pending' | 'approved' | 'invoice_sent' | 'paid' | 'rejected';
+
+export interface ExpositionRequest {
+  id: string;
+  organization_id: string;
+  event_id: string;
+  requested_by: string;
+  status: ExpositionRequestStatus;
+  admin_notes: string | null;
+  invoice_reference: string | null;
+  amount_due: number | null;
+  payment_confirmed_at: string | null;
+  created_at: string;
+  // Joined data
+  organizations?: Pick<Organization, 'id' | 'name' | 'logo_url'>;
+}
+
+// Sponsor tier helpers
+export const SPONSOR_TIERS: OrgTier[] = ['innovation_partner', 'associate_partner', 'premium_partner', 'main_sponsor'];
+export const isSponsorTier = (tier: OrgTier): boolean => SPONSOR_TIERS.includes(tier);
+
+export const TIER_LABELS: Record<OrgTier, string> = {
+  member: 'Member',
+  innovation_partner: 'Innovation Partner',
+  associate_partner: 'Associate Partner',
+  premium_partner: 'Premium Partner',
+  main_sponsor: 'Main Sponsor',
+};
+
+export const TIER_COLORS: Record<OrgTier, { bg: string; text: string; border: string }> = {
+  member: { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200' },
+  innovation_partner: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+  associate_partner: { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
+  premium_partner: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  main_sponsor: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
+};

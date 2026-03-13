@@ -18,7 +18,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Sector } from '@/types/database';
+import { Sector, OrgTier } from '@/types/database';
+import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { toast } from '@/hooks/use-toast';
 
 /* ---------- local types ---------- */
@@ -28,6 +29,7 @@ interface OrgCard {
   slug: string;
   name: string;
   organization_type: string | null;
+  tier: string;
   website: string | null;
   country: string | null;
   city: string | null;
@@ -143,7 +145,7 @@ export function MarketplacePage() {
       try {
         const { data: orgRows, error: oErr } = await supabase
           .from('organizations')
-          .select('id, slug, name, organization_type, website, country, city, headquarters_country, description, audience_description, logo_url, access_status')
+          .select('id, slug, name, organization_type, tier, website, country, city, headquarters_country, description, audience_description, logo_url, access_status')
           .eq('access_status', 'verified');
 
         if (oErr) throw oErr;
@@ -193,6 +195,7 @@ export function MarketplacePage() {
           slug: o.slug,
           name: o.name,
           organization_type: o.organization_type,
+          tier: o.tier || 'member',
           website: o.website,
           country: o.country,
           city: o.city,
@@ -424,7 +427,7 @@ export function MarketplacePage() {
         <meta property="og:description" content="B2B marketplace connecting marina operators with service providers." />
       </Helmet>
       {/* Search Bar Section */}
-      <section className="bg-white border-b shadow-sm">
+      <section className="bg-white/80 backdrop-blur-xl border-b">
         <div className="container mx-auto px-4 py-4">
           <div className="flex flex-col sm:flex-row gap-3 items-center">
             <div className="relative flex-1 w-full">
@@ -433,7 +436,7 @@ export function MarketplacePage() {
                 placeholder={t('marketplace.searchPartners', 'Search organizations by name, location, or description...')}
                 value={partnerSearch}
                 onChange={(e) => setPartnerSearch(e.target.value)}
-                className="pl-10 h-11"
+                className="pl-10 h-11 rounded-xl"
               />
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -586,18 +589,21 @@ export function MarketplacePage() {
                         to={`/organizations/${orgCard.slug}`}
                         className="block"
                       >
-                        <Card className="card-hover cursor-pointer flex flex-col h-full">
+                        <Card className="card-hover cursor-pointer flex flex-col h-full rounded-2xl border-0 shadow-sm hover:shadow-md transition-all duration-200">
                           <CardContent className="p-5 flex flex-col flex-1">
                             <div className="flex items-center gap-3 mb-3">
                               {orgCard.logo_url ? (
-                                <img src={orgCard.logo_url} alt={orgCard.name} className="w-14 h-14 rounded-lg object-cover border" />
+                                <img src={orgCard.logo_url} alt={orgCard.name} className="w-14 h-14 rounded-xl object-cover border" />
                               ) : (
-                                <div className="w-14 h-14 bg-primary/10 rounded-lg flex items-center justify-center text-primary font-bold text-lg shrink-0">
+                                <div className="w-14 h-14 bg-gradient-to-br from-primary/10 to-teal-500/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg shrink-0">
                                   {getInitials(orgCard.name)}
                                 </div>
                               )}
                               <div className="min-w-0">
-                                <h3 className="font-semibold text-gray-900 truncate">{orgCard.name}</h3>
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-semibold text-gray-900 truncate">{orgCard.name}</h3>
+                                  <SponsorBadge tier={orgCard.tier as OrgTier} size="sm" />
+                                </div>
                                 <div className="flex items-center gap-2 mt-0.5">
                                   <Badge variant="outline" className="text-xs gap-1 py-0">
                                     {getOrgTypeIcon(orgCard.organization_type)}
@@ -758,7 +764,7 @@ export function MarketplacePage() {
 
       {/* ====== Contact Organization Dialog ====== */}
       <Dialog open={contactOpen} onOpenChange={setContactOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle>{t('marketplace.contactPartner', { name: contactPartner?.company_name })}</DialogTitle>
             <DialogDescription>{t('marketplace.contactDescription')}</DialogDescription>

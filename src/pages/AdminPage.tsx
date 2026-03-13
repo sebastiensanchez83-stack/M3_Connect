@@ -6,7 +6,9 @@ import {
   Download, Plus, Pencil, Trash2, Eye, ChevronRight, Radio,
   Link2, ClipboardList, MessageSquare, BookOpen, FolderOpen,
   ChevronUp, ChevronDown, UserPlus, X, AlertTriangle, ExternalLink,
+  ArrowUpCircle, DollarSign, Loader2,
 } from 'lucide-react';
+import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import { ImageUpload } from '@/components/ui/ImageUpload';
@@ -91,11 +93,30 @@ interface Partner {
   logo_url: string | null;
   website: string | null;
   organization_type: string;
+  tier: string;
+  max_seats: number;
   country: string | null;
   city: string | null;
   access_status: string;
   onboarding_status: string;
   owner_user_id: string | null;
+}
+
+interface SponsorshipRequestRow {
+  id: string;
+  organization_id: string;
+  requested_by: string;
+  requested_tier: string;
+  current_tier: string;
+  status: string;
+  admin_notes: string | null;
+  invoice_reference: string | null;
+  amount_due: number | null;
+  amount_already_paid: number;
+  payment_confirmed_at: string | null;
+  created_at: string;
+  org_name?: string;
+  requester_email?: string;
 }
 
 interface MarinaProject {
@@ -205,6 +226,7 @@ const ADMIN_ONLY_ROUTES = new Set([
   '/admin/users', '/admin/events', '/admin/partners',
   '/admin/projects', '/admin/leads', '/admin/partner-requests',
   '/admin/rfps', '/admin/consultations', '/admin/content',
+  '/admin/sponsorships', '/admin/expositions',
 ]);
 
 function AdminSidebar() {
@@ -218,6 +240,8 @@ function AdminSidebar() {
     { to: '/admin/resources', label: t('admin.resources'), icon: <FileText className="h-4 w-4" /> },
     { to: '/admin/events', label: t('admin.events'), icon: <Calendar className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/partners', label: t('admin.partners'), icon: <UserCheck className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/sponsorships', label: 'Sponsorships', icon: <ArrowUpCircle className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/expositions', label: 'Expositions', icon: <Anchor className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/projects', label: t('admin.marinaProjects'), icon: <Anchor className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/leads', label: t('admin.partnerLeads'), icon: <Users className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/webinars', label: 'Webinar Requests', icon: <Radio className="h-4 w-4" /> },
@@ -1236,6 +1260,23 @@ function ResourcesAdmin() {
 }
 
 /* ─── Events Admin ─── */
+interface EventPricingRow {
+  id?: string;
+  tier: string;
+  price_cents: number;
+  max_included_seats: number | null;
+  additional_member_price_cents: number;
+  discount_pct: number;
+}
+
+const DEFAULT_PRICING: EventPricingRow[] = [
+  { tier: 'member', price_cents: 50000, max_included_seats: 1, additional_member_price_cents: 25000, discount_pct: 10 },
+  { tier: 'innovation_partner', price_cents: 0, max_included_seats: 5, additional_member_price_cents: 21000, discount_pct: 0 },
+  { tier: 'associate_partner', price_cents: 0, max_included_seats: 8, additional_member_price_cents: 21000, discount_pct: 0 },
+  { tier: 'premium_partner', price_cents: 0, max_included_seats: 10, additional_member_price_cents: 21000, discount_pct: 0 },
+  { tier: 'main_sponsor', price_cents: 0, max_included_seats: 15, additional_member_price_cents: 21000, discount_pct: 0 },
+];
+
 function EventsAdmin() {
   const { t } = useTranslation();
   const [events, setEvents] = useState<Event[]>([]);
@@ -1243,6 +1284,13 @@ function EventsAdmin() {
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ title: '', description: '', date_time: '', location: '', language: 'EN', access_level: 'public', speakers: '', replay_url: '' });
+
+  // Pricing dialog state
+  const [pricingEventId, setPricingEventId] = useState<string | null>(null);
+  const [pricingEventTitle, setPricingEventTitle] = useState('');
+  const [pricingRows, setPricingRows] = useState<EventPricingRow[]>([]);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingSaving, setPricingSaving] = useState(false);
 
   useEffect(() => { loadEvents(); }, []);
   const loadEvents = async () => { setLoading(true); const { data } = await supabase.from('events').select('*').order('date_time', { ascending: false }); setEvents(data || []); setLoading(false); };
@@ -1260,14 +1308,67 @@ function EventsAdmin() {
   };
   const handleDelete = async (id: string) => { if (!confirm('Delete this event?')) return; await supabase.from('events').delete().eq('id', id); toast({ title: 'Deleted' }); loadEvents(); };
 
+  // Pricing management
+  const openPricing = async (event: Event) => {
+    setPricingEventId(event.id);
+    setPricingEventTitle(event.title);
+    setPricingLoading(true);
+    const { data } = await supabase
+      .from('event_pricing')
+      .select('id, tier, price_cents, max_included_seats, additional_member_price_cents, discount_pct')
+      .eq('event_id', event.id)
+      .order('tier');
+    if (data && data.length > 0) {
+      setPricingRows(data as EventPricingRow[]);
+    } else {
+      // Pre-fill with defaults
+      setPricingRows(DEFAULT_PRICING.map(d => ({ ...d })));
+    }
+    setPricingLoading(false);
+  };
+
+  const updatePricingRow = (index: number, field: keyof EventPricingRow, value: number | null) => {
+    setPricingRows(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  const savePricing = async () => {
+    if (!pricingEventId) return;
+    setPricingSaving(true);
+    // Delete existing pricing for this event
+    await supabase.from('event_pricing').delete().eq('event_id', pricingEventId);
+    // Insert all rows
+    const rows = pricingRows.map(r => ({
+      event_id: pricingEventId,
+      tier: r.tier,
+      price_cents: r.price_cents,
+      max_included_seats: r.max_included_seats,
+      additional_member_price_cents: r.additional_member_price_cents,
+      discount_pct: r.discount_pct,
+    }));
+    const { error } = await supabase.from('event_pricing').insert(rows);
+    if (error) {
+      toast({ title: 'Failed to save pricing', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Pricing saved successfully' });
+      setPricingEventId(null);
+    }
+    setPricingSaving(false);
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
     <div>
       <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.events')} ({events.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Event</Button></div>
       <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Location</th><th className="text-left p-4 font-medium">Access</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {events.map(e => (<tr key={e.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{e.title}</td><td className="p-4">{new Date(e.date_time).toLocaleDateString()}</td><td className="p-4">{e.location || 'Online'}</td><td className="p-4"><Badge variant={e.access_level === 'public' ? 'success' : 'info'}>{e.access_level}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(e)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(e.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
+        {events.map(e => (<tr key={e.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{e.title}</td><td className="p-4">{new Date(e.date_time).toLocaleDateString()}</td><td className="p-4">{e.location || 'Online'}</td><td className="p-4"><Badge variant={e.access_level === 'public' ? 'success' : 'info'}>{e.access_level}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(e)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => openPricing(e)} title="Manage pricing"><DollarSign className="h-4 w-4 text-green-600" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(e.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
       </tbody></table></div></CardContent></Card>
+
+      {/* Event Edit Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editingEvent ? 'Edit Event' : 'Add Event'}</DialogTitle><DialogDescription>Manage event details.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
         <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
         <div className="space-y-2"><Label>Description *</Label><Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
@@ -1277,6 +1378,94 @@ function EventsAdmin() {
         <div className="space-y-2"><Label>Replay URL</Label><Input value={formData.replay_url} onChange={e => setFormData({ ...formData, replay_url: e.target.value })} /></div>
         <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editingEvent ? 'Update' : 'Create'}</Button></div>
       </div></DialogContent></Dialog>
+
+      {/* Event Pricing Dialog */}
+      <Dialog open={!!pricingEventId} onOpenChange={() => setPricingEventId(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Event Pricing</DialogTitle>
+            <DialogDescription>Configure pricing per tier for: {pricingEventTitle}</DialogDescription>
+          </DialogHeader>
+          {pricingLoading ? (
+            <div className="flex items-center justify-center h-32"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+          ) : (
+            <div className="space-y-4 mt-2">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      <th className="text-left p-3 font-medium">Tier</th>
+                      <th className="text-left p-3 font-medium">Price (€)</th>
+                      <th className="text-left p-3 font-medium">Included Seats</th>
+                      <th className="text-left p-3 font-medium">Extra Seat (€)</th>
+                      <th className="text-left p-3 font-medium">Discount %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pricingRows.map((row, i) => (
+                      <tr key={row.tier} className="border-b">
+                        <td className="p-3">
+                          <Badge className={`${TIER_COLORS[row.tier as OrgTier]?.bg || 'bg-gray-100'} ${TIER_COLORS[row.tier as OrgTier]?.text || 'text-gray-800'} border ${TIER_COLORS[row.tier as OrgTier]?.border || 'border-gray-200'}`}>
+                            {TIER_LABELS[row.tier as OrgTier] || row.tier}
+                          </Badge>
+                        </td>
+                        <td className="p-3">
+                          <Input
+                            type="number"
+                            min={0}
+                            className="w-24 h-8"
+                            value={row.price_cents / 100}
+                            onChange={(e) => updatePricingRow(i, 'price_cents', Math.round(parseFloat(e.target.value || '0') * 100))}
+                          />
+                        </td>
+                        <td className="p-3">
+                          <Input
+                            type="number"
+                            min={0}
+                            className="w-20 h-8"
+                            value={row.max_included_seats ?? ''}
+                            placeholder="∞"
+                            onChange={(e) => updatePricingRow(i, 'max_included_seats', e.target.value ? parseInt(e.target.value) : null)}
+                          />
+                        </td>
+                        <td className="p-3">
+                          <Input
+                            type="number"
+                            min={0}
+                            className="w-24 h-8"
+                            value={row.additional_member_price_cents / 100}
+                            onChange={(e) => updatePricingRow(i, 'additional_member_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))}
+                          />
+                        </td>
+                        <td className="p-3">
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            className="w-20 h-8"
+                            value={row.discount_pct}
+                            onChange={(e) => updatePricingRow(i, 'discount_pct', parseFloat(e.target.value || '0'))}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-xs text-gray-500">
+                Prices are in euros. "Included Seats" = how many free registrations a sponsor tier gets. Leave blank for unlimited. "Extra Seat" = price per additional member beyond included seats.
+              </p>
+              <div className="flex justify-end gap-3 pt-2">
+                <Button variant="outline" onClick={() => setPricingEventId(null)}>Cancel</Button>
+                <Button onClick={savePricing} disabled={pricingSaving}>
+                  {pricingSaving && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                  Save Pricing
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1288,13 +1477,14 @@ function PartnersAdmin() {
   const [loading, setLoading] = useState(true);
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
   const [typeFilter, setTypeFilter] = useState('all');
+  const [updatingTier, setUpdatingTier] = useState(false);
 
   useEffect(() => { loadPartners(); }, []);
   const loadPartners = async () => {
     setLoading(true);
     const { data } = await supabase
       .from('organizations')
-      .select('id, name, description, logo_url, website, organization_type, country, city, access_status, onboarding_status, owner_user_id')
+      .select('id, name, description, logo_url, website, organization_type, tier, max_seats, country, city, access_status, onboarding_status, owner_user_id')
       .in('organization_type', ['partner', 'media_partner'])
       .order('name');
     setPartners((data || []) as Partner[]);
@@ -1307,11 +1497,43 @@ function PartnersAdmin() {
     loadPartners();
   };
 
+  const updateTier = async (id: string, newTier: string) => {
+    setUpdatingTier(true);
+    // Get max_seats from tier config
+    const { data: tierConfig } = await supabase
+      .from('organization_tier_config')
+      .select('max_seats')
+      .eq('tier', newTier)
+      .single();
+    const maxSeats = tierConfig?.max_seats || 1;
+    const { error } = await supabase
+      .from('organizations')
+      .update({ tier: newTier, max_seats: maxSeats })
+      .eq('id', id);
+    setUpdatingTier(false);
+    if (error) {
+      toast({ title: 'Failed to update tier', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: `Tier updated to ${TIER_LABELS[newTier as OrgTier] || newTier}` });
+      // Update local state
+      if (selectedPartner?.id === id) {
+        setSelectedPartner({ ...selectedPartner, tier: newTier });
+      }
+      loadPartners();
+    }
+  };
+
   const filteredPartners = typeFilter === 'all' ? partners : partners.filter(p => p.organization_type === typeFilter);
 
   const statusBadge = (s: string) => {
     const m: Record<string, string> = { verified: 'bg-green-100 text-green-800', pending: 'bg-yellow-100 text-yellow-800', submitted: 'bg-blue-100 text-blue-800', rejected: 'bg-red-100 text-red-800', suspended: 'bg-gray-100 text-gray-800' };
     return <Badge className={m[s] || 'bg-gray-100 text-gray-800'}>{s}</Badge>;
+  };
+
+  const tierBadge = (tier: string) => {
+    const colors = TIER_COLORS[tier as OrgTier] || TIER_COLORS.member;
+    const label = TIER_LABELS[tier as OrgTier] || tier;
+    return <Badge className={`${colors.bg} ${colors.text} border ${colors.border}`}>{label}</Badge>;
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -1332,6 +1554,7 @@ function PartnersAdmin() {
       <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
         <th className="text-left p-4 font-medium">Name</th>
         <th className="text-left p-4 font-medium">Type</th>
+        <th className="text-left p-4 font-medium">Tier</th>
         <th className="text-left p-4 font-medium">Country</th>
         <th className="text-left p-4 font-medium">Status</th>
         <th className="text-left p-4 font-medium">Actions</th>
@@ -1339,6 +1562,7 @@ function PartnersAdmin() {
         {filteredPartners.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50">
           <td className="p-4"><div className="font-medium">{p.name}</div>{p.website && <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.website}</div>}</td>
           <td className="p-4"><Badge variant="outline">{p.organization_type === 'media_partner' ? 'Media' : 'Partner'}</Badge></td>
+          <td className="p-4">{tierBadge(p.tier)}</td>
           <td className="p-4">{[p.city, p.country].filter(Boolean).join(', ') || '—'}</td>
           <td className="p-4">{statusBadge(p.access_status)}</td>
           <td className="p-4"><div className="flex gap-2">
@@ -1347,11 +1571,11 @@ function PartnersAdmin() {
             {p.access_status === 'verified' && <Button size="sm" variant="outline" className="text-red-600" onClick={() => updateStatus(p.id, 'suspended')}>Suspend</Button>}
           </div></td>
         </tr>))}
-        {filteredPartners.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No partner organizations found</td></tr>}
+        {filteredPartners.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">No partner organizations found</td></tr>}
       </tbody></table></div></CardContent></Card>
       <Dialog open={!!selectedPartner} onOpenChange={() => setSelectedPartner(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Partner Details</DialogTitle><DialogDescription>View partner organization information.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Partner Details</DialogTitle><DialogDescription>View and manage partner organization.</DialogDescription></DialogHeader>
           {selectedPartner && (
             <div className="space-y-4 mt-2">
               <div className="grid grid-cols-2 gap-4">
@@ -1362,10 +1586,242 @@ function PartnersAdmin() {
                 <div><strong>Status:</strong> {selectedPartner.access_status}</div>
                 <div><strong>Onboarding:</strong> {selectedPartner.onboarding_status}</div>
               </div>
+              {/* Tier Assignment */}
+              <div className="border rounded-lg p-4 bg-gray-50 space-y-2">
+                <Label className="font-semibold">Membership Tier</Label>
+                <div className="flex items-center gap-3">
+                  <Select
+                    value={selectedPartner.tier}
+                    onValueChange={(v) => updateTier(selectedPartner.id, v)}
+                    disabled={updatingTier}
+                  >
+                    <SelectTrigger className="w-52"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="innovation_partner">Innovation Partner</SelectItem>
+                      <SelectItem value="associate_partner">Associate Partner</SelectItem>
+                      <SelectItem value="premium_partner">Premium Partner</SelectItem>
+                      <SelectItem value="main_sponsor">Main Sponsor</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {updatingTier && <RefreshCw className="h-4 w-4 animate-spin text-gray-400" />}
+                </div>
+                <p className="text-xs text-gray-500">Changing the tier will update seat limits automatically.</p>
+                {/* Manual seat override */}
+                <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-200">
+                  <Label className="text-sm whitespace-nowrap">Max Seats:</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    className="w-20 h-8"
+                    value={selectedPartner.max_seats}
+                    onChange={(e) => setSelectedPartner({ ...selectedPartner, max_seats: parseInt(e.target.value) || 1 })}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      const { error } = await supabase
+                        .from('organizations')
+                        .update({ max_seats: selectedPartner.max_seats })
+                        .eq('id', selectedPartner.id);
+                      if (error) {
+                        toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+                      } else {
+                        toast({ title: `Seats updated to ${selectedPartner.max_seats}` });
+                        loadPartners();
+                      }
+                    }}
+                  >
+                    Save
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500">Override seat limit when additional payment is confirmed.</p>
+              </div>
               {selectedPartner.website && <div><strong>Website:</strong> <a href={selectedPartner.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{selectedPartner.website}</a></div>}
               {selectedPartner.description && <div><strong>Description:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm">{selectedPartner.description}</p></div>}
               <div className="flex gap-2 pt-2">
                 <Link to={`/organizations/${selectedPartner.id}`} target="_blank"><Button variant="outline" size="sm"><ExternalLink className="h-4 w-4 mr-2" />View Public Page</Button></Link>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/* ─── Sponsorship Requests Admin ─── */
+function SponsorshipRequestsAdmin() {
+  const [requests, setRequests] = useState<SponsorshipRequestRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedReq, setSelectedReq] = useState<SponsorshipRequestRow | null>(null);
+  const [adminNotes, setAdminNotes] = useState('');
+  const [invoiceRef, setInvoiceRef] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  useEffect(() => { loadRequests(); }, []);
+
+  const loadRequests = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('sponsorship_requests')
+      .select('*, organizations:organization_id(name), profiles:requested_by(email)')
+      .order('created_at', { ascending: false });
+    const rows: SponsorshipRequestRow[] = (data || []).map((r: Record<string, unknown>) => ({
+      ...r,
+      org_name: (r.organizations as Record<string, string> | null)?.name || '—',
+      requester_email: (r.profiles as Record<string, string> | null)?.email || '—',
+    })) as SponsorshipRequestRow[];
+    setRequests(rows);
+    setLoading(false);
+  };
+
+  const updateRequestStatus = async (id: string, status: string) => {
+    const updates: Record<string, unknown> = { status };
+    if (status === 'paid') updates.payment_confirmed_at = new Date().toISOString();
+    if (invoiceRef) updates.invoice_reference = invoiceRef;
+    if (adminNotes) updates.admin_notes = adminNotes;
+
+    await supabase.from('sponsorship_requests').update(updates).eq('id', id);
+
+    // If approved, also update the organization tier
+    if (status === 'approved' && selectedReq) {
+      const { data: tierConfig } = await supabase
+        .from('organization_tier_config')
+        .select('max_seats')
+        .eq('tier', selectedReq.requested_tier)
+        .single();
+      await supabase
+        .from('organizations')
+        .update({ tier: selectedReq.requested_tier, max_seats: tierConfig?.max_seats || 5 })
+        .eq('id', selectedReq.organization_id);
+      toast({ title: `Sponsorship approved — tier set to ${TIER_LABELS[selectedReq.requested_tier as OrgTier] || selectedReq.requested_tier}` });
+    } else {
+      toast({ title: `Status updated to ${status}` });
+    }
+    setSelectedReq(null);
+    loadRequests();
+  };
+
+  const filtered = statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter);
+
+  const statusColors: Record<string, string> = {
+    pending: 'bg-yellow-100 text-yellow-800',
+    invoice_sent: 'bg-blue-100 text-blue-800',
+    paid: 'bg-green-100 text-green-800',
+    approved: 'bg-emerald-100 text-emerald-800',
+    rejected: 'bg-red-100 text-red-800',
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Sponsorship Requests ({filtered.length})</h1>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="invoice_sent">Invoice Sent</SelectItem>
+            <SelectItem value="paid">Paid</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">Organization</th>
+        <th className="text-left p-4 font-medium">Current Tier</th>
+        <th className="text-left p-4 font-medium">Requested Tier</th>
+        <th className="text-left p-4 font-medium">Status</th>
+        <th className="text-left p-4 font-medium">Date</th>
+        <th className="text-left p-4 font-medium">Actions</th>
+      </tr></thead><tbody>
+        {filtered.map(r => {
+          const curColors = TIER_COLORS[r.current_tier as OrgTier] || TIER_COLORS.member;
+          const reqColors = TIER_COLORS[r.requested_tier as OrgTier] || TIER_COLORS.member;
+          return (
+            <tr key={r.id} className="border-b hover:bg-gray-50">
+              <td className="p-4">
+                <div className="font-medium">{r.org_name}</div>
+                <div className="text-xs text-gray-500">{r.requester_email}</div>
+              </td>
+              <td className="p-4"><Badge className={`${curColors.bg} ${curColors.text} border ${curColors.border}`}>{TIER_LABELS[r.current_tier as OrgTier] || r.current_tier}</Badge></td>
+              <td className="p-4"><Badge className={`${reqColors.bg} ${reqColors.text} border ${reqColors.border}`}>{TIER_LABELS[r.requested_tier as OrgTier] || r.requested_tier}</Badge></td>
+              <td className="p-4"><Badge className={statusColors[r.status] || 'bg-gray-100 text-gray-800'}>{r.status.replace('_', ' ')}</Badge></td>
+              <td className="p-4 text-gray-500 text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
+              <td className="p-4">
+                <Button size="sm" variant="ghost" onClick={() => { setSelectedReq(r); setAdminNotes(r.admin_notes || ''); setInvoiceRef(r.invoice_reference || ''); }}>
+                  <Eye className="h-4 w-4" />
+                </Button>
+              </td>
+            </tr>
+          );
+        })}
+        {filtered.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">No sponsorship requests found</td></tr>}
+      </tbody></table></div></CardContent></Card>
+
+      {/* Detail / Action Dialog */}
+      <Dialog open={!!selectedReq} onOpenChange={() => setSelectedReq(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sponsorship Request</DialogTitle>
+            <DialogDescription>Review and process this sponsorship upgrade request.</DialogDescription>
+          </DialogHeader>
+          {selectedReq && (
+            <div className="space-y-4 mt-2">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><strong>Organization:</strong> {selectedReq.org_name}</div>
+                <div><strong>Requester:</strong> {selectedReq.requester_email}</div>
+                <div><strong>Current Tier:</strong> {TIER_LABELS[selectedReq.current_tier as OrgTier] || selectedReq.current_tier}</div>
+                <div><strong>Requested Tier:</strong> {TIER_LABELS[selectedReq.requested_tier as OrgTier] || selectedReq.requested_tier}</div>
+                <div><strong>Already Paid:</strong> {selectedReq.amount_already_paid > 0 ? `€${selectedReq.amount_already_paid}` : '—'}</div>
+                <div><strong>Amount Due:</strong> {selectedReq.amount_due ? `€${selectedReq.amount_due}` : 'TBD'}</div>
+                <div><strong>Status:</strong> <Badge className={statusColors[selectedReq.status] || ''}>{selectedReq.status.replace('_', ' ')}</Badge></div>
+                <div><strong>Date:</strong> {new Date(selectedReq.created_at).toLocaleString()}</div>
+              </div>
+              <div className="space-y-2">
+                <Label>Invoice Reference</Label>
+                <Input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="e.g. INV-2026-001" />
+              </div>
+              <div className="space-y-2">
+                <Label>Admin Notes</Label>
+                <Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder="Internal notes..." />
+              </div>
+              {/* Action buttons based on current status */}
+              <div className="flex flex-wrap gap-2 pt-2 border-t">
+                {selectedReq.status === 'pending' && (
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => updateRequestStatus(selectedReq.id, 'invoice_sent')}>
+                      Mark Invoice Sent
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => updateRequestStatus(selectedReq.id, 'rejected')}>
+                      Reject
+                    </Button>
+                  </>
+                )}
+                {selectedReq.status === 'invoice_sent' && (
+                  <>
+                    <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateRequestStatus(selectedReq.id, 'paid')}>
+                      Confirm Payment
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => updateRequestStatus(selectedReq.id, 'rejected')}>
+                      Reject
+                    </Button>
+                  </>
+                )}
+                {selectedReq.status === 'paid' && (
+                  <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => updateRequestStatus(selectedReq.id, 'approved')}>
+                    Approve &amp; Assign Tier
+                  </Button>
+                )}
+                {(selectedReq.status === 'rejected' || selectedReq.status === 'approved') && (
+                  <p className="text-sm text-gray-500 italic">This request has been {selectedReq.status}.</p>
+                )}
               </div>
             </div>
           )}
@@ -1499,6 +1955,170 @@ function WebinarRequestsAdmin() {
 /* ═══════════════════════════════════════════════════════════
    NEW ADMIN SECTIONS
    ═══════════════════════════════════════════════════════════ */
+
+/* ─── Exposition Requests Admin ─── */
+function ExpositionRequestsAdmin() {
+  const [requests, setRequests] = useState<{
+    id: string; organization_id: string; event_id: string; requested_by: string;
+    status: string; admin_notes: string | null; invoice_reference: string | null;
+    amount_due: number | null; payment_confirmed_at: string | null; created_at: string;
+    org_name: string; event_title: string; requester_email: string;
+  }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedReq, setSelectedReq] = useState<typeof requests[0] | null>(null);
+  const [adminNotes, setAdminNotes] = useState('');
+  const [invoiceRef, setInvoiceRef] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  useEffect(() => { loadReqs(); }, []);
+
+  const loadReqs = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from('exposition_requests')
+      .select('*, organizations:organization_id(name), events:event_id(title), profiles:requested_by(email)')
+      .order('created_at', { ascending: false });
+    const rows = (data || []).map((r: Record<string, unknown>) => ({
+      ...r,
+      org_name: (r.organizations as Record<string, string> | null)?.name || '—',
+      event_title: (r.events as Record<string, string> | null)?.title || '—',
+      requester_email: (r.profiles as Record<string, string> | null)?.email || '—',
+    }));
+    setRequests(rows as typeof requests);
+    setLoading(false);
+  };
+
+  const updateReqStatus = async (id: string, status: string) => {
+    const updates: Record<string, unknown> = { status };
+    if (invoiceRef) updates.invoice_reference = invoiceRef;
+    if (adminNotes) updates.admin_notes = adminNotes;
+    if (status === 'paid') updates.payment_confirmed_at = new Date().toISOString();
+
+    await supabase.from('exposition_requests').update(updates).eq('id', id);
+
+    // If paid, auto-create event registration
+    if (status === 'paid' && selectedReq) {
+      await supabase.from('event_registrations').insert({
+        event_id: selectedReq.event_id,
+        user_id: selectedReq.requested_by,
+        organization_id: selectedReq.organization_id,
+        registration_type: 'exhibitor',
+        payment_status: 'paid',
+        amount_due: selectedReq.amount_due || 1400,
+        invoice_reference: invoiceRef || selectedReq.invoice_reference,
+        registered_by: selectedReq.requested_by,
+      });
+    }
+
+    toast({ title: `Status updated to ${status}` });
+    setSelectedReq(null);
+    loadReqs();
+  };
+
+  const filtered = statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter);
+
+  const statusColors: Record<string, string> = {
+    pending: 'bg-yellow-100 text-yellow-800',
+    approved: 'bg-blue-100 text-blue-800',
+    invoice_sent: 'bg-indigo-100 text-indigo-800',
+    paid: 'bg-green-100 text-green-800',
+    rejected: 'bg-red-100 text-red-800',
+  };
+
+  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Exposition Requests ({filtered.length})</h1>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="invoice_sent">Invoice Sent</SelectItem>
+            <SelectItem value="paid">Paid</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
+        <th className="text-left p-4 font-medium">Marina</th>
+        <th className="text-left p-4 font-medium">Event</th>
+        <th className="text-left p-4 font-medium">Status</th>
+        <th className="text-left p-4 font-medium">Amount</th>
+        <th className="text-left p-4 font-medium">Date</th>
+        <th className="text-left p-4 font-medium">Actions</th>
+      </tr></thead><tbody>
+        {filtered.map(r => (
+          <tr key={r.id} className="border-b hover:bg-gray-50">
+            <td className="p-4">
+              <div className="font-medium">{r.org_name}</div>
+              <div className="text-xs text-gray-500">{r.requester_email}</div>
+            </td>
+            <td className="p-4 text-sm">{r.event_title}</td>
+            <td className="p-4"><Badge className={statusColors[r.status] || 'bg-gray-100'}>{r.status.replace('_', ' ')}</Badge></td>
+            <td className="p-4 text-sm">€{r.amount_due || 1400}</td>
+            <td className="p-4 text-sm text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
+            <td className="p-4">
+              <Button size="sm" variant="ghost" onClick={() => { setSelectedReq(r); setAdminNotes(r.admin_notes || ''); setInvoiceRef(r.invoice_reference || ''); }}>
+                <Eye className="h-4 w-4" />
+              </Button>
+            </td>
+          </tr>
+        ))}
+        {filtered.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">No exposition requests found</td></tr>}
+      </tbody></table></div></CardContent></Card>
+
+      <Dialog open={!!selectedReq} onOpenChange={() => setSelectedReq(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Exposition Request</DialogTitle>
+            <DialogDescription>Review and process this marina exhibition request.</DialogDescription>
+          </DialogHeader>
+          {selectedReq && (
+            <div className="space-y-4 mt-2">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><strong>Marina:</strong> {selectedReq.org_name}</div>
+                <div><strong>Event:</strong> {selectedReq.event_title}</div>
+                <div><strong>Requester:</strong> {selectedReq.requester_email}</div>
+                <div><strong>Amount:</strong> €{selectedReq.amount_due || 1400}</div>
+                <div><strong>Status:</strong> <Badge className={statusColors[selectedReq.status] || ''}>{selectedReq.status.replace('_', ' ')}</Badge></div>
+                <div><strong>Date:</strong> {new Date(selectedReq.created_at).toLocaleString()}</div>
+              </div>
+              <div className="space-y-2">
+                <Label>Invoice Reference</Label>
+                <Input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="e.g. INV-2026-001" />
+              </div>
+              <div className="space-y-2">
+                <Label>Admin Notes</Label>
+                <Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} />
+              </div>
+              <div className="flex flex-wrap gap-2 pt-2 border-t">
+                {selectedReq.status === 'pending' && (
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => updateReqStatus(selectedReq.id, 'approved')}>Approve</Button>
+                    <Button size="sm" variant="destructive" onClick={() => updateReqStatus(selectedReq.id, 'rejected')}>Reject</Button>
+                  </>
+                )}
+                {selectedReq.status === 'approved' && (
+                  <Button size="sm" variant="outline" onClick={() => updateReqStatus(selectedReq.id, 'invoice_sent')}>Mark Invoice Sent</Button>
+                )}
+                {selectedReq.status === 'invoice_sent' && (
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateReqStatus(selectedReq.id, 'paid')}>Confirm Payment &amp; Register</Button>
+                )}
+                {(selectedReq.status === 'paid' || selectedReq.status === 'rejected') && (
+                  <p className="text-sm text-gray-500 italic">This request has been {selectedReq.status}.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 /* ─── Partner Requests Admin (B2B Matching) ─── */
 function PartnerRequestsAdmin() {
@@ -1815,6 +2435,8 @@ export function AdminPage() {
           <Route path="/resources" element={<ResourcesAdmin />} />
           <Route path="/events" element={<AdminOnlyGuard><EventsAdmin /></AdminOnlyGuard>} />
           <Route path="/partners" element={<AdminOnlyGuard><PartnersAdmin /></AdminOnlyGuard>} />
+          <Route path="/sponsorships" element={<AdminOnlyGuard><SponsorshipRequestsAdmin /></AdminOnlyGuard>} />
+          <Route path="/expositions" element={<AdminOnlyGuard><ExpositionRequestsAdmin /></AdminOnlyGuard>} />
           <Route path="/projects" element={<AdminOnlyGuard><ProjectsAdmin /></AdminOnlyGuard>} />
           <Route path="/leads" element={<AdminOnlyGuard><LeadsAdmin /></AdminOnlyGuard>} />
           <Route path="/webinars" element={<WebinarRequestsAdmin />} />

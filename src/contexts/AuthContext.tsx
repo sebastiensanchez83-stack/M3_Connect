@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile, UserDetails, Organization, OrgMemberRole } from '@/types/database'
+import { Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile, UserDetails, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 
 interface AuthContextType {
   user: User | null
@@ -14,6 +14,7 @@ interface AuthContextType {
   hasOrganization: boolean
   isVerified: boolean
   isModerator: boolean
+  isSponsor: boolean
   signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => Promise<{ error: Error | null }>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
@@ -39,6 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isVerified = profile?.access_status === 'verified'
   const isModerator = (profile?.persona === 'moderator' || profile?.persona === 'admin') && isVerified
   const hasOrganization = organization !== null
+  const isSponsor = hasOrganization && SPONSOR_TIERS.includes(organization!.tier)
 
   const fetchUserData = useCallback(async (userId: string) => {
     // Step 1: Fetch profile first (needed to determine persona detail table)
@@ -365,7 +367,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, session, loading, profile, userDetails, organization, orgRole, hasOrganization,
-      isVerified, isModerator, signUp, signIn, signOut, refreshProfile
+      isVerified, isModerator, isSponsor, signUp, signIn, signOut, refreshProfile
     }}>
       {children}
     </AuthContext.Provider>

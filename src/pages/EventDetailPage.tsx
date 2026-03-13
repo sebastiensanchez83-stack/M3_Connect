@@ -12,11 +12,12 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import {
   ChevronLeft, Calendar, Clock, MapPin, Users, Play, RefreshCw,
-  Download, DollarSign, UserCheck, AlertCircle, CheckCircle, Loader2,
+  Download, DollarSign, UserCheck, AlertCircle, Loader2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
+import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow';
 
 interface EventDetail {
   id: string;
@@ -41,9 +42,7 @@ export function EventDetailPage() {
   const { user, profile, isVerified } = useAuth();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isRegistered, setIsRegistered] = useState(false);
   const [registrationCount, setRegistrationCount] = useState(0);
-  const [registering, setRegistering] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
 
@@ -69,77 +68,18 @@ export function EventDetailPage() {
     fetchEvent();
   }, [id]);
 
-  // Check registration status
+  // Fetch registration count for capacity display
   useEffect(() => {
-    if (!id || !user) return;
-    const checkRegistration = async () => {
-      const [regRes, countRes] = await Promise.all([
-        supabase
-          .from('event_registrations')
-          .select('id')
-          .eq('event_id', id)
-          .eq('user_id', user.id)
-          .maybeSingle(),
-        supabase
-          .from('event_registrations')
-          .select('*', { count: 'exact', head: true })
-          .eq('event_id', id),
-      ]);
-      setIsRegistered(!!regRes.data);
-      setRegistrationCount(countRes.count || 0);
-    };
-    checkRegistration();
-  }, [id, user]);
-
-  const handleRegister = async () => {
-    if (!user) {
-      setLoginOpen(true);
-      return;
-    }
-    if (!profileComplete) {
-      toast({
-        title: t('events.profileRequired', 'Complete your profile'),
-        description: t('events.profileRequiredDesc', 'You need to complete and verify your profile before registering for events.'),
-        variant: 'destructive',
-      });
-      navigate('/onboarding');
-      return;
-    }
     if (!id) return;
-    setRegistering(true);
-    const { error } = await supabase
-      .from('event_registrations')
-      .insert({ event_id: id, user_id: user.id });
-
-    if (error) {
-      console.error('Registration error:', error);
-      toast({ title: t('common.error'), description: error.message, variant: 'destructive' });
-    } else {
-      setIsRegistered(true);
-      setRegistrationCount((c) => c + 1);
-      toast({ title: t('events.registered', 'Registration confirmed!') });
-    }
-    setRegistering(false);
-  };
-
-  const handleCancelRegistration = async () => {
-    if (!id || !user) return;
-    setRegistering(true);
-    const { error } = await supabase
-      .from('event_registrations')
-      .delete()
-      .eq('event_id', id)
-      .eq('user_id', user.id);
-
-    if (error) {
-      toast({ title: t('common.error'), description: error.message, variant: 'destructive' });
-    } else {
-      setIsRegistered(false);
-      setRegistrationCount((c) => Math.max(0, c - 1));
-      toast({ title: t('events.unregistered', 'Registration cancelled') });
-    }
-    setRegistering(false);
-  };
+    const fetchCount = async () => {
+      const { count } = await supabase
+        .from('event_registrations')
+        .select('*', { count: 'exact', head: true })
+        .eq('event_id', id);
+      setRegistrationCount(count || 0);
+    };
+    fetchCount();
+  }, [id]);
 
   const getAccessBadge = (level: string) => {
     switch (level) {
@@ -309,7 +249,7 @@ export function EventDetailPage() {
           <div className="space-y-6">
             {/* Registration Card */}
             {!isPast && (
-              <Card className="sticky top-20">
+              <Card className="sticky top-20 rounded-2xl shadow-md border-0 overflow-hidden">
                 <CardContent className="pt-6 space-y-4">
                   <h3 className="font-semibold text-lg">{t('events.register', 'Register')}</h3>
 
@@ -329,24 +269,8 @@ export function EventDetailPage() {
                     )}
                   </div>
 
-                  {/* Registration Button */}
-                  {isRegistered ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 text-green-600 bg-green-50 p-3 rounded-lg">
-                        <CheckCircle className="h-5 w-5" />
-                        <span className="font-medium">{t('events.youAreRegistered', "You're registered!")}</span>
-                      </div>
-                      <Button
-                        variant="outline"
-                        className="w-full"
-                        onClick={handleCancelRegistration}
-                        disabled={registering}
-                      >
-                        {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                        {t('events.cancelRegistration', 'Cancel Registration')}
-                      </Button>
-                    </div>
-                  ) : isFull ? (
+                  {/* Registration Flow */}
+                  {isFull ? (
                     <div className="flex items-center gap-2 text-amber-600 bg-amber-50 p-3 rounded-lg">
                       <AlertCircle className="h-5 w-5" />
                       <span className="font-medium">{t('events.eventFull', 'This event is full')}</span>
@@ -361,14 +285,19 @@ export function EventDetailPage() {
                         {t('events.completeProfile', 'Complete Profile')}
                       </Button>
                     </div>
+                  ) : user && profileComplete ? (
+                    <EventRegistrationFlow
+                      eventId={event.id}
+                      onRegistrationChange={(_reg, count) => {
+                        setRegistrationCount(count);
+                      }}
+                    />
                   ) : (
                     <Button
                       className="w-full"
-                      onClick={handleRegister}
-                      disabled={registering}
+                      onClick={() => setLoginOpen(true)}
                     >
-                      {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                      {user ? t('events.registerNow', 'Register Now') : t('events.loginToRegister', 'Log in to Register')}
+                      {t('events.loginToRegister', 'Log in to Register')}
                     </Button>
                   )}
                 </CardContent>
@@ -395,7 +324,7 @@ export function EventDetailPage() {
 
       {/* Login Dialog */}
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
             <DialogTitle>{t('auth.login')}</DialogTitle>
             <DialogDescription>
@@ -411,7 +340,7 @@ export function EventDetailPage() {
 
       {/* Signup Dialog */}
       <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle>{t('auth.signup')}</DialogTitle>
             <DialogDescription>

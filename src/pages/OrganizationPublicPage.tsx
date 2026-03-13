@@ -19,7 +19,8 @@ import {
   Loader2, ExternalLink, Anchor, Newspaper, Ship, Droplets,
   CheckCircle, GraduationCap, Wrench, UtensilsCrossed, Sparkles, Link2,
 } from 'lucide-react';
-import { Organization, OrganizationMember, OrganizationMarinaDetails, Sector } from '@/types/database';
+import { Organization, OrganizationMember, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
+import { SponsorBadge } from '@/components/ui/SponsorBadge';
 
 export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -42,11 +43,18 @@ export function OrganizationPublicPage() {
     if (!slug) return;
     const fetchOrg = async () => {
       setLoading(true);
-      const { data: orgData } = await supabase
+      try {
+      const { data: orgData, error: orgError } = await supabase
         .from('organizations')
         .select('*')
         .eq('slug', slug)
         .single();
+
+      if (orgError) {
+        console.error('Error fetching organization:', orgError);
+        setLoading(false);
+        return;
+      }
 
       if (orgData) {
         const o = orgData as Organization;
@@ -71,10 +79,10 @@ export function OrganizationPublicPage() {
           if (marinaData) setMarinaDetails(marinaData as OrganizationMarinaDetails);
         }
 
-        // Fetch sectors (interest for marinas, service for partners)
+        // Fetch sectors (interest for marinas, service for partners/media)
         const sectorTable = o.organization_type === 'marina'
           ? 'organization_interest_sectors'
-          : o.organization_type === 'partner'
+          : (o.organization_type === 'partner' || o.organization_type === 'media_partner')
           ? 'organization_service_sectors'
           : null;
 
@@ -110,6 +118,9 @@ export function OrganizationPublicPage() {
           }
         }
       }
+      } catch (err) {
+        console.error('Error loading organization:', err);
+      }
       setLoading(false);
     };
     fetchOrg();
@@ -132,13 +143,13 @@ export function OrganizationPublicPage() {
   }, [user, org]);
 
   const handleSendConnectRequest = async () => {
-    if (!user || !org) return;
+    if (!user || !org || !org.owner_user_id) return;
     setConnectSending(true);
     try {
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
         marina_user_id: org.owner_user_id,
-        message: connectMessage.trim(),
+        message: connectMessage.trim() || null,
         status: 'pending',
       });
       if (error) throw error;
@@ -147,9 +158,10 @@ export function OrganizationPublicPage() {
       setConnectMessage('');
       setHasExistingRequest(true);
     } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+      toast({ title: 'Error', description: err.message || 'An unexpected error occurred.', variant: 'destructive' });
+    } finally {
+      setConnectSending(false);
     }
-    setConnectSending(false);
   };
 
   const isMemberOfThisOrg = organization?.id === org?.id;
@@ -217,15 +229,18 @@ export function OrganizationPublicPage() {
           </Link>
           <div className="flex items-start gap-6">
             {/* Org Avatar */}
-            <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+            <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center shrink-0 shadow-lg">
               {org.logo_url ? (
-                <img src={org.logo_url} alt={org.name} className="w-full h-full rounded-xl object-cover" />
+                <img src={org.logo_url} alt={org.name} className="w-full h-full rounded-2xl object-cover" />
               ) : (
                 <Building2 className="h-10 w-10 lg:h-12 lg:w-12 text-white/70" />
               )}
             </div>
             <div>
-              <h1 className="text-3xl lg:text-4xl font-bold mb-2">{org.name}</h1>
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-3xl lg:text-4xl font-bold">{org.name}</h1>
+                <SponsorBadge tier={org.tier as OrgTier} size="lg" />
+              </div>
               <div className="flex flex-wrap items-center gap-3 text-white/80">
                 {orgTypeLabel && (
                   <Badge variant="outline" className="border-white/30 text-white">
@@ -314,7 +329,7 @@ export function OrganizationPublicPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h2 className="text-lg font-semibold text-gray-900 mb-3">
-                      {org.organization_type === 'marina' ? 'Sectors of Interest' : 'Service Sectors'}
+                      {org.organization_type === 'marina' ? 'Sectors of Interest' : org.organization_type === 'media_partner' ? 'Coverage Areas' : 'Service Sectors'}
                     </h2>
                     <div className="flex flex-wrap gap-2">
                       {sectors.map((s) => (
@@ -563,9 +578,9 @@ export function OrganizationPublicPage() {
                 const jobTitle = member.profiles?.job_title;
                 return (
                   <Link key={member.id} to={`/users/${member.user_id}`}>
-                    <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                    <Card className="hover:shadow-md transition-all duration-200 cursor-pointer rounded-2xl border-0 shadow-sm">
                       <CardContent className="pt-6 text-center">
-                        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
+                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/10 to-teal-500/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
                           {initials || '??'}
                         </div>
                         <h3 className="font-semibold text-gray-900 mb-1">{displayName}</h3>
@@ -587,7 +602,7 @@ export function OrganizationPublicPage() {
 
       {/* Connect Request Dialog */}
       <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md rounded-2xl">
           <DialogHeader>
             <DialogTitle>Request to Connect</DialogTitle>
             <DialogDescription>Send a connection request to {org?.name}.</DialogDescription>

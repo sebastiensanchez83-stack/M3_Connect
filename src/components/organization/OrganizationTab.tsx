@@ -18,11 +18,15 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Organization, OrganizationMember, OrganizationInvitation, OrganizationMarinaDetails, Sector,
+  TIER_LABELS, OrgTier,
 } from '@/types/database';
 import {
   Building2, Users, Mail, Crown, UserPlus, Loader2, ExternalLink,
   Trash2, LogOut, ArrowRightLeft, Globe, MapPin, Shield, CheckCircle, Clock, XCircle,
+  ArrowUpCircle,
 } from 'lucide-react';
+import { SponsorBadge } from '@/components/ui/SponsorBadge';
+import { isSponsorTier } from '@/types/database';
 
 const timelineOptions = [
   { value: 'immediate', label: 'Immediate' },
@@ -80,6 +84,33 @@ export function OrganizationTab() {
   const [allSectors, setAllSectors] = useState<Sector[]>([]);
   const [interestSectors, setInterestSectors] = useState<string[]>([]);
   const [futurePlans, setFuturePlans] = useState<Record<string, string>>({});
+
+  // Sponsorship upgrade dialog
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [upgradeSubmitting, setUpgradeSubmitting] = useState(false);
+  const [upgradeTier, setUpgradeTier] = useState('innovation_partner');
+
+  const handleUpgradeRequest = async () => {
+    if (!org || !user) return;
+    setUpgradeSubmitting(true);
+    try {
+      const { error } = await supabase.from('sponsorship_requests').insert({
+        organization_id: org.id,
+        requested_by: user.id,
+        requested_tier: upgradeTier,
+        current_tier: org.tier,
+        amount_already_paid: org.tier === 'member' ? 500 : 0,
+      });
+      if (error) throw error;
+      toast({ title: 'Sponsorship request submitted', description: 'M3 will contact you with details about the selected package.' });
+      setUpgradeOpen(false);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      toast({ title: 'Error', description: message, variant: 'destructive' });
+    } finally {
+      setUpgradeSubmitting(false);
+    }
+  };
 
   const fetchOrg = useCallback(async () => {
     if (!user) return;
@@ -324,6 +355,19 @@ export function OrganizationTab() {
 
   const handleInvite = async () => {
     if (!org || !inviteForm.email.trim()) return;
+
+    // Capacity check — block invite if at max_seats
+    const totalOccupied = members.length + invitations.length;
+    if (org.max_seats && totalOccupied >= org.max_seats) {
+      const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];
+      toast({
+        title: 'Team capacity reached',
+        description: `Your ${tierLabel} plan includes ${org.max_seats} seat${org.max_seats > 1 ? 's' : ''}. Contact M3 to add additional seats.`,
+        variant: 'destructive',
+      });
+      return;
+    }
+
     // Domain check — skip for marina orgs (marinas use personal emails, invite-only)
     const inviteDomain = inviteForm.email.split('@')[1]?.toLowerCase();
     if (org.primary_domain && org.organization_type !== 'marina' && inviteDomain !== org.primary_domain) {
@@ -538,10 +582,13 @@ export function OrganizationTab() {
               </div>
             )}
             <div>
-              <CardTitle className="text-xl">{org.name}</CardTitle>
+              <div className="flex items-center gap-2">
+                <CardTitle className="text-xl">{org.name}</CardTitle>
+                <SponsorBadge tier={org.tier as OrgTier} />
+              </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline">{t(`org.${isOwner ? 'owner' : 'collaborator'}`)}</Badge>
-                <Badge variant="secondary">{org.tier.charAt(0).toUpperCase() + org.tier.slice(1)}</Badge>
+                <Badge variant="secondary">{TIER_LABELS[org.tier as OrgTier] || org.tier}</Badge>
                 {org.access_status === 'verified' && (
                   <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3 mr-1" />{t('org.statusVerified', 'Verified')}</Badge>
                 )}
@@ -570,6 +617,12 @@ export function OrganizationTab() {
             {isOwner && (
               <Button variant="outline" size="sm" onClick={() => setEditing(!editing)}>
                 {t('org.editOrg')}
+              </Button>
+            )}
+            {isOwner && org.access_status === 'verified' && !isSponsorTier(org.tier as OrgTier) && (
+              <Button size="sm" className="bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700" onClick={() => setUpgradeOpen(true)}>
+                <ArrowUpCircle className="h-4 w-4 mr-1" />
+                Upgrade to Sponsor
               </Button>
             )}
           </div>
@@ -835,12 +888,41 @@ export function OrganizationTab() {
       {/* Members */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-primary" />
-            {t('org.members')} ({members.length})
-          </CardTitle>
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              {t('org.members')}
+            </CardTitle>
+            {/* Seat counter */}
+            {org.max_seats > 0 && (
+              <div className="mt-2 flex items-center gap-2">
+                <div className="flex-1 max-w-[160px] h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      members.length >= org.max_seats ? 'bg-red-500' : members.length >= org.max_seats * 0.8 ? 'bg-amber-500' : 'bg-primary'
+                    }`}
+                    style={{ width: `${Math.min(100, (members.length / org.max_seats) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-xs text-gray-500">
+                  {members.length} / {org.max_seats} seats
+                </span>
+              </div>
+            )}
+            {org.max_seats > 0 && members.length >= org.max_seats && (
+              <p className="text-xs text-amber-600 mt-1">
+                {isSponsorTier((org.tier || 'member') as OrgTier)
+                  ? 'Contact M3 to request additional seats.'
+                  : 'Additional team members cost €250 each. Contact M3 to add seats.'}
+              </p>
+            )}
+          </div>
           {canInvite && (
-            <Button size="sm" onClick={() => setInviteOpen(true)}>
+            <Button
+              size="sm"
+              onClick={() => setInviteOpen(true)}
+              disabled={org.max_seats > 0 && (members.length + invitations.length) >= org.max_seats}
+            >
               <UserPlus className="h-4 w-4 mr-1" />
               {t('org.inviteMember')}
             </Button>
@@ -1023,6 +1105,48 @@ export function OrganizationTab() {
               {transferring && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {t('org.transferOwnership')}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upgrade to Sponsor Dialog */}
+      <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Upgrade to Sponsor</DialogTitle>
+            <DialogDescription>
+              Submit a sponsorship request to M3 Monaco. Our team will contact you with details about the selected package. Your current membership fee (€500) will be deducted from the sponsor package price.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="space-y-2">
+              <Label>Select Sponsor Level</Label>
+              <Select value={upgradeTier} onValueChange={setUpgradeTier}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="innovation_partner">Innovation Partner</SelectItem>
+                  <SelectItem value="associate_partner">Associate Partner</SelectItem>
+                  <SelectItem value="premium_partner">Premium Partner</SelectItem>
+                  <SelectItem value="main_sponsor">Main Sponsor</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+              <p className="font-medium mb-1">How it works:</p>
+              <ol className="list-decimal ml-4 space-y-1 text-blue-700">
+                <li>Submit your sponsorship request</li>
+                <li>M3 team will contact you with pricing details</li>
+                <li>Receive an invoice (€500 deducted)</li>
+                <li>Once payment is confirmed, your tier is upgraded</li>
+              </ol>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="outline" onClick={() => setUpgradeOpen(false)}>Cancel</Button>
+              <Button onClick={handleUpgradeRequest} disabled={upgradeSubmitting} className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
+                {upgradeSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                Submit Request
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

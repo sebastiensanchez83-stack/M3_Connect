@@ -556,11 +556,11 @@ export function PreAuditTab() {
                 ))}
 
                 <div className="pt-3 space-y-2">
-                  <Button className="w-full" size="sm">
+                  <Button className="w-full" size="sm" onClick={() => window.open('mailto:contact@m3connect.mc?subject=Full%20S3%20Audit%20Request', '_blank')}>
                     <Anchor className="h-4 w-4 mr-2" />
                     Request a full S3 audit
                   </Button>
-                  <Button variant="outline" className="w-full" size="sm">
+                  <Button variant="outline" className="w-full" size="sm" onClick={() => window.open('mailto:contact@m3connect.mc?subject=S3%20Roadmap%20Discussion', '_blank')}>
                     Discuss your S3 roadmap with M3
                   </Button>
                 </div>

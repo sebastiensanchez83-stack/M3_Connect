@@ -17,10 +17,10 @@ export function Footer() {
             </div>
             <p className="text-gray-300 mb-4">{t('footer.tagline')}</p>
             <div className="flex space-x-4">
-              <a href="#" className="text-gray-300 hover:text-white transition-colors">
+              <a href="https://www.linkedin.com/company/monaco-marina-management" target="_blank" rel="noopener noreferrer" className="text-gray-300 hover:text-white transition-colors" aria-label="LinkedIn">
                 <Linkedin className="h-5 w-5" />
               </a>
-              <a href="#" className="text-gray-300 hover:text-white transition-colors">
+              <a href="https://x.com/M3Monaco" target="_blank" rel="noopener noreferrer" className="text-gray-300 hover:text-white transition-colors" aria-label="X (Twitter)">
                 <Twitter className="h-5 w-5" />
               </a>
             </div>

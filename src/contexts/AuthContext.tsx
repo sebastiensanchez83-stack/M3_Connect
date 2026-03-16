@@ -267,6 +267,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setSession(newSession)
             setUser(newSession.user)
             currentUserIdRef.current = newSession.user.id
+            // If profile is null (e.g. initial fetch timed out), re-fetch
+            setProfile((currentProfile) => {
+              if (!currentProfile && newSession?.user) {
+                // Schedule a profile re-fetch outside of the setState
+                setTimeout(() => {
+                  if (mountedRef.current) handleSession(newSession, false)
+                }, 0)
+              }
+              return currentProfile
+            })
           } else {
             // Token refresh returned no session — session is truly expired
             console.warn('[AuthContext] Token refresh failed — clearing session')

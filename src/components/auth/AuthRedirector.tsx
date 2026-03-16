@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 const publicExactRoutes = new Set<string>([
   '/', '/reset-password', '/about', '/contact', '/privacy', '/terms',
   '/resources', '/events', '/partners', '/become-partner', '/marketplace',
+  '/mentions-legales', '/conditions-commerciales', '/cookies',
 ])
 
 // Public route prefixes (dynamic routes accessible without auth)

@@ -27,6 +27,7 @@ import { TermsPage } from '@/pages/TermsPage';
 import { MentionsLegalesPage } from '@/pages/MentionsLegalesPage';
 import { ConditionsCommercialesPage } from '@/pages/ConditionsCommercialesPage';
 import { CookiePolicyPage } from '@/pages/CookiePolicyPage';
+import { NotFoundPage } from '@/pages/NotFoundPage';
 
 function App() {
   return (
@@ -60,6 +61,7 @@ function App() {
           <Route path="/mentions-legales" element={<MentionsLegalesPage />} />
           <Route path="/conditions-commerciales" element={<ConditionsCommercialesPage />} />
           <Route path="/cookies" element={<CookiePolicyPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </main>
       <Footer />

@@ -33,7 +33,8 @@ export function EventsPage() {
 
   useEffect(() => {
     fetchEvents();
-  }, []);
+    if (user) fetchRegisteredEvents();
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchEvents = async () => {
     setLoading(true);
@@ -43,12 +44,20 @@ export function EventsPage() {
       .order('date_time', { ascending: true });
 
     if (error) {
-      console.error('Error fetching events:', error);
-      toast({ title: 'Error loading events', variant: 'destructive' });
+      toast({ title: t('events.errorLoading', 'Error loading events'), variant: 'destructive' });
     } else {
       setEvents(data || []);
     }
     setLoading(false);
+  };
+
+  const fetchRegisteredEvents = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('event_registrations')
+      .select('event_id')
+      .eq('user_id', user.id);
+    if (data) setRegisteredEvents(data.map(r => r.event_id));
   };
 
   const now = new Date();
@@ -92,6 +101,30 @@ export function EventsPage() {
       setRegisteredEvents(prev => [...prev, eventId]);
       toast({ title: t('events.registrationSuccess') });
     }
+  };
+
+  const handleAddToCalendar = (event: Event) => {
+    const start = new Date(event.date_time);
+    const end = new Date(start.getTime() + 60 * 60 * 1000); // default 1h duration
+    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const icsContent = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//M3 Connect//EN', 'BEGIN:VEVENT',
+      `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
+      `SUMMARY:${event.title}`,
+      `DESCRIPTION:${(event.description || '').replace(/\n/g, '\\n')}`,
+      event.location ? `LOCATION:${event.location}` : '',
+      'END:VEVENT', 'END:VCALENDAR',
+    ].filter(Boolean).join('\r\n');
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${event.title.replace(/[^a-zA-Z0-9]/g, '_')}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast({ title: t('events.calendarDownloaded', 'Calendar file downloaded') });
   };
 
   const getAccessBadge = (level: string) => {
@@ -157,7 +190,11 @@ export function EventsPage() {
                 {/* Stop propagation so button clicks don't trigger card navigation */}
                 <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
                   {isPast && event.replay_url ? (
-                    <Button size="sm" disabled={!hasAccess}>
+                    <Button
+                      size="sm"
+                      disabled={!hasAccess}
+                      onClick={() => { if (hasAccess && event.replay_url) window.open(event.replay_url, '_blank'); }}
+                    >
                       <Play className="h-4 w-4 mr-2" />{t('events.watchReplay')}
                     </Button>
                   ) : (
@@ -171,7 +208,7 @@ export function EventsPage() {
                     </Button>
                   )}
                   {!isPast && (
-                    <Button size="sm" variant="outline">
+                    <Button size="sm" variant="outline" onClick={() => handleAddToCalendar(event)}>
                       <CalendarPlus className="h-4 w-4 mr-2" />{t('events.addToCalendar')}
                     </Button>
                   )}

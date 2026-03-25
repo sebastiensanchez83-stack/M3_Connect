@@ -28,3 +28,9 @@ npm-debug.log*
 
 # Claude Code
 .claude/
+
+# RuFlo runtime data (sessions, logs, memory)
+.claude-flow/
+.swarm/
+.mcp.json
+CLAUDE.md

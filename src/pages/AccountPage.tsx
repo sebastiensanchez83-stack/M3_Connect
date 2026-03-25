@@ -419,7 +419,7 @@ export function AccountPage() {
       )}
 
       <Tabs value={activeTab} onValueChange={(val) => navigate(`/account?tab=${val}`, { replace: true })}>
-        <TabsList className="mb-6 flex-wrap">
+        <TabsList className="mb-6 flex-nowrap overflow-x-auto w-full justify-start">
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="organization" className="flex items-center">{t('org.tabTitle')}<NotifDot show={orgNeedsAction} /></TabsTrigger>
           <TabsTrigger value="profile">Profile</TabsTrigger>
@@ -904,6 +904,21 @@ export function AccountPage() {
                           {req.moderator_notes}
                         </div>
                       )}
+                      {req.status === 'submitted' && (
+                        <div className="flex gap-2 pt-1">
+                          <Button variant="outline" size="sm" onClick={() => navigate(`/request-webinar?edit=${req.id}`)}>
+                            Modifier
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
+                            if (!confirm('Retirer cette demande de webinar ?')) return;
+                            await supabase.from('webinar_requests').delete().eq('id', req.id);
+                            setWebinarRequests(prev => prev.filter(r => r.id !== req.id));
+                            toast({ title: 'Demande supprimée' });
+                          }}>
+                            <X className="h-4 w-4 mr-1" />Retirer
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -951,6 +966,24 @@ export function AccountPage() {
                           {rfp.deadline_date && `Échéance : ${new Date(rfp.deadline_date).toLocaleDateString('fr-FR')} · `}
                           Créé le {new Date(rfp.created_at).toLocaleDateString('fr-FR')}
                         </div>
+                        <div className="flex gap-2 pt-1">
+                          <Button variant="outline" size="sm" onClick={async () => {
+                            const newOpen = !rfp.is_open;
+                            await supabase.from('rfps').update({ is_open: newOpen }).eq('id', rfp.id);
+                            setRfps(prev => prev.map(r => r.id === rfp.id ? { ...r, is_open: newOpen } : r));
+                            toast({ title: newOpen ? 'RFP rouvert' : 'RFP fermé' });
+                          }}>
+                            {rfp.is_open ? 'Fermer' : 'Rouvrir'}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
+                            if (!confirm('Supprimer ce RFP ?')) return;
+                            await supabase.from('rfps').delete().eq('id', rfp.id);
+                            setRfps(prev => prev.filter(r => r.id !== rfp.id));
+                            toast({ title: 'RFP supprimé' });
+                          }}>
+                            <X className="h-4 w-4 mr-1" />Supprimer
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -997,6 +1030,24 @@ export function AccountPage() {
                         <p className="text-sm text-gray-600 line-clamp-2">{c.description}</p>
                         <div className="text-sm text-gray-500">
                           Créée le {new Date(c.created_at).toLocaleDateString('fr-FR')}
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <Button variant="outline" size="sm" onClick={async () => {
+                            const newOpen = !c.is_open;
+                            await supabase.from('consultations').update({ is_open: newOpen }).eq('id', c.id);
+                            setConsultations(prev => prev.map(x => x.id === c.id ? { ...x, is_open: newOpen } : x));
+                            toast({ title: newOpen ? 'Consultation rouverte' : 'Consultation fermée' });
+                          }}>
+                            {c.is_open ? 'Fermer' : 'Rouvrir'}
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
+                            if (!confirm('Supprimer cette consultation ?')) return;
+                            await supabase.from('consultations').delete().eq('id', c.id);
+                            setConsultations(prev => prev.filter(x => x.id !== c.id));
+                            toast({ title: 'Consultation supprimée' });
+                          }}>
+                            <X className="h-4 w-4 mr-1" />Supprimer
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -1171,11 +1222,6 @@ export function AccountPage() {
                 )}
               </div>
             )}
-
-            {/* Contact info */}
-            <div className="flex items-center gap-2 text-sm text-gray-500 justify-center">
-              <span>{user.email}</span>
-            </div>
 
             <div className="flex justify-center pt-2">
               <Button variant="outline" size="sm" onClick={() => setPreviewOpen(false)}>

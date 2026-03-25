@@ -207,6 +207,15 @@ export function MarketplacePage() {
           member_count: memberCountMap[o.id] || 0,
         }));
 
+        // Sort by sponsorship tier (highest first), then alphabetically
+        const tierOrder: Record<string, number> = { main_sponsor: 0, premium_partner: 1, associate_partner: 2, innovation_partner: 3, member: 4 };
+        cards.sort((a, b) => {
+          const aOrder = tierOrder[a.tier] ?? 5;
+          const bOrder = tierOrder[b.tier] ?? 5;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return a.name.localeCompare(b.name);
+        });
+
         setOrgs(cards);
       } catch (err) {
         console.error('Error fetching organizations:', err);

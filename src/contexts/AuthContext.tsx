@@ -209,6 +209,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // First event on page load. Replaces the old init()/getSession().
         if (event === 'INITIAL_SESSION') {
           initializedRef.current = true
+          if (!newSession) {
+            // Session is null — could be genuinely logged out, or the auth
+            // lock timed out (multi-tab). Check localStorage for a token
+            // and retry after a short delay if one exists.
+            const storageKey = `sb-${new URL(import.meta.env.VITE_SUPABASE_URL || '').hostname.split('.')[0]}-auth-token`
+            const stored = localStorage.getItem(storageKey)
+            if (stored) {
+              // Token exists in storage — lock contention likely. Retry.
+              console.warn('[AuthContext] INITIAL_SESSION null but token in storage — retrying in 2s')
+              setTimeout(async () => {
+                if (!mountedRef.current) return
+                const { data: { session: retrySession } } = await supabase.auth.getSession()
+                if (retrySession && mountedRef.current) {
+                  await handleSession(retrySession, true)
+                } else if (mountedRef.current) {
+                  // Genuinely no session
+                  await handleSession(null, true)
+                }
+              }, 2000)
+              return
+            }
+          }
           await handleSession(newSession, true)
           return
         }

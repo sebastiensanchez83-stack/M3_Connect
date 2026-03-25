@@ -160,7 +160,7 @@ export function SubmitProjectPage() {
               <Label htmlFor="consent" className="font-normal text-sm">{t('submitProject.consent')}</Label>
             </div>
 
-            <Button type="submit" className="w-full" disabled={loading}>
+            <Button type="submit" className="w-full" disabled={loading || !consent}>
               {loading ? t('common.loading') : t('submitProject.submit')}
             </Button>
           </form>

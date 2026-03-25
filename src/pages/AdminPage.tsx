@@ -839,7 +839,18 @@ function UsersAdmin() {
               </div>
             </td>
             <td className="p-4 text-sm text-gray-700">{getOrgName(user) || <span className="text-gray-400">—</span>}</td>
-            <td className="p-4">{getPersonaBadge(user.persona)}</td>
+            <td className="p-4">
+              <Select value={user.persona} onValueChange={(v) => { if (v !== user.persona) handleChangePersona(user.user_id, v); }}>
+                <SelectTrigger className="w-36 h-8 text-xs" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="marina">Marina</SelectItem>
+                  <SelectItem value="partner">Partner</SelectItem>
+                  <SelectItem value="media_partner">Media Partner</SelectItem>
+                  <SelectItem value="moderator">Moderator</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </td>
             <td className="p-4 text-sm capitalize">{user.onboarding_status}</td>
             <td className="p-4">
               <Select value={user.access_status} onValueChange={(v) => { v !== user.access_status && updateUserStatus(user.user_id, v); }}>
@@ -902,10 +913,32 @@ function UsersAdmin() {
                 )}
               </div>
 
-              {/* Persona-specific details */}
+              {/* Organization details */}
               {detailLoading ? (
                 <div className="flex justify-center py-4"><RefreshCw className="h-5 w-5 animate-spin text-gray-400" /></div>
               ) : detailData && (
+                <>
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm text-gray-700">Organization Info</h4>
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <DetailRow label="Name" value={detailData.name as string} />
+                    <DetailRow label="Type" value={detailData.organization_type as string} />
+                    <DetailRow label="Tier" value={detailData.tier as string} />
+                    <DetailRow label="Country" value={detailData.country as string} />
+                    <DetailRow label="City" value={detailData.city as string} />
+                    <DetailRow label="Website" value={detailData.website ? <a href={detailData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{detailData.website as string}</a> : null} />
+                    <DetailRow label="Status" value={detailData.access_status as string} />
+                    {typeof detailData.description === 'string' && detailData.description && <DetailRow label="Description" value={<span className="line-clamp-3">{detailData.description}</span>} />}
+                    {selectedUser.org_id && (
+                      <div className="mt-2"><Link to={`/organizations/${selectedUser.org_id}`} target="_blank" className="text-xs text-primary hover:underline flex items-center gap-1"><ExternalLink className="h-3 w-3" />View public page</Link></div>
+                    )}
+                  </div>
+                </div>
+                </>
+              )}
+
+              {/* Persona-specific details */}
+              {!detailLoading && detailData && (
                 <div className="space-y-3">
                   <h4 className="font-semibold text-sm text-gray-700">
                     {selectedUser.persona === 'marina' ? t('admin.userDetail.marinaInfo')
@@ -1947,7 +1980,30 @@ function WebinarRequestsAdmin() {
     }
     setLoading(false);
   };
-  const updateStatus = async (id: string, status: string) => { await supabase.from('webinar_requests').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id); toast({ title: `Status: ${status}` }); loadRequests(); };
+  const updateStatus = async (id: string, status: string) => {
+    await supabase.from('webinar_requests').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id);
+    // When accepted, auto-create an event from the webinar request
+    if (status === 'accepted') {
+      const req = requests.find(r => r.id === id);
+      if (req) {
+        const { error: eventErr } = await supabase.from('events').insert({
+          title: req.title,
+          description: req.description || '',
+          event_type: 'webinar',
+          language: req.preferred_language || 'EN',
+          access_level: 'members',
+        });
+        if (eventErr) {
+          toast({ title: 'Webinar accepted but event creation failed', description: eventErr.message, variant: 'destructive' });
+        } else {
+          toast({ title: 'Webinar accepted & event created' });
+        }
+        loadRequests();
+        return;
+      }
+    }
+    toast({ title: `Status: ${status}` }); loadRequests();
+  };
   const saveNotes = async () => { if (!selected) return; await supabase.from('webinar_requests').update({ moderator_notes: moderatorNotes.trim() || null }).eq('id', selected.id); toast({ title: 'Notes saved' }); setSelected(null); loadRequests(); };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;

@@ -63,7 +63,7 @@ export function OrganizationPublicPage() {
         // Fetch members with job_title
         const { data: membersData } = await supabase
           .from('organization_members')
-          .select('id, organization_id, user_id, role, joined_at, profiles(first_name, last_name, email, persona, job_title)')
+          .select('id, organization_id, user_id, role, joined_at, profiles(first_name, last_name, email, persona, job_title, avatar_url)')
           .eq('organization_id', o.id)
           .order('joined_at', { ascending: true });
 
@@ -576,13 +576,18 @@ export function OrganizationPublicPage() {
                   ? fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
                   : displayName.slice(0, 2).toUpperCase();
                 const jobTitle = member.profiles?.job_title;
+                const avatarUrl = (member.profiles as Record<string, unknown> | null)?.avatar_url as string | null;
                 return (
                   <Link key={member.id} to={`/users/${member.user_id}`}>
                     <Card className="hover:shadow-md transition-all duration-200 cursor-pointer rounded-2xl border-0 shadow-sm">
                       <CardContent className="pt-6 text-center">
-                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/10 to-teal-500/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
-                          {initials || '??'}
-                        </div>
+                        {avatarUrl ? (
+                          <img src={avatarUrl} alt={displayName} className="w-16 h-16 rounded-2xl object-cover mx-auto mb-3 border-2 border-primary/10" />
+                        ) : (
+                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/10 to-teal-500/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
+                            {initials || '??'}
+                          </div>
+                        )}
                         <h3 className="font-semibold text-gray-900 mb-1">{displayName}</h3>
                         {jobTitle && (
                           <p className="text-sm text-gray-500 mb-1">{jobTitle}</p>

@@ -11,10 +11,11 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import {
   ChevronLeft, Download, Play, Lock, Calendar, Clock, Tag, FileText,
-  RefreshCw, Share2, LogIn,
+  Share2, LogIn,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 interface Resource {
   id: string;
@@ -138,11 +139,7 @@ export function ResourceDetailPage() {
     name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-32">
-        <RefreshCw className="h-8 w-8 animate-spin text-primary/40" />
-      </div>
-    );
+    return <LoadingSkeleton variant="page" />;
   }
 
   if (!resource) return null;

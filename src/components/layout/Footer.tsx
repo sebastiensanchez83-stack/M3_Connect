@@ -86,12 +86,12 @@ export function Footer() {
               </li>
               <li>
                 <Link to="/mentions-legales" className="text-gray-300 hover:text-white transition-colors">
-                  Mentions Légales
+                  Legal Notice
                 </Link>
               </li>
               <li>
                 <Link to="/conditions-commerciales" className="text-gray-300 hover:text-white transition-colors">
-                  Conditions Commerciales
+                  Commercial Terms
                 </Link>
               </li>
               <li>

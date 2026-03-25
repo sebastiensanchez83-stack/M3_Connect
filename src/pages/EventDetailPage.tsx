@@ -11,10 +11,11 @@ import {
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import {
-  ChevronLeft, Calendar, Clock, MapPin, Users, Play, RefreshCw,
+  ChevronLeft, Calendar, Clock, MapPin, Users, Play,
   Download, DollarSign, UserCheck, AlertCircle, Loader2,
   Video, Building2, ExternalLink, FileDown, Globe, Users as UsersIcon,
 } from 'lucide-react';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
@@ -121,11 +122,7 @@ export function EventDetailPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <RefreshCw className="h-8 w-8 animate-spin text-primary/40" />
-      </div>
-    );
+    return <LoadingSkeleton variant="page" />;
   }
 
   if (!event) {

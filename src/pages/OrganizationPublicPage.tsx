@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { Organization, OrganizationMember, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -67,7 +68,7 @@ export function OrganizationPublicPage() {
           .eq('organization_id', o.id)
           .order('joined_at', { ascending: true });
 
-        if (membersData) setMembers(membersData as any);
+        if (membersData) setMembers(membersData as typeof members);
 
         // Fetch marina details if marina org
         if (o.organization_type === 'marina') {
@@ -94,9 +95,9 @@ export function OrganizationPublicPage() {
 
           if (sectorLinks) {
             setSectors(
-              (sectorLinks as any[])
-                .filter((sl: any) => sl.sectors)
-                .map((sl: any) => sl.sectors as Sector)
+              (sectorLinks as { sector_id: string; sectors: Sector | null }[])
+                .filter((sl) => sl.sectors)
+                .map((sl) => sl.sectors as Sector)
             );
           }
         }
@@ -110,10 +111,10 @@ export function OrganizationPublicPage() {
 
           if (plansData && plansData.length > 0) {
             setFuturePlans(
-              (plansData as any[])
-                .filter((p: any) => p.sectors)
-                .map((p: any) => ({ sector_label: p.sectors.label, timeline: p.timeline }))
-                .sort((a: any, b: any) => a.sector_label.localeCompare(b.sector_label))
+              (plansData as { sector_id: string; timeline: string; sectors: { label: string } | null }[])
+                .filter((p) => p.sectors)
+                .map((p) => ({ sector_label: p.sectors!.label, timeline: p.timeline }))
+                .sort((a, b) => a.sector_label.localeCompare(b.sector_label))
             );
           }
         }
@@ -157,8 +158,8 @@ export function OrganizationPublicPage() {
       setConnectOpen(false);
       setConnectMessage('');
       setHasExistingRequest(true);
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message || 'An unexpected error occurred.', variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
     } finally {
       setConnectSending(false);
     }
@@ -186,11 +187,7 @@ export function OrganizationPublicPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
-      </div>
-    );
+    return <LoadingSkeleton variant="page" />;
   }
 
   if (!org) {

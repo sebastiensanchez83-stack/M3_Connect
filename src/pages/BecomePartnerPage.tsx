@@ -41,7 +41,7 @@ export function BecomePartnerPage() {
         supabase.from('organizations').select('*', { count: 'exact', head: true }).eq('access_status', 'verified').eq('organization_type', 'partner'),
         supabase.from('organizations').select('country').eq('access_status', 'verified').not('country', 'is', null),
       ]);
-      const uniqueCountries = new Set((countriesRes.data || []).map((o: any) => o.country)).size;
+      const uniqueCountries = new Set((countriesRes.data || []).map((o: { country: string | null }) => o.country)).size;
       setStats({
         marinas: marinasRes.count || 0,
         partners: partnersRes.count || 0,

@@ -188,10 +188,10 @@ export function OrganizationTab() {
           supabase.from('organization_future_plans').select('sector_id, timeline').eq('organization_id', orgData.id),
         ]);
         if (sectorsList) setAllSectors(sectorsList as Sector[]);
-        if (interestData) setInterestSectors(interestData.map((d: any) => d.sector_id));
+        if (interestData) setInterestSectors(interestData.map((d: { sector_id: string }) => d.sector_id));
         if (plansData) {
           const plans: Record<string, string> = {};
-          (plansData as any[]).forEach((p) => { plans[p.sector_id] = p.timeline; });
+          (plansData as { sector_id: string; timeline: string }[]).forEach((p) => { plans[p.sector_id] = p.timeline; });
           setFuturePlans(plans);
         }
       }
@@ -275,8 +275,8 @@ export function OrganizationTab() {
       toast({ title: t('org.created'), description: t('org.createdDesc') });
       setShowCreateForm(false);
       fetchOrg();
-    } catch (err: any) {
-      toast({ title: t('common.error'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
     setCreating(false);
   };
@@ -354,8 +354,8 @@ export function OrganizationTab() {
       toast({ title: t('org.saved') });
       setEditing(false);
       fetchOrg();
-    } catch (err: any) {
-      toast({ title: t('common.error'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
     setSaving(false);
   };
@@ -399,8 +399,8 @@ export function OrganizationTab() {
       setInviteOpen(false);
       setInviteForm({ email: '', firstName: '', lastName: '' });
       fetchOrg();
-    } catch (err: any) {
-      toast({ title: t('common.error'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
     setInviting(false);
   };
@@ -414,8 +414,8 @@ export function OrganizationTab() {
       if (error) throw error;
       toast({ title: t('org.invitationCancelled') });
       fetchOrg();
-    } catch (err: any) {
-      toast({ title: t('common.error'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
   };
 
@@ -432,8 +432,8 @@ export function OrganizationTab() {
       if (error) throw error;
       toast({ title: t('org.memberRemoved') });
       fetchOrg();
-    } catch (err: any) {
-      toast({ title: t('common.error'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
   };
 
@@ -451,8 +451,8 @@ export function OrganizationTab() {
       setOrg(null);
       setMembers([]);
       setInvitations([]);
-    } catch (err: any) {
-      toast({ title: t('common.error'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
   };
 
@@ -469,8 +469,8 @@ export function OrganizationTab() {
       setTransferOpen(false);
       setTransferTarget(null);
       fetchOrg();
-    } catch (err: any) {
-      toast({ title: t('common.error'), description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
     setTransferring(false);
   };

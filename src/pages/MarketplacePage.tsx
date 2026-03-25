@@ -16,6 +16,7 @@ import {
   Search, Briefcase, FileText, MessageSquare, Globe, MapPin, Loader2,
   Users, Anchor, Building2, Newspaper, Filter, X, ArrowRight,
 } from 'lucide-react';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector, OrgTier } from '@/types/database';
@@ -133,7 +134,7 @@ export function MarketplacePage() {
       .eq('organization_id', organization.id)
       .then(({ data }) => {
         if (data && data.length > 0) {
-          setSelectedSectors(data.map((d: any) => d.sector_id));
+          setSelectedSectors(data.map((d: { sector_id: string }) => d.sector_id));
         }
       });
   }, [user, organization]);
@@ -154,7 +155,7 @@ export function MarketplacePage() {
           return;
         }
 
-        const orgIds = orgRows.map((o: any) => o.id);
+        const orgIds = orgRows.map((o) => o.id);
 
         // Fetch member counts per org
         const { data: memberRows } = await supabase
@@ -164,7 +165,7 @@ export function MarketplacePage() {
 
         const memberCountMap: Record<string, number> = {};
         if (memberRows) {
-          for (const row of memberRows as any[]) {
+          for (const row of memberRows as { organization_id: string }[]) {
             memberCountMap[row.organization_id] = (memberCountMap[row.organization_id] || 0) + 1;
           }
         }
@@ -182,15 +183,15 @@ export function MarketplacePage() {
         ]);
 
         const sectorMap: Record<string, { id: string; label: string }[]> = {};
-        for (const link of [...(serviceSectors || []), ...(interestSectors || [])] as any[]) {
+        for (const link of [...(serviceSectors || []), ...(interestSectors || [])] as { organization_id: string; sector_id: string; sectors: { id: string; label: string } | null }[]) {
           const oid = link.organization_id;
           if (!sectorMap[oid]) sectorMap[oid] = [];
-          if (link.sectors && !sectorMap[oid].some((s: any) => s.id === link.sectors.id)) {
+          if (link.sectors && !sectorMap[oid].some((s) => s.id === link.sectors!.id)) {
             sectorMap[oid].push({ id: link.sectors.id, label: link.sectors.label });
           }
         }
 
-        const cards: OrgCard[] = orgRows.map((o: any) => ({
+        const cards: OrgCard[] = orgRows.map((o) => ({
           id: o.id,
           slug: o.slug,
           name: o.name,
@@ -242,7 +243,7 @@ export function MarketplacePage() {
 
         if (error) throw error;
 
-        const cards: RfpCard[] = (data || []).map((r: any) => ({
+        const cards: RfpCard[] = (data || []).map((r: { id: string; title: string; scope: string | null; deadline_date: string | null; created_at: string; sector_id: string; sectors: { id: string; label: string } | null }) => ({
           id: r.id,
           title: r.title,
           scope: r.scope,
@@ -277,7 +278,7 @@ export function MarketplacePage() {
 
         if (error) throw error;
 
-        const cards: ConsultationCard[] = (data || []).map((c: any) => ({
+        const cards: ConsultationCard[] = (data || []).map((c: { id: string; title: string; description: string | null; created_at: string; sector_id: string; sectors: { id: string; label: string } | null }) => ({
           id: c.id,
           title: c.title,
           description: c.description,
@@ -420,11 +421,7 @@ export function MarketplacePage() {
   /* ========== render ========== */
 
   if (authLoading) {
-    return (
-      <div className="container mx-auto py-16 text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-      </div>
-    );
+    return <LoadingSkeleton variant="page" />;
   }
 
   return (

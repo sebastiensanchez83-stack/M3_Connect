@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { AuthRedirector } from '@/components/auth/AuthRedirector';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { HomePage } from '@/pages/HomePage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
 import { ResourceDetailPage } from '@/pages/ResourceDetailPage';
@@ -35,34 +36,36 @@ function App() {
       <Navbar />
       <AuthRedirector />
       <main className="flex-1">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/resources" element={<ResourcesPage />} />
-          <Route path="/resources/:id" element={<ResourceDetailPage />} />
-          <Route path="/events" element={<EventsPage />} />
-          <Route path="/events/:id" element={<EventDetailPage />} />
-          <Route path="/partners" element={<PartnersPage />} />
-          <Route path="/become-partner" element={<BecomePartnerPage />} />
-          <Route path="/account" element={<AccountPage />} />
-          <Route path="/onboarding" element={<OnboardingPage />} />
-          <Route path="/submit-project" element={<SubmitProjectPage />} />
-          <Route path="/request-webinar" element={<WebinarRequestPage />} />
-          <Route path="/submit-rfp" element={<SubmitRFPPage />} />
-          <Route path="/submit-consultation" element={<SubmitConsultationPage />} />
-          <Route path="/marketplace" element={<MarketplacePage />} />
-          <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
-          <Route path="/users/:id" element={<UserProfilePage />} />
-          <Route path="/admin/*" element={<AdminPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/contact" element={<ContactPage />} />
-          <Route path="/privacy" element={<PrivacyPage />} />
-          <Route path="/terms" element={<TermsPage />} />
-          <Route path="/mentions-legales" element={<MentionsLegalesPage />} />
-          <Route path="/conditions-commerciales" element={<ConditionsCommercialesPage />} />
-          <Route path="/cookies" element={<CookiePolicyPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/resources" element={<ResourcesPage />} />
+            <Route path="/resources/:id" element={<ResourceDetailPage />} />
+            <Route path="/events" element={<EventsPage />} />
+            <Route path="/events/:id" element={<EventDetailPage />} />
+            <Route path="/partners" element={<PartnersPage />} />
+            <Route path="/become-partner" element={<BecomePartnerPage />} />
+            <Route path="/account" element={<AccountPage />} />
+            <Route path="/onboarding" element={<OnboardingPage />} />
+            <Route path="/submit-project" element={<SubmitProjectPage />} />
+            <Route path="/request-webinar" element={<WebinarRequestPage />} />
+            <Route path="/submit-rfp" element={<SubmitRFPPage />} />
+            <Route path="/submit-consultation" element={<SubmitConsultationPage />} />
+            <Route path="/marketplace" element={<MarketplacePage />} />
+            <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
+            <Route path="/users/:id" element={<UserProfilePage />} />
+            <Route path="/admin/*" element={<AdminPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/mentions-legales" element={<MentionsLegalesPage />} />
+            <Route path="/conditions-commerciales" element={<ConditionsCommercialesPage />} />
+            <Route path="/cookies" element={<CookiePolicyPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
       <Footer />
     </div>

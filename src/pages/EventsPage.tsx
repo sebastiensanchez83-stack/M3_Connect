@@ -6,8 +6,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MapPin, Users, Play, CalendarPlus, Loader2, Video, Building2 as Building2Icon } from 'lucide-react';
+import { MapPin, Users, Play, CalendarPlus, Video, Building2 as Building2Icon } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 
@@ -222,11 +223,7 @@ export function EventsPage() {
   };
 
   if (loading) {
-    return (
-      <div className="container mx-auto px-4 py-8 text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto" />
-      </div>
-    );
+    return <LoadingSkeleton variant="page" />;
   }
 
   return (

@@ -70,7 +70,7 @@ export function HomePage() {
           .from(orgSectorTable)
           .select('sector_id')
           .eq('organization_id', feedOrgId);
-        const sectorIds = (userSectors || []).map((s: any) => s.sector_id);
+        const sectorIds = (userSectors || []).map((s: { sector_id: string }) => s.sector_id);
 
         if (sectorIds.length > 0) {
           const { data: feedRes } = await supabase
@@ -82,7 +82,7 @@ export function HomePage() {
 
           if (feedRes) {
             const unique = new Map<string, FeaturedResource>();
-            for (const r of feedRes as any[]) {
+            for (const r of feedRes as { resource_id: string; resources: FeaturedResource & { published: boolean } }[]) {
               if (r.resources && !unique.has(r.resources.id)) {
                 unique.set(r.resources.id, r.resources);
               }
@@ -98,7 +98,7 @@ export function HomePage() {
 
           if (feedEvt) {
             const unique = new Map<string, UpcomingEvent>();
-            for (const e of feedEvt as any[]) {
+            for (const e of feedEvt as { event_id: string; events: UpcomingEvent }[]) {
               if (e.events && new Date(e.events.date_time) > new Date() && !unique.has(e.events.id)) {
                 unique.set(e.events.id, e.events);
               }
@@ -117,7 +117,7 @@ export function HomePage() {
         .limit(5);
       if (regs) {
         setMyRegistrations(
-          (regs as any[])
+          (regs as { event_id: string; events: { title: string; date_time: string } | null }[])
             .filter(r => r.events)
             .map(r => ({ event_id: r.event_id, title: r.events.title, date_time: r.events.date_time }))
         );
@@ -185,7 +185,7 @@ export function HomePage() {
         if (resourcesRes.data) setFeaturedResources(resourcesRes.data as FeaturedResource[]);
         if (eventsRes.data) setUpcomingEvents(eventsRes.data as UpcomingEvent[]);
         if (partnersRes.data) {
-          setPartnerPreviews(partnersRes.data.map((o: any) => ({
+          setPartnerPreviews(partnersRes.data.map((o: { id: string; slug: string; name: string; logo_url: string | null }) => ({
             id: o.id,
             slug: o.slug,
             name: o.name,

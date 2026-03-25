@@ -4,8 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Search, RefreshCw, Building2, MapPin } from 'lucide-react';
+import { Search, Building2, MapPin } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 interface OrgCard {
   id: string;
@@ -44,7 +45,7 @@ export function PartnersPage() {
         }
 
         // Get sector mappings from organization_service_sectors
-        const orgIds = orgRows.map((o: any) => o.id);
+        const orgIds = orgRows.map((o) => o.id);
         const { data: sectorLinks } = await supabase
           .from('organization_service_sectors')
           .select('organization_id, sector_id, sectors(id, label)')
@@ -52,7 +53,7 @@ export function PartnersPage() {
 
         const sectorMap: Record<string, { id: string; label: string }[]> = {};
         if (sectorLinks) {
-          for (const link of sectorLinks as any[]) {
+          for (const link of sectorLinks as { organization_id: string; sector_id: string; sectors: { id: string; label: string } | null }[]) {
             const oid = link.organization_id;
             if (!sectorMap[oid]) sectorMap[oid] = [];
             if (link.sectors) {
@@ -61,7 +62,7 @@ export function PartnersPage() {
           }
         }
 
-        const cards: OrgCard[] = orgRows.map((o: any) => ({
+        const cards: OrgCard[] = orgRows.map((o) => ({
           id: o.id,
           slug: o.slug,
           name: o.name,
@@ -121,9 +122,7 @@ export function PartnersPage() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
-        </div>
+        <LoadingSkeleton variant="card" count={4} />
       ) : filteredPartners.length === 0 ? (
         <div className="text-center py-16">
           <Building2 className="h-12 w-12 mx-auto text-gray-300 mb-4" />

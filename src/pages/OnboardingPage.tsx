@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper, Building2, Users } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
 import { Sector, PersonaType, PendingInvitationResult } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
@@ -252,8 +253,8 @@ export function OnboardingPage() {
       } else {
         navigate('/account');
       }
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
     }
     setAcceptingInvite(false);
   };
@@ -272,8 +273,8 @@ export function OnboardingPage() {
       await refreshProfile();
       toast({ title: 'Profile updated!' });
       navigate('/account');
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
     }
     setSavingProfile(false);
   };
@@ -316,8 +317,8 @@ export function OnboardingPage() {
       await refreshProfile();
       toast({ title: 'Welcome!', description: `You've joined ${detectedOrg.name}` });
       navigate('/account');
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
     }
     setJoiningOrg(false);
   };
@@ -558,7 +559,7 @@ export function OnboardingPage() {
   /* ─── Renders ─── */
 
   if (authLoading || submitted) {
-    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />{submitted && <p className="text-sm text-gray-500 mt-3">Redirecting to your account...</p>}</div>;
+    return <LoadingSkeleton variant="page" />;
   }
 
   // Synchronous redirect guard — prevent form from flashing before useEffect fires

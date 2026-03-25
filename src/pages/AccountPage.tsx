@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -103,8 +104,8 @@ export function AccountPage() {
       if (error) throw error;
       setPartnerRequests((prev) => prev.map((pr) => pr.id === requestId ? { ...pr, status: newStatus } : pr));
       toast({ title: newStatus === 'accepted' ? 'Request accepted' : 'Request rejected' });
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
     }
   };
 
@@ -144,8 +145,8 @@ export function AccountPage() {
       }
       // Refresh profile data
       window.location.reload();
-    } catch (err: any) {
-      toast({ title: 'Upload failed', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
     }
     setter(false);
   };
@@ -222,7 +223,7 @@ export function AccountPage() {
         // Connection requests
         const allRequests = prData || [];
         setConnectionRequestCount(allRequests.length);
-        setPendingRequestCount(allRequests.filter((r: any) => r.status === 'pending').length);
+        setPendingRequestCount(allRequests.filter((r) => r.status === 'pending').length);
 
         // Personalized feed: get user's sectors from org-level tables
         const orgSectorTable = profile.persona === 'marina'
@@ -240,7 +241,7 @@ export function AccountPage() {
             .select('sector_id')
             .eq('organization_id', feedOrgId);
 
-          const sectorIds = (userSectors || []).map((s: any) => s.sector_id);
+          const sectorIds = (userSectors || []).map((s: { sector_id: string }) => s.sector_id);
 
           if (sectorIds.length > 0) {
             // Resources matching sectors
@@ -253,7 +254,7 @@ export function AccountPage() {
 
             if (feedRes) {
               const uniqueResources = new Map<string, { id: string; title: string; type: string; summary: string }>();
-              for (const r of feedRes as any[]) {
+              for (const r of feedRes as { resource_id: string; resources: { id: string; title: string; type: string; summary: string; published: boolean } }[]) {
                 if (r.resources && !uniqueResources.has(r.resources.id)) {
                   uniqueResources.set(r.resources.id, {
                     id: r.resources.id,
@@ -275,7 +276,7 @@ export function AccountPage() {
 
             if (feedEvt) {
               const uniqueEvents = new Map<string, { id: string; title: string; date_time: string }>();
-              for (const e of feedEvt as any[]) {
+              for (const e of feedEvt as { event_id: string; events: { id: string; title: string; date_time: string } }[]) {
                 if (e.events && !uniqueEvents.has(e.events.id)) {
                   uniqueEvents.set(e.events.id, {
                     id: e.events.id,
@@ -336,7 +337,7 @@ export function AccountPage() {
   };
 
   if (authLoading) {
-    return <div className="container mx-auto px-4 py-8 text-center text-gray-500">Loading...</div>;
+    return <LoadingSkeleton variant="page" />;
   }
 
   if (!user) return null;
@@ -709,7 +710,7 @@ export function AccountPage() {
                     )}
                     {org.headquarters_country && (
                       <div>
-                        <span className="text-gray-500 block">Pays du siège</span>
+                        <span className="text-gray-500 block">Headquarters Country</span>
                         <span className="font-medium">{org.headquarters_country}</span>
                       </div>
                     )}
@@ -769,7 +770,7 @@ export function AccountPage() {
             </CardHeader>
             <CardContent>
               {dataLoading ? (
-                <p className="text-gray-500 text-center py-8">Loading...</p>
+                <LoadingSkeleton variant="inline" />
               ) : registrations.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Calendar className="h-8 w-8 mx-auto mb-3 text-gray-300" />
@@ -832,14 +833,14 @@ export function AccountPage() {
           <TabsContent value="projects">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Mes projets</CardTitle>
+                <CardTitle>My Projects</CardTitle>
                 <Button size="sm" onClick={() => navigate('/submit-project')}>
-                  Soumettre un projet
+                  Submit a Project
                 </Button>
               </CardHeader>
               <CardContent>
                 {dataLoading ? (
-                  <p className="text-gray-500 text-center py-8">Loading...</p>
+                  <LoadingSkeleton variant="inline" />
                 ) : projects.length === 0 ? (
                   <p className="text-gray-500 text-center py-8">No projects submitted yet.</p>
                 ) : (
@@ -851,7 +852,7 @@ export function AccountPage() {
                           <div>
                             <div className="font-medium">{project.project_type}</div>
                             <div className="text-sm text-gray-500">
-                              {new Date(project.created_at).toLocaleDateString('fr-FR')}
+                              {new Date(project.created_at).toLocaleDateString('en-US')}
                               {project.budget_range && ` • ${project.budget_range}`}
                             </div>
                           </div>
@@ -876,7 +877,7 @@ export function AccountPage() {
             </CardHeader>
             <CardContent>
               {dataLoading ? (
-                <p className="text-gray-500 text-center py-8">Loading...</p>
+                <LoadingSkeleton variant="inline" />
               ) : webinarRequests.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Radio className="h-8 w-8 mx-auto mb-3 text-gray-300" />
@@ -896,11 +897,11 @@ export function AccountPage() {
                       <div className="text-sm text-gray-500">
                         {req.preferred_language === 'EN' ? 'English' : 'Français'}
                         {req.preferred_timeframe && ` · ${req.preferred_timeframe}`}
-                        {' · '}{new Date(req.created_at).toLocaleDateString('fr-FR')}
+                        {' · '}{new Date(req.created_at).toLocaleDateString('en-US')}
                       </div>
                       {req.moderator_notes && (
                         <div className="text-sm bg-blue-50 border border-blue-100 rounded p-3 text-blue-800">
-                          <span className="font-medium">Note de l'équipe : </span>
+                          <span className="font-medium">Team Note:</span>
                           {req.moderator_notes}
                         </div>
                       )}
@@ -913,7 +914,7 @@ export function AccountPage() {
                             if (!confirm('Retirer cette demande de webinar ?')) return;
                             await supabase.from('webinar_requests').delete().eq('id', req.id);
                             setWebinarRequests(prev => prev.filter(r => r.id !== req.id));
-                            toast({ title: 'Demande supprimée' });
+                            toast({ title: 'Request deleted' });
                           }}>
                             <X className="h-4 w-4 mr-1" />Retirer
                           </Button>
@@ -934,21 +935,21 @@ export function AccountPage() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <ClipboardList className="h-5 w-5" />
-                  Mes appels d'offres (RFPs)
+                  My RFPs
                 </CardTitle>
                 <Button size="sm" onClick={() => navigate('/submit-rfp')}>
-                  <Plus className="h-4 w-4 mr-2" />Soumettre un RFP
+                  <Plus className="h-4 w-4 mr-2" />Submit an RFP
                 </Button>
               </CardHeader>
               <CardContent>
                 {dataLoading ? (
-                  <p className="text-gray-500 text-center py-8">Loading...</p>
+                  <LoadingSkeleton variant="inline" />
                 ) : rfps.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <ClipboardList className="h-8 w-8 mx-auto mb-3 text-gray-300" />
                     <p>No RFPs submitted.</p>
                     <Button className="mt-4" size="sm" onClick={() => navigate('/submit-rfp')}>
-                      Créer un RFP
+                      Create an RFP
                     </Button>
                   </div>
                 ) : (
@@ -958,20 +959,20 @@ export function AccountPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="font-medium">{rfp.title}</div>
                           <Badge variant={rfp.is_open ? 'success' : 'secondary'}>
-                            {rfp.is_open ? 'Ouvert' : 'Fermé'}
+                            {rfp.is_open ? 'Open' : 'Closed'}
                           </Badge>
                         </div>
                         <p className="text-sm text-gray-600 line-clamp-2">{rfp.scope}</p>
                         <div className="text-sm text-gray-500">
-                          {rfp.deadline_date && `Échéance : ${new Date(rfp.deadline_date).toLocaleDateString('fr-FR')} · `}
-                          Créé le {new Date(rfp.created_at).toLocaleDateString('fr-FR')}
+                          {rfp.deadline_date && `Deadline:${new Date(rfp.deadline_date).toLocaleDateString('en-US')} · `}
+                          Created {new Date(rfp.created_at).toLocaleDateString('en-US')}
                         </div>
                         <div className="flex gap-2 pt-1">
                           <Button variant="outline" size="sm" onClick={async () => {
                             const newOpen = !rfp.is_open;
                             await supabase.from('rfps').update({ is_open: newOpen }).eq('id', rfp.id);
                             setRfps(prev => prev.map(r => r.id === rfp.id ? { ...r, is_open: newOpen } : r));
-                            toast({ title: newOpen ? 'RFP rouvert' : 'RFP fermé' });
+                            toast({ title: newOpen ? 'RFP reopened' : 'RFP closed' });
                           }}>
                             {rfp.is_open ? 'Fermer' : 'Rouvrir'}
                           </Button>
@@ -979,7 +980,7 @@ export function AccountPage() {
                             if (!confirm('Supprimer ce RFP ?')) return;
                             await supabase.from('rfps').delete().eq('id', rfp.id);
                             setRfps(prev => prev.filter(r => r.id !== rfp.id));
-                            toast({ title: 'RFP supprimé' });
+                            toast({ title: 'RFP deleted' });
                           }}>
                             <X className="h-4 w-4 mr-1" />Supprimer
                           </Button>
@@ -1008,7 +1009,7 @@ export function AccountPage() {
               </CardHeader>
               <CardContent>
                 {dataLoading ? (
-                  <p className="text-gray-500 text-center py-8">Loading...</p>
+                  <LoadingSkeleton variant="inline" />
                 ) : consultations.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <MessageSquare className="h-8 w-8 mx-auto mb-3 text-gray-300" />
@@ -1024,19 +1025,19 @@ export function AccountPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div className="font-medium">{c.title}</div>
                           <Badge variant={c.is_open ? 'success' : 'secondary'}>
-                            {c.is_open ? 'Ouverte' : 'Fermée'}
+                            {c.is_open ? 'Open' : 'Closed'}
                           </Badge>
                         </div>
                         <p className="text-sm text-gray-600 line-clamp-2">{c.description}</p>
                         <div className="text-sm text-gray-500">
-                          Créée le {new Date(c.created_at).toLocaleDateString('fr-FR')}
+                          Created {new Date(c.created_at).toLocaleDateString('en-US')}
                         </div>
                         <div className="flex gap-2 pt-1">
                           <Button variant="outline" size="sm" onClick={async () => {
                             const newOpen = !c.is_open;
                             await supabase.from('consultations').update({ is_open: newOpen }).eq('id', c.id);
                             setConsultations(prev => prev.map(x => x.id === c.id ? { ...x, is_open: newOpen } : x));
-                            toast({ title: newOpen ? 'Consultation rouverte' : 'Consultation fermée' });
+                            toast({ title: newOpen ? 'Consultation reopened' : 'Consultation closed' });
                           }}>
                             {c.is_open ? 'Fermer' : 'Rouvrir'}
                           </Button>
@@ -1044,7 +1045,7 @@ export function AccountPage() {
                             if (!confirm('Supprimer cette consultation ?')) return;
                             await supabase.from('consultations').delete().eq('id', c.id);
                             setConsultations(prev => prev.filter(x => x.id !== c.id));
-                            toast({ title: 'Consultation supprimée' });
+                            toast({ title: 'Consultation deleted' });
                           }}>
                             <X className="h-4 w-4 mr-1" />Supprimer
                           </Button>
@@ -1083,7 +1084,7 @@ export function AccountPage() {
             </CardHeader>
             <CardContent>
               {dataLoading ? (
-                <p className="text-gray-500 text-center py-8">Loading...</p>
+                <LoadingSkeleton variant="inline" />
               ) : partnerRequests.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   <Link2 className="h-8 w-8 mx-auto mb-3 text-gray-300" />
@@ -1104,8 +1105,8 @@ export function AccountPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <div className="text-sm text-gray-500">
-                              {isReceived ? 'Reçue' : 'Envoyée'}
-                              {' · '}{new Date(pr.created_at).toLocaleDateString('fr-FR')}
+                              {isReceived ? 'Received' : 'Sent'}
+                              {' · '}{new Date(pr.created_at).toLocaleDateString('en-US')}
                             </div>
                             <p className="text-sm mt-1">{pr.message}</p>
                           </div>

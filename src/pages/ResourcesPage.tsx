@@ -13,9 +13,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Search, Lock, FileText, RefreshCw, Calendar, Clock, ArrowRight, BookOpen, Tag, Users, X,
+  Search, Lock, FileText, Calendar, Clock, ArrowRight, BookOpen, Tag, Users, X,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
 import { Organization } from '@/types/database';
 
@@ -86,7 +87,7 @@ export function ResourcesPage() {
       .eq('organization_id', organization.id)
       .then(({ data }) => {
         if (data && data.length > 0) {
-          setSelectedSectors(data.map((d: any) => d.sector_id));
+          setSelectedSectors(data.map((d: { sector_id: string }) => d.sector_id));
         }
       });
   }, [user, organization]);
@@ -295,9 +296,7 @@ export function ResourcesPage() {
       {/* Content */}
       <div className="container mx-auto px-4 py-8 lg:py-12">
         {loading ? (
-          <div className="flex items-center justify-center py-24">
-            <RefreshCw className="h-8 w-8 animate-spin text-primary/40" />
-          </div>
+          <LoadingSkeleton variant="card" count={6} />
         ) : filteredResources.length === 0 ? (
           <div className="text-center py-24">
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gray-100 mb-4">

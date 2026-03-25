@@ -12,9 +12,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import {
-  Building2, Anchor, Newspaper, ChevronLeft, Loader2, Link2,
+  Building2, Anchor, Newspaper, ChevronLeft, Link2, Loader2,
   Users, Mail, Briefcase, CheckCircle, MapPin,
 } from 'lucide-react';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
 interface UserProfile {
   user_id: string;
@@ -127,8 +128,8 @@ export function UserProfilePage() {
       setConnectOpen(false);
       setConnectMessage('');
       setHasExistingRequest(true);
-    } catch (err: any) {
-      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
     }
     setConnectSending(false);
   };
@@ -154,11 +155,7 @@ export function UserProfilePage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
-      </div>
-    );
+    return <LoadingSkeleton variant="page" />;
   }
 
   if (!profileData) {

@@ -175,11 +175,11 @@ export function ReferenceRequestForm() {
 
       setSubmitted(true);
       toast({ title: 'Reference request created', description: `Reference ID: ${refReq.reference_id}` });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
       toast({
         title: 'Error',
-        description: err.message || 'Failed to create reference request',
+        description: err instanceof Error ? err.message : 'Failed to create reference request',
         variant: 'destructive',
       });
     } finally {

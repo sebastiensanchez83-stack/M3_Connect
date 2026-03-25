@@ -53,7 +53,7 @@ export function PartnersPage() {
 
         const sectorMap: Record<string, { id: string; label: string }[]> = {};
         if (sectorLinks) {
-          for (const link of sectorLinks as { organization_id: string; sector_id: string; sectors: { id: string; label: string } | null }[]) {
+          for (const link of sectorLinks as unknown as { organization_id: string; sector_id: string; sectors: { id: string; label: string } | null }[]) {
             const oid = link.organization_id;
             if (!sectorMap[oid]) sectorMap[oid] = [];
             if (link.sectors) {

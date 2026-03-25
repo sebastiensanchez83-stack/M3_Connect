@@ -68,7 +68,7 @@ export function OrganizationPublicPage() {
           .eq('organization_id', o.id)
           .order('joined_at', { ascending: true });
 
-        if (membersData) setMembers(membersData as typeof members);
+        if (membersData) setMembers(membersData as unknown as typeof members);
 
         // Fetch marina details if marina org
         if (o.organization_type === 'marina') {
@@ -95,7 +95,7 @@ export function OrganizationPublicPage() {
 
           if (sectorLinks) {
             setSectors(
-              (sectorLinks as { sector_id: string; sectors: Sector | null }[])
+              (sectorLinks as unknown as { sector_id: string; sectors: Sector | null }[])
                 .filter((sl) => sl.sectors)
                 .map((sl) => sl.sectors as Sector)
             );
@@ -111,7 +111,7 @@ export function OrganizationPublicPage() {
 
           if (plansData && plansData.length > 0) {
             setFuturePlans(
-              (plansData as { sector_id: string; timeline: string; sectors: { label: string } | null }[])
+              (plansData as unknown as { sector_id: string; timeline: string; sectors: { label: string } | null }[])
                 .filter((p) => p.sectors)
                 .map((p) => ({ sector_label: p.sectors!.label, timeline: p.timeline }))
                 .sort((a, b) => a.sector_label.localeCompare(b.sector_label))

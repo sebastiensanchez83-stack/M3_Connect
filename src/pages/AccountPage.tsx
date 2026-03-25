@@ -254,7 +254,7 @@ export function AccountPage() {
 
             if (feedRes) {
               const uniqueResources = new Map<string, { id: string; title: string; type: string; summary: string }>();
-              for (const r of feedRes as { resource_id: string; resources: { id: string; title: string; type: string; summary: string; published: boolean } }[]) {
+              for (const r of feedRes as unknown as { resource_id: string; resources: { id: string; title: string; type: string; summary: string; published: boolean } }[]) {
                 if (r.resources && !uniqueResources.has(r.resources.id)) {
                   uniqueResources.set(r.resources.id, {
                     id: r.resources.id,
@@ -276,7 +276,7 @@ export function AccountPage() {
 
             if (feedEvt) {
               const uniqueEvents = new Map<string, { id: string; title: string; date_time: string }>();
-              for (const e of feedEvt as { event_id: string; events: { id: string; title: string; date_time: string } }[]) {
+              for (const e of feedEvt as unknown as { event_id: string; events: { id: string; title: string; date_time: string } }[]) {
                 if (e.events && !uniqueEvents.has(e.events.id)) {
                   uniqueEvents.set(e.events.id, {
                     id: e.events.id,

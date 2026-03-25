@@ -82,7 +82,7 @@ export function HomePage() {
 
           if (feedRes) {
             const unique = new Map<string, FeaturedResource>();
-            for (const r of feedRes as { resource_id: string; resources: FeaturedResource & { published: boolean } }[]) {
+            for (const r of feedRes as unknown as { resource_id: string; resources: FeaturedResource & { published: boolean } }[]) {
               if (r.resources && !unique.has(r.resources.id)) {
                 unique.set(r.resources.id, r.resources);
               }
@@ -98,7 +98,7 @@ export function HomePage() {
 
           if (feedEvt) {
             const unique = new Map<string, UpcomingEvent>();
-            for (const e of feedEvt as { event_id: string; events: UpcomingEvent }[]) {
+            for (const e of feedEvt as unknown as { event_id: string; events: UpcomingEvent }[]) {
               if (e.events && new Date(e.events.date_time) > new Date() && !unique.has(e.events.id)) {
                 unique.set(e.events.id, e.events);
               }
@@ -117,8 +117,8 @@ export function HomePage() {
         .limit(5);
       if (regs) {
         setMyRegistrations(
-          (regs as { event_id: string; events: { title: string; date_time: string } | null }[])
-            .filter(r => r.events)
+          (regs as unknown as { event_id: string; events: { title: string; date_time: string } | null }[])
+            .filter((r): r is { event_id: string; events: { title: string; date_time: string } } => r.events !== null)
             .map(r => ({ event_id: r.event_id, title: r.events.title, date_time: r.events.date_time }))
         );
       }

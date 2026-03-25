@@ -183,7 +183,7 @@ export function MarketplacePage() {
         ]);
 
         const sectorMap: Record<string, { id: string; label: string }[]> = {};
-        for (const link of [...(serviceSectors || []), ...(interestSectors || [])] as { organization_id: string; sector_id: string; sectors: { id: string; label: string } | null }[]) {
+        for (const link of [...(serviceSectors || []), ...(interestSectors || [])] as unknown as { organization_id: string; sector_id: string; sectors: { id: string; label: string } | null }[]) {
           const oid = link.organization_id;
           if (!sectorMap[oid]) sectorMap[oid] = [];
           if (link.sectors && !sectorMap[oid].some((s) => s.id === link.sectors!.id)) {
@@ -243,7 +243,7 @@ export function MarketplacePage() {
 
         if (error) throw error;
 
-        const cards: RfpCard[] = (data || []).map((r: { id: string; title: string; scope: string | null; deadline_date: string | null; created_at: string; sector_id: string; sectors: { id: string; label: string } | null }) => ({
+        const cards: RfpCard[] = ((data || []) as unknown as { id: string; title: string; scope: string | null; deadline_date: string | null; created_at: string; sector_id: string; sectors: { id: string; label: string } | null }[]).map((r) => ({
           id: r.id,
           title: r.title,
           scope: r.scope,
@@ -278,7 +278,7 @@ export function MarketplacePage() {
 
         if (error) throw error;
 
-        const cards: ConsultationCard[] = (data || []).map((c: { id: string; title: string; description: string | null; created_at: string; sector_id: string; sectors: { id: string; label: string } | null }) => ({
+        const cards: ConsultationCard[] = ((data || []) as unknown as { id: string; title: string; description: string | null; created_at: string; sector_id: string; sectors: { id: string; label: string } | null }[]).map((c) => ({
           id: c.id,
           title: c.title,
           description: c.description,

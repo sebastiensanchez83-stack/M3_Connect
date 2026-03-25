@@ -28,6 +28,7 @@ import { TermsPage } from '@/pages/TermsPage';
 import { MentionsLegalesPage } from '@/pages/MentionsLegalesPage';
 import { ConditionsCommercialesPage } from '@/pages/ConditionsCommercialesPage';
 import { CookiePolicyPage } from '@/pages/CookiePolicyPage';
+import { TiersPage } from '@/pages/TiersPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 
 function App() {
@@ -45,6 +46,7 @@ function App() {
             <Route path="/events/:id" element={<EventDetailPage />} />
             <Route path="/partners" element={<PartnersPage />} />
             <Route path="/become-partner" element={<BecomePartnerPage />} />
+            <Route path="/tiers" element={<TiersPage />} />
             <Route path="/account" element={<AccountPage />} />
             <Route path="/onboarding" element={<OnboardingPage />} />
             <Route path="/submit-project" element={<SubmitProjectPage />} />

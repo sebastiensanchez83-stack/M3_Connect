@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Users, UserCheck, FileText, Calendar, Anchor, RefreshCw,
-  Radio, Link2, ClipboardList, MessageSquare, BookOpen, FolderOpen,
+  Radio, Link2, ClipboardList, MessageSquare, FolderOpen,
   ArrowUpCircle,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,7 +26,6 @@ export function AdminSidebar() {
     { to: '/admin/partner-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
-    { to: '/admin/content', label: 'CMS Content', icon: <BookOpen className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/resource-drafts', label: 'Resource Drafts', icon: <FolderOpen className="h-4 w-4" /> },
   ];
 

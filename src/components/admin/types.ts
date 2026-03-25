@@ -165,18 +165,6 @@ export interface Consultation {
   created_at: string;
 }
 
-export interface ContentDraft {
-  id: string;
-  content_item_id: string | null;
-  title: string;
-  summary: string | null;
-  body_markdown: string;
-  tags: string[];
-  status: string;
-  created_by: string;
-  created_at: string;
-}
-
 export interface ResourceDraft {
   id: string;
   resource_id: string | null;
@@ -187,9 +175,12 @@ export interface ResourceDraft {
   topic: string | null;
   language: string | null;
   access_level: string | null;
+  thumbnail_url: string | null;
+  file_url: string | null;
   status: string;
   created_by: string;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface EventPricingRow {
@@ -213,6 +204,6 @@ export const DEFAULT_PRICING: EventPricingRow[] = [
 export const ADMIN_ONLY_ROUTES = new Set([
   '/admin/users', '/admin/events', '/admin/partners',
   '/admin/projects', '/admin/leads', '/admin/partner-requests',
-  '/admin/rfps', '/admin/consultations', '/admin/content',
+  '/admin/rfps', '/admin/consultations',
   '/admin/sponsorships', '/admin/expositions',
 ]);

@@ -19,7 +19,7 @@ export function AdminDashboard() {
   const [stats, setStats] = useState({
     totalUsers: 0, pendingUsers: 0, verifiedUsers: 0,
     totalResources: 0, totalEvents: 0, newProjects: 0, newLeads: 0, newWebinars: 0,
-    pendingB2B: 0, openRFPs: 0, openConsultations: 0, contentDrafts: 0,
+    pendingB2B: 0, openRFPs: 0, openConsultations: 0,
   });
   const [recentUsers, setRecentUsers] = useState<{ user_id: string; first_name: string | null; last_name: string | null; email: string | null; persona: string; access_status: string; created_at: string }[]>([]);
 
@@ -32,7 +32,7 @@ export function AdminDashboard() {
         { count: totalUsers }, { count: pendingUsers }, { count: verifiedUsers },
         { count: totalResources }, { count: totalEvents },
         { count: newProjects }, { count: newLeads }, { count: newWebinars },
-        { count: pendingB2B }, { count: openRFPs }, { count: openConsultations }, { count: contentDrafts },
+        { count: pendingB2B }, { count: openRFPs }, { count: openConsultations },
         { data: recent },
       ] = await Promise.all([
         supabase.from('profiles').select('*', { count: 'exact', head: true }),
@@ -46,14 +46,13 @@ export function AdminDashboard() {
         supabase.from('partner_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
         supabase.from('rfps').select('*', { count: 'exact', head: true }).eq('is_open', true),
         supabase.from('consultations').select('*', { count: 'exact', head: true }).eq('is_open', true),
-        supabase.from('content_drafts').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
         supabase.from('profiles').select('user_id, first_name, last_name, email, persona, access_status, created_at').order('created_at', { ascending: false }).limit(5),
       ]);
       setStats({
         totalUsers: totalUsers || 0, pendingUsers: pendingUsers || 0, verifiedUsers: verifiedUsers || 0,
         totalResources: totalResources || 0, totalEvents: totalEvents || 0,
         newProjects: newProjects || 0, newLeads: newLeads || 0, newWebinars: newWebinars || 0,
-        pendingB2B: pendingB2B || 0, openRFPs: openRFPs || 0, openConsultations: openConsultations || 0, contentDrafts: contentDrafts || 0,
+        pendingB2B: pendingB2B || 0, openRFPs: openRFPs || 0, openConsultations: openConsultations || 0,
       });
       setRecentUsers((recent || []) as typeof recentUsers);
     } catch (error) { console.error('Error loading dashboard:', error); }
@@ -78,7 +77,7 @@ export function AdminDashboard() {
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
-  const needsAttention = stats.pendingUsers + stats.newProjects + stats.newWebinars + stats.pendingB2B + stats.contentDrafts;
+  const needsAttention = stats.pendingUsers + stats.newProjects + stats.newWebinars + stats.pendingB2B;
 
   return (
     <div className="space-y-6">
@@ -134,7 +133,7 @@ export function AdminDashboard() {
               </div>
             </div>
             <div className="mt-3 flex gap-4 text-xs">
-              <span className="text-violet-600 font-medium">{stats.contentDrafts} drafts pending</span>
+              <span className="text-violet-600 font-medium">Published content</span>
             </div>
           </CardContent>
         </Card>

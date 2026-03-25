@@ -12,5 +12,4 @@ export { AdminWebinarRequests } from './AdminWebinarRequests';
 export { AdminPartnerRequests } from './AdminPartnerRequests';
 export { AdminRFPs } from './AdminRFPs';
 export { AdminConsultations } from './AdminConsultations';
-export { AdminContentDrafts } from './AdminContentDrafts';
 export { AdminResourceDrafts } from './AdminResourceDrafts';

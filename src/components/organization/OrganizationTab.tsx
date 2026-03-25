@@ -18,7 +18,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Organization, OrganizationMember, OrganizationInvitation, OrganizationMarinaDetails, Sector,
-  TIER_LABELS, OrgTier,
+  TIER_LABELS, TIER_COLORS, OrgTier,
 } from '@/types/database';
 import {
   Building2, Users, Mail, Crown, UserPlus, Loader2, ExternalLink,
@@ -89,6 +89,11 @@ export function OrganizationTab() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeSubmitting, setUpgradeSubmitting] = useState(false);
   const [upgradeTier, setUpgradeTier] = useState('innovation_partner');
+
+  // Create org — multi-step (plan selection for partner/media_partner)
+  const [createStep, setCreateStep] = useState<'details' | 'plan'>('details');
+  const [selectedPlan, setSelectedPlan] = useState<OrgTier>('member');
+  const [pendingUpgradePlan, setPendingUpgradePlan] = useState<OrgTier | null>(null);
 
   const handleUpgradeRequest = async () => {
     if (!org || !user) return;
@@ -228,6 +233,15 @@ export function OrganizationTab() {
 
   useEffect(() => { fetchOrg(); }, [fetchOrg]);
 
+  // Open upgrade dialog after org is created when a sponsor plan was pre-selected
+  useEffect(() => {
+    if (org && pendingUpgradePlan) {
+      setUpgradeTier(pendingUpgradePlan);
+      setUpgradeOpen(true);
+      setPendingUpgradePlan(null);
+    }
+  }, [org, pendingUpgradePlan]);
+
   // Pre-fill create form from profile/metadata
   useEffect(() => {
     if (!user || !profile) return;
@@ -274,6 +288,11 @@ export function OrganizationTab() {
       if (error) throw error;
       toast({ title: t('org.created'), description: t('org.createdDesc') });
       setShowCreateForm(false);
+      setCreateStep('details');
+      if (selectedPlan !== 'member') {
+        setPendingUpgradePlan(selectedPlan);
+      }
+      setSelectedPlan('member');
       fetchOrg();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
@@ -502,69 +521,147 @@ export function OrganizationTab() {
         {showCreateForm && (
           <Card>
             <CardHeader>
-              <CardTitle>{t('org.createOrg')}</CardTitle>
+              <CardTitle>
+                {createStep === 'plan' ? 'Choose your membership plan' : t('org.createOrg')}
+              </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>{t('org.orgName')} *</Label>
-                <Input
-                  value={createForm.name}
-                  onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
-                  placeholder={t('org.orgNamePlaceholder')}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('org.domain')}</Label>
-                <Input
-                  value={createForm.domain}
-                  onChange={(e) => setCreateForm({ ...createForm, domain: e.target.value })}
-                  placeholder={t('org.domainPlaceholder')}
-                />
-                <p className="text-xs text-gray-500">{t('org.domainHelp')}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>{t('org.website')}</Label>
-                  <Input
-                    value={createForm.website}
-                    onChange={(e) => setCreateForm({ ...createForm, website: e.target.value })}
-                    placeholder={t('org.websitePlaceholder')}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('org.country')}</Label>
-                  <Input
-                    value={createForm.country}
-                    onChange={(e) => setCreateForm({ ...createForm, country: e.target.value })}
-                    placeholder={t('org.countryPlaceholder')}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label>{t('org.city')}</Label>
-                <Input
-                  value={createForm.city}
-                  onChange={(e) => setCreateForm({ ...createForm, city: e.target.value })}
-                  placeholder={t('org.cityPlaceholder')}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('org.description')}</Label>
-                <textarea
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
-                  value={createForm.description}
-                  onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
-                  placeholder={t('org.descriptionPlaceholder')}
-                />
-              </div>
-              <div className="flex gap-3 justify-end">
-                <Button variant="outline" onClick={() => setShowCreateForm(false)}>{t('common.cancel')}</Button>
-                <Button onClick={handleCreate} disabled={creating || !createForm.name.trim()}>
-                  {creating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  {creating ? t('org.creating') : t('org.createOrg')}
-                </Button>
-              </div>
+              {createStep === 'details' && (
+                <>
+                  <div className="space-y-2">
+                    <Label>{t('org.orgName')} *</Label>
+                    <Input
+                      value={createForm.name}
+                      onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })}
+                      placeholder={t('org.orgNamePlaceholder')}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('org.domain')}</Label>
+                    <Input
+                      value={createForm.domain}
+                      onChange={(e) => setCreateForm({ ...createForm, domain: e.target.value })}
+                      placeholder={t('org.domainPlaceholder')}
+                    />
+                    <p className="text-xs text-gray-500">{t('org.domainHelp')}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-2">
+                      <Label>{t('org.website')}</Label>
+                      <Input
+                        value={createForm.website}
+                        onChange={(e) => setCreateForm({ ...createForm, website: e.target.value })}
+                        placeholder={t('org.websitePlaceholder')}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>{t('org.country')}</Label>
+                      <Input
+                        value={createForm.country}
+                        onChange={(e) => setCreateForm({ ...createForm, country: e.target.value })}
+                        placeholder={t('org.countryPlaceholder')}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('org.city')}</Label>
+                    <Input
+                      value={createForm.city}
+                      onChange={(e) => setCreateForm({ ...createForm, city: e.target.value })}
+                      placeholder={t('org.cityPlaceholder')}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('org.description')}</Label>
+                    <textarea
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                      value={createForm.description}
+                      onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                      placeholder={t('org.descriptionPlaceholder')}
+                    />
+                  </div>
+                  <div className="flex gap-3 justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => { setShowCreateForm(false); setCreateStep('details'); setSelectedPlan('member'); }}
+                    >
+                      {t('common.cancel')}
+                    </Button>
+                    {(profile?.persona === 'partner' || profile?.persona === 'media_partner') ? (
+                      <Button
+                        onClick={() => setCreateStep('plan')}
+                        disabled={!createForm.name.trim()}
+                      >
+                        Next →
+                      </Button>
+                    ) : (
+                      <Button onClick={handleCreate} disabled={creating || !createForm.name.trim()}>
+                        {creating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                        {creating ? t('org.creating') : t('org.createOrg')}
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {createStep === 'plan' && (
+                <>
+                  <p className="text-sm text-gray-500">
+                    Start free as a Member or request a sponsor package. All sponsorships are confirmed by annual bank invoice.
+                  </p>
+                  <div className="grid gap-2">
+                    {([
+                      { tier: 'member' as OrgTier, price: 'Free', note: 'No payment required', seats: 1 },
+                      { tier: 'innovation_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 5 },
+                      { tier: 'associate_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 8 },
+                      { tier: 'premium_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 10 },
+                      { tier: 'main_sponsor' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 15 },
+                    ] as const).map(({ tier, price, note, seats }) => {
+                      const colors = TIER_COLORS[tier];
+                      const isSelected = selectedPlan === tier;
+                      return (
+                        <button
+                          key={tier}
+                          type="button"
+                          onClick={() => setSelectedPlan(tier)}
+                          className={`w-full text-left rounded-lg border-2 px-4 py-3 transition-all ${
+                            isSelected
+                              ? 'border-primary bg-primary/5'
+                              : 'border-gray-200 hover:border-gray-300 bg-white'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold border ${colors.bg} ${colors.text} ${colors.border}`}>
+                                {TIER_LABELS[tier]}
+                              </span>
+                              <span className="text-xs text-gray-500">Up to {seats} seat{seats > 1 ? 's' : ''}</span>
+                              {isSelected && <CheckCircle className="h-4 w-4 text-primary" />}
+                            </div>
+                            <div className="text-right">
+                              <div className="text-sm font-semibold">{price}</div>
+                              <div className="text-xs text-gray-400">{note}</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedPlan !== 'member' && (
+                    <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded p-2">
+                      A sponsorship upgrade request will be submitted automatically after your organization is created. M3 will contact you with invoice details.
+                    </p>
+                  )}
+                  <div className="flex gap-3 justify-end pt-2 border-t">
+                    <Button variant="outline" onClick={() => setCreateStep('details')}>← Back</Button>
+                    <Button onClick={handleCreate} disabled={creating}>
+                      {creating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+                      {creating ? t('org.creating') : 'Confirm & Create'}
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         )}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,14 +7,18 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle, Lock } from 'lucide-react';
+import { Loader2, CheckCircle, Lock, AlertCircle, Info } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
 
+const FEATURE_KEY = 'webinar_requests';
+
 export function WebinarRequestPage() {
   const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
+  const { isFeatureEnabled, getQuota, getUsage, isLoading: entitlementsLoading } = useEntitlements();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
@@ -90,7 +94,8 @@ export function WebinarRequestPage() {
     }
   };
 
-  if (authLoading) {
+  // ── Loading states ────────────────────────────────────────────────────
+  if (authLoading || (isVerified && organization?.access_status === 'verified' && entitlementsLoading)) {
     return (
       <div className="container mx-auto py-16 text-center">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
@@ -98,7 +103,7 @@ export function WebinarRequestPage() {
     );
   }
 
-  // Not logged in, not verified, or org not verified
+  // ── Access guard: not logged in or not verified ───────────────────────
   if (!user || !isVerified || organization?.access_status !== 'verified') {
     return (
       <div className="container mx-auto px-4 py-16 max-w-lg text-center">
@@ -119,6 +124,50 @@ export function WebinarRequestPage() {
     );
   }
 
+  // ── Entitlement guard: feature disabled for this tier ─────────────────
+  const featureEnabled = isFeatureEnabled(FEATURE_KEY);
+
+  if (!featureEnabled) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
+        <AlertCircle className="h-12 w-12 mx-auto text-amber-400 mb-4" />
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">Upgrade Required</h1>
+        <p className="text-gray-500 mb-6">
+          Webinar requests require an Innovation Partner membership or higher.
+          Upgrade your plan to access this feature.
+        </p>
+        <Button asChild>
+          <Link to="/tiers">View Membership Plans</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  // ── Quota display (quota=null means unlimited) ────────────────────────
+  const quota = getQuota(FEATURE_KEY);
+  const usage = getUsage(FEATURE_KEY);
+  const usedCount = usage?.usage_count ?? 0;
+  const remaining = quota !== null ? quota - usedCount : null;
+  const quotaExhausted = remaining !== null && remaining <= 0;
+
+  // ── Quota exhausted guard ─────────────────────────────────────────────
+  if (quotaExhausted) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
+        <AlertCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">Quota Reached</h1>
+        <p className="text-gray-500 mb-6">
+          You have used all {quota} webinar request{quota === 1 ? '' : 's'} included in your current plan.
+          Upgrade your membership to submit additional requests.
+        </p>
+        <Button asChild>
+          <Link to="/tiers">View Membership Plans</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  // ── Main form ─────────────────────────────────────────────────────────
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
       <div className="mb-8">
@@ -127,6 +176,17 @@ export function WebinarRequestPage() {
           Suggest a topic or expert you'd like to see featured in an M3 Connect webinar.
           Our team will review your proposal and notify you.
         </p>
+
+        {/* Quota info banner (only when quota is finite) */}
+        {quota !== null && remaining !== null && (
+          <div className="mt-4 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            <Info className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              You have <strong>{remaining}</strong> webinar request{remaining === 1 ? '' : 's'} remaining
+              this period (used {usedCount} of {quota}).
+            </span>
+          </div>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">

@@ -1,9 +1,7 @@
-import { useState, useEffect } from 'react';
-import { RefreshCw, Plus, Pencil } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, Eye, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { RichTextEditor } from '@/components/ui/RichTextEditor';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -18,87 +16,421 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import type { ResourceDraft } from './types';
 
+type DraftStatus = 'all' | 'pending' | 'approved' | 'rejected';
+
+interface DraftRow extends ResourceDraft {
+  submitter_name: string;
+  submitter_email: string;
+}
+
+function statusBadge(status: string) {
+  if (status === 'approved') {
+    return <Badge className="bg-green-100 text-green-800 border-green-200">Approved</Badge>;
+  }
+  if (status === 'rejected') {
+    return <Badge className="bg-red-100 text-red-800 border-red-200">Rejected</Badge>;
+  }
+  return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Pending</Badge>;
+}
+
 export function AdminResourceDrafts() {
   const { user } = useAuth();
-  const [drafts, setDrafts] = useState<ResourceDraft[]>([]);
+  const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<ResourceDraft | null>(null);
-  const [formData, setFormData] = useState({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public' });
+  const [statusFilter, setStatusFilter] = useState<DraftStatus>('all');
+  const [selected, setSelected] = useState<DraftRow | null>(null);
+  const [comment, setComment] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
-  const topics = ['Sustainability', 'Technology', 'Energy', 'Management', 'Events', 'Infrastructure'];
+  const load = useCallback(async () => {
+    setLoading(true);
 
-  useEffect(() => { load(); }, []);
-  const load = async () => { setLoading(true); const { data } = await supabase.from('resource_drafts').select('*').order('created_at', { ascending: false }); setDrafts(data || []); setLoading(false); };
+    const { data: rows, error } = await supabase
+      .from('resource_drafts')
+      .select('*')
+      .order('created_at', { ascending: false });
 
-  const openCreate = () => { setEditing(null); setFormData({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public' }); setIsDialogOpen(true); };
-  const openEdit = (d: ResourceDraft) => { setEditing(d); setFormData({ title: d.title, summary: d.summary || '', content: d.content, type: d.type || 'article', topic: d.topic || 'Sustainability', language: d.language || 'EN', access_level: d.access_level || 'public' }); setIsDialogOpen(true); };
-
-  const handleSave = async () => {
-    const payload = { title: formData.title, summary: formData.summary || null, content: formData.content, type: formData.type, topic: formData.topic, language: formData.language, access_level: formData.access_level, created_by: user!.id };
-    if (editing) { await supabase.from('resource_drafts').update(payload).eq('id', editing.id); toast({ title: 'Draft updated' }); }
-    else { await supabase.from('resource_drafts').insert({ ...payload, status: 'draft' }); toast({ title: 'Draft created' }); }
-    setIsDialogOpen(false); load();
-  };
-
-  const updateStatus = async (id: string, status: string) => {
-    if (status === 'published') {
-      const draft = drafts.find(d => d.id === id);
-      if (!draft) return;
-      const { error: pubError } = await supabase.from('resources').insert({
-        title: draft.title, summary: draft.summary, content: draft.content, type: draft.type, topic: draft.topic,
-        language: draft.language, access_level: draft.access_level, published: true,
-      });
-      if (pubError) { toast({ title: 'Publish failed', description: pubError.message, variant: 'destructive' }); return; }
-      await supabase.from('resource_drafts').update({ status: 'published' }).eq('id', id);
-      toast({ title: 'Resource published!' }); load(); return;
+    if (error || !rows) {
+      toast({ title: 'Failed to load drafts', description: error?.message, variant: 'destructive' });
+      setLoading(false);
+      return;
     }
-    await supabase.from('resource_drafts').update({ status }).eq('id', id);
-    toast({ title: `Status: ${status}` }); load();
+
+    const userIds = [...new Set(rows.map((r: ResourceDraft) => r.created_by))];
+    const profileMap: Record<string, { name: string; email: string }> = {};
+
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('user_id, first_name, last_name, email')
+        .in('user_id', userIds);
+
+      (profiles || []).forEach((p: { user_id: string; first_name: string | null; last_name: string | null; email: string | null }) => {
+        profileMap[p.user_id] = {
+          name: `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.user_id.slice(0, 8),
+          email: p.email || '—',
+        };
+      });
+    }
+
+    setDrafts(
+      rows.map((r: ResourceDraft) => ({
+        ...r,
+        submitter_name: profileMap[r.created_by]?.name ?? r.created_by.slice(0, 8),
+        submitter_email: profileMap[r.created_by]?.email ?? '—',
+      })),
+    );
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = drafts.filter(d => statusFilter === 'all' || d.status === statusFilter);
+
+  const openDetail = (draft: DraftRow) => {
+    setSelected(draft);
+    setComment('');
   };
 
-  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+  const handleApprove = async () => {
+    if (!selected || !user) return;
+    setSaving(true);
+
+    let resourceId = selected.resource_id;
+
+    if (resourceId) {
+      // Update existing resource
+      const { error: updateErr } = await supabase
+        .from('resources')
+        .update({
+          title: selected.title,
+          summary: selected.summary,
+          content: selected.content,
+          type: selected.type,
+          topic: selected.topic,
+          language: selected.language,
+          access_level: selected.access_level,
+          thumbnail_url: selected.thumbnail_url ?? null,
+          file_url: selected.file_url ?? null,
+          published: true,
+        })
+        .eq('id', resourceId);
+
+      if (updateErr) {
+        toast({ title: 'Failed to update resource', description: updateErr.message, variant: 'destructive' });
+        setSaving(false);
+        return;
+      }
+    } else {
+      // Insert new resource
+      const { data: newResource, error: insertErr } = await supabase
+        .from('resources')
+        .insert({
+          title: selected.title,
+          summary: selected.summary ?? '',
+          content: selected.content,
+          type: selected.type ?? 'article',
+          topic: selected.topic ?? 'Sustainability',
+          language: selected.language ?? 'EN',
+          access_level: selected.access_level ?? 'public',
+          thumbnail_url: selected.thumbnail_url ?? null,
+          file_url: selected.file_url ?? null,
+          published: true,
+        })
+        .select('id')
+        .single();
+
+      if (insertErr || !newResource) {
+        toast({ title: 'Failed to publish resource', description: insertErr?.message, variant: 'destructive' });
+        setSaving(false);
+        return;
+      }
+
+      resourceId = newResource.id as string;
+
+      // Backfill resource_id on the draft
+      await supabase
+        .from('resource_drafts')
+        .update({ resource_id: resourceId })
+        .eq('id', selected.id);
+    }
+
+    // Record approval
+    const { error: approvalErr } = await supabase.from('resource_approvals').insert({
+      draft_id: selected.id,
+      reviewer_id: user.id,
+      decision: 'approved',
+      comment: comment.trim() || null,
+    });
+
+    if (approvalErr) {
+      toast({ title: 'Approval recorded but log failed', description: approvalErr.message, variant: 'destructive' });
+    }
+
+    // Update draft status
+    await supabase.from('resource_drafts').update({ status: 'approved' }).eq('id', selected.id);
+
+    toast({ title: 'Resource approved and published!' });
+    setSelected(null);
+    setSaving(false);
+    load();
+  };
+
+  const handleReject = async () => {
+    if (!selected || !user) return;
+    if (!comment.trim()) {
+      toast({ title: 'A rejection comment is required.', variant: 'destructive' });
+      return;
+    }
+    setSaving(true);
+
+    const { error: approvalErr } = await supabase.from('resource_approvals').insert({
+      draft_id: selected.id,
+      reviewer_id: user.id,
+      decision: 'rejected',
+      comment: comment.trim(),
+    });
+
+    if (approvalErr) {
+      toast({ title: 'Failed to record rejection', description: approvalErr.message, variant: 'destructive' });
+      setSaving(false);
+      return;
+    }
+
+    await supabase.from('resource_drafts').update({ status: 'rejected' }).eq('id', selected.id);
+
+    toast({ title: 'Draft rejected.' });
+    setSelected(null);
+    setSaving(false);
+    load();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">Resource Drafts ({drafts.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />New Draft</Button></div>
-      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
-        <th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th>
-      </tr></thead><tbody>
-        {drafts.map(d => (<tr key={d.id} className="border-b hover:bg-gray-50">
-          <td className="p-4"><div className="font-medium">{d.title}</div></td>
-          <td className="p-4"><Badge variant="outline">{d.type || '—'}</Badge></td>
-          <td className="p-4">
-            <Select value={d.status} onValueChange={v => updateStatus(d.id, v)}>
-              <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="draft">Draft</SelectItem><SelectItem value="submitted">Submitted</SelectItem>
-                <SelectItem value="review_1">Review 1</SelectItem><SelectItem value="review_2">Review 2</SelectItem>
-                <SelectItem value="approved">Approved</SelectItem><SelectItem value="published">Publish</SelectItem>
-                <SelectItem value="rejected">Rejected</SelectItem>
-              </SelectContent>
-            </Select>
-          </td>
-          <td className="p-4 text-sm text-gray-500">{new Date(d.created_at).toLocaleDateString()}</td>
-          <td className="p-4"><Button size="sm" variant="ghost" onClick={() => openEdit(d)}><Pencil className="h-4 w-4" /></Button></td>
-        </tr>))}
-        {drafts.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No resource drafts</td></tr>}
-      </tbody></table></div></CardContent></Card>
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing ? 'Edit Resource Draft' : 'New Resource Draft'}</DialogTitle><DialogDescription>Create or edit a resource draft for review.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
-        <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
-        <div className="space-y-2"><Label>Summary</Label><Textarea value={formData.summary} onChange={e => setFormData({ ...formData, summary: e.target.value })} rows={2} /></div>
-        <div className="space-y-2"><Label>Content *</Label><RichTextEditor content={formData.content} onChange={(html) => setFormData({ ...formData, content: html })} placeholder="Write the resource content..." /></div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2"><Label>Type</Label><Select value={formData.type} onValueChange={v => setFormData({ ...formData, type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{types.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
-          <div className="space-y-2"><Label>Topic</Label><Select value={formData.topic} onValueChange={v => setFormData({ ...formData, topic: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{topics.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">Resource Drafts ({filtered.length})</h1>
+        <div className="flex items-center gap-3">
+          <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as DraftStatus)}>
+            <SelectTrigger className="w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All</SelectItem>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="rejected">Rejected</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button variant="ghost" size="sm" onClick={load}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div>
-          <div className="space-y-2"><Label>Access</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina</SelectItem></SelectContent></Select></div>
-        </div>
-        <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editing ? 'Update' : 'Create'}</Button></div>
-      </div></DialogContent></Dialog>
+      </div>
+
+      {/* Table */}
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left p-4 font-medium">Title</th>
+                  <th className="text-left p-4 font-medium">Type</th>
+                  <th className="text-left p-4 font-medium">Language</th>
+                  <th className="text-left p-4 font-medium">Status</th>
+                  <th className="text-left p-4 font-medium">Submitted by</th>
+                  <th className="text-left p-4 font-medium">Date</th>
+                  <th className="text-left p-4 font-medium">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((d) => (
+                  <tr key={d.id} className="border-b hover:bg-gray-50">
+                    <td className="p-4">
+                      <div className="font-medium max-w-xs truncate">{d.title}</div>
+                      {d.summary && (
+                        <div className="text-sm text-gray-500 truncate max-w-xs">{d.summary}</div>
+                      )}
+                    </td>
+                    <td className="p-4">
+                      <Badge variant="outline">{d.type || '—'}</Badge>
+                    </td>
+                    <td className="p-4 text-sm">{d.language || '—'}</td>
+                    <td className="p-4">{statusBadge(d.status)}</td>
+                    <td className="p-4">
+                      <div className="text-sm font-medium">{d.submitter_name}</div>
+                      <div className="text-xs text-gray-500">{d.submitter_email}</div>
+                    </td>
+                    <td className="p-4 text-sm text-gray-500">
+                      {new Date(d.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="p-4">
+                      <Button size="sm" variant="ghost" onClick={() => openDetail(d)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-gray-400">
+                      No resource drafts found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Detail / Review Dialog */}
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Review Resource Draft</DialogTitle>
+            <DialogDescription>
+              Approve to publish, or reject with a required comment.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selected && (
+            <div className="space-y-4 mt-2">
+              {/* Meta grid */}
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                <div>
+                  <span className="font-medium text-gray-600">Title: </span>
+                  {selected.title}
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600">Status: </span>
+                  {statusBadge(selected.status)}
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600">Type: </span>
+                  {selected.type || '—'}
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600">Topic: </span>
+                  {selected.topic || '—'}
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600">Language: </span>
+                  {selected.language || '—'}
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600">Access: </span>
+                  {selected.access_level || '—'}
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600">Submitted by: </span>
+                  {selected.submitter_name}
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600">Email: </span>
+                  {selected.submitter_email}
+                </div>
+                <div>
+                  <span className="font-medium text-gray-600">Submitted: </span>
+                  {new Date(selected.created_at).toLocaleString()}
+                </div>
+                {selected.resource_id && (
+                  <div>
+                    <span className="font-medium text-gray-600">Updating resource: </span>
+                    <span className="text-xs text-gray-400 font-mono">{selected.resource_id}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Summary */}
+              {selected.summary && (
+                <div>
+                  <p className="text-sm font-medium text-gray-600 mb-1">Summary</p>
+                  <p className="text-sm p-3 bg-gray-50 rounded border">{selected.summary}</p>
+                </div>
+              )}
+
+              {/* Content */}
+              <div>
+                <p className="text-sm font-medium text-gray-600 mb-1">Content</p>
+                <div
+                  className="text-sm p-3 bg-gray-50 rounded border max-h-52 overflow-y-auto prose prose-sm"
+                  dangerouslySetInnerHTML={{ __html: selected.content }}
+                />
+              </div>
+
+              {/* File / thumbnail links */}
+              {(selected.thumbnail_url || selected.file_url) && (
+                <div className="flex gap-4 text-sm">
+                  {selected.thumbnail_url && (
+                    <a href={selected.thumbnail_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                      Thumbnail
+                    </a>
+                  )}
+                  {selected.file_url && (
+                    <a href={selected.file_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                      Attached file
+                    </a>
+                  )}
+                </div>
+              )}
+
+              {/* Reviewer comment */}
+              <div className="space-y-2">
+                <Label>
+                  Reviewer comment{' '}
+                  <span className="text-gray-400 font-normal">(required to reject)</span>
+                </Label>
+                <Textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  rows={3}
+                  placeholder="Add notes for the submitter…"
+                  disabled={selected.status !== 'pending'}
+                />
+              </div>
+
+              {/* Action buttons */}
+              {selected.status === 'pending' && (
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                    onClick={handleApprove}
+                    disabled={saving}
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Approve & Publish
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={handleReject}
+                    disabled={saving}
+                  >
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Reject
+                  </Button>
+                </div>
+              )}
+
+              {selected.status !== 'pending' && (
+                <p className="text-sm text-gray-400 text-center pt-1">
+                  This draft has already been {selected.status}.
+                </p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

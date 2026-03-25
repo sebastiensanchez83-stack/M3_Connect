@@ -68,6 +68,7 @@ export function Navbar() {
     { href: '/events', label: t('nav.events'), icon: CalendarDays },
     { href: '/partners', label: t('nav.partners'), icon: Building2 },
     { href: '/marketplace', label: t('nav.marketplace'), icon: ShoppingBag },
+    { href: '/tiers', label: 'Pricing', icon: Ticket },
     { href: '/become-partner', label: t('nav.becomePartner'), icon: UserPlus },
   ];
 

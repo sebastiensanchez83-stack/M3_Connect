@@ -54,16 +54,17 @@ export function AuthRedirector() {
     }
 
     // Phase 4 rules:
-    // - draft => onboarding
-    // - rejected => onboarding (edit + resubmit)
+    // - draft => allow /account (user completes org info there), redirect other private pages
+    // - rejected => allow /account + /onboarding (edit + resubmit)
     // - submitted/pending => allow /account (pending review screen)
     // - completed => allow /account (and block /onboarding)
     const isDraft = profile.onboarding_status === 'draft'
     const isRejected = profile.access_status === 'rejected'
     const isCompleted = profile.onboarding_status === 'completed'
+    const isAccountRoute = pathname === '/account' || pathname.startsWith('/account?')
 
-    if ((isDraft || isRejected) && !isOnboardingRoute && !isPublicRoute(pathname)) {
-      navigate('/onboarding', { replace: true })
+    if ((isDraft || isRejected) && !isOnboardingRoute && !isAccountRoute && !isPublicRoute(pathname)) {
+      navigate('/account', { replace: true })
       return
     }
 

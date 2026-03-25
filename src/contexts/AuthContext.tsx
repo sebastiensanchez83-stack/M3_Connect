@@ -23,8 +23,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const isResetPasswordPage = () => window.location.pathname === '/reset-password'
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -123,11 +121,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   //   - On visibilitychange: proactively tell Supabase to refresh
   // ────────────────────────────────────────────────────────────────────
   useEffect(() => {
-    if (isResetPasswordPage()) {
-      setLoading(false)
-      return
-    }
-
     mountedRef.current = true
     initializedRef.current = false
 
@@ -330,7 +323,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/account`,
+        emailRedirectTo: `${window.location.origin}/`,
         data: {
           persona: persona || 'individual',
           first_name: firstName || '',

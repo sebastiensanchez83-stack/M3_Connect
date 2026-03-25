@@ -5,7 +5,7 @@ import { Helmet } from 'react-helmet-async';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2, Newspaper, BarChart3, CheckCircle, Globe, Shield, UserPlus, ClipboardCheck, Unlock, Eye, Link2, Inbox } from 'lucide-react';
+import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2, Newspaper, BarChart3, CheckCircle, Globe, Shield, UserPlus, ClipboardCheck, Unlock, Eye, Link2, Inbox, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 
@@ -376,6 +376,29 @@ export function HomePage() {
                   <p className="text-sm font-medium text-gray-700">{step.title}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Complete Profile Notification */}
+      {user && profile && (profile.onboarding_status !== 'completed' || !organization) && (
+        <section className="py-4 bg-amber-50 border-b border-amber-200">
+          <div className="container mx-auto px-4">
+            <div className="flex items-center gap-3 justify-between">
+              <div className="flex items-center gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-amber-900">
+                    {!organization
+                      ? 'Complete your organization profile to unlock all platform features.'
+                      : 'Your profile setup is not yet complete. Finish it to get the most out of M3 Connect.'}
+                  </p>
+                </div>
+              </div>
+              <Button size="sm" variant="outline" className="border-amber-300 text-amber-800 hover:bg-amber-100 shrink-0" asChild>
+                <Link to="/account">Complete Profile</Link>
+              </Button>
             </div>
           </div>
         </section>

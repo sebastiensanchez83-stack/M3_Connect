@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,34 +7,60 @@ import { supabase } from '@/lib/supabase';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 export function ResetPasswordPage() {
-  const [searchParams] = useSearchParams();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [checking, setChecking] = useState(true);
 
-  const tokenHash = searchParams.get('token_hash');
-  const type = searchParams.get('type');
+  useEffect(() => {
+    // The user arrives here after clicking a recovery link.
+    // Supabase's /auth/v1/verify endpoint processes the token and redirects
+    // here with a PKCE code (or hash fragment). The Supabase client
+    // automatically exchanges the code for a session.
+    //
+    // We listen for auth state changes to detect when the recovery session
+    // is ready, then show the password form.
 
-  if (!tokenHash || type !== 'recovery') {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-md">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Invalid Link</h2>
-            <p className="text-gray-600 mb-4">Invalid or missing reset link. Please request a new password reset.</p>
-            <Button onClick={() => window.location.href = '/'}>Return Home</Button>
-          </CardContent>
-        </Card>
-      </div>
+    let mounted = true;
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!mounted) return;
+
+        if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN') {
+          if (session) {
+            setSessionReady(true);
+            setChecking(false);
+          }
+        }
+      }
     );
-  }
+
+    // Also check if there's already an active session
+    // (e.g., the code was already exchanged before this listener was set up)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!mounted) return;
+      if (session) {
+        setSessionReady(true);
+      }
+      // After initial check, if still no session, wait a bit then give up
+      setTimeout(() => {
+        if (mounted) setChecking(false);
+      }, 5000);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -50,19 +75,8 @@ export function ResetPasswordPage() {
     setError(null);
 
     try {
-      // Step 1: Verify token
-      const { error: verifyError } = await supabase.auth.verifyOtp({
-        token_hash: tokenHash,
-        type: 'recovery',
-      });
-
-      if (verifyError) {
-        setError('This reset link has expired or is invalid. Please request a new one.');
-        setLoading(false);
-        return;
-      }
-
-      // Step 2: Update password
+      // Session is already established (from PKCE code exchange)
+      // Just update the password directly
       const { error: updateError } = await supabase.auth.updateUser({ password });
 
       if (updateError) {
@@ -71,20 +85,49 @@ export function ResetPasswordPage() {
         return;
       }
 
-      // Step 3: Success
+      // Success
       setSuccess(true);
-      
-      // Sign out and redirect using window.location (not React Router)
+
+      // Sign out and redirect home
       await supabase.auth.signOut();
       setTimeout(() => {
         window.location.href = '/';
       }, 2000);
-
     } catch (err) {
       setError('An error occurred. Please try again.');
       setLoading(false);
     }
   };
+
+  // Still checking for session
+  if (checking && !sessionReady) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-md">
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+            <p className="text-gray-600">Verifying your reset link...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // No session found — invalid or expired link
+  if (!sessionReady) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-md">
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Invalid Link</h2>
+            <p className="text-gray-600 mb-4">This reset link has expired or is invalid. Please request a new password reset.</p>
+            <Button onClick={() => window.location.href = '/'}>Return Home</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (success) {
     return (
@@ -120,7 +163,7 @@ export function ResetPasswordPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter new password"
+                placeholder="Enter new password (min 8 characters)"
                 required
                 disabled={loading}
               />

@@ -145,9 +145,13 @@ export function Navbar() {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="flex items-center gap-2 h-9 rounded-xl hover:bg-gray-100 pl-1.5 pr-2.5">
-                    <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/80 to-teal-500/80 flex items-center justify-center text-white text-xs font-bold shadow-sm">
-                      {userInitials}
-                    </div>
+                    {profile?.avatar_url ? (
+                      <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-lg object-cover shadow-sm" />
+                    ) : (
+                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/80 to-teal-500/80 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+                        {userInitials}
+                      </div>
+                    )}
                     <span className="hidden sm:inline text-sm font-medium text-gray-700 max-w-[120px] truncate">{displayName}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
                   </Button>

@@ -782,20 +782,44 @@ export function AccountPage() {
               ) : (
                 <div className="space-y-4">
                   {registrations.map((reg) => (
-                    <Link key={reg.id} to={`/events/${reg.event_id}`} className="flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 hover:border-primary/30 transition-colors">
-                      <Calendar className="h-5 w-5 text-gray-400 shrink-0" />
-                      <div className="flex-1">
-                        <div className="font-medium">{reg.events?.title ?? '—'}</div>
-                        {reg.events?.date_time && (
-                          <div className="text-sm text-gray-500">
-                            {new Date(reg.events.date_time).toLocaleDateString('en-US', {
-                              year: 'numeric', month: 'long', day: 'numeric',
-                            })}
-                          </div>
-                        )}
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-gray-400" />
-                    </Link>
+                    <div key={reg.id} className="flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                      <Link to={`/events/${reg.event_id}`} className="flex items-center gap-4 flex-1 min-w-0">
+                        <Calendar className="h-5 w-5 text-gray-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{reg.events?.title ?? '—'}</div>
+                          {reg.events?.date_time && (
+                            <div className="text-sm text-gray-500">
+                              {new Date(reg.events.date_time).toLocaleDateString('en-US', {
+                                year: 'numeric', month: 'long', day: 'numeric',
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        <ArrowRight className="h-4 w-4 text-gray-400 shrink-0" />
+                      </Link>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (!confirm('Are you sure you want to unregister from this event?')) return;
+                          const { error } = await supabase
+                            .from('event_registrations')
+                            .delete()
+                            .eq('id', reg.id);
+                          if (error) {
+                            toast({ title: 'Failed to unregister', description: error.message, variant: 'destructive' });
+                          } else {
+                            toast({ title: 'Unregistered from event' });
+                            setRegistrations(prev => prev.filter(r => r.id !== reg.id));
+                          }
+                        }}
+                      >
+                        <X className="h-4 w-4 mr-1" />
+                        Unregister
+                      </Button>
+                    </div>
                   ))}
                 </div>
               )}

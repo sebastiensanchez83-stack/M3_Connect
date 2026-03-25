@@ -84,6 +84,7 @@ interface Event {
   access_level: string;
   speakers: { name: string; title: string }[];
   replay_url: string | null;
+  event_type: string;
 }
 
 interface Partner {
@@ -1283,7 +1284,7 @@ function EventsAdmin() {
   const [loading, setLoading] = useState(true);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ title: '', description: '', date_time: '', location: '', language: 'EN', access_level: 'public', speakers: '', replay_url: '' });
+  const [formData, setFormData] = useState({ title: '', description: '', date_time: '', location: '', language: 'EN', access_level: 'public', speakers: '', replay_url: '', event_type: 'webinar' });
 
   // Pricing dialog state
   const [pricingEventId, setPricingEventId] = useState<string | null>(null);
@@ -1295,13 +1296,13 @@ function EventsAdmin() {
   useEffect(() => { loadEvents(); }, []);
   const loadEvents = async () => { setLoading(true); const { data } = await supabase.from('events').select('*').order('date_time', { ascending: false }); setEvents(data || []); setLoading(false); };
 
-  const openCreate = () => { setEditingEvent(null); setFormData({ title: '', description: '', date_time: '', location: '', language: 'EN', access_level: 'public', speakers: '', replay_url: '' }); setIsDialogOpen(true); };
-  const openEdit = (event: Event) => { setEditingEvent(event); setFormData({ title: event.title, description: event.description, date_time: event.date_time ? new Date(event.date_time).toISOString().slice(0, 16) : '', location: event.location || '', language: event.language, access_level: event.access_level, speakers: event.speakers ? JSON.stringify(event.speakers) : '', replay_url: event.replay_url || '' }); setIsDialogOpen(true); };
+  const openCreate = () => { setEditingEvent(null); setFormData({ title: '', description: '', date_time: '', location: '', language: 'EN', access_level: 'public', speakers: '', replay_url: '', event_type: 'webinar' }); setIsDialogOpen(true); };
+  const openEdit = (event: Event) => { setEditingEvent(event); setFormData({ title: event.title, description: event.description, date_time: event.date_time ? new Date(event.date_time).toISOString().slice(0, 16) : '', location: event.location || '', language: event.language, access_level: event.access_level, speakers: event.speakers ? JSON.stringify(event.speakers) : '', replay_url: event.replay_url || '', event_type: event.event_type || 'webinar' }); setIsDialogOpen(true); };
 
   const handleSave = async () => {
     let speakers: { name: string; title: string }[] = [];
     try { if (formData.speakers) speakers = JSON.parse(formData.speakers); } catch { toast({ title: 'Invalid speakers JSON', variant: 'destructive' }); return; }
-    const payload = { title: formData.title, description: formData.description, date_time: formData.date_time, location: formData.location || null, language: formData.language, access_level: formData.access_level, speakers, replay_url: formData.replay_url || null };
+    const payload = { title: formData.title, description: formData.description, date_time: formData.date_time, location: formData.location || null, language: formData.language, access_level: formData.access_level, speakers, replay_url: formData.replay_url || null, event_type: formData.event_type };
     if (editingEvent) { await supabase.from('events').update(payload).eq('id', editingEvent.id); toast({ title: 'Event updated!' }); }
     else { await supabase.from('events').insert(payload); toast({ title: 'Event created!' }); }
     setIsDialogOpen(false); loadEvents();
@@ -1364,8 +1365,8 @@ function EventsAdmin() {
   return (
     <div>
       <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.events')} ({events.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Event</Button></div>
-      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Location</th><th className="text-left p-4 font-medium">Access</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {events.map(e => (<tr key={e.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{e.title}</td><td className="p-4">{new Date(e.date_time).toLocaleDateString()}</td><td className="p-4">{e.location || 'Online'}</td><td className="p-4"><Badge variant={e.access_level === 'public' ? 'success' : 'info'}>{e.access_level}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(e)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => openPricing(e)} title="Manage pricing"><DollarSign className="h-4 w-4 text-green-600" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(e.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
+      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Location</th><th className="text-left p-4 font-medium">Access</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
+        {events.map(e => { const evType = e.event_type || 'webinar'; return (<tr key={e.id} className="border-b hover:bg-gray-50"><td className="p-4 font-medium">{e.title}</td><td className="p-4"><Badge variant={evType === 'on_site' ? 'info' : 'secondary'}>{evType === 'on_site' ? 'On-Site' : 'Webinar'}</Badge></td><td className="p-4">{new Date(e.date_time).toLocaleDateString()}</td><td className="p-4">{e.location || 'Online'}</td><td className="p-4"><Badge variant={e.access_level === 'public' ? 'success' : 'info'}>{e.access_level}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(e)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => openPricing(e)} title="Manage pricing"><DollarSign className="h-4 w-4 text-green-600" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(e.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>); })}
       </tbody></table></div></CardContent></Card>
 
       {/* Event Edit Dialog */}
@@ -1373,7 +1374,7 @@ function EventsAdmin() {
         <div className="space-y-2"><Label>Title *</Label><Input value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} /></div>
         <div className="space-y-2"><Label>Description *</Label><Textarea value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} rows={3} /></div>
         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Date & Time *</Label><Input type="datetime-local" value={formData.date_time} onChange={e => setFormData({ ...formData, date_time: e.target.value })} /></div><div className="space-y-2"><Label>Location</Label><Input value={formData.location} onChange={e => setFormData({ ...formData, location: e.target.value })} placeholder="Monaco Yacht Club" /></div></div>
-        <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access Level</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina Only</SelectItem></SelectContent></Select></div></div>
+        <div className="grid grid-cols-3 gap-4"><div className="space-y-2"><Label>Event Type *</Label><Select value={formData.event_type} onValueChange={v => setFormData({ ...formData, event_type: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="webinar">Webinar (Online)</SelectItem><SelectItem value="on_site">On-Site Event</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access Level</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina Only</SelectItem></SelectContent></Select></div></div>
         <div className="space-y-2"><Label>Speakers (JSON)</Label><Textarea value={formData.speakers} onChange={e => setFormData({ ...formData, speakers: e.target.value })} placeholder='[{"name":"John","title":"CEO"}]' rows={2} /></div>
         <div className="space-y-2"><Label>Replay URL</Label><Input value={formData.replay_url} onChange={e => setFormData({ ...formData, replay_url: e.target.value })} /></div>
         <div className="flex justify-end gap-2 pt-4"><Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button><Button onClick={handleSave}>{editingEvent ? 'Update' : 'Create'}</Button></div>
@@ -1839,8 +1840,22 @@ function ProjectsAdmin() {
   const [selectedProject, setSelectedProject] = useState<MarinaProject | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
 
+  const [marinaNames, setMarinaNames] = useState<Record<string, string>>({});
   useEffect(() => { loadProjects(); }, []);
-  const loadProjects = async () => { setLoading(true); const { data } = await supabase.from('marina_projects').select('*').order('created_at', { ascending: false }); setProjects(data || []); setLoading(false); };
+  const loadProjects = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('marina_projects').select('*').order('created_at', { ascending: false });
+    const rows = data || [];
+    const userIds = [...new Set(rows.map((p: MarinaProject) => p.user_id))];
+    const nameMap: Record<string, string> = {};
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase.from('profiles').select('user_id, first_name, last_name').in('user_id', userIds);
+      (profiles || []).forEach((p: { user_id: string; first_name: string; last_name: string }) => { nameMap[p.user_id] = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.user_id.slice(0, 8); });
+    }
+    setMarinaNames(nameMap);
+    setProjects(rows);
+    setLoading(false);
+  };
   const updateStatus = async (id: string, status: string) => { await supabase.from('marina_projects').update({ status }).eq('id', id); toast({ title: `Status: ${status}` }); loadProjects(); };
   const saveNotes = async () => { if (!selectedProject) return; await supabase.from('marina_projects').update({ admin_notes: adminNotes }).eq('id', selectedProject.id); toast({ title: 'Notes saved' }); setSelectedProject(null); loadProjects(); };
 
@@ -1850,7 +1865,7 @@ function ProjectsAdmin() {
     <div>
       <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.marinaProjects')} ({projects.length})</h1></div>
       <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Budget</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {projects.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-4 font-mono text-xs text-gray-600">{p.user_id}</td><td className="p-4">{p.project_type}</td><td className="p-4">{p.budget_range}</td><td className="p-4"><Select value={p.status} onValueChange={v => updateStatus(p.id, v)}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(p.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelectedProject(p); setAdminNotes(p.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
+        {projects.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-4 text-sm font-medium">{marinaNames[p.user_id] || p.user_id.slice(0, 8)}</td><td className="p-4">{p.project_type}</td><td className="p-4">{p.budget_range}</td><td className="p-4"><Select value={p.status} onValueChange={v => updateStatus(p.id, v)}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(p.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" onClick={() => { setSelectedProject(p); setAdminNotes(p.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
       </tbody></table></CardContent></Card>
       <Dialog open={!!selectedProject} onOpenChange={() => setSelectedProject(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Project Details</DialogTitle><DialogDescription>View and manage project notes.</DialogDescription></DialogHeader>{selectedProject && (<div className="space-y-4 mt-4"><div><strong>Type:</strong> {selectedProject.project_type}</div><div><strong>Budget:</strong> {selectedProject.budget_range}</div><div><strong>Description:</strong><p className="mt-1 p-2 bg-gray-50 rounded text-sm">{selectedProject.description}</p></div><div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
     </div>
@@ -2122,11 +2137,24 @@ function ExpositionRequestsAdmin() {
 
 /* ─── Partner Requests Admin (B2B Matching) ─── */
 function PartnerRequestsAdmin() {
-  const [requests, setRequests] = useState<PartnerRequest[]>([]);
+  const [requests, setRequests] = useState<(PartnerRequest & { partner_name?: string; marina_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { load(); }, []);
-  const load = async () => { setLoading(true); const { data } = await supabase.from('partner_requests').select('*').order('created_at', { ascending: false }); setRequests(data || []); setLoading(false); };
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('partner_requests').select('*').order('created_at', { ascending: false });
+    const rows = data || [];
+    // Fetch names for all unique user IDs
+    const userIds = [...new Set(rows.flatMap((r: PartnerRequest) => [r.partner_user_id, r.marina_user_id]))];
+    const nameMap: Record<string, string> = {};
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase.from('profiles').select('user_id, first_name, last_name').in('user_id', userIds);
+      (profiles || []).forEach((p: { user_id: string; first_name: string; last_name: string }) => { nameMap[p.user_id] = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.user_id.slice(0, 8); });
+    }
+    setRequests(rows.map((r: PartnerRequest) => ({ ...r, partner_name: nameMap[r.partner_user_id] || r.partner_user_id.slice(0, 8), marina_name: nameMap[r.marina_user_id] || r.marina_user_id.slice(0, 8) })));
+    setLoading(false);
+  };
 
   const statusBadge = (s: string) => {
     const m: Record<string, 'warning' | 'success' | 'destructive' | 'secondary'> = { pending: 'warning', accepted: 'success', rejected: 'destructive', withdrawn: 'secondary' };
@@ -2142,8 +2170,8 @@ function PartnerRequestsAdmin() {
         <th className="text-left p-4 font-medium">Partner</th><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Message</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th>
       </tr></thead><tbody>
         {requests.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50">
-          <td className="p-4 text-xs font-mono text-gray-500">{r.partner_user_id.slice(0, 8)}...</td>
-          <td className="p-4 text-xs font-mono text-gray-500">{r.marina_user_id.slice(0, 8)}...</td>
+          <td className="p-4 text-sm font-medium">{r.partner_name}</td>
+          <td className="p-4 text-sm font-medium">{r.marina_name}</td>
           <td className="p-4 text-sm max-w-xs truncate">{r.message}</td>
           <td className="p-4">{statusBadge(r.status)}</td>
           <td className="p-4 text-sm text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
@@ -2156,12 +2184,24 @@ function PartnerRequestsAdmin() {
 
 /* ─── RFPs Admin ─── */
 function RFPsAdmin() {
-  const [rfps, setRfps] = useState<RFP[]>([]);
+  const [rfps, setRfps] = useState<(RFP & { marina_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<RFP | null>(null);
+  const [selected, setSelected] = useState<(RFP & { marina_name?: string }) | null>(null);
 
   useEffect(() => { load(); }, []);
-  const load = async () => { setLoading(true); const { data } = await supabase.from('rfps').select('*').order('created_at', { ascending: false }); setRfps(data || []); setLoading(false); };
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('rfps').select('*').order('created_at', { ascending: false });
+    const rows = data || [];
+    const userIds = [...new Set(rows.map((r: RFP) => r.marina_user_id))];
+    const nameMap: Record<string, string> = {};
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase.from('profiles').select('user_id, first_name, last_name').in('user_id', userIds);
+      (profiles || []).forEach((p: { user_id: string; first_name: string; last_name: string }) => { nameMap[p.user_id] = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.user_id.slice(0, 8); });
+    }
+    setRfps(rows.map((r: RFP) => ({ ...r, marina_name: nameMap[r.marina_user_id] || r.marina_user_id.slice(0, 8) })));
+    setLoading(false);
+  };
   const toggleOpen = async (id: string, is_open: boolean) => { await supabase.from('rfps').update({ is_open }).eq('id', id); toast({ title: is_open ? 'RFP reopened' : 'RFP closed' }); load(); };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -2174,7 +2214,7 @@ function RFPsAdmin() {
       </tr></thead><tbody>
         {rfps.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50">
           <td className="p-4 font-medium max-w-xs truncate">{r.title}</td>
-          <td className="p-4 text-xs font-mono text-gray-500">{r.marina_user_id.slice(0, 8)}...</td>
+          <td className="p-4 text-sm font-medium">{r.marina_name}</td>
           <td className="p-4 text-sm text-gray-500">{r.deadline_date ? new Date(r.deadline_date).toLocaleDateString() : '—'}</td>
           <td className="p-4"><Badge variant={r.is_open ? 'success' : 'secondary'}>{r.is_open ? 'Open' : 'Closed'}</Badge></td>
           <td className="p-4"><div className="flex gap-2">
@@ -2184,19 +2224,31 @@ function RFPsAdmin() {
         </tr>))}
         {rfps.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No RFPs yet</td></tr>}
       </tbody></table></div></CardContent></Card>
-      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>RFP Details</DialogTitle><DialogDescription>View the full scope of this RFP.</DialogDescription></DialogHeader>{selected && (<div className="space-y-4 mt-2"><div><strong>Title:</strong> {selected.title}</div><div><strong>Scope:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.scope}</p></div><div className="grid grid-cols-2 gap-4 text-sm"><div><strong>Deadline:</strong> {selected.deadline_date || '—'}</div><div><strong>Status:</strong> {selected.is_open ? 'Open' : 'Closed'}</div></div></div>)}</DialogContent></Dialog>
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>RFP Details</DialogTitle><DialogDescription>View the full scope of this RFP.</DialogDescription></DialogHeader>{selected && (<div className="space-y-4 mt-2"><div><strong>Title:</strong> {selected.title}</div><div><strong>Marina:</strong> {selected.marina_name}</div><div><strong>Scope:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.scope}</p></div><div className="grid grid-cols-2 gap-4 text-sm"><div><strong>Deadline:</strong> {selected.deadline_date || '—'}</div><div><strong>Status:</strong> {selected.is_open ? 'Open' : 'Closed'}</div></div></div>)}</DialogContent></Dialog>
     </div>
   );
 }
 
 /* ─── Consultations Admin ─── */
 function ConsultationsAdmin() {
-  const [consultations, setConsultations] = useState<Consultation[]>([]);
+  const [consultations, setConsultations] = useState<(Consultation & { marina_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Consultation | null>(null);
+  const [selected, setSelected] = useState<(Consultation & { marina_name?: string }) | null>(null);
 
   useEffect(() => { load(); }, []);
-  const load = async () => { setLoading(true); const { data } = await supabase.from('consultations').select('*').order('created_at', { ascending: false }); setConsultations(data || []); setLoading(false); };
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('consultations').select('*').order('created_at', { ascending: false });
+    const rows = data || [];
+    const userIds = [...new Set(rows.map((c: Consultation) => c.marina_user_id))];
+    const nameMap: Record<string, string> = {};
+    if (userIds.length > 0) {
+      const { data: profiles } = await supabase.from('profiles').select('user_id, first_name, last_name').in('user_id', userIds);
+      (profiles || []).forEach((p: { user_id: string; first_name: string; last_name: string }) => { nameMap[p.user_id] = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.user_id.slice(0, 8); });
+    }
+    setConsultations(rows.map((c: Consultation) => ({ ...c, marina_name: nameMap[c.marina_user_id] || c.marina_user_id.slice(0, 8) })));
+    setLoading(false);
+  };
   const toggleOpen = async (id: string, is_open: boolean) => { await supabase.from('consultations').update({ is_open }).eq('id', id); toast({ title: is_open ? 'Reopened' : 'Closed' }); load(); };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -2209,7 +2261,7 @@ function ConsultationsAdmin() {
       </tr></thead><tbody>
         {consultations.map(c => (<tr key={c.id} className="border-b hover:bg-gray-50">
           <td className="p-4 font-medium max-w-xs truncate">{c.title}</td>
-          <td className="p-4 text-xs font-mono text-gray-500">{c.marina_user_id.slice(0, 8)}...</td>
+          <td className="p-4 text-sm font-medium">{c.marina_name}</td>
           <td className="p-4"><Badge variant={c.is_open ? 'success' : 'secondary'}>{c.is_open ? 'Open' : 'Closed'}</Badge></td>
           <td className="p-4 text-sm text-gray-500">{new Date(c.created_at).toLocaleDateString()}</td>
           <td className="p-4"><div className="flex gap-2">
@@ -2219,7 +2271,7 @@ function ConsultationsAdmin() {
         </tr>))}
         {consultations.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No consultations yet</td></tr>}
       </tbody></table></div></CardContent></Card>
-      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Consultation Details</DialogTitle><DialogDescription>View the consultation question.</DialogDescription></DialogHeader>{selected && (<div className="space-y-4 mt-2"><div><strong>Title:</strong> {selected.title}</div><div><strong>Description:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.description}</p></div></div>)}</DialogContent></Dialog>
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Consultation Details</DialogTitle><DialogDescription>View the consultation question.</DialogDescription></DialogHeader>{selected && (<div className="space-y-4 mt-2"><div><strong>Title:</strong> {selected.title}</div><div><strong>Marina:</strong> {selected.marina_name}</div><div><strong>Description:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.description}</p></div></div>)}</DialogContent></Dialog>
     </div>
   );
 }

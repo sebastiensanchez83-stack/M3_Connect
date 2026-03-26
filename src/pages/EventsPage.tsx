@@ -198,6 +198,10 @@ export function EventsPage() {
                     >
                       <Play className="h-4 w-4 mr-2" />{t('events.watchReplay')}
                     </Button>
+                  ) : isPast ? (
+                    <Button size="sm" variant="secondary" disabled>
+                      {t('events.eventEnded', 'Event Ended')}
+                    </Button>
                   ) : (
                     <Button
                       size="sm"

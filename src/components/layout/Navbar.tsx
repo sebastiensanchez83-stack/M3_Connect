@@ -94,7 +94,7 @@ export function Navbar() {
     : displayName.slice(0, 2).toUpperCase();
 
   return (
-    <nav className={`sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b transition-all duration-300 ${
+    <header role="navigation" className={`sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b transition-all duration-300 ${
       scrolled ? 'border-gray-200/80 shadow-sm' : 'border-transparent'
     }`}>
       <div className="container mx-auto px-4">
@@ -136,9 +136,10 @@ export function Navbar() {
               variant="ghost"
               size="sm"
               onClick={toggleLanguage}
+              aria-label={i18n.language === 'en' ? 'Switch to French' : 'Switch to English'}
               className="hidden sm:flex h-9 w-9 p-0 rounded-xl text-gray-500 hover:text-gray-900 hover:bg-gray-100"
             >
-              <Globe className="h-4 w-4" />
+              <Globe className="h-4 w-4" aria-hidden="true" />
             </Button>
 
             {/* Auth buttons / User menu */}
@@ -261,14 +262,17 @@ export function Navbar() {
               size="icon"
               className="lg:hidden h-9 w-9 rounded-xl"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-menu"
             >
-              {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              {mobileMenuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
             </Button>
           </div>
         </div>
 
         {/* Mobile menu - slide down with animation */}
-        <div className={`lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${
+        <div id="mobile-menu" className={`lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${
           mobileMenuOpen ? 'max-h-[80vh] opacity-100' : 'max-h-0 opacity-0'
         }`}>
           <div className="py-4 border-t border-gray-100 space-y-1">
@@ -391,6 +395,6 @@ export function Navbar() {
           <SignupForm onSuccess={() => setSignupOpen(false)} />
         </DialogContent>
       </Dialog>
-    </nav>
+    </header>
   );
 }

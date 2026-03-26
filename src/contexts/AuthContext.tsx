@@ -105,6 +105,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const initializedRef = useRef(false)
   // Track current user ID to detect genuine user changes
   const currentUserIdRef = useRef<string | null>(null)
+  // Prevent concurrent profile fetches (avoids doubled warnings during cold starts / TOKEN_REFRESHED loops)
+  const isFetchingRef = useRef(false)
 
   // ─── Core auth effect ───────────────────────────────────────────────
   // Uses ONLY onAuthStateChange as the single source of truth.
@@ -153,6 +155,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setOrganization(null)
         setOrgRole(null)
         currentUserIdRef.current = null
+        isFetchingRef.current = false
+        if (shouldSetLoading) setLoading(false)
+        return
+      }
+
+      // Guard: if a fetch is already in progress for the same user, skip
+      if (isFetchingRef.current && currentUserIdRef.current === sess.user.id) {
         if (shouldSetLoading) setLoading(false)
         return
       }
@@ -161,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(sess)
       setUser(sess.user)
       currentUserIdRef.current = sess.user.id
+      isFetchingRef.current = true
 
       // Fetch profile with timeout protection + retry
       // Use 8s per attempt — new users need time for the handle_new_user trigger
@@ -196,6 +206,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUserDetails(null)
         setOrganization(null)
         setOrgRole(null)
+      } finally {
+        isFetchingRef.current = false
       }
 
       if (shouldSetLoading) setLoading(false)
@@ -282,12 +294,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setSession(newSession)
             setUser(newSession.user)
             currentUserIdRef.current = newSession.user.id
-            // If profile is null (e.g. initial fetch timed out), re-fetch
+            // If profile is null (e.g. initial fetch timed out), re-fetch once
             setProfile((currentProfile) => {
-              if (!currentProfile && newSession?.user) {
+              if (!currentProfile && newSession?.user && !isFetchingRef.current) {
                 // Schedule a profile re-fetch outside of the setState
                 setTimeout(() => {
-                  if (mountedRef.current) handleSession(newSession, false)
+                  if (mountedRef.current && !isFetchingRef.current) handleSession(newSession, false)
                 }, 0)
               }
               return currentProfile

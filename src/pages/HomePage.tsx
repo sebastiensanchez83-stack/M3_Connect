@@ -124,7 +124,8 @@ export function HomePage() {
       }
 
       // Personal stats: profile views, connection requests, pending items
-      const [viewsRes, connectionsRes, pendingRes] = await Promise.all([
+      // Using allSettled so a 503 on one table doesn't block the others
+      const [viewsRes, connectionsRes, pendingRes] = await Promise.allSettled([
         supabase
           .from('profile_views')
           .select('*', { count: 'exact', head: true })
@@ -141,9 +142,9 @@ export function HomePage() {
           .eq('status', 'pending'),
       ]);
       setPersonalStats({
-        profileViews: viewsRes.count || 0,
-        connectionRequests: connectionsRes.count || 0,
-        pendingItems: pendingRes.count || 0,
+        profileViews: viewsRes.status === 'fulfilled' ? (viewsRes.value.count || 0) : 0,
+        connectionRequests: connectionsRes.status === 'fulfilled' ? (connectionsRes.value.count || 0) : 0,
+        pendingItems: pendingRes.status === 'fulfilled' ? (pendingRes.value.count || 0) : 0,
       });
     };
     fetchPersonal();
@@ -505,7 +506,7 @@ export function HomePage() {
         <div className="container mx-auto px-4">
           {user && personalStats ? (
             <div className="grid grid-cols-3 gap-6 max-w-2xl mx-auto">
-              <Link to="/account?tab=b2b-requests" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
+              <Link to="/account" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
                 <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 text-blue-600 mb-2 group-hover:scale-110 transition-transform">
                   <Eye className="h-5 w-5" />
                 </div>

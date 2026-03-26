@@ -96,7 +96,7 @@ export function Footer() {
               </li>
               <li>
                 <Link to="/cookies" className="text-gray-300 hover:text-white transition-colors">
-                  Politique Cookies
+                  Cookie Policy
                 </Link>
               </li>
             </ul>

@@ -870,9 +870,9 @@ export function AccountPage() {
         <TabsContent value="webinars">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Mes demandes de webinar</CardTitle>
+              <CardTitle>My Webinar Requests</CardTitle>
               <Button size="sm" onClick={() => navigate('/request-webinar')}>
-                <Plus className="h-4 w-4 mr-2" />Proposer un webinar
+                <Plus className="h-4 w-4 mr-2" />Propose a Webinar
               </Button>
             </CardHeader>
             <CardContent>
@@ -883,7 +883,7 @@ export function AccountPage() {
                   <Radio className="h-8 w-8 mx-auto mb-3 text-gray-300" />
                   <p>No webinar requests submitted.</p>
                   <Button className="mt-4" size="sm" onClick={() => navigate('/request-webinar')}>
-                    Proposer un sujet
+                    Propose a Topic
                   </Button>
                 </div>
               ) : (
@@ -908,15 +908,15 @@ export function AccountPage() {
                       {req.status === 'submitted' && (
                         <div className="flex gap-2 pt-1">
                           <Button variant="outline" size="sm" onClick={() => navigate(`/request-webinar?edit=${req.id}`)}>
-                            Modifier
+                            Edit
                           </Button>
                           <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
-                            if (!confirm('Retirer cette demande de webinar ?')) return;
+                            if (!confirm('Withdraw this webinar request?')) return;
                             await supabase.from('webinar_requests').delete().eq('id', req.id);
                             setWebinarRequests(prev => prev.filter(r => r.id !== req.id));
                             toast({ title: 'Request deleted' });
                           }}>
-                            <X className="h-4 w-4 mr-1" />Retirer
+                            <X className="h-4 w-4 mr-1" />Withdraw
                           </Button>
                         </div>
                       )}
@@ -1079,7 +1079,7 @@ export function AccountPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Link2 className="h-5 w-5" />
-                Demandes B2B
+                B2B Requests
               </CardTitle>
             </CardHeader>
             <CardContent>

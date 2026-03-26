@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 const publicExactRoutes = new Set<string>([
   '/', '/reset-password', '/about', '/contact', '/privacy', '/terms',
   '/resources', '/events', '/partners', '/become-partner', '/marketplace',
-  '/mentions-legales', '/conditions-commerciales', '/cookies',
+  '/tiers', '/mentions-legales', '/conditions-commerciales', '/cookies',
 ])
 
 // Public route prefixes (dynamic routes accessible without auth)
@@ -20,7 +20,7 @@ function isPublicRoute(pathname: string): boolean {
 }
 
 export function AuthRedirector() {
-  const { user, loading, profile, isModerator } = useAuth()
+  const { user, loading, profile, profileTimedOut, isModerator } = useAuth()
   const navigate = useNavigate()
   const { pathname } = useLocation()
 
@@ -43,9 +43,10 @@ export function AuthRedirector() {
     }
 
     // Logged in, no profile yet => onboarding (persona selection)
-    // BUT: allow /account so the user can see a retry/loading state
-    // when profile is null due to a fetch timeout (not a new user).
+    // BUT: if the profile fetch timed out (Supabase cold start), don't redirect —
+    // the user is authenticated; let them stay on the current page.
     if (!profile) {
+      if (profileTimedOut) return // Cold start — don't redirect, profile will load eventually
       const isAccountRoute = pathname === '/account'
       if (!isOnboardingRoute && !isAccountRoute && !isPublicRoute(pathname)) {
         navigate('/onboarding', { replace: true })
@@ -71,7 +72,7 @@ export function AuthRedirector() {
     if (isCompleted && isOnboardingRoute) {
       navigate('/account', { replace: true })
     }
-  }, [user, loading, profile, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute])
+  }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute])
 
   return null
 }

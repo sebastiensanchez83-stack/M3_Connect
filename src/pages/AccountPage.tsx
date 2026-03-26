@@ -73,6 +73,19 @@ interface PartnerRequestItem {
   created_at: string;
 }
 
+/** Format raw budget_range DB values into human-readable labels */
+function formatBudgetRange(raw: string): string {
+  if (raw === 'under_10k') return 'Under €10k';
+  // Numeric ranges like "50000-100000"
+  const m = raw.match(/^(\d+)-(\d+)$/);
+  if (m) {
+    const fmt = (n: number) => (n >= 1_000_000 ? `€${n / 1_000_000}M` : `€${(n / 1_000).toFixed(0)}k`);
+    return `${fmt(Number(m[1]))} – ${fmt(Number(m[2]))}`;
+  }
+  // Fallback: replace underscores and capitalize
+  return raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export function AccountPage() {
   const { t } = useTranslation();
   const { user, profile, organization, orgRole, loading: authLoading } = useAuth();
@@ -698,13 +711,13 @@ export function AccountPage() {
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     {org.country && (
                       <div>
-                        <span className="text-gray-500 block">Pays</span>
+                        <span className="text-gray-500 block">Country</span>
                         <span className="font-medium">{org.country}</span>
                       </div>
                     )}
                     {org.city && (
                       <div>
-                        <span className="text-gray-500 block">Ville</span>
+                        <span className="text-gray-500 block">City</span>
                         <span className="font-medium">{org.city}</span>
                       </div>
                     )}
@@ -828,7 +841,7 @@ export function AccountPage() {
           </Card>
         </TabsContent>
 
-        {/* ── PROJETS (marina uniquement) ── */}
+        {/* ── PROJECTS (marina only) ── */}
         {isMarina && (
           <TabsContent value="projects">
             <Card>
@@ -853,7 +866,7 @@ export function AccountPage() {
                             <div className="font-medium">{project.project_type}</div>
                             <div className="text-sm text-gray-500">
                               {new Date(project.created_at).toLocaleDateString('en-US')}
-                              {project.budget_range && ` • ${project.budget_range}`}
+                              {project.budget_range && ` • ${formatBudgetRange(project.budget_range)}`}
                             </div>
                           </div>
                         </div>
@@ -928,7 +941,7 @@ export function AccountPage() {
           </Card>
         </TabsContent>
 
-        {/* ── RFPs (marina uniquement) ── */}
+        {/* ── RFPs (marina only) ── */}
         {isMarina && (
           <TabsContent value="rfps">
             <Card>
@@ -974,15 +987,15 @@ export function AccountPage() {
                             setRfps(prev => prev.map(r => r.id === rfp.id ? { ...r, is_open: newOpen } : r));
                             toast({ title: newOpen ? 'RFP reopened' : 'RFP closed' });
                           }}>
-                            {rfp.is_open ? 'Fermer' : 'Rouvrir'}
+                            {rfp.is_open ? 'Close' : 'Reopen'}
                           </Button>
                           <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
-                            if (!confirm('Supprimer ce RFP ?')) return;
+                            if (!confirm('Delete this RFP?')) return;
                             await supabase.from('rfps').delete().eq('id', rfp.id);
                             setRfps(prev => prev.filter(r => r.id !== rfp.id));
                             toast({ title: 'RFP deleted' });
                           }}>
-                            <X className="h-4 w-4 mr-1" />Supprimer
+                            <X className="h-4 w-4 mr-1" />Delete
                           </Button>
                         </div>
                       </div>
@@ -994,17 +1007,17 @@ export function AccountPage() {
           </TabsContent>
         )}
 
-        {/* ── CONSULTATIONS (marina uniquement) ── */}
+        {/* ── CONSULTATIONS (marina only) ── */}
         {isMarina && (
           <TabsContent value="consultations">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <MessageSquare className="h-5 w-5" />
-                  Mes consultations
+                  My Consultations
                 </CardTitle>
                 <Button size="sm" onClick={() => navigate('/submit-consultation')}>
-                  <Plus className="h-4 w-4 mr-2" />Nouvelle consultation
+                  <Plus className="h-4 w-4 mr-2" />New Consultation
                 </Button>
               </CardHeader>
               <CardContent>
@@ -1015,7 +1028,7 @@ export function AccountPage() {
                     <MessageSquare className="h-8 w-8 mx-auto mb-3 text-gray-300" />
                     <p>No consultations submitted.</p>
                     <Button className="mt-4" size="sm" onClick={() => navigate('/submit-consultation')}>
-                      Poser une question
+                      Ask a Question
                     </Button>
                   </div>
                 ) : (
@@ -1039,15 +1052,15 @@ export function AccountPage() {
                             setConsultations(prev => prev.map(x => x.id === c.id ? { ...x, is_open: newOpen } : x));
                             toast({ title: newOpen ? 'Consultation reopened' : 'Consultation closed' });
                           }}>
-                            {c.is_open ? 'Fermer' : 'Rouvrir'}
+                            {c.is_open ? 'Close' : 'Reopen'}
                           </Button>
                           <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
-                            if (!confirm('Supprimer cette consultation ?')) return;
+                            if (!confirm('Delete this consultation?')) return;
                             await supabase.from('consultations').delete().eq('id', c.id);
                             setConsultations(prev => prev.filter(x => x.id !== c.id));
                             toast({ title: 'Consultation deleted' });
                           }}>
-                            <X className="h-4 w-4 mr-1" />Supprimer
+                            <X className="h-4 w-4 mr-1" />Delete
                           </Button>
                         </div>
                       </div>

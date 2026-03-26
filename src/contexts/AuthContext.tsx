@@ -7,6 +7,7 @@ interface AuthContextType {
   user: User | null
   session: Session | null
   loading: boolean
+  profileTimedOut: boolean
   profile: Profile | null
   userDetails: UserDetails | null
   organization: Organization | null
@@ -31,6 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [orgRole, setOrgRole] = useState<OrgMemberRole | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileTimedOut, setProfileTimedOut] = useState(false)
 
   // Ref to track mount status across async operations
   const mountedRef = useRef(true)
@@ -107,6 +109,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const currentUserIdRef = useRef<string | null>(null)
   // Prevent concurrent profile fetches (avoids doubled warnings during cold starts / TOKEN_REFRESHED loops)
   const isFetchingRef = useRef(false)
+  // Track whether profile fetch has been attempted for current user (prevents TOKEN_REFRESHED re-fetch loops)
+  const profileAttemptedRef = useRef(false)
 
   // ─── Core auth effect ───────────────────────────────────────────────
   // Uses ONLY onAuthStateChange as the single source of truth.
@@ -156,12 +160,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setOrgRole(null)
         currentUserIdRef.current = null
         isFetchingRef.current = false
+        profileAttemptedRef.current = false
+        setProfileTimedOut(false)
         if (shouldSetLoading) setLoading(false)
         return
       }
 
       // Guard: if a fetch is already in progress for the same user, skip
       if (isFetchingRef.current && currentUserIdRef.current === sess.user.id) {
+        if (shouldSetLoading) setLoading(false)
+        return
+      }
+
+      // Guard: if profile already attempted for this user, just update session (prevents re-fetch loops)
+      if (profileAttemptedRef.current && currentUserIdRef.current === sess.user.id) {
+        setSession(sess)
+        setUser(sess.user)
         if (shouldSetLoading) setLoading(false)
         return
       }
@@ -199,14 +213,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUserDetails(result.details)
         setOrganization(result.org)
         setOrgRole(result.role)
+        profileAttemptedRef.current = true
+        setProfileTimedOut(false)
       } catch (err) {
         if (import.meta.env.DEV) console.debug('[AuthContext] Profile fetch failed after retry:', err)
         if (!mountedRef.current) return
-        // User/session are valid, just no profile data
+        // User/session are valid, just no profile data (cold start timeout)
         setProfile(null)
         setUserDetails(null)
         setOrganization(null)
         setOrgRole(null)
+        profileAttemptedRef.current = true
+        setProfileTimedOut(true)
       } finally {
         isFetchingRef.current = false
       }
@@ -269,6 +287,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           // Genuine new sign-in: set loading=true so pages wait
           initializedRef.current = true
+          profileAttemptedRef.current = false
+          setProfileTimedOut(false)
           setLoading(true)
           await handleSession(newSession, true)
           return
@@ -283,6 +303,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setOrganization(null)
           setOrgRole(null)
           currentUserIdRef.current = null
+          profileAttemptedRef.current = false
+          setProfileTimedOut(false)
           setLoading(false)
           return
         }
@@ -297,10 +319,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             currentUserIdRef.current = newSession.user.id
             // If profile is null (e.g. initial fetch timed out), re-fetch once
             setProfile((currentProfile) => {
-              if (!currentProfile && newSession?.user && !isFetchingRef.current) {
-                // Schedule a profile re-fetch outside of the setState
+              if (!currentProfile && newSession?.user && !isFetchingRef.current && !profileAttemptedRef.current) {
+                // Schedule a profile re-fetch outside of the setState (only if never attempted)
                 setTimeout(() => {
-                  if (mountedRef.current && !isFetchingRef.current) handleSession(newSession, false)
+                  if (mountedRef.current && !isFetchingRef.current && !profileAttemptedRef.current) handleSession(newSession, false)
                 }, 0)
               }
               return currentProfile
@@ -392,6 +414,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ─── signOut ────────────────────────────────────────────────────────
   const signOut = async () => {
     // Clear state immediately so UI updates instantly
+    profileAttemptedRef.current = false
+    setProfileTimedOut(false)
     setUser(null)
     setSession(null)
     setProfile(null)
@@ -409,7 +433,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, session, loading, profile, userDetails, organization, orgRole, hasOrganization,
+      user, session, loading, profileTimedOut, profile, userDetails, organization, orgRole, hasOrganization,
       isVerified, isModerator, isSponsor, signUp, signIn, signOut, refreshProfile
     }}>
       {children}

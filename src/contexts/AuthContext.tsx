@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
-import { supabase } from '@/lib/supabase'
+import { supabase, setAuthListener } from '@/lib/supabase'
 import { Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile, UserDetails, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 
 interface AuthContextType {
@@ -34,7 +34,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [profileTimedOut, setProfileTimedOut] = useState(false)
 
-  // Ref to track mount status across async operations
   const mountedRef = useRef(true)
 
   const isVerified = profile?.access_status === 'verified'
@@ -42,8 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hasOrganization = organization !== null
   const isSponsor = hasOrganization && SPONSOR_TIERS.includes(organization!.tier)
 
+  // ─── Data fetching ────────────────────────────────────────────────
   const fetchUserData = useCallback(async (userId: string) => {
-    // Step 1: Fetch profile first (needed to determine persona detail table)
     const { data: profileData, error } = await supabase
       .from('profiles')
       .select('*')
@@ -54,7 +53,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const p = profileData as Profile
 
-    // Step 2: Fetch persona details + org membership IN PARALLEL (they're independent)
     const detailsPromise = (async (): Promise<UserDetails | null> => {
       if (p.persona === 'marina') {
         const { data } = await supabase.from('marina_profiles').select('*').eq('user_id', userId).maybeSingle()
@@ -77,7 +75,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const [details, { data: membership }] = await Promise.all([detailsPromise, membershipPromise])
 
-    // Step 3: If membership found, fetch org data
     let org: Organization | null = null
     let role: OrgMemberRole | null = null
     if (membership) {
@@ -106,56 +103,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [user, fetchUserData])
 
-  // Track whether initial session has been handled to differentiate
-  // a fresh sign-in from Supabase re-firing SIGNED_IN on tab focus
+  // ─── Refs for deduplication ───────────────────────────────────────
   const initializedRef = useRef(false)
-  // Track current user ID to detect genuine user changes
   const currentUserIdRef = useRef<string | null>(null)
-  // Prevent concurrent profile fetches
   const isFetchingRef = useRef(false)
-  // Track whether profile data was actually loaded (NOT just attempted)
-  // Unlike the old profileAttemptedRef, this is only true when we have real data.
-  // This allows TOKEN_REFRESHED to retry if the initial fetch returned null.
+  // Only true when profile was ACTUALLY loaded (not just attempted).
+  // Allows TOKEN_REFRESHED to retry if the initial fetch failed.
   const profileLoadedRef = useRef(false)
 
-  // ─── Core auth effect ───────────────────────────────────────────────
-  // Uses ONLY onAuthStateChange as the single source of truth.
+  // ─── Core auth effect ─────────────────────────────────────────────
   //
-  // Key changes from previous version:
-  //   - NO Promise.race timeout on profile fetch — let it complete naturally
-  //   - profileLoadedRef replaces profileAttemptedRef — only blocks re-fetch
-  //     when we actually have data, allowing recovery after failures
-  //   - Safety timeout (20s) forces loading=false but does NOT cancel fetch;
-  //     when fetch eventually completes, state updates re-render the UI
-  //   - TOKEN_REFRESHED can re-fetch if profile is null (recovery path)
-  // ────────────────────────────────────────────────────────────────────
+  // Uses setAuthListener() from supabase.ts instead of calling
+  // supabase.auth.onAuthStateChange() directly. The actual subscription
+  // lives at module level — this prevents the Web Locks API deadlock
+  // that occurs when React StrictMode double-mounts and causes
+  // onAuthStateChange to be called twice.
+  //
+  // See supabase.ts for the full explanation.
+  // ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     mountedRef.current = true
     initializedRef.current = false
 
-    // Safety timeout: if loading doesn't resolve in 20s, force it false.
+    // Safety timeout: if loading doesn't resolve in 15s, force it false.
     // The profile fetch continues in background — when it completes,
-    // setProfile() will trigger a re-render with the real data.
+    // setProfile() triggers a re-render with the real data.
     const safetyTimer = setTimeout(() => {
       if (mountedRef.current) {
         setLoading((prev) => {
           if (prev) {
-            console.warn('[AuthContext] Safety timeout — forcing loading to false after 20s (fetch continues in background)')
+            console.warn('[AuthContext] Safety timeout — forcing loading=false after 15s (fetch continues in background)')
             setProfileTimedOut(true)
             return false
           }
           return prev
         })
       }
-    }, 20000)
+    }, 15000)
 
     /**
      * Handles a session: sets user/session, fetches profile, then sets loading=false.
-     * If session is null/expired, clears everything.
-     *
-     * Key design: NO timeout on fetchUserData. The fetch runs to completion.
-     * If the safety timeout fires first, it sets loading=false so the UI renders.
-     * When the fetch eventually completes, state updates cause a re-render.
+     * NO timeout wrapper on the fetch — let it complete naturally.
      */
     const handleSession = async (sess: Session | null, shouldSetLoading: boolean) => {
       if (!mountedRef.current) return
@@ -178,7 +166,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const isSameUser = currentUserIdRef.current === sess.user.id
 
       // Guard: if a fetch is already in progress for the same user, skip.
-      // DON'T set loading=false here — let the in-progress fetch handle it.
       if (isFetchingRef.current && isSameUser) {
         setSession(sess)
         setUser(sess.user)
@@ -186,7 +173,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Guard: if profile already loaded for this user, just update session.
-      // Unlike the old profileAttemptedRef, this only blocks when we HAVE data.
       if (profileLoadedRef.current && isSameUser) {
         setSession(sess)
         setUser(sess.user)
@@ -200,9 +186,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       currentUserIdRef.current = sess.user.id
       isFetchingRef.current = true
 
-      // Fetch profile data — NO timeout wrapper
-      // Let Supabase handle its own request timeouts.
-      // The 20s safety timer above handles the loading state.
       try {
         const result = await fetchUserData(sess.user.id)
         if (!mountedRef.current) return
@@ -212,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setOrgRole(result.role)
         if (result.profile) {
           profileLoadedRef.current = true
-          setProfileTimedOut(false) // Clear timeout flag on successful load
+          setProfileTimedOut(false)
         }
       } catch (err) {
         if (import.meta.env.DEV) console.debug('[AuthContext] Profile fetch error:', err)
@@ -222,22 +205,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event: AuthChangeEvent, newSession) => {
+    // ── Register with the module-level auth subscription ────────────
+    // This replaces the old supabase.auth.onAuthStateChange() call.
+    // The actual subscription was created once at module load time.
+    // Events that fired before this listener registered (INITIAL_SESSION)
+    // are buffered and replayed.
+    const removeListener = setAuthListener(
+      async (event: AuthChangeEvent, newSession: Session | null) => {
         if (!mountedRef.current) return
 
         // ── INITIAL_SESSION ──────────────────────────────────────
-        // First event on page load. Replaces the old init()/getSession().
         if (event === 'INITIAL_SESSION') {
           initializedRef.current = true
           if (!newSession) {
-            // Session is null — could be genuinely logged out, or the auth
-            // lock timed out (multi-tab). Check localStorage for a token
-            // and retry after a short delay if one exists.
             const storageKey = `sb-${new URL(import.meta.env.VITE_SUPABASE_URL || '').hostname.split('.')[0]}-auth-token`
             const stored = localStorage.getItem(storageKey)
             if (stored) {
-              // Token exists in storage — lock contention likely. Retry.
               console.warn('[AuthContext] INITIAL_SESSION null but token in storage — retrying in 2s')
               setTimeout(async () => {
                 if (!mountedRef.current) return
@@ -245,7 +228,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (retrySession && mountedRef.current) {
                   await handleSession(retrySession, true)
                 } else if (mountedRef.current) {
-                  // Genuinely no session
                   await handleSession(null, true)
                 }
               }, 2000)
@@ -257,17 +239,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         // ── SIGNED_IN ────────────────────────────────────────────
-        // Fires after signIn() BUT ALSO when Supabase auto-refreshes
-        // the token on tab focus. We must distinguish the two:
-        //  - Fresh login (new user) → set loading=true, fetch profile
-        //  - Same user re-fire → silently update session, no loading
         if (event === 'SIGNED_IN') {
           const isSameUser = newSession?.user?.id === currentUserIdRef.current
           const isRefire = initializedRef.current && isSameUser
 
           if (isRefire) {
-            // Same user, just token refresh disguised as SIGNED_IN.
-            // Silently update session without loading flash.
             if (newSession?.user) {
               setSession(newSession)
               setUser(newSession.user)
@@ -275,7 +251,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             return
           }
 
-          // Genuine new sign-in: set loading=true so pages wait
           initializedRef.current = true
           profileLoadedRef.current = false
           setProfileTimedOut(false)
@@ -300,21 +275,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         // ── TOKEN_REFRESHED ──────────────────────────────────────
-        // Session token was refreshed. Update session/user silently.
-        // KEY FIX: If profile is null (e.g. initial fetch was slow),
-        // retry the fetch. profileLoadedRef (not profileAttemptedRef)
-        // means we only skip if we actually HAVE the data.
         if (event === 'TOKEN_REFRESHED') {
           if (newSession?.user) {
             setSession(newSession)
             setUser(newSession.user)
             currentUserIdRef.current = newSession.user.id
-            // If profile never loaded, retry (recovery path)
+            // Recovery: if profile never loaded, retry the fetch
             if (!profileLoadedRef.current && !isFetchingRef.current) {
               handleSession(newSession, false)
             }
           } else {
-            // Token refresh returned no session — session is truly expired
             console.warn('[AuthContext] Token refresh failed — clearing session')
             setUser(null)
             setSession(null)
@@ -336,15 +306,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     )
 
     // ── Visibility change handler ──────────────────────────────────
-    // When the user returns to this tab, proactively tell Supabase to
-    // check the session. This ensures the access token is refreshed
-    // before it expires, rather than discovering it's expired lazily.
-    // Supabase's getSession() will auto-refresh if needed, triggering
-    // TOKEN_REFRESHED which we handle silently above.
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && currentUserIdRef.current) {
-        // getSession() triggers auto-refresh if the access token is close
-        // to expiry. This fires TOKEN_REFRESHED which we handle above.
         supabase.auth.getSession().catch((err) => {
           console.warn('[AuthContext] Visibility session check failed:', err)
         })
@@ -356,7 +319,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mountedRef.current = false
       initializedRef.current = false
       clearTimeout(safetyTimer)
-      subscription.unsubscribe()
+      removeListener()
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [fetchUserData])
@@ -383,24 +346,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // ─── signIn ─────────────────────────────────────────────────────────
-  // Sets loading=true SYNCHRONOUSLY before the API call. This ensures
-  // that if the calling component navigates after signIn returns,
-  // every page sees authLoading=true and waits for profile to load.
   const signIn = async (email: string, password: string) => {
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      // Sign-in failed — restore loading to false
       setLoading(false)
     }
-    // On success, loading stays true until onAuthStateChange SIGNED_IN handler
-    // fetches the profile and sets loading=false
     return { error: error ?? null }
   }
 
   // ─── signOut ────────────────────────────────────────────────────────
   const signOut = async () => {
-    // Clear state immediately so UI updates instantly
     profileLoadedRef.current = false
     setProfileTimedOut(false)
     setUser(null)
@@ -412,7 +368,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await supabase.auth.signOut()
     } catch (e) {
-      // If signOut fails (e.g. token already expired), force local cleanup
       console.warn('[AuthContext] signOut API error (session cleared locally):', e)
       try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* ignore */ }
     }

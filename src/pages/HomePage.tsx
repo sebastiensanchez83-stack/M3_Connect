@@ -151,58 +151,58 @@ export function HomePage() {
   }, [user, profile, organization]);
 
   useEffect(() => {
-    // Fetch everything in parallel
+    // Fetch everything in parallel — use allSettled so a 503 on one doesn't block others
     const fetchAll = async () => {
-      try {
-        const [resourcesRes, eventsRes, partnersRes, marinasCount, partnersCount, resourcesCount, eventsCount] = await Promise.all([
-          // Featured resources (latest 3 published public)
-          supabase
-            .from('resources')
-            .select('id, title, summary, type, access_level, thumbnail_url')
-            .eq('published', true)
-            .order('created_at', { ascending: false })
-            .limit(3),
-          // Upcoming events (next 3 future events)
-          supabase
-            .from('events')
-            .select('id, title, date_time, access_level')
-            .gte('date_time', new Date().toISOString())
-            .order('date_time', { ascending: true })
-            .limit(3),
-          // Partner previews (verified orgs, up to 6)
-          supabase
-            .from('organizations')
-            .select('id, slug, name, logo_url')
-            .eq('access_status', 'verified')
-            .eq('organization_type', 'partner')
-            .limit(6),
-          // Stats counts
-          supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'marina'),
-          supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'partner'),
-          supabase.from('resources').select('*', { count: 'exact', head: true }).eq('published', true),
-          supabase.from('events').select('*', { count: 'exact', head: true }),
-        ]);
+      const [resourcesRes, eventsRes, partnersRes, marinasCount, partnersCount, resourcesCount, eventsCount] = await Promise.allSettled([
+        // Featured resources (latest 3 published public)
+        supabase
+          .from('resources')
+          .select('id, title, summary, type, access_level, thumbnail_url')
+          .eq('published', true)
+          .order('created_at', { ascending: false })
+          .limit(3),
+        // Upcoming events (next 3 future events)
+        supabase
+          .from('events')
+          .select('id, title, date_time, access_level')
+          .gte('date_time', new Date().toISOString())
+          .order('date_time', { ascending: true })
+          .limit(3),
+        // Partner previews (verified orgs, up to 6)
+        supabase
+          .from('organizations')
+          .select('id, slug, name, logo_url')
+          .eq('access_status', 'verified')
+          .eq('organization_type', 'partner')
+          .limit(6),
+        // Stats counts
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'marina'),
+        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'partner'),
+        supabase.from('resources').select('*', { count: 'exact', head: true }).eq('published', true),
+        supabase.from('events').select('*', { count: 'exact', head: true }),
+      ]);
 
-        if (resourcesRes.data) setFeaturedResources(resourcesRes.data as FeaturedResource[]);
-        if (eventsRes.data) setUpcomingEvents(eventsRes.data as UpcomingEvent[]);
-        if (partnersRes.data) {
-          setPartnerPreviews(partnersRes.data.map((o: { id: string; slug: string; name: string; logo_url: string | null }) => ({
-            id: o.id,
-            slug: o.slug,
-            name: o.name,
-            logo_url: o.logo_url,
-          })));
-        }
-
-        setStats({
-          marinas: marinasCount.count || 0,
-          partners: partnersCount.count || 0,
-          resources: resourcesCount.count || 0,
-          events: eventsCount.count || 0,
-        });
-      } catch (err) {
-        console.error('Error fetching homepage data:', err);
+      if (resourcesRes.status === 'fulfilled' && resourcesRes.value.data) {
+        setFeaturedResources(resourcesRes.value.data as FeaturedResource[]);
       }
+      if (eventsRes.status === 'fulfilled' && eventsRes.value.data) {
+        setUpcomingEvents(eventsRes.value.data as UpcomingEvent[]);
+      }
+      if (partnersRes.status === 'fulfilled' && partnersRes.value.data) {
+        setPartnerPreviews(partnersRes.value.data.map((o: { id: string; slug: string; name: string; logo_url: string | null }) => ({
+          id: o.id,
+          slug: o.slug,
+          name: o.name,
+          logo_url: o.logo_url,
+        })));
+      }
+
+      setStats({
+        marinas: marinasCount.status === 'fulfilled' ? (marinasCount.value.count || 0) : 0,
+        partners: partnersCount.status === 'fulfilled' ? (partnersCount.value.count || 0) : 0,
+        resources: resourcesCount.status === 'fulfilled' ? (resourcesCount.value.count || 0) : 0,
+        events: eventsCount.status === 'fulfilled' ? (eventsCount.value.count || 0) : 0,
+      });
     };
 
     fetchAll();

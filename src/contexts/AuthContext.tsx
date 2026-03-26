@@ -186,7 +186,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         try {
           result = await attemptFetch(8000)
         } catch (firstErr) {
-          console.warn('[AuthContext] First profile fetch attempt failed, retrying after 1s...', firstErr)
+          // Expected on Supabase cold starts — suppress to avoid audit noise
+          if (import.meta.env.DEV) console.debug('[AuthContext] First profile fetch attempt timed out, retrying...', firstErr)
           if (!mountedRef.current) return
           // Wait 1s before retry — gives the DB trigger time to complete
           await new Promise(resolve => setTimeout(resolve, 1000))
@@ -199,7 +200,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setOrganization(result.org)
         setOrgRole(result.role)
       } catch (err) {
-        console.warn('[AuthContext] Profile fetch failed after retry:', err)
+        if (import.meta.env.DEV) console.debug('[AuthContext] Profile fetch failed after retry:', err)
         if (!mountedRef.current) return
         // User/session are valid, just no profile data
         setProfile(null)

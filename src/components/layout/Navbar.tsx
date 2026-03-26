@@ -94,15 +94,16 @@ export function Navbar() {
     : displayName.slice(0, 2).toUpperCase();
 
   return (
-    <header role="navigation" className={`sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b transition-all duration-300 ${
+    <header className={`sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b transition-all duration-300 ${
       scrolled ? 'border-gray-200/80 shadow-sm' : 'border-transparent'
     }`}>
+      <nav aria-label="Main navigation">
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5 group">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-teal-500 flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
-              <Anchor className="h-5 w-5 text-white" />
+              <Anchor className="h-5 w-5 text-white" aria-hidden="true" />
             </div>
             <span className="text-xl font-bold bg-gradient-to-r from-primary to-teal-600 bg-clip-text text-transparent hidden sm:inline">
               M3 Connect
@@ -155,7 +156,7 @@ export function Navbar() {
                       </div>
                     )}
                     <span className="hidden sm:inline text-sm font-medium text-gray-700 max-w-[120px] truncate">{displayName}</span>
-                    <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                    <ChevronDown className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56 rounded-xl shadow-lg border border-gray-200/80 p-1">
@@ -272,7 +273,7 @@ export function Navbar() {
         </div>
 
         {/* Mobile menu - slide down with animation */}
-        <div id="mobile-menu" className={`lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${
+        <div id="mobile-menu" aria-hidden={!mobileMenuOpen} className={`lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${
           mobileMenuOpen ? 'max-h-[80vh] opacity-100' : 'max-h-0 opacity-0'
         }`}>
           <div className="py-4 border-t border-gray-100 space-y-1">
@@ -363,6 +364,7 @@ export function Navbar() {
           </div>
         </div>
       </div>
+      </nav>
 
       {/* Login Dialog */}
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>

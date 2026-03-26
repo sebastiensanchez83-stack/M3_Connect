@@ -41,7 +41,8 @@ interface HomeStats {
 
 export function HomePage() {
   const { t } = useTranslation();
-  const { user, profile, organization } = useAuth();
+  const { user, profile, organization, profileTimedOut, refreshProfile } = useAuth();
+  const [retrying, setRetrying] = useState(false);
   const [featuredResources, setFeaturedResources] = useState<FeaturedResource[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [partnerPreviews, setPartnerPreviews] = useState<PartnerPreview[]>([]);
@@ -257,6 +258,19 @@ export function HomePage() {
               <h1 className="text-3xl md:text-5xl font-bold mb-4">
                 {t('home.welcomeBack', 'Welcome back')}{profile?.first_name ? `, ${profile.first_name}` : ''}!
               </h1>
+              {profileTimedOut && !profile && (
+                <div className="mb-4 inline-flex items-center gap-3 bg-white/15 backdrop-blur-sm rounded-lg px-4 py-2 text-sm text-white/90">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>Profile data is loading slowly.</span>
+                  <button
+                    onClick={async () => { setRetrying(true); await refreshProfile(); setRetrying(false); }}
+                    disabled={retrying}
+                    className="underline font-medium hover:text-white disabled:opacity-50"
+                  >
+                    {retrying ? 'Retrying…' : 'Retry now'}
+                  </button>
+                </div>
+              )}
               <p className="text-lg md:text-xl text-gray-200 mb-8 max-w-2xl mx-auto">
                 {t('home.personalizedSubtitle', 'Here\'s what\'s happening in the marina industry for you.')}
               </p>

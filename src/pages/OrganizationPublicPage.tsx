@@ -581,7 +581,7 @@ export function OrganizationPublicPage() {
                         {avatarUrl ? (
                           <img src={avatarUrl} alt={displayName} className="w-16 h-16 rounded-2xl object-cover mx-auto mb-3 border-2 border-primary/10" />
                         ) : (
-                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
+                          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
                             {initials || '??'}
                           </div>
                         )}

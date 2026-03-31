@@ -904,7 +904,7 @@ export function OrganizationTab() {
               </Button>
             )}
             {isOwner && org.access_status === 'verified' && !isSponsorTier(org.tier as OrgTier) && (
-              <Button size="sm" className="bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700" onClick={() => setUpgradeOpen(true)}>
+              <Button size="sm" className="bg-primary text-white hover:bg-primary/90" onClick={() => setUpgradeOpen(true)}>
                 <ArrowUpCircle className="h-4 w-4 mr-1" />
                 Upgrade to Sponsor
               </Button>
@@ -1692,7 +1692,7 @@ export function OrganizationTab() {
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button variant="outline" onClick={() => setUpgradeOpen(false)}>Cancel</Button>
-              <Button onClick={handleUpgradeRequest} disabled={upgradeSubmitting} className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
+              <Button onClick={handleUpgradeRequest} disabled={upgradeSubmitting} className="bg-primary hover:bg-primary/90">
                 {upgradeSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 Submit Request
               </Button>

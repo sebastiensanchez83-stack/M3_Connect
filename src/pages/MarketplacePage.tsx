@@ -684,7 +684,7 @@ export function MarketplacePage() {
                               {orgCard.logo_url ? (
                                 <img src={orgCard.logo_url} alt={orgCard.name} className="w-14 h-14 rounded-xl object-cover border" />
                               ) : (
-                                <div className="w-14 h-14 bg-gradient-to-br from-primary/10 to-secondary/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg shrink-0">
+                                <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg shrink-0">
                                   {getInitials(orgCard.name)}
                                 </div>
                               )}

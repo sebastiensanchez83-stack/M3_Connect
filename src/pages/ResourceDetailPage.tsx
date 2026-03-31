@@ -375,7 +375,7 @@ export function ResourceDetailPage() {
                     {rel.thumbnail_url ? (
                       <img src={rel.thumbnail_url} alt={rel.title} className="w-full h-full object-cover" />
                     ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">
+                      <div className="w-full h-full bg-primary/10 flex items-center justify-center">
                         <FileText className="h-8 w-8 text-primary/30" />
                       </div>
                     )}

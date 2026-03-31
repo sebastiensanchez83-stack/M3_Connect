@@ -204,20 +204,21 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
-      <section className={`relative overflow-hidden bg-gradient-to-br from-primary/5 via-white to-secondary/5 px-4 ${embedded ? 'py-8' : 'py-20'}`}>
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent pointer-events-none" />
+      <section className={`relative overflow-hidden bg-white px-4 ${embedded ? 'py-6' : 'py-20'}`}>
         <div className="container mx-auto max-w-4xl text-center relative">
-          <Badge
-            variant="outline"
-            className="mb-4 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-primary border-primary/30 bg-primary/5"
-          >
-            <Ticket className="h-3.5 w-3.5 mr-1.5" />
-            Membership Plans
-          </Badge>
-          <h1 className="text-4xl sm:text-5xl font-bold text-gray-900 tracking-tight mb-5">
+          {!embedded && (
+            <Badge
+              variant="outline"
+              className="mb-4 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-primary border-primary/30 bg-primary/5"
+            >
+              <Ticket className="h-3.5 w-3.5 mr-1.5" />
+              Membership Plans
+            </Badge>
+          )}
+          <h1 className={`font-bold text-gray-900 tracking-tight mb-3 ${embedded ? 'text-2xl' : 'text-4xl sm:text-5xl mb-5'}`}>
             Membership &amp; Sponsorship
           </h1>
-          <p className="text-lg text-gray-500 max-w-2xl mx-auto leading-relaxed">
+          <p className={`text-gray-500 max-w-2xl mx-auto leading-relaxed ${embedded ? 'text-sm' : 'text-lg'}`}>
             Join the premier B2B network for the marina industry. Start for free and
             upgrade as your visibility needs grow.
           </p>
@@ -225,9 +226,12 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
       </section>
 
       {/* ── Tier Cards ─────────────────────────────────────────────────────── */}
-      <section className="py-16 px-4 bg-white">
-        <div className="container mx-auto max-w-7xl">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 items-stretch">
+      <section className={`${embedded ? 'py-8' : 'py-16'} px-4 bg-white`}>
+        <div className={`mx-auto ${embedded ? 'max-w-full overflow-x-auto' : 'container max-w-7xl'}`}>
+          <div className={embedded
+            ? 'flex gap-4 pb-4 min-w-max'
+            : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 items-stretch'
+          }>
             {TIERS.map((tier) => {
               const config = TIER_CONFIG[tier];
               const colors = TIER_COLORS[tier];
@@ -239,6 +243,8 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                 <Card
                   key={tier}
                   className={`relative flex flex-col transition-all duration-200 ${
+                    embedded ? 'w-56 shrink-0' : ''
+                  } ${
                     isHighlighted
                       ? 'ring-2 ring-primary shadow-xl scale-[1.02]'
                       : 'border border-gray-200 hover:shadow-md'
@@ -334,7 +340,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                         variant={config.ctaVariant}
                         className={`w-full rounded-xl group ${
                           isHighlighted
-                            ? 'bg-gradient-to-r from-primary to-secondary hover:opacity-90 transition-opacity text-white'
+                            ? 'bg-primary hover:bg-primary/90 text-white'
                             : ''
                         }`}
                       >
@@ -366,15 +372,15 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
           )}
 
           <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
-            <table className="w-full text-sm table-fixed">
+            <table className="w-full text-sm" style={{ minWidth: '700px' }}>
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-5 py-4 text-gray-500 font-semibold w-52">Feature</th>
+                  <th className="text-left px-5 py-4 text-gray-500 font-semibold" style={{ width: '180px', minWidth: '180px' }}>Feature</th>
                   {TIERS.map((tier) => {
                     const colors = TIER_COLORS[tier];
                     const isCurrentPlan = currentTier === tier;
                     return (
-                      <th key={tier} className="px-3 py-4 text-center w-[calc((100%-13rem)/5)]">
+                      <th key={tier} className="px-3 py-4 text-center" style={{ minWidth: '100px' }}>
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${colors.bg} ${colors.text} border ${colors.border} ${
                             isCurrentPlan ? 'ring-1 ring-secondary/70' : ''
@@ -477,7 +483,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
       </section>
 
       {/* ── Contact CTA ─────────────────────────────────────────────────────── */}
-      <section className="py-16 px-4 bg-white">
+      {!embedded && <section className="py-16 px-4 bg-white">
         <div className="container mx-auto max-w-2xl text-center">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-5">
             <Mail className="h-7 w-7 text-primary" />
@@ -489,14 +495,14 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
             Sponsorship packages are tailored to your visibility goals and budget. Reach
             out to the M3 Connect team and we will find the right fit together.
           </p>
-          <Button asChild className="rounded-xl bg-gradient-to-r from-primary to-secondary hover:opacity-90 transition-opacity">
+          <Button asChild className="rounded-xl bg-primary hover:bg-primary/90">
             <Link to="/contact">
               Contact us
               <ArrowRight className="h-4 w-4 ml-2" />
             </Link>
           </Button>
         </div>
-      </section>
+      </section>}
     </>
   );
 }

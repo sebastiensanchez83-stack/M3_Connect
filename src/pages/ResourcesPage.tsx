@@ -373,7 +373,7 @@ export function ResourcesPage() {
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                         />
                       ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">
+                        <div className="w-full h-full bg-primary/10 flex items-center justify-center">
                           <FileText className="h-16 w-16 text-primary/20" />
                         </div>
                       )}
@@ -499,7 +499,7 @@ function ResourceCard({
             loading="lazy"
           />
         ) : (
-          <div className="w-full h-full bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center">
+          <div className="w-full h-full bg-primary/10 flex items-center justify-center">
             <FileText className="h-10 w-10 text-primary/20" />
           </div>
         )}

@@ -346,7 +346,6 @@ export function AccountPage() {
       case 'media_partner': return 'Media Partner';
       case 'moderator': return 'Moderator';
       case 'admin': return 'Administrator';
-      case 'individual': return 'Individual';
       default: return '';
     }
   };

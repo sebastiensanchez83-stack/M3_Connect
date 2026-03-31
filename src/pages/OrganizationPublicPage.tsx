@@ -293,10 +293,12 @@ export function OrganizationPublicPage() {
         <Tabs defaultValue="about" className="max-w-4xl mx-auto">
           <TabsList className="mb-8">
             <TabsTrigger value="about">About</TabsTrigger>
-            {org.organization_type === 'marina' && marinaDetails && (
+            {isVerified && org.organization_type === 'marina' && marinaDetails && (
               <TabsTrigger value="marina">Marina Details</TabsTrigger>
             )}
-            <TabsTrigger value="representatives">Representatives</TabsTrigger>
+            {isVerified && (
+              <TabsTrigger value="representatives">Representatives</TabsTrigger>
+            )}
           </TabsList>
 
           {/* About Tab */}
@@ -397,8 +399,8 @@ export function OrganizationPublicPage() {
             </div>
           </TabsContent>
 
-          {/* Marina Details Tab */}
-          {org.organization_type === 'marina' && marinaDetails && (
+          {/* Marina Details Tab (verified users only) */}
+          {isVerified && org.organization_type === 'marina' && marinaDetails && (
             <TabsContent value="marina">
               <div className="space-y-6">
                 {/* Key Figures */}
@@ -563,8 +565,8 @@ export function OrganizationPublicPage() {
             </TabsContent>
           )}
 
-          {/* Representatives Tab */}
-          <TabsContent value="representatives">
+          {/* Representatives Tab (verified users only) */}
+          {isVerified && <TabsContent value="representatives">
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {members.map((member) => {
                 const fullName = `${member.profiles?.first_name || ''} ${member.profiles?.last_name || ''}`.trim();
@@ -598,7 +600,7 @@ export function OrganizationPublicPage() {
                 );
               })}
             </div>
-          </TabsContent>
+          </TabsContent>}
         </Tabs>
       </div>
 

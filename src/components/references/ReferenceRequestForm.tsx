@@ -1,14 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import {
   FileText, Send, Loader2, Plus, Trash2, CheckCircle, AlertCircle, Globe, User, Briefcase, MapPin, Calendar,
+  Clock, FileX, RefreshCw,
 } from 'lucide-react';
+
+const REQUIRED_REFERENCES = 2;
 
 interface Recipient {
   email: string;
@@ -17,11 +21,44 @@ interface Recipient {
   job_title: string;
 }
 
+interface ExistingReference {
+  id: string;
+  reference_id: string;
+  client_legal_name: string;
+  project_name: string;
+  status: string;
+  created_at: string;
+  confirmed_at: string | null;
+  created_by: string;
+}
+
 export function ReferenceRequestForm() {
   const { user, organization } = useAuth();
   const [saving, setSaving] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [submitted, setSubmitted] = useState(false);
+  const [existingRefs, setExistingRefs] = useState<ExistingReference[]>([]);
+  const [loadingRefs, setLoadingRefs] = useState(true);
+
+  // Load existing references for this organization (org-level, not user-level)
+  useEffect(() => {
+    const loadExistingRefs = async () => {
+      if (!organization?.id) { setLoadingRefs(false); return; }
+      const { data } = await supabase
+        .from('reference_requests')
+        .select('id, reference_id, client_legal_name, project_name, status, created_at, confirmed_at, created_by')
+        .eq('partner_organization_id', organization.id)
+        .order('created_at', { ascending: false });
+      setExistingRefs(data || []);
+      setLoadingRefs(false);
+    };
+    loadExistingRefs();
+  }, [organization?.id, submitted]);
+
+  const confirmedCount = existingRefs.filter(r => r.status === 'confirmed').length;
+  const pendingCount = existingRefs.filter(r => r.status === 'pending').length;
+  const meetsRequirement = confirmedCount >= REQUIRED_REFERENCES;
+  const remaining = Math.max(0, REQUIRED_REFERENCES - confirmedCount);
 
   // Client info
   const [clientForm, setClientForm] = useState({
@@ -218,23 +255,109 @@ export function ReferenceRequestForm() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header + Progress Summary */}
       <Card className="border-primary/20">
         <CardContent className="pt-6">
           <div className="flex items-start gap-4">
             <div className="p-3 bg-primary/10 rounded-xl">
               <FileText className="h-8 w-8 text-primary" />
             </div>
-            <div>
+            <div className="flex-1">
               <h2 className="text-2xl font-bold text-gray-900 mb-1">Client Reference Request</h2>
               <p className="text-gray-600">
-                Submit a client reference to strengthen your partner profile. An email will be sent to your client contact
-                for independent confirmation.
+                Submit client references to validate your partner profile. {REQUIRED_REFERENCES} confirmed references from marina clients are required for approval.
               </p>
+              {/* Reference progress bar */}
+              {!loadingRefs && (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-sm mb-2">
+                    <span className="text-gray-600">
+                      {meetsRequirement
+                        ? 'Requirement met!'
+                        : `${remaining} more confirmed reference${remaining > 1 ? 's' : ''} needed`}
+                    </span>
+                    <span className="font-medium">{confirmedCount}/{REQUIRED_REFERENCES} confirmed</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div
+                      className={`h-2.5 rounded-full transition-all ${meetsRequirement ? 'bg-green-500' : 'bg-primary'}`}
+                      style={{ width: `${Math.min(100, (confirmedCount / REQUIRED_REFERENCES) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Existing References (org-level — shared by all team members) */}
+      {loadingRefs ? (
+        <div className="flex items-center justify-center py-6">
+          <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+        </div>
+      ) : existingRefs.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Organization References ({existingRefs.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {existingRefs.map((ref) => (
+                <div key={ref.id} className="flex items-center justify-between px-6 py-3">
+                  <div>
+                    <p className="font-medium text-sm text-gray-900">{ref.client_legal_name}</p>
+                    <p className="text-xs text-gray-500">{ref.project_name} — {new Date(ref.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {ref.status === 'confirmed' && (
+                      <Badge variant="success" className="text-xs gap-1">
+                        <CheckCircle className="h-3 w-3" /> Confirmed
+                      </Badge>
+                    )}
+                    {ref.status === 'pending' && (
+                      <Badge variant="warning" className="text-xs gap-1">
+                        <Clock className="h-3 w-3" /> Pending
+                      </Badge>
+                    )}
+                    {ref.status === 'rejected' && (
+                      <Badge variant="destructive" className="text-xs gap-1">
+                        <FileX className="h-3 w-3" /> Rejected
+                      </Badge>
+                    )}
+                    {ref.status === 'expired' && (
+                      <Badge variant="secondary" className="text-xs gap-1">Expired</Badge>
+                    )}
+                    {ref.created_by === user?.id && (
+                      <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">You</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Success state when requirement is fully met */}
+      {!loadingRefs && meetsRequirement && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="pt-6 pb-4">
+            <div className="flex items-start gap-3">
+              <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
+              <div>
+                <h3 className="font-bold text-green-900">Reference requirement met</h3>
+                <p className="text-sm text-green-700 mt-1">
+                  Your organization has {confirmedCount} confirmed marina references. You can still submit additional references to strengthen your profile.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Progress steps */}
       <div className="flex items-center gap-2 px-2">

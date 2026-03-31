@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 // Exact public routes (no auth required)
 const publicExactRoutes = new Set<string>([
   '/', '/reset-password', '/about', '/contact', '/privacy', '/terms',
-  '/resources', '/events', '/partners', '/become-partner', '/marketplace',
+  '/resources', '/events', '/partners', '/become-partner', '/network', '/marketplace',
   '/tiers', '/mentions-legales', '/conditions-commerciales', '/cookies',
 ])
 

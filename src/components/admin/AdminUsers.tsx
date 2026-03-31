@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Users, UserCheck, RefreshCw, Search, Download, Pencil,
-  Eye, AlertTriangle, ExternalLink, UserPlus,
+  Eye, AlertTriangle, ExternalLink, UserPlus, FileCheck, Clock, FileX, FileMinus, ShieldCheck,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,6 +22,20 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import type { AdminProfile } from './types';
 
+// Reference status for partner organizations
+type ReferenceStatus = {
+  total: number;        // total reference requests submitted
+  confirmed: number;    // references confirmed by marina
+  pending: number;      // references still pending
+  rejected: number;     // references rejected by marina
+  latestStatus: string; // status of latest reference request
+  clientName: string | null; // client name of latest reference
+  bypass: boolean;      // admin override — no marina clients
+  bypassReason: string | null;
+};
+
+const REQUIRED_REFERENCES = 2;
+
 export function AdminUsers() {
   const { t } = useTranslation();
   const [users, setUsers] = useState<AdminProfile[]>([]);
@@ -36,12 +50,15 @@ export function AdminUsers() {
   const [detailSectors, setDetailSectors] = useState<string[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [emailStatusMap, setEmailStatusMap] = useState<Record<string, boolean>>({});
+  const [referenceStatusMap, setReferenceStatusMap] = useState<Record<string, ReferenceStatus>>({});
   const [unconfirmedUsers, setUnconfirmedUsers] = useState<{ id: string; email: string; created_at: string; first_name: string | null; last_name: string | null; persona: string | null }[]>([]);
   const [showUnconfirmed, setShowUnconfirmed] = useState(false);
   const [createAdminOpen, setCreateAdminOpen] = useState(false);
   const [createAdminForm, setCreateAdminForm] = useState({ email: '', password: '', firstName: '', lastName: '' });
   const [creatingAdmin, setCreatingAdmin] = useState(false);
   const [changingPersona, setChangingPersona] = useState(false);
+  const [bypassDialogUserId, setBypassDialogUserId] = useState<string | null>(null);
+  const [bypassReason, setBypassReason] = useState('');
 
   useEffect(() => { loadUsers(); }, []);
 
@@ -84,6 +101,63 @@ export function AdminUsers() {
       (emailData || []).forEach((row: { user_id: string; email_confirmed: boolean }) => { statusMap[row.user_id] = row.email_confirmed; });
       setEmailStatusMap(statusMap);
       setUnconfirmedUsers((unconfData || []) as typeof unconfirmedUsers);
+
+      // ── Load reference/recommendation status for partner orgs ──
+      const partnerUsers = (merged as unknown as AdminProfile[]).filter((u) => u.persona === 'partner' && u.org_id);
+      const partnerOrgIds = partnerUsers.map((u) => u.org_id as string);
+      if (partnerOrgIds.length > 0) {
+        const uniqueOrgIds = [...new Set(partnerOrgIds)];
+        const [{ data: refData }, { data: bypassData }] = await Promise.all([
+          supabase
+            .from('reference_requests')
+            .select('id, partner_organization_id, status, client_legal_name, confirmed_at, created_at')
+            .in('partner_organization_id', uniqueOrgIds)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('organizations')
+            .select('id, reference_bypass, reference_bypass_reason')
+            .in('id', uniqueOrgIds),
+        ]);
+
+        // Build bypass map: org_id → { bypass, reason }
+        const bypassMap = new Map<string, { bypass: boolean; reason: string | null }>();
+        (bypassData || []).forEach((org: { id: string; reference_bypass: boolean; reference_bypass_reason: string | null }) => {
+          bypassMap.set(org.id, { bypass: org.reference_bypass, reason: org.reference_bypass_reason });
+        });
+
+        const refMap: Record<string, ReferenceStatus> = {};
+
+        // Group references by org_id
+        const orgRefMap = new Map<string, typeof refData>();
+        (refData || []).forEach((ref: { id: string; partner_organization_id: string; status: string; client_legal_name: string; confirmed_at: string | null; created_at: string }) => {
+          const orgId = ref.partner_organization_id;
+          if (!orgRefMap.has(orgId)) orgRefMap.set(orgId, []);
+          orgRefMap.get(orgId)!.push(ref);
+        });
+
+        // Map back to user_id
+        partnerUsers.forEach((u) => {
+          const refs = orgRefMap.get(u.org_id!) || [];
+          const confirmed = refs.filter((r: { status: string }) => r.status === 'confirmed').length;
+          const pending = refs.filter((r: { status: string }) => r.status === 'pending').length;
+          const rejected = refs.filter((r: { status: string }) => r.status === 'rejected').length;
+          const latest = refs[0]; // already sorted desc
+          const bp = bypassMap.get(u.org_id!) || { bypass: false, reason: null };
+          refMap[u.user_id] = {
+            total: refs.length,
+            confirmed,
+            pending,
+            rejected,
+            latestStatus: latest?.status || 'none',
+            clientName: latest?.client_legal_name || null,
+            bypass: bp.bypass,
+            bypassReason: bp.reason,
+          };
+        });
+        setReferenceStatusMap(refMap);
+      } else {
+        setReferenceStatusMap({});
+      }
     } catch (err) { console.error('Error loading users:', err); }
     setLoading(false);
   };
@@ -136,6 +210,17 @@ export function AdminUsers() {
     setDetailLoading(false);
   };
 
+  // Send email notification (fire and forget — non-blocking)
+  const sendStatusNotification = async (userId: string, status: 'verified' | 'rejected' | 'suspended', reason?: string) => {
+    try {
+      await supabase.functions.invoke('send-status-notification', {
+        body: { user_id: userId, status, reason },
+      });
+    } catch (err) {
+      console.warn('[AdminUsers] Email notification failed (non-blocking):', err);
+    }
+  };
+
   const approveUser = async (userId: string) => {
     const { error } = await supabase.from('profiles').update({ access_status: 'verified', onboarding_status: 'completed', rejection_reason: null }).eq('user_id', userId);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
@@ -144,7 +229,8 @@ export function AdminUsers() {
     if (membership?.organization_id) {
       await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id);
     }
-    toast({ title: 'User approved' }); loadUsers();
+    sendStatusNotification(userId, 'verified');
+    toast({ title: 'User approved — email notification sent' }); loadUsers();
   };
   const openReject = (userId: string) => { setRejectingUserId(userId); setRejectReason(''); };
   const confirmReject = async () => {
@@ -156,12 +242,27 @@ export function AdminUsers() {
     if (membership?.organization_id) {
       await supabase.from('organizations').update({ access_status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', membership.organization_id);
     }
-    toast({ title: 'User rejected' }); setRejectingUserId(null); loadUsers();
+    sendStatusNotification(rejectingUserId, 'rejected', rejectReason.trim());
+    toast({ title: 'User rejected — email notification sent' }); setRejectingUserId(null); loadUsers();
   };
   const updateUserStatus = async (userId: string, newStatus: string) => {
-    if (newStatus === 'verified') { await approveUser(userId); return; }
+    if (newStatus === 'verified') {
+      // Check reference gate for partners
+      const user = users.find(u => u.user_id === userId);
+      if (user && !canApprovePartner(userId, user.persona)) {
+        toast({
+          title: 'Cannot approve partner',
+          description: `This partner needs ${REQUIRED_REFERENCES} confirmed marina recommendations (or admin bypass) before approval.`,
+          variant: 'destructive',
+        });
+        return;
+      }
+      await approveUser(userId);
+      return;
+    }
     if (newStatus === 'rejected') { openReject(userId); return; }
     await supabase.from('profiles').update({ access_status: newStatus }).eq('user_id', userId);
+    if (newStatus === 'suspended') sendStatusNotification(userId, 'suspended');
     toast({ title: `Status: ${newStatus}` }); loadUsers();
   };
 
@@ -176,6 +277,45 @@ export function AdminUsers() {
       loadUsers();
     }
     setChangingPersona(false);
+  };
+
+  const handleBypassReference = async () => {
+    if (!bypassDialogUserId || !bypassReason.trim()) {
+      toast({ title: 'A justification is required', variant: 'destructive' });
+      return;
+    }
+    const user = users.find(u => u.user_id === bypassDialogUserId);
+    if (!user?.org_id) {
+      toast({ title: 'No organization found for this user', variant: 'destructive' });
+      return;
+    }
+    const { error } = await supabase.from('organizations').update({
+      reference_bypass: true,
+      reference_bypass_reason: bypassReason.trim(),
+      reference_bypass_at: new Date().toISOString(),
+      reference_bypass_by: (await supabase.auth.getUser()).data.user?.id || null,
+    }).eq('id', user.org_id);
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Reference requirement bypassed', description: 'This partner can now be approved without 2 confirmed marina references.' });
+    setBypassDialogUserId(null);
+    setBypassReason('');
+    loadUsers();
+  };
+
+  const revokeBypass = async (userId: string) => {
+    const user = users.find(u => u.user_id === userId);
+    if (!user?.org_id) return;
+    await supabase.from('organizations').update({
+      reference_bypass: false,
+      reference_bypass_reason: null,
+      reference_bypass_at: null,
+      reference_bypass_by: null,
+    }).eq('id', user.org_id);
+    toast({ title: 'Bypass revoked' });
+    loadUsers();
   };
 
   const handleCreateAdmin = async () => {
@@ -253,6 +393,69 @@ export function AdminUsers() {
       case 'suspended': return <Badge variant="destructive">Suspended</Badge>;
       default: return <Badge variant="secondary">{status}</Badge>;
     }
+  };
+
+  const getReferenceBadge = (userId: string) => {
+    const ref = referenceStatusMap[userId];
+    if (!ref || ref.total === 0) {
+      return (
+        <div className="flex flex-col gap-1">
+          <Badge variant="outline" className="text-xs gap-1 border-gray-300 text-gray-500" title="No recommendation submitted yet">
+            <FileMinus className="h-3 w-3" /> 0/{REQUIRED_REFERENCES} refs
+          </Badge>
+          {ref?.bypass && (
+            <Badge variant="secondary" className="text-xs gap-1" title={`Bypass: ${ref.bypassReason}`}>
+              <ShieldCheck className="h-3 w-3" /> Bypassed
+            </Badge>
+          )}
+        </div>
+      );
+    }
+    if (ref.bypass) {
+      return (
+        <div className="flex flex-col gap-1">
+          <Badge variant="secondary" className="text-xs gap-1 border-violet-300 bg-violet-50 text-violet-700" title={`Bypass: ${ref.bypassReason}`}>
+            <ShieldCheck className="h-3 w-3" /> Bypassed
+          </Badge>
+          <span className="text-[10px] text-gray-400">{ref.confirmed}/{REQUIRED_REFERENCES} confirmed</span>
+        </div>
+      );
+    }
+    if (ref.confirmed >= REQUIRED_REFERENCES) {
+      return (
+        <Badge variant="success" className="text-xs gap-1" title={`${ref.confirmed} confirmed reference(s) — ${ref.clientName}`}>
+          <FileCheck className="h-3 w-3" /> {ref.confirmed}/{REQUIRED_REFERENCES} refs ✓
+        </Badge>
+      );
+    }
+    if (ref.confirmed > 0) {
+      return (
+        <Badge variant="warning" className="text-xs gap-1" title={`${ref.confirmed}/${REQUIRED_REFERENCES} confirmed — needs ${REQUIRED_REFERENCES - ref.confirmed} more`}>
+          <FileCheck className="h-3 w-3" /> {ref.confirmed}/{REQUIRED_REFERENCES} refs
+        </Badge>
+      );
+    }
+    if (ref.rejected > 0 && ref.pending === 0) {
+      return (
+        <Badge variant="destructive" className="text-xs gap-1" title={`${ref.rejected} reference(s) rejected by marina — ${ref.clientName}`}>
+          <FileX className="h-3 w-3" /> Ref rejected
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="warning" className="text-xs gap-1" title={`${ref.pending} pending reference(s) — ${ref.clientName}`}>
+        <Clock className="h-3 w-3" /> {ref.confirmed}/{REQUIRED_REFERENCES} pending
+      </Badge>
+    );
+  };
+
+  // Check if partner can be approved (must have 2 confirmed references OR admin bypass)
+  const canApprovePartner = (userId: string, persona: string): boolean => {
+    if (persona !== 'partner') return true; // non-partners: no reference gate
+    const ref = referenceStatusMap[userId];
+    if (!ref) return false;
+    if (ref.bypass) return true; // admin override
+    return ref.confirmed >= REQUIRED_REFERENCES;
   };
 
   const DetailRow = ({ label, value }: { label: string; value: React.ReactNode }) => {
@@ -339,6 +542,7 @@ export function AdminUsers() {
         <th className="text-left p-4 font-medium">{t('admin.userDetail.organization')}</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.persona')}</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.onboarding')}</th>
+        <th className="text-left p-4 font-medium">Reference</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.accessStatus')}</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.created')}</th>
       </tr></thead><tbody>
@@ -370,6 +574,9 @@ export function AdminUsers() {
             </td>
             <td className="p-4 text-sm capitalize">{user.onboarding_status}</td>
             <td className="p-4">
+              {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-gray-300 text-xs">—</span>}
+            </td>
+            <td className="p-4">
               <Select value={user.access_status} onValueChange={(v) => { v !== user.access_status && updateUserStatus(user.user_id, v); }}>
                 <SelectTrigger className="w-36" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -381,7 +588,7 @@ export function AdminUsers() {
             <td className="p-4 text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
           </tr>
         ))}
-        {filteredUsers.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">No users found</td></tr>}
+        {filteredUsers.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-gray-400">No users found</td></tr>}
       </tbody></table></div></CardContent></Card>
 
       {/* ─── User Detail Dialog ─── */}
@@ -502,18 +709,132 @@ export function AdminUsers() {
                 </div>
               )}
 
+              {/* Reference/Recommendation Status (partners only) */}
+              {selectedUser.persona === 'partner' && (
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-sm text-gray-700">Recommendation / Reference Status ({REQUIRED_REFERENCES} required)</h4>
+                  {(() => {
+                    const ref = referenceStatusMap[selectedUser.user_id];
+
+                    // Bypass active
+                    if (ref?.bypass) {
+                      return (
+                        <div className="bg-violet-50 border border-violet-200 rounded-lg p-4">
+                          <div className="flex items-start gap-3">
+                            <ShieldCheck className="h-5 w-5 text-violet-600 mt-0.5 shrink-0" />
+                            <div className="flex-1">
+                              <p className="font-medium text-violet-800">Reference requirement bypassed</p>
+                              <p className="text-sm text-violet-600 mt-1">
+                                Reason: {ref.bypassReason || 'No reason provided'}
+                              </p>
+                              {ref.total > 0 && (
+                                <div className="mt-2 text-sm flex gap-4">
+                                  <span className="text-gray-600">References: {ref.confirmed}/{REQUIRED_REFERENCES} confirmed</span>
+                                  {ref.pending > 0 && <span className="text-amber-700">{ref.pending} pending</span>}
+                                </div>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="mt-3 text-xs border-violet-300 text-violet-700 hover:bg-violet-100"
+                                onClick={() => revokeBypass(selectedUser.user_id)}
+                              >
+                                Revoke bypass
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    if (!ref || ref.total === 0) {
+                      return (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
+                          <FileMinus className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                          <div>
+                            <p className="font-medium text-amber-800">No recommendation submitted</p>
+                            <p className="text-sm text-amber-600 mt-1">
+                              This partner has not yet submitted a client reference. {REQUIRED_REFERENCES} confirmed recommendations from marinas are required before approval.
+                            </p>
+                            <p className="text-xs text-gray-500 mt-2">
+                              If this partner has not worked with marinas yet, you can bypass this requirement.
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+                    const meetsRequirement = ref.confirmed >= REQUIRED_REFERENCES;
+                    return (
+                      <div className={`rounded-lg p-4 border ${meetsRequirement ? 'bg-green-50 border-green-200' : ref.confirmed > 0 || ref.pending > 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'}`}>
+                        <div className="flex items-start gap-3">
+                          {meetsRequirement ? (
+                            <FileCheck className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
+                          ) : ref.confirmed > 0 || ref.pending > 0 ? (
+                            <Clock className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
+                          ) : (
+                            <FileX className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
+                          )}
+                          <div className="flex-1">
+                            <p className={`font-medium ${meetsRequirement ? 'text-green-800' : ref.confirmed > 0 || ref.pending > 0 ? 'text-blue-800' : 'text-red-800'}`}>
+                              {meetsRequirement
+                                ? `${ref.confirmed} references confirmed ✓`
+                                : ref.confirmed > 0
+                                  ? `${ref.confirmed}/${REQUIRED_REFERENCES} confirmed — needs ${REQUIRED_REFERENCES - ref.confirmed} more`
+                                  : ref.pending > 0 ? 'References pending marina confirmation' : 'All references rejected'}
+                            </p>
+                            <div className="mt-2 space-y-1 text-sm">
+                              <div className="flex gap-4">
+                                <span className="text-gray-600">Total requests: <strong>{ref.total}</strong></span>
+                                <span className="text-green-700">Confirmed: <strong>{ref.confirmed}</strong></span>
+                                <span className="text-amber-700">Pending: <strong>{ref.pending}</strong></span>
+                                {ref.rejected > 0 && <span className="text-red-700">Rejected: <strong>{ref.rejected}</strong></span>}
+                              </div>
+                              {ref.clientName && <p className="text-gray-500">Latest client: {ref.clientName}</p>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {/* Actions */}
-              <div className="flex gap-2 justify-end pt-2 border-t">
-                {selectedUser.access_status !== 'verified' && (
-                  <Button size="sm" onClick={() => { approveUser(selectedUser.user_id); setSelectedUser(null); }}>
-                    <UserCheck className="h-4 w-4 mr-1" />{t('admin.userDetail.approve')}
-                  </Button>
+              <div className="flex flex-col gap-2 pt-2 border-t">
+                {/* Partner reference gate warning + bypass option */}
+                {selectedUser.access_status !== 'verified' && selectedUser.persona === 'partner' && !canApprovePartner(selectedUser.user_id, selectedUser.persona) && (
+                  <div className="bg-amber-50 rounded px-3 py-2 space-y-2">
+                    <p className="text-xs text-amber-700">
+                      ⚠ Cannot approve: partner needs {REQUIRED_REFERENCES} confirmed marina recommendations ({referenceStatusMap[selectedUser.user_id]?.confirmed || 0}/{REQUIRED_REFERENCES}).
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs border-violet-300 text-violet-700 hover:bg-violet-50"
+                      onClick={() => { setBypassDialogUserId(selectedUser.user_id); setBypassReason(''); }}
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                      No marina clients — bypass requirement
+                    </Button>
+                  </div>
                 )}
-                {selectedUser.access_status !== 'rejected' && (
-                  <Button size="sm" variant="destructive" onClick={() => { openReject(selectedUser.user_id); setSelectedUser(null); }}>
-                    {t('admin.userDetail.reject')}
-                  </Button>
-                )}
+                <div className="flex gap-2 justify-end">
+                  {selectedUser.access_status !== 'verified' && (
+                    <Button
+                      size="sm"
+                      disabled={!canApprovePartner(selectedUser.user_id, selectedUser.persona)}
+                      title={!canApprovePartner(selectedUser.user_id, selectedUser.persona) ? `Partner needs ${REQUIRED_REFERENCES} confirmed marina recommendations` : undefined}
+                      onClick={() => { approveUser(selectedUser.user_id); setSelectedUser(null); }}
+                    >
+                      <UserCheck className="h-4 w-4 mr-1" />{t('admin.userDetail.approve')}
+                    </Button>
+                  )}
+                  {selectedUser.access_status !== 'rejected' && (
+                    <Button size="sm" variant="destructive" onClick={() => { openReject(selectedUser.user_id); setSelectedUser(null); }}>
+                      {t('admin.userDetail.reject')}
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -562,6 +883,46 @@ export function AdminUsers() {
               <Button onClick={handleCreateAdmin} disabled={creatingAdmin}>
                 {creatingAdmin && <RefreshCw className="h-4 w-4 animate-spin mr-2" />}
                 Create Admin
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Bypass Reference Dialog ─── */}
+      <Dialog open={!!bypassDialogUserId} onOpenChange={() => setBypassDialogUserId(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ShieldCheck className="h-5 w-5 text-violet-600" />
+              Bypass Reference Requirement
+            </DialogTitle>
+            <DialogDescription>
+              This partner has not yet provided {REQUIRED_REFERENCES} confirmed marina references. If this partner has never worked with marinas before, you can bypass this requirement with a justification.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 text-sm text-violet-700">
+              <strong>Note:</strong> This override will be logged. The partner will be approvable immediately after bypass. You can revoke it later if needed.
+            </div>
+            <div className="space-y-2">
+              <Label>Justification *</Label>
+              <Textarea
+                value={bypassReason}
+                onChange={(e) => setBypassReason(e.target.value)}
+                rows={3}
+                placeholder="e.g. New company with no marina clients yet, strong industry credentials, recommended by board member..."
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setBypassDialogUserId(null)}>Cancel</Button>
+              <Button
+                className="bg-violet-600 hover:bg-violet-700"
+                onClick={handleBypassReference}
+                disabled={!bypassReason.trim()}
+              >
+                <ShieldCheck className="h-4 w-4 mr-1" />
+                Confirm Bypass
               </Button>
             </div>
           </div>

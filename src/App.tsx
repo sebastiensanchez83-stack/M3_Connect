@@ -1,7 +1,8 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { AuthRedirector } from '@/components/auth/AuthRedirector';
+import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { HomePage } from '@/pages/HomePage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
@@ -53,16 +54,17 @@ function App() {
             <Route path="/partners" element={<PartnersPage />} />
             <Route path="/become-partner" element={<BecomePartnerPage />} />
             <Route path="/tiers" element={<TiersPage />} />
-            <Route path="/account" element={<AccountPage />} />
-            <Route path="/onboarding" element={<OnboardingPage />} />
-            <Route path="/submit-project" element={<SubmitProjectPage />} />
-            <Route path="/request-webinar" element={<WebinarRequestPage />} />
-            <Route path="/submit-rfp" element={<SubmitRFPPage />} />
-            <Route path="/submit-consultation" element={<SubmitConsultationPage />} />
-            <Route path="/marketplace" element={<MarketplacePage />} />
+            <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
+            <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
+            <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
+            <Route path="/request-webinar" element={<ProtectedRoute requireVerified showLocked lockedMessage="Your account must be verified to request a webinar."><WebinarRequestPage /></ProtectedRoute>} />
+            <Route path="/submit-rfp" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit RFPs."><SubmitRFPPage /></ProtectedRoute>} />
+            <Route path="/submit-consultation" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
+            <Route path="/network" element={<MarketplacePage />} />
+            <Route path="/marketplace" element={<Navigate to="/network" replace />} />
             <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
             <Route path="/users/:id" element={<UserProfilePage />} />
-            <Route path="/admin/*" element={<AdminPage />} />
+            <Route path="/admin/*" element={<ProtectedRoute requireModerator><AdminPage /></ProtectedRoute>} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/contact" element={<ContactPage />} />

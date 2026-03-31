@@ -14,7 +14,9 @@ interface AuthContextType {
   orgRole: OrgMemberRole | null
   hasOrganization: boolean
   isVerified: boolean
+  isAdmin: boolean
   isModerator: boolean
+  isPending: boolean
   isSponsor: boolean
   signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => Promise<{ error: Error | null }>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
@@ -37,7 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const mountedRef = useRef(true)
 
   const isVerified = profile?.access_status === 'verified'
+  const isAdmin = profile?.persona === 'admin' && isVerified
+  // isModerator grants access to admin/moderator panel (both admin and moderator personas)
   const isModerator = (profile?.persona === 'moderator' || profile?.persona === 'admin') && isVerified
+  const isPending = profile?.access_status === 'pending'
   const hasOrganization = organization !== null
   const isSponsor = hasOrganization && SPONSOR_TIERS.includes(organization!.tier)
 
@@ -332,7 +337,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: {
         emailRedirectTo: `${window.location.origin}/`,
         data: {
-          persona: persona || 'individual',
+          persona: persona || 'marina',
           first_name: firstName || '',
           last_name: lastName || '',
           company_name: companyName || '',
@@ -376,7 +381,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, session, loading, profileTimedOut, profile, userDetails, organization, orgRole, hasOrganization,
-      isVerified, isModerator, isSponsor, signUp, signIn, signOut, refreshProfile
+      isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile
     }}>
       {children}
     </AuthContext.Provider>

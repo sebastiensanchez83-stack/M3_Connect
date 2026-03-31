@@ -18,6 +18,7 @@ interface TierFeatures {
   pricePartner: string;
   priceMarina: string;
   priceNote: string | null;
+  renewalPrice: string | null;
   connectRequests: string;
   webinarRequests: string;
   teamMembers: number;
@@ -44,6 +45,7 @@ const TIERS: OrgTier[] = [
   'innovation_partner',
   'associate_partner',
   'premium_partner',
+  'premium_sponsor',
   'main_sponsor',
 ];
 
@@ -52,12 +54,13 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     pricePartner: '€500',
     priceMarina: '€0',
     priceNote: null,
+    renewalPrice: null,
     connectRequests: '5',
     webinarRequests: 'Not included',
     teamMembers: 1,
     sponsorBadge: false,
-    resourceAccess: 'Public only',
-    eventAccess: 'Public only',
+    resourceAccess: 'Public + Members',
+    eventAccess: 'Public + Members',
     rfpAccess: true,
     consultationAccess: true,
     publicProfile: true,
@@ -69,9 +72,10 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     highlighted: false,
   },
   innovation_partner: {
-    pricePartner: 'Contact us',
-    priceMarina: 'Contact us',
+    pricePartner: '€3,000',
+    priceMarina: '€3,000',
     priceNote: 'Annual invoice',
+    renewalPrice: '€2,500',
     connectRequests: '20',
     webinarRequests: '5 / year',
     teamMembers: 5,
@@ -89,9 +93,10 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     highlighted: false,
   },
   associate_partner: {
-    pricePartner: 'Contact us',
-    priceMarina: 'Contact us',
+    pricePartner: '€15,000',
+    priceMarina: '€15,000',
     priceNote: 'Annual invoice',
+    renewalPrice: '€10,000',
     connectRequests: 'Unlimited',
     webinarRequests: 'Unlimited',
     teamMembers: 10,
@@ -109,9 +114,10 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     highlighted: true,
   },
   premium_partner: {
-    pricePartner: 'Contact us',
-    priceMarina: 'Contact us',
+    pricePartner: '€40,000',
+    priceMarina: '€40,000',
     priceNote: 'Annual invoice',
+    renewalPrice: '€35,000',
     connectRequests: 'Unlimited',
     webinarRequests: 'Unlimited',
     teamMembers: 15,
@@ -128,10 +134,32 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     ctaVariant: 'default',
     highlighted: false,
   },
-  main_sponsor: {
-    pricePartner: 'Contact us',
-    priceMarina: 'Contact us',
+  premium_sponsor: {
+    pricePartner: '€100,000',
+    priceMarina: '€100,000',
     priceNote: 'Annual invoice',
+    renewalPrice: '€90,000',
+    connectRequests: 'Unlimited',
+    webinarRequests: 'Unlimited',
+    teamMembers: 20,
+    sponsorBadge: true,
+    resourceAccess: 'All content',
+    eventAccess: 'All events + VIP',
+    rfpAccess: true,
+    consultationAccess: true,
+    publicProfile: true,
+    networkDirectory: true,
+    prioritySupport: true,
+    ctaLabel: 'Request upgrade',
+    ctaHref: '/account?tab=organization',
+    ctaVariant: 'default',
+    highlighted: false,
+  },
+  main_sponsor: {
+    pricePartner: '€150,000',
+    priceMarina: '€150,000',
+    priceNote: 'Annual invoice',
+    renewalPrice: '€150,000',
     connectRequests: 'Unlimited',
     webinarRequests: 'Unlimited',
     teamMembers: 25,
@@ -230,7 +258,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
         <div className={`mx-auto ${embedded ? 'max-w-full overflow-x-auto' : 'container max-w-7xl'}`}>
           <div className={embedded
             ? 'flex gap-4 pb-4 min-w-max'
-            : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 items-stretch'
+            : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 items-stretch'
           }>
             {TIERS.map((tier) => {
               const config = TIER_CONFIG[tier];
@@ -285,6 +313,11 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                         ? (isMarina || isMedia ? 'Free forever' : 'Annual membership fee')
                         : (config.priceNote || '')}
                     </p>
+                    {config.renewalPrice && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        Renewal: {config.renewalPrice}/year
+                      </p>
+                    )}
                   </CardHeader>
 
                   <CardContent className="flex flex-col flex-1 gap-5 px-5 pb-6">
@@ -399,11 +432,16 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
               <tbody>
                 {/* Pricing */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={6} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Pricing</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Pricing</td>
                 </tr>
                 <ComparisonRow
                   label="Price"
                   values={TIERS.map((t) => getPrice(TIER_CONFIG[t]))}
+                  isText
+                />
+                <ComparisonRow
+                  label="Renewal"
+                  values={TIERS.map((t) => TIER_CONFIG[t].renewalPrice || '—')}
                   isText
                 />
                 <ComparisonRow
@@ -414,7 +452,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
 
                 {/* Platform Access */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={6} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Platform Access</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Platform Access</td>
                 </tr>
                 <ComparisonRow
                   label="Resource library"
@@ -439,7 +477,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
 
                 {/* B2B Features */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={6} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">B2B Features</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">B2B Features</td>
                 </tr>
                 <ComparisonRow
                   label="Connect requests / month"
@@ -464,7 +502,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
 
                 {/* Visibility & Support */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={6} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Visibility &amp; Support</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Visibility &amp; Support</td>
                 </tr>
                 <ComparisonRow
                   label="Sponsor badge"

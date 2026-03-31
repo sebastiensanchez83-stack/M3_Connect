@@ -27,7 +27,7 @@ interface Event {
 
 export function EventsPage() {
   const { t, i18n } = useTranslation();
-  const { user, profile, isVerified } = useAuth();
+  const { user, profile, isVerified, isModerator } = useAuth();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [registeredEvents, setRegisteredEvents] = useState<string[]>([]);
@@ -68,8 +68,8 @@ export function EventsPage() {
   const canAccess = (level: string) => {
     if (level === 'public') return true;
     if (!user) return false;
-    if (level === 'members') return true;
-    if (level === 'marina') return profile?.persona === 'marina' && isVerified;
+    if (level === 'members') return isVerified;
+    if (level === 'marina') return (profile?.persona === 'marina' && isVerified) || isModerator;
     return false;
   };
 

@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M3 Connect - Platform Documentation</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --primary: #0b2653;
+    --primary-light: #143a6b;
+    --accent: #2563eb;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --text-muted: #64748b;
+    --green: #16a34a;
+    --red: #dc2626;
+    --yellow: #ca8a04;
+    --purple: #7c3aed;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  .header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-light));
+    color: white;
+    padding: 3rem 2rem;
+    text-align: center;
+  }
+  .header h1 { font-size: 2.2rem; font-weight: 700; margin-bottom: 0.5rem; }
+  .header p { opacity: 0.85; font-size: 1.05rem; }
+  .header .date { margin-top: 1rem; font-size: 0.9rem; opacity: 0.7; }
+
+  .container { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+  }
+  .toc h2 { font-size: 1.3rem; margin-bottom: 1rem; color: var(--primary); }
+  .toc ol { padding-left: 1.5rem; }
+  .toc li { margin-bottom: 0.4rem; }
+  .toc a { color: var(--accent); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+
+  .section {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    scroll-margin-top: 1rem;
+  }
+  .section h2 {
+    font-size: 1.4rem;
+    color: var(--primary);
+    border-bottom: 2px solid var(--primary);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .section h3 {
+    font-size: 1.15rem;
+    color: var(--primary-light);
+    margin: 1.5rem 0 0.75rem;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  th, td {
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  th {
+    background: var(--primary);
+    color: white;
+    font-weight: 600;
+  }
+  tr:nth-child(even) { background: #f1f5f9; }
+  td:first-child { font-weight: 500; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .badge-green { background: #dcfce7; color: var(--green); }
+  .badge-red { background: #fee2e2; color: var(--red); }
+  .badge-yellow { background: #fef9c3; color: var(--yellow); }
+  .badge-purple { background: #ede9fe; color: var(--purple); }
+  .badge-blue { background: #dbeafe; color: var(--accent); }
+
+  .diagram-container {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+    text-align: center;
+  }
+  .diagram-container .mermaid { display: inline-block; text-align: center; }
+
+  .comment-box {
+    margin-top: 1.5rem;
+    border-top: 1px dashed var(--border);
+    padding-top: 1rem;
+  }
+  .comment-box label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  .comment-box textarea {
+    width: 100%;
+    min-height: 80px;
+    padding: 0.75rem;
+    border: 2px dashed #cbd5e1;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 0.9rem;
+    resize: vertical;
+    background: #fefce8;
+    transition: border-color 0.2s;
+  }
+  .comment-box textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    background: white;
+  }
+  .comment-box textarea::placeholder { color: #94a3b8; }
+
+  .alert {
+    padding: 1rem 1.25rem;
+    border-radius: 8px;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+  }
+  .alert-warning { background: #fef9c3; border-left: 4px solid var(--yellow); }
+  .alert-info { background: #dbeafe; border-left: 4px solid var(--accent); }
+  .alert-danger { background: #fee2e2; border-left: 4px solid var(--red); }
+
+  .status-flow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.75rem 0;
+  }
+  .status-step {
+    padding: 0.4rem 1rem;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.85rem;
+  }
+  .status-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+  ul.checklist { list-style: none; padding: 0; }
+  ul.checklist li {
+    padding: 0.4rem 0;
+    padding-left: 1.5rem;
+    position: relative;
+  }
+  ul.checklist li::before {
+    content: '?';
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+  }
+
+  .gap-card {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 0.75rem 0;
+  }
+  .gap-card strong { color: #c2410c; }
+
+  .print-btn {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 100;
+    transition: background 0.2s;
+  }
+  .print-btn:hover { background: var(--primary-light); }
+
+  .save-btn {
+    position: fixed;
+    bottom: 2rem;
+    right: 10rem;
+    background: var(--green);
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    z-index: 100;
+    transition: background 0.2s;
+  }
+  .save-btn:hover { background: #15803d; }
+
+  @media print {
+    .print-btn, .save-btn { display: none; }
+    .comment-box textarea { border: 1px solid #ccc; background: white; }
+    .section { break-inside: avoid; }
+    .header { padding: 1.5rem; }
+    body { background: white; }
+  }
+
+  @media (max-width: 768px) {
+    .container { padding: 1rem; }
+    .section { padding: 1.25rem; }
+    table { font-size: 0.8rem; }
+    th, td { padding: 0.4rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>M3 Connect - Platform Documentation</h1>
+  <p>Registration Flows, User Journeys, Admin Processes & Feature Access</p>
+  <div class="date">Generated: March 31, 2026 | Version 1.0</div>
+</div>
+
+<div class="container">
+
+<!-- TABLE OF CONTENTS -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ol>
+    <li><a href="#sec1">Persona Types & Status States</a></li>
+    <li><a href="#sec2">Registration & Onboarding Flow</a></li>
+    <li><a href="#sec3">Admin Approval Process</a></li>
+    <li><a href="#sec4">Organization System</a></li>
+    <li><a href="#sec5">Feature Access Matrix</a></li>
+    <li><a href="#sec6">Tier-Based Pricing & Permissions</a></li>
+    <li><a href="#sec7">Navigation & Conditional Links</a></li>
+    <li><a href="#sec8">Account Page Structure</a></li>
+    <li><a href="#sec9">Admin Panel Capabilities</a></li>
+    <li><a href="#sec10">B2B Features (RFPs, Consultations, Webinars)</a></li>
+    <li><a href="#sec11">Content Access (Resources & Events)</a></li>
+    <li><a href="#sec12">Complete User Journeys (Decision Trees)</a></li>
+    <li><a href="#sec13">Gaps & Decisions Needed</a></li>
+  </ol>
+</div>
+
+<!-- SECTION 1 -->
+<div class="section" id="sec1">
+  <h2>1. Persona Types & Status States</h2>
+
+  <h3>Personas (DB enum: persona_enum)</h3>
+  <table>
+    <tr><th>Persona</th><th>Description</th><th>Onboarding Form</th><th>Status</th></tr>
+    <tr><td><span class="badge badge-blue">marina</span></td><td>Marina / port operators</td><td>Extended form (facilities, certifications, future plans)</td><td>Implemented</td></tr>
+    <tr><td><span class="badge badge-purple">partner</span></td><td>Industry service providers</td><td>Company info + service sectors</td><td>Implemented</td></tr>
+    <tr><td><span class="badge badge-yellow">media_partner</span></td><td>Media and press outlets</td><td>Media name + website + audience</td><td>Implemented</td></tr>
+    <tr><td><span class="badge badge-green">moderator</span></td><td>Platform content managers</td><td>Created manually in DB</td><td>Implemented</td></tr>
+    <tr><td><span class="badge badge-green">admin</span></td><td>Platform administrators</td><td>Created manually in DB</td><td>DB only (see gaps)</td></tr>
+    <tr><td><span class="badge badge-red">individual</span></td><td>Individual users</td><td>None defined</td><td>DB only (not implemented)</td></tr>
+  </table>
+
+  <h3>Access Status Lifecycle</h3>
+  <div class="status-flow">
+    <span class="status-step" style="background:#fef9c3;color:#854d0e;">PENDING</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#dcfce7;color:#166534;">VERIFIED</span>
+  </div>
+  <div class="status-flow">
+    <span class="status-step" style="background:#fef9c3;color:#854d0e;">PENDING</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#fee2e2;color:#991b1b;">REJECTED</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#e0e7ff;color:#3730a3;">RE-EDIT</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#fef9c3;color:#854d0e;">PENDING</span>
+  </div>
+  <div class="status-flow">
+    <span class="status-step" style="background:#dcfce7;color:#166534;">VERIFIED</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#f1f5f9;color:#475569;">SUSPENDED</span>
+  </div>
+
+  <h3>Onboarding Status Lifecycle</h3>
+  <div class="status-flow">
+    <span class="status-step" style="background:#e0e7ff;color:#3730a3;">DRAFT</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#fef9c3;color:#854d0e;">SUBMITTED</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#dcfce7;color:#166534;">COMPLETED</span>
+  </div>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 1:</label>
+    <textarea placeholder="Add your comments here... (e.g., should 'individual' persona be removed or implemented?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 2 -->
+<div class="section" id="sec2">
+  <h2>2. Registration & Onboarding Flow</h2>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["User visits M3 Connect"] --> B{"Has account?"}
+    B -->|No| C["Sign Up (email + password)"]
+    B -->|Yes| D["Log In"]
+    C --> E["Account created in Supabase Auth"]
+    E --> F["Redirect to Onboarding"]
+    D --> G{"Has profile?"}
+    G -->|No| F
+    G -->|Yes| H{"Onboarding complete?"}
+    H -->|Draft| F
+    H -->|Submitted/Completed| I["Go to Account Page"]
+
+    F --> J["Step 1: Select Persona"]
+    J --> K{"Which persona?"}
+
+    K -->|Marina| L["Marina Form<br/>Name, country, city, website<br/>Type, berths, facilities<br/>Certifications, services<br/>Future plans per sector"]
+
+    K -->|Partner| M["Partner Form<br/>Company name, website<br/>HQ country, description<br/>Service sectors (multi)"]
+
+    K -->|Media| N["Media Form<br/>Media name, website<br/>Audience description"]
+
+    L --> O["Submit"]
+    M --> O
+    N --> O
+
+    O --> P["Profile: onboarding=submitted<br/>access=pending"]
+    P --> Q["Redirect to Account Page<br/>Shows 'Pending Review' banner"]
+    Q --> R["ADMIN REVIEWS APPLICATION"]
+
+    style A fill:#0b2653,color:#fff
+    style R fill:#dc2626,color:#fff
+    style P fill:#fef9c3,color:#854d0e
+    style L fill:#dbeafe,color:#1e40af
+    style M fill:#ede9fe,color:#5b21b6
+    style N fill:#fef3c7,color:#92400e
+    </div>
+  </div>
+
+  <h3>Data Collected per Persona</h3>
+
+  <table>
+    <tr><th>Field</th><th>Marina</th><th>Partner</th><th>Media</th></tr>
+    <tr><td>Name/Company</td><td>marina_name</td><td>company_name</td><td>media_name</td></tr>
+    <tr><td>Country</td><td>country</td><td>headquarters_country</td><td>-</td></tr>
+    <tr><td>City</td><td>city</td><td>-</td><td>-</td></tr>
+    <tr><td>Website</td><td>website</td><td>website</td><td>website</td></tr>
+    <tr><td>Description</td><td>marina description + services</td><td>description</td><td>audience_description</td></tr>
+    <tr><td>Type/Category</td><td>in_operation / under_construction / in_project</td><td>-</td><td>-</td></tr>
+    <tr><td>Berths</td><td>berths_count + superyacht_berths</td><td>-</td><td>-</td></tr>
+    <tr><td>Facilities</td><td>yacht_club, sailing_school, boat_yard, restaurants, concierge</td><td>-</td><td>-</td></tr>
+    <tr><td>Certifications</td><td>Array + other field</td><td>-</td><td>-</td></tr>
+    <tr><td>Sectors</td><td>Future plans per sector + timeline</td><td>Service sectors (multi-select)</td><td>-</td></tr>
+    <tr><td>Social Media</td><td>Social media links</td><td>-</td><td>-</td></tr>
+  </table>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 2:</label>
+    <textarea placeholder="Add your comments here... (e.g., are all the marina form fields necessary? Should partners have more fields?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 3 -->
+<div class="section" id="sec3">
+  <h2>3. Admin Approval Process</h2>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["User submits onboarding form"] --> B["Profile: access=pending<br/>onboarding=submitted"]
+    B --> C["Appears in Admin Panel<br/>Users section with 'pending' filter"]
+    C --> D{"Admin Decision"}
+
+    D -->|Approve| E["Set access=verified<br/>onboarding=completed<br/>rejection_reason=null"]
+    E --> F["User gets FULL ACCESS<br/>(based on persona + tier)"]
+
+    D -->|Reject| G["Enter rejection reason<br/>(required field)"]
+    G --> H["Set access=rejected<br/>onboarding=draft"]
+    H --> I["User sees rejection reason<br/>on Account page"]
+    I --> J["User clicks 'Edit Profile'"]
+    J --> K["Returns to onboarding form<br/>with pre-filled data"]
+    K --> L["User modifies & resubmits"]
+    L --> B
+
+    D -->|Suspend| M["Set access=suspended"]
+    M --> N["User loses all access<br/>Sees suspended banner"]
+
+    style A fill:#0b2653,color:#fff
+    style E fill:#16a34a,color:#fff
+    style H fill:#dc2626,color:#fff
+    style M fill:#64748b,color:#fff
+    style F fill:#dcfce7,color:#166534
+    style N fill:#f1f5f9,color:#475569
+    </div>
+  </div>
+
+  <h3>Admin Actions Summary</h3>
+  <table>
+    <tr><th>Action</th><th>Trigger</th><th>What Changes</th><th>User Experience</th></tr>
+    <tr><td><span class="badge badge-green">Approve</span></td><td>Admin selects "verified"</td><td>access=verified, onboarding=completed</td><td>Full platform access unlocked</td></tr>
+    <tr><td><span class="badge badge-red">Reject</span></td><td>Admin selects "rejected" + reason</td><td>access=rejected, onboarding=draft</td><td>Sees reason, can re-edit and resubmit</td></tr>
+    <tr><td><span class="badge badge-yellow">Suspend</span></td><td>Admin selects "suspended"</td><td>access=suspended</td><td>All access revoked, sees suspended banner</td></tr>
+  </table>
+
+  <div class="alert alert-info">
+    <strong>Who can perform admin actions?</strong> Users with <code>persona='moderator'</code> AND <code>access_status='verified'</code>. In the database, the <code>is_moderator()</code> function also checks for <code>persona='admin'</code>, but the frontend AuthContext only checks for <code>'moderator'</code>.
+  </div>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 3:</label>
+    <textarea placeholder="Add your comments here... (e.g., should there be email notifications when admin approves/rejects?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 4 -->
+<div class="section" id="sec4">
+  <h2>4. Organization System</h2>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["Verified user goes to<br/>Account > Organization tab"] --> B{"Has organization?"}
+    B -->|No| C{"Partner or Media?"}
+    C -->|Yes| D["Check email domain<br/>against existing orgs"]
+    C -->|Marina| E["Create new organization"]
+    D --> F{"Domain match found?"}
+    F -->|Yes| G["Option to join<br/>existing org"]
+    F -->|No| E
+    B -->|Yes| H["Organization Dashboard"]
+
+    E --> I["Enter org name"]
+    I --> J["Organization created<br/>User = owner"]
+    J --> H
+    G --> H
+
+    H --> K["Upload Logo<br/>(org-logos bucket, public, 5MB)"]
+    H --> L["Upload Documents<br/>(org-documents bucket, private, 20MB)"]
+    H --> M["Invite Members<br/>(by email)"]
+    H --> N["Manage Members<br/>(roles, remove)"]
+    H --> O["Request Tier Upgrade<br/>(sponsorship flow)"]
+
+    O --> P["pending"] --> Q["invoice_sent"] --> R["paid"] --> S["approved"]
+
+    style A fill:#0b2653,color:#fff
+    style H fill:#dbeafe,color:#1e40af
+    style S fill:#16a34a,color:#fff
+    </div>
+  </div>
+
+  <h3>Storage Buckets</h3>
+  <table>
+    <tr><th>Bucket</th><th>Visibility</th><th>Max Size</th><th>Allowed Types</th><th>Access</th></tr>
+    <tr><td>org-logos</td><td>Public</td><td>5 MB</td><td>Images only</td><td>Anyone can view; org members upload</td></tr>
+    <tr><td>org-documents</td><td>Private</td><td>20 MB</td><td>Documents</td><td>Org members only (RLS enforced)</td></tr>
+  </table>
+
+  <h3>Tier Upgrade Flow (Sponsorship)</h3>
+  <div class="status-flow">
+    <span class="status-step" style="background:#fef9c3;color:#854d0e;">PENDING</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#dbeafe;color:#1e40af;">INVOICE SENT</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#ede9fe;color:#5b21b6;">PAID</span>
+    <span class="status-arrow">&rarr;</span>
+    <span class="status-step" style="background:#dcfce7;color:#166534;">APPROVED</span>
+  </div>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 4:</label>
+    <textarea placeholder="Add your comments here... (e.g., should domain matching apply to marinas too? Is the sponsorship flow correct?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 5 -->
+<div class="section" id="sec5">
+  <h2>5. Feature Access Matrix</h2>
+
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th>Public<br/>(no account)</th>
+      <th>Logged-in<br/>(pending)</th>
+      <th>Verified<br/>Marina</th>
+      <th>Verified<br/>Partner</th>
+      <th>Verified<br/>Media</th>
+      <th>Admin /<br/>Moderator</th>
+    </tr>
+    <tr><td>View public resources</td><td class="badge-green" style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td></tr>
+    <tr><td>View member resources</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES *</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td></tr>
+    <tr><td>View marina-only resources</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#ca8a04">NO **</td></tr>
+    <tr><td>Register for events</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td></tr>
+    <tr><td>Submit project</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td></tr>
+    <tr><td>Request webinar</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td></tr>
+    <tr><td>View network/directory</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td></tr>
+    <tr><td>View marketplace</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td><td style="text-align:center">YES</td></tr>
+    <tr><td>Create RFP</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td></tr>
+    <tr><td>Admin panel</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center;color:#dc2626">NO</td><td style="text-align:center">YES</td></tr>
+  </table>
+
+  <div class="alert alert-warning">
+    <strong>* Pending users can access member content</strong> &mdash; The code checks <code>if (!user) return false</code> for member-level, meaning any logged-in user (even pending) sees member content. Decision needed: should this require verified status?
+  </div>
+  <div class="alert alert-warning">
+    <strong>** Moderators cannot view marina-only content</strong> &mdash; The check is <code>persona === 'marina' && isVerified</code>. Moderators can manage marina content in admin panel but can't preview it on the public page.
+  </div>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 5:</label>
+    <textarea placeholder="Add your comments here... (e.g., should pending users be blocked from member content? Should moderators see marina-only content?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 6 -->
+<div class="section" id="sec6">
+  <h2>6. Tier-Based Pricing & Permissions</h2>
+
+  <table>
+    <tr>
+      <th>Feature</th>
+      <th>Member</th>
+      <th>Innovation<br/>Partner</th>
+      <th>Associate<br/>Partner</th>
+      <th>Premium<br/>Partner</th>
+      <th>Main<br/>Sponsor</th>
+    </tr>
+    <tr style="background:#e0e7ff"><td colspan="6"><strong>PRICING</strong></td></tr>
+    <tr><td>Price (Marina / Media)</td><td>&#8364;0</td><td>&#8364;2,500</td><td>&#8364;5,000</td><td>&#8364;10,000</td><td>&#8364;25,000</td></tr>
+    <tr><td>Price (Partner)</td><td>&#8364;500</td><td>&#8364;2,500</td><td>&#8364;5,000</td><td>&#8364;10,000</td><td>&#8364;25,000</td></tr>
+    <tr style="background:#e0e7ff"><td colspan="6"><strong>PLATFORM ACCESS</strong></td></tr>
+    <tr><td>Resource access</td><td>Public + Members</td><td>All</td><td>All</td><td>All</td><td>All</td></tr>
+    <tr><td>Event access</td><td>Standard</td><td>Priority</td><td>Priority + VIP</td><td>All events</td><td>All + Private</td></tr>
+    <tr style="background:#e0e7ff"><td colspan="6"><strong>B2B FEATURES</strong></td></tr>
+    <tr><td>RFP access</td><td>View only</td><td>Submit bids</td><td>Submit + Featured</td><td>Submit + Priority</td><td>Exclusive first access</td></tr>
+    <tr><td>Consultation access</td><td>Basic</td><td>Extended</td><td>Full</td><td>Full + Priority</td><td>Unlimited</td></tr>
+    <tr style="background:#e0e7ff"><td colspan="6"><strong>VISIBILITY & SUPPORT</strong></td></tr>
+    <tr><td>Public profile</td><td>Basic</td><td>Enhanced</td><td>Featured</td><td>Premium</td><td>Spotlight</td></tr>
+    <tr><td>Network directory</td><td>Listed</td><td>Highlighted</td><td>Featured</td><td>Top placement</td><td>Exclusive</td></tr>
+    <tr><td>Priority support</td><td style="color:#dc2626">No</td><td style="color:#dc2626">No</td><td style="color:#16a34a">Yes</td><td style="color:#16a34a">Yes</td><td style="color:#16a34a">Yes</td></tr>
+  </table>
+
+  <div class="alert alert-info">
+    <strong>Note:</strong> Tier-based feature restrictions are currently <strong>display-only</strong> on the Pricing page. The actual enforcement in code (e.g., blocking RFP bids for Member tier) is not yet implemented. This is a future phase.
+  </div>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 6:</label>
+    <textarea placeholder="Add your comments here... (e.g., are the tier prices correct? Should any features be moved between tiers?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 7 -->
+<div class="section" id="sec7">
+  <h2>7. Navigation & Conditional Links</h2>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart LR
+    subgraph "Main Nav (Always Visible)"
+        A["Home"]
+        B["Resources"]
+        C["Events"]
+        D["Partners"]
+        E["Become Partner"]
+    end
+
+    subgraph "User Dropdown (Authenticated)"
+        F["My Account"]
+        G["My Registrations"]
+    end
+
+    subgraph "Conditional Links"
+        H["Submit Project<br/><em>marina + verified only</em>"]
+        I["Propose Webinar<br/><em>any verified user</em>"]
+        J["Admin Panel<br/><em>moderator only</em>"]
+    end
+
+    subgraph "Not Logged In"
+        K["Login Button"]
+        L["Sign Up Button"]
+    end
+
+    style H fill:#dbeafe,color:#1e40af
+    style I fill:#ede9fe,color:#5b21b6
+    style J fill:#dc2626,color:#fff
+    </div>
+  </div>
+
+  <table>
+    <tr><th>Nav Item</th><th>Condition</th><th>Who Sees It</th></tr>
+    <tr><td>Home, Resources, Events, Partners, Become Partner</td><td>Always visible</td><td>Everyone</td></tr>
+    <tr><td>My Account, My Registrations</td><td>Logged in</td><td>All authenticated users</td></tr>
+    <tr><td>Submit a Project</td><td><code>persona === 'marina' && isVerified</code></td><td>Verified marinas only</td></tr>
+    <tr><td>Propose a Webinar</td><td><code>isVerified</code></td><td>Any verified user</td></tr>
+    <tr><td>Admin Panel</td><td><code>isModerator</code></td><td>Verified moderators only</td></tr>
+    <tr><td>Login / Sign Up</td><td>Not logged in</td><td>Anonymous visitors</td></tr>
+  </table>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 7:</label>
+    <textarea placeholder="Add your comments here... (e.g., should partners see a 'My Leads' link? Any missing nav items?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 8 -->
+<div class="section" id="sec8">
+  <h2>8. Account Page Structure</h2>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["Account Page"] --> B["Left Sidebar Navigation"]
+
+    B --> C["Dashboard<br/><em>All users</em>"]
+    B --> D["Organization<br/><em>All users</em>"]
+    B --> E["Profile<br/><em>All users</em>"]
+    B --> F["Membership / Tiers<br/><em>All users</em>"]
+    B --> G["Registrations<br/><em>All users</em>"]
+    B --> H["Projects<br/><em>Marina only</em>"]
+    B --> I["Webinar Requests<br/><em>All users</em>"]
+
+    C --> C1["Status banners<br/>Stat cards<br/>Quick actions"]
+    D --> D1["Org dashboard<br/>Logo upload<br/>Doc uploads<br/>Member management<br/>Tier upgrade"]
+    E --> E1["Personal info<br/>Persona details<br/>Edit button"]
+    F --> F1["Embedded TiersPage<br/>Current tier badge<br/>Upgrade options"]
+    H --> H1["Submitted projects list<br/>'Submit Project' button"]
+
+    style A fill:#0b2653,color:#fff
+    style H fill:#dbeafe,color:#1e40af
+    </div>
+  </div>
+
+  <h3>Status Banners on Account Page</h3>
+  <table>
+    <tr><th>Status</th><th>Banner Color</th><th>Message</th><th>Action Available</th></tr>
+    <tr><td><span class="badge badge-yellow">pending</span></td><td>Yellow</td><td>"Your profile is under review"</td><td>Wait</td></tr>
+    <tr><td><span class="badge badge-green">verified</span></td><td>Green</td><td>"Your account is verified"</td><td>Full access</td></tr>
+    <tr><td><span class="badge badge-red">rejected</span></td><td>Red</td><td>"Your application was rejected: [reason]"</td><td>"Edit Profile" button</td></tr>
+    <tr><td>suspended</td><td>Gray</td><td>"Your account has been suspended"</td><td>Contact support</td></tr>
+    <tr><td>draft</td><td>Blue</td><td>"Complete your profile"</td><td>"Complete Profile" button</td></tr>
+  </table>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 8:</label>
+    <textarea placeholder="Add your comments here... (e.g., should partners have a 'Leads' tab? Any missing account sections?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 9 -->
+<div class="section" id="sec9">
+  <h2>9. Admin Panel Capabilities</h2>
+
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["Admin Panel<br/><em>isModerator only</em>"] --> B["Dashboard"]
+    A --> C["Users"]
+    A --> D["Resources"]
+    A --> E["Events"]
+    A --> F["Partners"]
+    A --> G["Projects"]
+    A --> H["Leads"]
+    A --> I["Webinar Requests"]
+
+    B --> B1["8 stat cards<br/>Recent projects<br/>Recent leads<br/>Activity overview"]
+    C --> C1["Search/filter users<br/>Approve/Reject/Suspend<br/>CSV export"]
+    D --> D1["CRUD resources<br/>Set access level<br/>Publish/unpublish"]
+    E --> E1["CRUD events<br/>Set access level<br/>Manage speakers"]
+    F --> F1["CRUD partners<br/>Mark featured<br/>Set sector"]
+    G --> G1["View marina projects<br/>Add admin notes<br/>Change status"]
+    H --> H1["View partner leads<br/>Track status<br/>Admin notes"]
+    I --> I1["View webinar requests<br/>Approve/reject<br/>Manage scheduling"]
+
+    style A fill:#dc2626,color:#fff
+    style C1 fill:#fee2e2,color:#991b1b
+    </div>
+  </div>
+
+  <h3>Admin vs Moderator Capabilities</h3>
+  <table>
+    <tr><th>Capability</th><th>Moderator</th><th>Admin</th><th>Notes</th></tr>
+    <tr><td>Access admin panel (frontend)</td><td style="color:#16a34a">YES</td><td style="color:#dc2626">NO *</td><td>Frontend checks persona='moderator' only</td></tr>
+    <tr><td>Access admin panel (DB/RLS)</td><td style="color:#16a34a">YES</td><td style="color:#16a34a">YES</td><td>DB is_moderator() checks both</td></tr>
+    <tr><td>Approve/reject users</td><td style="color:#16a34a">YES</td><td style="color:#dc2626">NO *</td><td>Same frontend limitation</td></tr>
+    <tr><td>Manage content</td><td style="color:#16a34a">YES</td><td style="color:#dc2626">NO *</td><td>Same frontend limitation</td></tr>
+  </table>
+
+  <div class="alert alert-danger">
+    <strong>* Gap identified:</strong> Users with <code>persona='admin'</code> cannot access the admin panel because AuthContext's <code>isModerator</code> only checks for <code>'moderator'</code>. The DB function handles both. The frontend check should be updated to match.
+  </div>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 9:</label>
+    <textarea placeholder="Add your comments here... (e.g., should admin persona be added to the frontend check? Any missing admin sections?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 10 -->
+<div class="section" id="sec10">
+  <h2>10. B2B Features</h2>
+
+  <h3>10a. Project Submission (Marina only)</h3>
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart LR
+    A["Verified Marina"] --> B["Submit Project Form"]
+    B --> C["project_type<br/>budget_range<br/>timeline<br/>description"]
+    C --> D["Status: NEW"]
+    D --> E["Admin reviews<br/>in Projects section"]
+    E --> F["in_progress"] --> G["completed"]
+
+    style A fill:#0b2653,color:#fff
+    style D fill:#fef9c3,color:#854d0e
+    style G fill:#16a34a,color:#fff
+    </div>
+  </div>
+
+  <h3>10b. RFPs & Consultations (Marketplace)</h3>
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["Marketplace Page"] --> B["RFPs Tab"]
+    A --> C["Consultations Tab"]
+
+    B --> D{"Who creates RFPs?"}
+    D --> E["Verified Marinas<br/>(project needs)"]
+    B --> F{"Who views RFPs?"}
+    F --> G["All logged-in users<br/>(partners can respond)"]
+
+    C --> H{"Who creates Consultations?"}
+    H --> I["Verified Marinas<br/>(questions for partners)"]
+    C --> J{"Who views Consultations?"}
+    J --> K["All logged-in users"]
+
+    style A fill:#0b2653,color:#fff
+    style E fill:#dbeafe,color:#1e40af
+    style I fill:#dbeafe,color:#1e40af
+    </div>
+  </div>
+
+  <h3>10c. Webinar Requests</h3>
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart LR
+    A["Any verified user"] --> B["Request Webinar Form"]
+    B --> C["Topic, description<br/>preferred date<br/>target sectors"]
+    C --> D["Status: PENDING"]
+    D --> E["Admin reviews in<br/>Webinar Requests section"]
+    E --> F{"Decision"}
+    F -->|Approve| G["Schedule webinar"]
+    F -->|Reject| H["Rejected"]
+
+    style A fill:#0b2653,color:#fff
+    style D fill:#fef9c3,color:#854d0e
+    style G fill:#16a34a,color:#fff
+    style H fill:#dc2626,color:#fff
+    </div>
+  </div>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 10:</label>
+    <textarea placeholder="Add your comments here... (e.g., should partners be able to create consultations? Should RFP responses be tracked?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 11 -->
+<div class="section" id="sec11">
+  <h2>11. Content Access (Resources & Events)</h2>
+
+  <h3>Access Level Logic</h3>
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["User tries to access<br/>resource or event"] --> B{"Access level?"}
+
+    B -->|public| C["ALLOW<br/>Everyone can view"]
+    B -->|members| D{"User logged in?"}
+    D -->|Yes| E["ALLOW *"]
+    D -->|No| F["LOCKED<br/>Show login prompt"]
+    B -->|marina| G{"persona=marina<br/>AND verified?"}
+    G -->|Yes| H["ALLOW"]
+    G -->|No| I["LOCKED<br/>Show upgrade prompt"]
+
+    style C fill:#dcfce7,color:#166534
+    style E fill:#dcfce7,color:#166534
+    style H fill:#dcfce7,color:#166534
+    style F fill:#fee2e2,color:#991b1b
+    style I fill:#fee2e2,color:#991b1b
+    </div>
+  </div>
+
+  <div class="alert alert-warning">
+    <strong>* Note:</strong> "members" level currently allows ANY logged-in user, including pending/rejected users. This may need tightening to require verified status.
+  </div>
+
+  <h3>Content Types</h3>
+  <table>
+    <tr><th>Content</th><th>Types</th><th>Access Levels</th><th>Created By</th></tr>
+    <tr><td>Resources</td><td>article, whitepaper, guide, replay, case_study</td><td>public, members, marina</td><td>Admin only</td></tr>
+    <tr><td>Events</td><td>Standard, VIP, Private</td><td>public, members, marina</td><td>Admin only</td></tr>
+  </table>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 11:</label>
+    <textarea placeholder="Add your comments here... (e.g., should 'members' content require verified status? Should there be a 'partner-only' access level?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 12: COMPLETE USER JOURNEYS -->
+<div class="section" id="sec12">
+  <h2>12. Complete User Journeys (Decision Trees)</h2>
+
+  <h3>12a. Marina User - Full Journey</h3>
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["Visit M3 Connect"] --> B["Sign Up"]
+    B --> C["Select 'Marina' persona"]
+    C --> D["Fill extended marina form<br/>(facilities, certifications, services)"]
+    D --> E["Submit application"]
+    E --> F["STATUS: PENDING"]
+    F --> G{"Admin decision"}
+
+    G -->|Approved| H["STATUS: VERIFIED"]
+    G -->|Rejected| I["See rejection reason<br/>Edit & resubmit"]
+    I --> F
+
+    H --> J["Full Platform Access"]
+    J --> K["View ALL resources<br/>(public + members + marina)"]
+    J --> L["Register for ALL events"]
+    J --> M["Submit Projects"]
+    J --> N["Create RFPs"]
+    J --> O["Create Consultations"]
+    J --> P["Request Webinars"]
+    J --> Q["Create/Join Organization"]
+    J --> R["Upload logo & documents"]
+    J --> S["Invite team members"]
+    J --> T["Request tier upgrade"]
+
+    style A fill:#0b2653,color:#fff
+    style F fill:#fef9c3,color:#854d0e
+    style H fill:#16a34a,color:#fff
+    style J fill:#dbeafe,color:#1e40af
+    </div>
+  </div>
+
+  <h3>12b. Partner User - Full Journey</h3>
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["Visit M3 Connect"] --> B["Sign Up"]
+    B --> C["Select 'Partner' persona"]
+    C --> D["Fill partner form<br/>(company, sectors, description)"]
+    D --> E["Submit application"]
+    E --> F["STATUS: PENDING"]
+    F --> G{"Admin decision"}
+
+    G -->|Approved| H["STATUS: VERIFIED"]
+    G -->|Rejected| I["See rejection reason<br/>Edit & resubmit"]
+    I --> F
+
+    H --> J["Platform Access"]
+    J --> K["View resources<br/>(public + members only)"]
+    J --> L["Register for events<br/>(public + members only)"]
+    J --> M["View RFPs<br/>(respond based on tier)"]
+    J --> N["View Consultations"]
+    J --> O["Request Webinars"]
+    J --> P["Join/Create Organization<br/>(domain matching)"]
+    J --> Q["Upload logo & documents"]
+    J --> R["Request tier upgrade<br/>(unlock more features)"]
+
+    J -.- S["CANNOT: Submit projects"]
+    J -.- T["CANNOT: Create RFPs"]
+    J -.- U["CANNOT: View marina-only content"]
+
+    style A fill:#0b2653,color:#fff
+    style F fill:#fef9c3,color:#854d0e
+    style H fill:#16a34a,color:#fff
+    style J fill:#ede9fe,color:#5b21b6
+    style S fill:#fee2e2,color:#991b1b
+    style T fill:#fee2e2,color:#991b1b
+    style U fill:#fee2e2,color:#991b1b
+    </div>
+  </div>
+
+  <h3>12c. Media Partner User - Full Journey</h3>
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["Visit M3 Connect"] --> B["Sign Up"]
+    B --> C["Select 'Media Partner' persona"]
+    C --> D["Fill media form<br/>(media name, website, audience)"]
+    D --> E["Submit application"]
+    E --> F["STATUS: PENDING"]
+    F --> G{"Admin decision"}
+
+    G -->|Approved| H["STATUS: VERIFIED"]
+    G -->|Rejected| I["See rejection reason<br/>Edit & resubmit"]
+    I --> F
+
+    H --> J["Platform Access"]
+    J --> K["View resources<br/>(public + members only)"]
+    J --> L["Register for events"]
+    J --> M["View marketplace"]
+    J --> N["Request Webinars"]
+    J --> O["Join/Create Organization<br/>(domain matching)"]
+
+    J -.- P["CANNOT: Submit projects"]
+    J -.- Q["CANNOT: Create RFPs"]
+    J -.- R["CANNOT: View marina-only content"]
+
+    style A fill:#0b2653,color:#fff
+    style F fill:#fef9c3,color:#854d0e
+    style H fill:#16a34a,color:#fff
+    style J fill:#fef3c7,color:#92400e
+    style P fill:#fee2e2,color:#991b1b
+    style Q fill:#fee2e2,color:#991b1b
+    style R fill:#fee2e2,color:#991b1b
+    </div>
+  </div>
+
+  <h3>12d. Admin/Moderator - Management Flow</h3>
+  <div class="diagram-container">
+    <div class="mermaid">
+flowchart TD
+    A["Admin/Mod logs in"] --> B["Admin Panel"]
+
+    B --> C["Dashboard<br/>View stats & activity"]
+
+    B --> D["Users Management"]
+    D --> D1["Filter by persona/status"]
+    D1 --> D2["Review pending applications"]
+    D2 --> D3{"Decision"}
+    D3 -->|Approve| D4["User gets verified"]
+    D3 -->|Reject + reason| D5["User can re-edit"]
+    D3 -->|Suspend| D6["User loses access"]
+
+    B --> E["Content Management"]
+    E --> E1["Create/Edit Resources"]
+    E --> E2["Create/Edit Events"]
+    E --> E3["Set access levels<br/>(public/members/marina)"]
+
+    B --> F["Partner Directory"]
+    F --> F1["Add/Edit partners"]
+    F --> F2["Mark as featured"]
+
+    B --> G["Review Submissions"]
+    G --> G1["Marina projects"]
+    G --> G2["Webinar requests"]
+    G --> G3["Partner leads"]
+
+    style A fill:#dc2626,color:#fff
+    style B fill:#0b2653,color:#fff
+    style D4 fill:#16a34a,color:#fff
+    style D5 fill:#fef9c3,color:#854d0e
+    style D6 fill:#64748b,color:#fff
+    </div>
+  </div>
+
+  <div class="comment-box">
+    <label>Comments / Feedback on Section 12:</label>
+    <textarea placeholder="Add your comments here... (e.g., are these flows accurate? Any missing steps or alternative paths?)"></textarea>
+  </div>
+</div>
+
+<!-- SECTION 13: GAPS -->
+<div class="section" id="sec13">
+  <h2>13. Gaps & Decisions Needed</h2>
+
+  <div class="gap-card">
+    <strong>GAP 1: Admin persona excluded from frontend admin panel</strong><br/>
+    AuthContext checks <code>persona === 'moderator'</code> only. Users with <code>persona='admin'</code> can't access the admin panel in the frontend, even though the DB <code>is_moderator()</code> function handles both.<br/>
+    <em>Recommendation: Update AuthContext to check both admin and moderator.</em>
+    <div class="comment-box">
+      <label>Your decision:</label>
+      <textarea placeholder="e.g., Yes, fix this / No, admin persona won't be used / Other..."></textarea>
+    </div>
+  </div>
+
+  <div class="gap-card">
+    <strong>GAP 2: 'individual' persona not implemented</strong><br/>
+    Exists in the DB enum but has no onboarding form, no specific profile table, and no feature access defined. Currently a user cannot select it during onboarding.<br/>
+    <em>Recommendation: Either implement it or remove it from the enum.</em>
+    <div class="comment-box">
+      <label>Your decision:</label>
+      <textarea placeholder="e.g., Remove it / Implement basic form / Keep for future..."></textarea>
+    </div>
+  </div>
+
+  <div class="gap-card">
+    <strong>GAP 3: Moderators can't preview marina-only content</strong><br/>
+    The access check <code>persona === 'marina' && isVerified</code> excludes moderators. They can create/edit marina-only content in the admin panel but can't see it on the public-facing pages.<br/>
+    <em>Recommendation: Add <code>|| isModerator</code> to the marina access check.</em>
+    <div class="comment-box">
+      <label>Your decision:</label>
+      <textarea placeholder="e.g., Yes, moderators should see everything / No, keep as-is..."></textarea>
+    </div>
+  </div>
+
+  <div class="gap-card">
+    <strong>GAP 4: Pending users can access member-level content</strong><br/>
+    The "members" access level check only verifies <code>!!user</code> (logged in), not <code>isVerified</code>. A user who just signed up and hasn't been approved yet can view member-only resources and events.<br/>
+    <em>Recommendation: Require verified status for member content.</em>
+    <div class="comment-box">
+      <label>Your decision:</label>
+      <textarea placeholder="e.g., Yes, require verified / No, let pending users see member content as a teaser..."></textarea>
+    </div>
+  </div>
+
+  <div class="gap-card">
+    <strong>GAP 5: Tier-based restrictions are display-only</strong><br/>
+    The pricing page shows what each tier includes, but no code enforces these restrictions. All verified users get the same access regardless of tier. Features like "Submit bids" or "Priority support" are not gated.<br/>
+    <em>Recommendation: Implement tier checks when the payment system is ready.</em>
+    <div class="comment-box">
+      <label>Your decision:</label>
+      <textarea placeholder="e.g., Implement now / Wait for Stripe integration / Partially enforce..."></textarea>
+    </div>
+  </div>
+
+  <div class="gap-card">
+    <strong>GAP 6: No route-level protection</strong><br/>
+    All routes are technically accessible via URL. Protection happens at the component level, meaning a user might see a brief flash of a page before being redirected. Routes like <code>/admin</code> are not wrapped in a guard.<br/>
+    <em>Recommendation: Add a ProtectedRoute wrapper component.</em>
+    <div class="comment-box">
+      <label>Your decision:</label>
+      <textarea placeholder="e.g., Add route guards / Current approach is fine..."></textarea>
+    </div>
+  </div>
+
+  <div class="gap-card">
+    <strong>GAP 7: No email notifications</strong><br/>
+    When admin approves/rejects a user, there is no email notification. The user only discovers their status change when they log back in and check their account page.<br/>
+    <em>Recommendation: Add Supabase Edge Functions for email notifications on status changes.</em>
+    <div class="comment-box">
+      <label>Your decision:</label>
+      <textarea placeholder="e.g., Add emails now / Later phase / Not needed..."></textarea>
+    </div>
+  </div>
+
+  <div class="gap-card">
+    <strong>GAP 8: DB tables created but not yet implemented in frontend</strong><br/>
+    These tables exist in Supabase but have no frontend UI yet:
+    <ul style="margin:0.5rem 0 0 1.5rem">
+      <li><code>subscriptions</code> &mdash; Stripe payment (not started)</li>
+      <li><code>entitlements</code> &mdash; Feature access control (not started)</li>
+      <li><code>partner_requests</code> &mdash; B2B partner&harr;marina contact (not started)</li>
+      <li><code>rfps</code> &mdash; Marina RFP submissions (not started)</li>
+      <li><code>consultations</code> &mdash; Marina consultation requests (not started)</li>
+      <li><code>content_items</code>, <code>content_drafts</code>, <code>content_approvals</code> &mdash; CMS (not started)</li>
+      <li><code>resource_drafts</code>, <code>resource_approvals</code> &mdash; Resource workflow (not started)</li>
+    </ul>
+    <div class="comment-box">
+      <label>Priority order for implementation:</label>
+      <textarea placeholder="e.g., 1. partner_requests, 2. rfps, 3. subscriptions..."></textarea>
+    </div>
+  </div>
+</div>
+
+<!-- GENERAL COMMENTS -->
+<div class="section">
+  <h2>General Comments & Notes</h2>
+  <div class="comment-box" style="margin-top:0; border-top:none; padding-top:0;">
+    <label>Overall feedback, questions, or priorities:</label>
+    <textarea style="min-height:150px" placeholder="Add any general comments, questions, or priorities here..."></textarea>
+  </div>
+</div>
+
+</div><!-- /container -->
+
+<button class="save-btn" onclick="saveComments()">Save Comments</button>
+<button class="print-btn" onclick="window.print()">Print / Export PDF</button>
+
+<script>
+  // Initialize Mermaid
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor: '#dbeafe',
+      primaryTextColor: '#1e293b',
+      primaryBorderColor: '#93c5fd',
+      lineColor: '#64748b',
+      secondaryColor: '#f1f5f9',
+      tertiaryColor: '#fef9c3',
+      fontFamily: 'Segoe UI, system-ui, sans-serif',
+      fontSize: '14px'
+    },
+    flowchart: {
+      useMaxWidth: true,
+      htmlLabels: true,
+      curve: 'basis'
+    }
+  });
+
+  // Load saved comments on page load
+  window.addEventListener('load', () => {
+    const saved = localStorage.getItem('m3connect_doc_comments');
+    if (saved) {
+      const comments = JSON.parse(saved);
+      const textareas = document.querySelectorAll('textarea');
+      textareas.forEach((ta, i) => {
+        if (comments[i]) ta.value = comments[i];
+      });
+    }
+  });
+
+  // Save comments to localStorage
+  function saveComments() {
+    const textareas = document.querySelectorAll('textarea');
+    const comments = Array.from(textareas).map(ta => ta.value);
+    localStorage.setItem('m3connect_doc_comments', JSON.stringify(comments));
+    const btn = document.querySelector('.save-btn');
+    const orig = btn.textContent;
+    btn.textContent = 'Saved!';
+    btn.style.background = '#16a34a';
+    setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 2000);
+  }
+
+  // Auto-save every 30 seconds
+  setInterval(saveComments, 30000);
+</script>
+
+</body>
+</html>

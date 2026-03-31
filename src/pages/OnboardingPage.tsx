@@ -127,10 +127,10 @@ export function OnboardingPage() {
   const [futurePlans, setFuturePlans] = useState<Record<string, string>>({});
 
   // Partner org form
-  const [partner, setPartner] = useState({ company_name: '', website: '', headquarters_country: '', description: '' });
+  const [partner, setPartner] = useState({ company_name: '', website: '', headquarters_country: '', city: '', description: '', social_media_links: { linkedin: '', twitter: '', instagram: '', facebook: '' } });
 
   // Media org form
-  const [media, setMedia] = useState({ media_name: '', website: '', audience_description: '' });
+  const [media, setMedia] = useState({ media_name: '', website: '', audience_description: '', social_media_links: { linkedin: '', twitter: '', instagram: '', facebook: '' } });
 
   const needsPersonaSetup = !authLoading && !!user && !profile;
 
@@ -472,7 +472,7 @@ export function OnboardingPage() {
             p_website: partner.website || null,
             p_description: partner.description || null,
             p_country: partner.headquarters_country || null,
-            p_city: null,
+            p_city: partner.city || null,
           });
           if (orgErr) throw orgErr;
           createdOrgId = orgResult as string;
@@ -499,7 +499,9 @@ export function OnboardingPage() {
           company_name: partner.company_name,
           website: partner.website || null,
           headquarters_country: partner.headquarters_country || null,
+          city: partner.city || null,
           description: partner.description || null,
+          social_media_links: partner.social_media_links,
         }, { onConflict: 'user_id' });
 
       } else if (profile.persona === 'media_partner') {
@@ -537,6 +539,7 @@ export function OnboardingPage() {
           media_name: media.media_name,
           website: media.website || null,
           audience_description: media.audience_description || null,
+          social_media_links: media.social_media_links,
         }, { onConflict: 'user_id' });
       }
 
@@ -993,14 +996,39 @@ export function OnboardingPage() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Website *</Label>
-                  <Input type="url" value={partner.website} onChange={e => setPartner({ ...partner, website: e.target.value })} required placeholder="https://" />
+                  <Label>City</Label>
+                  <Input value={partner.city} onChange={e => setPartner({ ...partner, city: e.target.value })} placeholder="e.g. London" />
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Website *</Label>
+                <Input type="url" value={partner.website} onChange={e => setPartner({ ...partner, website: e.target.value })} required placeholder="https://" />
               </div>
               <div className="space-y-2">
                 <Label>Description *</Label>
                 <Textarea value={partner.description} onChange={e => setPartner({ ...partner, description: e.target.value })} rows={4} required
                   placeholder="Describe your services, expertise and positioning in the marina industry..." />
+              </div>
+              <div className="space-y-2">
+                <Label>Social Media Links</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500">LinkedIn URL</Label>
+                    <Input value={partner.social_media_links.linkedin} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, linkedin: e.target.value } })} placeholder="https://linkedin.com/company/..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500">X (Twitter) URL</Label>
+                    <Input value={partner.social_media_links.twitter} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, twitter: e.target.value } })} placeholder="https://x.com/..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500">Instagram URL</Label>
+                    <Input value={partner.social_media_links.instagram} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, instagram: e.target.value } })} placeholder="https://instagram.com/..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500">Facebook URL</Label>
+                    <Input value={partner.social_media_links.facebook} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, facebook: e.target.value } })} placeholder="https://facebook.com/..." />
+                  </div>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Service Sectors *</Label>
@@ -1040,6 +1068,27 @@ export function OnboardingPage() {
                 <Label>Audience Description</Label>
                 <Textarea value={media.audience_description} onChange={e => setMedia({ ...media, audience_description: e.target.value })}
                   rows={4} placeholder="Describe your audience, editorial focus and reach..." />
+              </div>
+              <div className="space-y-2">
+                <Label>Social Media Links</Label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500">LinkedIn URL</Label>
+                    <Input value={media.social_media_links.linkedin} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, linkedin: e.target.value } })} placeholder="https://linkedin.com/company/..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500">X (Twitter) URL</Label>
+                    <Input value={media.social_media_links.twitter} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, twitter: e.target.value } })} placeholder="https://x.com/..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500">Instagram URL</Label>
+                    <Input value={media.social_media_links.instagram} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, instagram: e.target.value } })} placeholder="https://instagram.com/..." />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-gray-500">Facebook URL</Label>
+                    <Input value={media.social_media_links.facebook} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, facebook: e.target.value } })} placeholder="https://facebook.com/..." />
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>

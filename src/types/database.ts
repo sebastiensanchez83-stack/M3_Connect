@@ -1,4 +1,4 @@
-export type PersonaType = 'marina' | 'partner' | 'media_partner' | 'moderator' | 'admin' | 'individual';
+export type PersonaType = 'marina' | 'partner' | 'media_partner' | 'moderator' | 'admin';
 export type AccessStatus = 'pending' | 'verified' | 'rejected' | 'suspended';
 export type OnboardingStatus = 'draft' | 'submitted' | 'under_review' | 'completed';
 
@@ -34,9 +34,11 @@ export interface PartnerProfile {
   company_name: string;
   website: string | null;
   headquarters_country: string | null;
+  city: string | null;
   description: string | null;
   recommendation_proof_path: string | null;
   logo_url: string | null;
+  social_media_links: Record<string, string> | null;
   created_at: string;
   updated_at: string;
 }
@@ -47,6 +49,7 @@ export interface MediaPartnerProfile {
   website: string | null;
   audience_description: string | null;
   logo_url: string | null;
+  social_media_links: Record<string, string> | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,7 +83,7 @@ export interface ResourceSpeaker {
 export type UserDetails = MarinaProfile | PartnerProfile | MediaPartnerProfile | ModeratorProfile;
 
 // Organization types
-export type OrgTier = 'member' | 'innovation_partner' | 'associate_partner' | 'premium_partner' | 'main_sponsor';
+export type OrgTier = 'member' | 'innovation_partner' | 'associate_partner' | 'premium_partner' | 'premium_sponsor' | 'main_sponsor';
 export type OrgMemberRole = 'owner' | 'collaborator';
 export type InvitationStatus = 'pending' | 'accepted' | 'expired' | 'cancelled';
 
@@ -243,14 +246,15 @@ export interface ExpositionRequest {
 }
 
 // Sponsor tier helpers
-export const SPONSOR_TIERS: OrgTier[] = ['innovation_partner', 'associate_partner', 'premium_partner', 'main_sponsor'];
+export const SPONSOR_TIERS: OrgTier[] = ['innovation_partner', 'associate_partner', 'premium_partner', 'premium_sponsor', 'main_sponsor'];
 export const isSponsorTier = (tier: OrgTier): boolean => SPONSOR_TIERS.includes(tier);
 
 export const TIER_LABELS: Record<OrgTier, string> = {
   member: 'Member',
   innovation_partner: 'Innovation Partner',
   associate_partner: 'Associate Partner',
-  premium_partner: 'Premium Partner',
+  premium_partner: 'Partner',
+  premium_sponsor: 'Premium Sponsor',
   main_sponsor: 'Main Sponsor',
 };
 
@@ -259,5 +263,6 @@ export const TIER_COLORS: Record<OrgTier, { bg: string; text: string; border: st
   innovation_partner: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
   associate_partner: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   premium_partner: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
+  premium_sponsor: { bg: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200' },
   main_sponsor: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
 };

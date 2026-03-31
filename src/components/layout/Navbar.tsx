@@ -23,7 +23,7 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import {
   Anchor, Menu, X, User, Globe, ChevronDown,
-  CalendarDays, BookOpen, Building2, ShoppingBag,
+  CalendarDays, BookOpen, Building2, Users,
   UserPlus, LogOut, Settings, FileText, Mic2,
   Ship, MessageSquare, Shield, LayoutDashboard, Ticket,
 } from 'lucide-react';
@@ -31,7 +31,7 @@ import { toast } from '@/hooks/use-toast';
 
 export function Navbar() {
   const { t, i18n } = useTranslation();
-  const { user, profile, signOut, isVerified, isModerator, organization } = useAuth();
+  const { user, profile, signOut, isVerified, isAdmin, isModerator, organization } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -67,7 +67,7 @@ export function Navbar() {
     { href: '/resources', label: t('nav.resources'), icon: BookOpen },
     { href: '/events', label: t('nav.events'), icon: CalendarDays },
     { href: '/partners', label: t('nav.partners'), icon: Building2 },
-    { href: '/marketplace', label: t('nav.marketplace'), icon: ShoppingBag },
+    { href: '/network', label: t('nav.marketplace'), icon: Users },
     { href: '/become-partner', label: t('nav.becomePartner'), icon: UserPlus },
   ];
 
@@ -225,14 +225,14 @@ export function Navbar() {
                     </>
                   )}
 
-                  {/* Admin */}
+                  {/* Admin / Moderator Panel */}
                   {isModerator && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
                         <Link to="/admin" className="flex items-center gap-2.5">
                           <Shield className="h-4 w-4 text-gray-400" />
-                          {t('nav.adminPanel')}
+                          {isAdmin ? t('nav.adminPanel') : 'Moderator Panel'}
                         </Link>
                       </DropdownMenuItem>
                     </>
@@ -341,7 +341,7 @@ export function Navbar() {
                   {isModerator && (
                     <Link to="/admin" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
                       <Shield className="h-4 w-4 text-gray-400" />
-                      {t('nav.adminPanel')}
+                      {isAdmin ? t('nav.adminPanel') : 'Moderator Panel'}
                     </Link>
                   )}
                   <button onClick={() => { handleLogout(); setMobileMenuOpen(false); }} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-red-600 hover:bg-red-50 w-full text-left">

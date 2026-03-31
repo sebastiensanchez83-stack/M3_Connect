@@ -55,7 +55,7 @@ const TYPE_COLORS: Record<string, string> = {
 
 export function ResourcesPage() {
   const { t } = useTranslation();
-  const { user, profile, isVerified, organization } = useAuth();
+  const { user, profile, isVerified, isModerator, organization } = useAuth();
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -137,8 +137,8 @@ export function ResourcesPage() {
   const canAccess = (level: string) => {
     if (level === 'public') return true;
     if (!user) return false;
-    if (level === 'members') return true;
-    if (level === 'marina') return profile?.persona === 'marina' && isVerified;
+    if (level === 'members') return isVerified;
+    if (level === 'marina') return (profile?.persona === 'marina' && isVerified) || isModerator;
     return false;
   };
 

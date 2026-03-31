@@ -26,6 +26,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
+  const [isPublicDomain, setIsPublicDomain] = useState(false);
 
   // Public email domain blacklist
   const PUBLIC_DOMAINS = [
@@ -35,15 +36,24 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     'mail.com','protonmail.com','proton.me','gmx.com','gmx.fr',
     'wanadoo.fr','orange.fr','free.fr','sfr.fr','laposte.net',
     'msn.com','ymail.com','fastmail.com','zoho.com',
+    'yandex.com','tutanota.com','mailinator.com','guerrillamail.com',
   ];
 
   // Domain detection: check if an organization exists for this email domain
   const checkDomain = useCallback(async (email: string) => {
-    if (!email.includes('@')) { setDetectedOrg(null); return; }
+    if (!email.includes('@')) { setDetectedOrg(null); setIsPublicDomain(false); return; }
     const domain = email.split('@')[1]?.toLowerCase();
-    if (!domain || PUBLIC_DOMAINS.includes(domain)) { setDetectedOrg(null); return; }
-    // Only detect for partner/media_partner (marinas often use personal emails)
-    if (selectedPersona === 'marina') { setDetectedOrg(null); return; }
+    if (!domain) { setDetectedOrg(null); setIsPublicDomain(false); return; }
+
+    // Check if it's a public/personal domain — block registration
+    if (PUBLIC_DOMAINS.includes(domain)) {
+      setDetectedOrg(null);
+      setIsPublicDomain(true);
+      return;
+    }
+    setIsPublicDomain(false);
+
+    // Check if organization already exists for this domain
     try {
       const { data } = await supabase
         .from('organizations')
@@ -54,7 +64,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     } catch {
       setDetectedOrg(null);
     }
-  }, [selectedPersona]);
+  }, []);
 
   // Debounced email domain check
   useEffect(() => {
@@ -159,12 +169,23 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         <Label htmlFor="email">{t('auth.emailPro')} *</Label>
         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
       </div>
-      {/* Domain detection banner */}
-      {detectedOrg && (
+      {/* Public domain warning */}
+      {isPublicDomain && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-sm">
+          <Info className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+          <span className="text-red-800">
+            {t('auth.publicDomainWarning', 'Please use your professional organization email address. Personal email addresses (Gmail, Outlook, Yahoo, etc.) are not accepted.')}
+          </span>
+        </div>
+      )}
+      {/* Domain detection banner - organization found */}
+      {detectedOrg && !isPublicDomain && (
         <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm">
           <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
           <span className="text-blue-800">
             {t('auth.orgDetected', { orgName: detectedOrg.name })}
+            {' — '}
+            {t('auth.orgDetectedJoin', 'Your registration will be sent to the organization owner for approval.')}
           </span>
         </div>
       )}
@@ -212,7 +233,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
           </a>
         </label>
       </div>
-      <Button type="submit" className="w-full" disabled={loading || !acceptTerms}>
+      <Button type="submit" className="w-full" disabled={loading || !acceptTerms || isPublicDomain}>
         {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         {loading ? t('auth.creating') : t('auth.createAccount')}
       </Button>

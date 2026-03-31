@@ -23,9 +23,8 @@ import {
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
-  const { profile } = useAuth();
+  const { isAdmin } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = profile?.persona === 'admin';
 
   useEffect(() => {
     if (!isAdmin) {
@@ -38,20 +37,12 @@ function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/* ─── Admin Page (root) ─── */
+/* ─── Admin / Moderator Page ─── */
 export function AdminPage() {
-  const { user, loading, isModerator } = useAuth();
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    if (!loading && (!user || !isModerator)) {
-      navigate('/');
-      toast({ title: 'Access denied. Admin only.', variant: 'destructive' });
-    }
-  }, [user, isModerator, loading, navigate]);
+  const { loading, isModerator } = useAuth();
 
   if (loading) return <div className="flex items-center justify-center h-screen"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
-  if (!user || !isModerator) return null;
+  if (!isModerator) return null;
 
   return (
     <div className="flex">

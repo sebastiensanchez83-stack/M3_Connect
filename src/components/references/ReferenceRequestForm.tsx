@@ -56,7 +56,7 @@ export function ReferenceRequestForm() {
   }, [organization?.id, submitted]);
 
   const confirmedCount = existingRefs.filter(r => r.status === 'confirmed').length;
-  const pendingCount = existingRefs.filter(r => r.status === 'pending').length;
+  const pendingCount = existingRefs.filter(r => r.status === 'pending' || r.status === 'sent').length;
   const meetsRequirement = confirmedCount >= REQUIRED_REFERENCES;
   const remaining = Math.max(0, REQUIRED_REFERENCES - confirmedCount);
 
@@ -318,9 +318,9 @@ export function ReferenceRequestForm() {
                         <CheckCircle className="h-3 w-3" /> Confirmed
                       </Badge>
                     )}
-                    {ref.status === 'pending' && (
+                    {(ref.status === 'pending' || ref.status === 'sent') && (
                       <Badge variant="warning" className="text-xs gap-1">
-                        <Clock className="h-3 w-3" /> Pending
+                        <Clock className="h-3 w-3" /> {ref.status === 'sent' ? 'Sent' : 'Pending'}
                       </Badge>
                     )}
                     {ref.status === 'rejected' && (

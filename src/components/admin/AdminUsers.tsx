@@ -139,7 +139,7 @@ export function AdminUsers() {
         partnerUsers.forEach((u) => {
           const refs = orgRefMap.get(u.org_id!) || [];
           const confirmed = refs.filter((r: { status: string }) => r.status === 'confirmed').length;
-          const pending = refs.filter((r: { status: string }) => r.status === 'pending').length;
+          const pending = refs.filter((r: { status: string }) => r.status === 'pending' || r.status === 'sent').length;
           const rejected = refs.filter((r: { status: string }) => r.status === 'rejected').length;
           const latest = refs[0]; // already sorted desc
           const bp = bypassMap.get(u.org_id!) || { bypass: false, reason: null };

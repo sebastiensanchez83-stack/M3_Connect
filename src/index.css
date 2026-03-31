@@ -39,7 +39,7 @@
 
 /* Custom styles */
 .gradient-hero {
-  background: linear-gradient(135deg, #0b2653 0%, #143a6b 50%, #d7a647 100%);
+  background: #0b2653;
 }
 
 .card-hover {

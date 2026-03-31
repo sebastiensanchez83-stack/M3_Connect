@@ -384,14 +384,29 @@ export function AccountPage() {
   const pendingB2B = partnerRequests.filter(r => r.status === 'pending').length;
 
   const NotifDot = ({ show }: { show: boolean }) => show ? (
-    <span className="ml-1.5 inline-flex items-center justify-center w-2 h-2 rounded-full bg-red-500" />
+    <span className="ml-auto inline-flex items-center justify-center w-2 h-2 rounded-full bg-red-500" />
   ) : null;
   const NotifBadge = ({ count }: { count: number }) => count > 0 ? (
-    <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">{count}</span>
+    <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">{count}</span>
   ) : null;
 
+  // Sidebar nav items
+  const navItems: { value: string; label: string; icon: React.ReactNode; show?: boolean; notifDot?: boolean; notifCount?: number }[] = [
+    { value: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
+    { value: 'organization', label: t('org.tabTitle'), icon: <Building2 className="h-4 w-4" />, notifDot: orgNeedsAction },
+    { value: 'profile', label: 'Profile', icon: <Users className="h-4 w-4" /> },
+    { value: 'registrations', label: 'Registrations', icon: <Calendar className="h-4 w-4" /> },
+    { value: 'projects', label: 'Projects', icon: <Anchor className="h-4 w-4" />, show: isMarina },
+    { value: 'webinars', label: 'Webinars', icon: <Radio className="h-4 w-4" /> },
+    { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: isMarina },
+    { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: isMarina },
+    { value: 'references', label: 'References', icon: <FileText className="h-4 w-4" />, show: isPartner },
+    { value: 'b2b-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, notifCount: pendingB2B },
+    { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
+  ].filter(item => item.show !== false);
+
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <div className="container mx-auto px-4 py-8 max-w-6xl">
       {/* Account Header */}
       <div className="rounded-xl bg-gradient-to-r from-[#0b2653] to-[#143a6b] p-6 text-white mb-8">
         <div className="flex items-center justify-between">
@@ -475,20 +490,56 @@ export function AccountPage() {
         </div>
       )}
 
+      <div className="flex gap-6">
+        {/* ── Sidebar Navigation ── */}
+        <aside className="hidden md:block w-56 shrink-0">
+          <nav className="sticky top-24 space-y-1">
+            {navItems.map((item) => (
+              <button
+                key={item.value}
+                onClick={() => navigate(`/account?tab=${item.value}`, { replace: true })}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === item.value
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                }`}
+              >
+                <span className={activeTab === item.value ? 'text-white' : 'text-gray-400'}>{item.icon}</span>
+                <span className="truncate">{item.label}</span>
+                {item.notifDot && <NotifDot show />}
+                {(item.notifCount ?? 0) > 0 && <NotifBadge count={item.notifCount!} />}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        {/* Mobile tabs (visible on small screens only) */}
+        <div className="md:hidden w-full mb-4 overflow-x-auto">
+          <div className="flex gap-1 pb-2">
+            {navItems.map((item) => (
+              <button
+                key={item.value}
+                onClick={() => navigate(`/account?tab=${item.value}`, { replace: true })}
+                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  activeTab === item.value
+                    ? 'bg-primary text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {item.label}
+                {(item.notifCount ?? 0) > 0 && <NotifBadge count={item.notifCount!} />}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Main Content ── */}
+        <div className="flex-1 min-w-0">
       <Tabs value={activeTab} onValueChange={(val) => navigate(`/account?tab=${val}`, { replace: true })}>
-        <TabsList className="mb-6 flex-nowrap overflow-x-auto w-full justify-start">
-          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
-          <TabsTrigger value="organization" className="flex items-center">{t('org.tabTitle')}<NotifDot show={orgNeedsAction} /></TabsTrigger>
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="registrations">Registrations</TabsTrigger>
-          {isMarina && <TabsTrigger value="projects">Projects</TabsTrigger>}
-          <TabsTrigger value="webinars">Webinars</TabsTrigger>
-          {isMarina && <TabsTrigger value="rfps">RFPs</TabsTrigger>}
-          {isMarina && <TabsTrigger value="consultations">Consultations</TabsTrigger>}
-          {/* S3 Pre-Audit archived — will be deployed later */}
-          {isPartner && <TabsTrigger value="references">References</TabsTrigger>}
-          <TabsTrigger value="b2b-requests" className="flex items-center">B2B<NotifBadge count={pendingB2B} /></TabsTrigger>
-          <TabsTrigger value="pricing">Pricing</TabsTrigger>
+        <TabsList className="hidden">
+          {navItems.map((item) => (
+            <TabsTrigger key={item.value} value={item.value}>{item.label}</TabsTrigger>
+          ))}
         </TabsList>
 
         {/* ── DASHBOARD ── */}
@@ -1190,6 +1241,8 @@ export function AccountPage() {
         </TabsContent>
 
       </Tabs>
+        </div>{/* end main content */}
+      </div>{/* end flex sidebar layout */}
 
       {/* ── PROFILE PREVIEW DIALOG ── */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>

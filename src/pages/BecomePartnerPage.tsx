@@ -163,12 +163,12 @@ export function BecomePartnerPage() {
           <div className="max-w-4xl mx-auto">
             <div className="grid md:grid-cols-4 gap-6 relative">
               {/* Connecting line (desktop only) */}
-              <div className="hidden md:block absolute top-12 left-[12.5%] right-[12.5%] h-0.5 bg-gradient-to-r from-primary/20 via-primary/40 to-primary/20" />
+              <div className="hidden md:block absolute top-12 left-[12.5%] right-[12.5%] h-0.5 bg-[#0b2653]/30" />
 
               {processSteps.map((s) => (
                 <div key={s.step} className="relative text-center flex flex-col items-center">
                   {/* Step circle */}
-                  <div className="relative z-10 w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white shadow-lg mb-4">
+                  <div className="relative z-10 w-24 h-24 rounded-full bg-[#0b2653] flex items-center justify-center text-white shadow-lg mb-4">
                     {s.icon}
                   </div>
                   {/* Step number badge */}

@@ -184,12 +184,8 @@ function FeatureValue({ value, isBoolean }: { value: string | boolean; isBoolean
 // ──────────────────────────────────────────────────────────────────────────────
 
 export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
-  const { organization, profile } = useAuth();
+  const { organization } = useAuth();
   const currentTier = organization?.tier ?? null;
-  const persona = profile?.persona as PersonaType | undefined;
-  const isMarina = persona === 'marina';
-  const isMedia = persona === 'media_partner';
-  const getPrice = (config: TierFeatures) => (isMarina || isMedia) ? config.priceMarina : config.pricePartner;
 
   return (
     <>
@@ -272,13 +268,11 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
 
                     {/* Price */}
                     <div className="mb-1">
-                      <span className="text-3xl font-bold text-gray-900">{getPrice(config)}</span>
+                      <span className="text-3xl font-bold text-gray-900">{config.price}</span>
                     </div>
-                    <p className="text-xs text-gray-400">
-                      {tier === 'member'
-                        ? (isMarina || isMedia ? 'Free forever' : 'Annual membership fee')
-                        : (config.priceNote || '')}
-                    </p>
+                    {config.priceNote && (
+                      <p className="text-xs text-gray-400">{config.priceNote}</p>
+                    )}
                   </CardHeader>
 
                   <CardContent className="flex flex-col flex-1 gap-5 px-5 pb-6">
@@ -300,25 +294,9 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                         value={String(config.teamMembers)}
                       />
                       <FeatureRow
-                        icon={<FileText className="h-4 w-4 text-gray-400" />}
-                        label="Resources"
-                        value={config.resourceAccess}
-                      />
-                      <FeatureRow
-                        icon={<Calendar className="h-4 w-4 text-gray-400" />}
-                        label="Events"
-                        value={config.eventAccess}
-                      />
-                      <FeatureRow
                         icon={<Star className="h-4 w-4 text-gray-400" />}
                         label="Sponsor badge"
                         value={config.sponsorBadge}
-                        isBoolean
-                      />
-                      <FeatureRow
-                        icon={<Shield className="h-4 w-4 text-gray-400" />}
-                        label="Priority support"
-                        value={config.prioritySupport}
                         isBoolean
                       />
                     </ul>
@@ -353,28 +331,22 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
       </section>
 
       {/* ── Feature Comparison Table ────────────────────────────────────────── */}
-      <section className={`${embedded ? 'py-8' : 'py-16'} px-4 bg-gray-50`}>
-        <div className="container mx-auto max-w-7xl">
+      <section className="py-16 px-4 bg-gray-50">
+        <div className="container mx-auto max-w-6xl">
           <h2 className="text-2xl font-bold text-gray-900 text-center mb-10">
             Full feature comparison
           </h2>
 
-          {isMarina && (
-            <p className="text-center text-sm text-gray-500 mb-6">
-              Marina profiles benefit from free membership. Upgrade to a sponsor package for enhanced visibility.
-            </p>
-          )}
-
           <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white shadow-sm">
-            <table className="w-full text-sm table-fixed">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-5 py-4 text-gray-500 font-semibold w-52">Feature</th>
+                  <th className="text-left px-6 py-4 text-gray-500 font-semibold w-48">Feature</th>
                   {TIERS.map((tier) => {
                     const colors = TIER_COLORS[tier];
                     const isCurrentPlan = currentTier === tier;
                     return (
-                      <th key={tier} className="px-3 py-4 text-center w-[calc((100%-13rem)/5)]">
+                      <th key={tier} className="px-4 py-4 text-center">
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${colors.bg} ${colors.text} border ${colors.border} ${
                             isCurrentPlan ? 'ring-1 ring-secondary/70' : ''
@@ -391,50 +363,11 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                 </tr>
               </thead>
               <tbody>
-                {/* Pricing */}
-                <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={6} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Pricing</td>
-                </tr>
                 <ComparisonRow
                   label="Price"
-                  values={TIERS.map((t) => getPrice(TIER_CONFIG[t]))}
+                  values={TIERS.map((t) => TIER_CONFIG[t].price)}
                   isText
                 />
-                <ComparisonRow
-                  label="Team members"
-                  values={TIERS.map((t) => String(TIER_CONFIG[t].teamMembers))}
-                  isText
-                />
-
-                {/* Platform Access */}
-                <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={6} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Platform Access</td>
-                </tr>
-                <ComparisonRow
-                  label="Resource library"
-                  values={TIERS.map((t) => TIER_CONFIG[t].resourceAccess)}
-                  isText
-                />
-                <ComparisonRow
-                  label="Events access"
-                  values={TIERS.map((t) => TIER_CONFIG[t].eventAccess)}
-                  isText
-                />
-                <ComparisonRow
-                  label="Public profile page"
-                  values={TIERS.map((t) => TIER_CONFIG[t].publicProfile)}
-                  isBoolean
-                />
-                <ComparisonRow
-                  label="Network directory"
-                  values={TIERS.map((t) => TIER_CONFIG[t].networkDirectory)}
-                  isBoolean
-                />
-
-                {/* B2B Features */}
-                <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={6} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">B2B Features</td>
-                </tr>
                 <ComparisonRow
                   label="Connect requests / month"
                   values={TIERS.map((t) => TIER_CONFIG[t].connectRequests)}
@@ -446,28 +379,13 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                   isText
                 />
                 <ComparisonRow
-                  label="RFP submissions"
-                  values={TIERS.map((t) => TIER_CONFIG[t].rfpAccess)}
-                  isBoolean
+                  label="Team members"
+                  values={TIERS.map((t) => String(TIER_CONFIG[t].teamMembers))}
+                  isText
                 />
-                <ComparisonRow
-                  label="Consultation access"
-                  values={TIERS.map((t) => TIER_CONFIG[t].consultationAccess)}
-                  isBoolean
-                />
-
-                {/* Visibility & Support */}
-                <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={6} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Visibility &amp; Support</td>
-                </tr>
                 <ComparisonRow
                   label="Sponsor badge"
                   values={TIERS.map((t) => TIER_CONFIG[t].sponsorBadge)}
-                  isBoolean
-                />
-                <ComparisonRow
-                  label="Priority support"
-                  values={TIERS.map((t) => TIER_CONFIG[t].prioritySupport)}
                   isBoolean
                 />
               </tbody>

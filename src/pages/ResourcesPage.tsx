@@ -5,6 +5,8 @@ import { Link } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -62,6 +64,7 @@ export function ResourcesPage() {
   const [accessFilter, setAccessFilter] = useState('all');
   const [allSectors, setAllSectors] = useState<Sector[]>([]);
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
 
@@ -170,6 +173,7 @@ export function ResourcesPage() {
   };
 
   const clearAllSectors = () => setSelectedSectors([]);
+  const selectAllSectors = () => setSelectedSectors(allSectors.map((s) => s.id));
 
   // Count resources per sector (from unfiltered resource list)
   const sectorResourceCounts: Record<string, number> = {};
@@ -218,60 +222,6 @@ export function ResourcesPage() {
       {/* Filters Bar */}
       <section className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
         <div className="container mx-auto px-4">
-          {/* Row 1: Sector pills (primary filter) */}
-          {allSectors.length > 0 && (
-            <div className="flex items-center gap-2 py-3 border-b border-gray-100">
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5 shrink-0">
-                <Filter className="h-3.5 w-3.5" />
-                {t('resources.filters.sector', 'Sectors')}
-              </span>
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-                <button
-                  onClick={clearAllSectors}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
-                    selectedSectors.length === 0
-                      ? 'bg-primary text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {t('resources.filters.all')}
-                </button>
-                {allSectors.map((sector) => {
-                  const isActive = selectedSectors.includes(sector.id);
-                  const count = sectorResourceCounts[sector.id] || 0;
-                  return (
-                    <button
-                      key={sector.id}
-                      onClick={() => toggleSector(sector.id)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
-                        isActive
-                          ? 'bg-primary text-white shadow-sm'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      {sector.label}
-                      {count > 0 && (
-                        <span className={`text-[10px] tabular-nums ${isActive ? 'text-white/70' : 'text-gray-400'}`}>
-                          {count}
-                        </span>
-                      )}
-                      {isActive && <X className="h-3 w-3 ml-0.5" />}
-                    </button>
-                  );
-                })}
-              </div>
-              {selectedSectors.length > 0 && (
-                <button
-                  onClick={clearAllSectors}
-                  className="shrink-0 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 ml-1"
-                >
-                  {t('marketplace.clearAll', 'Clear All')}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Row 2: Type pills + access filter */}
           <div className="flex items-center gap-3 py-2.5 overflow-x-auto no-scrollbar">
             {/* Type pills */}
             <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -300,6 +250,18 @@ export function ResourcesPage() {
               ))}
             </div>
             <div className="flex-1" />
+            {/* Mobile: toggle sector sidebar button */}
+            <Button
+              variant="outline"
+              className="sm:hidden h-9 gap-2 text-sm"
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              <Filter className="h-4 w-4" />
+              {t('resources.filters.sector', 'Sectors')}
+              {selectedSectors.length > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">{selectedSectors.length}</Badge>
+              )}
+            </Button>
             {/* Additional filters — hide access filter for verified users (they see all) and logged-out users */}
             <div className="flex items-center gap-2 flex-shrink-0">
               {user && !isVerified && (
@@ -321,8 +283,59 @@ export function ResourcesPage() {
 
       {/* Content */}
       <div className="container mx-auto px-4 py-8 lg:py-12">
+        <div className="flex gap-6">
+          {/* ---- Sector Sidebar (desktop: always visible, mobile: toggled) ---- */}
+          <aside className={`${sidebarOpen ? 'block' : 'hidden'} sm:block w-full sm:w-64 shrink-0`}>
+            <Card className="sm:sticky sm:top-16">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold text-sm text-gray-900 flex items-center gap-1.5">
+                    <Filter className="h-4 w-4 text-primary" />
+                    {t('resources.filters.sector', 'Sectors')}
+                  </h3>
+                  {/* Mobile close button */}
+                  <Button variant="ghost" size="sm" className="sm:hidden h-7 w-7 p-0" onClick={() => setSidebarOpen(false)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex gap-2 mb-3">
+                  <Button variant="outline" size="sm" className="text-xs h-7 flex-1" onClick={selectAllSectors}>
+                    {t('marketplace.selectAll', 'Select All')}
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-xs h-7 flex-1" onClick={clearAllSectors}>
+                    {t('marketplace.clearAll', 'Clear All')}
+                  </Button>
+                </div>
+
+                <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
+                  {allSectors.map((sector) => (
+                    <label
+                      key={sector.id}
+                      className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <Checkbox
+                        id={`sector-${sector.id}`}
+                        checked={selectedSectors.includes(sector.id)}
+                        onCheckedChange={() => toggleSector(sector.id)}
+                      />
+                      <span className="text-sm text-gray-700 flex-1 truncate">{sector.label}</span>
+                      <span className="text-xs text-gray-400 tabular-nums">{sectorResourceCounts[sector.id] || 0}</span>
+                    </label>
+                  ))}
+                </div>
+
+                {selectedSectors.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-3 pt-2 border-t">
+                    {selectedSectors.length} {t('marketplace.sectorsSelected', 'sector(s) selected')}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </aside>
+
           {/* ---- Main Content ---- */}
-          <div className="min-w-0">
+          <div className="flex-1 min-w-0">
         {loading ? (
           <LoadingSkeleton variant="card" count={6} />
         ) : filteredResources.length === 0 ? (
@@ -450,6 +463,7 @@ export function ResourcesPage() {
           </>
         )}
           </div>{/* end main content */}
+        </div>{/* end flex wrapper */}
       </div>
     </div>
   );

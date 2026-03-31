@@ -260,16 +260,32 @@ export function MarketplacePage() {
 
         const rows = (data || []) as unknown as { id: string; title: string; scope: string | null; deadline_date: string | null; is_open: boolean; created_at: string; marina_user_id: string; sector_id: string; sectors: { id: string; label: string } | null }[];
 
-        // Resolve marina names from profiles
+        // Resolve marina names: prefer organization name, fall back to profile first+last
         const marinaIds = [...new Set(rows.map((r) => r.marina_user_id))];
         const nameMap: Record<string, string> = {};
         if (marinaIds.length > 0) {
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .in('id', marinaIds);
-          for (const p of (profiles || []) as { id: string; full_name: string | null }[]) {
-            nameMap[p.id] = p.full_name || p.id.slice(0, 8);
+          // Batch-fetch organization names via organization_members -> organizations
+          const { data: memberOrgs } = await supabase
+            .from('organization_members')
+            .select('user_id, organizations(name)')
+            .in('user_id', marinaIds);
+          for (const m of (memberOrgs || []) as unknown as { user_id: string; organizations: { name: string } | null }[]) {
+            if (m.organizations?.name) {
+              nameMap[m.user_id] = m.organizations.name;
+            }
+          }
+
+          // For any marina user without an org name, fall back to profile first+last name
+          const missingIds = marinaIds.filter((uid) => !nameMap[uid]);
+          if (missingIds.length > 0) {
+            const { data: profiles } = await supabase
+              .from('profiles')
+              .select('user_id, first_name, last_name')
+              .in('user_id', missingIds);
+            for (const p of (profiles || []) as { user_id: string; first_name: string | null; last_name: string | null }[]) {
+              const name = [p.first_name, p.last_name].filter(Boolean).join(' ');
+              nameMap[p.user_id] = name || p.user_id.slice(0, 8);
+            }
           }
         }
 
@@ -313,16 +329,32 @@ export function MarketplacePage() {
 
         const rows = (data || []) as unknown as { id: string; title: string; description: string | null; is_open: boolean; created_at: string; marina_user_id: string; sector_id: string; sectors: { id: string; label: string } | null }[];
 
-        // Resolve marina names from profiles
+        // Resolve marina names: prefer organization name, fall back to profile first+last
         const marinaIds = [...new Set(rows.map((c) => c.marina_user_id))];
         const nameMap: Record<string, string> = {};
         if (marinaIds.length > 0) {
-          const { data: profiles } = await supabase
-            .from('profiles')
-            .select('id, full_name')
-            .in('id', marinaIds);
-          for (const p of (profiles || []) as { id: string; full_name: string | null }[]) {
-            nameMap[p.id] = p.full_name || p.id.slice(0, 8);
+          // Batch-fetch organization names via organization_members -> organizations
+          const { data: memberOrgs } = await supabase
+            .from('organization_members')
+            .select('user_id, organizations(name)')
+            .in('user_id', marinaIds);
+          for (const m of (memberOrgs || []) as unknown as { user_id: string; organizations: { name: string } | null }[]) {
+            if (m.organizations?.name) {
+              nameMap[m.user_id] = m.organizations.name;
+            }
+          }
+
+          // For any marina user without an org name, fall back to profile first+last name
+          const missingIds = marinaIds.filter((uid) => !nameMap[uid]);
+          if (missingIds.length > 0) {
+            const { data: profiles } = await supabase
+              .from('profiles')
+              .select('user_id, first_name, last_name')
+              .in('user_id', missingIds);
+            for (const p of (profiles || []) as { user_id: string; first_name: string | null; last_name: string | null }[]) {
+              const name = [p.first_name, p.last_name].filter(Boolean).join(' ');
+              nameMap[p.user_id] = name || p.user_id.slice(0, 8);
+            }
           }
         }
 

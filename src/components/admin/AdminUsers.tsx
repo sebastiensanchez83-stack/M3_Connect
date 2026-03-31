@@ -32,6 +32,10 @@ type ReferenceStatus = {
   clientName: string | null; // client name of latest reference
   bypass: boolean;      // admin override — no marina clients
   bypassReason: string | null;
+  bypassRequestId: string | null;       // pending bypass request from partner
+  bypassRequestStatus: string | null;
+  bypassRequestReason: string | null;
+  bypassRequestBackground: string | null;
 };
 
 const REQUIRED_REFERENCES = 2;
@@ -107,7 +111,7 @@ export function AdminUsers() {
       const partnerOrgIds = partnerUsers.map((u) => u.org_id as string);
       if (partnerOrgIds.length > 0) {
         const uniqueOrgIds = [...new Set(partnerOrgIds)];
-        const [{ data: refData }, { data: bypassData }] = await Promise.all([
+        const [{ data: refData }, { data: bypassData }, { data: bypassReqData }] = await Promise.all([
           supabase
             .from('reference_requests')
             .select('id, partner_organization_id, status, client_legal_name, confirmed_at, created_at')
@@ -117,12 +121,26 @@ export function AdminUsers() {
             .from('organizations')
             .select('id, reference_bypass, reference_bypass_reason')
             .in('id', uniqueOrgIds),
+          supabase
+            .from('reference_bypass_requests')
+            .select('id, organization_id, status, reason, company_background')
+            .in('organization_id', uniqueOrgIds)
+            .order('created_at', { ascending: false }),
         ]);
 
         // Build bypass map: org_id → { bypass, reason }
         const bypassMap = new Map<string, { bypass: boolean; reason: string | null }>();
         (bypassData || []).forEach((org: { id: string; reference_bypass: boolean; reference_bypass_reason: string | null }) => {
           bypassMap.set(org.id, { bypass: org.reference_bypass, reason: org.reference_bypass_reason });
+        });
+
+        // Build bypass request map: org_id → latest bypass request
+        const bypassReqMap = new Map<string, { id: string; status: string; reason: string; company_background: string | null }>();
+        (bypassReqData || []).forEach((req: { id: string; organization_id: string; status: string; reason: string; company_background: string | null }) => {
+          // Only store the first (latest) per org
+          if (!bypassReqMap.has(req.organization_id)) {
+            bypassReqMap.set(req.organization_id, req);
+          }
         });
 
         const refMap: Record<string, ReferenceStatus> = {};
@@ -143,6 +161,7 @@ export function AdminUsers() {
           const rejected = refs.filter((r: { status: string }) => r.status === 'rejected').length;
           const latest = refs[0]; // already sorted desc
           const bp = bypassMap.get(u.org_id!) || { bypass: false, reason: null };
+          const bpReq = bypassReqMap.get(u.org_id!) || null;
           refMap[u.user_id] = {
             total: refs.length,
             confirmed,
@@ -152,6 +171,10 @@ export function AdminUsers() {
             clientName: latest?.client_legal_name || null,
             bypass: bp.bypass,
             bypassReason: bp.reason,
+            bypassRequestId: bpReq?.id || null,
+            bypassRequestStatus: bpReq?.status || null,
+            bypassRequestReason: bpReq?.reason || null,
+            bypassRequestBackground: bpReq?.company_background || null,
           };
         });
         setReferenceStatusMap(refMap);
@@ -289,19 +312,44 @@ export function AdminUsers() {
       toast({ title: 'No organization found for this user', variant: 'destructive' });
       return;
     }
+    const adminUserId = (await supabase.auth.getUser()).data.user?.id || null;
     const { error } = await supabase.from('organizations').update({
       reference_bypass: true,
       reference_bypass_reason: bypassReason.trim(),
       reference_bypass_at: new Date().toISOString(),
-      reference_bypass_by: (await supabase.auth.getUser()).data.user?.id || null,
+      reference_bypass_by: adminUserId,
     }).eq('id', user.org_id);
     if (error) {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
       return;
     }
+    // Also mark the partner's bypass request as approved if one exists
+    const ref = referenceStatusMap[bypassDialogUserId];
+    if (ref?.bypassRequestId) {
+      await supabase.from('reference_bypass_requests').update({
+        status: 'approved',
+        admin_notes: bypassReason.trim(),
+        reviewed_by: adminUserId,
+        reviewed_at: new Date().toISOString(),
+      }).eq('id', ref.bypassRequestId);
+    }
     toast({ title: 'Reference requirement bypassed', description: 'This partner can now be approved without 2 confirmed marina references.' });
     setBypassDialogUserId(null);
     setBypassReason('');
+    loadUsers();
+  };
+
+  const rejectBypassRequest = async (userId: string) => {
+    const ref = referenceStatusMap[userId];
+    if (!ref?.bypassRequestId) return;
+    const adminUserId = (await supabase.auth.getUser()).data.user?.id || null;
+    await supabase.from('reference_bypass_requests').update({
+      status: 'rejected',
+      admin_notes: bypassReason.trim() || 'Bypass request declined by admin',
+      reviewed_by: adminUserId,
+      reviewed_at: new Date().toISOString(),
+    }).eq('id', ref.bypassRequestId);
+    toast({ title: 'Bypass request declined' });
     loadUsers();
   };
 
@@ -406,6 +454,11 @@ export function AdminUsers() {
           {ref?.bypass && (
             <Badge variant="secondary" className="text-xs gap-1" title={`Bypass: ${ref.bypassReason}`}>
               <ShieldCheck className="h-3 w-3" /> Bypassed
+            </Badge>
+          )}
+          {ref?.bypassRequestStatus === 'pending' && !ref?.bypass && (
+            <Badge className="text-xs gap-1 bg-violet-100 text-violet-700 border-0" title="Partner requested bypass">
+              <ShieldCheck className="h-3 w-3" /> Bypass req.
             </Badge>
           )}
         </div>
@@ -795,6 +848,59 @@ export function AdminUsers() {
                         </div>
                       </div>
                     );
+                  })()}
+
+                  {/* Pending bypass request from partner */}
+                  {(() => {
+                    const ref = referenceStatusMap[selectedUser.user_id];
+                    if (!ref?.bypassRequestId || ref.bypass) return null;
+                    if (ref.bypassRequestStatus === 'pending') {
+                      return (
+                        <div className="mt-3 bg-violet-50 border border-violet-200 rounded-lg p-4">
+                          <div className="flex items-start gap-3">
+                            <ShieldCheck className="h-5 w-5 text-violet-600 mt-0.5 shrink-0" />
+                            <div className="flex-1">
+                              <p className="font-medium text-violet-800">Partner requested bypass</p>
+                              <p className="text-sm text-violet-700 mt-1">
+                                <strong>Reason:</strong> {ref.bypassRequestReason}
+                              </p>
+                              {ref.bypassRequestBackground && (
+                                <p className="text-sm text-violet-600 mt-1">
+                                  <strong>Background:</strong> {ref.bypassRequestBackground}
+                                </p>
+                              )}
+                              <div className="flex gap-2 mt-3">
+                                <Button
+                                  size="sm"
+                                  className="bg-violet-600 hover:bg-violet-700 text-xs"
+                                  onClick={() => {
+                                    setBypassDialogUserId(selectedUser.user_id);
+                                    setBypassReason(ref.bypassRequestReason || '');
+                                  }}
+                                >
+                                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                                  Approve Bypass
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="text-xs border-red-300 text-red-600 hover:bg-red-50"
+                                  onClick={() => rejectBypassRequest(selectedUser.user_id)}
+                                >
+                                  Decline
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    if (ref.bypassRequestStatus === 'rejected') {
+                      return (
+                        <p className="mt-2 text-xs text-gray-500 italic">Previous bypass request was declined.</p>
+                      );
+                    }
+                    return null;
                   })()}
                 </div>
               )}

@@ -38,7 +38,7 @@ export function AdminExpositions() {
     setLoading(true);
     const { data } = await supabase
       .from('exposition_requests')
-      .select('*, organizations:organization_id(name), events:event_id(title), profiles:requested_by(email)')
+      .select('*, organizations:organization_id(name), events:event_id(title), profiles!exposition_requests_requested_by_profiles_fkey(email)')
       .order('created_at', { ascending: false });
     const rows = (data || []).map((r: Record<string, unknown>) => ({
       ...r,

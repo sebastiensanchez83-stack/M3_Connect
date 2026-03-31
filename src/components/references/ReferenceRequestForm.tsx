@@ -60,6 +60,58 @@ export function ReferenceRequestForm() {
   const meetsRequirement = confirmedCount >= REQUIRED_REFERENCES;
   const remaining = Math.max(0, REQUIRED_REFERENCES - confirmedCount);
 
+  // Bypass request state
+  const [showBypassForm, setShowBypassForm] = useState(false);
+  const [bypassReason, setBypassReason] = useState('');
+  const [bypassBackground, setBypassBackground] = useState('');
+  const [bypassSubmitting, setBypassSubmitting] = useState(false);
+  const [bypassRequest, setBypassRequest] = useState<{ id: string; status: string; reason: string; admin_notes: string | null } | null>(null);
+
+  // Load existing bypass request
+  useEffect(() => {
+    const loadBypassReq = async () => {
+      if (!organization?.id) return;
+      const { data } = await supabase
+        .from('reference_bypass_requests')
+        .select('id, status, reason, admin_notes')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setBypassRequest(data);
+    };
+    loadBypassReq();
+  }, [organization?.id, submitted]);
+
+  const submitBypassRequest = async () => {
+    if (!organization?.id || !user?.id || !bypassReason.trim()) return;
+    setBypassSubmitting(true);
+    const { error } = await supabase.from('reference_bypass_requests').insert({
+      organization_id: organization.id,
+      requested_by: user.id,
+      reason: bypassReason.trim(),
+      company_background: bypassBackground.trim() || null,
+    });
+    if (error) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: 'Bypass request submitted', description: 'Our team will review your request and get back to you.' });
+      setShowBypassForm(false);
+      setBypassReason('');
+      setBypassBackground('');
+      // Reload
+      const { data } = await supabase
+        .from('reference_bypass_requests')
+        .select('id, status, reason, admin_notes')
+        .eq('organization_id', organization.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setBypassRequest(data);
+    }
+    setBypassSubmitting(false);
+  };
+
   // Client info
   const [clientForm, setClientForm] = useState({
     legal_name: '',
@@ -355,6 +407,121 @@ export function ReferenceRequestForm() {
                 </p>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Bypass Request Section (no marina clients) ── */}
+      {!loadingRefs && !meetsRequirement && (
+        <Card className="border-dashed border-violet-300">
+          <CardContent className="pt-6 pb-4">
+            {/* Already submitted a bypass request */}
+            {bypassRequest ? (
+              <div className="flex items-start gap-3">
+                {bypassRequest.status === 'pending' && (
+                  <>
+                    <Clock className="h-5 w-5 text-violet-500 mt-0.5 shrink-0" />
+                    <div>
+                      <h3 className="font-semibold text-violet-900">Bypass request under review</h3>
+                      <p className="text-sm text-violet-700 mt-1">
+                        Your request to bypass the reference requirement is being reviewed by our team. We'll notify you once a decision is made.
+                      </p>
+                      <p className="text-xs text-gray-500 mt-2">Your reason: "{bypassRequest.reason}"</p>
+                    </div>
+                  </>
+                )}
+                {bypassRequest.status === 'approved' && (
+                  <>
+                    <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
+                    <div>
+                      <h3 className="font-semibold text-green-900">Bypass approved</h3>
+                      <p className="text-sm text-green-700 mt-1">
+                        Your organization has been approved without the reference requirement. Your account can now be validated by admin.
+                      </p>
+                      {bypassRequest.admin_notes && <p className="text-xs text-gray-500 mt-2">Admin note: {bypassRequest.admin_notes}</p>}
+                    </div>
+                  </>
+                )}
+                {bypassRequest.status === 'rejected' && (
+                  <>
+                    <FileX className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
+                    <div>
+                      <h3 className="font-semibold text-red-900">Bypass request declined</h3>
+                      <p className="text-sm text-red-700 mt-1">
+                        Your bypass request was not approved. Please submit {REQUIRED_REFERENCES} client references to proceed.
+                      </p>
+                      {bypassRequest.admin_notes && <p className="text-xs text-gray-500 mt-2">Reason: {bypassRequest.admin_notes}</p>}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : showBypassForm ? (
+              /* Bypass form */
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 mb-2">
+                  <AlertCircle className="h-5 w-5 text-violet-500 mt-0.5 shrink-0" />
+                  <div>
+                    <h3 className="font-semibold text-gray-900">Request Reference Bypass</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      If your company has not yet implemented solutions in a marina, explain your situation and we'll evaluate your request.
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Why can't you provide marina references? *</Label>
+                  <textarea
+                    value={bypassReason}
+                    onChange={(e) => setBypassReason(e.target.value)}
+                    rows={3}
+                    placeholder="e.g. We are a new company entering the marina industry, our solutions have been deployed in ports but not yet in marinas..."
+                    className="w-full resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-violet-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Company background & credentials (optional)</Label>
+                  <textarea
+                    value={bypassBackground}
+                    onChange={(e) => setBypassBackground(e.target.value)}
+                    rows={3}
+                    placeholder="e.g. 10 years in port security, certified ISO 27001, deployed in 50+ ports worldwide, recommended by [industry body]..."
+                    className="w-full resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-violet-300"
+                  />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setShowBypassForm(false)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    className="bg-violet-600 hover:bg-violet-700"
+                    onClick={submitBypassRequest}
+                    disabled={bypassSubmitting || !bypassReason.trim()}
+                  >
+                    {bypassSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
+                    Submit Bypass Request
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              /* CTA to open bypass form */
+              <div className="flex items-center justify-between">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-violet-500 mt-0.5 shrink-0" />
+                  <div>
+                    <h3 className="font-semibold text-gray-900 text-sm">No marina clients yet?</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Request a bypass if your company hasn't worked with marinas before.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 border-violet-300 text-violet-700 hover:bg-violet-50"
+                  onClick={() => setShowBypassForm(true)}
+                >
+                  Request Bypass
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

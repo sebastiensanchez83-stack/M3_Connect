@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -6,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import type { PartnerRequest } from './types';
 
 export function AdminPartnerRequests() {
+  const { t } = useTranslation();
   const [requests, setRequests] = useState<(PartnerRequest & { partner_name?: string; marina_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -34,9 +36,9 @@ export function AdminPartnerRequests() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">B2B Partner Requests ({requests.length})</h1>
+      <h1 className="text-2xl font-bold mb-6">{t('admin.partnerRequests.title')} ({requests.length})</h1>
       <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
-        <th className="text-left p-4 font-medium">Partner</th><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Message</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th>
+        <th className="text-left p-4 font-medium">{t('admin.partnerRequests.partner')}</th><th className="text-left p-4 font-medium">{t('admin.partnerRequests.marina')}</th><th className="text-left p-4 font-medium">{t('admin.partnerRequests.message')}</th><th className="text-left p-4 font-medium">{t('admin.status')}</th><th className="text-left p-4 font-medium">{t('admin.partnerRequests.date')}</th>
       </tr></thead><tbody>
         {requests.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50">
           <td className="p-4 text-sm font-medium">{r.partner_name}</td>
@@ -45,7 +47,7 @@ export function AdminPartnerRequests() {
           <td className="p-4">{statusBadge(r.status)}</td>
           <td className="p-4 text-sm text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
         </tr>))}
-        {requests.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">No B2B requests yet</td></tr>}
+        {requests.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">{t('admin.partnerRequests.noRequests')}</td></tr>}
       </tbody></table></div></CardContent></Card>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, Eye, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,17 +24,18 @@ interface DraftRow extends ResourceDraft {
   submitter_email: string;
 }
 
-function statusBadge(status: string) {
+function statusBadge(status: string, t: (key: string) => string) {
   if (status === 'approved') {
-    return <Badge className="bg-green-100 text-green-800 border-green-200">Approved</Badge>;
+    return <Badge className="bg-green-100 text-green-800 border-green-200">{t('admin.resourceDrafts.approved')}</Badge>;
   }
   if (status === 'rejected') {
-    return <Badge className="bg-red-100 text-red-800 border-red-200">Rejected</Badge>;
+    return <Badge className="bg-red-100 text-red-800 border-red-200">{t('admin.resourceDrafts.rejected')}</Badge>;
   }
-  return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Pending</Badge>;
+  return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">{t('admin.resourceDrafts.pending')}</Badge>;
 }
 
 export function AdminResourceDrafts() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,7 +53,7 @@ export function AdminResourceDrafts() {
       .order('created_at', { ascending: false });
 
     if (error || !rows) {
-      toast({ title: 'Failed to load drafts', description: error?.message, variant: 'destructive' });
+      toast({ title: t('admin.resourceDrafts.failedToLoad'), description: error?.message, variant: 'destructive' });
       setLoading(false);
       return;
     }
@@ -117,7 +119,7 @@ export function AdminResourceDrafts() {
         .eq('id', resourceId);
 
       if (updateErr) {
-        toast({ title: 'Failed to update resource', description: updateErr.message, variant: 'destructive' });
+        toast({ title: t('admin.resourceDrafts.failedToUpdate'), description: updateErr.message, variant: 'destructive' });
         setSaving(false);
         return;
       }
@@ -141,7 +143,7 @@ export function AdminResourceDrafts() {
         .single();
 
       if (insertErr || !newResource) {
-        toast({ title: 'Failed to publish resource', description: insertErr?.message, variant: 'destructive' });
+        toast({ title: t('admin.resourceDrafts.failedToPublish'), description: insertErr?.message, variant: 'destructive' });
         setSaving(false);
         return;
       }
@@ -164,13 +166,13 @@ export function AdminResourceDrafts() {
     });
 
     if (approvalErr) {
-      toast({ title: 'Approval recorded but log failed', description: approvalErr.message, variant: 'destructive' });
+      toast({ title: t('admin.resourceDrafts.approvalLogFailed'), description: approvalErr.message, variant: 'destructive' });
     }
 
     // Update draft status
     await supabase.from('resource_drafts').update({ status: 'approved' }).eq('id', selected.id);
 
-    toast({ title: 'Resource approved and published!' });
+    toast({ title: t('admin.resourceDrafts.approvedPublished') });
     setSelected(null);
     setSaving(false);
     load();
@@ -179,7 +181,7 @@ export function AdminResourceDrafts() {
   const handleReject = async () => {
     if (!selected || !user) return;
     if (!comment.trim()) {
-      toast({ title: 'A rejection comment is required.', variant: 'destructive' });
+      toast({ title: t('admin.resourceDrafts.rejectionRequired'), variant: 'destructive' });
       return;
     }
     setSaving(true);
@@ -192,14 +194,14 @@ export function AdminResourceDrafts() {
     });
 
     if (approvalErr) {
-      toast({ title: 'Failed to record rejection', description: approvalErr.message, variant: 'destructive' });
+      toast({ title: t('admin.resourceDrafts.rejectionFailed'), description: approvalErr.message, variant: 'destructive' });
       setSaving(false);
       return;
     }
 
     await supabase.from('resource_drafts').update({ status: 'rejected' }).eq('id', selected.id);
 
-    toast({ title: 'Draft rejected.' });
+    toast({ title: t('admin.resourceDrafts.draftRejected') });
     setSelected(null);
     setSaving(false);
     load();
@@ -217,17 +219,17 @@ export function AdminResourceDrafts() {
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Resource Drafts ({filtered.length})</h1>
+        <h1 className="text-2xl font-bold">{t('admin.resourceDrafts.title')} ({filtered.length})</h1>
         <div className="flex items-center gap-3">
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as DraftStatus)}>
             <SelectTrigger className="w-36">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="rejected">Rejected</SelectItem>
+              <SelectItem value="all">{t('admin.resourceDrafts.all')}</SelectItem>
+              <SelectItem value="pending">{t('admin.resourceDrafts.pending')}</SelectItem>
+              <SelectItem value="approved">{t('admin.resourceDrafts.approved')}</SelectItem>
+              <SelectItem value="rejected">{t('admin.resourceDrafts.rejected')}</SelectItem>
             </SelectContent>
           </Select>
           <Button variant="ghost" size="sm" onClick={load}>
@@ -243,13 +245,13 @@ export function AdminResourceDrafts() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="text-left p-4 font-medium">Title</th>
-                  <th className="text-left p-4 font-medium">Type</th>
-                  <th className="text-left p-4 font-medium">Language</th>
-                  <th className="text-left p-4 font-medium">Status</th>
-                  <th className="text-left p-4 font-medium">Submitted by</th>
-                  <th className="text-left p-4 font-medium">Date</th>
-                  <th className="text-left p-4 font-medium">Actions</th>
+                  <th className="text-left p-4 font-medium">{t('admin.userDetail.name')}</th>
+                  <th className="text-left p-4 font-medium">{t('admin.resourceDrafts.type')}</th>
+                  <th className="text-left p-4 font-medium">{t('admin.resourceDrafts.language')}</th>
+                  <th className="text-left p-4 font-medium">{t('admin.status')}</th>
+                  <th className="text-left p-4 font-medium">{t('admin.resourceDrafts.submittedBy')}</th>
+                  <th className="text-left p-4 font-medium">{t('admin.resourceDrafts.date')}</th>
+                  <th className="text-left p-4 font-medium">{t('admin.actions')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -265,7 +267,7 @@ export function AdminResourceDrafts() {
                       <Badge variant="outline">{d.type || '—'}</Badge>
                     </td>
                     <td className="p-4 text-sm">{d.language || '—'}</td>
-                    <td className="p-4">{statusBadge(d.status)}</td>
+                    <td className="p-4">{statusBadge(d.status, t)}</td>
                     <td className="p-4">
                       <div className="text-sm font-medium">{d.submitter_name}</div>
                       <div className="text-xs text-gray-500">{d.submitter_email}</div>
@@ -283,7 +285,7 @@ export function AdminResourceDrafts() {
                 {filtered.length === 0 && (
                   <tr>
                     <td colSpan={7} className="p-8 text-center text-gray-400">
-                      No resource drafts found
+                      {t('admin.resourceDrafts.noResourceDrafts')}
                     </td>
                   </tr>
                 )}
@@ -297,9 +299,9 @@ export function AdminResourceDrafts() {
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Review Resource Draft</DialogTitle>
+            <DialogTitle>{t('admin.resourceDrafts.dialogTitle')}</DialogTitle>
             <DialogDescription>
-              Approve to publish, or reject with a required comment.
+              {t('admin.resourceDrafts.dialogDesc')}
             </DialogDescription>
           </DialogHeader>
 
@@ -308,44 +310,44 @@ export function AdminResourceDrafts() {
               {/* Meta grid */}
               <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
                 <div>
-                  <span className="font-medium text-gray-600">Title: </span>
+                  <span className="font-medium text-gray-600">{t('admin.userDetail.name')}: </span>
                   {selected.title}
                 </div>
                 <div>
-                  <span className="font-medium text-gray-600">Status: </span>
-                  {statusBadge(selected.status)}
+                  <span className="font-medium text-gray-600">{t('admin.status')}: </span>
+                  {statusBadge(selected.status, t)}
                 </div>
                 <div>
-                  <span className="font-medium text-gray-600">Type: </span>
+                  <span className="font-medium text-gray-600">{t('admin.resourceDrafts.type')}: </span>
                   {selected.type || '—'}
                 </div>
                 <div>
-                  <span className="font-medium text-gray-600">Topic: </span>
+                  <span className="font-medium text-gray-600">{t('admin.resourceDrafts.topic')}: </span>
                   {selected.topic || '—'}
                 </div>
                 <div>
-                  <span className="font-medium text-gray-600">Language: </span>
+                  <span className="font-medium text-gray-600">{t('admin.resourceDrafts.language')}: </span>
                   {selected.language || '—'}
                 </div>
                 <div>
-                  <span className="font-medium text-gray-600">Access: </span>
+                  <span className="font-medium text-gray-600">{t('admin.resourceDrafts.access')}: </span>
                   {selected.access_level || '—'}
                 </div>
                 <div>
-                  <span className="font-medium text-gray-600">Submitted by: </span>
+                  <span className="font-medium text-gray-600">{t('admin.resourceDrafts.submittedBy')}: </span>
                   {selected.submitter_name}
                 </div>
                 <div>
-                  <span className="font-medium text-gray-600">Email: </span>
+                  <span className="font-medium text-gray-600">{t('admin.resourceDrafts.email')}: </span>
                   {selected.submitter_email}
                 </div>
                 <div>
-                  <span className="font-medium text-gray-600">Submitted: </span>
+                  <span className="font-medium text-gray-600">{t('admin.resourceDrafts.submitted')}: </span>
                   {new Date(selected.created_at).toLocaleString()}
                 </div>
                 {selected.resource_id && (
                   <div>
-                    <span className="font-medium text-gray-600">Updating resource: </span>
+                    <span className="font-medium text-gray-600">{t('admin.resourceDrafts.updatingResource')}: </span>
                     <span className="text-xs text-gray-400 font-mono">{selected.resource_id}</span>
                   </div>
                 )}
@@ -354,14 +356,14 @@ export function AdminResourceDrafts() {
               {/* Summary */}
               {selected.summary && (
                 <div>
-                  <p className="text-sm font-medium text-gray-600 mb-1">Summary</p>
+                  <p className="text-sm font-medium text-gray-600 mb-1">{t('admin.resourceDrafts.summary')}</p>
                   <p className="text-sm p-3 bg-gray-50 rounded border">{selected.summary}</p>
                 </div>
               )}
 
               {/* Content */}
               <div>
-                <p className="text-sm font-medium text-gray-600 mb-1">Content</p>
+                <p className="text-sm font-medium text-gray-600 mb-1">{t('admin.resourceDrafts.content')}</p>
                 <div
                   className="text-sm p-3 bg-gray-50 rounded border max-h-52 overflow-y-auto prose prose-sm"
                   dangerouslySetInnerHTML={{ __html: selected.content }}
@@ -373,12 +375,12 @@ export function AdminResourceDrafts() {
                 <div className="flex gap-4 text-sm">
                   {selected.thumbnail_url && (
                     <a href={selected.thumbnail_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-                      Thumbnail
+                      {t('admin.resourceDrafts.thumbnail')}
                     </a>
                   )}
                   {selected.file_url && (
                     <a href={selected.file_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-                      Attached file
+                      {t('admin.resourceDrafts.attachedFile')}
                     </a>
                   )}
                 </div>
@@ -387,14 +389,14 @@ export function AdminResourceDrafts() {
               {/* Reviewer comment */}
               <div className="space-y-2">
                 <Label>
-                  Reviewer comment{' '}
-                  <span className="text-gray-400 font-normal">(required to reject)</span>
+                  {t('admin.resourceDrafts.reviewerComment')}{' '}
+                  <span className="text-gray-400 font-normal">({t('admin.resourceDrafts.requiredToReject')})</span>
                 </Label>
                 <Textarea
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   rows={3}
-                  placeholder="Add notes for the submitter…"
+                  placeholder={t('admin.resourceDrafts.notesPlaceholder')}
                   disabled={selected.status !== 'pending'}
                 />
               </div>
@@ -408,7 +410,7 @@ export function AdminResourceDrafts() {
                     disabled={saving}
                   >
                     <CheckCircle className="h-4 w-4 mr-2" />
-                    Approve & Publish
+                    {t('admin.resourceDrafts.approvePublish')}
                   </Button>
                   <Button
                     variant="destructive"
@@ -417,14 +419,14 @@ export function AdminResourceDrafts() {
                     disabled={saving}
                   >
                     <XCircle className="h-4 w-4 mr-2" />
-                    Reject
+                    {t('admin.resourceDrafts.reject')}
                   </Button>
                 </div>
               )}
 
               {selected.status !== 'pending' && (
                 <p className="text-sm text-gray-400 text-center pt-1">
-                  This draft has already been {selected.status}.
+                  {t('admin.resourceDrafts.alreadyDecided', { status: selected.status })}
                 </p>
               )}
             </div>

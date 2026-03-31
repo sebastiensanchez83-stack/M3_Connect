@@ -28,7 +28,7 @@ export function Footer() {
 
           {/* Links */}
           <div>
-            <h3 className="font-semibold mb-4">Platform</h3>
+            <h3 className="font-semibold mb-4">{t('footer.platform')}</h3>
             <ul className="space-y-2">
               <li>
                 <Link to="/resources" className="text-gray-300 hover:text-white transition-colors">
@@ -72,7 +72,7 @@ export function Footer() {
 
           {/* Legal */}
           <div>
-            <h3 className="font-semibold mb-4">Legal</h3>
+            <h3 className="font-semibold mb-4">{t('footer.legal')}</h3>
             <ul className="space-y-2">
               <li>
                 <Link to="/terms" className="text-gray-300 hover:text-white transition-colors">
@@ -86,17 +86,17 @@ export function Footer() {
               </li>
               <li>
                 <Link to="/mentions-legales" className="text-gray-300 hover:text-white transition-colors">
-                  Legal Notice
+                  {t('footer.legalNotice')}
                 </Link>
               </li>
               <li>
                 <Link to="/conditions-commerciales" className="text-gray-300 hover:text-white transition-colors">
-                  Commercial Terms
+                  {t('footer.commercialTerms')}
                 </Link>
               </li>
               <li>
                 <Link to="/cookies" className="text-gray-300 hover:text-white transition-colors">
-                  Cookie Policy
+                  {t('footer.cookiePolicy')}
                 </Link>
               </li>
             </ul>

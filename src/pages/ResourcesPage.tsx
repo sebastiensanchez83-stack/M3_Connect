@@ -13,12 +13,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Search, Lock, FileText, Calendar, Clock, ArrowRight, BookOpen, Tag, Users, X,
+  Search, Lock, FileText, Calendar, Clock, ArrowRight, BookOpen, Tag, Users, X, Filter,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
-import { Organization } from '@/types/database';
 
 interface Sector {
   id: string;
@@ -170,6 +169,16 @@ export function ResourcesPage() {
     );
   };
 
+  const clearAllSectors = () => setSelectedSectors([]);
+
+  // Count resources per sector (from unfiltered resource list)
+  const sectorResourceCounts: Record<string, number> = {};
+  for (const r of resources) {
+    for (const rs of r.resource_sectors || []) {
+      sectorResourceCounts[rs.sector_id] = (sectorResourceCounts[rs.sector_id] || 0) + 1;
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
@@ -179,7 +188,7 @@ export function ResourcesPage() {
         <meta property="og:description" content="Explore marina industry resources: articles, whitepapers, guides and case studies." />
       </Helmet>
       {/* Hero Section */}
-      <section className="bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] text-white">
+      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-14 lg:py-20">
           <div className="max-w-3xl mx-auto text-center">
             <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-1.5 text-sm mb-6">
@@ -209,7 +218,61 @@ export function ResourcesPage() {
       {/* Filters Bar */}
       <section className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
         <div className="container mx-auto px-4">
-          <div className="flex items-center gap-3 py-3 overflow-x-auto no-scrollbar">
+          {/* Row 1: Sector pills (primary filter) */}
+          {allSectors.length > 0 && (
+            <div className="flex items-center gap-2 py-3 border-b border-gray-100">
+              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5 shrink-0">
+                <Filter className="h-3.5 w-3.5" />
+                {t('resources.filters.sector', 'Sectors')}
+              </span>
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+                <button
+                  onClick={clearAllSectors}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                    selectedSectors.length === 0
+                      ? 'bg-primary text-white shadow-sm'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {t('resources.filters.all')}
+                </button>
+                {allSectors.map((sector) => {
+                  const isActive = selectedSectors.includes(sector.id);
+                  const count = sectorResourceCounts[sector.id] || 0;
+                  return (
+                    <button
+                      key={sector.id}
+                      onClick={() => toggleSector(sector.id)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all whitespace-nowrap ${
+                        isActive
+                          ? 'bg-primary text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {sector.label}
+                      {count > 0 && (
+                        <span className={`text-[10px] tabular-nums ${isActive ? 'text-white/70' : 'text-gray-400'}`}>
+                          {count}
+                        </span>
+                      )}
+                      {isActive && <X className="h-3 w-3 ml-0.5" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedSectors.length > 0 && (
+                <button
+                  onClick={clearAllSectors}
+                  className="shrink-0 text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 ml-1"
+                >
+                  {t('marketplace.clearAll', 'Clear All')}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Row 2: Type pills + access filter */}
+          <div className="flex items-center gap-3 py-2.5 overflow-x-auto no-scrollbar">
             {/* Type pills */}
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <button
@@ -236,43 +299,6 @@ export function ResourcesPage() {
                 </button>
               ))}
             </div>
-            {/* Sector filter */}
-            {allSectors.length > 0 && (
-              <div className="flex items-center gap-1.5 flex-shrink-0 ml-2 border-l pl-3 border-gray-200">
-                <Select
-                  value=""
-                  onValueChange={(val) => { if (val && !selectedSectors.includes(val)) toggleSector(val); }}
-                >
-                  <SelectTrigger className="h-8 w-[140px] text-xs">
-                    <SelectValue placeholder={t('resources.filters.sector', 'Sector')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allSectors.map((s) => (
-                      <SelectItem key={s.id} value={s.id} disabled={selectedSectors.includes(s.id)}>
-                        {s.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {selectedSectors.length > 0 && (
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    {selectedSectors.map((sid) => {
-                      const sector = allSectors.find((s) => s.id === sid);
-                      return (
-                        <button
-                          key={sid}
-                          onClick={() => toggleSector(sid)}
-                          className="inline-flex items-center gap-0.5 px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                        >
-                          {sector?.label || sid}
-                          <X className="h-3 w-3" />
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
             <div className="flex-1" />
             {/* Additional filters — hide access filter for verified users (they see all) and logged-out users */}
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -295,6 +321,8 @@ export function ResourcesPage() {
 
       {/* Content */}
       <div className="container mx-auto px-4 py-8 lg:py-12">
+          {/* ---- Main Content ---- */}
+          <div className="min-w-0">
         {loading ? (
           <LoadingSkeleton variant="card" count={6} />
         ) : filteredResources.length === 0 ? (
@@ -421,6 +449,7 @@ export function ResourcesPage() {
             )}
           </>
         )}
+          </div>{/* end main content */}
       </div>
     </div>
   );

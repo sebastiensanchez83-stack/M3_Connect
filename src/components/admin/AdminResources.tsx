@@ -33,7 +33,7 @@ export function AdminResources() {
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   // Moderators create resources as unpublished (require admin approval)
-  const [formData, setFormData] = useState({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '', published: isAdmin });
+  const [formData, setFormData] = useState({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '', seo_keywords: '', published: isAdmin });
 
   // Speaker management state
   const [speakers, setSpeakers] = useState<SpeakerFormRow[]>([]);
@@ -46,14 +46,14 @@ export function AdminResources() {
 
   const openCreate = () => {
     setEditingResource(null);
-    setFormData({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '', published: isAdmin });
+    setFormData({ title: '', summary: '', content: '', type: 'article', topic: 'Sustainability', language: 'EN', access_level: 'public', thumbnail_url: '', file_url: '', seo_keywords: '', published: isAdmin });
     setSpeakers([]);
     setIsDialogOpen(true);
   };
 
   const openEdit = async (resource: Resource) => {
     setEditingResource(resource);
-    setFormData({ title: resource.title, summary: resource.summary, content: resource.content || '', type: resource.type, topic: resource.topic, language: resource.language, access_level: resource.access_level, thumbnail_url: resource.thumbnail_url || '', file_url: resource.file_url || '', published: resource.published });
+    setFormData({ title: resource.title, summary: resource.summary, content: resource.content || '', type: resource.type, topic: resource.topic, language: resource.language, access_level: resource.access_level, thumbnail_url: resource.thumbnail_url || '', file_url: resource.file_url || '', seo_keywords: resource.seo_keywords || '', published: resource.published });
     // Load existing speakers
     const { data: speakerData } = await supabase
       .from('resource_speakers')
@@ -71,7 +71,7 @@ export function AdminResources() {
   };
 
   const handleSave = async () => {
-    const payload = { ...formData, thumbnail_url: formData.thumbnail_url || null, file_url: formData.file_url || null, content: formData.content || null };
+    const payload = { ...formData, thumbnail_url: formData.thumbnail_url || null, file_url: formData.file_url || null, content: formData.content || null, seo_keywords: formData.seo_keywords.trim() || null };
     let resourceId: string;
 
     if (editingResource) {
@@ -186,6 +186,13 @@ export function AdminResources() {
         <div className="grid grid-cols-2 gap-4"><div className="space-y-2"><Label>Language</Label><Select value={formData.language} onValueChange={v => setFormData({ ...formData, language: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="EN">English</SelectItem><SelectItem value="FR">Français</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>Access</Label><Select value={formData.access_level} onValueChange={v => setFormData({ ...formData, access_level: v })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="public">Public</SelectItem><SelectItem value="members">Members</SelectItem><SelectItem value="marina">Marina</SelectItem></SelectContent></Select></div></div>
         <ImageUpload label="Thumbnail Image" value={formData.thumbnail_url} onChange={(url) => setFormData({ ...formData, thumbnail_url: url })} />
         <div className="space-y-2"><Label>File URL</Label><Input value={formData.file_url} onChange={e => setFormData({ ...formData, file_url: e.target.value })} placeholder="https://..." /></div>
+
+        {/* ── SEO Keywords ── */}
+        <div className="space-y-2">
+          <Label>SEO Keywords</Label>
+          <Input value={formData.seo_keywords} onChange={e => setFormData({ ...formData, seo_keywords: e.target.value })} placeholder="marina,sustainability,innovation — separate with commas" />
+          <p className="text-xs text-gray-500">Comma-separated target keywords to optimize search engine visibility.</p>
+        </div>
 
         {/* ── Speakers Section ── */}
         <div className="space-y-3 border-t pt-4">

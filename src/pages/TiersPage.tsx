@@ -134,22 +134,24 @@ function FeatureValue({ value, isBoolean }: { value: string | boolean; isBoolean
 // Main Page Component
 // ──────────────────────────────────────────────────────────────────────────────
 
-export function TiersPage() {
+export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
   const { organization } = useAuth();
   const currentTier = organization?.tier ?? null;
 
   return (
     <>
-      <Helmet>
-        <title>Membership & Sponsorship | M3 Connect</title>
-        <meta
-          name="description"
-          content="Choose the M3 Connect membership tier that fits your organization — from free member access to full main sponsor visibility in the marina industry."
-        />
-      </Helmet>
+      {!embedded && (
+        <Helmet>
+          <title>Membership & Sponsorship | M3 Connect</title>
+          <meta
+            name="description"
+            content="Choose the M3 Connect membership tier that fits your organization — from free member access to full main sponsor visibility in the marina industry."
+          />
+        </Helmet>
+      )}
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-primary/5 via-white to-teal-50 py-20 px-4">
+      <section className={`relative overflow-hidden bg-gradient-to-br from-primary/5 via-white to-secondary/5 px-4 ${embedded ? 'py-8' : 'py-20'}`}>
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/10 via-transparent to-transparent pointer-events-none" />
         <div className="container mx-auto max-w-4xl text-center relative">
           <Badge
@@ -187,7 +189,7 @@ export function TiersPage() {
                     isHighlighted
                       ? 'ring-2 ring-primary shadow-xl scale-[1.02]'
                       : 'border border-gray-200 hover:shadow-md'
-                  } ${isCurrentPlan ? 'ring-2 ring-teal-500' : ''}`}
+                  } ${isCurrentPlan ? 'ring-2 ring-secondary' : ''}`}
                 >
                   {/* Popular badge */}
                   {isHighlighted && !isCurrentPlan && (
@@ -201,7 +203,7 @@ export function TiersPage() {
                   {/* Current plan badge */}
                   {isCurrentPlan && (
                     <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                      <Badge className="px-3 py-0.5 text-xs font-semibold bg-teal-500 text-white shadow-sm">
+                      <Badge className="px-3 py-0.5 text-xs font-semibold bg-secondary text-secondary-foreground shadow-sm">
                         Your current plan
                       </Badge>
                     </div>
@@ -261,7 +263,7 @@ export function TiersPage() {
                         variant={config.ctaVariant}
                         className={`w-full rounded-xl group ${
                           isHighlighted
-                            ? 'bg-gradient-to-r from-primary to-teal-600 hover:opacity-90 transition-opacity text-white'
+                            ? 'bg-gradient-to-r from-primary to-secondary hover:opacity-90 transition-opacity text-white'
                             : ''
                         }`}
                       >
@@ -298,13 +300,13 @@ export function TiersPage() {
                       <th key={tier} className="px-4 py-4 text-center">
                         <span
                           className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${colors.bg} ${colors.text} border ${colors.border} ${
-                            isCurrentPlan ? 'ring-1 ring-teal-400' : ''
+                            isCurrentPlan ? 'ring-1 ring-secondary/70' : ''
                           }`}
                         >
                           {TIER_LABELS[tier]}
                         </span>
                         {isCurrentPlan && (
-                          <span className="block text-xs text-teal-500 font-medium mt-1">Your plan</span>
+                          <span className="block text-xs text-secondary font-medium mt-1">Your plan</span>
                         )}
                       </th>
                     );
@@ -356,7 +358,7 @@ export function TiersPage() {
             Sponsorship packages are tailored to your visibility goals and budget. Reach
             out to the M3 Connect team and we will find the right fit together.
           </p>
-          <Button asChild className="rounded-xl bg-gradient-to-r from-primary to-teal-600 hover:opacity-90 transition-opacity">
+          <Button asChild className="rounded-xl bg-gradient-to-r from-primary to-secondary hover:opacity-90 transition-opacity">
             <Link to="/contact">
               Contact us
               <ArrowRight className="h-4 w-4 ml-2" />

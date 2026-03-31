@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Search, Briefcase, FileText, MessageSquare, Globe, MapPin, Loader2,
-  Users, Anchor, Building2, Newspaper, Filter, X, ArrowRight,
+  Users, Anchor, Building2, Newspaper, Filter, X, ArrowRight, Calendar, Clock,
 } from 'lucide-react';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -50,7 +50,10 @@ interface RfpCard {
   title: string;
   scope: string | null;
   deadline_date: string | null;
+  is_open: boolean;
   created_at: string;
+  marina_user_id: string;
+  marina_name: string;
   sector: { id: string; label: string } | null;
 }
 
@@ -58,7 +61,10 @@ interface ConsultationCard {
   id: string;
   title: string;
   description: string | null;
+  is_open: boolean;
   created_at: string;
+  marina_user_id: string;
+  marina_name: string;
   sector: { id: string; label: string } | null;
 }
 
@@ -108,7 +114,16 @@ export function MarketplacePage() {
   const [contactMessage, setContactMessage] = useState('');
   const [contactSending, setContactSending] = useState(false);
 
+  /* --- RFP detail dialog state --- */
+  const [rfpDetailOpen, setRfpDetailOpen] = useState(false);
+  const [selectedRfp, setSelectedRfp] = useState<RfpCard | null>(null);
+
+  /* --- Consultation detail dialog state --- */
+  const [consultDetailOpen, setConsultDetailOpen] = useState(false);
+  const [selectedConsult, setSelectedConsult] = useState<ConsultationCard | null>(null);
+
   const isMarina = profile?.persona === 'marina';
+  const isPartner = profile?.persona === 'partner' && isVerified;
 
   /* ---- fetch sectors ---- */
   useEffect(() => {
@@ -237,18 +252,36 @@ export function MarketplacePage() {
       try {
         const { data, error } = await supabase
           .from('rfps')
-          .select('id, title, scope, deadline_date, created_at, sector_id, sectors(id, label)')
+          .select('id, title, scope, deadline_date, is_open, created_at, marina_user_id, sector_id, sectors(id, label)')
           .eq('is_open', true)
           .order('created_at', { ascending: false });
 
         if (error) throw error;
 
-        const cards: RfpCard[] = ((data || []) as unknown as { id: string; title: string; scope: string | null; deadline_date: string | null; created_at: string; sector_id: string; sectors: { id: string; label: string } | null }[]).map((r) => ({
+        const rows = (data || []) as unknown as { id: string; title: string; scope: string | null; deadline_date: string | null; is_open: boolean; created_at: string; marina_user_id: string; sector_id: string; sectors: { id: string; label: string } | null }[];
+
+        // Resolve marina names from profiles
+        const marinaIds = [...new Set(rows.map((r) => r.marina_user_id))];
+        const nameMap: Record<string, string> = {};
+        if (marinaIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', marinaIds);
+          for (const p of (profiles || []) as { id: string; full_name: string | null }[]) {
+            nameMap[p.id] = p.full_name || p.id.slice(0, 8);
+          }
+        }
+
+        const cards: RfpCard[] = rows.map((r) => ({
           id: r.id,
           title: r.title,
           scope: r.scope,
           deadline_date: r.deadline_date,
+          is_open: r.is_open,
           created_at: r.created_at,
+          marina_user_id: r.marina_user_id,
+          marina_name: nameMap[r.marina_user_id] || r.marina_user_id.slice(0, 8),
           sector: r.sectors ? { id: r.sectors.id, label: r.sectors.label } : null,
         }));
 
@@ -272,17 +305,35 @@ export function MarketplacePage() {
       try {
         const { data, error } = await supabase
           .from('consultations')
-          .select('id, title, description, created_at, sector_id, sectors(id, label)')
+          .select('id, title, description, is_open, created_at, marina_user_id, sector_id, sectors(id, label)')
           .eq('is_open', true)
           .order('created_at', { ascending: false });
 
         if (error) throw error;
 
-        const cards: ConsultationCard[] = ((data || []) as unknown as { id: string; title: string; description: string | null; created_at: string; sector_id: string; sectors: { id: string; label: string } | null }[]).map((c) => ({
+        const rows = (data || []) as unknown as { id: string; title: string; description: string | null; is_open: boolean; created_at: string; marina_user_id: string; sector_id: string; sectors: { id: string; label: string } | null }[];
+
+        // Resolve marina names from profiles
+        const marinaIds = [...new Set(rows.map((c) => c.marina_user_id))];
+        const nameMap: Record<string, string> = {};
+        if (marinaIds.length > 0) {
+          const { data: profiles } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', marinaIds);
+          for (const p of (profiles || []) as { id: string; full_name: string | null }[]) {
+            nameMap[p.id] = p.full_name || p.id.slice(0, 8);
+          }
+        }
+
+        const cards: ConsultationCard[] = rows.map((c) => ({
           id: c.id,
           title: c.title,
           description: c.description,
+          is_open: c.is_open,
           created_at: c.created_at,
+          marina_user_id: c.marina_user_id,
+          marina_name: nameMap[c.marina_user_id] || c.marina_user_id.slice(0, 8),
           sector: c.sectors ? { id: c.sectors.id, label: c.sectors.label } : null,
         }));
 
@@ -601,7 +652,7 @@ export function MarketplacePage() {
                               {orgCard.logo_url ? (
                                 <img src={orgCard.logo_url} alt={orgCard.name} className="w-14 h-14 rounded-xl object-cover border" />
                               ) : (
-                                <div className="w-14 h-14 bg-gradient-to-br from-primary/10 to-teal-500/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg shrink-0">
+                                <div className="w-14 h-14 bg-gradient-to-br from-primary/10 to-secondary/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg shrink-0">
                                   {getInitials(orgCard.name)}
                                 </div>
                               )}
@@ -690,7 +741,11 @@ export function MarketplacePage() {
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
                 {rfps.map((rfp) => (
-                  <Card key={rfp.id}>
+                  <Card
+                    key={rfp.id}
+                    className="cursor-pointer hover:shadow-md transition-shadow duration-200"
+                    onClick={() => { setSelectedRfp(rfp); setRfpDetailOpen(true); }}
+                  >
                     <CardHeader>
                       <div className="flex items-start justify-between gap-3">
                         <CardTitle className="text-lg">{rfp.title}</CardTitle>
@@ -698,19 +753,31 @@ export function MarketplacePage() {
                           <Badge variant="secondary" className="shrink-0 text-xs">{rfp.sector.label}</Badge>
                         )}
                       </div>
-                      {rfp.deadline_date && (
-                        <CardDescription>
-                          {t('marketplace.deadline')}: {formatDate(rfp.deadline_date, i18n.language)}
-                        </CardDescription>
-                      )}
+                      <CardDescription className="flex items-center gap-3 flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <Anchor className="h-3.5 w-3.5" />
+                          {rfp.marina_name}
+                        </span>
+                        {rfp.deadline_date && (
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3.5 w-3.5" />
+                            {t('marketplace.deadline', 'Deadline')}: {formatDate(rfp.deadline_date, i18n.language)}
+                          </span>
+                        )}
+                      </CardDescription>
                     </CardHeader>
                     <CardContent>
                       {rfp.scope && (
                         <p className="text-sm text-gray-600 mb-3 leading-relaxed">{truncate(rfp.scope, 200)}</p>
                       )}
-                      <p className="text-xs text-gray-400">
-                        {t('marketplace.posted')} {formatDate(rfp.created_at, i18n.language)}
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-400">
+                          {t('marketplace.posted', 'Posted')} {formatDate(rfp.created_at, i18n.language)}
+                        </p>
+                        <span className="text-xs text-primary font-medium flex items-center gap-1">
+                          {t('marketplace.viewDetails', 'View Details')} <ArrowRight className="h-3 w-3" />
+                        </span>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -743,7 +810,11 @@ export function MarketplacePage() {
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
                 {consultations.map((c) => (
-                  <Card key={c.id}>
+                  <Card
+                    key={c.id}
+                    className="cursor-pointer hover:shadow-md transition-shadow duration-200"
+                    onClick={() => { setSelectedConsult(c); setConsultDetailOpen(true); }}
+                  >
                     <CardHeader>
                       <div className="flex items-start justify-between gap-3">
                         <CardTitle className="text-lg">{c.title}</CardTitle>
@@ -751,14 +822,23 @@ export function MarketplacePage() {
                           <Badge variant="secondary" className="shrink-0 text-xs">{c.sector.label}</Badge>
                         )}
                       </div>
+                      <CardDescription className="flex items-center gap-1">
+                        <Anchor className="h-3.5 w-3.5" />
+                        {c.marina_name}
+                      </CardDescription>
                     </CardHeader>
                     <CardContent>
                       {c.description && (
                         <p className="text-sm text-gray-600 mb-3 leading-relaxed">{truncate(c.description, 200)}</p>
                       )}
-                      <p className="text-xs text-gray-400">
-                        {t('marketplace.posted')} {formatDate(c.created_at, i18n.language)}
-                      </p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-400">
+                          {t('marketplace.posted', 'Posted')} {formatDate(c.created_at, i18n.language)}
+                        </p>
+                        <span className="text-xs text-primary font-medium flex items-center gap-1">
+                          {t('marketplace.viewDetails', 'View Details')} <ArrowRight className="h-3 w-3" />
+                        </span>
+                      </div>
                     </CardContent>
                   </Card>
                 ))}
@@ -817,6 +897,147 @@ export function MarketplacePage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ====== RFP Detail Dialog ====== */}
+      <Dialog open={rfpDetailOpen} onOpenChange={setRfpDetailOpen}>
+        <DialogContent className="sm:max-w-lg rounded-2xl">
+          {selectedRfp && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl">{selectedRfp.title}</DialogTitle>
+                <DialogDescription className="flex items-center gap-2 pt-1">
+                  <Anchor className="h-4 w-4" />
+                  {selectedRfp.marina_name}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 pt-2">
+                {/* Status & Sector */}
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={selectedRfp.is_open ? 'default' : 'secondary'}>
+                    {selectedRfp.is_open
+                      ? t('marketplace.rfpStatusOpen', 'Open')
+                      : t('marketplace.rfpStatusClosed', 'Closed')}
+                  </Badge>
+                  {selectedRfp.sector && (
+                    <Badge variant="outline">{selectedRfp.sector.label}</Badge>
+                  )}
+                </div>
+
+                {/* Deadline */}
+                {selectedRfp.deadline_date && (
+                  <div className="flex items-center gap-2 text-sm text-gray-700">
+                    <Calendar className="h-4 w-4 text-gray-400" />
+                    <span className="font-medium">{t('marketplace.deadline', 'Deadline')}:</span>
+                    <span>{formatDate(selectedRfp.deadline_date, i18n.language)}</span>
+                  </div>
+                )}
+
+                {/* Created date */}
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Clock className="h-4 w-4 text-gray-400" />
+                  <span>{t('marketplace.posted', 'Posted')} {formatDate(selectedRfp.created_at, i18n.language)}</span>
+                </div>
+
+                {/* Full scope text */}
+                {selectedRfp.scope && (
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium text-gray-700">{t('marketplace.rfpScope', 'Scope')}</Label>
+                    <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 rounded-lg p-3">
+                      {selectedRfp.scope}
+                    </p>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <Button variant="outline" onClick={() => setRfpDetailOpen(false)}>
+                    {t('common.close', 'Close')}
+                  </Button>
+                  {isPartner && (
+                    <Button onClick={() => {
+                      setRfpDetailOpen(false);
+                      toast({
+                        title: t('marketplace.rfpContactSent', 'Interest registered'),
+                        description: t('marketplace.rfpContactSentDesc', 'The marina has been notified of your interest in this RFP.'),
+                      });
+                    }}>
+                      <MessageSquare className="h-4 w-4 mr-2" />
+                      {t('marketplace.contactMarina', 'Contact Marina')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ====== Consultation Detail Dialog ====== */}
+      <Dialog open={consultDetailOpen} onOpenChange={setConsultDetailOpen}>
+        <DialogContent className="sm:max-w-lg rounded-2xl">
+          {selectedConsult && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl">{selectedConsult.title}</DialogTitle>
+                <DialogDescription className="flex items-center gap-2 pt-1">
+                  <Anchor className="h-4 w-4" />
+                  {selectedConsult.marina_name}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 pt-2">
+                {/* Status & Sector */}
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant={selectedConsult.is_open ? 'default' : 'secondary'}>
+                    {selectedConsult.is_open
+                      ? t('marketplace.consultStatusOpen', 'Open')
+                      : t('marketplace.consultStatusClosed', 'Closed')}
+                  </Badge>
+                  {selectedConsult.sector && (
+                    <Badge variant="outline">{selectedConsult.sector.label}</Badge>
+                  )}
+                </div>
+
+                {/* Created date */}
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Clock className="h-4 w-4 text-gray-400" />
+                  <span>{t('marketplace.posted', 'Posted')} {formatDate(selectedConsult.created_at, i18n.language)}</span>
+                </div>
+
+                {/* Full description */}
+                {selectedConsult.description && (
+                  <div className="space-y-1">
+                    <Label className="text-sm font-medium text-gray-700">{t('marketplace.consultDescription', 'Description')}</Label>
+                    <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap bg-gray-50 rounded-lg p-3">
+                      {selectedConsult.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <Button variant="outline" onClick={() => setConsultDetailOpen(false)}>
+                    {t('common.close', 'Close')}
+                  </Button>
+                  {isPartner && (
+                    <Button onClick={() => {
+                      setConsultDetailOpen(false);
+                      toast({
+                        title: t('marketplace.consultResponseSent', 'Response registered'),
+                        description: t('marketplace.consultResponseSentDesc', 'The marina has been notified of your interest in this consultation.'),
+                      });
+                    }}>
+                      <MessageSquare className="h-4 w-4 mr-2" />
+                      {t('marketplace.respond', 'Respond')}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -187,7 +187,7 @@ export function UserProfilePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero */}
-      <section className="bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] text-white">
+      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-12">
           <Link to={userOrg ? `/organizations/${userOrg.slug || userOrg.id}` : '/marketplace'} className="inline-flex items-center gap-1 text-white/70 hover:text-white mb-6 text-sm">
             <ChevronLeft className="h-4 w-4" />

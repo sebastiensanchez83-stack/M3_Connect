@@ -25,6 +25,7 @@ export interface Resource {
   access_level: string;
   thumbnail_url: string | null;
   file_url: string | null;
+  seo_keywords: string | null;
   published: boolean;
 }
 

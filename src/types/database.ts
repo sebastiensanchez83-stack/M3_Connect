@@ -257,7 +257,7 @@ export const TIER_LABELS: Record<OrgTier, string> = {
 export const TIER_COLORS: Record<OrgTier, { bg: string; text: string; border: string }> = {
   member: { bg: 'bg-gray-50', text: 'text-gray-700', border: 'border-gray-200' },
   innovation_partner: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-  associate_partner: { bg: 'bg-teal-50', text: 'text-teal-700', border: 'border-teal-200' },
+  associate_partner: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   premium_partner: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200' },
   main_sponsor: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
 };

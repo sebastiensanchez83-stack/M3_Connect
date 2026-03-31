@@ -19,7 +19,6 @@ import {
 } from '@/components/ui/accordion';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
 import { PersonaType } from '@/types/database';
 import {
   Anchor, Building2, Newspaper, CheckCircle, ArrowRight,
@@ -32,24 +31,9 @@ export function BecomePartnerPage() {
   const { user, profile } = useAuth();
   const [signupOpen, setSignupOpen] = useState(false);
   const [selectedPersonaType, setSelectedPersonaType] = useState<PersonaType | undefined>(undefined);
-  const [stats, setStats] = useState({ marinas: 0, partners: 0, countries: 0 });
-
-  useEffect(() => {
-    const fetchStats = async () => {
-      const [marinasRes, partnersRes, countriesRes] = await Promise.all([
-        supabase.from('organizations').select('*', { count: 'exact', head: true }).eq('access_status', 'verified').eq('organization_type', 'marina'),
-        supabase.from('organizations').select('*', { count: 'exact', head: true }).eq('access_status', 'verified').eq('organization_type', 'partner'),
-        supabase.from('organizations').select('country').eq('access_status', 'verified').not('country', 'is', null),
-      ]);
-      const uniqueCountries = new Set((countriesRes.data || []).map((o: { country: string | null }) => o.country)).size;
-      setStats({
-        marinas: marinasRes.count || 0,
-        partners: partnersRes.count || 0,
-        countries: uniqueCountries,
-      });
-    };
-    fetchStats();
-  }, []);
+  // ── Configurable display stats (not DB-driven) ──
+  // Change these values manually to control what appears on the page
+  const stats = { marinas: 150, partners: 45, countries: 30 };
 
   const memberTypes = [
     {

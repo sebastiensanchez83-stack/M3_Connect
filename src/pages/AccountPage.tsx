@@ -13,8 +13,10 @@ import { useTranslation } from 'react-i18next';
 import { Organization } from '@/types/database';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrganizationTab } from '@/components/organization/OrganizationTab';
-import { PreAuditTab } from '@/components/preaudit/PreAuditTab';
+// PreAuditTab archived — will be deployed later
+// import { PreAuditTab } from '@/components/preaudit/PreAuditTab';
 import { ReferenceRequestForm } from '@/components/references/ReferenceRequestForm';
+import { TiersPage } from '@/pages/TiersPage';
 import { toast } from '@/hooks/use-toast';
 
 interface EventRegistration {
@@ -390,9 +392,50 @@ export function AccountPage() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold text-primary">My Account</h1>
-        {getAccessBadge()}
+      {/* Account Header */}
+      <div className="rounded-xl bg-gradient-to-r from-[#0b2653] to-[#143a6b] p-6 text-white mb-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            {/* Avatar */}
+            <div className="relative group">
+              {profile?.avatar_url ? (
+                <img src={profile.avatar_url} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-white/30" />
+              ) : (
+                <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center text-xl font-bold">
+                  {(profile?.first_name?.[0] || user?.email?.[0] || '?').toUpperCase()}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'image/jpeg,image/png,image/webp';
+                  input.onchange = (e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadImage(f, 'avatar'); };
+                  input.click();
+                }}
+                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+              >
+                {uploadingAvatar ? <Loader2 className="h-5 w-5 animate-spin text-white" /> : <Camera className="h-5 w-5 text-white" />}
+              </button>
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold">
+                {profile?.first_name || profile?.last_name
+                  ? `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim()
+                  : 'My Account'}
+              </h1>
+              <div className="flex items-center gap-2 mt-1 text-white/80 text-sm">
+                {getPersonaIcon()}
+                <span>{getPersonaLabel()}</span>
+                {org && <span>• {org.name}</span>}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            {getAccessBadge()}
+          </div>
+        </div>
       </div>
 
       {/* Incomplete onboarding banner */}
@@ -442,9 +485,10 @@ export function AccountPage() {
           <TabsTrigger value="webinars">Webinars</TabsTrigger>
           {isMarina && <TabsTrigger value="rfps">RFPs</TabsTrigger>}
           {isMarina && <TabsTrigger value="consultations">Consultations</TabsTrigger>}
-          {isMarina && <TabsTrigger value="pre-audit">S3 Pre-Audit</TabsTrigger>}
+          {/* S3 Pre-Audit archived — will be deployed later */}
           {isPartner && <TabsTrigger value="references">References</TabsTrigger>}
           <TabsTrigger value="b2b-requests" className="flex items-center">B2B<NotifBadge count={pendingB2B} /></TabsTrigger>
+          <TabsTrigger value="pricing">Pricing</TabsTrigger>
         </TabsList>
 
         {/* ── DASHBOARD ── */}
@@ -453,39 +497,45 @@ export function AccountPage() {
             {/* Analytics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Link to="/account?tab=b2b-requests" className="block">
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-blue-100 rounded-lg"><Eye className="h-5 w-5 text-blue-600" /></div>
+                <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-blue-500">
+                  <CardContent className="pt-5 pb-5">
+                    <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-2xl font-bold text-gray-900">{profileViewCount}</div>
-                        <div className="text-sm text-gray-500">Profile Views</div>
+                        <p className="text-sm font-medium text-gray-500">Profile Views</p>
+                        <p className="text-3xl font-bold text-gray-900">{profileViewCount}</p>
+                      </div>
+                      <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center">
+                        <Eye className="h-6 w-6 text-blue-600" />
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               </Link>
               <Link to="/account?tab=b2b-requests" className="block">
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-green-100 rounded-lg"><Users className="h-5 w-5 text-green-600" /></div>
+                <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-green-500">
+                  <CardContent className="pt-5 pb-5">
+                    <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-2xl font-bold text-gray-900">{connectionRequestCount}</div>
-                        <div className="text-sm text-gray-500">Connection Requests</div>
+                        <p className="text-sm font-medium text-gray-500">Connection Requests</p>
+                        <p className="text-3xl font-bold text-gray-900">{connectionRequestCount}</p>
+                      </div>
+                      <div className="h-12 w-12 rounded-full bg-green-50 flex items-center justify-center">
+                        <Users className="h-6 w-6 text-green-600" />
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               </Link>
               <Link to="/account?tab=b2b-requests" className="block">
-                <Card className="hover:shadow-md transition-shadow cursor-pointer">
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-amber-100 rounded-lg"><Clock className="h-5 w-5 text-amber-600" /></div>
+                <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-amber-500">
+                  <CardContent className="pt-5 pb-5">
+                    <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-2xl font-bold text-gray-900">{pendingRequestCount}</div>
-                        <div className="text-sm text-gray-500">Pending Requests</div>
+                        <p className="text-sm font-medium text-gray-500">Pending Requests</p>
+                        <p className="text-3xl font-bold text-gray-900">{pendingRequestCount}</p>
+                      </div>
+                      <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center">
+                        <Clock className="h-6 w-6 text-amber-600" />
                       </div>
                     </div>
                   </CardContent>
@@ -688,24 +738,18 @@ export function AccountPage() {
               {/* Organization details (from org context) */}
               {org && (
                 <div className="pt-4 border-t space-y-3">
-                  {/* Org Logo */}
+                  {/* Org Info */}
                   <div className="flex items-center gap-3">
-                    <div className="relative group">
-                      {org.logo_url ? (
-                        <img src={org.logo_url} alt="Organization logo" className="w-14 h-14 rounded-lg object-cover border" />
-                      ) : (
-                        <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
-                          {isMarina ? <Anchor className="h-6 w-6 text-gray-300" /> : profile.persona === 'partner' ? <Building2 className="h-6 w-6 text-gray-300" /> : <Newspaper className="h-6 w-6 text-gray-300" />}
-                        </div>
-                      )}
-                      <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                        {uploadingLogo ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Upload className="h-4 w-4 text-white" />}
-                        <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'logo'); }} disabled={uploadingLogo} />
-                      </label>
-                    </div>
+                    {org.logo_url ? (
+                      <img src={org.logo_url} alt="Organization logo" className="w-14 h-14 rounded-lg object-cover border" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
+                        {isMarina ? <Anchor className="h-6 w-6 text-gray-300" /> : profile.persona === 'partner' ? <Building2 className="h-6 w-6 text-gray-300" /> : <Newspaper className="h-6 w-6 text-gray-300" />}
+                      </div>
+                    )}
                     <div className="text-sm">
                       <div className="font-medium text-gray-900">{org.name || '—'}</div>
-                      <div className="text-xs text-gray-400">Organization logo</div>
+                      <Link to="/account?tab=organization" className="text-xs text-primary hover:underline">Manage organization &rarr;</Link>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 text-sm">
@@ -1072,12 +1116,7 @@ export function AccountPage() {
           </TabsContent>
         )}
 
-        {/* ── S3 PRE-AUDIT ── */}
-        {isMarina && (
-          <TabsContent value="pre-audit">
-            <PreAuditTab />
-          </TabsContent>
-        )}
+        {/* S3 Pre-Audit archived — will be deployed later */}
 
         {/* ── REFERENCES (Partner only) ── */}
         {isPartner && (
@@ -1143,6 +1182,11 @@ export function AccountPage() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── PRICING ── */}
+        <TabsContent value="pricing">
+          <TiersPage embedded />
         </TabsContent>
 
       </Tabs>

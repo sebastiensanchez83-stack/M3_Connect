@@ -52,7 +52,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <AlertTriangle className="h-8 w-8 text-red-600" />
             </div>
 
-            <h1 className="text-2xl font-bold text-[#1e3a5f] mb-2">
+            <h1 className="text-2xl font-bold text-[#0b2653] mb-2">
               Something went wrong
             </h1>
             <p className="text-gray-600 mb-6">
@@ -82,7 +82,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
               <button
                 onClick={this.handleGoHome}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-[#1e3a5f] text-white hover:bg-[#1e3a5f]/90 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-[#0b2653] text-white hover:bg-[#0b2653]/90 transition-colors"
               >
                 <Home className="h-4 w-4" />
                 Go Home

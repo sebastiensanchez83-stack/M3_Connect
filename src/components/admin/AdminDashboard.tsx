@@ -82,7 +82,7 @@ export function AdminDashboard() {
   return (
     <div className="space-y-6">
       {/* Welcome Header */}
-      <div className="rounded-xl bg-gradient-to-r from-[#1e3a5f] to-[#0d9488] p-6 text-white">
+      <div className="rounded-xl bg-gradient-to-r from-[#0b2653] to-[#143a6b] p-6 text-white">
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-bold mb-1">{t('admin.dashboard')}</h1>
@@ -161,7 +161,7 @@ export function AdminDashboard() {
         {[
           { label: 'Pending Approval', value: stats.pendingUsers, icon: UserCheck, bg: 'bg-yellow-50', color: 'text-yellow-600', link: '/admin/users' },
           { label: 'New Projects', value: stats.newProjects, icon: Anchor, bg: 'bg-orange-50', color: 'text-orange-600', link: '/admin/projects' },
-          { label: 'New Leads', value: stats.newLeads, icon: Users, bg: 'bg-teal-50', color: 'text-teal-600', link: '/admin/leads' },
+          { label: 'New Leads', value: stats.newLeads, icon: Users, bg: 'bg-amber-50', color: 'text-amber-700', link: '/admin/leads' },
           { label: 'Pending B2B', value: stats.pendingB2B, icon: Link2, bg: 'bg-rose-50', color: 'text-rose-600', link: '/admin/partner-requests' },
           { label: 'Open RFPs', value: stats.openRFPs, icon: ClipboardList, bg: 'bg-amber-50', color: 'text-amber-600', link: '/admin/rfps' },
           { label: 'Open Consults', value: stats.openConsultations, icon: MessageSquare, bg: 'bg-cyan-50', color: 'text-cyan-600', link: '/admin/consultations' },

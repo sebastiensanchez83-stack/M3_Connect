@@ -218,7 +218,7 @@ export function OrganizationPublicPage() {
       </Helmet>
 
       {/* Hero Header */}
-      <section className="bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] text-white">
+      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-12 lg:py-16">
           <Link to="/partners" className="inline-flex items-center gap-1 text-white/70 hover:text-white mb-6 text-sm">
             <ChevronLeft className="h-4 w-4" />
@@ -581,7 +581,7 @@ export function OrganizationPublicPage() {
                         {avatarUrl ? (
                           <img src={avatarUrl} alt={displayName} className="w-16 h-16 rounded-2xl object-cover mx-auto mb-3 border-2 border-primary/10" />
                         ) : (
-                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/10 to-teal-500/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
+                          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/10 to-secondary/10 flex items-center justify-center text-primary font-bold text-xl mx-auto mb-3">
                             {initials || '??'}
                           </div>
                         )}

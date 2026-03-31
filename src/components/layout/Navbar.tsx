@@ -68,7 +68,6 @@ export function Navbar() {
     { href: '/events', label: t('nav.events'), icon: CalendarDays },
     { href: '/partners', label: t('nav.partners'), icon: Building2 },
     { href: '/marketplace', label: t('nav.marketplace'), icon: ShoppingBag },
-    { href: '/tiers', label: 'Pricing', icon: Ticket },
     { href: '/become-partner', label: t('nav.becomePartner'), icon: UserPlus },
   ];
 
@@ -102,10 +101,10 @@ export function Navbar() {
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-teal-500 flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
               <Anchor className="h-5 w-5 text-white" aria-hidden="true" />
             </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-primary to-teal-600 bg-clip-text text-transparent hidden sm:inline">
+            <span className="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent hidden sm:inline">
               M3 Connect
             </span>
           </Link>
@@ -151,7 +150,7 @@ export function Navbar() {
                     {profile?.avatar_url ? (
                       <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-lg object-cover shadow-sm" />
                     ) : (
-                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/80 to-teal-500/80 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+                      <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-primary/80 to-secondary/80 flex items-center justify-center text-white text-xs font-bold shadow-sm">
                         {userInitials}
                       </div>
                     )}
@@ -251,7 +250,7 @@ export function Navbar() {
                 <Button variant="ghost" size="sm" onClick={() => setLoginOpen(true)} className="rounded-xl text-gray-600 hover:text-gray-900">
                   {t('nav.login')}
                 </Button>
-                <Button size="sm" onClick={() => setSignupOpen(true)} className="rounded-xl shadow-sm bg-gradient-to-r from-primary to-teal-600 hover:opacity-90 transition-opacity">
+                <Button size="sm" onClick={() => setSignupOpen(true)} className="rounded-xl shadow-sm bg-gradient-to-r from-primary to-secondary hover:opacity-90 transition-opacity">
                   {t('nav.signup')}
                 </Button>
               </div>
@@ -355,7 +354,7 @@ export function Navbar() {
                   <Button variant="outline" className="flex-1 rounded-xl" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
                     {t('nav.login')}
                   </Button>
-                  <Button className="flex-1 rounded-xl bg-gradient-to-r from-primary to-teal-600" onClick={() => { setSignupOpen(true); setMobileMenuOpen(false); }}>
+                  <Button className="flex-1 rounded-xl bg-gradient-to-r from-primary to-secondary" onClick={() => { setSignupOpen(true); setMobileMenuOpen(false); }}>
                     {t('nav.signup')}
                   </Button>
                 </div>

@@ -28,6 +28,7 @@ interface Resource {
   access_level: string;
   thumbnail_url: string | null;
   file_url: string | null;
+  seo_keywords: string | null;
   published: boolean;
   created_at: string;
   published_at: string | null;
@@ -157,6 +158,7 @@ export function ResourceDetailPage() {
         <meta property="og:description" content={resource.summary || ''} />
         <meta property="og:type" content="article" />
         {resource.thumbnail_url && <meta property="og:image" content={resource.thumbnail_url} />}
+        {resource.seo_keywords && <meta name="keywords" content={resource.seo_keywords} />}
       </Helmet>
       {/* Hero Header */}
       <div className="relative">
@@ -166,7 +168,7 @@ export function ResourceDetailPage() {
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
           </div>
         ) : (
-          <div className="w-full h-64 sm:h-80 lg:h-96 bg-gradient-to-br from-[#1e3a5f] to-[#0d9488] relative">
+          <div className="w-full h-64 sm:h-80 lg:h-96 bg-gradient-to-br from-[#0b2653] to-[#143a6b] relative">
             <div className="absolute inset-0 flex items-center justify-center opacity-10">
               <FileText className="h-40 w-40 text-white" />
             </div>

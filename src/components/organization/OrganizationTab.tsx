@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,10 +23,21 @@ import {
 import {
   Building2, Users, Mail, Crown, UserPlus, Loader2, ExternalLink,
   Trash2, LogOut, ArrowRightLeft, Globe, MapPin, Shield, CheckCircle, Clock, XCircle,
-  ArrowUpCircle,
+  ArrowUpCircle, Upload, FileText, X, Camera,
 } from 'lucide-react';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { isSponsorTier } from '@/types/database';
+
+interface OrgDocument {
+  id: string;
+  organization_id: string;
+  uploaded_by: string;
+  file_name: string;
+  file_url: string;
+  file_size: number;
+  description: string | null;
+  created_at: string;
+}
 
 const timelineOptions = [
   { value: 'immediate', label: 'Immediate' },
@@ -95,6 +106,16 @@ export function OrganizationTab() {
   const [selectedPlan, setSelectedPlan] = useState<OrgTier>('member');
   const [pendingUpgradePlan, setPendingUpgradePlan] = useState<OrgTier | null>(null);
 
+  // Logo upload
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Organization documents
+  const [orgDocs, setOrgDocs] = useState<OrgDocument[]>([]);
+  const [uploadingDoc, setUploadingDoc] = useState(false);
+  const [docDescription, setDocDescription] = useState('');
+  const docInputRef = useRef<HTMLInputElement>(null);
+
   const handleUpgradeRequest = async () => {
     if (!org || !user) return;
     setUpgradeSubmitting(true);
@@ -114,6 +135,102 @@ export function OrganizationTab() {
       toast({ title: 'Error', description: message, variant: 'destructive' });
     } finally {
       setUpgradeSubmitting(false);
+    }
+  };
+
+  // ── Logo upload handler ──
+  const handleLogoUpload = async (file: File) => {
+    if (!org || !user) return;
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP, GIF, SVG)', variant: 'destructive' });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 5 MB', variant: 'destructive' });
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const ext = file.name.split('.').pop() || 'png';
+      const fileName = `${org.id}/logo-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from('org-logos').getPublicUrl(fileName);
+      const logoUrl = urlData.publicUrl;
+      const { error: dbErr } = await supabase.from('organizations').update({ logo_url: logoUrl }).eq('id', org.id);
+      if (dbErr) throw dbErr;
+      setOrg({ ...org, logo_url: logoUrl });
+      toast({ title: 'Logo updated' });
+    } catch (err: unknown) {
+      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+    setUploadingLogo(false);
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!org) return;
+    try {
+      const { error } = await supabase.from('organizations').update({ logo_url: null }).eq('id', org.id);
+      if (error) throw error;
+      setOrg({ ...org, logo_url: null });
+      toast({ title: 'Logo removed' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+  };
+
+  // ── Document handlers ──
+  const fetchDocs = useCallback(async (orgId: string) => {
+    const { data } = await supabase
+      .from('organization_documents')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false });
+    if (data) setOrgDocs(data as OrgDocument[]);
+  }, []);
+
+  const handleDocUpload = async (file: File) => {
+    if (!org || !user) return;
+    if (file.size > 20 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 20 MB', variant: 'destructive' });
+      return;
+    }
+    setUploadingDoc(true);
+    try {
+      const ext = file.name.split('.').pop() || 'pdf';
+      const storagePath = `${org.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const { error: upErr } = await supabase.storage.from('org-documents').upload(storagePath, file, { cacheControl: '3600' });
+      if (upErr) throw upErr;
+      // For private bucket, we build a signed URL or use the path for later download
+      const { data: signedData } = await supabase.storage.from('org-documents').createSignedUrl(storagePath, 60 * 60 * 24 * 365);
+      const fileUrl = signedData?.signedUrl || storagePath;
+      const { error: dbErr } = await supabase.from('organization_documents').insert({
+        organization_id: org.id,
+        uploaded_by: user.id,
+        file_name: file.name,
+        file_url: fileUrl,
+        file_size: file.size,
+        description: docDescription.trim() || null,
+      });
+      if (dbErr) throw dbErr;
+      toast({ title: 'Document uploaded' });
+      setDocDescription('');
+      fetchDocs(org.id);
+    } catch (err: unknown) {
+      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+    setUploadingDoc(false);
+  };
+
+  const handleDeleteDoc = async (doc: OrgDocument) => {
+    if (!window.confirm(`Delete "${doc.file_name}"?`)) return;
+    try {
+      const { error } = await supabase.from('organization_documents').delete().eq('id', doc.id);
+      if (error) throw error;
+      setOrgDocs(prev => prev.filter(d => d.id !== doc.id));
+      toast({ title: 'Document deleted' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
   };
 
@@ -210,6 +327,9 @@ export function OrganizationTab() {
 
       if (membersData) setMembers(membersData as unknown as OrganizationMember[]);
 
+      // Fetch organization documents
+      fetchDocs(membership.organization_id);
+
       // Fetch pending invitations (owner only — catch 403 gracefully)
       if (membership.role === 'owner') {
         try {
@@ -229,7 +349,7 @@ export function OrganizationTab() {
       console.error('Error fetching org:', err);
     }
     setLoading(false);
-  }, [userId]);
+  }, [userId, fetchDocs]);
 
   useEffect(() => { fetchOrg(); }, [fetchOrg]);
 
@@ -271,6 +391,31 @@ export function OrganizationTab() {
     if (!createForm.name.trim()) return;
     setCreating(true);
     try {
+      // Check for duplicate domain before creating
+      const trimmedDomain = createForm.domain.trim();
+      if (trimmedDomain) {
+        const { data: existingOrg } = await supabase
+          .from('organizations')
+          .select('id, name, slug')
+          .eq('primary_domain', trimmedDomain)
+          .maybeSingle();
+
+        if (existingOrg) {
+          toast({
+            title: 'Domain already registered',
+            description: `An organization with domain '${trimmedDomain}' already exists: ${existingOrg.name}. Consider requesting to join instead.`,
+            variant: 'destructive',
+          });
+          const proceed = window.confirm(
+            `An organization with domain '${trimmedDomain}' already exists: "${existingOrg.name}".\n\nClick OK to create a new organization anyway, or Cancel to go back and request to join the existing one.`
+          );
+          if (!proceed) {
+            setCreating(false);
+            return;
+          }
+        }
+      }
+
       // Only pass organization_type if persona is a valid org type
       const validOrgTypes = ['marina', 'partner', 'media_partner'];
       const orgType = profile?.persona && validOrgTypes.includes(profile.persona) ? profile.persona : null;
@@ -382,9 +527,10 @@ export function OrganizationTab() {
   const handleInvite = async () => {
     if (!org || !inviteForm.email.trim()) return;
 
-    // Capacity check — block invite if at max_seats
+    // Capacity check — block invite if at max_seats (marinas have unlimited seats)
+    const isMarinaOrg = org.organization_type === 'marina';
     const totalOccupied = members.length + invitations.length;
-    if (org.max_seats && totalOccupied >= org.max_seats) {
+    if (!isMarinaOrg && org.max_seats && totalOccupied >= org.max_seats) {
       const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];
       toast({
         title: 'Team capacity reached',
@@ -678,13 +824,47 @@ export function OrganizationTab() {
       <Card>
         <CardHeader className="flex flex-row items-start justify-between">
           <div className="flex items-center gap-3">
-            {org.logo_url ? (
-              <img src={org.logo_url} alt={org.name} className="w-12 h-12 rounded-lg object-cover" />
-            ) : (
-              <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                <Building2 className="h-6 w-6 text-primary" />
-              </div>
-            )}
+            {/* Logo with upload overlay for owners */}
+            <div className="relative group">
+              {org.logo_url ? (
+                <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-lg object-cover border" />
+              ) : (
+                <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Building2 className="h-7 w-7 text-primary" />
+                </div>
+              )}
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={() => logoInputRef.current?.click()}
+                  className="absolute inset-0 rounded-lg bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  title="Change logo"
+                >
+                  {uploadingLogo ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-white" />
+                  ) : (
+                    <Camera className="h-5 w-5 text-white" />
+                  )}
+                </button>
+              )}
+              {isOwner && org.logo_url && (
+                <button
+                  type="button"
+                  onClick={handleRemoveLogo}
+                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Remove logo"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f); if (logoInputRef.current) logoInputRef.current.value = ''; }}
+              />
+            </div>
             <div>
               <div className="flex items-center gap-2">
                 <CardTitle className="text-xl">{org.name}</CardTitle>
@@ -762,6 +942,188 @@ export function OrganizationTab() {
 
           {org.description && (
             <p className="text-gray-600 text-sm">{org.description}</p>
+          )}
+
+          {/* Detailed Organization Info (read-only) */}
+          {!editing && (
+            <div className="border-t pt-4 space-y-4">
+              {/* General Details */}
+              <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">{t('org.generalDetails', 'General Details')}</h4>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500 block">{t('org.orgType', 'Organization Type')}</span>
+                  <span className="font-medium capitalize">{org.organization_type?.replace('_', ' ') || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">{t('org.tier', 'Tier')}</span>
+                  <span className="font-medium">{TIER_LABELS[org.tier as OrgTier] || org.tier}</span>
+                </div>
+                {org.country && (
+                  <div>
+                    <span className="text-gray-500 block">{t('org.country', 'Country')}</span>
+                    <span className="font-medium">{org.country}</span>
+                  </div>
+                )}
+                {org.city && (
+                  <div>
+                    <span className="text-gray-500 block">{t('org.city', 'City')}</span>
+                    <span className="font-medium">{org.city}</span>
+                  </div>
+                )}
+                {org.primary_domain && (
+                  <div>
+                    <span className="text-gray-500 block">{t('org.domain', 'Primary Domain')}</span>
+                    <span className="font-medium">{org.primary_domain}</span>
+                  </div>
+                )}
+                {org.website && (
+                  <div>
+                    <span className="text-gray-500 block">{t('org.website', 'Website')}</span>
+                    <a href={org.website} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline inline-flex items-center gap-1">
+                      {org.website.replace(/^https?:\/\//, '')}
+                      <ExternalLink className="h-3 w-3" />
+                    </a>
+                  </div>
+                )}
+                <div>
+                  <span className="text-gray-500 block">{t('org.status', 'Status')}</span>
+                  <span className="font-medium capitalize">{org.access_status}</span>
+                </div>
+                <div>
+                  <span className="text-gray-500 block">{t('org.created', 'Created')}</span>
+                  <span className="font-medium">{new Date(org.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                </div>
+              </div>
+
+              {/* Partner-specific details */}
+              {org.organization_type === 'partner' && org.headquarters_country && (
+                <div className="text-sm">
+                  <span className="text-gray-500 block">{t('org.headquartersCountry', 'Headquarters Country')}</span>
+                  <span className="font-medium">{org.headquarters_country}</span>
+                </div>
+              )}
+
+              {/* Media partner-specific details */}
+              {org.organization_type === 'media_partner' && org.audience_description && (
+                <div className="text-sm">
+                  <span className="text-gray-500 block mb-1">{t('org.audienceDescription', 'Audience Description')}</span>
+                  <p className="text-gray-700">{org.audience_description}</p>
+                </div>
+              )}
+
+              {/* Marina-specific details */}
+              {org.organization_type === 'marina' && (
+                <div className="space-y-4">
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide border-t pt-4">{t('org.marinaDetails', 'Marina Details')}</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                    {editForm.marina_type && (
+                      <div>
+                        <span className="text-gray-500 block">{t('org.marinaType', 'Marina Type')}</span>
+                        <span className="font-medium capitalize">{editForm.marina_type.replace('_', ' ')}</span>
+                      </div>
+                    )}
+                    {editForm.berths_count && (
+                      <div>
+                        <span className="text-gray-500 block">{t('org.totalBerths', 'Total Berths')}</span>
+                        <span className="font-medium">{editForm.berths_count}</span>
+                      </div>
+                    )}
+                    {editForm.superyacht_berths && (
+                      <div>
+                        <span className="text-gray-500 block">{t('org.superyachtBerths', 'Superyacht Berths')}</span>
+                        <span className="font-medium">{editForm.superyacht_berths}</span>
+                      </div>
+                    )}
+                    {editForm.longest_berth_meters && (
+                      <div>
+                        <span className="text-gray-500 block">{t('org.longestBerth', 'Longest Berth')}</span>
+                        <span className="font-medium">{editForm.longest_berth_meters} m</span>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-gray-500 block">{t('org.freshWater', 'Fresh Water')}</span>
+                      <span className="font-medium">{editForm.fresh_water_available ? t('common.yes', 'Yes') : t('common.no', 'No')}</span>
+                    </div>
+                  </div>
+
+                  {editForm.certifications.length > 0 && (
+                    <div className="text-sm">
+                      <span className="text-gray-500 block mb-1">{t('org.certifications', 'Certifications')}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {editForm.certifications.map((cert, i) => (
+                          <Badge key={i} variant="secondary" className="text-xs">{cert}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Facilities */}
+                  {(editForm.has_yacht_club || editForm.has_sailing_school || editForm.has_boat_yard || editForm.has_restaurants || editForm.has_concierge) && (
+                    <div className="text-sm">
+                      <span className="text-gray-500 block mb-1">{t('org.facilities', 'Facilities')}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {editForm.has_yacht_club && (
+                          <Badge variant="outline" className="text-xs">
+                            Yacht Club{editForm.yacht_club_members ? ` (${editForm.yacht_club_members} members)` : ''}
+                          </Badge>
+                        )}
+                        {editForm.has_sailing_school && <Badge variant="outline" className="text-xs">Sailing School</Badge>}
+                        {editForm.has_boat_yard && <Badge variant="outline" className="text-xs">Boat Yard</Badge>}
+                        {editForm.has_restaurants && (
+                          <Badge variant="outline" className="text-xs">
+                            Restaurants{editForm.restaurants_count ? ` (${editForm.restaurants_count})` : ''}
+                          </Badge>
+                        )}
+                        {editForm.has_concierge && <Badge variant="outline" className="text-xs">Concierge Service</Badge>}
+                      </div>
+                    </div>
+                  )}
+
+                  {editForm.marina_description && (
+                    <div className="text-sm">
+                      <span className="text-gray-500 block mb-1">{t('org.marinaDescription', 'Marina Description')}</span>
+                      <p className="text-gray-700">{editForm.marina_description}</p>
+                    </div>
+                  )}
+
+                  {editForm.services_description && (
+                    <div className="text-sm">
+                      <span className="text-gray-500 block mb-1">{t('org.servicesDescription', 'Services Description')}</span>
+                      <p className="text-gray-700">{editForm.services_description}</p>
+                    </div>
+                  )}
+
+                  {/* Sectors of Interest (read-only) */}
+                  {interestSectors.length > 0 && (
+                    <div className="text-sm">
+                      <span className="text-gray-500 block mb-1">{t('org.sectorsOfInterest', 'Sectors of Interest')}</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        {allSectors.filter(s => interestSectors.includes(s.id)).map(sector => (
+                          <Badge key={sector.id} variant="secondary" className="text-xs">{sector.label}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Future Plans (read-only) */}
+                  {Object.keys(futurePlans).length > 0 && (
+                    <div className="text-sm">
+                      <span className="text-gray-500 block mb-1">{t('org.futurePlans', 'Future Development Plans')}</span>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {allSectors.filter(s => futurePlans[s.id]).map(sector => (
+                          <div key={sector.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-1.5">
+                            <span className="text-gray-700 truncate">{sector.label}</span>
+                            <Badge variant="outline" className="text-xs ml-2 shrink-0">
+                              {timelineOptions.find(opt => opt.value === futurePlans[sector.id])?.label || futurePlans[sector.id]}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Edit form */}
@@ -997,8 +1359,8 @@ export function OrganizationTab() {
               <Users className="h-5 w-5 text-primary" />
               {t('org.members')}
             </CardTitle>
-            {/* Seat counter */}
-            {org.max_seats > 0 && (
+            {/* Seat counter — hidden for marinas (unlimited) */}
+            {org.organization_type !== 'marina' && org.max_seats > 0 && (
               <div className="mt-2 flex items-center gap-2">
                 <div className="flex-1 max-w-[160px] h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div
@@ -1013,7 +1375,7 @@ export function OrganizationTab() {
                 </span>
               </div>
             )}
-            {org.max_seats > 0 && members.length >= org.max_seats && (
+            {org.organization_type !== 'marina' && org.max_seats > 0 && members.length >= org.max_seats && (
               <p className="text-xs text-amber-600 mt-1">
                 {isSponsorTier((org.tier || 'member') as OrgTier)
                   ? 'Contact M3 to request additional seats.'
@@ -1025,7 +1387,7 @@ export function OrganizationTab() {
             <Button
               size="sm"
               onClick={() => setInviteOpen(true)}
-              disabled={org.max_seats > 0 && (members.length + invitations.length) >= org.max_seats}
+              disabled={org.organization_type !== 'marina' && org.max_seats > 0 && (members.length + invitations.length) >= org.max_seats}
             >
               <UserPlus className="h-4 w-4 mr-1" />
               {t('org.inviteMember')}
@@ -1140,6 +1502,90 @@ export function OrganizationTab() {
           </CardContent>
         </Card>
       )}
+
+      {/* Organization Documents */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            Documents
+          </CardTitle>
+          {isOwner && (
+            <Button size="sm" onClick={() => docInputRef.current?.click()} disabled={uploadingDoc}>
+              {uploadingDoc ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
+              Upload
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent>
+          {/* Upload area (owner) */}
+          {isOwner && (
+            <>
+              <input
+                ref={docInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,.xls,.xlsx"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleDocUpload(f);
+                  if (docInputRef.current) docInputRef.current.value = '';
+                }}
+              />
+              <div className="mb-4">
+                <Input
+                  value={docDescription}
+                  onChange={(e) => setDocDescription(e.target.value)}
+                  placeholder="Optional description for next upload..."
+                  className="text-sm"
+                />
+              </div>
+            </>
+          )}
+
+          {/* Document list */}
+          {orgDocs.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">No documents uploaded yet.</p>
+          ) : (
+            <div className="divide-y">
+              {orgDocs.map((doc) => (
+                <div key={doc.id} className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
+                      <FileText className="h-5 w-5 text-red-500" />
+                    </div>
+                    <div className="min-w-0">
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-gray-900 hover:text-primary truncate block"
+                      >
+                        {doc.file_name}
+                      </a>
+                      <div className="text-xs text-gray-500 flex items-center gap-2">
+                        <span>{(doc.file_size / 1024).toFixed(0)} KB</span>
+                        <span>{new Date(doc.created_at).toLocaleDateString()}</span>
+                        {doc.description && <span>— {doc.description}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {isOwner && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-red-600 hover:text-red-700 shrink-0"
+                      onClick={() => handleDeleteDoc(doc)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Invite Dialog */}
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>

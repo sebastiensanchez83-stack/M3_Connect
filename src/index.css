@@ -10,10 +10,10 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 213 55% 24%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 174 83% 29%;
-    --secondary-foreground: 210 40% 98%;
+    --primary: 216 78% 18%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 62% 56%;
+    --secondary-foreground: 216 78% 18%;
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
     --accent: 210 40% 96.1%;
@@ -22,7 +22,7 @@
     --destructive-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 213 55% 24%;
+    --ring: 216 78% 18%;
     --radius: 0.5rem;
   }
 }
@@ -39,7 +39,7 @@
 
 /* Custom styles */
 .gradient-hero {
-  background: linear-gradient(135deg, #1e3a5f 0%, #0d9488 100%);
+  background: linear-gradient(135deg, #0b2653 0%, #143a6b 50%, #d7a647 100%);
 }
 
 .card-hover {

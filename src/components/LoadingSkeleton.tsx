@@ -34,7 +34,7 @@ const Shimmer: FC<{ className?: string }> = ({ className = '' }) => (
 const PageSkeleton: FC = () => (
   <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
     {/* Animated spinner ring */}
-    <div className="h-10 w-10 rounded-full border-4 border-gray-200 border-t-[#1e3a5f] animate-spin" />
+    <div className="h-10 w-10 rounded-full border-4 border-gray-200 border-t-[#0b2653] animate-spin" />
     <p className="text-sm text-gray-400">Loading...</p>
   </div>
 );
@@ -88,7 +88,7 @@ const ListSkeleton: FC<{ count: number }> = ({ count }) => (
 /* ── Inline variant (for card-content sections) ───────────── */
 const InlineSkeleton: FC = () => (
   <div className="flex items-center justify-center py-8 gap-3">
-    <div className="h-5 w-5 rounded-full border-2 border-gray-200 border-t-[#1e3a5f] animate-spin" />
+    <div className="h-5 w-5 rounded-full border-2 border-gray-200 border-t-[#0b2653] animate-spin" />
     <span className="text-sm text-gray-400">Loading...</span>
   </div>
 );

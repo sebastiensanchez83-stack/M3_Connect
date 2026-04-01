@@ -121,7 +121,8 @@ export function UserProfilePage() {
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
         marina_user_id: id,
-        message: connectMessage.trim(),
+        message: connectMessage.trim() || null,
+        sector_id: null,
         status: 'pending',
       });
       if (error) throw error;

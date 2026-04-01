@@ -152,6 +152,7 @@ export function OrganizationPublicPage() {
         partner_user_id: user.id,
         marina_user_id: org.owner_user_id,
         message: connectMessage.trim() || null,
+        sector_id: null,
         status: 'pending',
       });
       if (error) throw error;

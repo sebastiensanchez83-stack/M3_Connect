@@ -27,6 +27,7 @@ export function AdminWebinarRequests() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<WebinarRequest | null>(null);
   const [moderatorNotes, setModeratorNotes] = useState('');
+  const [rejectionReason, setRejectionReason] = useState('');
   const [tab, setTab] = useState<'review' | 'my'>('review');
 
   useEffect(() => { loadRequests(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -35,12 +36,15 @@ export function AdminWebinarRequests() {
     setLoading(true);
 
     if (isAdmin) {
-      // Admin sees ALL webinar requests
+      // Admin sees ALL webinar requests — join requester info
       const { data } = await supabase
         .from('webinar_requests')
-        .select('*')
+        .select('*, profiles:user_id(first_name, last_name, email)')
         .order('created_at', { ascending: false });
-      setRequests(data || []);
+      setRequests((data || []).map((r: Record<string, unknown>) => {
+        const p = r.profiles as Record<string, string> | null;
+        return { ...r, requester_name: p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : '', requester_email: p?.email || '' };
+      }) as WebinarRequest[]);
       setMyProposals([]);
     } else if (isMod && user) {
       // ── Moderator: load own proposals (status view) ──
@@ -140,9 +144,10 @@ export function AdminWebinarRequests() {
       }
     }
 
-    // Send notification for rejected webinars
+    // Send notification for rejected webinars (include reason if provided)
     if (status === 'rejected' && req) {
-      sendNotification({ type: 'webinar_rejected', userId: req.user_id, data: { title: req.title } });
+      sendNotification({ type: 'webinar_rejected', userId: req.user_id, data: { title: req.title, reason: rejectionReason.trim() } });
+      setRejectionReason('');
     }
 
     toast({ title: `Status updated: ${status}` });
@@ -204,6 +209,7 @@ export function AdminWebinarRequests() {
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left p-4 font-medium">{t('admin.userDetail.name')}</th>
+                <th className="text-left p-4 font-medium">Requester</th>
                 <th className="text-left p-4 font-medium">{t('admin.webinarRequests.lang')}</th>
                 <th className="text-left p-4 font-medium">{t('admin.status')}</th>
                 <th className="text-left p-4 font-medium">{t('admin.webinarRequests.date')}</th>
@@ -214,6 +220,10 @@ export function AdminWebinarRequests() {
               {data.map((r) => (
                 <tr key={r.id} className="border-b hover:bg-gray-50">
                   <td className="p-4 font-medium max-w-xs truncate">{r.title}</td>
+                  <td className="p-4">
+                    <div className="text-sm font-medium">{r.requester_name || '—'}</div>
+                    <div className="text-xs text-gray-500">{r.requester_email || ''}</div>
+                  </td>
                   <td className="p-4">{r.preferred_language}</td>
                   <td className="p-4">
                     {showActions && isAdmin ? (
@@ -257,7 +267,7 @@ export function AdminWebinarRequests() {
               ))}
               {data.length === 0 && (
                 <tr>
-                  <td colSpan={showActions ? 5 : 4} className="p-8 text-center text-gray-400">
+                  <td colSpan={showActions ? 6 : 5} className="p-8 text-center text-gray-400">
                     {t('admin.webinarRequests.noRequests')}
                   </td>
                 </tr>
@@ -321,9 +331,20 @@ export function AdminWebinarRequests() {
           </DialogHeader>
           {selected && (
             <div className="space-y-4 mt-2">
-              <div>
-                <strong>{t('admin.userDetail.name')}:</strong> {selected.title}
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><strong>Title:</strong> {selected.title}</div>
+                <div><strong>Language:</strong> {selected.preferred_language}</div>
+                <div><strong>Requester:</strong> {selected.requester_name || '—'}</div>
+                <div><strong>Email:</strong> {selected.requester_email || '—'}</div>
+                <div><strong>Status:</strong> {statusBadge(selected.status)}</div>
+                <div><strong>Date:</strong> {new Date(selected.created_at).toLocaleDateString()}</div>
               </div>
+              {selected.status === 'moderator_approved' && selected.moderator_notes && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded text-sm">
+                  <strong className="text-emerald-700">Moderator pre-approved</strong>
+                  <p className="mt-1 text-emerald-800">{selected.moderator_notes}</p>
+                </div>
+              )}
               <div>
                 <strong>{t('admin.userDetail.description')}:</strong>
                 <p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">
@@ -338,6 +359,18 @@ export function AdminWebinarRequests() {
                   rows={3}
                 />
               </div>
+              {/* Rejection reason field — only for admin when rejecting */}
+              {isAdmin && (selected.status === 'submitted' || selected.status === 'under_review' || selected.status === 'moderator_approved') && (
+                <div className="space-y-2">
+                  <Label>Rejection Reason (optional — sent to requester)</Label>
+                  <Textarea
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    rows={2}
+                    placeholder="Explain why this proposal is being rejected..."
+                  />
+                </div>
+              )}
               <div className="flex gap-2">
                 <Button onClick={saveNotes} className="flex-1">
                   {t('admin.webinarRequests.saveNotes')}

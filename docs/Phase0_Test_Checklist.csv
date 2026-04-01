@@ -1,0 +1,75 @@
+Test ID,Category,Test Description,Login As,Steps,Expected Result,Status (PASS/FAIL/SKIP),Your Comments / Issues Found;
+"T01,Admin - Notifications,Approve a pending user and verify email sent,events@m3monaco.com,""1. Go to /admin → Users tab";
+2. Find a pending user (e.g. eneazyraider@gmail.com);no email notifications are being sent once i change or update status on admin panel (check image in docs)
+"3. Click Approve"",User receives approval email at their address,,,";
+"T02,Admin - Notifications,Reject a pending user with reason,events@m3monaco.com,""1. Go to /admin → Users tab";
+2. Find a pending user;no email notifications are being sent once i change or update status on admin panel (check image in docs)
+"3. Click Reject → enter a reason → confirm"",User receives rejection email with the reason,,,";
+"T03,Admin - Reference Bypass,Verify Approve disabled without references,events@m3monaco.com,""1. Go to /admin → Users tab";
+2. Find a pending PARTNER user;Works
+"3. Check the Approve button"",Approve button should be DISABLED with warning about missing references,,,";
+"T04,Admin - Reference Bypass,Grant bypass and approve partner,events@m3monaco.com,""1. On the same pending partner user";
+2. Click 'Bypass' button → enter justification → confirm;Works and button approve appears but no email and consol error see image
+3. Check Approve button is now enabled;
+"4. Click Approve"",Partner receives bypass approval email AND account approval email,,,";
+"T05,Admin - Expositions,Change exposition status and verify email,events@m3monaco.com,""1. Go to /admin → Expositions tab";
+2. Click eye icon on a request;no email notifications are being sent once i change or update status on admin panel (check image in docs)
+"3. Change status to Approved (or Invoice Sent / Paid)"",Requester receives email matching the status change,,,";
+"T06,Admin - Sponsorships,Process a sponsorship request,events@m3monaco.com,""1. Go to /admin → Sponsorships tab";
+2. Click eye icon on a request;As a user (not in admin) when I clicked on my account and went to the organization tab I had 403 error check image). As an admin now, I went to the sponsorship request and consol showed 400 error see image and no sponsorship request found.
+"3. Mark as Invoice Sent → then Paid → then Approve"",Email sent at each step";
+"T07,Admin - Webinars,Accept a webinar proposal,events@m3monaco.com,""1. Go to /admin → Webinar Requests tab";
+2. Select a submitted request;It doesn’t show who requested the webinar and if a moderator approved it also and I guess no emails are sent like other notifications above do not work too once accepted it shows 401 error in consol see image
+"3. Change status to 'accepted'"",Proposer receives acceptance email";
+"T08,Admin - Webinars,Reject a webinar proposal,events@m3monaco.com,""1. Go to /admin → Webinar Requests tab";
+2. Select a submitted request;Same error as above and we should also have a field to explain why rejected
+"3. Change status to 'rejected'"",Proposer receives rejection email,,,";
+"T09,Admin - RFPs,Close an open RFP,events@m3monaco.com,""1. Go to /admin → RFPs tab";
+"2. Click 'Close' on an open RFP"",Marina owner receives 'RFP closed' email,,,";Same 401 error and we should see the name of the marina in the table rather than the user name, we should see organization name (marina name) and the user that made the request
+"T10,Admin - Consultations,Close a consultation,events@m3monaco.com,""1. Go to /admin → Consultations tab";
+"2. Click 'Close' on an open consultation"",Marina owner receives 'consultation closed' email,,,";Same error as above
+"T11,Moderator - Webinars,Pre-approve a webinar as moderator,sebastien@m3monaco.com,""1. Go to /admin → Webinar Requests tab";
+2. Find a submitted proposal matching your sectors;The moderator account when I want to add my sectors to my organization it doesn’t show anything in the form so as a moderator I don’t see any webinar requests
+"3. Click Pre-approve"",Admin (info@m3monaco.com) receives email about moderator pre-approval,,,";
+"T12,Marina - Submit RFP,Submit an RFP and verify admin notification,victor@m3monaco.com,""1. Go to /submit-rfp";
+2. Fill in title and scope and sector;Sectors should be a multiple choices tick boxes. Also consol shows 401 error
+"3. Submit"",Admin receives 'New RFP' notification email,,,";
+"T13,Marina - Submit Consultation,Submit a consultation and verify admin notification,victor@m3monaco.com,""1. Go to /submit-consultation";
+2. Fill in title and description;Same error as above
+"3. Submit"",Admin receives 'New Consultation' notification email,,,";
+"T14,Marina - Event Registration,Register for an event,victor@m3monaco.com,""1. Go to /events";
+2. Click on an event → click Register;If I have already registered to an event, when I am on the event list I should not see the button register in the event list it should show registered. For example I was registered to the World Yachting Summit 2026 but button was still showing register in the event list, but when I when on the event page when clicked on it it showed that My exposition was approved so I was registered. I then got back to the event list and clicked on register to the same event and it registered me but no information about exposition or else and now it shows on the event list I’m registered, check those inconsistencies 
+"3. Complete registration"",You receive event registration confirmation email,,,";
+"T15,Partner - Contact Request,Send a B2B contact request,info@m3monaco.com,""1. Go to /network (Marketplace)";
+2. Find a marina;
+"3. Click Contact → write a message → send"",Marina user receives 'new contact request' email,,,";
+"T16,Partner - Webinar Proposal,Submit a webinar proposal,info@m3monaco.com,""1. Go to /request-webinar";
+2. Fill in title / description / language / sectors;It says Upgrade required so I requested an upgrade and a 403 error showed. In order to test i bypassed they references and an error 401 showed in the console. But now I could pass it to an upper tier and be able to do the rest, but doing that made me realised we should merge partners and users tabs in admin together in order to have one place to manage users and be able to upgrade or do what ever admin task on users in one place, make it the most optimised as possible. Make a notification to let the members of the organization that is upgraded to an upper tier that their profile has been updated to an upper tier with some points explaining what they now have access to. Anyhow now i have submitted the request for webinar and got a 401 error in the console and no notification via email and no information in admin panel in resource draft (maybe resource draft should be called resources requests)
+"3. Submit"",Admin receives 'New Webinar Proposal' notification email,,,";
+"T17,Partner - Reference Bypass Request,Request a reference bypass,info@m3monaco.com,""1. Go to /account → References tab";
+2. Scroll to bypass section;Works
+"3. Fill reason + company background → submit"",Bypass request appears in admin panel (Users → partner detail),,,";
+"T18,i18n - Onboarding FR,Check French translations on onboarding,Any new account or reset onboarding,""1. Switch language to French (navbar)";
+2. Go to /onboarding;I will check languages at a later stage
+"3. Go through persona selection and marina form"",All labels / headings / buttons should be in French. Note any English text remaining,,,";
+"T19,i18n - PreAudit FR,Check French translations on Pre-Audit,victor@m3monaco.com,""1. Switch language to French";
+2. Go to /account → Pre-Audit tab;
+"3. Check all headings / buttons / scoring labels"",All text should be in French. Note any English text remaining,,,";
+"T20,i18n - Onboarding EN,Check English on onboarding still works,Any account,""1. Switch language to English";
+2. Go to /onboarding;
+"3. Check all form labels and buttons"",Everything displays correctly in English (no broken t() keys showing),,,";
+"T21,Accessibility - Aria Labels,Check icon-only buttons have labels,events@m3monaco.com,""1. Go to /admin → any tab with table (Users / Events / RFPs)";
+2. Right-click an icon button (eye icon) → Inspect;
+"3. Check for aria-label attribute"",All icon-only buttons should have aria-label (e.g. 'View details'),,,";"Can’t Claude chrome check that as I don’t know how to do it 
+ profile loads correctly,,,"
+"T22,Build - Code Splitting,Verify chunked assets load correctly,No login needed,""1. Open browser DevTools → Network tab";
+2. Load https://connect.m3monaco.com;
+"3. Check that multiple JS chunks load (vendor-react / vendor-ui / vendor-supabase / etc.)"",Multiple smaller JS files instead of one huge file,,,";
+"T23,Console - No Errors,Check browser console for errors,Any account,""1. Open DevTools → Console tab";
+2. Navigate through several pages (home / resources / events / admin);
+"3. Note any console.error or console.warn messages"",No errors/warnings in production (all wrapped in DEV checks),,,";
+"T24,Security Headers,Check HTTP response headers,No login needed,""1. Open DevTools → Network tab";
+2. Load the site → click on the main document request;
+"3. Check Response Headers"",Should see: X-Frame-Options: DENY / X-Content-Type-Options: nosniff / Referrer-Policy: strict-origin-when-cross-origin,,,";
+"T25,Legacy Cleanup,Verify no legacy table errors,Any verified account,""1. Login with any account";
+"2. Open console → check for errors mentioning marina_profiles / partner_profiles / media_partner_profiles"",No references to legacy tables";

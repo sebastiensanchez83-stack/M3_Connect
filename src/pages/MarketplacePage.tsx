@@ -140,7 +140,7 @@ export function MarketplacePage() {
 
   /* ---- pre-select sectors for logged-in users ---- */
   useEffect(() => {
-    if (!user || !organization) return;
+    if (!user || !organization || sectors.length === 0) return;
     const table = organization.organization_type === 'marina'
       ? 'organization_interest_sectors'
       : 'organization_service_sectors';
@@ -150,10 +150,15 @@ export function MarketplacePage() {
       .eq('organization_id', organization.id)
       .then(({ data }) => {
         if (data && data.length > 0) {
-          setSelectedSectors(data.map((d: { sector_id: string }) => d.sector_id));
+          // Only pre-select sectors that exist in the active sectors list
+          const activeSectorIds = new Set(sectors.map(s => s.id));
+          const validIds = data
+            .map((d: { sector_id: string }) => d.sector_id)
+            .filter(id => activeSectorIds.has(id));
+          if (validIds.length > 0) setSelectedSectors(validIds);
         }
       });
-  }, [user, organization]);
+  }, [user, organization, sectors]);
 
   /* ---- fetch organizations ---- */
   useEffect(() => {
@@ -464,10 +469,10 @@ export function MarketplacePage() {
 
   const getOrgTypeLabel = (type: string | null) => {
     switch (type) {
-      case 'marina': return 'Marina';
-      case 'partner': return 'Partner';
-      case 'media_partner': return 'Media';
-      default: return 'Organization';
+      case 'marina': return t('marketplace.typeMarina', 'Marina');
+      case 'partner': return t('marketplace.typePartner', 'Partner');
+      case 'media_partner': return t('marketplace.typeMedia', 'Media');
+      default: return t('marketplace.typeOrganization', 'Organization');
     }
   };
 

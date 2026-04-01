@@ -133,6 +133,9 @@ export interface WebinarRequest {
   moderator_notes: string | null;
   reviewed_at: string | null;
   created_at: string;
+  // Enriched fields (joined from profiles)
+  requester_name?: string;
+  requester_email?: string;
 }
 
 export interface PartnerRequest {

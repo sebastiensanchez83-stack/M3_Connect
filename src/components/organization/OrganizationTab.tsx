@@ -330,20 +330,17 @@ export function OrganizationTab() {
       // Fetch organization documents
       fetchDocs(membership.organization_id);
 
-      // Fetch pending invitations (owner only — catch 403 gracefully)
+      // Fetch pending invitations (owner only — ignore RLS 403 gracefully)
       if (membership.role === 'owner') {
-        try {
-          const { data: invData } = await supabase
-            .from('organization_invitations')
-            .select('*')
-            .eq('organization_id', membership.organization_id)
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false });
+        const { data: invData, error: invErr } = await supabase
+          .from('organization_invitations')
+          .select('*')
+          .eq('organization_id', membership.organization_id)
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false });
 
-          if (invData) setInvitations(invData as OrganizationInvitation[]);
-        } catch {
-          // RLS may block — ignore silently
-        }
+        if (!invErr && invData) setInvitations(invData as OrganizationInvitation[]);
+        // If invErr (e.g. 403 from RLS), silently ignore — owner check above is best-effort
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('Error fetching org:', err);

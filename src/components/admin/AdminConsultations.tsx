@@ -14,9 +14,9 @@ import type { Consultation } from './types';
 
 export function AdminConsultations() {
   const { t } = useTranslation();
-  const [consultations, setConsultations] = useState<(Consultation & { marina_name?: string })[]>([]);
+  const [consultations, setConsultations] = useState<(Consultation & { marina_name?: string; org_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<(Consultation & { marina_name?: string }) | null>(null);
+  const [selected, setSelected] = useState<(Consultation & { marina_name?: string; org_name?: string }) | null>(null);
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -25,11 +25,19 @@ export function AdminConsultations() {
     const rows = data || [];
     const userIds = [...new Set(rows.map((c: Consultation) => c.marina_user_id))];
     const nameMap: Record<string, string> = {};
+    const orgMap: Record<string, string> = {};
     if (userIds.length > 0) {
-      const { data: profiles } = await supabase.from('profiles').select('user_id, first_name, last_name').in('user_id', userIds);
+      const [{ data: profiles }, { data: memberships }] = await Promise.all([
+        supabase.from('profiles').select('user_id, first_name, last_name').in('user_id', userIds),
+        supabase.from('organization_members').select('user_id, organizations(name)').in('user_id', userIds),
+      ]);
       (profiles || []).forEach((p: { user_id: string; first_name: string; last_name: string }) => { nameMap[p.user_id] = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.user_id.slice(0, 8); });
+      (memberships || []).forEach((m: Record<string, unknown>) => {
+        const org = m.organizations as Record<string, string> | null;
+        if (org?.name) orgMap[m.user_id as string] = org.name;
+      });
     }
-    setConsultations(rows.map((c: Consultation) => ({ ...c, marina_name: nameMap[c.marina_user_id] || c.marina_user_id.slice(0, 8) })));
+    setConsultations(rows.map((c: Consultation) => ({ ...c, marina_name: nameMap[c.marina_user_id] || c.marina_user_id.slice(0, 8), org_name: orgMap[c.marina_user_id] || '' })));
     setLoading(false);
   };
   const toggleOpen = async (id: string, is_open: boolean) => {
@@ -55,7 +63,10 @@ export function AdminConsultations() {
       </tr></thead><tbody>
         {consultations.map(c => (<tr key={c.id} className="border-b hover:bg-gray-50">
           <td className="p-4 font-medium max-w-xs truncate">{c.title}</td>
-          <td className="p-4 text-sm font-medium">{c.marina_name}</td>
+          <td className="p-4">
+            <div className="text-sm font-medium">{c.org_name || c.marina_name}</div>
+            {c.org_name && <div className="text-xs text-gray-500">{c.marina_name}</div>}
+          </td>
           <td className="p-4"><Badge variant={c.is_open ? 'success' : 'secondary'}>{c.is_open ? t('admin.consultations.open') : t('admin.consultations.closed')}</Badge></td>
           <td className="p-4 text-sm text-gray-500">{new Date(c.created_at).toLocaleDateString()}</td>
           <td className="p-4"><div className="flex gap-2">

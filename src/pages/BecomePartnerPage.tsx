@@ -172,7 +172,7 @@ export function BecomePartnerPage() {
                     {s.icon}
                   </div>
                   {/* Step number badge */}
-                  <div className="absolute top-0 right-1/2 translate-x-[2.5rem] -translate-y-1 w-7 h-7 rounded-full bg-white border-2 border-primary text-primary text-xs font-bold flex items-center justify-center shadow-sm z-20">
+                  <div className="absolute top-0 right-1/2 translate-x-[2.5rem] -translate-y-1 w-7 h-7 rounded-full bg-[#0b2653] text-white text-xs font-bold flex items-center justify-center shadow-sm z-20">
                     {s.step}
                   </div>
                   <h3 className="font-semibold text-lg mb-2 text-gray-900">{s.title}</h3>

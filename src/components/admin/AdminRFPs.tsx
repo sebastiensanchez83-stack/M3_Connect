@@ -14,9 +14,9 @@ import type { RFP } from './types';
 
 export function AdminRFPs() {
   const { t } = useTranslation();
-  const [rfps, setRfps] = useState<(RFP & { marina_name?: string })[]>([]);
+  const [rfps, setRfps] = useState<(RFP & { marina_name?: string; org_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<(RFP & { marina_name?: string }) | null>(null);
+  const [selected, setSelected] = useState<(RFP & { marina_name?: string; org_name?: string }) | null>(null);
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -25,11 +25,19 @@ export function AdminRFPs() {
     const rows = data || [];
     const userIds = [...new Set(rows.map((r: RFP) => r.marina_user_id))];
     const nameMap: Record<string, string> = {};
+    const orgMap: Record<string, string> = {};
     if (userIds.length > 0) {
-      const { data: profiles } = await supabase.from('profiles').select('user_id, first_name, last_name').in('user_id', userIds);
+      const [{ data: profiles }, { data: memberships }] = await Promise.all([
+        supabase.from('profiles').select('user_id, first_name, last_name').in('user_id', userIds),
+        supabase.from('organization_members').select('user_id, organizations(name)').in('user_id', userIds),
+      ]);
       (profiles || []).forEach((p: { user_id: string; first_name: string; last_name: string }) => { nameMap[p.user_id] = `${p.first_name || ''} ${p.last_name || ''}`.trim() || p.user_id.slice(0, 8); });
+      (memberships || []).forEach((m: Record<string, unknown>) => {
+        const org = m.organizations as Record<string, string> | null;
+        if (org?.name) orgMap[m.user_id as string] = org.name;
+      });
     }
-    setRfps(rows.map((r: RFP) => ({ ...r, marina_name: nameMap[r.marina_user_id] || r.marina_user_id.slice(0, 8) })));
+    setRfps(rows.map((r: RFP) => ({ ...r, marina_name: nameMap[r.marina_user_id] || r.marina_user_id.slice(0, 8), org_name: orgMap[r.marina_user_id] || '' })));
     setLoading(false);
   };
   const toggleOpen = async (id: string, is_open: boolean) => {
@@ -55,7 +63,10 @@ export function AdminRFPs() {
       </tr></thead><tbody>
         {rfps.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50">
           <td className="p-4 font-medium max-w-xs truncate">{r.title}</td>
-          <td className="p-4 text-sm font-medium">{r.marina_name}</td>
+          <td className="p-4">
+            <div className="text-sm font-medium">{r.org_name || r.marina_name}</div>
+            {r.org_name && <div className="text-xs text-gray-500">{r.marina_name}</div>}
+          </td>
           <td className="p-4 text-sm text-gray-500">{r.deadline_date ? new Date(r.deadline_date).toLocaleDateString() : '—'}</td>
           <td className="p-4"><Badge variant={r.is_open ? 'success' : 'secondary'}>{r.is_open ? t('admin.rfps.open') : t('admin.rfps.closed')}</Badge></td>
           <td className="p-4"><div className="flex gap-2">

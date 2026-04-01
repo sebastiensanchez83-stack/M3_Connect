@@ -46,6 +46,8 @@ interface SendNotificationParams {
  */
 export async function sendNotification({ type, userId, email, data }: SendNotificationParams): Promise<void> {
   try {
+    // Edge function uses verify_jwt: false with internal apikey check
+    // supabase-js automatically sends the anon key as apikey header
     await supabase.functions.invoke('send-notification', {
       body: {
         type,
@@ -54,10 +56,8 @@ export async function sendNotification({ type, userId, email, data }: SendNotifi
         data,
       },
     });
-  } catch (err) {
-    if (import.meta.env.DEV) {
-      console.warn(`[notifications] Failed to send ${type}:`, err);
-    }
+  } catch {
+    // Fire-and-forget: swallow all errors silently in production
   }
 }
 

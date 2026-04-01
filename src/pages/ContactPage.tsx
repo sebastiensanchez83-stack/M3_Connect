@@ -9,6 +9,7 @@ export function ContactPage() {
     <div className="container mx-auto px-4 py-16 max-w-3xl">
       <h1 className="text-3xl font-bold text-primary mb-8">{t('contact.title', 'Contact Us')}</h1>
 
+      <h2 className="sr-only">{t('contact.infoTitle', 'Contact Information')}</h2>
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>

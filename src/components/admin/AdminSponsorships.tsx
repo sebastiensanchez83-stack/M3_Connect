@@ -34,7 +34,7 @@ export function AdminSponsorships() {
     setLoading(true);
     const { data } = await supabase
       .from('sponsorship_requests')
-      .select('*, organizations:organization_id(name), profiles:requested_by(email)')
+      .select('*, organizations:organization_id(name), profiles!sponsorship_requests_requested_by_profiles_fkey(email)')
       .order('created_at', { ascending: false });
     const rows: SponsorshipRequestRow[] = (data || []).map((r: Record<string, unknown>) => ({
       ...r,

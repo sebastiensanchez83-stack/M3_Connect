@@ -8,7 +8,7 @@ const SITE_URL = Deno.env.get("SITE_URL") || "https://m3connect.netlify.app";
 
 interface RequestBody {
   user_id: string;
-  status: "verified" | "rejected" | "suspended";
+  status: "verified" | "rejected" | "suspended" | "payment_pending";
   reason?: string;
 }
 
@@ -59,6 +59,7 @@ async function sendNotification(email: string, firstName: string, status: string
   let title: string;
   let body: string;
   let buttonText: string;
+  let buttonUrl: string = loginUrl;
   let footer: string;
 
   switch (status) {
@@ -68,6 +69,14 @@ async function sendNotification(email: string, firstName: string, status: string
       body = "Great news! Your M3 Connect account has been reviewed and approved. You now have full access to the platform. Log in to explore resources, events, and connect with the marina industry network.";
       buttonText = "Log In to M3 Connect";
       footer = "Welcome aboard! If you have any questions, don't hesitate to contact our support team.";
+      break;
+    case "payment_pending":
+      subject = "Your M3 Connect account is approved — Complete your membership payment";
+      title = "Account Approved — Payment Required";
+      body = "Great news! Your M3 Connect account has been reviewed and approved by our team.\n\nTo activate your full membership and access all platform features, please complete your annual membership fee of €500.\n\nUntil the payment is completed, you will have limited access to the platform. Once paid, you will unlock:\n\n• Full access to M3 Connect resources and events\n• B2B marketplace and partner directory\n• Connect requests and webinar proposals\n• Team collaboration with additional seats";
+      buttonText = "Pay Membership Fee (€500)";
+      buttonUrl = `${SITE_URL}/account?tab=organization&action=pay-membership`;
+      footer = "This is a one-time annual fee for your organization's membership. If you have any questions about the payment, please contact our support team.";
       break;
     case "rejected":
       subject = "Update on your M3 Connect application";
@@ -87,7 +96,7 @@ async function sendNotification(email: string, firstName: string, status: string
       return new Response(JSON.stringify({ error: "Invalid status" }), { status: 400, headers: { "Content-Type": "application/json" } });
   }
 
-  const html = buildEmail({ greeting, title, body, buttonText, buttonUrl: loginUrl, footer });
+  const html = buildEmail({ greeting, title, body, buttonText, buttonUrl, footer });
 
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",

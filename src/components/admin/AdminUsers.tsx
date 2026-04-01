@@ -258,7 +258,7 @@ export function AdminUsers() {
   };
 
   // Send email notification (fire and forget — non-blocking)
-  const sendStatusNotification = async (userId: string, status: 'verified' | 'rejected' | 'suspended', reason?: string) => {
+  const sendStatusNotification = async (userId: string, status: 'verified' | 'rejected' | 'suspended' | 'payment_pending', reason?: string) => {
     try {
       await supabase.functions.invoke('send-status-notification', {
         body: { user_id: userId, status, reason },
@@ -269,15 +269,20 @@ export function AdminUsers() {
   };
 
   const approveUser = async (userId: string) => {
-    const { error } = await supabase.from('profiles').update({ access_status: 'verified', onboarding_status: 'completed', rejection_reason: null }).eq('user_id', userId);
+    // Partners must pay €500 membership fee before getting full access
+    const user = users.find(u => u.user_id === userId);
+    const isPartnerPersona = user?.persona === 'partner';
+    const newStatus = isPartnerPersona ? 'payment_pending' : 'verified';
+
+    const { error } = await supabase.from('profiles').update({ access_status: newStatus, onboarding_status: 'completed', rejection_reason: null }).eq('user_id', userId);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    // Also verify the user's organization
+    // Also update the user's organization
     const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', userId).maybeSingle();
     if (membership?.organization_id) {
-      await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id);
+      await supabase.from('organizations').update({ access_status: newStatus, onboarding_status: 'completed' }).eq('id', membership.organization_id);
     }
-    sendStatusNotification(userId, 'verified');
-    toast({ title: 'User approved — email notification sent' }); loadUsers();
+    sendStatusNotification(userId, isPartnerPersona ? 'payment_pending' : 'verified');
+    toast({ title: isPartnerPersona ? 'Partner approved — payment pending email sent' : 'User approved — email notification sent' }); loadUsers();
   };
   const openReject = (userId: string) => { setRejectingUserId(userId); setRejectReason(''); };
   const confirmReject = async () => {

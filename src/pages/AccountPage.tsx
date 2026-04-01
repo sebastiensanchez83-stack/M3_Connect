@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Organization } from '@/types/database';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrganizationTab } from '@/components/organization/OrganizationTab';
+import { PaymentForm } from '@/components/payment/PaymentForm';
 // PreAuditTab archived — will be deployed later
 // import { PreAuditTab } from '@/components/preaudit/PreAuditTab';
 import { ReferenceRequestForm } from '@/components/references/ReferenceRequestForm';
@@ -23,6 +24,9 @@ interface EventRegistration {
   id: string;
   event_id: string;
   created_at: string;
+  payment_status: string;
+  registration_type: string;
+  amount_due_cents: number | null;
   events: { title: string; date_time: string } | null;
 }
 
@@ -90,7 +94,7 @@ function formatBudgetRange(raw: string): string {
 
 export function AccountPage() {
   const { t } = useTranslation();
-  const { user, profile, organization, orgRole, loading: authLoading } = useAuth();
+  const { user, profile, organization, orgRole, loading: authLoading, isPaymentPending } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
@@ -100,6 +104,9 @@ export function AccountPage() {
   const [consultations, setConsultations] = useState<ConsultationItem[]>([]);
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequestItem[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
+
+  // Event payment dialog
+  const [eventPaymentReg, setEventPaymentReg] = useState<EventRegistration | null>(null);
 
   // Dashboard analytics state
   const [profileViewCount, setProfileViewCount] = useState(0);
@@ -181,7 +188,7 @@ export function AccountPage() {
       try {
         const { data: regs } = await supabase
           .from('event_registrations')
-          .select('id, event_id, created_at, events(title, date_time)')
+          .select('id, event_id, created_at, payment_status, registration_type, amount_due_cents, events(title, date_time)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false });
         if (regs) setRegistrations(regs as unknown as EventRegistration[]);
@@ -323,6 +330,8 @@ export function AccountPage() {
         return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
       case 'rejected':
         return <Badge className="bg-red-100 text-red-800 border-red-200"><XCircle className="h-3 w-3 mr-1" />Rejected</Badge>;
+      case 'payment_pending':
+        return <Badge className="bg-amber-100 text-amber-800 border-amber-200"><AlertCircle className="h-3 w-3 mr-1" />Payment Pending</Badge>;
       case 'suspended':
         return <Badge className="bg-gray-100 text-gray-800 border-gray-200"><XCircle className="h-3 w-3 mr-1" />Suspended</Badge>;
       default:
@@ -468,6 +477,29 @@ export function AccountPage() {
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 flex items-center gap-3">
           <AlertCircle className="h-5 w-5 text-yellow-600 shrink-0" />
           <p className="text-yellow-800">Your profile is being reviewed by our team. You will receive a confirmation email.</p>
+        </div>
+      )}
+
+      {/* Membership payment required banner (partner accounts approved but unpaid) */}
+      {isPaymentPending && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-amber-100 rounded-full p-2">
+                <AlertCircle className="h-5 w-5 text-amber-600" />
+              </div>
+              <div>
+                <p className="text-amber-900 font-semibold">Membership Payment Required</p>
+                <p className="text-amber-700 text-sm">Your account has been approved! Complete your €500 annual membership fee to unlock full platform access.</p>
+              </div>
+            </div>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700 text-white shrink-0"
+              onClick={() => navigate('/account?tab=organization&action=pay-membership', { replace: true })}
+            >
+              Pay €500 Membership
+            </Button>
+          </div>
         </div>
       )}
 
@@ -889,46 +921,67 @@ export function AccountPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {registrations.map((reg) => (
-                    <div key={reg.id} className="flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors">
-                      <Link to={`/events/${reg.event_id}`} className="flex items-center gap-4 flex-1 min-w-0">
-                        <Calendar className="h-5 w-5 text-gray-400 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium truncate">{reg.events?.title ?? '—'}</div>
-                          {reg.events?.date_time && (
-                            <div className="text-sm text-gray-500">
-                              {new Date(reg.events.date_time).toLocaleDateString('en-US', {
-                                year: 'numeric', month: 'long', day: 'numeric',
-                              })}
-                            </div>
+                  {registrations.map((reg) => {
+                    const isPaid = reg.payment_status === 'paid' || reg.payment_status === 'free';
+                    const needsPayment = reg.payment_status === 'pending_payment';
+                    const isPendingApproval = reg.payment_status === 'pending_approval';
+                    return (
+                      <div key={reg.id} className={`flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors ${needsPayment ? 'border-amber-300 bg-amber-50/30' : ''}`}>
+                        <Link to={`/events/${reg.event_id}`} className="flex items-center gap-4 flex-1 min-w-0">
+                          <Calendar className="h-5 w-5 text-gray-400 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{reg.events?.title ?? '—'}</div>
+                            {reg.events?.date_time && (
+                              <div className="text-sm text-gray-500">
+                                {new Date(reg.events.date_time).toLocaleDateString('en-US', {
+                                  year: 'numeric', month: 'long', day: 'numeric',
+                                })}
+                              </div>
+                            )}
+                          </div>
+                          {/* Payment status badge */}
+                          {isPaid && <Badge className="bg-green-100 text-green-800 border-green-200 text-xs shrink-0"><CheckCircle className="h-3 w-3 mr-1" />Confirmed</Badge>}
+                          {isPendingApproval && <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs shrink-0"><Clock className="h-3 w-3 mr-1" />Pending Approval</Badge>}
+                          {needsPayment && <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs shrink-0"><AlertCircle className="h-3 w-3 mr-1" />Payment Due</Badge>}
+                        </Link>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {needsPayment && (
+                            <Button
+                              size="sm"
+                              className="bg-amber-600 hover:bg-amber-700 text-white"
+                              onClick={(e) => { e.stopPropagation(); setEventPaymentReg(reg); }}
+                            >
+                              Pay Now{reg.amount_due_cents ? ` — €${(reg.amount_due_cents / 100).toFixed(0)}` : ''}
+                            </Button>
+                          )}
+                          {!isPaid && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                if (!confirm('Are you sure you want to unregister from this event?')) return;
+                                const { error } = await supabase
+                                  .from('event_registrations')
+                                  .delete()
+                                  .eq('id', reg.id);
+                                if (error) {
+                                  toast({ title: 'Failed to unregister', description: error.message, variant: 'destructive' });
+                                } else {
+                                  toast({ title: 'Unregistered from event' });
+                                  setRegistrations(prev => prev.filter(r => r.id !== reg.id));
+                                }
+                              }}
+                            >
+                              <X className="h-4 w-4 mr-1" />
+                              Unregister
+                            </Button>
                           )}
                         </div>
-                        <ArrowRight className="h-4 w-4 text-gray-400 shrink-0" />
-                      </Link>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 shrink-0"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          if (!confirm('Are you sure you want to unregister from this event?')) return;
-                          const { error } = await supabase
-                            .from('event_registrations')
-                            .delete()
-                            .eq('id', reg.id);
-                          if (error) {
-                            toast({ title: 'Failed to unregister', description: error.message, variant: 'destructive' });
-                          } else {
-                            toast({ title: 'Unregistered from event' });
-                            setRegistrations(prev => prev.filter(r => r.id !== reg.id));
-                          }
-                        }}
-                      >
-                        <X className="h-4 w-4 mr-1" />
-                        Unregister
-                      </Button>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -1339,6 +1392,42 @@ export function AccountPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Event Payment Dialog */}
+      <Dialog open={!!eventPaymentReg} onOpenChange={(open) => { if (!open) setEventPaymentReg(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Event Registration Payment</DialogTitle>
+          </DialogHeader>
+          {eventPaymentReg && (
+            <div className="space-y-3 mt-2">
+              <div className="text-sm text-gray-600">
+                <p className="font-medium text-gray-900">{eventPaymentReg.events?.title}</p>
+                {eventPaymentReg.events?.date_time && (
+                  <p>{new Date(eventPaymentReg.events.date_time).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                )}
+              </div>
+              <PaymentForm
+                amountCents={eventPaymentReg.amount_due_cents || 0}
+                paymentType="event_participation"
+                organizationId={organization?.id}
+                referenceId={eventPaymentReg.id}
+                metadata={{ event_id: eventPaymentReg.event_id, registration_type: eventPaymentReg.registration_type }}
+                label="Event Participation Fee"
+                description={`€${((eventPaymentReg.amount_due_cents || 0) / 100).toFixed(0)} — ${eventPaymentReg.events?.title || 'Event registration'}`}
+                onSuccess={() => {
+                  toast({ title: 'Payment successful!', description: 'Your event registration is now confirmed.' });
+                  setEventPaymentReg(null);
+                  setRegistrations(prev => prev.map(r => r.id === eventPaymentReg.id ? { ...r, payment_status: 'paid' } : r));
+                }}
+                onError={(err) => {
+                  toast({ title: 'Payment failed', description: err, variant: 'destructive' });
+                }}
+              />
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

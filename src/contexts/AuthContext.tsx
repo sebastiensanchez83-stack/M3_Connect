@@ -16,6 +16,7 @@ interface AuthContextType {
   isAdmin: boolean
   isModerator: boolean
   isPending: boolean
+  isPaymentPending: boolean
   isSponsor: boolean
   signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => Promise<{ error: Error | null }>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
@@ -41,6 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // isModerator grants access to admin/moderator panel (both admin and moderator personas)
   const isModerator = (profile?.persona === 'moderator' || profile?.persona === 'admin') && isVerified
   const isPending = profile?.access_status === 'pending'
+  const isPaymentPending = profile?.access_status === 'payment_pending'
   const hasOrganization = organization !== null
   const isSponsor = hasOrganization && SPONSOR_TIERS.includes(organization!.tier)
 
@@ -358,7 +360,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, session, loading, profileTimedOut, profile, organization, orgRole, hasOrganization,
-      isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile
+      isVerified, isAdmin, isModerator, isPending, isPaymentPending, isSponsor, signUp, signIn, signOut, refreshProfile
     }}>
       {children}
     </AuthContext.Provider>

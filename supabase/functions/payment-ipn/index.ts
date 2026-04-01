@@ -119,7 +119,7 @@ Deno.serve(async (req) => {
       .from('payments')
       .update(updates)
       .eq('id', paymentId)
-      .select('user_id, organization_id, payment_type, amount_cents, reference_id')
+      .select('user_id, organization_id, payment_type, amount_cents, reference_id, metadata')
       .single();
 
     if (updateError) {
@@ -158,12 +158,48 @@ Deno.serve(async (req) => {
         console.warn('IPN: notification failed (non-blocking):', e);
       }
 
-      // If membership payment, verify the organization
+      // If membership payment, verify the organization AND the user's profile
       if (payment.payment_type === 'membership' && payment.organization_id) {
         await supabase
           .from('organizations')
           .update({ access_status: 'verified' })
           .eq('id', payment.organization_id);
+
+        // Also verify the user's profile (partner was in 'payment_pending' state)
+        await supabase
+          .from('profiles')
+          .update({ access_status: 'verified' })
+          .eq('user_id', payment.user_id);
+
+        // Verify all members of this org (they inherit the org's verified status)
+        const { data: orgMembers } = await supabase
+          .from('organization_members')
+          .select('user_id')
+          .eq('organization_id', payment.organization_id);
+        if (orgMembers && orgMembers.length > 0) {
+          const memberIds = orgMembers.map((m: { user_id: string }) => m.user_id);
+          await supabase
+            .from('profiles')
+            .update({ access_status: 'verified' })
+            .in('user_id', memberIds)
+            .eq('access_status', 'payment_pending');
+        }
+      }
+
+      // If additional seats, increment max_seats on the organization
+      if (payment.payment_type === 'additional_seats' && payment.organization_id) {
+        const seatsCount = payment.metadata?.seats_count ? parseInt(payment.metadata.seats_count as string) : 1;
+        const { data: currentOrg } = await supabase
+          .from('organizations')
+          .select('max_seats')
+          .eq('id', payment.organization_id)
+          .single();
+        if (currentOrg) {
+          await supabase
+            .from('organizations')
+            .update({ max_seats: (currentOrg.max_seats || 1) + seatsCount })
+            .eq('id', payment.organization_id);
+        }
       }
 
       // If event participation, confirm the registration

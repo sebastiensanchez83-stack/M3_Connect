@@ -36,6 +36,11 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [orgRegistrationCount, setOrgRegistrationCount] = useState(0);
 
+  // Payment flow state
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [pendingRegType, setPendingRegType] = useState<string>('visitor');
+  const [pendingRegistrationId, setPendingRegistrationId] = useState<string | null>(null);
+
   const isMarina = organization?.organization_type === 'marina';
   const isPartner = organization?.organization_type === 'partner' || organization?.organization_type === 'media_partner';
   const orgTier = (organization?.tier || 'member') as OrgTier;
@@ -107,6 +112,19 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
 
   useEffect(() => { checkStatus(); }, [checkStatus]);
 
+  // Calculate the event price for the current user
+  const getEventPrice = (type: string): number => {
+    if (type === 'sponsor_included') return 0;
+    if (!pricing) return 0;
+    if (type === 'member_discount') {
+      const discount = pricing.discount_pct || 10;
+      return Math.round(pricing.price_cents * (1 - discount / 100));
+    }
+    // Visitor or additional member price
+    if (pricing.price_cents > 0) return pricing.price_cents;
+    return pricing.additional_member_price_cents || 0;
+  };
+
   // Simple registration (for sponsors with included seats or basic registration)
   const registerDirect = async (type: string) => {
     if (!user || !eventId) return;
@@ -123,42 +141,90 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
       }
     }
 
+    // For paid registrations, show payment form
+    const price = getEventPrice(type);
+    if (price > 0) {
+      setPendingRegType(type);
+      // Create a pending registration first
+      setRegistering(true);
+      try {
+        const { data: regData, error } = await supabase.from('event_registrations').insert({
+          event_id: eventId,
+          user_id: user.id,
+          organization_id: organization?.id || null,
+          registration_type: type,
+          payment_status: 'pending',
+          registered_by: user.id,
+        }).select('id').single();
+        if (error) {
+          toast({ title: 'Registration failed', description: error.message, variant: 'destructive' });
+          return;
+        }
+        setPendingRegistrationId(regData.id);
+        setMarinaChoiceOpen(false);
+        setPaymentOpen(true);
+      } catch (err) {
+        toast({ title: 'Registration failed', description: 'An unexpected error occurred.', variant: 'destructive' });
+      } finally {
+        setRegistering(false);
+      }
+      return;
+    }
+
+    // Free registration (sponsor included)
     setRegistering(true);
     try {
-      // Sponsor-included = free & auto-confirmed; all others = pending approval by admin
-      const isFree = type === 'sponsor_included';
       const { error } = await supabase.from('event_registrations').insert({
         event_id: eventId,
         user_id: user.id,
         organization_id: organization?.id || null,
         registration_type: type,
-        payment_status: isFree ? 'free' : 'pending_approval',
+        payment_status: 'free',
         registered_by: user.id,
       });
       if (error) {
         toast({ title: 'Registration failed', description: error.message, variant: 'destructive' });
       } else {
-        if (isFree) {
-          sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventId } });
-        }
+        sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventId } });
         setStatus('registered');
         setRegistrationCount(c => c + 1);
         setOrgRegistrationCount(c => c + 1);
         onRegistrationChange?.(true, registrationCount + 1);
-        toast({
-          title: isFree
-            ? 'Registered (included in your sponsorship)'
-            : 'Registration submitted',
-          description: !isFree
-            ? 'Your registration has been submitted. M3 will review and notify you when payment is due.'
-            : undefined,
-        });
+        toast({ title: 'Registered (included in your sponsorship)' });
       }
     } catch (err) {
       toast({ title: 'Registration failed', description: 'An unexpected error occurred.', variant: 'destructive' });
     } finally {
       setRegistering(false);
     }
+  };
+
+  // Handle successful event payment
+  const handleEventPaymentSuccess = async () => {
+    if (pendingRegistrationId) {
+      // Update registration to paid
+      await supabase.from('event_registrations')
+        .update({ payment_status: 'paid' })
+        .eq('id', pendingRegistrationId);
+    }
+    sendNotification({ type: 'event_registration_confirmed', userId: user!.id, data: { event_title: eventId } });
+    setStatus('registered');
+    setRegistrationCount(c => c + 1);
+    setOrgRegistrationCount(c => c + 1);
+    onRegistrationChange?.(true, registrationCount + 1);
+    setPaymentOpen(false);
+    setPendingRegistrationId(null);
+    toast({ title: 'Registration confirmed!', description: 'Your payment has been processed and you are now registered.' });
+  };
+
+  // Handle payment dialog close without paying
+  const handlePaymentClose = async (open: boolean) => {
+    if (!open && pendingRegistrationId) {
+      // Remove the pending registration if user closes without paying
+      await supabase.from('event_registrations').delete().eq('id', pendingRegistrationId);
+      setPendingRegistrationId(null);
+    }
+    setPaymentOpen(open);
   };
 
   // Submit exposition request (exhibitor marina)
@@ -308,6 +374,45 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
     );
   }
 
+  // Helper: format price
+  const formatPrice = (cents: number) => `€${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
+
+  // Compute prices for display
+  const visitorPrice = getEventPrice('visitor');
+  const memberPrice = getEventPrice('member_discount');
+
+  // Payment dialog (shared by all paid registration types)
+  const paymentDialog = (
+    <Dialog open={paymentOpen} onOpenChange={handlePaymentClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5" />
+            Event Registration Payment
+          </DialogTitle>
+          <DialogDescription>
+            Complete your payment to confirm your registration.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="mt-2">
+          <PaymentForm
+            amountCents={getEventPrice(pendingRegType)}
+            paymentType="event_participation"
+            organizationId={organization?.id}
+            referenceId={pendingRegistrationId || undefined}
+            metadata={{ registration_type: pendingRegType, event_id: eventId }}
+            label="Event Registration"
+            description={`${formatPrice(getEventPrice(pendingRegType))} — Event registration${pendingRegType === 'member_discount' ? ' (member rate)' : ''}`}
+            onSuccess={handleEventPaymentSuccess}
+            onError={(err) => {
+              toast({ title: 'Payment failed', description: err, variant: 'destructive' });
+            }}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
   // Marina (non-sponsor): choice between visitor and exhibitor
   if (isMarina) {
     return (
@@ -324,14 +429,17 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
               <DialogDescription>Choose your participation type for this event.</DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 mt-2">
-              <Card className="cursor-pointer hover:border-primary hover:shadow-md transition-all duration-200 rounded-xl" onClick={() => { setMarinaChoiceOpen(false); registerDirect('visitor'); }}>
+              <Card className="cursor-pointer hover:border-primary hover:shadow-md transition-all duration-200 rounded-xl" onClick={() => registerDirect('visitor')}>
                 <CardContent className="flex items-center gap-4 p-4">
                   <div className="bg-blue-100 rounded-xl p-3">
                     <Eye className="h-6 w-6 text-blue-700" />
                   </div>
                   <div>
                     <h3 className="font-semibold">Visitor</h3>
-                    <p className="text-sm text-gray-600">Attend the event as a visitor. Subject to approval.</p>
+                    <p className="text-sm text-gray-600">
+                      Attend the event as a visitor.
+                      {visitorPrice > 0 && <span className="font-medium text-gray-900 ml-1">{formatPrice(visitorPrice)}</span>}
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -349,11 +457,12 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
             </div>
           </DialogContent>
         </Dialog>
+        {paymentDialog}
       </>
     );
   }
 
-  // Member classique or partner: register with pending approval (discounted)
+  // Member classique or partner: register with pending invoice (discounted)
   if (isPartner && orgTier === 'member') {
     const discount = pricing?.discount_pct || 10;
     return (
@@ -361,17 +470,23 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
         <Button onClick={() => registerDirect('member_discount')} disabled={registering} className="rounded-xl shadow-sm">
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
           Register (Member Rate)
+          {memberPrice > 0 && <span className="ml-1 text-xs opacity-80">— {formatPrice(memberPrice)}</span>}
         </Button>
-        <p className="text-xs text-gray-500">{discount}% member discount. Subject to approval — payment details will follow.</p>
+        <p className="text-xs text-gray-500">{discount}% member discount applied.</p>
+        {paymentDialog}
       </div>
     );
   }
 
   // Default: basic registration
   return (
-    <Button onClick={() => registerDirect('visitor')} disabled={registering} className="rounded-xl shadow-sm">
-      {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-      Register for this Event
-    </Button>
+    <div>
+      <Button onClick={() => registerDirect('visitor')} disabled={registering} className="rounded-xl shadow-sm">
+        {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+        Register for this Event
+        {visitorPrice > 0 && <span className="ml-1 text-xs opacity-80">— {formatPrice(visitorPrice)}</span>}
+      </Button>
+      {paymentDialog}
+    </div>
   );
 }

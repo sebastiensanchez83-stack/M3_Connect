@@ -1,5 +1,5 @@
 export type PersonaType = 'marina' | 'partner' | 'media_partner' | 'moderator' | 'admin';
-export type AccessStatus = 'pending' | 'verified' | 'rejected' | 'suspended';
+export type AccessStatus = 'pending' | 'verified' | 'rejected' | 'suspended' | 'payment_pending';
 export type OnboardingStatus = 'draft' | 'submitted' | 'under_review' | 'completed';
 
 export interface Profile {

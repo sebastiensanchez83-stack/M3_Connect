@@ -346,7 +346,7 @@ export function OrganizationTab() {
         }
       }
     } catch (err) {
-      console.error('Error fetching org:', err);
+      if (import.meta.env.DEV) console.error('Error fetching org:', err);
     }
     setLoading(false);
   }, [userId, fetchDocs]);

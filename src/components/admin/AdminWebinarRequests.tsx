@@ -15,6 +15,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import type { WebinarRequest } from './types';
 
 export function AdminWebinarRequests() {
@@ -116,9 +117,10 @@ export function AdminWebinarRequests() {
       reviewed_at: new Date().toISOString(),
     }).eq('id', id);
 
+    const req = requests.find(r => r.id === id);
+
     // When accepted (admin), auto-create an event from the webinar request
     if (status === 'accepted' && isAdmin) {
-      const req = requests.find(r => r.id === id);
       if (req) {
         const { error: eventErr } = await supabase.from('events').insert({
           title: req.title,
@@ -132,9 +134,15 @@ export function AdminWebinarRequests() {
         } else {
           toast({ title: t('admin.webinarRequests.acceptedEventCreated') });
         }
+        sendNotification({ type: 'webinar_accepted', userId: req.user_id, data: { title: req.title } });
         loadRequests();
         return;
       }
+    }
+
+    // Send notification for rejected webinars
+    if (status === 'rejected' && req) {
+      sendNotification({ type: 'webinar_rejected', userId: req.user_id, data: { title: req.title } });
     }
 
     toast({ title: `Status updated: ${status}` });
@@ -148,6 +156,12 @@ export function AdminWebinarRequests() {
       moderator_notes: moderatorNotes.trim() || null,
       reviewed_at: new Date().toISOString(),
     }).eq('id', id);
+    // Notify admin about moderator pre-approval
+    sendNotification({
+      type: 'webinar_moderator_approved',
+      email: 'info@m3monaco.com',
+      data: { title: selected?.title || '', moderator_notes: moderatorNotes.trim() },
+    });
     toast({ title: 'Pre-approved — sent to admin for final validation' });
     setSelected(null);
     loadRequests();
@@ -222,7 +236,7 @@ export function AdminWebinarRequests() {
                   <td className="p-4 text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
                   {showActions && (
                     <td className="p-4 flex gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => { setSelected(r); setModeratorNotes(r.moderator_notes || ''); }}>
+                      <Button size="sm" variant="ghost" aria-label="View details" onClick={() => { setSelected(r); setModeratorNotes(r.moderator_notes || ''); }}>
                         <Eye className="h-4 w-4" />
                       </Button>
                       {isMod && (r.status === 'submitted' || r.status === 'under_review') && (
@@ -230,6 +244,7 @@ export function AdminWebinarRequests() {
                           size="sm"
                           variant="ghost"
                           className="text-emerald-600 hover:text-emerald-700"
+                          aria-label="Pre-approve"
                           onClick={() => { setSelected(r); setModeratorNotes(r.moderator_notes || ''); }}
                           title="Pre-approve"
                         >

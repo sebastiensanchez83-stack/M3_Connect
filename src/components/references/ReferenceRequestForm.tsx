@@ -259,13 +259,13 @@ export function ReferenceRequestForm() {
 
       if (!emailResponse.ok) {
         const errData = await emailResponse.json();
-        console.warn('Email sending issue:', errData);
+        if (import.meta.env.DEV) console.warn('Email sending issue:', errData);
       }
 
       setSubmitted(true);
       toast({ title: 'Reference request created', description: `Reference ID: ${refReq.reference_id}` });
     } catch (err: unknown) {
-      console.error(err);
+      if (import.meta.env.DEV) console.error(err);
       toast({
         title: 'Error',
         description: err instanceof Error ? err.message : 'Failed to create reference request',

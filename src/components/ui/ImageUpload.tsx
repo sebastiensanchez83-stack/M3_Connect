@@ -51,7 +51,7 @@ export function ImageUpload({ value, onChange, label = 'Image' }: ImageUploadPro
     });
 
     if (error) {
-      console.error('Upload error:', error);
+      if (import.meta.env.DEV) console.error('Upload error:', error);
       toast({ title: 'Upload failed', description: error.message, variant: 'destructive' });
     } else {
       const url = getPublicUrl(fileName);
@@ -91,7 +91,7 @@ export function ImageUpload({ value, onChange, label = 'Image' }: ImageUploadPro
     });
 
     if (error) {
-      console.error('Gallery error:', error);
+      if (import.meta.env.DEV) console.error('Gallery error:', error);
       toast({ title: 'Error loading images', variant: 'destructive' });
     } else {
       const images: StorageImage[] = (data || [])

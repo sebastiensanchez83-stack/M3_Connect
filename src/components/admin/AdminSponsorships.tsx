@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import type { SponsorshipRequestRow } from './types';
 
 export function AdminSponsorships() {
@@ -63,8 +64,33 @@ export function AdminSponsorships() {
         .from('organizations')
         .update({ tier: selectedReq.requested_tier, max_seats: tierConfig?.max_seats || 5 })
         .eq('id', selectedReq.organization_id);
+      sendNotification({
+        type: 'sponsorship_approved',
+        userId: selectedReq.requested_by,
+        data: { requested_tier: TIER_LABELS[selectedReq.requested_tier as OrgTier] || selectedReq.requested_tier },
+      });
       toast({ title: t('admin.sponsorships.sponsorshipApproved', { tier: TIER_LABELS[selectedReq.requested_tier as OrgTier] || selectedReq.requested_tier }) });
     } else {
+      // Send notification for other status changes
+      if (selectedReq) {
+        const notifMap: Record<string, 'sponsorship_invoice_sent' | 'sponsorship_paid' | 'sponsorship_rejected'> = {
+          invoice_sent: 'sponsorship_invoice_sent',
+          paid: 'sponsorship_paid',
+          rejected: 'sponsorship_rejected',
+        };
+        const notifType = notifMap[status];
+        if (notifType) {
+          sendNotification({
+            type: notifType,
+            userId: selectedReq.requested_by,
+            data: {
+              requested_tier: TIER_LABELS[selectedReq.requested_tier as OrgTier] || selectedReq.requested_tier,
+              invoice_ref: invoiceRef,
+              amount: selectedReq.amount_due ? `€${selectedReq.amount_due}` : '',
+            },
+          });
+        }
+      }
       toast({ title: t('admin.sponsorships.statusUpdated', { status }) });
     }
     setSelectedReq(null);
@@ -121,7 +147,7 @@ export function AdminSponsorships() {
               <td className="p-4"><Badge className={statusColors[r.status] || 'bg-gray-100 text-gray-800'}>{r.status.replace('_', ' ')}</Badge></td>
               <td className="p-4 text-gray-500 text-sm">{new Date(r.created_at).toLocaleDateString()}</td>
               <td className="p-4">
-                <Button size="sm" variant="ghost" onClick={() => { setSelectedReq(r); setAdminNotes(r.admin_notes || ''); setInvoiceRef(r.invoice_reference || ''); }}>
+                <Button size="sm" variant="ghost" aria-label="View details" onClick={() => { setSelectedReq(r); setAdminNotes(r.admin_notes || ''); setInvoiceRef(r.invoice_reference || ''); }}>
                   <Eye className="h-4 w-4" />
                 </Button>
               </td>

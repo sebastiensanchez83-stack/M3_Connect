@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
+import { notifyAdmin } from '@/lib/notifications';
 
 export function SubmitConsultationPage() {
   const { t } = useTranslation();
@@ -57,6 +58,8 @@ export function SubmitConsultationPage() {
         });
 
       if (error) throw error;
+
+      notifyAdmin('Consultation', form.title.trim(), `Submitted by marina`);
 
       toast({
         title: t('submitConsultation.success'),

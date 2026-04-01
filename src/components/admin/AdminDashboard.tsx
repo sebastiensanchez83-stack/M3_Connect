@@ -55,7 +55,7 @@ export function AdminDashboard() {
         pendingB2B: pendingB2B || 0, openRFPs: openRFPs || 0, openConsultations: openConsultations || 0,
       });
       setRecentUsers((recent || []) as typeof recentUsers);
-    } catch (error) { console.error('Error loading dashboard:', error); }
+    } catch (error) { if (import.meta.env.DEV) console.error('Error loading dashboard:', error); }
     setLoading(false);
   };
 

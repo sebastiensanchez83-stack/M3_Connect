@@ -8,6 +8,7 @@ import { Loader2, CheckCircle, Clock, AlertCircle, Ship, Eye, Users } from 'luci
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import { OrgTier, isSponsorTier, TIER_LABELS } from '@/types/database';
 
 interface EventRegistrationFlowProps {
@@ -99,7 +100,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
         setStatus(regRes.data ? 'registered' : 'none');
       }
     } catch (err) {
-      console.error('Error checking registration status:', err);
+      if (import.meta.env.DEV) console.error('Error checking registration status:', err);
     }
     setLoading(false);
   }, [user, eventId, organization?.id, orgTier]);
@@ -135,6 +136,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
       if (error) {
         toast({ title: 'Registration failed', description: error.message, variant: 'destructive' });
       } else {
+        sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventId } });
         setStatus('registered');
         setRegistrationCount(c => c + 1);
         setOrgRegistrationCount(c => c + 1);

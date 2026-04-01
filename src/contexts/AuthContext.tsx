@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase, setAuthListener } from '@/lib/supabase'
-import { Profile, MarinaProfile, PartnerProfile, MediaPartnerProfile, UserDetails, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
+import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 
 interface AuthContextType {
   user: User | null
@@ -9,7 +9,6 @@ interface AuthContextType {
   loading: boolean
   profileTimedOut: boolean
   profile: Profile | null
-  userDetails: UserDetails | null
   organization: Organization | null
   orgRole: OrgMemberRole | null
   hasOrganization: boolean
@@ -30,7 +29,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [userDetails, setUserDetails] = useState<UserDetails | null>(null)
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [orgRole, setOrgRole] = useState<OrgMemberRole | null>(null)
   const [loading, setLoading] = useState(true)
@@ -54,31 +52,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq('user_id', userId)
       .maybeSingle()
 
-    if (error || !profileData) return { profile: null as Profile | null, details: null as UserDetails | null, org: null as Organization | null, role: null as OrgMemberRole | null }
+    if (error || !profileData) return { profile: null as Profile | null, org: null as Organization | null, role: null as OrgMemberRole | null }
 
     const p = profileData as Profile
 
-    const detailsPromise = (async (): Promise<UserDetails | null> => {
-      if (p.persona === 'marina') {
-        const { data } = await supabase.from('marina_profiles').select('*').eq('user_id', userId).maybeSingle()
-        return (data as MarinaProfile) ?? null
-      } else if (p.persona === 'partner') {
-        const { data } = await supabase.from('partner_profiles').select('*').eq('user_id', userId).maybeSingle()
-        return (data as PartnerProfile) ?? null
-      } else if (p.persona === 'media_partner') {
-        const { data } = await supabase.from('media_partner_profiles').select('*').eq('user_id', userId).maybeSingle()
-        return (data as MediaPartnerProfile) ?? null
-      }
-      return null
-    })()
-
-    const membershipPromise = supabase
+    // Organization data is the single source of truth (legacy per-persona profile tables removed)
+    const { data: membership } = await supabase
       .from('organization_members')
       .select('organization_id, role')
       .eq('user_id', userId)
       .maybeSingle()
-
-    const [details, { data: membership }] = await Promise.all([detailsPromise, membershipPromise])
 
     let org: Organization | null = null
     let role: OrgMemberRole | null = null
@@ -92,14 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       role = membership.role as OrgMemberRole
     }
 
-    return { profile: p, details, org, role }
+    return { profile: p, org, role }
   }, [])
 
   const refreshProfile = useCallback(async () => {
     if (!user) return
-    const { profile: p, details, org, role } = await fetchUserData(user.id)
+    const { profile: p, org, role } = await fetchUserData(user.id)
     setProfile(p)
-    setUserDetails(details)
     setOrganization(org)
     setOrgRole(role)
     if (p) {
@@ -137,7 +119,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (mountedRef.current) {
         setLoading((prev) => {
           if (prev) {
-            console.warn('[AuthContext] Safety timeout — forcing loading=false after 15s (fetch continues in background)')
+            if (import.meta.env.DEV) console.warn('[AuthContext] Safety timeout — forcing loading=false after 15s (fetch continues in background)')
             setProfileTimedOut(true)
             return false
           }
@@ -157,7 +139,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null)
         setSession(null)
         setProfile(null)
-        setUserDetails(null)
         setOrganization(null)
         setOrgRole(null)
         currentUserIdRef.current = null
@@ -195,7 +176,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const result = await fetchUserData(sess.user.id)
         if (!mountedRef.current) return
         setProfile(result.profile)
-        setUserDetails(result.details)
         setOrganization(result.org)
         setOrgRole(result.role)
         if (result.profile) {
@@ -226,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const storageKey = `sb-${new URL(import.meta.env.VITE_SUPABASE_URL || '').hostname.split('.')[0]}-auth-token`
             const stored = localStorage.getItem(storageKey)
             if (stored) {
-              console.warn('[AuthContext] INITIAL_SESSION null but token in storage — retrying in 2s')
+              if (import.meta.env.DEV) console.warn('[AuthContext] INITIAL_SESSION null but token in storage — retrying in 2s')
               setTimeout(async () => {
                 if (!mountedRef.current) return
                 const { data: { session: retrySession } } = await supabase.auth.getSession()
@@ -269,7 +249,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null)
           setSession(null)
           setProfile(null)
-          setUserDetails(null)
           setOrganization(null)
           setOrgRole(null)
           currentUserIdRef.current = null
@@ -290,11 +269,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               handleSession(newSession, false)
             }
           } else {
-            console.warn('[AuthContext] Token refresh failed — clearing session')
+            if (import.meta.env.DEV) console.warn('[AuthContext] Token refresh failed — clearing session')
             setUser(null)
             setSession(null)
             setProfile(null)
-            setUserDetails(null)
             currentUserIdRef.current = null
             profileLoadedRef.current = false
             setLoading(false)
@@ -314,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && currentUserIdRef.current) {
         supabase.auth.getSession().catch((err) => {
-          console.warn('[AuthContext] Visibility session check failed:', err)
+          if (import.meta.env.DEV) console.warn('[AuthContext] Visibility session check failed:', err)
         })
       }
     }
@@ -367,20 +345,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     setSession(null)
     setProfile(null)
-    setUserDetails(null)
     setOrganization(null)
     setOrgRole(null)
     try {
       await supabase.auth.signOut()
     } catch (e) {
-      console.warn('[AuthContext] signOut API error (session cleared locally):', e)
+      if (import.meta.env.DEV) console.warn('[AuthContext] signOut API error (session cleared locally):', e)
       try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* ignore */ }
     }
   }
 
   return (
     <AuthContext.Provider value={{
-      user, session, loading, profileTimedOut, profile, userDetails, organization, orgRole, hasOrganization,
+      user, session, loading, profileTimedOut, profile, organization, orgRole, hasOrganization,
       isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile
     }}>
       {children}

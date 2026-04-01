@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
+import { notifyAdmin } from '@/lib/notifications';
 
 export function SubmitRFPPage() {
   const { t } = useTranslation();
@@ -59,6 +60,8 @@ export function SubmitRFPPage() {
         });
 
       if (error) throw error;
+
+      notifyAdmin('RFP', form.title.trim(), `Submitted by marina for sector`);
 
       toast({
         title: t('submitRfp.success'),

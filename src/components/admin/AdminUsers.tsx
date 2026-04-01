@@ -20,6 +20,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import type { AdminProfile } from './types';
 
 // Reference status for partner organizations
@@ -81,7 +82,7 @@ export function AdminUsers() {
         supabase.rpc('get_users_email_status'),
         supabase.rpc('get_unconfirmed_users'),
       ]);
-      if (error) { console.error('Error loading users:', error); toast({ title: 'Error loading users', description: error.message, variant: 'destructive' }); }
+      if (error) { if (import.meta.env.DEV) console.error('Error loading users:', error); toast({ title: 'Error loading users', description: error.message, variant: 'destructive' }); }
       // Build a map from user_id → org info
       const orgMap = new Map<string, { org_id: string; org_name: string }>();
       (membershipsData || []).forEach((m: Record<string, unknown>) => {
@@ -181,7 +182,7 @@ export function AdminUsers() {
       } else {
         setReferenceStatusMap({});
       }
-    } catch (err) { console.error('Error loading users:', err); }
+    } catch (err) { if (import.meta.env.DEV) console.error('Error loading users:', err); }
     setLoading(false);
   };
 
@@ -229,7 +230,7 @@ export function AdminUsers() {
         setDetailData(org as Record<string, unknown> | null);
       }
       setDetailSectors((sectors || []).map((s: Record<string, unknown>) => ((s.sectors as Record<string, unknown> | null)?.label as string) || '').filter(Boolean));
-    } catch (err) { console.error('Error loading user detail:', err); }
+    } catch (err) { if (import.meta.env.DEV) console.error('Error loading user detail:', err); }
     setDetailLoading(false);
   };
 
@@ -240,7 +241,7 @@ export function AdminUsers() {
         body: { user_id: userId, status, reason },
       });
     } catch (err) {
-      console.warn('[AdminUsers] Email notification failed (non-blocking):', err);
+      if (import.meta.env.DEV) console.warn('[AdminUsers] Email notification failed (non-blocking):', err);
     }
   };
 
@@ -333,6 +334,8 @@ export function AdminUsers() {
         reviewed_at: new Date().toISOString(),
       }).eq('id', ref.bypassRequestId);
     }
+    // Notify partner that bypass was approved
+    sendNotification({ type: 'bypass_approved', userId: bypassDialogUserId, data: { admin_notes: bypassReason.trim() } });
     toast({ title: 'Reference requirement bypassed', description: 'This partner can now be approved without 2 confirmed marina references.' });
     setBypassDialogUserId(null);
     setBypassReason('');
@@ -349,6 +352,8 @@ export function AdminUsers() {
       reviewed_by: adminUserId,
       reviewed_at: new Date().toISOString(),
     }).eq('id', ref.bypassRequestId);
+    // Notify partner that bypass was rejected
+    sendNotification({ type: 'bypass_rejected', userId, data: { admin_notes: bypassReason.trim() || 'Bypass request declined by admin' } });
     toast({ title: 'Bypass request declined' });
     loadUsers();
   };
@@ -395,7 +400,7 @@ export function AdminUsers() {
         loadUsers();
       }
     } catch (err) {
-      console.error('Create admin error:', err);
+      if (import.meta.env.DEV) console.error('Create admin error:', err);
       toast({ title: 'Error', description: 'Network error', variant: 'destructive' });
     }
     setCreatingAdmin(false);

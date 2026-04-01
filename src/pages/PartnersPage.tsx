@@ -77,7 +77,7 @@ export function PartnersPage() {
 
         setPartners(cards);
       } catch (err) {
-        console.error('Error fetching partners:', err);
+        if (import.meta.env.DEV) console.error('Error fetching partners:', err);
       } finally {
         setLoading(false);
       }

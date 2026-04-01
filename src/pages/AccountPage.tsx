@@ -305,7 +305,7 @@ export function AccountPage() {
           }
         }
       } catch (err) {
-        console.error('Error fetching account data:', err);
+        if (import.meta.env.DEV) console.error('Error fetching account data:', err);
       } finally {
         setDataLoading(false);
       }

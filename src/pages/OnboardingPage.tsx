@@ -100,6 +100,7 @@ const defaultMarinaForm: MarinaOrgForm = {
 /* ─── Component ─── */
 export function OnboardingPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const { user, profile, refreshProfile, hasOrganization, loading: authLoading } = useAuth();
   const [loading, setLoading] = useState(false);
   const [creatingProfile, setCreatingProfile] = useState(false);
@@ -226,7 +227,7 @@ export function OnboardingPage() {
           setMedia(prev => ({ ...prev, media_name: metaCompanyName, website: metaCompanyWebsite }));
         }
       } catch (err) {
-        console.error('Error resolving org:', err);
+        if (import.meta.env.DEV) console.error('Error resolving org:', err);
         setStep('org-form');
       }
       setResolving(false);
@@ -447,15 +448,6 @@ export function OnboardingPage() {
           );
         }
 
-        // Also create legacy marina_profiles row for backward compat
-        await supabase.from('marina_profiles').upsert({
-          user_id: user.id,
-          marina_name: marina.marina_name,
-          country: marina.country,
-          city: marina.city,
-          website: marina.website || null,
-        }, { onConflict: 'user_id' });
-
       } else if (profile.persona === 'partner') {
         if (!partner.company_name || !partner.website || !partner.description) {
           toast({ title: 'Required fields', description: 'Name, website and description are mandatory.', variant: 'destructive' });
@@ -493,17 +485,6 @@ export function OnboardingPage() {
           );
         }
 
-        // Legacy partner_profiles
-        await supabase.from('partner_profiles').upsert({
-          user_id: user.id,
-          company_name: partner.company_name,
-          website: partner.website || null,
-          headquarters_country: partner.headquarters_country || null,
-          city: partner.city || null,
-          description: partner.description || null,
-          social_media_links: partner.social_media_links,
-        }, { onConflict: 'user_id' });
-
       } else if (profile.persona === 'media_partner') {
         if (!media.media_name || !media.website) {
           toast({ title: 'Required fields', description: 'Media name and website are mandatory.', variant: 'destructive' });
@@ -533,14 +514,6 @@ export function OnboardingPage() {
           audience_description: media.audience_description || null,
         }).eq('id', createdOrgId);
 
-        // Legacy media_partner_profiles
-        await supabase.from('media_partner_profiles').upsert({
-          user_id: user.id,
-          media_name: media.media_name,
-          website: media.website || null,
-          audience_description: media.audience_description || null,
-          social_media_links: media.social_media_links,
-        }, { onConflict: 'user_id' });
       }
 
       // Mark org + profile as submitted
@@ -569,7 +542,7 @@ export function OnboardingPage() {
   // Synchronous redirect guard — prevent form from flashing before useEffect fires
   // Draft users go to /account to complete their profile from the Organization tab
   if (profile?.onboarding_status === 'draft' && profile?.access_status !== 'rejected') {
-    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /><p className="text-sm text-gray-500 mt-3">Redirecting to your account...</p></div>;
+    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /><p className="text-sm text-gray-500 mt-3">{t('onboarding.redirecting')}</p></div>;
   }
   if (profile?.onboarding_status === 'completed' || (profile?.onboarding_status === 'submitted' && profile?.access_status !== 'rejected')) {
     return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>;
@@ -580,8 +553,8 @@ export function OnboardingPage() {
     return (
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-primary mb-2">Welcome to M3 Connect</h1>
-          <p className="text-gray-600">Select your profile type to get started.</p>
+          <h1 className="text-3xl font-bold text-primary mb-2">{t('onboarding.welcome')}</h1>
+          <p className="text-gray-600">{t('onboarding.selectProfile')}</p>
         </div>
         <div className="space-y-4">
           {personaCards.map(p => (
@@ -598,7 +571,7 @@ export function OnboardingPage() {
         </div>
         {creatingProfile && (
           <div className="mt-6 text-center text-gray-500 flex items-center justify-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" /> Creating profile...
+            <Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.creatingProfile')}
           </div>
         )}
       </div>
@@ -614,8 +587,8 @@ export function OnboardingPage() {
     return (
       <div className="container mx-auto px-4 py-8 max-w-2xl">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-primary mb-2">Join your Organization</h1>
-          <p className="text-gray-600">We found an existing organization for you.</p>
+          <h1 className="text-3xl font-bold text-primary mb-2">{t('onboarding.joinOrg')}</h1>
+          <p className="text-gray-600">{t('onboarding.orgFound')}</p>
         </div>
 
         {pendingInvitation && !showProfileCompletion && (
@@ -623,7 +596,7 @@ export function OnboardingPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Users className="h-5 w-5 text-primary" />
-                You've been invited!
+                {t('onboarding.youveBeenInvited')}
               </CardTitle>
               <CardDescription>
                 {pendingInvitation.invited_by_name} has invited you to join <strong>{pendingInvitation.organization_name}</strong>.
@@ -633,15 +606,15 @@ export function OnboardingPage() {
               <div className="bg-primary/5 rounded-lg p-4 text-center">
                 <Building2 className="h-10 w-10 text-primary mx-auto mb-2" />
                 <div className="font-semibold text-lg">{pendingInvitation.organization_name}</div>
-                <div className="text-sm text-gray-500">Invited by {pendingInvitation.invited_by_name}</div>
+                <div className="text-sm text-gray-500">{t('onboarding.invitedBy', { name: pendingInvitation.invited_by_name })}</div>
               </div>
               <div className="flex gap-3">
                 <Button className="flex-1" onClick={handleAcceptInvitation} disabled={acceptingInvite}>
                   {acceptingInvite ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-                  Accept & Join
+                  {t('onboarding.acceptJoin')}
                 </Button>
                 <Button variant="outline" onClick={() => { setPendingInvitation(null); setStep('org-form'); }}>
-                  Create my own organization
+                  {t('onboarding.createOwnOrg')}
                 </Button>
               </div>
             </CardContent>
@@ -654,37 +627,37 @@ export function OnboardingPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <CheckCircle className="h-5 w-5 text-green-600" />
-                Complete Your Profile
+                {t('onboarding.completeProfile')}
               </CardTitle>
               <CardDescription>
-                You've joined the organization! Please add your name and job title.
+                {t('onboarding.completeProfileDesc')}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
-                  <Label>First Name *</Label>
+                  <Label>{t('onboarding.firstName')}</Label>
                   <Input
                     value={profileForm.firstName}
                     onChange={(e) => setProfileForm({ ...profileForm, firstName: e.target.value })}
-                    placeholder="Your first name"
+                    placeholder={t('onboarding.firstNamePlaceholder')}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Last Name *</Label>
+                  <Label>{t('onboarding.lastName')}</Label>
                   <Input
                     value={profileForm.lastName}
                     onChange={(e) => setProfileForm({ ...profileForm, lastName: e.target.value })}
-                    placeholder="Your last name"
+                    placeholder={t('onboarding.lastNamePlaceholder')}
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Job Title</Label>
+                <Label>{t('onboarding.jobTitle')}</Label>
                 <Input
                   value={profileForm.jobTitle}
                   onChange={(e) => setProfileForm({ ...profileForm, jobTitle: e.target.value })}
-                  placeholder="e.g. Sales Manager"
+                  placeholder={t('onboarding.jobTitlePlaceholder')}
                 />
               </div>
               <div className="flex gap-3">
@@ -694,10 +667,10 @@ export function OnboardingPage() {
                   disabled={savingProfile || !profileForm.firstName.trim() || !profileForm.lastName.trim()}
                 >
                   {savingProfile && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  Save & Continue
+                  {t('onboarding.saveContinue')}
                 </Button>
                 <Button variant="outline" onClick={() => navigate('/account')}>
-                  Skip for now
+                  {t('onboarding.skipForNow')}
                 </Button>
               </div>
             </CardContent>
@@ -709,25 +682,25 @@ export function OnboardingPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-primary" />
-                Organization found
+                {t('onboarding.orgFoundTitle')}
               </CardTitle>
               <CardDescription>
-                Your email domain matches an existing organization.
+                {t('onboarding.orgFoundDesc')}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="bg-primary/5 rounded-lg p-4 text-center">
                 <Building2 className="h-10 w-10 text-primary mx-auto mb-2" />
                 <div className="font-semibold text-lg">{detectedOrg.name}</div>
-                <div className="text-sm text-gray-500">Your email domain matches this organization</div>
+                <div className="text-sm text-gray-500">{t('onboarding.domainMatchesOrg')}</div>
               </div>
               <div className="flex gap-3">
                 <Button className="flex-1" onClick={handleJoinDetectedOrg} disabled={joiningOrg}>
                   {joiningOrg ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-                  Join {detectedOrg.name}
+                  {t('onboarding.joinOrgName', { name: detectedOrg.name })}
                 </Button>
                 <Button variant="outline" onClick={() => { setDetectedOrg(null); setStep('org-form'); }}>
-                  Create a new organization
+                  {t('onboarding.createNewOrg')}
                 </Button>
               </div>
             </CardContent>
@@ -741,9 +714,9 @@ export function OnboardingPage() {
     return (
       <div className="container mx-auto py-16 text-center">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-        <p className="text-gray-500 mt-2">Checking for existing organization...</p>
+        <p className="text-gray-500 mt-2">{t('onboarding.checkingOrg')}</p>
         <Button variant="link" className="mt-4 text-sm" onClick={() => { setResolving(false); setStep('org-form'); }}>
-          Taking too long? Skip to form
+          {t('onboarding.takingTooLong')}
         </Button>
       </div>
     );
@@ -753,12 +726,12 @@ export function OnboardingPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-3xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">Create your Organization Profile</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2">{t('onboarding.createOrgProfile')}</h1>
         <p className="text-gray-600">
-          This information will be showcased in the marketplace and allow us to validate your{' '}
+          {t('onboarding.orgProfileDesc')}{' '}
           <span className="font-medium">
-            {profile.persona === 'marina' ? 'Marina' : profile.persona === 'partner' ? 'Partner' : 'Media'}
-          </span>{' '}organization.
+            {profile.persona === 'marina' ? t('onboarding.orgProfileDescMarina') : profile.persona === 'partner' ? t('onboarding.orgProfileDescPartner') : t('onboarding.orgProfileDescMedia')}
+          </span>{' '}{t('onboarding.orgProfileDescSuffix')}
         </p>
       </div>
 
@@ -772,38 +745,38 @@ export function OnboardingPage() {
             {/* ── Section 1: General Information ── */}
             <Card>
               <CardHeader>
-                <CardTitle>General Information</CardTitle>
-                <CardDescription>Basic details about your marina</CardDescription>
+                <CardTitle>{t('onboarding.marinaForm.generalInfo')}</CardTitle>
+                <CardDescription>{t('onboarding.marinaForm.basicDetails')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div className="space-y-2">
-                  <Label>Marina Name *</Label>
-                  <Input value={marina.marina_name} onChange={e => updateMarina('marina_name', e.target.value)} required placeholder="Port de Monaco" />
+                  <Label>{t('onboarding.marinaForm.marinaName')}</Label>
+                  <Input value={marina.marina_name} onChange={e => updateMarina('marina_name', e.target.value)} required placeholder={t('onboarding.marinaForm.marinaNamePlaceholder')} />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Country *</Label>
+                    <Label>{t('onboarding.marinaForm.country')}</Label>
                     <Select value={marina.country} onValueChange={v => updateMarina('country', v)}>
-                      <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={t('onboarding.marinaForm.selectPlaceholder')} /></SelectTrigger>
                       <SelectContent>{countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>City *</Label>
-                    <Input value={marina.city} onChange={e => updateMarina('city', e.target.value)} required placeholder="Monaco" />
+                    <Label>{t('onboarding.marinaForm.city')}</Label>
+                    <Input value={marina.city} onChange={e => updateMarina('city', e.target.value)} required placeholder={t('onboarding.marinaForm.cityPlaceholder')} />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Website</Label>
-                  <Input type="url" value={marina.website} onChange={e => updateMarina('website', e.target.value)} placeholder="https://" />
+                  <Label>{t('onboarding.marinaForm.website')}</Label>
+                  <Input type="url" value={marina.website} onChange={e => updateMarina('website', e.target.value)} placeholder={t('onboarding.marinaForm.websitePlaceholder')} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Type of Marina *</Label>
+                  <Label>{t('onboarding.marinaForm.marinaType')}</Label>
                   <RadioGroup value={marina.marina_type} onValueChange={v => updateMarina('marina_type', v)} className="flex flex-wrap gap-4">
                     {[
-                      { value: 'in_operation', label: 'In Operation' },
-                      { value: 'under_construction', label: 'Under Construction' },
-                      { value: 'in_project', label: 'In Project' },
+                      { value: 'in_operation', label: t('onboarding.marinaForm.inOperation') },
+                      { value: 'under_construction', label: t('onboarding.marinaForm.underConstruction') },
+                      { value: 'in_project', label: t('onboarding.marinaForm.inProject') },
                     ].map(opt => (
                       <div key={opt.value} className="flex items-center space-x-2">
                         <RadioGroupItem value={opt.value} id={`mt-${opt.value}`} />
@@ -814,40 +787,40 @@ export function OnboardingPage() {
                 </div>
                 {(marina.marina_type === 'under_construction' || marina.marina_type === 'in_project') && (
                   <div className="space-y-2">
-                    <Label>Expected Completion Date</Label>
+                    <Label>{t('onboarding.marinaForm.completionDate')}</Label>
                     <Input type="date" value={marina.completion_date} onChange={e => updateMarina('completion_date', e.target.value)} />
                   </div>
                 )}
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
-                    <Label>Total Berths</Label>
+                    <Label>{t('onboarding.marinaForm.totalBerths')}</Label>
                     <Input type="number" min="0" value={marina.berths_count} onChange={e => updateMarina('berths_count', e.target.value)} placeholder="500" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Superyacht Berths</Label>
+                    <Label>{t('onboarding.marinaForm.superyachtBerths')}</Label>
                     <Input type="number" min="0" value={marina.superyacht_berths} onChange={e => updateMarina('superyacht_berths', e.target.value)} placeholder="20" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Longest Berth (m)</Label>
+                    <Label>{t('onboarding.marinaForm.longestBerth')}</Label>
                     <Input type="number" min="0" step="0.1" value={marina.longest_berth_meters} onChange={e => updateMarina('longest_berth_meters', e.target.value)} placeholder="100" />
                   </div>
                 </div>
                 <div className="flex items-center space-x-3">
                   <Checkbox id="fresh-water" checked={marina.fresh_water_available} onCheckedChange={c => updateMarina('fresh_water_available', !!c)} />
-                  <Label htmlFor="fresh-water" className="font-normal cursor-pointer">Fresh water available</Label>
+                  <Label htmlFor="fresh-water" className="font-normal cursor-pointer">{t('onboarding.marinaForm.freshWater')}</Label>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center space-x-3">
                     <Checkbox id="mix-range" checked={marina.mix_range_boats} onCheckedChange={c => updateMarina('mix_range_boats', !!c)} />
-                    <Label htmlFor="mix-range" className="font-normal cursor-pointer">Mix range of boats</Label>
+                    <Label htmlFor="mix-range" className="font-normal cursor-pointer">{t('onboarding.marinaForm.mixRange')}</Label>
                   </div>
                   {marina.mix_range_boats && (
                     <Input value={marina.mix_range_description} onChange={e => updateMarina('mix_range_description', e.target.value)}
-                      placeholder="Describe the range (e.g. sailboats, motorboats, catamarans...)" className="mt-2" />
+                      placeholder={t('onboarding.marinaForm.mixRangePlaceholder')} className="mt-2" />
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Label>Certifications</Label>
+                  <Label>{t('onboarding.marinaForm.certifications')}</Label>
                   <div className="grid grid-cols-2 gap-2">
                     {certificationOptions.map(cert => (
                       <div key={cert} className="flex items-center space-x-2">
@@ -857,7 +830,7 @@ export function OnboardingPage() {
                     ))}
                   </div>
                   <Input value={marina.certifications_other} onChange={e => updateMarina('certifications_other', e.target.value)}
-                    placeholder="Other certifications..." className="mt-2" />
+                    placeholder={t('onboarding.marinaForm.otherCertifications')} className="mt-2" />
                 </div>
               </CardContent>
             </Card>
@@ -865,42 +838,42 @@ export function OnboardingPage() {
             {/* ── Section 2: Facilities & Amenities ── */}
             <Card>
               <CardHeader>
-                <CardTitle>Facilities & Amenities</CardTitle>
-                <CardDescription>What does your marina offer?</CardDescription>
+                <CardTitle>{t('onboarding.marinaFacilities.title')}</CardTitle>
+                <CardDescription>{t('onboarding.marinaFacilities.subtitle')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <Checkbox id="yacht-club" checked={marina.has_yacht_club} onCheckedChange={c => updateMarina('has_yacht_club', !!c)} />
-                      <Label htmlFor="yacht-club" className="font-normal cursor-pointer">Yacht Club</Label>
+                      <Label htmlFor="yacht-club" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.yachtClub')}</Label>
                     </div>
                     {marina.has_yacht_club && (
                       <Input type="number" min="0" value={marina.yacht_club_members} onChange={e => updateMarina('yacht_club_members', e.target.value)}
-                        placeholder="Number of members" className="w-48" />
+                        placeholder={t('onboarding.marinaFacilities.yachtClubMembers')} className="w-48" />
                     )}
                   </div>
                   <div className="flex items-center space-x-3">
                     <Checkbox id="sailing-school" checked={marina.has_sailing_school} onCheckedChange={c => updateMarina('has_sailing_school', !!c)} />
-                    <Label htmlFor="sailing-school" className="font-normal cursor-pointer">Sailing School / Watersports Centre</Label>
+                    <Label htmlFor="sailing-school" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.sailingSchool')}</Label>
                   </div>
                   <div className="flex items-center space-x-3">
                     <Checkbox id="boat-yard" checked={marina.has_boat_yard} onCheckedChange={c => updateMarina('has_boat_yard', !!c)} />
-                    <Label htmlFor="boat-yard" className="font-normal cursor-pointer">Boat Yard</Label>
+                    <Label htmlFor="boat-yard" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.boatYard')}</Label>
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
                       <Checkbox id="restaurants" checked={marina.has_restaurants} onCheckedChange={c => updateMarina('has_restaurants', !!c)} />
-                      <Label htmlFor="restaurants" className="font-normal cursor-pointer">Restaurants</Label>
+                      <Label htmlFor="restaurants" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.restaurants')}</Label>
                     </div>
                     {marina.has_restaurants && (
                       <Input type="number" min="1" value={marina.restaurants_count} onChange={e => updateMarina('restaurants_count', e.target.value)}
-                        placeholder="How many?" className="w-48" />
+                        placeholder={t('onboarding.marinaFacilities.restaurantsCount')} className="w-48" />
                     )}
                   </div>
                   <div className="flex items-center space-x-3">
                     <Checkbox id="concierge" checked={marina.has_concierge} onCheckedChange={c => updateMarina('has_concierge', !!c)} />
-                    <Label htmlFor="concierge" className="font-normal cursor-pointer">Concierge Services</Label>
+                    <Label htmlFor="concierge" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.concierge')}</Label>
                   </div>
                 </div>
               </CardContent>
@@ -909,24 +882,24 @@ export function OnboardingPage() {
             {/* ── Section 3: Descriptions & Media ── */}
             <Card>
               <CardHeader>
-                <CardTitle>Descriptions & Media</CardTitle>
-                <CardDescription>Tell us more about your marina</CardDescription>
+                <CardTitle>{t('onboarding.marinaDescriptions.title')}</CardTitle>
+                <CardDescription>{t('onboarding.marinaDescriptions.subtitle')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div className="space-y-2">
-                  <Label>Marina Description</Label>
+                  <Label>{t('onboarding.marinaDescriptions.description')}</Label>
                   <Textarea value={marina.marina_description} onChange={e => updateMarina('marina_description', e.target.value)}
-                    rows={4} placeholder="Describe your marina, its history, location and unique features..." />
+                    rows={4} placeholder={t('onboarding.marinaDescriptions.descriptionPlaceholder')} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Description of Services</Label>
+                  <Label>{t('onboarding.marinaDescriptions.servicesDescription')}</Label>
                   <Textarea value={marina.services_description} onChange={e => updateMarina('services_description', e.target.value)}
-                    rows={4} placeholder="Describe the services offered to boat owners and visitors..." />
+                    rows={4} placeholder={t('onboarding.marinaDescriptions.servicesPlaceholder')} />
                 </div>
                 <div className="space-y-2">
-                  <Label>Social Media Links</Label>
+                  <Label>{t('onboarding.marinaDescriptions.socialMedia')}</Label>
                   <Input value={marina.social_media_links} onChange={e => updateMarina('social_media_links', e.target.value)}
-                    placeholder="Instagram, LinkedIn, Facebook URLs..." />
+                    placeholder={t('onboarding.marinaDescriptions.socialMediaPlaceholder')} />
                 </div>
               </CardContent>
             </Card>
@@ -934,9 +907,9 @@ export function OnboardingPage() {
             {/* ── Section 4: Future Plans ── */}
             <Card>
               <CardHeader>
-                <CardTitle>Future Development Plans</CardTitle>
+                <CardTitle>{t('onboarding.marinaFuturePlans.title')}</CardTitle>
                 <CardDescription>
-                  For each sector relevant to your marina, select the timeline that best matches your development plans.
+                  {t('onboarding.marinaFuturePlans.subtitle')}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -967,7 +940,7 @@ export function OnboardingPage() {
                     </div>
                   ))}
                 </div>
-                {sectors.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Loading sectors...</p>}
+                {sectors.length === 0 && <p className="text-sm text-gray-400 text-center py-4">{t('onboarding.marinaFuturePlans.loadingSectors')}</p>}
               </CardContent>
             </Card>
           </>
@@ -979,60 +952,60 @@ export function OnboardingPage() {
         {profile.persona === 'partner' && (
           <Card>
             <CardHeader>
-              <CardTitle>Company Information</CardTitle>
-              <CardDescription>This information will be visible in the marketplace</CardDescription>
+              <CardTitle>{t('onboarding.partnerForm.title')}</CardTitle>
+              <CardDescription>{t('onboarding.partnerForm.subtitle')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2">
-                <Label>Company Name *</Label>
-                <Input value={partner.company_name} onChange={e => setPartner({ ...partner, company_name: e.target.value })} required placeholder="Acme Marine Solutions" />
+                <Label>{t('onboarding.partnerForm.companyName')}</Label>
+                <Input value={partner.company_name} onChange={e => setPartner({ ...partner, company_name: e.target.value })} required placeholder={t('onboarding.partnerForm.companyNamePlaceholder')} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>Headquarters Country</Label>
+                  <Label>{t('onboarding.partnerForm.headquartersCountry')}</Label>
                   <Select value={partner.headquarters_country} onValueChange={v => setPartner({ ...partner, headquarters_country: v })}>
-                    <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={t('onboarding.marinaForm.selectPlaceholder')} /></SelectTrigger>
                     <SelectContent>{countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label>City</Label>
-                  <Input value={partner.city} onChange={e => setPartner({ ...partner, city: e.target.value })} placeholder="e.g. London" />
+                  <Label>{t('onboarding.partnerForm.city')}</Label>
+                  <Input value={partner.city} onChange={e => setPartner({ ...partner, city: e.target.value })} placeholder={t('onboarding.partnerForm.cityPlaceholder')} />
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Website *</Label>
-                <Input type="url" value={partner.website} onChange={e => setPartner({ ...partner, website: e.target.value })} required placeholder="https://" />
+                <Label>{t('onboarding.partnerForm.website')}</Label>
+                <Input type="url" value={partner.website} onChange={e => setPartner({ ...partner, website: e.target.value })} required placeholder={t('onboarding.partnerForm.websitePlaceholder')} />
               </div>
               <div className="space-y-2">
-                <Label>Description *</Label>
+                <Label>{t('onboarding.partnerForm.description')}</Label>
                 <Textarea value={partner.description} onChange={e => setPartner({ ...partner, description: e.target.value })} rows={4} required
-                  placeholder="Describe your services, expertise and positioning in the marina industry..." />
+                  placeholder={t('onboarding.partnerForm.descriptionPlaceholder')} />
               </div>
               <div className="space-y-2">
-                <Label>Social Media Links</Label>
+                <Label>{t('onboarding.partnerForm.socialMedia')}</Label>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">LinkedIn URL</Label>
+                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.linkedin')}</Label>
                     <Input value={partner.social_media_links.linkedin} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, linkedin: e.target.value } })} placeholder="https://linkedin.com/company/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">X (Twitter) URL</Label>
+                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.twitter')}</Label>
                     <Input value={partner.social_media_links.twitter} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, twitter: e.target.value } })} placeholder="https://x.com/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">Instagram URL</Label>
+                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.instagram')}</Label>
                     <Input value={partner.social_media_links.instagram} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, instagram: e.target.value } })} placeholder="https://instagram.com/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">Facebook URL</Label>
+                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.facebook')}</Label>
                     <Input value={partner.social_media_links.facebook} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, facebook: e.target.value } })} placeholder="https://facebook.com/..." />
                   </div>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>Service Sectors *</Label>
-                <p className="text-xs text-gray-500">Select at least one sector</p>
+                <Label>{t('onboarding.partnerForm.serviceSectors')}</Label>
+                <p className="text-xs text-gray-500">{t('onboarding.partnerForm.serviceSectorsHint')}</p>
                 <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
                   {sectors.map(s => (
                     <div key={s.id} className="flex items-center space-x-2">
@@ -1052,40 +1025,40 @@ export function OnboardingPage() {
         {profile.persona === 'media_partner' && (
           <Card>
             <CardHeader>
-              <CardTitle>Media Information</CardTitle>
-              <CardDescription>This information will be visible in the marketplace</CardDescription>
+              <CardTitle>{t('onboarding.mediaForm.title')}</CardTitle>
+              <CardDescription>{t('onboarding.mediaForm.subtitle')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2">
-                <Label>Media Name *</Label>
-                <Input value={media.media_name} onChange={e => setMedia({ ...media, media_name: e.target.value })} required placeholder="Marina World Magazine" />
+                <Label>{t('onboarding.mediaForm.mediaName')}</Label>
+                <Input value={media.media_name} onChange={e => setMedia({ ...media, media_name: e.target.value })} required placeholder={t('onboarding.mediaForm.mediaNamePlaceholder')} />
               </div>
               <div className="space-y-2">
-                <Label>Website *</Label>
-                <Input type="url" value={media.website} onChange={e => setMedia({ ...media, website: e.target.value })} required placeholder="https://" />
+                <Label>{t('onboarding.mediaForm.website')}</Label>
+                <Input type="url" value={media.website} onChange={e => setMedia({ ...media, website: e.target.value })} required placeholder={t('onboarding.mediaForm.websitePlaceholder')} />
               </div>
               <div className="space-y-2">
-                <Label>Audience Description</Label>
+                <Label>{t('onboarding.mediaForm.audienceDescription')}</Label>
                 <Textarea value={media.audience_description} onChange={e => setMedia({ ...media, audience_description: e.target.value })}
-                  rows={4} placeholder="Describe your audience, editorial focus and reach..." />
+                  rows={4} placeholder={t('onboarding.mediaForm.audiencePlaceholder')} />
               </div>
               <div className="space-y-2">
-                <Label>Social Media Links</Label>
+                <Label>{t('onboarding.mediaForm.socialMedia')}</Label>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">LinkedIn URL</Label>
+                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.linkedin')}</Label>
                     <Input value={media.social_media_links.linkedin} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, linkedin: e.target.value } })} placeholder="https://linkedin.com/company/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">X (Twitter) URL</Label>
+                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.twitter')}</Label>
                     <Input value={media.social_media_links.twitter} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, twitter: e.target.value } })} placeholder="https://x.com/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">Instagram URL</Label>
+                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.instagram')}</Label>
                     <Input value={media.social_media_links.instagram} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, instagram: e.target.value } })} placeholder="https://instagram.com/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">Facebook URL</Label>
+                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.facebook')}</Label>
                     <Input value={media.social_media_links.facebook} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, facebook: e.target.value } })} placeholder="https://facebook.com/..." />
                   </div>
                 </div>
@@ -1097,7 +1070,7 @@ export function OnboardingPage() {
         {/* ── Submit button ── */}
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-          {loading ? 'Submitting...' : 'Submit organization profile'}
+          {loading ? t('onboarding.submitting') : t('onboarding.submitOrgProfile')}
         </Button>
       </form>
     </div>

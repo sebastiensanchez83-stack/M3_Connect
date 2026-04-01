@@ -176,7 +176,7 @@ export function AdminResources() {
     <div>
       <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.resources')} ({resources.length})</h1><Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Add Resource</Button></div>
       <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Title</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Access</th><th className="text-left p-4 font-medium">Lang</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {resources.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-medium">{r.title}</div><div className="text-sm text-gray-500 truncate max-w-xs">{r.summary}</div></td><td className="p-4"><Badge variant="outline">{r.type}</Badge></td><td className="p-4"><Badge variant={r.access_level === 'public' ? 'success' : 'info'}>{r.access_level}</Badge></td><td className="p-4">{r.language}</td><td className="p-4"><Badge variant={r.published ? 'success' : 'secondary'}>{r.published ? 'Published' : 'Draft'}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" onClick={() => handleDelete(r.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
+        {resources.map(r => (<tr key={r.id} className="border-b hover:bg-gray-50"><td className="p-4"><div className="font-medium">{r.title}</div><div className="text-sm text-gray-500 truncate max-w-xs">{r.summary}</div></td><td className="p-4"><Badge variant="outline">{r.type}</Badge></td><td className="p-4"><Badge variant={r.access_level === 'public' ? 'success' : 'info'}>{r.access_level}</Badge></td><td className="p-4">{r.language}</td><td className="p-4"><Badge variant={r.published ? 'success' : 'secondary'}>{r.published ? 'Published' : 'Draft'}</Badge></td><td className="p-4"><div className="flex gap-2"><Button size="sm" variant="ghost" aria-label="Edit" onClick={() => openEdit(r)}><Pencil className="h-4 w-4" /></Button><Button size="sm" variant="ghost" aria-label="Delete" onClick={() => handleDelete(r.id)}><Trash2 className="h-4 w-4 text-red-500" /></Button></div></td></tr>))}
       </tbody></table></div></CardContent></Card>
 
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editingResource ? 'Edit Resource' : 'Add Resource'}</DialogTitle><DialogDescription>Fill in the resource details below.</DialogDescription></DialogHeader><div className="space-y-4 mt-4">
@@ -210,9 +210,9 @@ export function AdminResources() {
                   {speaker.profile_id && <Badge variant="success" className="ml-2 text-xs">Linked</Badge>}
                 </span>
                 <div className="flex gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => moveSpeaker(index, 'up')} disabled={index === 0}><ChevronUp className="h-3 w-3" /></Button>
-                  <Button size="sm" variant="ghost" onClick={() => moveSpeaker(index, 'down')} disabled={index === speakers.length - 1}><ChevronDown className="h-3 w-3" /></Button>
-                  <Button size="sm" variant="ghost" onClick={() => removeSpeaker(index)}><Trash2 className="h-3 w-3 text-red-500" /></Button>
+                  <Button size="sm" variant="ghost" aria-label="Move speaker up" onClick={() => moveSpeaker(index, 'up')} disabled={index === 0}><ChevronUp className="h-3 w-3" /></Button>
+                  <Button size="sm" variant="ghost" aria-label="Move speaker down" onClick={() => moveSpeaker(index, 'down')} disabled={index === speakers.length - 1}><ChevronDown className="h-3 w-3" /></Button>
+                  <Button size="sm" variant="ghost" aria-label="Remove speaker" onClick={() => removeSpeaker(index)}><Trash2 className="h-3 w-3 text-red-500" /></Button>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2">

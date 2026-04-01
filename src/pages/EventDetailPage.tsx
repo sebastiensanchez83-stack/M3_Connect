@@ -74,7 +74,7 @@ export function EventDetailPage() {
         .single();
 
       if (error) {
-        console.error('Error fetching event:', error);
+        if (import.meta.env.DEV) console.error('Error fetching event:', error);
       } else {
         setEvent(data as EventDetail);
       }

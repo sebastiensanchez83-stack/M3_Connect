@@ -17,50 +17,6 @@ export interface Profile {
   updated_at: string;
 }
 
-export interface MarinaProfile {
-  user_id: string;
-  marina_name: string;
-  country: string | null;
-  city: string | null;
-  website: string | null;
-  berths_count: number | null;
-  logo_url: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface PartnerProfile {
-  user_id: string;
-  company_name: string;
-  website: string | null;
-  headquarters_country: string | null;
-  city: string | null;
-  description: string | null;
-  recommendation_proof_path: string | null;
-  logo_url: string | null;
-  social_media_links: Record<string, string> | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MediaPartnerProfile {
-  user_id: string;
-  media_name: string;
-  website: string | null;
-  audience_description: string | null;
-  logo_url: string | null;
-  social_media_links: Record<string, string> | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ModeratorProfile {
-  user_id: string;
-  display_name: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
 export interface Sector {
   id: string;
   slug: string;
@@ -79,8 +35,6 @@ export interface ResourceSpeaker {
   display_order: number;
   created_at: string;
 }
-
-export type UserDetails = MarinaProfile | PartnerProfile | MediaPartnerProfile | ModeratorProfile;
 
 // Organization types
 export type OrgTier = 'member' | 'innovation_partner' | 'associate_partner' | 'premium_partner' | 'premium_sponsor' | 'main_sponsor';

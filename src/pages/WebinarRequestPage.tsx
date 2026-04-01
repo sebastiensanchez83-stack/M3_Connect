@@ -13,6 +13,7 @@ import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
+import { notifyAdmin } from '@/lib/notifications';
 
 const FEATURE_KEY = 'webinar_requests';
 
@@ -77,6 +78,8 @@ export function WebinarRequestPage() {
           selectedSectors.map((sector_id) => ({ request_id: request.id, sector_id }))
         );
       }
+
+      notifyAdmin('Webinar Proposal', form.title.trim(), `Language: ${form.preferred_language}`);
 
       toast({
         title: 'Webinar request submitted!',

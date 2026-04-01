@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabase';
 import { Sector, OrgTier } from '@/types/database';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 
 /* ---------- local types ---------- */
 
@@ -234,7 +235,7 @@ export function MarketplacePage() {
 
         setOrgs(cards);
       } catch (err) {
-        console.error('Error fetching organizations:', err);
+        if (import.meta.env.DEV) console.error('Error fetching organizations:', err);
       } finally {
         setLoadingOrgs(false);
       }
@@ -303,7 +304,7 @@ export function MarketplacePage() {
 
         setRfps(cards);
       } catch (err) {
-        console.error('Error fetching RFPs:', err);
+        if (import.meta.env.DEV) console.error('Error fetching RFPs:', err);
       } finally {
         setLoadingRfps(false);
       }
@@ -371,7 +372,7 @@ export function MarketplacePage() {
 
         setConsultations(cards);
       } catch (err) {
-        console.error('Error fetching consultations:', err);
+        if (import.meta.env.DEV) console.error('Error fetching consultations:', err);
       } finally {
         setLoadingConsultations(false);
       }
@@ -435,6 +436,8 @@ export function MarketplacePage() {
       });
 
       if (error) throw error;
+
+      sendNotification({ type: 'partner_request_received', userId: targetUserId, data: { partner_name: contactPartner.company_name || '', message: contactMessage.trim() } });
 
       toast({ title: t('marketplace.requestSent'), description: t('marketplace.requestSentDesc', { name: contactPartner.company_name }) });
       setContactOpen(false);

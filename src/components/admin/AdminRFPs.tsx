@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import type { RFP } from './types';
 
 export function AdminRFPs() {
@@ -31,7 +32,18 @@ export function AdminRFPs() {
     setRfps(rows.map((r: RFP) => ({ ...r, marina_name: nameMap[r.marina_user_id] || r.marina_user_id.slice(0, 8) })));
     setLoading(false);
   };
-  const toggleOpen = async (id: string, is_open: boolean) => { await supabase.from('rfps').update({ is_open }).eq('id', id); toast({ title: is_open ? t('admin.rfps.reopened') : t('admin.rfps.closedToast') }); load(); };
+  const toggleOpen = async (id: string, is_open: boolean) => {
+    await supabase.from('rfps').update({ is_open }).eq('id', id);
+    // Notify marina owner when RFP is closed
+    if (!is_open) {
+      const rfp = rfps.find(r => r.id === id);
+      if (rfp) {
+        sendNotification({ type: 'rfp_closed', userId: rfp.marina_user_id, data: { title: rfp.title } });
+      }
+    }
+    toast({ title: is_open ? t('admin.rfps.reopened') : t('admin.rfps.closedToast') });
+    load();
+  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
@@ -47,7 +59,7 @@ export function AdminRFPs() {
           <td className="p-4 text-sm text-gray-500">{r.deadline_date ? new Date(r.deadline_date).toLocaleDateString() : '—'}</td>
           <td className="p-4"><Badge variant={r.is_open ? 'success' : 'secondary'}>{r.is_open ? t('admin.rfps.open') : t('admin.rfps.closed')}</Badge></td>
           <td className="p-4"><div className="flex gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setSelected(r)}><Eye className="h-4 w-4" /></Button>
+            <Button size="sm" variant="ghost" aria-label="View details" onClick={() => setSelected(r)}><Eye className="h-4 w-4" /></Button>
             <Button size="sm" variant="outline" onClick={() => toggleOpen(r.id, !r.is_open)}>{r.is_open ? t('admin.rfps.close') : t('admin.rfps.reopen')}</Button>
           </div></td>
         </tr>))}

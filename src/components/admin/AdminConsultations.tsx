@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import type { Consultation } from './types';
 
 export function AdminConsultations() {
@@ -31,7 +32,18 @@ export function AdminConsultations() {
     setConsultations(rows.map((c: Consultation) => ({ ...c, marina_name: nameMap[c.marina_user_id] || c.marina_user_id.slice(0, 8) })));
     setLoading(false);
   };
-  const toggleOpen = async (id: string, is_open: boolean) => { await supabase.from('consultations').update({ is_open }).eq('id', id); toast({ title: is_open ? t('admin.consultations.reopened') : t('admin.consultations.closedToast') }); load(); };
+  const toggleOpen = async (id: string, is_open: boolean) => {
+    await supabase.from('consultations').update({ is_open }).eq('id', id);
+    // Notify marina owner when consultation is closed
+    if (!is_open) {
+      const consultation = consultations.find(c => c.id === id);
+      if (consultation) {
+        sendNotification({ type: 'consultation_closed', userId: consultation.marina_user_id, data: { title: consultation.title } });
+      }
+    }
+    toast({ title: is_open ? t('admin.consultations.reopened') : t('admin.consultations.closedToast') });
+    load();
+  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
@@ -47,7 +59,7 @@ export function AdminConsultations() {
           <td className="p-4"><Badge variant={c.is_open ? 'success' : 'secondary'}>{c.is_open ? t('admin.consultations.open') : t('admin.consultations.closed')}</Badge></td>
           <td className="p-4 text-sm text-gray-500">{new Date(c.created_at).toLocaleDateString()}</td>
           <td className="p-4"><div className="flex gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setSelected(c)}><Eye className="h-4 w-4" /></Button>
+            <Button size="sm" variant="ghost" aria-label="View details" onClick={() => setSelected(c)}><Eye className="h-4 w-4" /></Button>
             <Button size="sm" variant="outline" onClick={() => toggleOpen(c.id, !c.is_open)}>{c.is_open ? t('admin.consultations.close') : t('admin.consultations.reopen')}</Button>
           </div></td>
         </tr>))}

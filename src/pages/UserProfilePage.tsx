@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import {
   Building2, Anchor, Newspaper, ChevronLeft, Link2, Loader2,
   Users, Mail, Briefcase, CheckCircle, MapPin,
@@ -124,6 +125,7 @@ export function UserProfilePage() {
         status: 'pending',
       });
       if (error) throw error;
+      sendNotification({ type: 'partner_request_received', userId: id, data: { partner_name: displayName || '', message: connectMessage.trim() } });
       toast({ title: 'Connection request sent!' });
       setConnectOpen(false);
       setConnectMessage('');

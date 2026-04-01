@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
@@ -52,7 +53,7 @@ export function OrganizationPublicPage() {
         .single();
 
       if (orgError) {
-        console.error('Error fetching organization:', orgError);
+        if (import.meta.env.DEV) console.error('Error fetching organization:', orgError);
         setLoading(false);
         return;
       }
@@ -120,7 +121,7 @@ export function OrganizationPublicPage() {
         }
       }
       } catch (err) {
-        console.error('Error loading organization:', err);
+        if (import.meta.env.DEV) console.error('Error loading organization:', err);
       }
       setLoading(false);
     };
@@ -154,6 +155,7 @@ export function OrganizationPublicPage() {
         status: 'pending',
       });
       if (error) throw error;
+      sendNotification({ type: 'partner_request_received', userId: org.owner_user_id!, data: { partner_name: org.name || '', message: connectMessage.trim() } });
       toast({ title: 'Connection request sent!', description: `Your request has been sent to ${org.name}.` });
       setConnectOpen(false);
       setConnectMessage('');

@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 
 interface ExpositionRequest {
   id: string; organization_id: string; event_id: string; requested_by: string;
@@ -72,6 +73,28 @@ export function AdminExpositions() {
       });
     }
 
+    // Send email notification based on status change
+    if (selectedReq) {
+      const notifMap: Record<string, 'exposition_approved' | 'exposition_invoice_sent' | 'exposition_paid' | 'exposition_rejected'> = {
+        approved: 'exposition_approved',
+        invoice_sent: 'exposition_invoice_sent',
+        paid: 'exposition_paid',
+        rejected: 'exposition_rejected',
+      };
+      const notifType = notifMap[status];
+      if (notifType) {
+        sendNotification({
+          type: notifType,
+          userId: selectedReq.requested_by,
+          data: {
+            event_title: selectedReq.event_title,
+            invoice_ref: invoiceRef,
+            amount: `€${selectedReq.amount_due || 1400}`,
+          },
+        });
+      }
+    }
+
     toast({ title: t('admin.expositions.statusUpdated', { status }) });
     setSelectedReq(null);
     loadReqs();
@@ -124,7 +147,7 @@ export function AdminExpositions() {
             <td className="p-4 text-sm">€{r.amount_due || 1400}</td>
             <td className="p-4 text-sm text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
             <td className="p-4">
-              <Button size="sm" variant="ghost" onClick={() => { setSelectedReq(r); setAdminNotes(r.admin_notes || ''); setInvoiceRef(r.invoice_reference || ''); }}>
+              <Button size="sm" variant="ghost" aria-label="View details" onClick={() => { setSelectedReq(r); setAdminNotes(r.admin_notes || ''); setInvoiceRef(r.invoice_reference || ''); }}>
                 <Eye className="h-4 w-4" />
               </Button>
             </td>

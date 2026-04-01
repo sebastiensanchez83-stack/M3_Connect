@@ -107,7 +107,7 @@ export function ResourcesPage() {
         if (error) throw error;
         setResources((data || []) as Resource[]);
       } catch (err) {
-        console.error('Error fetching resources:', err);
+        if (import.meta.env.DEV) console.error('Error fetching resources:', err);
       } finally {
         setLoading(false);
       }

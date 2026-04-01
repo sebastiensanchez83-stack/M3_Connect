@@ -113,7 +113,7 @@ export function AdminPartners() {
           <td className="p-4">{[p.city, p.country].filter(Boolean).join(', ') || '—'}</td>
           <td className="p-4">{statusBadge(p.access_status)}</td>
           <td className="p-4"><div className="flex gap-2">
-            <Button size="sm" variant="ghost" onClick={() => setSelectedPartner(p)}><Eye className="h-4 w-4" /></Button>
+            <Button size="sm" variant="ghost" aria-label="View details" onClick={() => setSelectedPartner(p)}><Eye className="h-4 w-4" /></Button>
             {p.access_status !== 'verified' && <Button size="sm" variant="outline" onClick={() => updateStatus(p.id, 'verified')}>Verify</Button>}
             {p.access_status === 'verified' && <Button size="sm" variant="outline" className="text-red-600" onClick={() => updateStatus(p.id, 'suspended')}>Suspend</Button>}
           </div></td>

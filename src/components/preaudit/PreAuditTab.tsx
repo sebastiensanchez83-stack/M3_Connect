@@ -99,7 +99,7 @@ export function PreAuditTab() {
         }
       }
     } catch (err) {
-      console.error('Failed to load pre-audit session:', err);
+      if (import.meta.env.DEV) console.error('Failed to load pre-audit session:', err);
     } finally {
       setLoading(false);
     }
@@ -119,7 +119,7 @@ export function PreAuditTab() {
       .single();
 
     if (error) {
-      toast({ title: 'Error', description: 'Failed to create audit session', variant: 'destructive' });
+      toast({ title: t('common.error'), description: t('preaudit.errorSession'), variant: 'destructive' });
       return null;
     }
     setSessionId(data.id);
@@ -172,10 +172,10 @@ export function PreAuditTab() {
         if (certErr) throw certErr;
       }
 
-      toast({ title: 'Saved', description: 'Your pre-audit progress has been saved.' });
+      toast({ title: t('common.save'), description: t('preaudit.saved') });
     } catch (err) {
-      console.error(err);
-      toast({ title: 'Error', description: 'Failed to save progress', variant: 'destructive' });
+      if (import.meta.env.DEV) console.error(err);
+      toast({ title: t('common.error'), description: t('preaudit.errorSave'), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -185,7 +185,7 @@ export function PreAuditTab() {
   const handleCalculate = async () => {
     const result = calculateAuditResult(answers, selectedCerts);
     if (!result.complete) {
-      toast({ title: 'Incomplete', description: 'Please answer all 40 questions before calculating results.', variant: 'destructive' });
+      toast({ title: t('common.error'), description: t('preaudit.incomplete'), variant: 'destructive' });
       return;
     }
 
@@ -227,10 +227,10 @@ export function PreAuditTab() {
       if (pilErr) throw pilErr;
 
       setShowResults(true);
-      toast({ title: 'Results calculated', description: `Indicative level: ${LEVEL_CONFIG[result.level!].label}` });
+      toast({ title: t('preaudit.resultsCalculated'), description: t('preaudit.indicativeLevelResult', { level: LEVEL_CONFIG[result.level!].label }) });
     } catch (err) {
-      console.error(err);
-      toast({ title: 'Error', description: 'Failed to save results', variant: 'destructive' });
+      if (import.meta.env.DEV) console.error(err);
+      toast({ title: t('common.error'), description: t('preaudit.errorResults'), variant: 'destructive' });
     } finally {
       setSaving(false);
     }
@@ -273,19 +273,18 @@ export function PreAuditTab() {
               <Shield className="h-8 w-8 text-primary" />
             </div>
             <div className="flex-1">
-              <h2 className="text-2xl font-bold text-gray-900 mb-1">S3 Indicative Pre-Audit</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">{t('preaudit.title')}</h2>
               <p className="text-gray-600 mb-4">
-                This self-assessment provides an indicative reading of your marina's maturity level across the 8 pillars of the S3 standard.
-                It is designed to reassure, qualify overall readiness and highlight priority areas for improvement.
+                {t('preaudit.intro')}
               </p>
               <div className="flex flex-wrap gap-3">
                 <div className="flex items-center gap-2 text-sm bg-white px-3 py-1.5 rounded-full border">
                   <BarChart3 className="h-4 w-4 text-primary" />
-                  <span><strong>{answeredCount}</strong>/40 questions answered</span>
+                  <span>{t('preaudit.questionsAnswered', { count: answeredCount })}</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm bg-white px-3 py-1.5 rounded-full border">
                   <Award className="h-4 w-4 text-primary" />
-                  <span><strong>{Object.values(selectedCerts).filter(Boolean).length}</strong> certifications active</span>
+                  <span>{t('preaudit.certificationsActive', { count: Object.values(selectedCerts).filter(Boolean).length })}</span>
                 </div>
               </div>
             </div>
@@ -296,16 +295,13 @@ export function PreAuditTab() {
       {/* Indicative notice */}
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
         <Info className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
-        <div className="text-sm text-amber-800">
-          <strong>Indicative use only.</strong> This pre-audit does not constitute a formal S3 certification and does not replace a complete audit,
-          documentary review or on-site verification.
-        </div>
+        <div className="text-sm text-amber-800" dangerouslySetInnerHTML={{ __html: t('preaudit.indicativeNotice') }} />
       </div>
 
       {/* Score Legend */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Scoring Scale</CardTitle>
+          <CardTitle className="text-base">{t('preaudit.scoringScale')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
@@ -322,17 +318,17 @@ export function PreAuditTab() {
       {/* Pillars */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Evaluation Pillars</h3>
+          <h3 className="text-lg font-semibold">{t('preaudit.evaluationPillars')}</h3>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => {
               const all: Record<string, boolean> = {};
               PILLARS.forEach((p) => { all[p.key] = true; });
               setExpandedPillars(all);
             }}>
-              Expand All
+              {t('preaudit.expandAll')}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setExpandedPillars({})}>
-              Collapse All
+              {t('preaudit.collapseAll')}
             </Button>
           </div>
         </div>
@@ -379,7 +375,7 @@ export function PreAuditTab() {
                     const currentScore = answers[qKey];
                     return (
                       <div key={qKey} className="pt-4 border-t first:border-t-0 first:pt-2">
-                        <div className="text-xs text-gray-400 mb-1">Question {qIndex + 1}</div>
+                        <div className="text-xs text-gray-400 mb-1">{t('preaudit.question', { n: qIndex + 1 })}</div>
                         <p className="text-sm font-medium text-gray-800 mb-3">{question}</p>
                         <div className="flex flex-wrap gap-2 mb-2">
                           {[0, 1, 2, 3, 4, 5].map((score) => (
@@ -404,7 +400,7 @@ export function PreAuditTab() {
                           <textarea
                             value={comments[qKey] || ''}
                             onChange={(e) => setComment(pillar.key, qIndex, e.target.value)}
-                            placeholder="Optional comment, context or evidence..."
+                            placeholder={t('preaudit.commentPlaceholder')}
                             className="w-full mt-2 min-h-[60px] resize-y rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary/30"
                           />
                         )}
@@ -421,8 +417,8 @@ export function PreAuditTab() {
       {/* Certifications */}
       <div className="space-y-3">
         <div>
-          <h3 className="text-lg font-semibold">Existing Certifications</h3>
-          <p className="text-sm text-gray-500">Active certifications moderately boost the relevant pillars. Factor capped at 1.20 per pillar.</p>
+          <h3 className="text-lg font-semibold">{t('preaudit.existingCertifications')}</h3>
+          <p className="text-sm text-gray-500">{t('preaudit.certificationHint')}</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {CERTIFICATIONS.map((cert) => {
@@ -472,17 +468,17 @@ export function PreAuditTab() {
           <CardContent className="pt-6">
             <div className="flex items-center justify-between flex-wrap gap-4">
               <div>
-                <h3 className="font-semibold">Calculate & Save</h3>
-                <p className="text-sm text-gray-500">Complete all 40 questions to get your indicative result.</p>
+                <h3 className="font-semibold">{t('preaudit.calculateSave')}</h3>
+                <p className="text-sm text-gray-500">{t('preaudit.calculateHint')}</p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={handleSave} disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Save Draft
+                  {t('preaudit.saveDraft')}
                 </Button>
                 <Button onClick={handleCalculate} disabled={saving || answeredCount < 40}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Calculator className="h-4 w-4 mr-2" />}
-                  Calculate Result
+                  {t('preaudit.calculateResult')}
                 </Button>
               </div>
             </div>
@@ -497,20 +493,20 @@ export function PreAuditTab() {
             <CardContent className="pt-6">
               <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
                 <div>
-                  <div className="text-xs uppercase tracking-widest text-gray-500 mb-2">S3 Indicative Summary</div>
+                  <div className="text-xs uppercase tracking-widest text-gray-500 mb-2">{t('preaudit.indicativeSummary')}</div>
                   <Badge className={`text-base px-4 py-1.5 ${LEVEL_CONFIG[result.level].bgClass} ${LEVEL_CONFIG[result.level].textClass} ${LEVEL_CONFIG[result.level].borderClass} border`}>
                     {LEVEL_CONFIG[result.level].label}
                   </Badge>
-                  <h3 className="text-2xl font-bold mt-3 mb-2">{LEVEL_CONFIG[result.level].label} — Indicative Level</h3>
+                  <h3 className="text-2xl font-bold mt-3 mb-2">{t('preaudit.indicativeLevel', { level: LEVEL_CONFIG[result.level].label })}</h3>
                   <p className="text-gray-600 max-w-xl">{LEVEL_INTERPRETATION[result.level]}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 min-w-[240px]">
                   <div className="bg-gray-50 rounded-xl p-4 text-center border">
-                    <div className="text-xs text-gray-500 mb-1">Score /5</div>
+                    <div className="text-xs text-gray-500 mb-1">{t('preaudit.scoreOf5')}</div>
                     <div className="text-3xl font-bold text-primary">{result.globalAdjusted!.toFixed(2)}</div>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-4 text-center border">
-                    <div className="text-xs text-gray-500 mb-1">Score /100</div>
+                    <div className="text-xs text-gray-500 mb-1">{t('preaudit.scoreOf100')}</div>
                     <div className="text-3xl font-bold text-primary">{Math.round(result.globalPct!)}%</div>
                   </div>
                 </div>
@@ -523,7 +519,7 @@ export function PreAuditTab() {
             {/* Per-pillar results */}
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">Pillar Breakdown</CardTitle>
+                <CardTitle className="text-base">{t('preaudit.pillarBreakdown')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {result.pillarResults.map((p) => (
@@ -534,7 +530,7 @@ export function PreAuditTab() {
                     </div>
                     <Progress value={p.adjustedPct!} className="h-2 mb-1" />
                     <div className="text-xs text-gray-500">
-                      Raw {p.rawScore!.toFixed(2)} · Factor {p.factor.toFixed(2)}
+                      {t('preaudit.raw', { score: p.rawScore!.toFixed(2), factor: p.factor.toFixed(2) })}
                     </div>
                   </div>
                 ))}
@@ -546,13 +542,13 @@ export function PreAuditTab() {
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
                   <Target className="h-4 w-4 text-primary" />
-                  Priority Improvement Areas
+                  {t('preaudit.priorityAreas')}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {result.priorities!.map((p, idx) => (
                   <div key={p.key} className="p-3 bg-gray-50 rounded-lg border">
-                    <div className="text-xs text-gray-400 mb-1">Priority {idx + 1} — {p.title}</div>
+                    <div className="text-xs text-gray-400 mb-1">{t('preaudit.priority', { n: idx + 1, title: p.title })}</div>
                     <p className="text-sm text-gray-700">{p.recommendation}</p>
                   </div>
                 ))}
@@ -560,14 +556,14 @@ export function PreAuditTab() {
                 <div className="pt-3 space-y-2">
                   <Button className="w-full" size="sm" onClick={() => window.open('mailto:contact@m3connect.mc?subject=Full%20S3%20Audit%20Request', '_blank')}>
                     <Anchor className="h-4 w-4 mr-2" />
-                    Request a full S3 audit
+                    {t('preaudit.requestFullAudit')}
                   </Button>
                   <Button variant="outline" className="w-full" size="sm" onClick={() => window.open('mailto:contact@m3connect.mc?subject=S3%20Roadmap%20Discussion', '_blank')}>
-                    Discuss your S3 roadmap with M3
+                    {t('preaudit.discussRoadmap')}
                   </Button>
                 </div>
                 <p className="text-xs text-gray-400 mt-2">
-                  This result remains indicative and strategic. It aims to structure the next discussion, not to replace the formal certification process.
+                  {t('preaudit.indicativeDisclaimer')}
                 </p>
               </CardContent>
             </Card>
@@ -578,16 +574,16 @@ export function PreAuditTab() {
       {/* Sidebar progress (on mobile, shown as a card at the bottom) */}
       <Card className="bg-gray-50">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Completion Status</CardTitle>
+          <CardTitle className="text-base">{t('preaudit.completionStatus')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-white rounded-xl p-3 text-center border">
-              <div className="text-xs text-gray-500 mb-1">Questions</div>
+              <div className="text-xs text-gray-500 mb-1">{t('preaudit.questions')}</div>
               <div className="text-xl font-bold">{answeredCount}/40</div>
             </div>
             <div className="bg-white rounded-xl p-3 text-center border">
-              <div className="text-xs text-gray-500 mb-1">Certifications</div>
+              <div className="text-xs text-gray-500 mb-1">{t('preaudit.certifications')}</div>
               <div className="text-xl font-bold">{Object.values(selectedCerts).filter(Boolean).length}</div>
             </div>
           </div>

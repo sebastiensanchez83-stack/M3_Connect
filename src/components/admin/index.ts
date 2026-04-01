@@ -3,6 +3,7 @@ export { AdminDashboard } from './AdminDashboard';
 export { AdminUsers } from './AdminUsers';
 export { AdminResources } from './AdminResources';
 export { AdminEvents } from './AdminEvents';
+export { AdminEventDetail } from './AdminEventDetail';
 export { AdminPartners } from './AdminPartners';
 export { AdminSponsorships } from './AdminSponsorships';
 export { AdminExpositions } from './AdminExpositions';

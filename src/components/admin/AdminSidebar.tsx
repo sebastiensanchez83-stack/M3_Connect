@@ -34,8 +34,11 @@ export function AdminSidebar() {
   const links = isAdmin ? allLinks : allLinks.filter((l) => !l.adminOnly);
 
   const isActive = (to: string, exact?: boolean) => {
-    if (exact) return location.pathname === to;
-    return location.pathname.startsWith(to) && to !== '/admin';
+    // Strip query params from comparison — /admin/events?foo=bar should still highlight "Events"
+    const path = location.pathname;
+    if (exact) return path === to;
+    // Special: /admin/events/123 should still highlight /admin/events
+    return path.startsWith(to) && to !== '/admin';
   };
 
   return (

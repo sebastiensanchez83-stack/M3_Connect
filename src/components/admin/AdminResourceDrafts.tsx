@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Eye, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -15,6 +16,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { AdminContextBanner } from './AdminContextBanner';
 import type { ResourceDraft } from './types';
 
 type DraftStatus = 'all' | 'pending' | 'approved' | 'rejected';
@@ -37,9 +39,12 @@ function statusBadge(status: string, t: (key: string) => string) {
 export function AdminResourceDrafts() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlStatus = searchParams.get('status') || '';
+  const hasUrlFilters = !!urlStatus;
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<DraftStatus>('all');
+  const [statusFilter, setStatusFilter] = useState<DraftStatus>((urlStatus || 'all') as DraftStatus);
   const [selected, setSelected] = useState<DraftRow | null>(null);
   const [comment, setComment] = useState('');
   const [saving, setSaving] = useState(false);
@@ -217,6 +222,16 @@ export function AdminResourceDrafts() {
 
   return (
     <div>
+      {/* URL-based filter context banner */}
+      {hasUrlFilters && (
+        <AdminContextBanner
+          label={`Showing ${urlStatus} resource drafts`}
+          count={drafts.filter(d => urlStatus === 'pending' ? d.status === 'submitted' : d.status === urlStatus).length}
+          onClear={() => { setSearchParams({}, { replace: true }); setStatusFilter('all'); }}
+          color="green"
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">{t('admin.resourceDrafts.title')} ({filtered.length})</h1>

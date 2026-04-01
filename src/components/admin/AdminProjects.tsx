@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
+import { AdminContextBanner } from './AdminContextBanner';
 import { RefreshCw, Eye } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,12 +19,22 @@ import type { MarinaProject } from './types';
 
 export function AdminProjects() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlStatus = searchParams.get('status');
   const [projects, setProjects] = useState<MarinaProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState<MarinaProject | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
 
   const [marinaNames, setMarinaNames] = useState<Record<string, string>>({});
+
+  const filteredProjects = useMemo(() => {
+    if (!urlStatus) return projects;
+    return projects.filter(p => p.status === urlStatus);
+  }, [projects, urlStatus]);
+
+  const bannerColor = urlStatus === 'new' ? 'blue' : urlStatus === 'in_progress' ? 'amber' : urlStatus === 'completed' ? 'green' : 'blue';
+  const clearFilter = () => { setSearchParams({}); };
   useEffect(() => { loadProjects(); }, []);
   const loadProjects = async () => {
     setLoading(true);
@@ -45,9 +57,10 @@ export function AdminProjects() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.marinaProjects')} ({projects.length})</h1></div>
+      {urlStatus && <AdminContextBanner label={`Filtered by status: ${urlStatus}`} count={filteredProjects.length} onClear={clearFilter} color={bannerColor} />}
+      <div className="flex justify-between items-center mb-6"><h1 className="text-2xl font-bold">{t('admin.marinaProjects')} ({filteredProjects.length})</h1></div>
       <Card><CardContent className="p-0"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left p-4 font-medium">Marina</th><th className="text-left p-4 font-medium">Type</th><th className="text-left p-4 font-medium">Budget</th><th className="text-left p-4 font-medium">Status</th><th className="text-left p-4 font-medium">Date</th><th className="text-left p-4 font-medium">Actions</th></tr></thead><tbody>
-        {projects.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-4 text-sm font-medium">{marinaNames[p.user_id] || p.user_id.slice(0, 8)}</td><td className="p-4">{p.project_type}</td><td className="p-4">{p.budget_range}</td><td className="p-4"><Select value={p.status} onValueChange={v => updateStatus(p.id, v)}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(p.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" aria-label="View details" onClick={() => { setSelectedProject(p); setAdminNotes(p.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
+        {filteredProjects.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50"><td className="p-4 text-sm font-medium">{marinaNames[p.user_id] || p.user_id.slice(0, 8)}</td><td className="p-4">{p.project_type}</td><td className="p-4">{p.budget_range}</td><td className="p-4"><Select value={p.status} onValueChange={v => updateStatus(p.id, v)}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="new">New</SelectItem><SelectItem value="in_progress">In Progress</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent></Select></td><td className="p-4 text-gray-500">{new Date(p.created_at).toLocaleDateString()}</td><td className="p-4"><Button size="sm" variant="ghost" aria-label="View details" onClick={() => { setSelectedProject(p); setAdminNotes(p.admin_notes || ''); }}><Eye className="h-4 w-4" /></Button></td></tr>))}
       </tbody></table></CardContent></Card>
       <Dialog open={!!selectedProject} onOpenChange={() => setSelectedProject(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Project Details</DialogTitle><DialogDescription>View and manage project notes.</DialogDescription></DialogHeader>{selectedProject && (<div className="space-y-4 mt-4"><div><strong>Type:</strong> {selectedProject.project_type}</div><div><strong>Budget:</strong> {selectedProject.budget_range}</div><div><strong>Description:</strong><p className="mt-1 p-2 bg-gray-50 rounded text-sm">{selectedProject.description}</p></div><div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
     </div>

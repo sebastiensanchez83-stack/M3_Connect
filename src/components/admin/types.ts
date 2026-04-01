@@ -152,6 +152,8 @@ export interface PartnerRequest {
   id: string;
   partner_user_id: string;
   marina_user_id: string;
+  partner_organization_id: string | null;
+  marina_organization_id: string | null;
   sector_id: string | null;
   message: string;
   status: string;

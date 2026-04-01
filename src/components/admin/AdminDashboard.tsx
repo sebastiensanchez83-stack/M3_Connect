@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+// Filtered navigation helper: builds URL with search params
 import {
   Users, UserCheck, FileText, Calendar, Anchor, RefreshCw, Building2,
   Link2, MessageSquare, ChevronRight, FolderOpen,
@@ -115,6 +116,18 @@ export function AdminDashboard() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const navigate = useNavigate();
+  /** Navigate to admin sub-page with pre-set URL filters */
+  const nav = (path: string, params?: Record<string, string | undefined>) => {
+    if (params) {
+      // Filter out undefined values
+      const clean: Record<string, string> = {};
+      Object.entries(params).forEach(([k, v]) => { if (v) clean[k] = v; });
+      const qs = Object.keys(clean).length > 0 ? '?' + new URLSearchParams(clean).toString() : '';
+      navigate(`${path}${qs}`);
+    } else {
+      navigate(path);
+    }
+  };
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats>({
     totalUsers: 0, verifiedUsers: 0, pendingUsers: 0, paymentPendingUsers: 0,
@@ -480,7 +493,7 @@ export function AdminDashboard() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
             {stats.usersWaiting48h > 0 && (
-              <button onClick={() => navigate('/admin/users')}
+              <button onClick={() => nav('/admin/users', { status: 'pending' })}
                 className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-red-200/50 group">
                 <div className="h-8 w-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
                   <UserCheck className="h-4 w-4 text-red-600" />
@@ -493,7 +506,7 @@ export function AdminDashboard() {
               </button>
             )}
             {stats.oldLeadsNotContacted > 0 && (
-              <button onClick={() => navigate('/admin/leads')}
+              <button onClick={() => nav('/admin/leads', { status: 'new' })}
                 className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-red-200/50 group">
                 <div className="h-8 w-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
                   <Target className="h-4 w-4 text-red-600" />
@@ -506,7 +519,7 @@ export function AdminDashboard() {
               </button>
             )}
             {stats.oldB2BRequests > 0 && (
-              <button onClick={() => navigate('/admin/partner-requests')}
+              <button onClick={() => nav('/admin/partner-requests')}
                 className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-amber-200/50 group">
                 <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
                   <Link2 className="h-4 w-4 text-amber-600" />
@@ -519,7 +532,7 @@ export function AdminDashboard() {
               </button>
             )}
             {stats.paymentPendingUsers > 0 && (
-              <button onClick={() => navigate('/admin/users')}
+              <button onClick={() => nav('/admin/users', { status: 'payment_pending' })}
                 className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-amber-200/50 group">
                 <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
                   <CreditCard className="h-4 w-4 text-amber-600" />
@@ -532,7 +545,7 @@ export function AdminDashboard() {
               </button>
             )}
             {stats.pendingRegistrations > 0 && (
-              <button onClick={() => navigate('/admin/events')}
+              <button onClick={() => nav('/admin/events')}
                 className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-orange-200/50 group">
                 <div className="h-8 w-8 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
                   <Calendar className="h-4 w-4 text-orange-600" />
@@ -592,7 +605,7 @@ export function AdminDashboard() {
 
           {/* Users */}
           <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-blue-50 to-white"
-                onClick={() => navigate('/admin/users')}>
+                onClick={() => nav('/admin/users')}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="h-9 w-9 rounded-xl bg-blue-100 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -648,7 +661,7 @@ export function AdminDashboard() {
 
           {/* Orgs */}
           <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-purple-50 to-white"
-                onClick={() => navigate('/admin/sponsorships')}>
+                onClick={() => nav('/admin/sponsorships')}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="h-9 w-9 rounded-xl bg-purple-100 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -667,7 +680,7 @@ export function AdminDashboard() {
 
           {/* B2B Connections */}
           <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-cyan-50 to-white"
-                onClick={() => navigate('/admin/partner-requests')}>
+                onClick={() => nav('/admin/partner-requests')}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="h-9 w-9 rounded-xl bg-cyan-100 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -685,7 +698,7 @@ export function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         {/* Leads Funnel */}
         <Card className="lg:col-span-3 border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer"
-              onClick={() => navigate('/admin/leads')}>
+              onClick={() => nav('/admin/leads', { status: 'new' })}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -748,17 +761,17 @@ export function AdminDashboard() {
             {[
               { label: 'Partner Leads', total: stats.newLeads + stats.qualifiedLeads + stats.inDiscussionLeads,
                 badge: `${stats.newLeads} new`, color: 'text-amber-600', bg: 'bg-amber-50', icon: Target,
-                link: '/admin/leads' },
+                link: '/admin/leads', params: {} },
               { label: 'B2B Requests', total: stats.pendingB2B, badge: stats.oldB2BRequests > 0 ? `${stats.oldB2BRequests} urgent` : '',
-                color: 'text-rose-600', bg: 'bg-rose-50', icon: Link2, link: '/admin/partner-requests' },
+                color: 'text-rose-600', bg: 'bg-rose-50', icon: Link2, link: '/admin/partner-requests', params: { status: 'pending' } },
               { label: 'Open RFPs', total: stats.openRFPs, badge: '', color: 'text-blue-600', bg: 'bg-blue-50',
-                icon: FileText, link: '/admin/rfps' },
+                icon: FileText, link: '/admin/rfps', params: { status: 'open' } },
               { label: 'Consultations', total: stats.openConsultations, badge: '', color: 'text-cyan-600', bg: 'bg-cyan-50',
-                icon: MessageSquare, link: '/admin/consultations' },
+                icon: MessageSquare, link: '/admin/consultations', params: { status: 'open' } },
               { label: 'Expo Requests', total: stats.pendingExpositions, badge: '', color: 'text-pink-600', bg: 'bg-pink-50',
-                icon: Eye, link: '/admin/expositions' },
+                icon: Eye, link: '/admin/expositions', params: { status: 'pending' } },
             ].map((item, i) => (
-              <button key={i} onClick={() => navigate(item.link)}
+              <button key={i} onClick={() => nav(item.link, item.params)}
                 className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 hover:bg-gray-50 transition-all group text-left">
                 <div className={`h-8 w-8 rounded-lg ${item.bg} flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform`}>
                   <item.icon className={`h-4 w-4 ${item.color}`} />
@@ -784,7 +797,7 @@ export function AdminDashboard() {
       {/* ═══ ROW 3: USER INTELLIGENCE ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Persona Donut */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => navigate('/admin/users')}>
+        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => nav('/admin/users')}>
           <CardHeader className="pb-1">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -833,7 +846,7 @@ export function AdminDashboard() {
         </Card>
 
         {/* Status Donut */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => navigate('/admin/users')}>
+        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => nav('/admin/users')}>
           <CardHeader className="pb-1">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -886,15 +899,15 @@ export function AdminDashboard() {
           <CardContent className="pt-0 space-y-2">
             {[
               { icon: CheckCircle, label: 'Active Users', value: stats.verifiedUsers, sub: `${activePct}% of total`,
-                color: 'text-green-600', bg: 'bg-green-50', link: '/admin/users' },
+                color: 'text-green-600', bg: 'bg-green-50', link: '/admin/users', params: { status: 'verified' } },
               { icon: Flame, label: 'New This Week', value: stats.signupsThisWeek, sub: `vs ${stats.signupsLastWeek} last week`,
-                color: 'text-orange-600', bg: 'bg-orange-50', link: '/admin/users' },
+                color: 'text-orange-600', bg: 'bg-orange-50', link: '/admin/users', params: {} },
               { icon: UserX, label: 'Inactive (30d+)', value: inactiveUsers, sub: 'verified but dormant',
-                color: 'text-gray-500', bg: 'bg-gray-50', link: '/admin/users' },
+                color: 'text-gray-500', bg: 'bg-gray-50', link: '/admin/users', params: { status: 'verified', activity: 'inactive' } },
               { icon: Zap, label: 'Not Activated', value: notActivatedUsers, sub: 'no onboarding completed',
-                color: 'text-amber-600', bg: 'bg-amber-50', link: '/admin/users' },
+                color: 'text-amber-600', bg: 'bg-amber-50', link: '/admin/users', params: { onboarding: 'draft' } },
             ].map((seg, i) => (
-              <button key={i} onClick={() => navigate(seg.link)}
+              <button key={i} onClick={() => nav(seg.link, seg.params)}
                 className="flex items-center gap-3 w-full rounded-xl px-2.5 py-2 hover:bg-gray-50 transition-all group text-left">
                 <div className={`h-8 w-8 rounded-lg ${seg.bg} flex items-center justify-center shrink-0`}>
                   <seg.icon className={`h-4 w-4 ${seg.color}`} />
@@ -985,7 +998,7 @@ export function AdminDashboard() {
               Events Performance
             </CardTitle>
             <Button variant="ghost" size="sm" className="text-xs text-primary h-7 hover:bg-primary/5 rounded-lg"
-                    onClick={() => navigate('/admin/events')}>
+                    onClick={() => nav('/admin/events')}>
               All Events <ChevronRight className="h-3 w-3 ml-0.5" />
             </Button>
           </div>
@@ -1005,7 +1018,7 @@ export function AdminDashboard() {
                 const isAtRisk = evt.fillRate < 25;
                 const isGood = evt.fillRate >= 60;
                 return (
-                  <button key={evt.id} onClick={() => navigate('/admin/events')}
+                  <button key={evt.id} onClick={() => nav('/admin/events')}
                     className="flex items-center gap-3 w-full rounded-xl px-3 py-2.5 hover:bg-gray-50 transition-all group text-left">
                     <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
                       isAtRisk ? 'bg-red-50' : isGood ? 'bg-green-50' : 'bg-amber-50'
@@ -1048,7 +1061,7 @@ export function AdminDashboard() {
       {/* ═══ ROW 6: TIER DISTRIBUTION + INSIGHTS ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Tier Distribution */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => navigate('/admin/sponsorships')}>
+        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => nav('/admin/sponsorships')}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -1126,22 +1139,22 @@ export function AdminDashboard() {
         </h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
           {[
-            { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, gradient: 'from-yellow-500 to-amber-500', bg: 'bg-yellow-50', link: '/admin/users' },
-            { label: 'Awaiting Payment', value: stats.paymentPendingUsers, icon: CreditCard, gradient: 'from-amber-500 to-orange-500', bg: 'bg-amber-50', link: '/admin/users' },
-            { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, gradient: 'from-pink-500 to-rose-500', bg: 'bg-pink-50', link: '/admin/events' },
-            { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, gradient: 'from-purple-500 to-violet-500', bg: 'bg-purple-50', link: '/admin/sponsorships' },
-            { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, gradient: 'from-indigo-500 to-blue-500', bg: 'bg-indigo-50', link: '/admin/webinars' },
-            { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, gradient: 'from-teal-500 to-cyan-500', bg: 'bg-teal-50', link: '/admin/resource-drafts' },
-            { label: 'New Projects', value: stats.newProjects, icon: Anchor, gradient: 'from-orange-500 to-red-500', bg: 'bg-orange-50', link: '/admin/projects' },
-            { label: 'Expo Requests', value: stats.pendingExpositions, icon: Eye, gradient: 'from-fuchsia-500 to-pink-500', bg: 'bg-fuchsia-50', link: '/admin/expositions' },
-            { label: 'B2B Requests', value: stats.pendingB2B, icon: Link2, gradient: 'from-rose-500 to-red-500', bg: 'bg-rose-50', link: '/admin/partner-requests' },
-            { label: 'New Leads', value: stats.newLeads, icon: Target, gradient: 'from-cyan-500 to-blue-500', bg: 'bg-cyan-50', link: '/admin/leads' },
+            { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, gradient: 'from-yellow-500 to-amber-500', bg: 'bg-yellow-50', link: '/admin/users', params: { status: 'pending' } },
+            { label: 'Awaiting Payment', value: stats.paymentPendingUsers, icon: CreditCard, gradient: 'from-amber-500 to-orange-500', bg: 'bg-amber-50', link: '/admin/users', params: { status: 'payment_pending' } },
+            { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, gradient: 'from-pink-500 to-rose-500', bg: 'bg-pink-50', link: '/admin/events', params: { view: 'registrations' } },
+            { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, gradient: 'from-purple-500 to-violet-500', bg: 'bg-purple-50', link: '/admin/sponsorships', params: { status: 'pending' } },
+            { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, gradient: 'from-indigo-500 to-blue-500', bg: 'bg-indigo-50', link: '/admin/webinars', params: { status: 'submitted' } },
+            { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, gradient: 'from-teal-500 to-cyan-500', bg: 'bg-teal-50', link: '/admin/resource-drafts', params: { status: 'pending' } },
+            { label: 'New Projects', value: stats.newProjects, icon: Anchor, gradient: 'from-orange-500 to-red-500', bg: 'bg-orange-50', link: '/admin/projects', params: { status: 'new' } },
+            { label: 'Expo Requests', value: stats.pendingExpositions, icon: Eye, gradient: 'from-fuchsia-500 to-pink-500', bg: 'bg-fuchsia-50', link: '/admin/expositions', params: { status: 'pending' } },
+            { label: 'B2B Requests', value: stats.pendingB2B, icon: Link2, gradient: 'from-rose-500 to-red-500', bg: 'bg-rose-50', link: '/admin/partner-requests', params: { status: 'pending' } },
+            { label: 'New Leads', value: stats.newLeads, icon: Target, gradient: 'from-cyan-500 to-blue-500', bg: 'bg-cyan-50', link: '/admin/leads', params: { status: 'new' } },
           ].map((item, i) => {
             const active = item.value > 0;
             return (
               <Card key={i}
                 className={`group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm overflow-hidden ${active ? 'ring-1 ring-gray-200' : ''}`}
-                onClick={() => navigate(item.link)}>
+                onClick={() => nav(item.link, item.params)}>
                 {active && <div className={`h-1 bg-gradient-to-r ${item.gradient}`} />}
                 <CardContent className="pt-3.5 pb-3 px-3">
                   <div className="flex flex-col items-center text-center gap-1.5">
@@ -1168,7 +1181,7 @@ export function AdminDashboard() {
                 <Users className="h-4 w-4 text-blue-500" /> Recent Signups
               </CardTitle>
               <Button variant="ghost" size="sm" className="text-xs text-primary h-7 hover:bg-primary/5 rounded-lg"
-                      onClick={() => navigate('/admin/users')}>
+                      onClick={() => nav('/admin/users')}>
                 View all <ChevronRight className="h-3 w-3 ml-0.5" />
               </Button>
             </div>
@@ -1176,7 +1189,7 @@ export function AdminDashboard() {
           <CardContent className="pt-0">
             <div className="divide-y divide-gray-50">
               {recentUsers.map((u) => (
-                <div key={u.user_id} onClick={() => navigate('/admin/users')}
+                <div key={u.user_id} onClick={() => nav('/admin/users')}
                      className="flex items-center justify-between py-2.5 hover:bg-gray-50/80 -mx-2 px-2 rounded-xl transition-all cursor-pointer group">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <div className="h-8 w-8 rounded-xl bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center text-xs font-bold text-gray-600 shrink-0">
@@ -1257,7 +1270,7 @@ export function AdminDashboard() {
         ].map((a, i) => (
           <Button key={i} variant="outline"
                   className={`h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl ${a.bg}`}
-                  onClick={() => navigate(a.link)}>
+                  onClick={() => nav(a.link)}>
             <a.icon className={`h-5 w-5 ${a.color}`} />
             <span className="text-sm font-medium text-gray-700">{a.label}</span>
           </Button>

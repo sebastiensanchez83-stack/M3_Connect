@@ -257,12 +257,12 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     case "partner_request_accepted":
       return {
         subject: "Your contact request has been accepted — M3 Connect",
-        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
-        title: "Contact Request Accepted",
-        body: `${d.marina_name || "The marina"} has accepted your contact request! You can now connect directly.`,
-        buttonText: "View Connection",
+        greeting: d.first_name ? `Dear ${d.first_name},` : "Dear Partner,",
+        title: "",
+        body: `We are pleased to inform you that ${d.marina_name || "the recipient"} has accepted your contact request on M3 Connect.\n\nYou can now exchange directly with them to discuss collaboration opportunities. We encourage you to reach out promptly to make the most of this new connection.\n\nIf you have any questions or need assistance, please don't hesitate to contact us.`,
+        buttonText: "View My Connections",
         buttonUrl: accountUrl,
-        footer: "Good luck with your collaboration!",
+        footer: "Best regards,\nThe M3 Connect Team",
       };
     case "partner_request_rejected":
       return {
@@ -437,7 +437,21 @@ Deno.serve(async (req: Request) => {
     // Merge firstName into data for template
     const templateData = { ...notifData, first_name: firstName || notifData?.first_name || "" };
     const content = getEmailContent(type, templateData);
-    const html = buildEmail(content);
+
+    // Use plain email style for partner_request_accepted (looks like a normal business email)
+    const isPlainStyle = type === "partner_request_accepted";
+    const html = isPlainStyle ? buildPlainEmail(content) : buildEmail(content);
+
+    // Build email payload — add CC for partner_request_accepted
+    const emailPayload: Record<string, unknown> = {
+      from: SENDER_EMAIL,
+      to: [recipientEmail],
+      subject: content.subject,
+      html,
+    };
+    if (type === "partner_request_accepted") {
+      emailPayload.cc = ["victor@m3monaco.com"];
+    }
 
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -445,12 +459,7 @@ Deno.serve(async (req: Request) => {
         Authorization: `Bearer ${RESEND_API_KEY}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from: SENDER_EMAIL,
-        to: [recipientEmail],
-        subject: content.subject,
-        html,
-      }),
+      body: JSON.stringify(emailPayload),
     });
 
     const resBody = await res.text();
@@ -496,6 +505,35 @@ function buildEmail(content: EmailContent): string {
 <tr><td style="padding:24px 40px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
 <p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management &mdash; M3 Connect</p>
 <p style="margin:4px 0 0;color:#9ca3af;font-size:12px;">The B2B platform for the marina industry</p>
+</td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+}
+
+// ── Plain business email template (no big header/banner — looks like a normal email) ──
+
+function buildPlainEmail(content: EmailContent): string {
+  const htmlBody = content.body.replace(/\n/g, "<br>");
+  const htmlFooter = content.footer.replace(/\n/g, "<br>");
+  return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${content.subject}</title></head>
+<body style="margin:0;padding:0;background-color:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f9fafb;padding:30px 20px;">
+<tr><td align="center">
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb;">
+<tr><td style="padding:36px 40px;">
+<p style="margin:0 0 20px;color:#374151;font-size:15px;line-height:1.6;">${content.greeting}</p>
+<p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.7;">${htmlBody}</p>
+<table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0;">
+<tr><td style="background-color:#0c4a6e;border-radius:6px;">
+<a href="${content.buttonUrl}" target="_blank" style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;">${content.buttonText}</a>
+</td></tr></table>
+<p style="margin:24px 0 0;color:#6b7280;font-size:14px;line-height:1.6;">${htmlFooter}</p>
+</td></tr>
+<tr><td style="padding:16px 40px;border-top:1px solid #f3f4f6;">
+<p style="margin:0;color:#9ca3af;font-size:11px;">Monaco Marina Management — M3 Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">connect.m3monaco.com</a></p>
 </td></tr>
 </table>
 </td></tr></table>

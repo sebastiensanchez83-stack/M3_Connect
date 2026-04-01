@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
+import { AdminContextBanner } from './AdminContextBanner';
 import { RefreshCw, Eye } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,12 +28,17 @@ interface ExpositionRequest {
 
 export function AdminExpositions() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlStatus = searchParams.get('status');
   const [requests, setRequests] = useState<ExpositionRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReq, setSelectedReq] = useState<ExpositionRequest | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
   const [invoiceRef, setInvoiceRef] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
+
+  const bannerColor = urlStatus === 'pending' ? 'amber' : urlStatus === 'approved' ? 'green' : urlStatus === 'rejected' ? 'red' : 'blue';
+  const clearFilter = () => { setSearchParams({}); setStatusFilter('all'); };
 
   useEffect(() => { loadReqs(); }, []);
 
@@ -114,6 +121,7 @@ export function AdminExpositions() {
 
   return (
     <div>
+      {urlStatus && <AdminContextBanner label={`Filtered by status: ${urlStatus}`} count={filtered.length} onClear={clearFilter} color={bannerColor} />}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">{t('admin.expositions.title')} ({filtered.length})</h1>
         <Select value={statusFilter} onValueChange={setStatusFilter}>

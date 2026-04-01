@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Eye, CheckCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,11 +17,15 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { AdminContextBanner } from './AdminContextBanner';
 import type { WebinarRequest } from './types';
 
 export function AdminWebinarRequests() {
   const { t } = useTranslation();
   const { user, profile, organization, isAdmin } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlStatus = searchParams.get('status') || '';
+  const hasUrlFilters = !!urlStatus;
   const isMod = profile?.persona === 'moderator';
   const [requests, setRequests] = useState<WebinarRequest[]>([]);
   const [myProposals, setMyProposals] = useState<WebinarRequest[]>([]);
@@ -29,6 +34,7 @@ export function AdminWebinarRequests() {
   const [moderatorNotes, setModeratorNotes] = useState('');
   const [rejectionReason, setRejectionReason] = useState('');
   const [tab, setTab] = useState<'review' | 'my'>('review');
+  const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
 
   useEffect(() => { loadRequests(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -293,6 +299,16 @@ export function AdminWebinarRequests() {
         )}
       </div>
 
+      {/* URL-based filter context banner */}
+      {hasUrlFilters && (
+        <AdminContextBanner
+          label={`Showing ${urlStatus.replace('_', ' ')} webinar proposals`}
+          count={requests.filter(r => r.status === urlStatus).length}
+          onClear={() => { setSearchParams({}, { replace: true }); setStatusFilter('all'); }}
+          color="violet"
+        />
+      )}
+
       {/* Moderator tab switcher: Review / My Proposals */}
       {isMod && (
         <div className="flex gap-2 mb-6">
@@ -313,11 +329,23 @@ export function AdminWebinarRequests() {
         </div>
       )}
 
+      {/* Status filter for admin */}
+      {isAdmin && (
+        <div className="flex items-center gap-2 mb-4">
+          {['all', 'submitted', 'under_review', 'accepted', 'rejected'].map(s => (
+            <Button key={s} variant={statusFilter === s ? 'default' : 'outline'} size="sm" className="text-xs capitalize"
+              onClick={() => setStatusFilter(s)}>
+              {s === 'all' ? 'All' : s.replace('_', ' ')}
+            </Button>
+          ))}
+        </div>
+      )}
+
       {/* Admin: single table; Moderator: tab-based */}
       {isAdmin ? (
-        <RequestTable data={requests} showActions />
+        <RequestTable data={statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter)} showActions />
       ) : tab === 'review' ? (
-        <RequestTable data={requests} showActions />
+        <RequestTable data={statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter)} showActions />
       ) : (
         <RequestTable data={myProposals} showActions={false} />
       )}

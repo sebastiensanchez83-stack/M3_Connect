@@ -153,7 +153,11 @@ export function OrganizationTab() {
         requested_by: user.id,
         requested_tier: upgradeTier,
         current_tier: org.tier,
-        amount_already_paid: org.tier === 'member' ? 500 : 0,
+        amount_already_paid: (() => {
+          // Map current tier to approximate paid amount for deduction
+          const paidMap: Record<string, number> = { member: 500, innovation_partner: 3000, associate_partner: 15000, premium_partner: 40000, premium_sponsor: 100000, main_sponsor: 150000 };
+          return paidMap[org.tier] || 0;
+        })(),
         invoice_url: invoiceUrl,
       });
       if (error) throw error;
@@ -823,7 +827,8 @@ export function OrganizationTab() {
                       { tier: 'innovation_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 5 },
                       { tier: 'associate_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 8 },
                       { tier: 'premium_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 10 },
-                      { tier: 'main_sponsor' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 15 },
+                      { tier: 'premium_sponsor' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 20 },
+                      { tier: 'main_sponsor' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 25 },
                     ] as const).map(({ tier, price, note, seats }) => {
                       const colors = TIER_COLORS[tier];
                       const isSelected = selectedPlan === tier;
@@ -990,10 +995,17 @@ export function OrganizationTab() {
                 {t('org.editOrg')}
               </Button>
             )}
-            {isOwner && org.access_status === 'verified' && !isSponsorTier(org.tier as OrgTier) && (
-              <Button size="sm" className="bg-primary text-white hover:bg-primary/90" onClick={() => setUpgradeOpen(true)}>
+            {isOwner && org.access_status === 'verified' && org.tier !== 'main_sponsor' && (
+              <Button size="sm" className="bg-primary text-white hover:bg-primary/90" onClick={() => {
+                // Pre-select the next tier above current
+                const tierOrder: OrgTier[] = ['member', 'innovation_partner', 'associate_partner', 'premium_partner', 'premium_sponsor', 'main_sponsor'];
+                const currentIdx = tierOrder.indexOf(org.tier as OrgTier);
+                const nextTier = currentIdx >= 0 && currentIdx < tierOrder.length - 1 ? tierOrder[currentIdx + 1] : 'innovation_partner';
+                setUpgradeTier(nextTier);
+                setUpgradeOpen(true);
+              }}>
                 <ArrowUpCircle className="h-4 w-4 mr-1" />
-                Upgrade to Sponsor
+                {isSponsorTier(org.tier as OrgTier) ? 'Upgrade Tier' : 'Upgrade to Sponsor'}
               </Button>
             )}
           </div>
@@ -1882,9 +1894,11 @@ export function OrganizationTab() {
       <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Upgrade to Sponsor</DialogTitle>
+            <DialogTitle>{isSponsorTier(org.tier as OrgTier) ? 'Upgrade Sponsorship' : 'Upgrade to Sponsor'}</DialogTitle>
             <DialogDescription>
-              Submit a sponsorship request to M3 Monaco. Our team will contact you with details about the selected package. Your current membership fee (€500) will be deducted from the sponsor package price.
+              {isSponsorTier(org.tier as OrgTier)
+                ? `You are currently a ${TIER_LABELS[org.tier as OrgTier]}. Submit an upgrade request and M3 will contact you with details about the higher tier package. Your existing sponsorship investment will be accounted for.`
+                : 'Submit a sponsorship request to M3 Monaco. Our team will contact you with details about the selected package. Your current membership fee (€500) will be deducted from the sponsor package price.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
@@ -1893,10 +1907,16 @@ export function OrganizationTab() {
               <Select value={upgradeTier} onValueChange={setUpgradeTier}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="innovation_partner">Innovation Partner</SelectItem>
-                  <SelectItem value="associate_partner">Associate Partner</SelectItem>
-                  <SelectItem value="premium_partner">Premium Partner</SelectItem>
-                  <SelectItem value="main_sponsor">Main Sponsor</SelectItem>
+                  {(['innovation_partner', 'associate_partner', 'premium_partner', 'premium_sponsor', 'main_sponsor'] as OrgTier[])
+                    .filter(t => {
+                      // Only show tiers above the current tier
+                      const tierOrder: OrgTier[] = ['member', 'innovation_partner', 'associate_partner', 'premium_partner', 'premium_sponsor', 'main_sponsor'];
+                      return tierOrder.indexOf(t) > tierOrder.indexOf((org?.tier || 'member') as OrgTier);
+                    })
+                    .map(t => (
+                      <SelectItem key={t} value={t}>{TIER_LABELS[t]}</SelectItem>
+                    ))
+                  }
                 </SelectContent>
               </Select>
             </div>

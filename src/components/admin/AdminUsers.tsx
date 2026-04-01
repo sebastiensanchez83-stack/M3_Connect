@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Users, UserCheck, RefreshCw, Search, Download,
@@ -23,6 +23,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { AdminContextBanner } from './AdminContextBanner';
 import type { AdminProfile } from './types';
 
 // Reference status for partner organizations
@@ -45,11 +46,16 @@ const REQUIRED_REFERENCES = 2;
 
 export function AdminUsers() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlStatus = searchParams.get('status') || '';
+  const urlPersona = searchParams.get('persona') || '';
+  const hasUrlFilters = !!urlStatus || !!urlPersona;
+
   const [users, setUsers] = useState<AdminProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [personaFilter, setPersonaFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [personaFilter, setPersonaFilter] = useState(urlPersona || 'all');
+  const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [selectedUser, setSelectedUser] = useState<AdminProfile | null>(null);
@@ -626,6 +632,27 @@ export function AdminUsers() {
           <Button size="sm" onClick={() => setCreateAdminOpen(true)}><UserPlus className="h-4 w-4 mr-2" />Create Admin</Button>
         </div>
       </div>
+
+      {/* URL-based filter context banner */}
+      {hasUrlFilters && (
+        <AdminContextBanner
+          label={[
+            urlStatus ? `Status: ${urlStatus.replace('_', ' ')}` : '',
+            urlPersona ? `Type: ${urlPersona.replace('_', ' ')}` : '',
+          ].filter(Boolean).join(' + ')}
+          count={users.filter(u => {
+            const matchStatus = !urlStatus || u.access_status === urlStatus;
+            const matchPersona = !urlPersona || u.persona === urlPersona;
+            return matchStatus && matchPersona;
+          }).length}
+          onClear={() => {
+            setSearchParams({}, { replace: true });
+            setStatusFilter('all');
+            setPersonaFilter('all');
+          }}
+          color={urlStatus === 'pending' ? 'amber' : urlStatus === 'payment_pending' ? 'amber' : urlStatus === 'rejected' ? 'red' : 'blue'}
+        />
+      )}
 
       {/* Unconfirmed emails section */}
       {showUnconfirmed && unconfirmedUsers.length > 0 && (

@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
+import { AdminContextBanner } from './AdminContextBanner';
 import { RefreshCw, Eye } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,9 +16,21 @@ import type { Consultation } from './types';
 
 export function AdminConsultations() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlStatus = searchParams.get('status');
   const [consultations, setConsultations] = useState<(Consultation & { marina_name?: string; org_name?: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<(Consultation & { marina_name?: string; org_name?: string }) | null>(null);
+
+  const filteredConsultations = useMemo(() => {
+    if (!urlStatus) return consultations;
+    if (urlStatus === 'open') return consultations.filter(c => c.is_open);
+    if (urlStatus === 'closed') return consultations.filter(c => !c.is_open);
+    return consultations;
+  }, [consultations, urlStatus]);
+
+  const bannerColor = urlStatus === 'open' ? 'green' : urlStatus === 'closed' ? 'red' : 'blue';
+  const clearFilter = () => { setSearchParams({}); };
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -57,11 +71,12 @@ export function AdminConsultations() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">{t('admin.consultations.title')} ({consultations.length})</h1>
+      {urlStatus && <AdminContextBanner label={`Filtered by status: ${urlStatus}`} count={filteredConsultations.length} onClear={clearFilter} color={bannerColor} />}
+      <h1 className="text-2xl font-bold mb-6">{t('admin.consultations.title')} ({filteredConsultations.length})</h1>
       <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.name')}</th><th className="text-left p-4 font-medium">{t('admin.consultations.marina')}</th><th className="text-left p-4 font-medium">{t('admin.status')}</th><th className="text-left p-4 font-medium">{t('admin.webinarRequests.date')}</th><th className="text-left p-4 font-medium">{t('admin.actions')}</th>
       </tr></thead><tbody>
-        {consultations.map(c => (<tr key={c.id} className="border-b hover:bg-gray-50">
+        {filteredConsultations.map(c => (<tr key={c.id} className="border-b hover:bg-gray-50">
           <td className="p-4 font-medium max-w-xs truncate">{c.title}</td>
           <td className="p-4">
             <div className="text-sm font-medium">{c.org_name || c.marina_name}</div>
@@ -74,7 +89,7 @@ export function AdminConsultations() {
             <Button size="sm" variant="outline" onClick={() => toggleOpen(c.id, !c.is_open)}>{c.is_open ? t('admin.consultations.close') : t('admin.consultations.reopen')}</Button>
           </div></td>
         </tr>))}
-        {consultations.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">{t('admin.consultations.noConsultations')}</td></tr>}
+        {filteredConsultations.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-gray-400">{t('admin.consultations.noConsultations')}</td></tr>}
       </tbody></table></div></CardContent></Card>
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>{t('admin.consultations.dialogTitle')}</DialogTitle><DialogDescription>{t('admin.consultations.dialogDesc')}</DialogDescription></DialogHeader>{selected && (<div className="space-y-4 mt-2"><div><strong>{t('admin.userDetail.name')}:</strong> {selected.title}</div><div><strong>{t('admin.consultations.marina')}:</strong> {selected.marina_name}</div><div><strong>{t('admin.userDetail.description')}:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm whitespace-pre-wrap">{selected.description}</p></div></div>)}</DialogContent></Dialog>
     </div>

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
+import { AdminContextBanner } from './AdminContextBanner';
 import { RefreshCw, Eye, FileText, ExternalLink } from 'lucide-react';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,12 +23,17 @@ import type { SponsorshipRequestRow } from './types';
 
 export function AdminSponsorships() {
   const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlStatus = searchParams.get('status');
   const [requests, setRequests] = useState<SponsorshipRequestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReq, setSelectedReq] = useState<SponsorshipRequestRow | null>(null);
   const [adminNotes, setAdminNotes] = useState('');
   const [invoiceRef, setInvoiceRef] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
+
+  const bannerColor = urlStatus === 'pending' ? 'amber' : urlStatus === 'approved' ? 'green' : urlStatus === 'rejected' ? 'red' : 'blue';
+  const clearFilter = () => { setSearchParams({}); setStatusFilter('all'); };
 
   useEffect(() => { loadRequests(); }, []);
 
@@ -119,6 +126,7 @@ export function AdminSponsorships() {
 
   return (
     <div>
+      {urlStatus && <AdminContextBanner label={`Filtered by status: ${urlStatus}`} count={filtered.length} onClear={clearFilter} color={bannerColor} />}
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">{t('admin.sponsorships.title')} ({filtered.length})</h1>
         <Select value={statusFilter} onValueChange={setStatusFilter}>

@@ -255,9 +255,9 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
 
       {/* ── Tier Cards ─────────────────────────────────────────────────────── */}
       <section className={`${embedded ? 'py-8' : 'py-16'} px-4 bg-white`}>
-        <div className={`mx-auto ${embedded ? 'max-w-full overflow-x-auto' : 'container max-w-7xl'}`}>
+        <div className={`mx-auto ${embedded ? 'max-w-full' : 'container max-w-7xl'}`}>
           <div className={embedded
-            ? 'flex gap-4 pb-4 min-w-max'
+            ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch'
             : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 items-stretch'
           }>
             {TIERS.map((tier) => {
@@ -271,8 +271,6 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                 <Card
                   key={tier}
                   className={`relative flex flex-col transition-all duration-200 ${
-                    embedded ? 'w-56 shrink-0' : ''
-                  } ${
                     isHighlighted
                       ? 'ring-2 ring-primary shadow-xl scale-[1.02]'
                       : 'border border-gray-200 hover:shadow-md'

@@ -19,6 +19,7 @@ import { PaymentForm } from '@/components/payment/PaymentForm';
 import { ReferenceRequestForm } from '@/components/references/ReferenceRequestForm';
 import { TiersPage } from '@/pages/TiersPage';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 
 interface EventRegistration {
   id: string;
@@ -125,6 +126,33 @@ export function AccountPage() {
         .eq('id', requestId);
       if (error) throw error;
       setPartnerRequests((prev) => prev.map((pr) => pr.id === requestId ? { ...pr, status: newStatus } : pr));
+
+      // Send email notifications
+      const req = partnerRequests.find(pr => pr.id === requestId);
+      if (req) {
+        if (newStatus === 'accepted') {
+          // Send introduction email to the requester (with CC to victor handled by edge function)
+          const marinaName = organization?.name || profile?.first_name || 'A marina';
+          const acceptorEmail = user?.email || '';
+          sendNotification({
+            type: 'partner_request_accepted',
+            userId: req.partner_user_id,
+            data: {
+              marina_name: marinaName,
+              acceptor_email: acceptorEmail,
+              acceptor_name: `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || marinaName,
+            },
+          });
+        } else {
+          const marinaName = organization?.name || profile?.first_name || 'A marina';
+          sendNotification({
+            type: 'partner_request_rejected',
+            userId: req.partner_user_id,
+            data: { marina_name: marinaName },
+          });
+        }
+      }
+
       toast({ title: newStatus === 'accepted' ? 'Request accepted' : 'Request rejected' });
     } catch (err: unknown) {
       toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });

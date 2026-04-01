@@ -19,6 +19,7 @@ import {
   AdminRFPs,
   AdminConsultations,
   AdminResourceDrafts,
+  AdminPlatformSettings,
 } from '@/components/admin';
 
 /* ─── Admin-only Route Guard ─── */
@@ -64,6 +65,7 @@ export function AdminPage() {
           <Route path="/rfps" element={<AdminOnlyGuard><AdminRFPs /></AdminOnlyGuard>} />
           <Route path="/consultations" element={<AdminOnlyGuard><AdminConsultations /></AdminOnlyGuard>} />
           <Route path="/resource-drafts" element={<AdminResourceDrafts />} />
+          <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
         </Routes>
       </div>
     </div>

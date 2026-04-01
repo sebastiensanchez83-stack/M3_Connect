@@ -20,6 +20,7 @@ import {
 import { SignupForm } from '@/components/auth/SignupForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { PersonaType } from '@/types/database';
+import { supabase } from '@/lib/supabase';
 import {
   Anchor, Building2, Newspaper, CheckCircle, ArrowRight,
   Globe, Users, Award, Shield, UserPlus, FileText, ShieldCheck, Unlock,
@@ -31,9 +32,22 @@ export function BecomePartnerPage() {
   const { user, profile } = useAuth();
   const [signupOpen, setSignupOpen] = useState(false);
   const [selectedPersonaType, setSelectedPersonaType] = useState<PersonaType | undefined>(undefined);
-  // ── Configurable display stats (not DB-driven) ──
-  // Change these values manually to control what appears on the page
-  const stats = { marinas: 150, partners: 45, countries: 30 };
+  const [stats, setStats] = useState({ marinas: 0, partners: 0, countries: 0 });
+
+  // Fetch admin-editable display stats from platform_settings
+  useEffect(() => {
+    supabase
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'display_stats')
+      .single()
+      .then(({ data }) => {
+        if (data?.value) {
+          const v = data.value as Record<string, number>;
+          setStats({ marinas: v.marinas || 0, partners: v.partners || 0, countries: v.countries || 0 });
+        }
+      });
+  }, []);
 
   const memberTypes = [
     {

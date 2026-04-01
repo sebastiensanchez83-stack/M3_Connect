@@ -256,11 +256,11 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "partner_request_accepted":
       return {
-        subject: "Your contact request has been accepted — M3 Connect",
-        greeting: d.first_name ? `Dear ${d.first_name},` : "Dear Partner,",
+        subject: "Introduction — M3 Connect",
+        greeting: "Dear all,",
         title: "",
-        body: `We are pleased to inform you that ${d.marina_name || "the recipient"} has accepted your contact request on M3 Connect.\n\nYou can now exchange directly with them to discuss collaboration opportunities. We encourage you to reach out promptly to make the most of this new connection.\n\nIf you have any questions or need assistance, please don't hesitate to contact us.`,
-        buttonText: "View My Connections",
+        body: `We are pleased to introduce ${d.first_name || "the requesting party"} and ${d.acceptor_name || d.marina_name || "the accepting party"}.\n\n${d.acceptor_name || d.marina_name || "The recipient"} has accepted the contact request on M3 Connect. We encourage you both to connect directly to discuss collaboration opportunities.\n\nWe wish you a productive exchange and remain at your disposal should you need any assistance.`,
+        buttonText: "View M3 Connect",
         buttonUrl: accountUrl,
         footer: "Best regards,\nThe M3 Connect Team",
       };
@@ -442,14 +442,21 @@ Deno.serve(async (req: Request) => {
     const isPlainStyle = type === "partner_request_accepted";
     const html = isPlainStyle ? buildPlainEmail(content) : buildEmail(content);
 
-    // Build email payload — add CC for partner_request_accepted
+    // Build email payload
     const emailPayload: Record<string, unknown> = {
       from: SENDER_EMAIL,
       to: [recipientEmail],
       subject: content.subject,
       html,
     };
+    // For B2B acceptance: send to BOTH parties (requester + acceptor) with victor in CC as introduction
     if (type === "partner_request_accepted") {
+      const acceptorEmail = notifData?.acceptor_email || "";
+      const recipients = [recipientEmail];
+      if (acceptorEmail && acceptorEmail !== recipientEmail) {
+        recipients.push(acceptorEmail);
+      }
+      emailPayload.to = recipients;
       emailPayload.cc = ["victor@m3monaco.com"];
     }
 

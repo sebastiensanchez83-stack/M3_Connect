@@ -14,3 +14,4 @@ export { AdminPartnerRequests } from './AdminPartnerRequests';
 export { AdminRFPs } from './AdminRFPs';
 export { AdminConsultations } from './AdminConsultations';
 export { AdminResourceDrafts } from './AdminResourceDrafts';
+export { AdminPlatformSettings } from './AdminPlatformSettings';

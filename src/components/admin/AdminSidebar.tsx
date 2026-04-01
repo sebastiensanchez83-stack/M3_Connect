@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Users, FileText, Calendar, Anchor, RefreshCw,
   Radio, Link2, ClipboardList, MessageSquare, FolderOpen,
-  ArrowUpCircle, LayoutDashboard,
+  ArrowUpCircle, LayoutDashboard, Settings,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -29,6 +29,7 @@ export function AdminSidebar() {
     { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/resource-drafts', label: 'Resource Requests', icon: <FolderOpen className="h-4 w-4" /> },
+    { to: '/admin/settings', label: 'Platform Settings', icon: <Settings className="h-4 w-4" />, adminOnly: true },
   ];
 
   const links = isAdmin ? allLinks : allLinks.filter((l) => !l.adminOnly);

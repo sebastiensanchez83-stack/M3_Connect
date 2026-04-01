@@ -4,6 +4,7 @@ import { Footer } from '@/components/layout/Footer';
 import { AuthRedirector } from '@/components/auth/AuthRedirector';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { CookieBanner } from '@/components/layout/CookieBanner';
 import { HomePage } from '@/pages/HomePage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
 import { ResourceDetailPage } from '@/pages/ResourceDetailPage';
@@ -78,6 +79,7 @@ function App() {
         </ErrorBoundary>
       </main>
       <Footer />
+      <CookieBanner />
     </div>
   );
 }

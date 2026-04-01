@@ -37,16 +37,8 @@ interface HomeStats {
   partners: number;
   resources: number;
   events: number;
+  countries?: number;
 }
-
-// ── Configurable display stats (not DB-driven) ──
-// Change these values manually to control what appears on the homepage
-const DISPLAY_STATS: HomeStats = {
-  marinas: 150,
-  partners: 45,
-  resources: 200,
-  events: 12,
-};
 
 export function HomePage() {
   const { t } = useTranslation();
@@ -55,7 +47,7 @@ export function HomePage() {
   const [featuredResources, setFeaturedResources] = useState<FeaturedResource[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<UpcomingEvent[]>([]);
   const [partnerPreviews, setPartnerPreviews] = useState<PartnerPreview[]>([]);
-  const [stats] = useState<HomeStats>(DISPLAY_STATS);
+  const [stats, setStats] = useState<HomeStats>({ marinas: 0, partners: 0, resources: 0, events: 0 });
 
   // Personalized data for logged-in users
   const [personalResources, setPersonalResources] = useState<FeaturedResource[]>([]);
@@ -159,6 +151,21 @@ export function HomePage() {
     };
     fetchPersonal();
   }, [user, profile, organization]);
+
+  // Fetch admin-editable display stats from platform_settings
+  useEffect(() => {
+    supabase
+      .from('platform_settings')
+      .select('value')
+      .eq('key', 'display_stats')
+      .single()
+      .then(({ data }) => {
+        if (data?.value) {
+          const v = data.value as Record<string, number>;
+          setStats({ marinas: v.marinas || 0, partners: v.partners || 0, resources: v.resources || 0, events: v.events || 0 });
+        }
+      });
+  }, []);
 
   useEffect(() => {
     // Fetch everything in parallel — use allSettled so a 503 on one doesn't block others

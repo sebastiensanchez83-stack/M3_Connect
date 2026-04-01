@@ -54,11 +54,14 @@ export function EventsPage() {
 
   const fetchRegisteredEvents = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('event_registrations')
-      .select('event_id')
-      .eq('user_id', user.id);
-    if (data) setRegisteredEvents(data.map(r => r.event_id));
+    // Check both direct registrations AND exposition requests (any status = user has engaged)
+    const [{ data: regData }, { data: expoData }] = await Promise.all([
+      supabase.from('event_registrations').select('event_id').eq('user_id', user.id),
+      supabase.from('exposition_requests').select('event_id').eq('requested_by', user.id),
+    ]);
+    const regIds = (regData || []).map(r => r.event_id);
+    const expoIds = (expoData || []).map(r => r.event_id);
+    setRegisteredEvents([...new Set([...regIds, ...expoIds])]);
   };
 
   const now = new Date();

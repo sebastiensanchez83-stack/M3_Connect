@@ -28,7 +28,10 @@ export type NotificationType =
   | 'bypass_approved'
   | 'bypass_rejected'
   | 'event_registration_confirmed'
-  | 'admin_new_submission';
+  | 'admin_new_submission'
+  | 'payment_confirmed'
+  | 'payment_failed'
+  | 'membership_payment_received';
 
 interface SendNotificationParams {
   type: NotificationType;

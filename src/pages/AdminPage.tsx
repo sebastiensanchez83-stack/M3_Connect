@@ -9,7 +9,6 @@ import {
   AdminUsers,
   AdminResources,
   AdminEvents,
-  AdminPartners,
   AdminSponsorships,
   AdminExpositions,
   AdminProjects,
@@ -53,7 +52,7 @@ export function AdminPage() {
           <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
           <Route path="/resources" element={<AdminResources />} />
           <Route path="/events" element={<AdminOnlyGuard><AdminEvents /></AdminOnlyGuard>} />
-          <Route path="/partners" element={<AdminOnlyGuard><AdminPartners /></AdminOnlyGuard>} />
+          {/* Partners merged into Users tab */}
           <Route path="/sponsorships" element={<AdminOnlyGuard><AdminSponsorships /></AdminOnlyGuard>} />
           <Route path="/expositions" element={<AdminOnlyGuard><AdminExpositions /></AdminOnlyGuard>} />
           <Route path="/projects" element={<AdminOnlyGuard><AdminProjects /></AdminOnlyGuard>} />

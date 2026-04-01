@@ -199,6 +199,29 @@ export interface ExpositionRequest {
   organizations?: Pick<Organization, 'id' | 'name' | 'logo_url'>;
 }
 
+// Payment types
+export type PaymentType = 'membership' | 'additional_seats' | 'event_participation';
+export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
+
+export interface Payment {
+  id: string;
+  organization_id: string | null;
+  user_id: string;
+  payment_type: PaymentType;
+  amount_cents: number;
+  currency: string;
+  status: PaymentStatus;
+  form_token: string | null;
+  transaction_id: string | null;
+  transaction_uuid: string | null;
+  reference_type: string | null;
+  reference_id: string | null;
+  metadata: Record<string, unknown>;
+  paid_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // Sponsor tier helpers
 export const SPONSOR_TIERS: OrgTier[] = ['innovation_partner', 'associate_partner', 'premium_partner', 'premium_sponsor', 'main_sponsor'];
 export const isSponsorTier = (tier: OrgTier): boolean => SPONSOR_TIERS.includes(tier);

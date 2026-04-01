@@ -91,15 +91,19 @@ export function OrganizationTab() {
   const [transferTarget, setTransferTarget] = useState<OrganizationMember | null>(null);
   const [transferring, setTransferring] = useState(false);
 
-  // Future plans (marina only)
+  // Sectors
   const [allSectors, setAllSectors] = useState<Sector[]>([]);
   const [interestSectors, setInterestSectors] = useState<string[]>([]);
+  const [serviceSectors, setServiceSectors] = useState<string[]>([]);
   const [futurePlans, setFuturePlans] = useState<Record<string, string>>({});
 
   // Sponsorship upgrade dialog
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeSubmitting, setUpgradeSubmitting] = useState(false);
   const [upgradeTier, setUpgradeTier] = useState('innovation_partner');
+  const [upgradeInvoiceFile, setUpgradeInvoiceFile] = useState<File | null>(null);
+  const [uploadingInvoice, setUploadingInvoice] = useState(false);
+  const invoiceInputRef = useRef<HTMLInputElement>(null);
 
   // Create org — multi-step (plan selection for partner/media_partner)
   const [createStep, setCreateStep] = useState<'details' | 'plan'>('details');
@@ -120,21 +124,37 @@ export function OrganizationTab() {
     if (!org || !user) return;
     setUpgradeSubmitting(true);
     try {
+      // Upload invoice file if provided
+      let invoiceUrl: string | null = null;
+      if (upgradeInvoiceFile) {
+        setUploadingInvoice(true);
+        const ext = upgradeInvoiceFile.name.split('.').pop() || 'pdf';
+        const storagePath = `${org.id}/invoice-${Date.now()}.${ext}`;
+        const { error: upErr } = await supabase.storage.from('org-documents').upload(storagePath, upgradeInvoiceFile, { cacheControl: '3600' });
+        if (upErr) throw upErr;
+        const { data: signedData } = await supabase.storage.from('org-documents').createSignedUrl(storagePath, 60 * 60 * 24 * 365);
+        invoiceUrl = signedData?.signedUrl || null;
+        setUploadingInvoice(false);
+      }
+
       const { error } = await supabase.from('sponsorship_requests').insert({
         organization_id: org.id,
         requested_by: user.id,
         requested_tier: upgradeTier,
         current_tier: org.tier,
         amount_already_paid: org.tier === 'member' ? 500 : 0,
+        invoice_url: invoiceUrl,
       });
       if (error) throw error;
       toast({ title: 'Sponsorship request submitted', description: 'M3 will contact you with details about the selected package.' });
       setUpgradeOpen(false);
+      setUpgradeInvoiceFile(null);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       toast({ title: 'Error', description: message, variant: 'destructive' });
     } finally {
       setUpgradeSubmitting(false);
+      setUploadingInvoice(false);
     }
   };
 
@@ -316,6 +336,16 @@ export function OrganizationTab() {
           (plansData as { sector_id: string; timeline: string }[]).forEach((p) => { plans[p.sector_id] = p.timeline; });
           setFuturePlans(plans);
         }
+      }
+
+      // Fetch service sectors for partner/moderator/media orgs
+      if (orgData.organization_type !== 'marina') {
+        const [{ data: sectorsList }, { data: svcData }] = await Promise.all([
+          supabase.from('sectors').select('*').eq('is_active', true).order('label'),
+          supabase.from('organization_service_sectors').select('sector_id').eq('organization_id', orgData.id),
+        ]);
+        if (sectorsList) setAllSectors(sectorsList as Sector[]);
+        if (svcData) setServiceSectors(svcData.map((d: { sector_id: string }) => d.sector_id));
       }
 
       // Fetch members with profile info
@@ -508,6 +538,16 @@ export function OrganizationTab() {
         if (planEntries.length > 0) {
           await supabase.from('organization_future_plans').insert(
             planEntries.map(([sectorId, timeline]) => ({ organization_id: org.id, sector_id: sectorId, timeline }))
+          );
+        }
+      }
+
+      // Save service sectors for partner/moderator/media orgs
+      if (org.organization_type !== 'marina') {
+        await supabase.from('organization_service_sectors').delete().eq('organization_id', org.id);
+        if (serviceSectors.length > 0) {
+          await supabase.from('organization_service_sectors').insert(
+            serviceSectors.map(s => ({ organization_id: org.id, sector_id: s }))
           );
         }
       }
@@ -1177,6 +1217,33 @@ export function OrganizationTab() {
                 </div>
               )}
 
+              {/* Service Sectors — for partner/moderator/media orgs */}
+              {org.organization_type !== 'marina' && allSectors.length > 0 && (
+                <div className="space-y-2 border-t pt-4">
+                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Service Sectors</h4>
+                  <p className="text-xs text-gray-500">Select the sectors your organization operates in.</p>
+                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
+                    {allSectors.map(s => (
+                      <div key={s.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`svc-${s.id}`}
+                          checked={serviceSectors.includes(s.id)}
+                          onCheckedChange={() => {
+                            setServiceSectors(prev =>
+                              prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                            );
+                          }}
+                        />
+                        <Label htmlFor={`svc-${s.id}`} className="text-sm cursor-pointer font-normal">{s.label}</Label>
+                      </div>
+                    ))}
+                  </div>
+                  {serviceSectors.length > 0 && (
+                    <p className="text-xs text-gray-500">{serviceSectors.length} sector(s) selected</p>
+                  )}
+                </div>
+              )}
+
               {/* Marina-specific fields */}
               {org.organization_type === 'marina' && (
                 <div className="space-y-4 border-t pt-4">
@@ -1678,19 +1745,56 @@ export function OrganizationTab() {
                 </SelectContent>
               </Select>
             </div>
+            {/* Invoice Upload */}
+            <div className="space-y-2">
+              <Label>Upload Invoice (optional)</Label>
+              <p className="text-xs text-gray-500">If you have already received an invoice from M3, upload it here.</p>
+              <input
+                ref={invoiceInputRef}
+                type="file"
+                accept=".pdf,.jpg,.jpeg,.png"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    if (file.size > 10 * 1024 * 1024) {
+                      toast({ title: 'File too large', description: 'Maximum 10 MB', variant: 'destructive' });
+                      return;
+                    }
+                    setUpgradeInvoiceFile(file);
+                  }
+                }}
+              />
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => invoiceInputRef.current?.click()}>
+                  <Upload className="h-4 w-4 mr-2" />
+                  {upgradeInvoiceFile ? 'Change File' : 'Choose File'}
+                </Button>
+                {upgradeInvoiceFile && (
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <FileText className="h-4 w-4" />
+                    <span className="truncate max-w-[200px]">{upgradeInvoiceFile.name}</span>
+                    <button type="button" onClick={() => setUpgradeInvoiceFile(null)} className="text-gray-400 hover:text-red-500">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
               <p className="font-medium mb-1">How it works:</p>
               <ol className="list-decimal ml-4 space-y-1 text-blue-700">
                 <li>Submit your sponsorship request</li>
                 <li>M3 team will contact you with pricing details</li>
-                <li>Receive an invoice (€500 deducted)</li>
+                <li>Upload your invoice when received (€500 membership deducted)</li>
                 <li>Once payment is confirmed, your tier is upgraded</li>
               </ol>
             </div>
             <div className="flex justify-end gap-3 pt-2">
-              <Button variant="outline" onClick={() => setUpgradeOpen(false)}>Cancel</Button>
-              <Button onClick={handleUpgradeRequest} disabled={upgradeSubmitting} className="bg-primary hover:bg-primary/90">
-                {upgradeSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              <Button variant="outline" onClick={() => { setUpgradeOpen(false); setUpgradeInvoiceFile(null); }}>Cancel</Button>
+              <Button onClick={handleUpgradeRequest} disabled={upgradeSubmitting || uploadingInvoice} className="bg-primary hover:bg-primary/90">
+                {(upgradeSubmitting || uploadingInvoice) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 Submit Request
               </Button>
             </div>

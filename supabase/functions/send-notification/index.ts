@@ -54,7 +54,10 @@ type NotificationType =
   | "bypass_approved"
   | "bypass_rejected"
   | "event_registration_confirmed"
-  | "admin_new_submission";
+  | "admin_new_submission"
+  | "payment_confirmed"
+  | "payment_failed"
+  | "membership_payment_received";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -224,7 +227,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         subject: "Sponsorship tier upgraded — M3 Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Sponsorship Tier Upgraded",
-        body: `Your organization has been upgraded to ${d.requested_tier || "the new tier"}! You now have access to enhanced features and visibility on the platform.`,
+        body: `Great news! Your organization has been upgraded to ${d.requested_tier || "the new tier"}!\n\nHere's what you now have access to:\n• Enhanced visibility on the M3 Connect marketplace\n• Increased seat allocation for team members\n• Priority listing in partner directories\n• Sponsor badge displayed on your organization profile\n• Access to exclusive sponsor networking events\n\nAll members of your organization have been notified of this upgrade.`,
         buttonText: "Explore New Features",
         buttonUrl: accountUrl,
         footer: "Thank you for being a valued sponsor of M3 Connect!",
@@ -324,6 +327,38 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         buttonText: "View My Events",
         buttonUrl: accountUrl,
         footer: "We look forward to seeing you there!",
+      };
+
+    // ── Payment notifications ──
+    case "payment_confirmed":
+      return {
+        subject: "Payment confirmed — M3 Connect",
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Payment Confirmed",
+        body: `Your payment of ${d.amount || "the specified amount"} has been successfully processed.\n\nPayment type: ${d.payment_type === "membership" ? "Membership Fee" : d.payment_type === "additional_seats" ? "Additional Seats" : d.payment_type === "event_participation" ? "Event Participation" : d.payment_type || "N/A"}\nTransaction ID: ${d.transaction_id || "N/A"}\n\nA confirmation receipt has been recorded in your account.`,
+        buttonText: "View My Account",
+        buttonUrl: accountUrl,
+        footer: "Thank you for your payment!",
+      };
+    case "payment_failed":
+      return {
+        subject: "Payment issue — M3 Connect",
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Payment Not Completed",
+        body: `We were unable to process your payment of ${d.amount || "the specified amount"}.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nPlease try again or use a different payment method.`,
+        buttonText: "Retry Payment",
+        buttonUrl: accountUrl,
+        footer: "If the issue persists, please contact our support team.",
+      };
+    case "membership_payment_received":
+      return {
+        subject: "New membership payment received — M3 Connect",
+        greeting: "Hello Admin,",
+        title: "Membership Payment Received",
+        body: `A membership payment of ${d.amount || "€500"} has been received from ${d.submitter || "a member"}.\n\nOrganization: ${d.org_name || "N/A"}\nTransaction ID: ${d.transaction_id || "N/A"}`,
+        buttonText: "Review in Admin Panel",
+        buttonUrl: adminUrl,
+        footer: "The organization status has been updated automatically.",
       };
 
     // ── Generic admin alert ──
@@ -444,15 +479,16 @@ function buildEmail(content: EmailContent): string {
 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#f4f5f7;padding:40px 20px;">
 <tr><td align="center">
 <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
-<tr><td style="background:linear-gradient(135deg,#0c4a6e 0%,#0369a1 100%);padding:32px 40px;text-align:center;">
+<tr><td style="background-color:#0c4a6e;padding:32px 40px;text-align:center;">
 <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">M3 Connect</h1>
+<p style="margin:6px 0 0;color:#93c5fd;font-size:13px;font-weight:400;">The B2B platform for the marina industry</p>
 </td></tr>
 <tr><td style="padding:40px;">
 <p style="margin:0 0 8px;color:#374151;font-size:16px;line-height:1.5;">${content.greeting}</p>
 <h2 style="margin:0 0 16px;color:#111827;font-size:20px;font-weight:600;">${content.title}</h2>
 <p style="margin:0 0 32px;color:#4b5563;font-size:15px;line-height:1.6;">${htmlBody}</p>
 <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto;">
-<tr><td style="background:linear-gradient(135deg,#0c4a6e 0%,#0369a1 100%);border-radius:8px;">
+<tr><td style="background-color:#0c4a6e;border-radius:8px;">
 <a href="${content.buttonUrl}" target="_blank" style="display:inline-block;padding:14px 32px;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;letter-spacing:0.3px;">${content.buttonText}</a>
 </td></tr></table>
 <p style="margin:32px 0 0;color:#9ca3af;font-size:13px;line-height:1.5;">${content.footer}</p>

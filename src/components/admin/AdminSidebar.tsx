@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  Users, UserCheck, FileText, Calendar, Anchor, RefreshCw,
+  Users, FileText, Calendar, Anchor, RefreshCw,
   Radio, Link2, ClipboardList, MessageSquare, FolderOpen,
   ArrowUpCircle, LayoutDashboard,
 } from 'lucide-react';
@@ -19,7 +19,7 @@ export function AdminSidebar() {
     { to: '/admin/users', label: t('admin.users'), icon: <Users className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/resources', label: isAdmin ? t('admin.resources') : 'Propose Resources', icon: <FileText className="h-4 w-4" /> },
     { to: '/admin/events', label: t('admin.events'), icon: <Calendar className="h-4 w-4" />, adminOnly: true },
-    { to: '/admin/partners', label: t('admin.partners'), icon: <UserCheck className="h-4 w-4" />, adminOnly: true },
+    // Partners merged into Users tab
     { to: '/admin/sponsorships', label: 'Sponsorships', icon: <ArrowUpCircle className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/expositions', label: 'Expositions', icon: <Anchor className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/projects', label: t('admin.marinaProjects'), icon: <Anchor className="h-4 w-4" />, adminOnly: true },
@@ -28,7 +28,7 @@ export function AdminSidebar() {
     { to: '/admin/partner-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
-    { to: '/admin/resource-drafts', label: 'Resource Drafts', icon: <FolderOpen className="h-4 w-4" /> },
+    { to: '/admin/resource-drafts', label: 'Resource Requests', icon: <FolderOpen className="h-4 w-4" /> },
   ];
 
   const links = isAdmin ? allLinks : allLinks.filter((l) => !l.adminOnly);

@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  Users, UserCheck, RefreshCw, Search, Download, Pencil,
+  Users, UserCheck, RefreshCw, Search, Download,
   Eye, AlertTriangle, ExternalLink, UserPlus, FileCheck, Clock, FileX, FileMinus, ShieldCheck,
+  ArrowUpCircle,
 } from 'lucide-react';
+import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -78,17 +80,29 @@ export function AdminUsers() {
           .order('created_at', { ascending: false }),
         supabase
           .from('organization_members')
-          .select('user_id, organization_id, organizations(id, name)'),
+          .select('user_id, organization_id, organizations(id, name, tier, organization_type, access_status, max_seats, website, country, city, description, logo_url)'),
         supabase.rpc('get_users_email_status'),
         supabase.rpc('get_unconfirmed_users'),
       ]);
       if (error) { if (import.meta.env.DEV) console.error('Error loading users:', error); toast({ title: 'Error loading users', description: error.message, variant: 'destructive' }); }
-      // Build a map from user_id → org info
-      const orgMap = new Map<string, { org_id: string; org_name: string }>();
+      // Build a map from user_id → org info (including tier, type, status for merged Partners view)
+      const orgMap = new Map<string, { org_id: string; org_name: string; org_tier: string; org_type: string | null; org_access_status: string; org_max_seats: number; org_website: string | null; org_country: string | null; org_city: string | null; org_description: string | null; org_logo_url: string | null }>();
       (membershipsData || []).forEach((m: Record<string, unknown>) => {
         const org = m.organizations as Record<string, unknown> | null;
         if (org) {
-          orgMap.set(m.user_id as string, { org_id: org.id as string, org_name: org.name as string });
+          orgMap.set(m.user_id as string, {
+            org_id: org.id as string,
+            org_name: org.name as string,
+            org_tier: (org.tier as string) || 'member',
+            org_type: (org.organization_type as string) || null,
+            org_access_status: (org.access_status as string) || 'pending',
+            org_max_seats: (org.max_seats as number) || 1,
+            org_website: (org.website as string) || null,
+            org_country: (org.country as string) || null,
+            org_city: (org.city as string) || null,
+            org_description: (org.description as string) || null,
+            org_logo_url: (org.logo_url as string) || null,
+          });
         }
       });
       // Merge profiles with org info
@@ -98,6 +112,15 @@ export function AdminUsers() {
           ...row,
           org_name: orgInfo?.org_name || null,
           org_id: orgInfo?.org_id || null,
+          org_tier: orgInfo?.org_tier || null,
+          org_type: orgInfo?.org_type || null,
+          org_access_status: orgInfo?.org_access_status || null,
+          org_max_seats: orgInfo?.org_max_seats || null,
+          org_website: orgInfo?.org_website || null,
+          org_country: orgInfo?.org_country || null,
+          org_city: orgInfo?.org_city || null,
+          org_description: orgInfo?.org_description || null,
+          org_logo_url: orgInfo?.org_logo_url || null,
         };
       });
       setUsers(merged as unknown as AdminProfile[]);
@@ -516,6 +539,61 @@ export function AdminUsers() {
     return ref.confirmed >= REQUIRED_REFERENCES;
   };
 
+  // ── Tier management (merged from AdminPartners) ──
+  const [updatingTier, setUpdatingTier] = useState(false);
+  const [updatingOrgStatus, setUpdatingOrgStatus] = useState(false);
+  const [editingSeats, setEditingSeats] = useState<number | null>(null);
+
+  const updateOrgTier = async (orgId: string, newTier: string, userId: string) => {
+    setUpdatingTier(true);
+    const { data: tierConfig } = await supabase
+      .from('organization_tier_config')
+      .select('max_seats')
+      .eq('tier', newTier)
+      .single();
+    const maxSeats = tierConfig?.max_seats || 1;
+    const { error } = await supabase
+      .from('organizations')
+      .update({ tier: newTier, max_seats: maxSeats })
+      .eq('id', orgId);
+    setUpdatingTier(false);
+    if (error) {
+      toast({ title: 'Failed to update tier', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: `Tier updated to ${TIER_LABELS[newTier as OrgTier] || newTier}` });
+      if (selectedUser?.user_id === userId) {
+        setSelectedUser({ ...selectedUser, org_tier: newTier, org_max_seats: maxSeats });
+      }
+      loadUsers();
+    }
+  };
+
+  const updateOrgStatus = async (orgId: string, status: string) => {
+    setUpdatingOrgStatus(true);
+    await supabase.from('organizations').update({ access_status: status }).eq('id', orgId);
+    setUpdatingOrgStatus(false);
+    toast({ title: `Organization status updated to ${status}` });
+    loadUsers();
+  };
+
+  const saveOrgSeats = async (orgId: string, seats: number) => {
+    const { error } = await supabase.from('organizations').update({ max_seats: seats }).eq('id', orgId);
+    if (error) {
+      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: `Seats updated to ${seats}` });
+      loadUsers();
+    }
+    setEditingSeats(null);
+  };
+
+  const getTierBadge = (tier: string | null) => {
+    if (!tier) return <span className="text-gray-300 text-xs">—</span>;
+    const colors = TIER_COLORS[tier as OrgTier] || TIER_COLORS.member;
+    const label = TIER_LABELS[tier as OrgTier] || tier;
+    return <Badge className={`${colors.bg} ${colors.text} border ${colors.border} text-xs`}>{label}</Badge>;
+  };
+
   const DetailRow = ({ label, value }: { label: string; value: React.ReactNode }) => {
     if (!value) return null;
     return (
@@ -599,7 +677,7 @@ export function AdminUsers() {
         <th className="text-left p-4 font-medium">{t('admin.userDetail.name')}</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.organization')}</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.persona')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.userDetail.onboarding')}</th>
+        <th className="text-left p-4 font-medium">Tier</th>
         <th className="text-left p-4 font-medium">Reference</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.accessStatus')}</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.created')}</th>
@@ -630,7 +708,7 @@ export function AdminUsers() {
                 </SelectContent>
               </Select>
             </td>
-            <td className="p-4 text-sm capitalize">{user.onboarding_status}</td>
+            <td className="p-4">{getTierBadge(user.org_tier)}</td>
             <td className="p-4">
               {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-gray-300 text-xs">—</span>}
             </td>
@@ -646,7 +724,7 @@ export function AdminUsers() {
             <td className="p-4 text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
           </tr>
         ))}
-        {filteredUsers.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-gray-400">No users found</td></tr>}
+        {filteredUsers.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-gray-400">{t('admin.userDetail.noUsersFound', 'No users found')}</td></tr>}
       </tbody></table></div></CardContent></Card>
 
       {/* ─── User Detail Dialog ─── */}
@@ -716,6 +794,80 @@ export function AdminUsers() {
                     )}
                   </div>
                 </div>
+
+                {/* ── Tier & Org Management (merged from Partners tab) ── */}
+                {selectedUser.org_id && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2">
+                      <ArrowUpCircle className="h-4 w-4" /> Membership & Tier Management
+                    </h4>
+                    <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <Label className="font-semibold text-sm">Membership Tier</Label>
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={selectedUser.org_tier || 'member'}
+                            onValueChange={(v) => updateOrgTier(selectedUser.org_id!, v, selectedUser.user_id)}
+                            disabled={updatingTier}
+                          >
+                            <SelectTrigger className="w-48 h-8 text-xs"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="member">Member</SelectItem>
+                              <SelectItem value="innovation_partner">Innovation Partner</SelectItem>
+                              <SelectItem value="associate_partner">Associate Partner</SelectItem>
+                              <SelectItem value="premium_partner">Premium Partner</SelectItem>
+                              <SelectItem value="premium_sponsor">Premium Sponsor</SelectItem>
+                              <SelectItem value="main_sponsor">Main Sponsor</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {updatingTier && <RefreshCw className="h-4 w-4 animate-spin text-gray-400" />}
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500">Changing the tier updates seat limits automatically.</p>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                        <Label className="text-sm">Max Seats</Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            type="number"
+                            min={1}
+                            max={100}
+                            className="w-20 h-8 text-xs"
+                            value={editingSeats ?? selectedUser.org_max_seats ?? 1}
+                            onChange={(e) => setEditingSeats(parseInt(e.target.value) || 1)}
+                          />
+                          {editingSeats !== null && editingSeats !== selectedUser.org_max_seats && (
+                            <Button size="sm" variant="outline" className="h-8 text-xs"
+                              onClick={() => saveOrgSeats(selectedUser.org_id!, editingSeats)}>
+                              Save
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+                        <Label className="text-sm">Org Status</Label>
+                        <div className="flex gap-2">
+                          {selectedUser.org_access_status !== 'verified' && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs" disabled={updatingOrgStatus}
+                              onClick={() => updateOrgStatus(selectedUser.org_id!, 'verified')}>
+                              Verify Org
+                            </Button>
+                          )}
+                          {selectedUser.org_access_status === 'verified' && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-200" disabled={updatingOrgStatus}
+                              onClick={() => updateOrgStatus(selectedUser.org_id!, 'suspended')}>
+                              Suspend Org
+                            </Button>
+                          )}
+                          <Badge className={`text-xs ${selectedUser.org_access_status === 'verified' ? 'bg-green-100 text-green-800' : selectedUser.org_access_status === 'suspended' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                            {selectedUser.org_access_status}
+                          </Badge>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 </>
               )}
 

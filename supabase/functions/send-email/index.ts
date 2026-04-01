@@ -219,8 +219,9 @@ function buildEmail({ greeting, title, body, buttonText, buttonUrl, footer }: Em
         <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
           <!-- Header -->
           <tr>
-            <td style="background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 100%); padding: 32px 40px; text-align: center;">
+            <td style="background-color: #0c4a6e; padding: 32px 40px; text-align: center;">
               <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">M3 Connect</h1>
+              <p style="margin: 6px 0 0; color: #93c5fd; font-size: 13px; font-weight: 400;">The B2B platform for the marina industry</p>
             </td>
           </tr>
           <!-- Body -->
@@ -232,7 +233,7 @@ function buildEmail({ greeting, title, body, buttonText, buttonUrl, footer }: Em
               <!-- Button -->
               <table role="presentation" cellspacing="0" cellpadding="0" style="margin: 0 auto;">
                 <tr>
-                  <td style="background: linear-gradient(135deg, #0c4a6e 0%, #0369a1 100%); border-radius: 8px;">
+                  <td style="background-color: #0c4a6e; border-radius: 8px;">
                     <a href="${buttonUrl}" target="_blank" style="display: inline-block; padding: 14px 32px; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; letter-spacing: 0.3px;">${buttonText}</a>
                   </td>
                 </tr>

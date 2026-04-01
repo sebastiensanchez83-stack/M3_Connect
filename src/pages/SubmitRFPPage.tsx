@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Loader2, CheckCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -21,10 +21,10 @@ export function SubmitRFPPage() {
   const [loading, setLoading] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
 
+  const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
   const [form, setForm] = useState({
     title: '',
     scope: '',
-    sector_id: '',
     deadline_date: '',
   });
 
@@ -47,21 +47,30 @@ export function SubmitRFPPage() {
 
     setLoading(true);
     try {
-      const { error } = await supabase
+      const { data: rfpData, error } = await supabase
         .from('rfps')
         .insert({
           marina_user_id: user.id,
           organization_id: organization?.id || null,
           title: form.title.trim(),
           scope: form.scope.trim(),
-          sector_id: form.sector_id || null,
+          sector_id: selectedSectors[0] || null, // Keep primary sector for backward compat
           deadline_date: form.deadline_date || null,
           is_open: true,
-        });
+        })
+        .select('id')
+        .single();
 
       if (error) throw error;
 
-      notifyAdmin('RFP', form.title.trim(), `Submitted by marina for sector`);
+      // Insert all selected sectors into rfp_sectors junction table
+      if (rfpData && selectedSectors.length > 0) {
+        await supabase.from('rfp_sectors').insert(
+          selectedSectors.map(sid => ({ rfp_id: rfpData.id, sector_id: sid }))
+        );
+      }
+
+      notifyAdmin('RFP', form.title.trim(), `Submitted by marina — ${selectedSectors.length} sector(s)`);
 
       toast({
         title: t('submitRfp.success'),
@@ -149,32 +158,36 @@ export function SubmitRFPPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>{t('submitRfp.fieldSector')}</Label>
-                <Select
-                  value={form.sector_id}
-                  onValueChange={(v) => setForm({ ...form, sector_id: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('submitRfp.selectSector')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {sectors.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="space-y-2">
+              <Label>{t('submitRfp.fieldSector')}</Label>
+              <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border rounded-lg p-3">
+                {sectors.map((s) => (
+                  <div key={s.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`rfp-sector-${s.id}`}
+                      checked={selectedSectors.includes(s.id)}
+                      onCheckedChange={() => {
+                        setSelectedSectors(prev =>
+                          prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                        );
+                      }}
+                    />
+                    <Label htmlFor={`rfp-sector-${s.id}`} className="text-sm cursor-pointer font-normal">{s.label}</Label>
+                  </div>
+                ))}
               </div>
+              {selectedSectors.length > 0 && (
+                <p className="text-xs text-gray-500">{selectedSectors.length} {t('marketplace.sectorsSelected', 'sector(s) selected')}</p>
+              )}
+            </div>
 
-              <div className="space-y-2">
-                <Label>{t('submitRfp.fieldDeadline')}</Label>
-                <Input
-                  type="date"
-                  value={form.deadline_date}
-                  onChange={(e) => setForm({ ...form, deadline_date: e.target.value })}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label>{t('submitRfp.fieldDeadline')}</Label>
+              <Input
+                type="date"
+                value={form.deadline_date}
+                onChange={(e) => setForm({ ...form, deadline_date: e.target.value })}
+              />
             </div>
           </CardContent>
         </Card>

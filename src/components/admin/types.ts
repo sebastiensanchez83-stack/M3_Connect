@@ -12,6 +12,16 @@ export interface AdminProfile {
   created_at: string;
   org_name: string | null;
   org_id: string | null;
+  // Org-level fields (merged from Partners tab)
+  org_tier: string | null;
+  org_type: string | null;
+  org_access_status: string | null;
+  org_max_seats: number | null;
+  org_website: string | null;
+  org_country: string | null;
+  org_city: string | null;
+  org_description: string | null;
+  org_logo_url: string | null;
 }
 
 export interface Resource {
@@ -206,7 +216,7 @@ export const DEFAULT_PRICING: EventPricingRow[] = [
 
 /* ─── Admin-only route paths — moderators are blocked from these ─── */
 export const ADMIN_ONLY_ROUTES = new Set([
-  '/admin/users', '/admin/events', '/admin/partners',
+  '/admin/users', '/admin/events',
   '/admin/projects', '/admin/leads', '/admin/partner-requests',
   '/admin/rfps', '/admin/consultations',
   '/admin/sponsorships', '/admin/expositions',

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Eye } from 'lucide-react';
+import { RefreshCw, Eye, FileText, ExternalLink } from 'lucide-react';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -53,7 +53,7 @@ export function AdminSponsorships() {
 
     await supabase.from('sponsorship_requests').update(updates).eq('id', id);
 
-    // If approved, also update the organization tier
+    // If approved, also update the organization tier and notify ALL org members
     if (status === 'approved' && selectedReq) {
       const { data: tierConfig } = await supabase
         .from('organization_tier_config')
@@ -64,12 +64,20 @@ export function AdminSponsorships() {
         .from('organizations')
         .update({ tier: selectedReq.requested_tier, max_seats: tierConfig?.max_seats || 5 })
         .eq('id', selectedReq.organization_id);
-      sendNotification({
-        type: 'sponsorship_approved',
-        userId: selectedReq.requested_by,
-        data: { requested_tier: TIER_LABELS[selectedReq.requested_tier as OrgTier] || selectedReq.requested_tier },
+      // Notify ALL members of the organization about the tier upgrade
+      const { data: orgMembers } = await supabase
+        .from('organization_members')
+        .select('user_id')
+        .eq('organization_id', selectedReq.organization_id);
+      const tierLabel = TIER_LABELS[selectedReq.requested_tier as OrgTier] || selectedReq.requested_tier;
+      (orgMembers || []).forEach((m: { user_id: string }) => {
+        sendNotification({
+          type: 'sponsorship_approved',
+          userId: m.user_id,
+          data: { requested_tier: tierLabel },
+        });
       });
-      toast({ title: t('admin.sponsorships.sponsorshipApproved', { tier: TIER_LABELS[selectedReq.requested_tier as OrgTier] || selectedReq.requested_tier }) });
+      toast({ title: t('admin.sponsorships.sponsorshipApproved', { tier: tierLabel }) });
     } else {
       // Send notification for other status changes
       if (selectedReq) {
@@ -180,6 +188,23 @@ export function AdminSponsorships() {
                 <Label>{t('admin.sponsorships.invoiceReference')}</Label>
                 <Input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder={t('admin.sponsorships.invoicePlaceholder')} />
               </div>
+              {/* Show uploaded invoice if available */}
+              {(selectedReq as SponsorshipRequestRow & { invoice_url?: string }).invoice_url && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-800">Invoice uploaded by organization</span>
+                    <a
+                      href={(selectedReq as SponsorshipRequestRow & { invoice_url?: string }).invoice_url!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-auto flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 hover:underline"
+                    >
+                      <ExternalLink className="h-3 w-3" /> View Invoice
+                    </a>
+                  </div>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>{t('admin.sponsorships.adminNotes')}</Label>
                 <Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} placeholder={t('admin.sponsorships.notesPlaceholder')} />

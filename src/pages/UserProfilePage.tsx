@@ -58,12 +58,10 @@ export function UserProfilePage() {
     const fetchProfile = async () => {
       setLoading(true);
 
-      // Fetch profile
-      const { data: pData } = await supabase
-        .from('profiles')
-        .select('user_id, first_name, last_name, email, persona, job_title, avatar_url, access_status')
-        .eq('user_id', id)
-        .maybeSingle();
+      // Fetch profile via public RPC (limited columns, verified only)
+      const { data: pRows } = await supabase
+        .rpc('get_public_profile', { target_user_id: id });
+      const pData = pRows && pRows.length > 0 ? pRows[0] : null;
 
       if (!pData) {
         setLoading(false);

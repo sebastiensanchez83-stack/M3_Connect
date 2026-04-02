@@ -281,13 +281,11 @@ export function MarketplacePage() {
             }
           }
 
-          // For any marina user without an org name, fall back to profile first+last name
+          // For any marina user without an org name, fall back to profile first+last name via RPC
           const missingIds = marinaIds.filter((uid) => !nameMap[uid]);
           if (missingIds.length > 0) {
             const { data: profiles } = await supabase
-              .from('profiles')
-              .select('user_id, first_name, last_name')
-              .in('user_id', missingIds);
+              .rpc('get_public_profiles', { target_user_ids: missingIds });
             for (const p of (profiles || []) as { user_id: string; first_name: string | null; last_name: string | null }[]) {
               const name = [p.first_name, p.last_name].filter(Boolean).join(' ');
               nameMap[p.user_id] = name || p.user_id.slice(0, 8);
@@ -350,13 +348,11 @@ export function MarketplacePage() {
             }
           }
 
-          // For any marina user without an org name, fall back to profile first+last name
+          // For any marina user without an org name, fall back to profile first+last name via RPC
           const missingIds = marinaIds.filter((uid) => !nameMap[uid]);
           if (missingIds.length > 0) {
             const { data: profiles } = await supabase
-              .from('profiles')
-              .select('user_id, first_name, last_name')
-              .in('user_id', missingIds);
+              .rpc('get_public_profiles', { target_user_ids: missingIds });
             for (const p of (profiles || []) as { user_id: string; first_name: string | null; last_name: string | null }[]) {
               const name = [p.first_name, p.last_name].filter(Boolean).join(' ');
               nameMap[p.user_id] = name || p.user_id.slice(0, 8);

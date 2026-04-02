@@ -19,7 +19,7 @@ A guide for using the Claude Chrome Extension to visually test and audit the M3 
 - Each prompt below is **self-contained** -- paste it as-is into the extension.
 - The extension will analyze the visible page, DOM, console, and/or network activity depending on the prompt.
 - **Prerequisites** are listed before each prompt. Make sure you are logged in as the right user type and on the right page before running the prompt.
-- After each test, note the results in the TEST_FEEDBACK_TEMPLATE.md document.
+- After each test, note the results in **Section 11 "Chrome Extension Test Results"** of `TEST_FEEDBACK_TEMPLATE.md`. Each test ID here (V-01, N-01, etc.) has a matching row in that section where you paste the extension's findings and mark PASS/FAIL.
 
 ### Tips
 

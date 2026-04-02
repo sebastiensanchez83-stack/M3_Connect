@@ -114,7 +114,7 @@ const LEAD_STATUS_COLORS: Record<string, string> = {
 
 export function AdminDashboard() {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, isAdmin, profile } = useAuth();
   const navigate = useNavigate();
   /** Navigate to admin sub-page with pre-set URL filters */
   const nav = (path: string, params?: Record<string, string | undefined>) => {
@@ -476,7 +476,172 @@ export function AdminDashboard() {
   const totalUrgent = stats.usersWaiting48h + stats.oldLeadsNotContacted + stats.oldB2BRequests
     + stats.pendingRegistrations + stats.paymentPendingUsers;
 
-  /* ══════════════════════════════ RENDER ══════════════════════════════ */
+  /* ══════════════════════════════ MODERATOR DASHBOARD ══════════════════════════════ */
+
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6">
+        {/* ─── Header ─── */}
+        <div className="rounded-2xl bg-gradient-to-br from-[#0b2653] via-[#143a6b] to-[#1e4f8f] p-5 text-white shadow-xl relative overflow-hidden">
+          <div className="absolute -top-10 -right-10 h-40 w-40 rounded-full bg-white/5" />
+          <div className="absolute -bottom-6 -left-6 h-24 w-24 rounded-full bg-white/5" />
+          <div className="flex justify-between items-center relative z-10">
+            <div>
+              <h1 className="text-xl font-bold">Moderator Dashboard</h1>
+              <p className="text-white/60 text-xs mt-0.5">
+                Welcome back, {profile?.first_name || 'Moderator'} — {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </p>
+            </div>
+            <Button variant="ghost" size="sm" onClick={loadDashboard} className="text-white hover:bg-white/20 rounded-xl">
+              <RefreshCw className="h-4 w-4 mr-2" />Refresh
+            </Button>
+          </div>
+        </div>
+
+        {/* ─── Your Activity Overview ─── */}
+        <div>
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <BarChart3 className="h-3.5 w-3.5" /> Your Activity
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {/* Resources Published */}
+            <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-purple-50 to-white"
+                  onClick={() => nav('/admin/resources')}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="h-9 w-9 rounded-xl bg-purple-100 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <FileText className="h-4.5 w-4.5 text-purple-600" />
+                  </div>
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{stats.totalResources}</p>
+                <p className="text-[10px] text-gray-500 font-medium mt-0.5">Published Resources</p>
+              </CardContent>
+            </Card>
+
+            {/* Pending Drafts */}
+            <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-teal-50 to-white"
+                  onClick={() => nav('/admin/resource-drafts')}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="h-9 w-9 rounded-xl bg-teal-100 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <FolderOpen className="h-4.5 w-4.5 text-teal-600" />
+                  </div>
+                  {stats.pendingResourceDrafts > 0 && (
+                    <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
+                      {stats.pendingResourceDrafts} pending
+                    </span>
+                  )}
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{stats.pendingResourceDrafts}</p>
+                <p className="text-[10px] text-gray-500 font-medium mt-0.5">Resource Drafts to Review</p>
+              </CardContent>
+            </Card>
+
+            {/* Webinar Proposals */}
+            <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-indigo-50 to-white"
+                  onClick={() => nav('/admin/webinars')}>
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="h-9 w-9 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <MessageSquare className="h-4.5 w-4.5 text-indigo-600" />
+                  </div>
+                  {stats.newWebinars > 0 && (
+                    <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
+                      {stats.newWebinars} new
+                    </span>
+                  )}
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{stats.newWebinars}</p>
+                <p className="text-[10px] text-gray-500 font-medium mt-0.5">Webinar Proposals</p>
+              </CardContent>
+            </Card>
+
+            {/* Total Events */}
+            <Card className="group hover:shadow-lg transition-all border-0 shadow-sm bg-gradient-to-br from-pink-50 to-white">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="h-9 w-9 rounded-xl bg-pink-100 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Calendar className="h-4.5 w-4.5 text-pink-600" />
+                  </div>
+                  {stats.upcomingEvents > 0 && (
+                    <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full">
+                      {stats.upcomingEvents} upcoming
+                    </span>
+                  )}
+                </div>
+                <p className="text-2xl font-bold text-gray-900">{stats.totalEvents}</p>
+                <p className="text-[10px] text-gray-500 font-medium mt-0.5">Total Events</p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+
+        {/* ─── Action Items ─── */}
+        {(stats.pendingResourceDrafts > 0 || stats.newWebinars > 0) && (
+          <div>
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5" /> Items Needing Your Attention
+            </h3>
+            <div className="space-y-2">
+              {stats.pendingResourceDrafts > 0 && (
+                <button onClick={() => nav('/admin/resource-drafts', { status: 'pending' })}
+                  className="flex items-center gap-3 w-full rounded-xl px-4 py-3 bg-amber-50 hover:bg-amber-100 border border-amber-200/60 transition-all group text-left">
+                  <div className="h-9 w-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                    <FolderOpen className="h-4 w-4 text-amber-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-800">{stats.pendingResourceDrafts} resource draft{stats.pendingResourceDrafts !== 1 ? 's' : ''} waiting for review</div>
+                    <div className="text-xs text-gray-500">Review and approve or provide feedback</div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-amber-400 group-hover:text-amber-600" />
+                </button>
+              )}
+              {stats.newWebinars > 0 && (
+                <button onClick={() => nav('/admin/webinars', { status: 'submitted' })}
+                  className="flex items-center gap-3 w-full rounded-xl px-4 py-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/60 transition-all group text-left">
+                  <div className="h-9 w-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+                    <MessageSquare className="h-4 w-4 text-indigo-600" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium text-gray-800">{stats.newWebinars} webinar proposal{stats.newWebinars !== 1 ? 's' : ''} to review</div>
+                    <div className="text-xs text-gray-500">Pre-approve proposals matching your sectors</div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-indigo-400 group-hover:text-indigo-600" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ─── Quick Actions ─── */}
+        <div>
+          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Quick Actions</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <Button variant="outline"
+                    className="h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl bg-purple-50 hover:bg-purple-100"
+                    onClick={() => nav('/admin/resources')}>
+              <FileText className="h-5 w-5 text-purple-600" />
+              <span className="text-sm font-medium text-gray-700">Propose Resource</span>
+            </Button>
+            <Button variant="outline"
+                    className="h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl bg-teal-50 hover:bg-teal-100"
+                    onClick={() => nav('/admin/resource-drafts')}>
+              <FolderOpen className="h-5 w-5 text-teal-600" />
+              <span className="text-sm font-medium text-gray-700">Review Drafts</span>
+            </Button>
+            <Button variant="outline"
+                    className="h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl bg-indigo-50 hover:bg-indigo-100"
+                    onClick={() => nav('/admin/webinars')}>
+              <MessageSquare className="h-5 w-5 text-indigo-600" />
+              <span className="text-sm font-medium text-gray-700">Webinar Proposals</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ══════════════════════════════ ADMIN RENDER ══════════════════════════════ */
 
   return (
     <div className="space-y-6">

@@ -964,7 +964,6 @@ export function OrganizationTab() {
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <Badge variant="outline">{t(`org.${isOwner ? 'owner' : 'collaborator'}`)}</Badge>
-                <Badge variant="secondary">{TIER_LABELS[org.tier as OrgTier] || org.tier}</Badge>
                 {org.access_status === 'verified' && (
                   <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3 mr-1" />{t('org.statusVerified', 'Verified')}</Badge>
                 )}

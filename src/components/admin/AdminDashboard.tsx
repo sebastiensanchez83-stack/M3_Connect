@@ -201,52 +201,52 @@ export function AdminDashboard() {
         { count: notActivatedCount },
       ] = await Promise.all([
         // Core user counts
-        supabase.from('profiles').select('*', { count: 'exact', head: true }),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'verified'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'pending'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'payment_pending'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'rejected'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'suspended'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'marina'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'partner'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'media_partner'),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('persona', 'individual'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'verified'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'pending'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'payment_pending'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'rejected'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'suspended'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('persona', 'marina'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('persona', 'partner'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('persona', 'media_partner'),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('persona', 'individual'),
         // Growth
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', startOfMonth),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', startOfLastMonth).lte('created_at', endOfLastMonth),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', startOfWeek.toISOString()),
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).gte('created_at', startOfLastWeek.toISOString()).lte('created_at', endOfLastWeek.toISOString()),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).gte('created_at', startOfMonth),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).gte('created_at', startOfLastMonth).lte('created_at', endOfLastMonth),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).gte('created_at', startOfWeek.toISOString()),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).gte('created_at', startOfLastWeek.toISOString()).lte('created_at', endOfLastWeek.toISOString()),
         // Orgs
         supabase.from('organizations').select('tier'),
         // Revenue
         supabase.from('payments').select('amount_cents').eq('status', 'paid'),
         supabase.from('payments').select('amount_cents').eq('status', 'paid').gte('paid_at', startOfMonth),
-        supabase.from('payments').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-        supabase.from('sponsorship_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+        supabase.from('payments').select('id', { count: 'exact' }).eq('status', 'pending'),
+        supabase.from('sponsorship_requests').select('id', { count: 'exact' }).eq('status', 'pending'),
         // Content
-        supabase.from('resources').select('*', { count: 'exact', head: true }),
-        supabase.from('resource_drafts').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
-        supabase.from('events').select('*', { count: 'exact', head: true }),
-        supabase.from('events').select('*', { count: 'exact', head: true }).gte('date_time', now.toISOString()),
-        supabase.from('event_registrations').select('*', { count: 'exact', head: true }),
-        supabase.from('event_registrations').select('*', { count: 'exact', head: true }).eq('payment_status', 'pending_approval'),
+        supabase.from('resources').select('id', { count: 'exact' }),
+        supabase.from('resource_drafts').select('id', { count: 'exact' }).eq('status', 'submitted'),
+        supabase.from('events').select('id', { count: 'exact' }),
+        supabase.from('events').select('id', { count: 'exact' }).gte('date_time', now.toISOString()),
+        supabase.from('event_registrations').select('id', { count: 'exact' }),
+        supabase.from('event_registrations').select('id', { count: 'exact' }).eq('payment_status', 'pending_approval'),
         // Actions
-        supabase.from('webinar_requests').select('*', { count: 'exact', head: true }).eq('status', 'submitted'),
-        supabase.from('marina_projects').select('*', { count: 'exact', head: true }).eq('status', 'new'),
+        supabase.from('webinar_requests').select('id', { count: 'exact' }).eq('status', 'submitted'),
+        supabase.from('marina_projects').select('id', { count: 'exact' }).eq('status', 'new'),
         // Leads pipeline
-        supabase.from('partner_leads').select('*', { count: 'exact', head: true }).eq('status', 'new'),
-        supabase.from('partner_leads').select('*', { count: 'exact', head: true }).eq('status', 'qualified'),
-        supabase.from('partner_leads').select('*', { count: 'exact', head: true }).eq('status', 'in_discussion'),
-        supabase.from('partner_leads').select('*', { count: 'exact', head: true }).eq('status', 'signed'),
+        supabase.from('partner_leads').select('id', { count: 'exact' }).eq('status', 'new'),
+        supabase.from('partner_leads').select('id', { count: 'exact' }).eq('status', 'qualified'),
+        supabase.from('partner_leads').select('id', { count: 'exact' }).eq('status', 'in_discussion'),
+        supabase.from('partner_leads').select('id', { count: 'exact' }).eq('status', 'signed'),
         // B2B
-        supabase.from('partner_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-        supabase.from('rfps').select('*', { count: 'exact', head: true }).eq('is_open', true),
-        supabase.from('consultations').select('*', { count: 'exact', head: true }).eq('is_open', true),
-        supabase.from('exposition_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+        supabase.from('partner_requests').select('id', { count: 'exact' }).eq('status', 'pending'),
+        supabase.from('rfps').select('id', { count: 'exact' }).eq('is_open', true),
+        supabase.from('consultations').select('id', { count: 'exact' }).eq('is_open', true),
+        supabase.from('exposition_requests').select('id', { count: 'exact' }).eq('status', 'pending'),
         // Aging queries
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'pending').lte('created_at', fortyEightHoursAgo),
-        supabase.from('partner_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending').lte('created_at', sevenDaysAgo),
-        supabase.from('partner_leads').select('*', { count: 'exact', head: true }).eq('status', 'new').lte('created_at', fortyEightHoursAgo),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'pending').lte('created_at', fortyEightHoursAgo),
+        supabase.from('partner_requests').select('id', { count: 'exact' }).eq('status', 'pending').lte('created_at', sevenDaysAgo),
+        supabase.from('partner_leads').select('id', { count: 'exact' }).eq('status', 'new').lte('created_at', fortyEightHoursAgo),
         // Trends
         supabase.from('profiles').select('created_at').gte('created_at', sixMonthsAgo).order('created_at', { ascending: true }),
         supabase.from('payments').select('amount_cents, paid_at').eq('status', 'paid').gte('paid_at', sixMonthsAgo).order('paid_at', { ascending: true }),
@@ -256,9 +256,9 @@ export function AdminDashboard() {
         // Upcoming events with registration counts
         supabase.from('events').select('id, title, date_time').gte('date_time', now.toISOString()).order('date_time', { ascending: true }).limit(8),
         // Inactive users (verified but not updated in 30+ days)
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('access_status', 'verified').lte('updated_at', thirtyDaysAgo),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'verified').lte('updated_at', thirtyDaysAgo),
         // Not activated (pending + onboarding still draft after 48h)
-        supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('onboarding_status', 'draft').lte('created_at', fortyEightHoursAgo),
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('onboarding_status', 'draft').lte('created_at', fortyEightHoursAgo),
       ]);
 
       // Tier breakdown
@@ -298,7 +298,7 @@ export function AdminDashboard() {
       if (upcomingEventsData && upcomingEventsData.length > 0) {
         const evtPerfs: EventPerf[] = [];
         for (const evt of upcomingEventsData) {
-          const { count: regCount } = await supabase.from('event_registrations').select('*', { count: 'exact', head: true }).eq('event_id', evt.id);
+          const { count: regCount } = await supabase.from('event_registrations').select('id', { count: 'exact' }).eq('event_id', evt.id);
           // Get total capacity from event_pricing
           const { data: pricing } = await supabase.from('event_pricing').select('max_included_seats').eq('event_id', evt.id);
           const capacity = (pricing || []).reduce((s: number, p: { max_included_seats: number }) => s + (p.max_included_seats || 0), 0) || 50;

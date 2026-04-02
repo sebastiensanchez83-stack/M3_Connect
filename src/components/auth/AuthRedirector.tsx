@@ -2,21 +2,18 @@ import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 
-// Exact public routes (no auth required)
-const publicExactRoutes = new Set<string>([
-  '/', '/reset-password', '/about', '/contact', '/privacy', '/terms',
-  '/resources', '/events', '/partners', '/become-partner', '/network', '/marketplace',
-  '/tiers', '/mentions-legales', '/conditions-commerciales', '/cookies',
+// Known protected routes that require authentication
+const protectedExactRoutes = new Set<string>([
+  '/account', '/onboarding', '/submit-project', '/request-webinar',
+  '/submit-rfp', '/submit-consultation',
 ])
 
-// Public route prefixes (dynamic routes accessible without auth)
-const publicPrefixes = [
-  '/resources/', '/events/', '/organizations/', '/users/',
-]
+const protectedPrefixes = ['/admin']
 
-function isPublicRoute(pathname: string): boolean {
-  if (publicExactRoutes.has(pathname)) return true
-  return publicPrefixes.some((prefix) => pathname.startsWith(prefix))
+function isProtectedRoute(pathname: string): boolean {
+  if (protectedExactRoutes.has(pathname)) return true
+  if (pathname.startsWith('/account?')) return true
+  return protectedPrefixes.some((prefix) => pathname.startsWith(prefix))
 }
 
 export function AuthRedirector() {
@@ -32,7 +29,7 @@ export function AuthRedirector() {
 
     // Logged out: allow public routes only
     if (!user) {
-      if (!isPublicRoute(pathname)) navigate('/', { replace: true })
+      if (isProtectedRoute(pathname)) navigate('/', { replace: true })
       return
     }
 
@@ -48,7 +45,7 @@ export function AuthRedirector() {
     if (!profile) {
       if (profileTimedOut) return // Cold start — don't redirect, profile will load eventually
       const isAccountRoute = pathname === '/account'
-      if (!isOnboardingRoute && !isAccountRoute && !isPublicRoute(pathname)) {
+      if (!isOnboardingRoute && !isAccountRoute && isProtectedRoute(pathname)) {
         navigate('/onboarding', { replace: true })
       }
       return
@@ -64,7 +61,7 @@ export function AuthRedirector() {
     const isCompleted = profile.onboarding_status === 'completed'
     const isAccountRoute = pathname === '/account' || pathname.startsWith('/account?')
 
-    if ((isDraft || isRejected) && !isOnboardingRoute && !isAccountRoute && !isPublicRoute(pathname)) {
+    if ((isDraft || isRejected) && !isOnboardingRoute && !isAccountRoute && isProtectedRoute(pathname)) {
       navigate('/account', { replace: true })
       return
     }

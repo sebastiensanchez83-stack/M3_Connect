@@ -537,7 +537,7 @@ export function ReferenceRequestForm() {
               }}
               disabled={s > step}
               className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                step === s ? 'bg-primary text-white' : step > s ? 'bg-green-500 text-white cursor-pointer' : 'bg-gray-200 text-gray-500 cursor-not-allowed opacity-60'
+                step === s ? 'bg-primary text-white' : step > s ? 'bg-green-700 text-white cursor-pointer' : 'bg-gray-200 text-gray-500 cursor-not-allowed opacity-60'
               }`}
             >
               {step > s ? '✓' : s}

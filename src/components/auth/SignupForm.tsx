@@ -27,6 +27,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
   const [isPublicDomain, setIsPublicDomain] = useState(false);
+  const [errors, setErrors] = useState<{ passwordMismatch?: boolean; termsRequired?: boolean }>({});
 
   // Public email domain blacklist
   const PUBLIC_DOMAINS = [
@@ -88,7 +89,13 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedPersona) return;
+    if (!acceptTerms) {
+      setErrors(prev => ({ ...prev, termsRequired: true }));
+      toast({ title: t('auth.error'), description: t('auth.acceptTermsRequired', 'Please accept the Terms and Conditions'), variant: 'destructive' });
+      return;
+    }
     if (formData.password !== formData.confirmPassword) {
+      setErrors(prev => ({ ...prev, passwordMismatch: true }));
       toast({ title: t('auth.error'), description: t('auth.passwordMismatch'), variant: 'destructive' });
       return;
     }
@@ -209,17 +216,28 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">{t('auth.confirmPassword')} *</Label>
         <div className="relative">
-          <Input id="confirmPassword" type={showConfirmPassword ? 'text' : 'password'} value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} required className="pr-10" />
+          <Input id="confirmPassword" type={showConfirmPassword ? 'text' : 'password'} value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} required className="pr-10"
+            onBlur={() => {
+              if (formData.confirmPassword && formData.password !== formData.confirmPassword) {
+                setErrors(prev => ({ ...prev, passwordMismatch: true }));
+              } else {
+                setErrors(prev => ({ ...prev, passwordMismatch: false }));
+              }
+            }}
+          />
           <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors" tabIndex={-1}>
             {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
+        {errors.passwordMismatch && (
+          <p className="text-sm text-red-600 mt-1">{t('auth.passwordMismatch', 'Passwords do not match')}</p>
+        )}
       </div>
       <div className="flex items-start gap-2.5">
         <Checkbox
           id="acceptTerms"
           checked={acceptTerms}
-          onCheckedChange={(checked) => setAcceptTerms(checked === true)}
+          onCheckedChange={(checked) => { setAcceptTerms(checked === true); setErrors(prev => ({ ...prev, termsRequired: false })); }}
           className="mt-0.5"
         />
         <label htmlFor="acceptTerms" className="text-sm text-gray-600 leading-snug cursor-pointer">
@@ -233,7 +251,10 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
           </a>
         </label>
       </div>
-      <Button type="submit" className="w-full" disabled={loading || !acceptTerms || isPublicDomain}>
+      {errors.termsRequired && !acceptTerms && (
+        <p className="text-sm text-red-600 mt-1 ml-7">{t('auth.acceptTermsRequired', 'Please accept the Terms and Conditions to continue')}</p>
+      )}
+      <Button type="submit" className="w-full" disabled={loading || isPublicDomain}>
         {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         {loading ? t('auth.creating') : t('auth.createAccount')}
       </Button>

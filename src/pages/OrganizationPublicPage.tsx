@@ -267,7 +267,7 @@ export function OrganizationPublicPage() {
                 )}
                 <div className="flex items-center gap-1">
                   <Users className="h-4 w-4" />
-                  <span>{members.length} {t('org.members').toLowerCase()}</span>
+                  <span>{members.length} {members.length === 1 ? t('org.member', 'member').toLowerCase() : t('org.members', 'members').toLowerCase()}</span>
                 </div>
               </div>
               {/* Connect button */}

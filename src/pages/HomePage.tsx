@@ -130,16 +130,16 @@ export function HomePage() {
       const [viewsRes, connectionsRes, pendingRes] = await Promise.allSettled([
         supabase
           .from('profile_views')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact' })
           .eq('viewed_user_id', user.id),
         supabase
           .from('partner_requests')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact' })
           .eq('marina_user_id', user.id)
           .in('status', ['pending', 'accepted']),
         supabase
           .from('partner_requests')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact' })
           .eq('marina_user_id', user.id)
           .eq('status', 'pending'),
       ]);
@@ -390,7 +390,7 @@ export function HomePage() {
                 <div key={step.num} className="text-center">
                   <div className="w-14 h-14 bg-primary rounded-full flex items-center justify-center mx-auto mb-3 relative">
                     {step.icon}
-                    <span className="absolute -top-1 -right-1 w-6 h-6 bg-secondary rounded-full text-white text-xs font-bold flex items-center justify-center">{step.num}</span>
+                    <span className="absolute -top-1 -right-1 w-6 h-6 bg-secondary rounded-full text-primary text-xs font-bold flex items-center justify-center">{step.num}</span>
                   </div>
                   <p className="text-sm font-medium text-gray-700">{step.title}</p>
                 </div>
@@ -574,7 +574,7 @@ export function HomePage() {
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-center mb-8">
             <h2 className="text-3xl font-bold text-primary">{t('home.featuredResources')}</h2>
-            <Link to="/resources" className="text-secondary hover:underline flex items-center">
+            <Link to="/resources" className="text-secondary-dark hover:underline flex items-center">
               {t('home.viewAll')} <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
           </div>
@@ -620,7 +620,7 @@ export function HomePage() {
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-center mb-8">
             <h2 className="text-3xl font-bold text-primary">{t('home.upcomingEvents')}</h2>
-            <Link to="/events" className="text-secondary hover:underline flex items-center">
+            <Link to="/events" className="text-secondary-dark hover:underline flex items-center">
               {t('home.viewCalendar')} <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
           </div>
@@ -663,7 +663,7 @@ export function HomePage() {
         <div className="container mx-auto px-4">
           <div className="flex justify-between items-center mb-8">
             <h2 className="text-3xl font-bold text-primary">{t('home.ourPartners', 'Trusted by Industry Leaders')}</h2>
-            <Link to="/partners" className="text-secondary hover:underline flex items-center">
+            <Link to="/partners" className="text-secondary-dark hover:underline flex items-center">
               {t('home.viewAllPartners')} <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
           </div>
@@ -696,14 +696,14 @@ export function HomePage() {
 
       {/* CTA Banner — only for logged-out users */}
       {!user && (
-        <section className="py-16 bg-secondary text-white">
+        <section className="py-16 bg-primary text-white">
           <div className="container mx-auto px-4 text-center">
-            <Anchor className="h-12 w-12 mx-auto mb-4" />
+            <Anchor className="h-12 w-12 mx-auto mb-4 text-secondary" />
             <h2 className="text-3xl font-bold mb-4">{t('home.ctaTitle', 'Ready to Grow Your Marina Business?')}</h2>
-            <p className="text-xl text-gray-100 mb-8 max-w-2xl mx-auto">
+            <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
               {t('home.ctaSubtitle', 'Join hundreds of marina professionals already on M3 Connect. It\'s free to get started.')}
             </p>
-            <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white hover:text-secondary" asChild>
+            <Button size="lg" variant="outline" className="bg-transparent border-secondary text-secondary hover:bg-secondary hover:text-primary" asChild>
               <Link to="/become-partner">
                 {t('home.joinNow', 'Create Free Account')}
                 <ArrowRight className="ml-2 h-5 w-5" />

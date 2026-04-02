@@ -40,7 +40,7 @@
 | **Steps** | 1. Click "Sign Up" or "Get Started" button on home page. 2. Select "Marina" persona. 3. Fill in email, password (min 8 chars), confirm password. 4. Submit the form. 5. Check email for confirmation link. 6. Click the confirmation link. |
 | **Expected** | Account created. Confirmation email received. After confirming, redirected to onboarding page. |
 | **Actual** | |
-| **Status** | |
+| **Status** | BLOCKED|
 | **Notes/Screenshots** | |
 
 ### AUTH-02: Sign Up as Partner
@@ -52,7 +52,7 @@
 | **Steps** | 1. Click "Sign Up". 2. Select "Partner" persona. 3. Fill in email, password, confirm password. 4. Submit. 5. Confirm email. |
 | **Expected** | Account created with partner persona. Redirected to partner onboarding after confirmation. |
 | **Actual** | |
-| **Status** | |
+| **Status** | BLOCKED|
 | **Notes/Screenshots** | |
 
 ### AUTH-03: Sign Up as Media Partner
@@ -64,7 +64,7 @@
 | **Steps** | 1. Click "Sign Up". 2. Select "Media Partner" persona. 3. Fill in email, password, confirm password. 4. Submit. 5. Confirm email. |
 | **Expected** | Account created with media_partner persona. Redirected to media partner onboarding after confirmation. |
 | **Actual** | |
-| **Status** | |
+| **Status** |BLOCKED |
 | **Notes/Screenshots** | |
 
 ### AUTH-04: Login with Valid Credentials
@@ -128,7 +128,7 @@
 | **Steps** | 1. Land on onboarding page. 2. Fill in marina name, location, country, website. 3. Fill in extended fields: number of berths, max LOA, services offered. 4. Select relevant sectors from the list. 5. Add future plans if applicable. 6. Upload a logo image. 7. Submit the form. |
 | **Expected** | Onboarding data saved to DB. User redirected to account page with "pending verification" banner. Profile shows as pending in admin panel. |
 | **Actual** | |
-| **Status** | |
+| **Status** |BLOCKED |
 | **Notes/Screenshots** | |
 
 ### ONB-02: Complete Partner Onboarding
@@ -140,7 +140,7 @@
 | **Steps** | 1. Land on partner onboarding page. 2. Fill in company name, description, website. 3. Select partner sectors. 4. Upload company logo. 5. Submit. |
 | **Expected** | Partner profile saved. User redirected to account page with pending status. |
 | **Actual** | |
-| **Status** | |
+| **Status** | BLOCKED|
 | **Notes/Screenshots** | |
 
 ### ONB-03: Complete Media Partner Onboarding
@@ -152,7 +152,7 @@
 | **Steps** | 1. Land on media partner onboarding page. 2. Fill in publication name, description, website, audience reach. 3. Upload logo. 4. Submit. |
 | **Expected** | Media partner profile saved. User redirected to account page with pending status. |
 | **Actual** | |
-| **Status** | |
+| **Status** |BLOCKED |
 | **Notes/Screenshots** | |
 
 ### ONB-04: Onboarding Form Validation
@@ -164,7 +164,7 @@
 | **Steps** | 1. Leave all required fields empty. 2. Click Submit. 3. Fill in partial data (e.g., name only). 4. Click Submit again. |
 | **Expected** | Validation messages shown for each required field. Form does not submit until all required fields are filled. |
 | **Actual** | |
-| **Status** | |
+| **Status** |BLOCKED |
 | **Notes/Screenshots** | |
 
 ### ONB-05: Onboarding Redirect Logic
@@ -176,7 +176,7 @@
 | **Steps** | 1. Try navigating directly to /account. 2. Try navigating to /submit-project. 3. Try navigating to /request-webinar. |
 | **Expected** | User is redirected back to onboarding page for all protected routes until onboarding is complete. |
 | **Actual** | |
-| **Status** | |
+| **Status** |BLOCKED |
 | **Notes/Screenshots** | |
 
 ---
@@ -216,7 +216,7 @@
 | **Steps** | 1. Go to /admin > Resources. 2. Click "Create Resource" or equivalent button. 3. Fill in title, description, category, content. 4. Upload a thumbnail image if applicable. 5. Set as published. 6. Submit. |
 | **Expected** | Resource created and visible on the public /resources page. |
 | **Actual** | |
-| **Status** | |
+| **Status** |Pass |
 | **Notes/Screenshots** | |
 
 ### ADM-04: Create an Event
@@ -228,8 +228,8 @@
 | **Steps** | 1. Go to /admin > Events. 2. Click "Create Event". 3. Fill in event name, date, location, description, capacity. 4. Upload an event image. 5. Submit. |
 | **Expected** | Event created and visible on the public /events page with correct details. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** | Fail|
+| **Notes/Screenshots** | first the pricing will only be of use for on-site events and pricing will depend of the event so we should see the pricing table and put the fees inputs. also 400 error in consol see 2 pictures related to this matter (Screenshot 2026-04-02 at 13.32.03 and Screenshot 2026-04-02 at 13.31.42)|
 
 ### ADM-05: Admin Dashboard Stats
 
@@ -304,8 +304,8 @@
 | **Steps** | 1. Navigate to /about. 2. Read through the page content. |
 | **Expected** | Page loads. Content is present and readable. No layout issues. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Failed |
+| **Notes/Screenshots** | there is no about page so once clicked it doesn't direct anywhere|
 
 ### PUB-06: Contact Page
 
@@ -316,7 +316,7 @@
 | **Steps** | 1. Navigate to /contact. 2. Fill in the contact form (if present). 3. Submit. |
 | **Expected** | Page loads. Contact form submits successfully with confirmation message. |
 | **Actual** | |
-| **Status** | |
+| **Status** |Il n'y a pas de formulaire de contact seulement un email a contacter |
 | **Notes/Screenshots** | |
 
 ### PUB-07: Legal Pages (Privacy, Terms, CGV)
@@ -344,8 +344,8 @@
 | **Steps** | 1. Navigate to /submit-project (or click "Submit Project" in navbar). 2. Fill in project title, description, budget range, timeline. 3. Select relevant sectors. 4. Submit. |
 | **Expected** | Project saved to DB. Confirmation message shown. Project appears in user's account under Projects tab. Project visible in admin panel. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Fail |
+| **Notes/Screenshots** | The project saved and workd but in the admin panel it is not implemented the fact that the admin should review the project before publishing. talking about publishing, there is actually no place in the webapp where those projects appear apart from the organization profiles. should be in the same place as the rfp and consultation once the admin has approved. Should be the same process and comment as below for the rfp|
 
 ### SUB-02: Submit an RFP (Marina)
 
@@ -356,8 +356,8 @@
 | **Steps** | 1. Navigate to the RFP submission page. 2. Fill in RFP title, requirements, deadline, budget. 3. Select target partner sectors. 4. Submit. |
 | **Expected** | RFP created. Confirmation shown. RFP appears in account and admin panel. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Failed |
+| **Notes/Screenshots** |First of all we shoul de able to click on the rfp as a creator to see the full details, but also edit the information, secondly once i submitted the rfp an email was sent to info@m3monaco.com, the email was to review the rfp in the admin panel, but Info@m3monaco.com isn't an admin so shouldn't recieve the email, then in the admin panel in rfp i see the submitted rfp but cannot validate or do anything, finally the rfp don't appear in the network part. also an email should be sent once the rfp is approved to partners that are in the sectors that the rfp mentions, meaning they recieve an email inviting them to respond to the rfp. Also there is no options for partner to reply to rfp as of now, need to implement that. and also when i click on the button on the email to checkout the rfp it just redirects to the webapp home page un-connected|
 
 ### SUB-03: Submit a Consultation Request (Marina)
 
@@ -368,8 +368,8 @@
 | **Steps** | 1. Navigate to consultation request page. 2. Fill in topic, description, preferred format (call/email/meeting). 3. Submit. |
 | **Expected** | Consultation request saved. Confirmation shown. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Failed |
+| **Notes/Screenshots** |Should be the same comment as in the RFP but for the consultation |
 
 ### SUB-04: Request a Webinar
 
@@ -380,8 +380,8 @@
 | **Steps** | 1. Navigate to /request-webinar. 2. Fill in webinar topic, description, preferred date range. 3. Select relevant sectors. 4. Submit. |
 | **Expected** | Webinar request saved. Confirmation shown. Request appears in admin > Webinar Requests. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Failed |
+| **Notes/Screenshots** |Once i have submitted my request for the webinar, it doesn't show in the moderator panel that has the same sector as the webinar request so moderator cannot approve (also it shows in the moderator dashboard that there are 3 webinar proposals but when you click on it and look at the webinarl proposals tab i do not see anything, no webinars). But in the admin panel i do see the submitted request. maybe in terms of design and userfriendly it should be more structured like  the event table for admins but also for moderators it is easier and should be the case for rfps, projects, consultation also|
 
 ### SUB-05: Submission Form Validation
 
@@ -392,7 +392,7 @@
 | **Steps** | 1. Open any submission form (project, RFP, consultation, webinar). 2. Click submit without filling anything. 3. Fill in only partial data. 4. Submit again. |
 | **Expected** | Proper validation messages appear for all required fields. Form does not submit with missing required data. |
 | **Actual** | |
-| **Status** | |
+| **Status** |Pass |
 | **Notes/Screenshots** | |
 
 ---
@@ -408,7 +408,7 @@
 | **Steps** | 1. Navigate to /account. 2. Check all tabs are present and clickable. |
 | **Expected** | Account page loads with profile info, appropriate tabs (Profile, Projects, Registrations, etc.). Status banner reflects correct status. |
 | **Actual** | |
-| **Status** | |
+| **Status** |Pass |
 | **Notes/Screenshots** | |
 
 ### ACC-02: Edit Profile
@@ -420,8 +420,8 @@
 | **Steps** | 1. Go to profile/edit section. 2. Change company name or description. 3. Save changes. 4. Reload page. |
 | **Expected** | Changes saved and persisted after reload. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Fail |
+| **Notes/Screenshots** |there is no buttons to edit my profile |
 
 ### ACC-03: Organization Settings
 
@@ -432,8 +432,8 @@
 | **Steps** | 1. Navigate to organization settings. 2. View current organization details. 3. Edit organization name or settings if possible. 4. Save. |
 | **Expected** | Organization settings page loads. Changes save correctly. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Failed |
+| **Notes/Screenshots** | works but there still is a 403 error in consol see screenshot Screenshot 2026-04-02 at 14.25.23|
 
 ### ACC-04: Invite Organization Member
 
@@ -444,7 +444,7 @@
 | **Steps** | 1. Go to organization members section. 2. Click "Invite Member" or equivalent. 3. Enter invitee email address. 4. Select role. 5. Send invitation. |
 | **Expected** | Invitation sent. Invitee appears in pending members list. Invitee receives email. |
 | **Actual** | |
-| **Status** | |
+| **Status** |Blocked |
 | **Notes/Screenshots** | |
 
 ### ACC-05: View Tier / Subscription Info
@@ -456,8 +456,8 @@
 | **Steps** | 1. Navigate to account page. 2. Find subscription/tier information section. 3. Verify current tier is displayed. |
 | **Expected** | Current tier/plan displayed. Upgrade options visible if applicable. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |failed |
+| **Notes/Screenshots** | the tag is showed twice |
 
 ---
 
@@ -548,8 +548,8 @@
 | **Steps** | 1. Type /admin directly in the URL bar. 2. Press Enter. |
 | **Expected** | User is redirected away from admin page (to home or account). Admin panel does not render. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Pass |
+| **Notes/Screenshots** |Brings me to the home page |
 
 ### PER-05: Pending User Restrictions
 
@@ -560,7 +560,7 @@
 | **Steps** | 1. Try to access /submit-project. 2. Try to access /request-webinar. 3. Check what is visible in account page. |
 | **Expected** | Pending user cannot access submission features. Account page shows "pending verification" banner. Limited functionality until approved. |
 | **Actual** | |
-| **Status** | |
+| **Status** |Blocked |
 | **Notes/Screenshots** | |
 
 ---
@@ -576,7 +576,7 @@
 | **Steps** | 1. Load home page at mobile width. 2. Check hero section, navigation hamburger menu, all sections. 3. Scroll to footer. |
 | **Expected** | Layout adapts properly. No horizontal scroll. Text readable. Images scale. Hamburger menu opens and closes. All sections stack vertically. |
 | **Actual** | |
-| **Status** | |
+| **Status** |skipped |
 | **Notes/Screenshots** | |
 
 ### MOB-02: Navigation Menu on Mobile
@@ -588,7 +588,7 @@
 | **Steps** | 1. Tap hamburger menu icon. 2. Verify all nav links appear. 3. Tap a link. 4. Verify navigation occurs and menu closes. |
 | **Expected** | Hamburger menu toggles open/close. All links work. Menu closes after navigation. No overlap or z-index issues. |
 | **Actual** | |
-| **Status** | |
+| **Status** |skipped |
 | **Notes/Screenshots** | |
 
 ### MOB-03: Forms on Mobile
@@ -600,7 +600,7 @@
 | **Steps** | 1. Open onboarding or any submission form at mobile width. 2. Fill in fields. 3. Check that input fields are full width and tappable. 4. Submit. |
 | **Expected** | Form fields are properly sized. Labels visible. No input fields hidden off-screen. Submit button accessible. Keyboard does not obscure critical elements. |
 | **Actual** | |
-| **Status** | |
+| **Status** |skipped |
 | **Notes/Screenshots** | |
 
 ### MOB-04: Account Page on Mobile
@@ -612,7 +612,7 @@
 | **Steps** | 1. Navigate to /account at mobile width. 2. Check tab navigation. 3. Switch between tabs. |
 | **Expected** | Tabs are scrollable or wrap properly. Content displays correctly. No overlap. |
 | **Actual** | |
-| **Status** | |
+| **Status** |skipped |
 | **Notes/Screenshots** | |
 
 ---
@@ -628,7 +628,7 @@
 | **Steps** | 1. Go to account page > Projects tab (with no projects). 2. Go to account page > Registrations tab (with no event registrations). 3. Check any list page with no data. |
 | **Expected** | Friendly empty state messages displayed (e.g., "You haven't submitted any projects yet"). No blank white sections. No errors. |
 | **Actual** | |
-| **Status** |Pass  |
+| **Status** |skipped  |
 | **Notes/Screenshots** | |
 
 ### EDG-02: Double Form Submission
@@ -640,7 +640,7 @@
 | **Steps** | 1. Fill in a form completely. 2. Click Submit rapidly twice in quick succession. |
 | **Expected** | Only one submission is created. Button should disable after first click or show loading state. No duplicate records in DB. |
 | **Actual** | |
-| **Status** | |
+| **Status** |pass |
 | **Notes/Screenshots** | |
 
 ### EDG-03: Session Expiry
@@ -652,8 +652,8 @@
 | **Steps** | 1. Log in. 2. Wait for session to expire (or manually clear auth token in browser storage). 3. Try to navigate to a protected page. |
 | **Expected** | User is gracefully redirected to login page. No infinite loops or white screens. Clear message that session has expired. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |Pass |
+| **Notes/Screenshots** | Not sure if it really worked because I cleared the token in storage but first didn't reload the page and clicked in my acount and it continue to work like i was still connected, but once I reloaded then it showed me as logged out and back to the home page|
 
 ### EDG-04: Invalid URL / 404 Handling
 
@@ -664,8 +664,8 @@
 | **Steps** | 1. Navigate to a non-existent URL (e.g., /this-page-does-not-exist). |
 | **Expected** | A proper 404 page is displayed with navigation back to home. No blank screen. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |failed |
+| **Notes/Screenshots** |very briefly showed the 404 page and straight back to home page, may be better to stay on the 404 page with a button to go back to the home page |
 
 ### EDG-05: Large File Upload
 
@@ -676,7 +676,7 @@
 | **Steps** | 1. Try uploading a file larger than 5MB. 2. Try uploading a non-image file (e.g., .exe or .pdf) to an image-only field. |
 | **Expected** | Large files: error message about max file size. Wrong file type: error message about accepted formats. No crash. |
 | **Actual** | |
-| **Status** | |
+| **Status** |skipped |
 | **Notes/Screenshots** | |
 
 ### EDG-06: Special Characters in Input
@@ -688,7 +688,7 @@
 | **Steps** | 1. Enter special characters in text fields: `<script>alert('xss')</script>`, `' OR 1=1 --`, accented characters like `Reseau Francais de Marinas`. 2. Submit the form. |
 | **Expected** | Special characters are properly sanitized. No XSS execution. Accented characters are preserved correctly. Form submits without error. |
 | **Actual** | |
-| **Status** | |
+| **Status** |skipped |
 | **Notes/Screenshots** | |
 
 ### EDG-07: Payment Test Mode (Lyra/SogeCommerce)
@@ -712,8 +712,8 @@
 | **Steps** | 1. Navigate to reference request feature. 2. Select a partner or marina to request a reference from. 3. Submit the request. 4. Check the recipient account for the incoming request. |
 | **Expected** | Reference request sent and visible to recipient. Requester sees pending status. |
 | **Actual** | |
-| **Status** | |
-| **Notes/Screenshots** | |
+| **Status** |failed |
+| **Notes/Screenshots** |You should be able to requesto to connect only to people that have the same sector of interest as you (it doesn't mean that if you don't have the same sectors you cannot see their profiles, but you need to represent the same sectors of interest). also see the screenshot but the emai of introduction is too marketing email like, it should just be a normal email no buttons nothing much like I would write an email to introduce someone from my personal email adress. Screenshot 2026-04-02 at 15.00.19 |
 
 ---
 
@@ -2045,41 +2045,979 @@ Since the payment form cannot be triggered with the current account, I could not
 
 | Test ID | Logged in as | Status | Findings |
 |---------|-------------|--------|----------|
-| P-01 | Marina user | | |
-| P-02 | Partner user | | |
-| P-03 | Admin user | | |
-| P-04 | Not logged in | | |
+| P-01 | Marina user | |## Audit 13 — Marina User Access & Visibility (Victor Meyer)
+
+**User:** Victor Meyer · victor@m3monaco.com · Marina / Port · M3 Monaco · Verified
+
+---
+
+### 1. NAVIGATION
+
+The top navigation bar contains the following items from left to right:
+
+**Left — Logo:** "M3 Connect" logo + text (links to /)
+
+**Center — Main links:** Home (`/`), Resources (`/resources`), Events (`/events`), Partners (`/partners`), Network (`/network`), Become a Member (`/become-partner`)
+
+**Right — Utilities:** Language toggle (globe icon, switches to French), User avatar + "Victor Meyer" dropdown (chevron)
+
+**User dropdown menu** (opens on click):
+- Header: "Victor Meyer" / victor@m3monaco.com
+- My Account → `/account`
+- My Registrations → `/account?tab=registrations`
+- **ACTIONS section:**
+- Submit Project → `/submit-project`
+- Submit an RFP → `/submit-rfp`
+- Request Consultation → `/submit-consultation`
+- Propose Webinar → `/request-webinar`
+- Logout (red text)
+
+No admin link, no dashboard shortcut, no "Manage" option — appropriate for a marina user.
+
+---
+
+### 2. ALLOWED PAGES
+
+| Route | Expected | Result | Details |
+|---|---|---|---|
+| `/account` | Should load | ✅ **Loads** | Dashboard with profile views (11), connection requests (2), pending requests (1), recommended resources, upcoming events |
+| `/submit-project` | Should load | ✅ **Loads** | "Submit a Project Need" form with Project Type, Budget Range, Timeline, Description fields |
+| `/request-webinar` | Should load | ✅ **Loads** | "Propose a Webinar" form with Topic/Title, Description, Language, Timeframe fields |
+| `/resources` | Should load | ✅ **Loads** | "Resource Library" with search, sector filters, type tabs (All/Article/Whitepaper/Guide/Replay/Case Study) |
+| `/events` | Should load | ✅ **Loads** | "Events & Webinars" showing 6 upcoming and 5 past events |
+| `/marketplace` | Should load | ⚠️ **Redirects to `/network`** | Page content loads (Partner Directory with 22 organizations, Open RFPs, Open Consultations tabs), but the URL changes from `/marketplace` to `/network` |
+
+Additionally, two dropdown-only action pages also load correctly: `/submit-rfp` ("Submit a Request for Proposals") and `/submit-consultation` ("Request a Consultation").
+
+**⚠️ Flag:** `/marketplace` silently redirects to `/network`. If `/marketplace` is an intended route, this redirect should be documented. If `/network` is the canonical URL, the navbar already links there correctly — but any references to `/marketplace` elsewhere on the site should be updated.
+
+---
+
+### 3. RESTRICTED PAGES
+
+| Route | Expected | Result | Details |
+|---|---|---|---|
+| `/admin` | Should redirect or deny | ✅ **Redirects to `/` (homepage)** | No admin content rendered. Silent redirect, no "Access Denied" message. |
+| `/onboarding` | Should redirect (already completed) | ✅ **Redirects to `/account`** | Properly recognized that onboarding is complete. Silent redirect. |
+
+Both restricted routes are properly blocked. No sensitive data leakage.
+
+**⚠️ UX note:** Both redirects are silent — there is no toast, banner, or message informing the user why they were redirected. For `/admin`, a brief "You don't have permission to access this page" message would be better UX. For `/onboarding`, this is acceptable behavior since the user is directed to their account.
+
+---
+
+### 4. ACCOUNT TABS
+
+The `/account` page sidebar shows **10 tabs:**
+
+1. **Dashboard** (default/active) — stats cards, recommended resources, upcoming events
+2. **Organization** — organization details and team members
+3. **Profile** — personal profile information
+4. **Registrations** — event registrations list
+5. **Projects** — submitted projects
+6. **Webinars** — proposed webinars
+7. **RFPs** — submitted requests for proposals
+8. **Consultations** — submitted consultation requests
+9. **B2B Requests** — incoming connection requests (shows red badge with count "1")
+10. **Pricing** — membership & sponsorship tiers
+
+**No admin-only tabs are visible.** There are no tabs for "Users", "Manage Content", "Analytics", "Settings", "Moderation", or any other administrative function. The tab set is entirely appropriate for a marina/partner user. No hidden admin elements were detected in the DOM either.
+
+---
+
+### 5. ACTION BUTTONS
+
+I checked for Edit, Delete, Remove, Publish, Unpublish, Archive, Create, and Manage buttons across all the following pages:
+
+| Page | Admin buttons found |
+|---|---|
+| Resource detail page (article) | ✅ **None** — only "Back to Resources" and "Share" |
+| Resource listing (`/resources`) | ✅ **None** — 50 total buttons, zero admin buttons |
+| Event detail page | ✅ **None** — only "Back to Events", "Register"/"Cancel Registration" |
+| Event listing (`/events`) | ✅ **None** — 20 total buttons, zero admin buttons |
+| Partners listing (`/partners`) | ✅ **None** — 6 total buttons, zero admin buttons |
+
+No Edit, Delete, or administrative action buttons are exposed to this marina user on any public content page. The role-based access control is working correctly — content management actions are not leaking to non-admin views.
+
+---
+
+### Summary
+
+The access model for this verified marina user (Victor Meyer) is **clean and correctly scoped**. The only items to flag are:
+
+**⚠️ `/marketplace` → `/network` redirect** — The `/marketplace` route silently redirects to `/network`. Verify this is intentional and that no stale references to `/marketplace` exist in marketing materials or email links.
+
+**⚠️ Silent redirects on restricted pages** — Both `/admin` and `/onboarding` redirect without feedback. Adding a brief notification (e.g., a toast message) when a user attempts to access `/admin` would improve UX and reduce confusion.
+
+**✅ No access violations detected.** No admin tabs, no edit/delete buttons on content pages, no sensitive data exposure, and all restricted routes properly redirect. |
+| P-02 | Partner user | |## Audit 14 — Partner User Access & Visibility (Info M3 / MarinaTech Solutions)
+
+**User:** Info M3 · info@m3monaco.com · Partner · MarinaTech Solutions · Innovation Partner tier · Verified
+
+---
+
+### 1. NAVIGATION
+
+**Top navigation bar (left to right):**
+
+**Left — Logo:** "M3 Connect" logo + text (links to `/`)
+
+**Center — Main links:** Home (`/`), Resources (`/resources`), Events (`/events`), Partners (`/partners`), Network (`/network`), Become a Member (`/become-partner`)
+
+**Right — Utilities:** Language toggle (globe icon), User avatar "IM" + "Info M3" dropdown
+
+**User dropdown menu:**
+- Header: "Info M3" / info@m3monaco.com
+- My Account → `/account`
+- My Registrations → `/account?tab=registrations`
+- **ACTIONS section:**
+- Propose Webinar → `/request-webinar`
+- Logout (red text)
+
+**Comparison with marina user (Victor Meyer):** The partner dropdown is missing 3 actions that the marina user has: **Submit Project**, **Submit an RFP**, and **Request Consultation**. These are correctly hidden since they are marina-only features. The main navbar links are identical between both roles.
+
+---
+
+### 2. PARTNER-SPECIFIC FEATURES
+
+**Partner profile / dashboard:** ✅ Present. The Dashboard tab shows Profile Views (2), Connection Requests (0), and Pending Requests (0). The Profile Views metric serves as basic lead analytics — it tracks how many users viewed the partner's public listing.
+
+**Public marketplace listing:** ✅ Present. The Organization tab has a "View Public Page" link leading to `/organizations/marinatech-solutions`, which displays: company description, 4 service sector tags (IoT, Sensors & Smart Marina Platforms; Marina Management Software & CRM; Berth Booking & Boater Apps; Connectivity), organization details (type, location, website), and "About" / "Representatives" tabs.
+
+**Listing management:** ✅ Present via "Edit Organization" button on the Organization tab. The partner can also "Upgrade Tier" to a higher sponsorship level.
+
+**Lead management / notifications:** ✅ Partially present. The Network page (`/network`) has three tabs visible to partners: **Partner Directory**, **Open RFPs** (currently empty), and **Open Consultations** (showing 4 active consultation requests from marinas like M3 Monaco, Marina di Portofino, and Port Vauban). These consultation listings serve as the primary lead discovery mechanism for partners. The B2B Requests tab on the account page tracks connection requests to/from marinas.
+
+**Client References:** ✅ Present. The **References** tab (partner-only) shows "Client Reference Request" — partners need 2 confirmed references from marina clients for validation. It displays a progress bar (0/2 confirmed), submitted references with status ("Sent"), and a "Bypass approved" admin notice.
+
+**Webinar proposals:** ✅ Present. The Webinars tab shows "My Webinar Requests" with existing proposals (with Edit/Withdraw controls) and a "Propose a Webinar" button.
+
+---
+
+### 3. MARINA-ONLY FEATURES
+
+**`/submit-project`:** ✅ **Properly blocked.** Shows "Access Restricted — Only verified marina organizations can submit projects." with a lock icon. No form rendered.
+
+**`/submit-rfp`:** ✅ **Properly blocked.** Shows "Access Restricted — Only verified marina organizations can submit RFPs."
+
+**`/submit-consultation`:** ✅ **Properly blocked.** Shows "Access Restricted — Only verified marina organizations can submit consultation requests."
+
+**S3 Pre-Audit assessment:** ✅ **Not visible.** No references to "S3", "pre-audit", "assessment", "audit", or "certification" found in the page text, HTML, or links for the partner user. The feature is completely hidden.
+
+---
+
+### 4. RESTRICTED
+
+**`/admin`:** ✅ **Properly blocked.** Redirects silently to the homepage (`/`). No admin content rendered, no data leaked.
+
+*(Same silent-redirect behavior as with the marina user — no "Access Denied" message shown.)*
+
+---
+
+### 5. ACCOUNT PAGE TABS
+
+The partner sees **8 tabs** in the account sidebar:
+
+| # | Partner Tab | Present for Marina? | Notes |
+|---|---|---|---|
+| 1 | Dashboard | ✅ Yes | Same layout: stat cards, recommended content, upcoming events |
+| 2 | Organization | ✅ Yes | Partner: has "View Public Page", "Edit Organization", "Upgrade Tier" |
+| 3 | Profile | ✅ Yes | Personal profile settings |
+| 4 | Registrations | ✅ Yes | Event registrations |
+| 5 | Webinars | ✅ Yes | Webinar proposals with Edit/Withdraw |
+| 6 | **References** | ❌ **No** | **Partner-only** — client reference validation system |
+| 7 | B2B Requests | ✅ Yes | Partner sees "contact requests to marinas"; marina sees incoming requests |
+| 8 | Pricing | ✅ Yes | Membership & sponsorship tiers |
+
+**Missing from partner (marina-only tabs):**
+
+| Marina Tab | Present for Partner? | Correct? |
+|---|---|---|
+| Projects | ❌ Hidden | ✅ Correct — project submission is marina-only |
+| RFPs | ❌ Hidden | ✅ Correct — RFP submission is marina-only |
+| Consultations | ❌ Hidden | ✅ Correct — consultation submission is marina-only |
+
+**No admin-only tabs are visible.** No "Users", "Manage Content", "Analytics", "Settings", or administrative tabs appear.
+
+---
+
+### Flagged Issues
+
+**⚠️ Blank content on invalid tab URLs:** When a partner manually navigates to `/account?tab=projects`, `/account?tab=rfps`, or `/account?tab=consultations` (marina-only tabs), the page renders with the sidebar visible but a **completely blank content area** — no tab is highlighted, no error message, and no redirect. While no sensitive data is leaked, this is a UX bug. The system should either redirect to the Dashboard tab or display a "Tab not available for your account type" message.
+
+**✅ No access violations detected.** All marina-only features are properly restricted with clear "Access Restricted" messages. The partner dropdown correctly omits marina-only actions. The References tab is appropriately partner-only. Admin access is blocked. |
+| P-03 | Admin user | |## Audit 15 — Admin User (Events Team) Full Access Verification
+
+### 1. NAVBAR
+
+**Logged in as:** Events Team (events@m3monaco.com)
+
+**Top navigation bar items (left to right):**
+- M3 Connect logo (→ homepage)
+- Home
+- Resources
+- Events
+- Partners
+- Network
+- Become a Member
+- Language toggle (EN/FR)
+- User dropdown avatar
+
+**User dropdown menu contents:**
+- My Account
+- My Registrations
+- Propose Webinar
+- **Admin Panel** → /admin ✅
+- Logout
+
+**Result:** ✅ "Admin Panel" link is present in the dropdown and correctly navigates to /admin.
+
+---
+
+### 2. ADMIN PANEL SECTIONS
+
+The admin sidebar contains **14 sections** — more than the 8 expected. Here is every section with its status:
+
+| # | Sidebar Section | Route | Expected? | Loads? | Content |
+|---|---|---|---|---|---|
+| 1 | **Dashboard** | /admin | ✅ Yes | ✅ | Priority Actions (3 users waiting, 2 leads not contacted, 3 B2B unanswered), Performance Snapshot (€0 revenue, 42 users 88% active, 25 organizations, 14 active B2B), Opportunities Pipeline, Business Activity chart, Ecosystem Breakdown (14 Marinas, 20 Partners, 6 Media/Press), User Status (37 Verified, 3 Pending, 2 Rejected), User Engagement |
+| 2 | **Users** | /admin/users | ✅ Yes | ✅ | 42 users listed with search, status filter (All/Pending/Verified/Rejected/Suspended), persona type filter, Export CSV button, Create Admin button. Table columns: Name, Organization, Persona, Tier, Reference, Access Status (inline dropdown), Created |
+| 3 | **Resources** | /admin/resources | ✅ Yes | ✅ | 9 resources listed with "+ Add Resource" button. Table columns: Title, Type, Access, Language, Status, Actions (edit pencil + delete trash icons) |
+| 4 | **Events** | /admin/events | ✅ Yes | ✅ | 11 events listed with "+ Create Event" button, search bar, type filter, access filter. Event cards with detail/edit chevron |
+| 5 | **Sponsorships** | /admin/sponsorships | ⚠️ Extra | ✅ | 2 sponsorship upgrade requests. Table: Organization, Current Tier, Requested Tier, Status, Date, Actions (eye icon to view) |
+| 6 | **Expositions** | /admin/expositions | ⚠️ Extra | ✅ | 1 exposition request. Table: Marina, Event, Status, Amount, Date, Actions (eye icon) |
+| 7 | **Marina Projects** | /admin/projects | ✅ Yes (as "Projects") | ✅ | 9 marina projects. Table: Marina, Type, Budget, Status (inline dropdown), Date, Actions (eye icon) |
+| 8 | **Partner Leads** | /admin/leads | ✅ Yes (as "Leads") | ✅ | 6 leads with pipeline filter tabs (All / New / Qualified / In Discussion / Signed / Rejected). Lead cards display temperature badges (Cold, Hot, Warm) and inline status dropdowns |
+| 9 | **Webinar Requests** | /admin/webinars | ✅ Yes | ✅ | 7 requests with status filter tabs (All / Submitted / Under Review / Accepted / Rejected). Table: Name, Requester, Language, Status (inline dropdown), Date, Actions (eye icon) |
+| 10 | **B2B Requests** | /admin/partner-requests | ⚠️ Extra | ✅ | 8 requests with filter tabs (All / Pending / Accepted / Rejected). Shows from→to marina-partner connections with Accept / Reject action buttons |
+| 11 | **RFPs** | /admin/rfps | ⚠️ Extra | ✅ | 6 RFPs. Table: Name, Marina, Deadline, Status (Open/Closed), Actions (eye icon + Close/Reopen toggle) |
+| 12 | **Consultations** | /admin/consultations | ⚠️ Extra | ✅ | 6 consultations. Table: Name, Marina, Status (Open/Closed), Date, Actions (eye icon + Close/Reopen toggle) |
+| 13 | **Resource Requests** | /admin/resource-drafts | ⚠️ Extra | ✅ | 5 resource drafts. Table: Name, Type, Language, Status (Pending/Approved), Submitted by, Date, Actions (eye icon) |
+| 14 | **Platform Settings** | /admin/settings | ⚠️ Extra | ✅ | Homepage Display Stats configuration: Marinas Worldwide (150), Verified Partners (45), Resources (200), Events per Year (12), Countries (30). Each field is editable with a "Save Changes" button |
+
+**Result:** ✅ All 14 sections load successfully with real data. No section is broken or shows an error. The platform has 6 additional sections beyond the 8 expected:
+
+- **Sponsorships** — manages tier upgrade requests from partners
+- **Expositions** — manages marina exposition/booth requests for events
+- **B2B Requests** — manages connection requests between marinas and partners
+- **RFPs** — manages Request for Proposals submitted by marinas
+- **Consultations** — manages consultation requests submitted by marinas
+- **Resource Requests** — manages user-submitted resource drafts awaiting approval
+- **Platform Settings** — configures homepage display statistics
+
+⚠️ **Notable absence:** There is no dedicated **"Partners"** section in the admin sidebar. Partner organizations are managed through the **Users** section using the persona type filter (which can filter by Marina, Partner, Media/Press, etc.). This is a design choice rather than a bug, but it differs from the expected specification.
+
+---
+
+### 3. ADMIN ACTIONS — Users Section
+
+**Approve flow:**
+- Each user row has an **Access Status** inline dropdown with options: Pending, Verified, Rejected, Suspended
+- To approve a pending user, the admin selects **"Verified"** from the dropdown — the change applies immediately (inline action, no confirmation dialog)
+- ✅ Approve mechanism works
+
+**Reject flow:**
+- Selecting **"Rejected"** from the Access Status dropdown opens a **"Reject User"** modal dialog
+- Modal contains: a required **"Rejection Reason \*"** textarea field, a **"Cancel"** button, and a red **"Confirm Rejection"** button
+- The reason field is mandatory — the form cannot be submitted without it
+- ✅ Reject with reason dialog works correctly
+
+**User detail view:**
+- Clicking a user's **name** in the table navigates to their **public profile page** at `/users/{UUID}`
+- This is the same public profile visible to all users, NOT a dedicated admin detail view
+- ⚠️ **Minor gap:** There is no admin-specific user detail page with account management tools (e.g., edit role, view activity log, reset password). The admin can only change the Access Status via the inline dropdown on the list page.
+
+**Additional admin capabilities found:**
+- **"Export CSV"** button — exports user data
+- **"Create Admin"** button — allows creating new admin accounts
+- **Search** — filter users by name/email
+- **Status filter** — All / Pending / Verified / Rejected / Suspended
+- **Persona filter** — filter by user type
+
+---
+
+### 4. CONTENT MANAGEMENT — Resources & Events
+
+**Resources (/admin/resources):**
+- ✅ **Create button:** "+ Add Resource" button present at top of section
+- ✅ **Edit option:** Pencil (✏️) icon on each resource row
+- ✅ **Delete option:** Trash (🗑️) icon on each resource row
+- 9 resources listed with columns: Title, Type, Access, Language, Status, Actions
+
+**Events (/admin/events):**
+- ✅ **Create button:** "+ Create Event" button present at top of section
+- ✅ **Edit option:** Clicking the chevron on any event card opens a full edit form with fields: Title, Description, Date & Time, Location, Event Type, Language, Access Level, Replay URL
+- ✅ **Delete option:** "Delete" button (red) available at the bottom of each event's edit form alongside "Save Changes"
+- 11 events listed with search and filter capabilities
+
+---
+
+### Summary & Flags
+
+| Item | Status | Notes |
+|---|---|---|
+| Admin Panel in navbar | ✅ Pass | Present in user dropdown |
+| Dashboard | ✅ Pass | Stat cards, charts, and priority actions |
+| Users (approve/reject) | ✅ Pass | Inline dropdown + rejection reason modal |
+| Resources (CRUD) | ✅ Pass | Add, edit (pencil), delete (trash) |
+| Events (CRUD) | ✅ Pass | Create, full edit form, delete button |
+| Sponsorships | ✅ Pass | Extra section, not in spec |
+| Expositions | ✅ Pass | Extra section, not in spec |
+| Marina Projects | ✅ Pass | 9 projects with status management |
+| Partner Leads | ✅ Pass | Pipeline view with temperature badges |
+| Webinar Requests | ✅ Pass | Status filter tabs + inline management |
+| B2B Requests | ✅ Pass | Accept/Reject action buttons |
+| RFPs | ✅ Pass | Close/Reopen toggle |
+| Consultations | ✅ Pass | Close/Reopen toggle |
+| Resource Requests | ✅ Pass | Draft approval workflow |
+| Platform Settings | ✅ Pass | Editable homepage stats |
+
+**Flags:**
+
+1. ⚠️ **No dedicated "Partners" admin section** — Partner management is handled through the Users section with persona filtering. If the platform needs partner-specific admin tools (e.g., manage marketplace listings, verify partner credentials, manage tier benefits), a dedicated section may be warranted.
+
+2. ⚠️ **No admin-specific user detail page** — Clicking a user name goes to their public profile (`/users/{UUID}`), not an admin detail view. An admin detail page with account history, role management, and activity logs would be more useful for administration.
+
+3. ⚠️ **Approve action has no confirmation dialog** — Changing a user from Pending to Verified takes effect immediately with no confirmation step. The Reject action properly requires confirmation + reason, but Approve does not. Consider adding a confirmation step for consistency and to prevent accidental approvals.
+
+4. ℹ️ **Platform has 14 admin sections vs. 8 expected** — The 6 additional sections (Sponsorships, Expositions, B2B Requests, RFPs, Consultations, Resource Requests, Platform Settings) indicate the platform scope is broader than the original specification anticipated. All sections are functional. |
+| P-04 | Not logged in | | ## Audit 16 — Unauthenticated Visitor Access Audit
+
+### 1. VISIBLE PAGES (Public Access)
+
+| Page | URL | Loads? | Title | Notes |
+|---|---|---|---|---|
+| **Home** | `/` | ✅ Yes | "The Platform for Marina Innovation" | Full homepage with hero, sections, featured resources, events, partners |
+| **Resources** | `/resources` | ✅ Yes | "Resource Library" | Shows 5 public resources (out of 9 total). Members-only resources are correctly hidden |
+| **Events** | `/events` | ✅ Yes | "Events & Webinars" | Shows Upcoming (5) and Past Events (2). Public events visible, Register buttons present |
+| **Partners** | `/partners` | ✅ Yes | "Our Partners" | Partner cards with search, sector tags, and locations |
+| **Marketplace** | `/marketplace` | ⚠️ Redirects to `/network` | "Network" | Partner Directory (22 orgs) visible. **Open RFPs** and **Open Consultations** tabs correctly show: "Only verified members can access the marketplace." with Sign Up CTA |
+| **About** | `/about` | ✅ Yes | "About M3 Connect" | Company description, mission statement, operator info |
+| **Contact** | `/contact` | ✅ Yes | "Contact Us" | Email and address cards (no contact form) |
+| **Privacy Policy** | `/privacy` | ✅ Yes | "Privacy Policy" | Full legal document dated March 6, 2026 |
+| **Terms of Service** | `/terms` | ✅ Yes | "Terms of Use" | Full legal document dated March 6, 2026 |
+| **CGV** | `/cgv` | ❌ **404 → redirects to homepage** | N/A | Route does not exist. The equivalent is `/conditions-commerciales` |
+| **Commercial Terms** | `/conditions-commerciales` | ✅ Yes | "Commercial Terms for Paid Offers and Partners" | Full legal document |
+| **Legal Notice** | `/mentions-legales` | ✅ Yes | "Legal Notice" | Full legal document |
+| **Cookie Policy** | `/cookies` | ✅ Yes | "Cookie Policy" | Full legal document |
+
+**Summary:** All public pages load correctly. `/cgv` does not exist as a route — the commercial terms are instead served at `/conditions-commerciales` (linked from the footer as "Commercial Terms"). The marketplace data (Open RFPs, Open Consultations) is properly gated for unauthenticated users.
+
+---
+
+### 2. PROTECTED PAGES
+
+| Page | URL | Behavior | Security | Details |
+|---|---|---|---|---|
+| **Account** | `/account` | 🔄 Silent redirect → `/` (homepage) | ✅ Secure | No account data leaked |
+| **Admin** | `/admin` | 🔄 Silent redirect → `/` (homepage) | ✅ Secure | No admin panel exposed |
+| **Submit Project** | `/submit-project` | 🔄 Silent redirect → `/` (homepage) | ✅ Secure | No form shown |
+| **Request Webinar** | `/request-webinar` | 🔄 Silent redirect → `/` (homepage) | ✅ Secure | No form shown |
+| **Onboarding** | `/onboarding` | 🔄 Silent redirect → `/` (homepage) | ✅ Secure | No onboarding flow exposed |
+| **Submit RFP** | `/submit-rfp` | 🔄 Silent redirect → `/` (homepage) | ✅ Secure | (bonus test) |
+| **Submit Consultation** | `/submit-consultation` | 🔄 Silent redirect → `/` (homepage) | ✅ Secure | (bonus test) |
+
+**No critical security issues found.** All 7 protected routes redirect to the homepage with no data leakage.
+
+⚠️ **UX gap (consistent with Audit 7 findings):** All redirects are silent — the user is sent to the homepage without any message explaining they need to log in. There is no login prompt, no toast notification, and no "You must be logged in to access this page" message. The user might not understand why they were redirected.
+
+**Recommendation:** After redirecting, show a toast or banner: "Please log in to access this page" and optionally open the login modal automatically. This would significantly improve the user experience.
+
+---
+
+### 3. NAVBAR (Logged-Out State)
+
+**Navigation items (left to right):**
+
+| Position | Item | Destination | Type |
+|---|---|---|---|
+| Far left | M3 Connect logo | `/` | Link |
+| Nav 1 | Home | `/` | Link (underlined = active) |
+| Nav 2 | Resources | `/resources` | Link |
+| Nav 3 | Events | `/events` | Link |
+| Nav 4 | Partners | `/partners` | Link |
+| Nav 5 | Network | `/network` | Link |
+| Nav 6 | Become a Member | `/become-partner` | Link |
+| Right 1 | 🌐 (Language toggle) | Switch EN/FR | Button |
+| Right 2 | **Login** | Opens login modal | Button (text only) |
+| Right 3 | **Sign Up** | Opens signup modal | Button (dark filled, prominent) |
+
+**Login button:** ✅ Prominently visible in the top-right corner. Opens a modal overlay with Email, Password, "Forgot password?" link, Login button, and "Don't have an account? Sign Up" cross-link.
+
+**Sign Up button:** ✅ Prominently visible with high contrast (dark navy filled button with white text). Opens a modal with profile type selection (Marina / Port, Partner, Media) and "Already have an account? Login" cross-link.
+
+**Cross-linking:** ✅ Both modals link to each other — Login has a "Sign Up" link and Sign Up has a "Login" link. This provides good navigation between the two flows.
+
+---
+
+### 4. CTAs (Call-to-Action Buttons)
+
+| CTA | Location | Destination | Opens Login/Signup? |
+|---|---|---|---|
+| **"Join Now — It's Free →"** | Hero section (primary gold CTA) | `/become-partner` | Landing page with 3 profile types → clicking any opens signup modal ✅ |
+| **"Explore the Marketplace"** | Hero section (secondary outline CTA) | `/marketplace` → `/network` | Loads public partner directory ✅ |
+| **"View All"** | Featured Resources heading | `/resources` | Loads public resources ✅ |
+| **"View Calendar"** | Upcoming Events heading | `/events` | Loads public events ✅ |
+| **"View All Partners"** | Our Partners heading | `/partners` | Loads public partner list ✅ |
+| **"Join Now"** | Bottom CTA section ("Are you a Marina?") | `/become-partner` | Landing page → signup flow ✅ |
+| **"Register"** | Event listing cards | Navigates to event detail | Shows "Log in to Register" button ✅ |
+| **"Log in to Register"** | Event detail page | Opens login modal | Login modal with contextual message: "Log in to register for this event." ✅ |
+| **"Sign Up"** | Open RFPs / Open Consultations restricted area | Opens signup modal | ✅ |
+| **"Join as a Marina →"** | `/become-partner` Marina card | Opens signup modal (pre-selected Marina) | ✅ |
+| **"Become a Partner →"** | `/become-partner` Partner card | Opens signup modal (pre-selected Partner) | ✅ |
+| **"Join as Media →"** | `/become-partner` Media card | Opens signup modal (pre-selected Media) | ✅ |
+
+**All CTAs direct appropriately.** The primary conversion funnel works well: homepage hero CTAs → /become-partner landing page → profile type selection → signup modal with form fields. The event registration flow also correctly gates behind login.
+
+---
+
+### Summary & Flags
+
+| Area | Status | Details |
+|---|---|---|
+| Public pages accessible | ✅ Pass | All 10+ public pages load correctly |
+| Protected pages secured | ✅ Pass | All 7 tested routes redirect to homepage, no data leakage |
+| Login visible | ✅ Pass | Prominent in top-right navbar |
+| Sign Up visible | ✅ Pass | Dark filled button, most prominent navbar element |
+| CTAs direct to signup/login | ✅ Pass | All conversion paths work correctly |
+| Members-only content hidden | ✅ Pass | Only 5/9 resources shown; RFPs/Consultations gated |
+| Event registration gated | ✅ Pass | Shows "Log in to Register" with contextual login modal |
+
+**Flags:**
+
+1. ❌ **`/cgv` returns 404** — The requested URL `/cgv` does not exist. The commercial terms are at `/conditions-commerciales`. If `/cgv` is an expected route (common French abbreviation for "Conditions Générales de Vente"), a redirect from `/cgv` → `/conditions-commerciales` should be added.
+
+2. ⚠️ **Silent redirects on all protected routes** — No login prompt, no error message, no toast notification when redirected from protected pages. The user is silently dumped on the homepage with no explanation. This is functionally secure but creates a poor user experience, especially for someone who bookmarked `/account` or received a direct link to `/submit-project`.
+
+3. ⚠️ **`/marketplace` still redirects to `/network`** — This was noted in previous audits. The homepage CTA says "Explore the Marketplace" and links to `/marketplace`, but it redirects to `/network`. The naming inconsistency persists across all user roles (unauthenticated, marina, partner, admin).|
 
 ### Responsive Design (R-01 to R-03)
 
 | Test ID | Viewport | Status | Findings |
 |---------|----------|--------|----------|
-| R-01 | 375px (mobile) | | |
-| R-02 | 768px (tablet) | | |
+| R-01 | 375px (mobile) | |## Audit 17 — Mobile Responsive Analysis (375px viewport)
+
+Tested on a 375×639px viewport (iPhone standard width).
+
+---
+
+### 1. HORIZONTAL SCROLL
+
+**Result: ✅ No horizontal scroll detected.**
+
+The document scroll width (360px) is less than the viewport width (375px). I attempted to scroll right and the page did not move. No elements overflow the viewport boundary at 375px.
+
+One notable exception: on the `/resources` page, the filter tab row (All, Article, Whitepaper, Guide, Replay, Case Study) has two tabs that extend beyond the viewport — "Replay" at 420px and "Case Study" at 533px. However, their parent container uses `overflow-x: auto` with a `no-scrollbar` class, making them horizontally swipeable. ⚠️ The hidden scrollbar means there's no visual indicator that more tabs exist off-screen (discoverability issue).
+
+---
+
+### 2. HAMBURGER MENU
+
+**Result: ✅ Works correctly with one UX gap.**
+
+The desktop navigation correctly collapses into a hamburger icon (☰) on mobile. Testing each behavior:
+
+| Behavior | Result |
+|---|---|
+| Icon visible | ✅ Three-line hamburger icon at top-right |
+| Opens on tap | ✅ Dropdown panel slides open, icon changes to ✕ |
+| All nav items present | ✅ Home, Resources, Events, Partners, Network, Become a Member, Français toggle, Login, Sign Up — all with icons |
+| Close via ✕ button | ✅ Menu closes immediately |
+| Close via link tap | ✅ Navigates to page and closes menu |
+| Close via tapping outside | ❌ **Does not close** — the menu is a dropdown panel (not an overlay), so tapping below the menu on the visible page content does nothing |
+
+⚠️ **No tap-outside-to-close:** The mobile menu is a push-down panel, not a full-screen overlay with a backdrop. Tapping anywhere outside the menu area (e.g., on the hero section visible below) does not dismiss it. Users must explicitly tap the ✕ button or navigate to a link. Adding a semi-transparent backdrop that closes the menu on tap would improve usability.
+
+**Touch target issue:** The hamburger button is 36×36px with 0px padding — below the 44×44px minimum recommended by WCAG/Apple HIG. The logo link is also 36×36px.
+
+---
+
+### 3. HERO SECTION
+
+**Result: ✅ Adapts well.**
+
+| Element | Desktop | Mobile (375px) | Status |
+|---|---|---|---|
+| Heading "The Platform for Marina Innovation" | ~60px | 36px / 40px line-height | ✅ Readable, wraps to 2 lines |
+| Subtitle text | ~20px | 20px / 28px line-height | ✅ Comfortable |
+| "Join Now — It's Free" CTA | Inline | 328px wide × 44px tall | ✅ Nearly full-width, proper touch target |
+| "Explore the Marketplace" CTA | Inline | 328px wide × 44px tall | ✅ Stacks below primary CTA |
+| Checkmark items | Single row | Wraps to 2 rows | ✅ "Industry Events & Resources" wraps to second line |
+
+The hero section adapts cleanly. Both CTAs are full-width and stack vertically. Text is readable and well-proportioned.
+
+---
+
+### 4. CONTENT SECTIONS
+
+| Section | Desktop Layout | Mobile Layout | Status |
+|---|---|---|---|
+| **Why Join M3 Connect** (3 cards) | 3-column grid | Single column stack | ✅ |
+| **How It Works** (4 steps) | Horizontal row | 2×2 grid | ✅ Acceptable |
+| **Stats** (4 numbers) | Horizontal row | 2×2 grid | ✅ |
+| **Featured Resources** (3 cards) | 3-column grid | Single column stack | ✅ |
+| **Upcoming Events** (3 cards) | Single column | Single column | ✅ |
+| **Our Partners** (6 logos) | Horizontal row | 3×2 grid | ⚠️ See below |
+| **"Are you a Marina?" CTA** | Full-width banner | Full-width banner | ✅ |
+
+**⚠️ Our Partners section — critical readability issue:**
+
+The 6 partner logos display in a 3×2 grid with each card only 93×136px. Partner names are shown in 12px font and truncated to ~5 characters with ellipsis: "M3 C…", "Ocea…", "Marin…", "Smart…", "Medit…", "Secur…". At this size, the names are completely unreadable and useless. A user cannot tell which companies are shown.
+
+**Recommendation:** Switch to a 2-column grid or a horizontal scroll carousel at mobile width. Alternatively, increase card width and reduce to 2 columns.
+
+**Images:** The one real image (article test resource card) scales properly from 1318px natural width to 326px rendered width, maintaining aspect ratio. SVG placeholder icons also scale correctly.
+
+---
+
+### 5. FONT SIZES
+
+| Element | Font Size | Readable? |
+|---|---|---|
+| H1 (hero heading) | 36px / 700 weight | ✅ |
+| H2 (section headings) | 30px / 700 weight | ✅ |
+| H3 (card titles) | 18px / 600 weight | ✅ |
+| Body text | 16px / 400 weight | ✅ |
+| Card descriptions | 14px / 400 weight | ✅ Minimum acceptable |
+| How It Works step labels | 14px | ✅ |
+| Stats numbers | 30px / 700 weight | ✅ |
+| **Partner names (homepage)** | **12px** | **❌ Too small** |
+| Resource type badges | 12px | ⚠️ Borderline |
+| Step number badges | 12px | ⚠️ Small but decorative |
+| Footer link text | 16px / 18px height | ✅ Readable |
+
+**❌ Partner names at 12px are below the recommended 14px minimum for mobile body text.** Combined with truncation to ~5 characters, these names provide zero useful information.
+
+---
+
+### 6. TOUCH TARGETS
+
+**Minimum recommended:** 44×44px (WCAG 2.5.8 / Apple HIG)
+
+**Elements below minimum:**
+
+| Element | Size | Issue |
+|---|---|---|
+| **Hamburger menu button** | 36×36px | 8px too small in both dimensions |
+| **Logo link (M3 Connect)** | 36×36px | 8px too small |
+| **Footer social icons** (LinkedIn, Instagram) | 20×20px | **24px too small — critically undersized** |
+| **Footer links** (Resources, Events, etc.) | varies × 18px height (24px with line-height) | Height well below 44px |
+| **"View All Partners" link** | 142×24px | Height 20px below minimum |
+| **Resource filter tabs** | varies × 32px | 12px below minimum |
+| **Network page tabs** (Partners, RFPs, Consults) | 107×32px | 12px below minimum |
+
+**Elements meeting minimum:**
+
+| Element | Size | Status |
+|---|---|---|
+| Mobile menu nav items | 328×44px | ✅ |
+| Hero CTA buttons | 328×44px | ✅ |
+| "Join Now" CTA (bottom) | 155×44px | ✅ |
+| Event cards | 328×122px+ | ✅ |
+| Resource cards | 328×314px+ | ✅ |
+| Login/Sign Up buttons (menu) | 149×40px / 147×40px | ⚠️ Close (40px, 4px short) |
+
+**Critical touch target failures:** The footer social icons at 20×20px are the worst offenders — they're less than half the recommended minimum size.
+
+---
+
+### 7. FOOTER
+
+**Result: ✅ Columns stack vertically.**
+
+The footer adapts from a multi-column layout to a single-column vertical stack:
+
+1. M3 Connect logo + tagline + social icons
+2. **Platform** — Resources, Events, Partners, Become a Member
+3. **Company** — About, Contact
+4. **Legal** — Terms of Service, Privacy Policy, Legal Notice, Commercial Terms, Cookie Policy
+5. © 2026 M3 Connect. All rights reserved.
+
+**Footer link touch targets:** Each footer link has an 18px text height within a 24px list item, with 0px padding and 0px margin between items. The effective tappable area is only 24px tall — well below the 44px minimum. Adjacent links are stacked with no gap between them, making it easy to accidentally tap the wrong link.
+
+**Recommendation:** Add `padding: 12px 0` to each footer link to bring the tappable area up to ~42px, or add min-height: 44px.
+
+---
+
+### Summary of All Responsive Issues
+
+| # | Severity | Issue | Location |
+|---|---|---|---|
+| 1 | 🔴 Critical | **Partner names unreadable** — 12px font, truncated to ~5 chars in 93px-wide cards | Homepage → Our Partners |
+| 2 | 🔴 Critical | **Footer social icons 20×20px** — less than half the 44px minimum touch target | Footer |
+| 3 | 🟠 High | **Footer links have no padding** — 18px-tall links stacked with 0px gap, easy to mis-tap | Footer |
+| 4 | 🟠 High | **Hamburger button 36×36px** — below 44px minimum; same for logo | Header/navbar |
+| 5 | 🟠 High | **Mobile menu doesn't close on tap outside** — no backdrop overlay, must use ✕ or navigate | Hamburger menu |
+| 6 | 🟡 Medium | **Resource filter tabs hidden off-screen** — "Replay" and "Case Study" require horizontal swipe with no visual affordance (hidden scrollbar) | /resources |
+| 7 | 🟡 Medium | **Filter/network tabs 32px tall** — below 44px minimum | /resources, /network |
+| 8 | 🟡 Medium | **"View All Partners" link 24px tall** — below 44px minimum | Homepage |
+| 9 | 🟡 Medium | **Login/Sign Up buttons in menu 40px tall** — 4px below 44px minimum | Hamburger menu |
+| 10 | 🟢 Low | **Partners page uses 2-column grid** — sector tags wrap into 3-4 lines in narrow cards | /partners |
+| 11 | 🟢 Low | **"How It Works" stays 2×2 grid** — functional but could stack to single column for better readability | Homepage | |
+| R-02 | 768px (tablet) | |## Audit 18 — Tablet Width Analysis (768px Viewport)
+
+---
+
+### 1. GRID LAYOUT
+
+| Section | Desktop Columns | Tablet (768px) Columns | Card Width | Status |
+|---|---|---|---|---|
+| **Why Join M3 Connect** (3 cards) | 3 | **3** | 222px | ✅ Fits well |
+| **How It Works** (4 steps) | 4 horizontal | **4 horizontal** | ~170px each | ✅ |
+| **Stats** (4 counters) | 4 horizontal | **4 horizontal** | ~170px each | ✅ |
+| **Featured Resources** (3 cards) | 3 | **3** | 224px | ✅ |
+| **Upcoming Events** (3 cards) | 3 | **3** | 224px | ✅ |
+| **Our Partners** (6 logos) | 6 horizontal | **6 horizontal** | 100px | ⚠️ See below |
+| **Resource cards** (/resources) | 3+ | **2** (next to sidebar) | ~210px | ✅ |
+| **Network cards** (/network) | 3+ | **2** (next to sidebar) | 211px | ⚠️ See below |
+| **Partner cards** (/partners) | 4 | **3** | ~224px | ✅ Full names readable |
+| **Profile type cards** (/become-partner) | 3 | **3** | ~224px | ✅ |
+| **Event detail** | 2-col (description + register) | **1** (stacked) | Full width | ✅ Good adaptation |
+
+**Spacing:** All card grids use consistent 16px padding on left/right edges and ~24px gap between cards. Cards are properly sized and evenly spaced.
+
+⚠️ **Our Partners (homepage):** 6 logos crammed into a single row at 768px. Each card is only 100px wide with 12px font partner names truncated to ~6 characters ("M3 Co…", "Ocean…", "Marina…"). While not as severe as at 375px, the names are still barely readable. A 3×2 grid would be more appropriate here.
+
+⚠️ **Network page organization names:** This is the most significant bug. The org name H3 elements have the CSS class `truncate` but are being rendered at only 25-29px wide, causing names like "Incomplete Corp" to display as "I…" and "GreenPort Solutions" as "G…". This appears to be a flexbox layout issue where the name competes for horizontal space with the tier badge and type pill. The description text below renders at 171px wide (correct), so only the name element is affected.
+
+---
+
+### 2. NAVIGATION
+
+**Result: Hamburger menu at 768px — intentional.**
+
+At 768px the navigation is collapsed behind a hamburger icon (☰). The desktop inline nav links use Tailwind's `hidden lg:flex` class, meaning they appear at the `lg` breakpoint (1024px). This is an intentional design decision.
+
+The header at 768px shows: M3 Connect logo, language toggle (🌐), Login button (text), Sign Up button (filled), and hamburger icon. The Login and Sign Up buttons use `hidden sm:flex` so they're visible at 768px (sm = 640px).
+
+| Component | Visible at 768px | Notes |
+|---|---|---|
+| Logo | ✅ | |
+| Full nav links (Home, Resources, etc.) | ❌ Hidden | Shows at 1024px+ |
+| Login button | ✅ | Text button |
+| Sign Up button | ✅ | Filled navy button |
+| Language toggle | ✅ | Globe icon |
+| Hamburger menu | ✅ | Opens dropdown panel |
+
+This is a reasonable approach — showing Login/Sign Up prominently while keeping the full nav behind the hamburger avoids a cramped header. The layout looks intentional, not broken.
+
+---
+
+### 3. SIDEBAR
+
+**Resources page (/resources):**
+
+| Element | Width | Notes |
+|---|---|---|
+| Sectors sidebar | 256px | Remains visible ✅ |
+| Main content area | 441px | Resource cards in 2-col grid |
+| Gap between | 24px | Adequate spacing |
+| Left padding | 16px | Content doesn't touch edge |
+
+The sidebar remains visible at 768px and doesn't collapse. The main content area has enough space for a 2-column card grid. Sector filter labels are truncated ("Access Control & Se…", "Berth Booking & Boa…") due to the 256px width, but checkboxes remain functional and the truncated names give enough context.
+
+**Network page (/network):** Same sidebar layout as resources — sector filters visible on the left, 2-column organization card grid on the right.
+
+**No pages have a collapsed/hidden sidebar at 768px.** This is acceptable given the sidebar-to-content ratio (~34% sidebar, ~58% content, ~8% gaps/padding).
+
+---
+
+### 4. IMAGES
+
+**Resource hero image** ("article test"): Uses `object-fit: cover`. The image scales from 1318px natural width to 753px rendered width. The aspect ratio changes (1.79 → 2.35) due to cropping, but visually there is no stretching or pixelation. The cover approach preserves image quality while filling the banner area.
+
+**Resource card images**: The one real image (yacht photo) on the resource listing scales to 224px width within a card, maintaining clarity. SVG placeholder icons for other cards scale correctly.
+
+**Partner/organization avatars**: Initials-based avatars (circular, generated) scale properly at all sizes.
+
+**No image stretching, pixelation, or broken aspect ratios detected.** ✅
+
+---
+
+### 5. WHITESPACE
+
+**Container padding:** 16px on both left and right sides across all pages. This provides adequate breathing room — content never touches the screen edges.
+
+**Programmatic edge check:** Only the skip-to-content link (off-screen by design) touches the viewport edge. Zero real whitespace violations found across all tested pages.
+
+| Page | Left Padding | Right Padding | Content Touches Edge? |
+|---|---|---|---|
+| Homepage | 16px | 16px | ❌ No |
+| /resources | 16px | 16px | ❌ No |
+| /network | 16px | 16px | ❌ No |
+| /partners | 16px | 16px | ❌ No |
+| /events | 16px | 16px | ❌ No |
+| /become-partner | 16px | 16px | ❌ No |
+
+**No horizontal scroll** detected on any page at 768px. Document scroll width (753px) is consistently less than viewport width (768px).
+
+---
+
+### 6. TABLES
+
+**No data tables exist on any public page** at this breakpoint. The platform's public-facing pages use card grids and list layouts rather than traditional `<table>` elements. Data tables exist only in the admin panel (behind authentication) — these were not testable in this unauthenticated session.
+
+The closest thing to tabular data is the pricing comparison grid on `/account?tab=pricing`, which is behind authentication.
+
+---
+
+### Summary of Findings
+
+| # | Severity | Issue | Location |
+|---|---|---|---|
+| 1 | 🔴 Critical | **Network page org names truncated to 1-2 characters** — H3 elements only 25-29px wide, names like "Incomplete Corp" display as "I…" | /network at 768px |
+| 2 | 🟡 Medium | **Homepage partner names still truncated** — 100px-wide cards with 12px font, names show ~6 chars | Homepage → Our Partners |
+| 3 | 🟡 Medium | **Sector filter labels truncated** in sidebar — acceptable given 256px width, but some labels lose meaning | /resources, /network sidebars |
+| 4 | 🟢 Info | **Navigation uses hamburger at 768px** — desktop links appear at 1024px (lg breakpoint). Intentional, Login/Sign Up visible | Header |
+| 5 | ✅ Pass | Grid layouts — 3 columns for most homepage sections, 2 columns for card grids alongside sidebars | All pages |
+| 6 | ✅ Pass | No horizontal scroll on any page | All pages |
+| 7 | ✅ Pass | Adequate whitespace (16px padding) everywhere | All pages |
+| 8 | ✅ Pass | Images scale properly with object-fit: cover, no stretching | All pages |
+| 9 | ✅ Pass | Footer displays 4-column horizontal layout | All pages |
+| 10 | ✅ Pass | Event detail properly stacks to single column | /events/[id] |
+
+The most critical issue is the network page organization name truncation (#1) — this is a CSS layout bug where the name's H3 element is squeezed to ~25px wide despite the card itself being 211px wide. The `truncate` class combined with competing flex items (tier badge, type pill) causes the name to receive almost no horizontal space. This needs a CSS fix, likely giving the name element `flex-shrink: 0` or `min-width` or restructuring the card header layout so the name isn't competing with badges for space. |
 | R-03 | Forms at mobile | | |
 
 ### Console & Network (C-01 to C-02)
 
 | Test ID | Check | Status | Findings |
 |---------|-------|--------|----------|
-| C-01 | Console errors | | |
-| C-02 | Performance/loading | | |
+| C-01 | Console errors | |# Browser Console & Network Error Report for connect.m3monaco.com
+
+## 1. RED ERRORS (Console)
+
+**None found.** After multiple page reloads and full page scrolling, the browser console produced zero error messages. The application does not log any `console.error()` output on page load or during interaction. This is notable because the app is silently swallowing server errors (see Section 3) without logging them.
+
+---
+
+## 2. YELLOW WARNINGS (Console)
+
+**None found.** Zero `console.warn()` messages detected. No deprecation warnings, no React prop type warnings, no accessibility warnings. The console is completely clean — which in itself is unusual and may indicate the production build has stripped all logging, or error handling is silently catching and discarding errors.
+
+---
+
+## 3. NETWORK ERRORS — 3 FAILED REQUESTS (503 Service Unavailable)
+
+This is the most significant finding. Three Supabase REST API requests consistently fail with **HTTP 503 (Service Unavailable)** on every page load. These were reproduced across 4+ consecutive page loads.
+
+**Failed Request #1 — `profile_views` table**
+- **URL:** `https://djjbgzasuomhyfvtlidi.supabase.co/rest/v1/profile_views?select=*&viewed_user_id=eq.a13958a4-...`
+- **Method:** HEAD
+- **Status:** 503 Service Unavailable
+- **When:** Every page load (automatic, no interaction needed)
+- **UI Impact:** The "Profile Views" stat on the homepage shows **"16"** — so the app appears to be using a fallback/cached value or a separate query, but this HEAD request (likely used for counting via Content-Range header) is broken.
+
+**Failed Request #2 — `partner_requests` table (connections count)**
+- **URL:** `https://djjbgzasuomhyfvtlidi.supabase.co/rest/v1/partner_requests?select=*&marina_user_id=eq.a13958a4-...&status=in.(pending,accepted)`
+- **Method:** HEAD
+- **Status:** 503 Service Unavailable
+- **When:** Every page load
+- **UI Impact:** The "Connections" stat shows **"2"** — again, using a fallback or separate data source.
+
+**Failed Request #3 — `partner_requests` table (pending count)**
+- **URL:** `https://djjbgzasuomhyfvtlidi.supabase.co/rest/v1/partner_requests?select=*&marina_user_id=eq.a13958a4-...&status=eq.pending`
+- **Method:** HEAD
+- **Status:** 503 Service Unavailable
+- **When:** Every page load
+- **UI Impact:** The "Pending Requests" stat shows **"0"** — using a fallback.
+
+All other requests (10 out of 13) return **200 OK** — including queries to `organizations`, `profiles`, `organization_members`, `resource_sectors`, `event_sectors`, `event_registrations`, and Supabase Storage requests.
+
+---
+
+## 4. REACT ERRORS
+
+**None found.** No React error boundaries are active. There is no error overlay (dev mode), no error fallback UI, and no `[role="alert"]` elements in the DOM. The page renders fully and correctly. The app is in production mode (no webpack dev server overlay, no hot module replacement detected).
+
+---
+
+## 5. SUPABASE ERRORS
+
+**Yes — this is the critical issue.** The three 503 errors above are all Supabase PostgREST API failures:
+
+**Root Cause Analysis:** The 503 status code from Supabase's REST API typically means one of these:
+
+- The underlying **database tables (`profile_views` and `partner_requests`) may not exist** or have been dropped/renamed. PostgREST returns 503 when it can't find the relation.
+- **Row Level Security (RLS) policies** may be misconfigured, causing PostgREST to fail at the schema cache level.
+- The **Supabase database may be overloaded** or the connection pool exhausted — though this is less likely since other queries succeed fine.
+
+**Key observations:**
+- All three failing requests use the **HEAD** method (not GET), suggesting the app uses HEAD requests to get row counts from the `Content-Range` response header — a common PostgREST pattern.
+- The tables involved are `profile_views` and `partner_requests` — both related to the dashboard statistics section.
+- The app **gracefully handles** these failures by showing fallback values (16, 2, 0), so users see no visible error, but the data may be stale or inaccurate.
+- The errors are **not logged to the console**, meaning they could go unnoticed by developers unless they specifically monitor network traffic or Supabase logs.
+
+---
+
+## Summary
+
+| Category | Count | Severity |
+|---|---|---|
+| Console Errors | 0 | — |
+| Console Warnings | 0 | — |
+| Network Errors (503) | **3** | **High** |
+| React Error Boundaries | 0 | — |
+| Supabase Errors | **3** | **High** |
+
+**Primary recommendation:** Investigate why the `profile_views` and `partner_requests` tables are returning 503 on HEAD requests from the Supabase PostgREST API. Check the Supabase dashboard for: table existence, RLS policies, and PostgREST schema cache status. Also consider adding `console.error()` logging in the catch blocks for these API calls so the failures are visible during development and monitoring. |
+| C-02 | Performance/loading | |# Performance & Loading Behavior Analysis — connect.m3monaco.com
+
+---
+
+## 1. LOAD TIME
+
+| Metric | Time |
+|---|---|
+| **DNS Lookup** | 0 ms (cached) |
+| **TCP + TLS** | 54 ms |
+| **Time to First Byte (TTFB)** | 26 ms |
+| **First Paint** | 2,380 ms |
+| **First Contentful Paint (FCP)** | 2,748 ms |
+| **DOM Interactive** | 2,118 ms |
+| **DOM Content Loaded** | 2,434 ms |
+| **Full Page Load** | 2,783 ms |
+| **Last API Response Complete** | 5,436 ms |
+
+The HTML document itself arrives extremely fast (26ms TTFB, 17ms download), but the page doesn't paint anything until **2.4 seconds** and the user doesn't see meaningful content until **~2.7 seconds** due to render-blocking resources. All Supabase API calls don't finish until **~5.4 seconds** after navigation start, meaning the full data-driven content settles roughly 2.5 seconds after first paint.
+
+---
+
+## 2. LARGE ASSETS (Top 5 by Transfer Size)
+
+| # | File | Transfer (gzipped) | Decoded (uncompressed) | Type |
+|---|---|---|---|---|
+| 1 | **classic-reset.css** | **374.9 KB** | **3,205 KB (3.1 MB!)** | CSS (3rd party) |
+| 2 | **index-CyE989Yr.js** | **371.2 KB** | **1,483 KB (1.4 MB)** | JS (main bundle) |
+| 3 | **vendor-react-B-JCMf2c.js** | 50.5 KB | 159.2 KB | JS (React) |
+| 4 | **vendor-supabase-DLPRXOG2.js** | 43.0 KB | 170.5 KB | JS (Supabase) |
+| 5 | **vendor-ui-4uYkYvVr.js** | 38.2 KB | 128.1 KB | JS (UI library) |
+
+**No files exceed 1MB transfer size**, but `classic-reset.css` decompresses to a staggering 3.1 MB and `index-CyE989Yr.js` decompresses to 1.4 MB.
+
+**Image optimization is poor.** No images use WebP or AVIF. The profile avatar is a **3,848 × 5,772 px JPG** displayed at **28 × 28 px** — an oversize ratio of **28,330x** (the image contains roughly 22 megapixels of data to display a 784-pixel thumbnail). The resource thumbnail is a **1,318 × 738 px PNG** displayed at **362 × 192 px** — a 14x oversize ratio, and PNG is not an optimal format for photographic content. Neither image uses `srcset` or responsive sizing.
+
+---
+
+## 3. RENDER BLOCKING
+
+There is a **significant white screen** lasting approximately **2.4 seconds** before any content appears. The culprit chain:
+
+The third-party **`classic-reset.css`** from Société Générale's payment SDK (sogecommerce) is loaded as a render-blocking stylesheet. It starts downloading at 428ms and takes 374ms to arrive, but at 375KB compressed / 3.1MB decompressed it must be fully parsed before any rendering occurs. The main **`index-CyE989Yr.js`** (loaded as a `type="module"` script, not async/defer) takes 1,151ms to download and must also execute before React can mount. Together these block paint until ~2,380ms.
+
+This payment CSS file appears to be loaded on the homepage where no payment form exists — it could potentially be deferred or loaded only on pages that actually need payment functionality.
+
+---
+
+## 4. LOADING STATES
+
+**No loading skeletons, spinners, or placeholder UI were found.** The DOM contains zero elements with skeleton, shimmer, placeholder, spinner, or loading-related class names. Content appears to pop in abruptly once the React app mounts and API calls return. Given that API calls take until ~5.4 seconds to fully resolve, users will experience layout shifts as data-driven sections (registrations, recommended resources, events, stats) populate sequentially.
+
+---
+
+## 5. LAZY LOADING
+
+**No lazy loading is implemented.** Both `<img>` elements on the page have `loading="auto"` (browser default, which is eager). Neither uses `loading="lazy"`. The resource thumbnail image (`1772796318341-6vsj2i.png`) is **below the fold** and would benefit from lazy loading. There are no `<picture>` elements with responsive `<source>` variants, no `srcset` attributes, and no `sizes` attributes on any image.
+
+---
+
+## 6. API CALLS — 14 Supabase Fetch Requests on Page Load
+
+The API calls follow a **waterfall chain pattern** with clear sequential dependencies:
+
+**Batch 1 — Initial parallel calls (5 simultaneous, ~2,946ms):**
+
+| Table | Start | End | Duration |
+|---|---|---|---|
+| platform_settings | 2,946 ms | 3,598 ms | 652 ms |
+| resources | 2,953 ms | 3,608 ms | 655 ms |
+| events | 2,960 ms | 3,606 ms | 646 ms |
+| organizations (partners list) | 2,968 ms | 3,601 ms | 633 ms |
+| profiles | 2,969 ms | 3,620 ms | 651 ms |
+
+**Sequential waterfall chain (each depends on the previous):**
+
+| Table | Start | End | Duration | Depends on |
+|---|---|---|---|---|
+| organization_members | 3,651 ms | 3,810 ms | 159 ms | profiles |
+| organizations (user's org) | 3,816 ms | 4,008 ms | 192 ms | organization_members |
+| organization_interest_sectors | 4,031 ms | 4,194 ms | 163 ms | organizations |
+| resource_sectors | 4,474 ms | 4,824 ms | 350 ms | org_interest_sectors |
+| event_sectors | 4,835 ms | 5,133 ms | 298 ms | resource_sectors |
+
+**Final batch (~5,149ms):**
+
+| Table | Start | End | Duration | Status |
+|---|---|---|---|---|
+| event_registrations | 5,149 ms | 5,299 ms | 150 ms | 200 OK |
+| profile_views | 5,314 ms | 5,408 ms | 94 ms | **503 Error** |
+| partner_requests (connections) | 5,316 ms | 5,436 ms | 120 ms | **503 Error** |
+| partner_requests (pending) | 5,317 ms | 5,434 ms | 117 ms | **503 Error** |
+
+**Redundant / Duplicate Calls:**
+- **`organizations`** is queried **twice** — once for the partners list (Batch 1) and once to get the user's organization details (after org_members returns). These use different filters, so they're not exact duplicates, but the user's org data could potentially be fetched in Batch 1 if the org ID were known earlier.
+- **`partner_requests`** is queried **twice** — once with `status=in.(pending,accepted)` for connections count, and once with `status=eq.pending` for pending count. These could be combined into a single query.
+
+**Total API waterfall time: 2,490ms** (from first API call at 2,946ms to last response at 5,436ms). The 6-step sequential dependency chain is the primary bottleneck. If the user's org_id were cached or fetched alongside the profile, the chain could be shortened significantly.
+
+---
+
+## 7. BUNDLE SIZE
+
+**JavaScript — Total: 533 KB transferred / 2,055 KB decoded**
+
+| Bundle | Transfer (gzip) | Decoded | Purpose |
+|---|---|---|---|
+| index-CyE989Yr.js | 371.2 KB | 1,483.4 KB | Main app bundle |
+| vendor-react-B-JCMf2c.js | 50.5 KB | 159.2 KB | React runtime |
+| vendor-supabase-DLPRXOG2.js | 43.0 KB | 170.5 KB | Supabase client |
+| vendor-ui-4uYkYvVr.js | 38.2 KB | 128.1 KB | UI component library |
+| vendor-i18n-okqJOwAf.js | 15.9 KB | 52.0 KB | Internationalization |
+| vendor-icons-DnyeR7AL.js | 7.9 KB | 44.2 KB | Icons |
+| classic.js | 6.1 KB | 17.8 KB | Société Générale payment SDK |
+
+**CSS — Total: 387 KB transferred / 3,288 KB decoded**
+
+| File | Transfer (gzip) | Decoded | Source |
+|---|---|---|---|
+| classic-reset.css | 374.9 KB | 3,205.4 KB | 3rd party (Société Générale) |
+| index-DJINk-d2.css | 12.4 KB | 82.8 KB | App stylesheet |
+
+**Total page weight: ~922 KB transferred / ~5,348 KB decoded** (excluding cached images).
+
+The build uses Vite with good code-splitting (5 vendor chunks via `modulepreload`). However, the **main bundle at 371 KB gzipped is large** and could benefit from route-based code splitting — the homepage likely doesn't need all of the app's pages bundled together.
+
+---
+
+## Summary of Key Performance Issues
+
+**Critical:**
+1. **3.1 MB third-party CSS** (`classic-reset.css` from Société Générale payment SDK) is render-blocking on the homepage where no payment functionality exists. This single file is the #1 performance bottleneck.
+2. **6-step API waterfall chain** taking 2.5 seconds — `profiles → org_members → organizations → org_interest_sectors → resource_sectors → event_sectors → final batch`. Each call waits for the previous to complete.
+3. **Massively oversized avatar image** — 3,848 × 5,772 px (22 MP) served for a 28 × 28 px display. This is wasting bandwidth and memory.
+
+**Moderate:**
+4. No loading skeletons or placeholders, causing abrupt content pop-in and likely layout shifts.
+5. No lazy loading on below-fold images.
+6. No responsive image handling (no `srcset`, no WebP/AVIF).
+7. Main JS bundle (371 KB gzipped) could be split by route.
+8. Two `partner_requests` queries could be merged into one. |
 
 ### Content Quality (Q-01 to Q-03)
 
 | Test ID | Check | Status | Findings |
 |---------|-------|--------|----------|
-| Q-01 | Text content | | |
-| Q-02 | Data accuracy | | |
-| Q-03 | Email content | | |
+| Q-01 | Text content | Skipped| |
+| Q-02 | Data accuracy |Skipped | |
+| Q-03 | Email content |Skipped | |
 
 ### Accessibility (A-01 to A-03)
 
 | Test ID | Check | Status | Findings |
 |---------|-------|--------|----------|
-| A-01 | Keyboard nav | | |
-| A-02 | Semantic HTML | | |
-| A-03 | Color contrast | | |
+| A-01 | Keyboard nav |Skipped | |
+| A-02 | Semantic HTML |Skipped | |
+| A-03 | Color contrast |Skipped | |
 
 ### Chrome Extension Issues Found
 
@@ -2122,7 +3060,7 @@ _List any issues the Chrome Extension flagged that need fixing:_
 
 ## General Notes
 
-_Write any overall observations, patterns, or concerns here._
+_Write any overall observations, patterns, or concerns here._- Il y a un problems de connection entre resources requests et resources car certain articles dans resources requests qui sont encore pending alors que dans resources ils sont deja publié. Est-ce que la solution serait pas de faire un seul et meme tableau ou le status est en requested ou need review, approved by moderator, published… et en fonction du status que l’action qui suit et les données lié (notamenent sur le admin panel). Le moyen de recherche dans le network devrait aussi permettre de mettre le nom d’un representative (user) et d’afficher l’organization dans la quelle il est. I’ve noticed I can retrieve all profiles sensitive informations (email, first name, etc…) from all my users publicly from my “profiles” table! But I don’t want anybody can access these informations. However I can’t update them thanks to a policy! As I’m using anony key in my supabase db, can you add a policy to avoid doing that on “profile” table?
 
 ---
 

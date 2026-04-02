@@ -26,6 +26,28 @@ export function ResetPasswordPage() {
 
     let mounted = true;
 
+    // Explicitly try to exchange the PKCE code from the URL
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('code');
+    if (code) {
+      supabase.auth.exchangeCodeForSession(code).then(({ data, error: exchangeError }) => {
+        if (!mounted) return;
+        if (data?.session) {
+          setSessionReady(true);
+          setChecking(false);
+        } else if (exchangeError) {
+          console.error('Code exchange failed:', exchangeError.message);
+          // Don't give up yet — the onAuthStateChange might still fire
+        }
+      });
+    }
+
+    // Also check for hash fragments (non-PKCE flow)
+    if (window.location.hash.includes('access_token') || window.location.hash.includes('type=recovery')) {
+      // The Supabase client will auto-detect hash fragments
+      // Just wait for the auth state change
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         if (!mounted) return;
@@ -46,10 +68,10 @@ export function ResetPasswordPage() {
       if (session) {
         setSessionReady(true);
       }
-      // After initial check, if still no session, wait a bit then give up
+      // After initial check, if still no session, wait longer then give up
       setTimeout(() => {
         if (mounted) setChecking(false);
-      }, 5000);
+      }, 15000);
     });
 
     return () => {

@@ -7,7 +7,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2 } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Organization } from '@/types/database';
@@ -163,6 +165,48 @@ export function AccountPage() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  // Profile editing
+  const [editingProfile, setEditingProfile] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', jobTitle: '' });
+
+  // Initialize profile form when profile loads or editing starts
+  useEffect(() => {
+    if (profile) {
+      setProfileForm({
+        firstName: profile.first_name || '',
+        lastName: profile.last_name || '',
+        jobTitle: profile.job_title || '',
+      });
+    }
+  }, [profile]);
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    setSavingProfile(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          first_name: profileForm.firstName.trim(),
+          last_name: profileForm.lastName.trim(),
+          job_title: profileForm.jobTitle.trim() || null,
+        })
+        .eq('user_id', user.id);
+
+      if (updateError) throw updateError;
+
+      toast({ title: 'Profile updated', description: 'Your personal information has been saved.' });
+      setEditingProfile(false);
+      // Force a page reload to refresh profile from AuthContext
+      window.location.reload();
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to update profile.', variant: 'destructive' });
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   const uploadImage = async (file: File, type: 'avatar' | 'logo') => {
     if (!file.type.startsWith('image/')) {
       toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP)', variant: 'destructive' });
@@ -266,7 +310,7 @@ export function AccountPage() {
         // Profile views count
         const { count: viewCount } = await supabase
           .from('profile_views')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact' })
           .eq('viewed_user_id', user.id);
         setProfileViewCount(viewCount || 0);
 
@@ -765,15 +809,45 @@ export function AccountPage() {
         <TabsContent value="profile">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                {profile.first_name || profile.last_name
-                  ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
-                  : user.email?.split('@')[0] || 'My Profile'}
-              </CardTitle>
-              <div className="flex items-center gap-2 mt-1">
-                {profile.job_title && <span className="text-sm text-gray-500">{profile.job_title}</span>}
-                {profile.job_title && <span className="text-gray-300">·</span>}
-                <Badge variant="outline" className="text-xs">{getPersonaIcon()} <span className="ml-1">{getPersonaLabel()}</span></Badge>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    {profile.first_name || profile.last_name
+                      ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
+                      : user.email?.split('@')[0] || 'My Profile'}
+                  </CardTitle>
+                  <div className="flex items-center gap-2 mt-1">
+                    {profile.job_title && <span className="text-sm text-gray-500">{profile.job_title}</span>}
+                    {profile.job_title && <span className="text-gray-300">·</span>}
+                    <Badge variant="outline" className="text-xs">{getPersonaIcon()} <span className="ml-1">{getPersonaLabel()}</span></Badge>
+                  </div>
+                </div>
+                {!editingProfile ? (
+                  <Button variant="outline" size="sm" onClick={() => setEditingProfile(true)} className="gap-2">
+                    <Pencil className="h-4 w-4" />
+                    Edit Profile
+                  </Button>
+                ) : (
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => {
+                      setEditingProfile(false);
+                      // Reset form to current profile values
+                      if (profile) {
+                        setProfileForm({
+                          firstName: profile.first_name || '',
+                          lastName: profile.last_name || '',
+                          jobTitle: profile.job_title || '',
+                        });
+                      }
+                    }}>
+                      Cancel
+                    </Button>
+                    <Button size="sm" onClick={handleSaveProfile} disabled={savingProfile} className="gap-2">
+                      {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Save
+                    </Button>
+                  </div>
+                )}
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -806,18 +880,62 @@ export function AccountPage() {
               {/* Personal Information */}
               <div>
                 <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Personal Information</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-500 block">Email</span>
-                    <span className="font-medium">{user.email}</span>
+                {editingProfile ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-firstName">First Name</Label>
+                      <Input
+                        id="edit-firstName"
+                        value={profileForm.firstName}
+                        onChange={(e) => setProfileForm(prev => ({ ...prev, firstName: e.target.value }))}
+                        placeholder="First name"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-lastName">Last Name</Label>
+                      <Input
+                        id="edit-lastName"
+                        value={profileForm.lastName}
+                        onChange={(e) => setProfileForm(prev => ({ ...prev, lastName: e.target.value }))}
+                        placeholder="Last name"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-email">Email</Label>
+                      <Input id="edit-email" value={user.email || ''} disabled className="bg-gray-50" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-jobTitle">Job Title</Label>
+                      <Input
+                        id="edit-jobTitle"
+                        value={profileForm.jobTitle}
+                        onChange={(e) => setProfileForm(prev => ({ ...prev, jobTitle: e.target.value }))}
+                        placeholder="Job title"
+                      />
+                    </div>
                   </div>
-                  {profile.job_title && (
+                ) : (
+                  <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <span className="text-gray-500 block">Job Title</span>
-                      <span className="font-medium">{profile.job_title}</span>
+                      <span className="text-gray-500 block">First Name</span>
+                      <span className="font-medium">{profile.first_name || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Last Name</span>
+                      <span className="font-medium">{profile.last_name || '—'}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Email</span>
+                      <span className="font-medium">{user.email}</span>
+                    </div>
+                    {profile.job_title && (
+                      <div>
+                        <span className="text-gray-500 block">Job Title</span>
+                        <span className="font-medium">{profile.job_title}</span>
+                      </div>
+                    )}
                   </div>
                 )}
-                </div>
               </div>
 
               {/* Account Details */}

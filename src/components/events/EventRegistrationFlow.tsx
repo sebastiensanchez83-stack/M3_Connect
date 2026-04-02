@@ -52,7 +52,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
         .eq('event_id', eventId).eq('user_id', user.id).maybeSingle();
 
       const countRes = await supabase
-        .from('event_registrations').select('*', { count: 'exact', head: true })
+        .from('event_registrations').select('id', { count: 'exact' })
         .eq('event_id', eventId);
 
       setRegistrationCount(countRes.count || 0);
@@ -75,7 +75,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
 
         // Org registration count
         const orgCountRes = await supabase
-          .from('event_registrations').select('*', { count: 'exact', head: true })
+          .from('event_registrations').select('id', { count: 'exact' })
           .eq('event_id', eventId).eq('organization_id', organization.id);
 
         setOrgRegistrationCount(orgCountRes.count || 0);

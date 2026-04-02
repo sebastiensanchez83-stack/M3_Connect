@@ -41,7 +41,7 @@ export function AdminEvents() {
       const ids = evts.map(e => e.id);
       // Batch count registrations
       for (const eid of ids) {
-        const { count } = await supabase.from('event_registrations').select('*', { count: 'exact', head: true }).eq('event_id', eid);
+        const { count } = await supabase.from('event_registrations').select('id', { count: 'exact' }).eq('event_id', eid);
         counts[eid] = count || 0;
       }
       setRegCounts(counts);

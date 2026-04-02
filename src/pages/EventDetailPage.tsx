@@ -89,7 +89,7 @@ export function EventDetailPage() {
     const fetchCount = async () => {
       const { count } = await supabase
         .from('event_registrations')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .eq('event_id', id);
       setRegistrationCount(count || 0);
     };

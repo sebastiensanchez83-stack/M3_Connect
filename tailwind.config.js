@@ -28,6 +28,7 @@ export default {
         },
         secondary: {
           DEFAULT: "#d7a647",
+          dark: "#9a7520",
           foreground: "#0b2653",
         },
         destructive: {

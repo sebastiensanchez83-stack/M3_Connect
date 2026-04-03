@@ -565,24 +565,6 @@ export function AccountPage() {
   const isPartner = profile.persona === 'partner' || profile.persona === 'media_partner';
   const org = organization;
 
-  // Refresh bypass/reference data (called from ReferenceRequestForm callbacks)
-  const refreshOnboardingState = async () => {
-    if (!organization?.id) return;
-    const [{ count }, { data: bypassData }] = await Promise.all([
-      supabase.from('reference_requests').select('id', { count: 'exact' }).eq('partner_organization_id', organization.id),
-      supabase.from('reference_bypass_requests').select('id, status').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    ]);
-    setReferenceCount(count || 0);
-    setBypassRequest(bypassData || null);
-  };
-
-  // Onboarding wizard step calculation
-  // Step 1: Organization Details — complete when org exists
-  // Step 2: Reference (partners only) — complete when references submitted OR bypass pending/approved
-  // Step 3 (or 2 for non-partners): Admin Review
-  const referenceStepDone = referenceCount > 0 || bypassRequest?.status === 'pending' || bypassRequest?.status === 'approved';
-  const currentOnboardingStep = !org ? 1 : (isPartner && !referenceStepDone) ? 2 : (isPartner ? 3 : 2);
-
   // Notification badge counts for tabs
   const orgNeedsAction = profile.onboarding_status === 'draft' || !org;
   const pendingB2B = partnerRequests.filter(r => r.status === 'pending').length;
@@ -952,117 +934,54 @@ export function AccountPage() {
           </div>
         </TabsContent>
 
-        {/* ── COMPLETE REGISTRATION (onboarding step-by-step wizard) ── */}
+        {/* ── COMPLETE REGISTRATION (onboarding single-tab flow) ── */}
         {isOnboarding && (
           <TabsContent value="complete-registration">
             <div className="space-y-6">
-              {/* Step indicator — always visible */}
+              {/* Step indicator */}
               <Card>
                 <CardContent className="p-6">
                   <h2 className="text-lg font-bold mb-4">Complete Your Registration</h2>
-                  <p className="text-sm text-gray-500 mb-6">
-                    {currentOnboardingStep === 1 && 'Fill in your organization details to get started.'}
-                    {currentOnboardingStep === 2 && isPartner && 'Provide professional references or request a bypass.'}
-                    {currentOnboardingStep === (isPartner ? 3 : 2) && 'Your profile is submitted for review.'}
-                  </p>
+                  <p className="text-sm text-gray-500 mb-6">Fill in your organization details below. Once complete, your profile will be submitted for admin review.</p>
                   <div className="flex items-center gap-3 mb-2">
-                    {/* Step 1: Organization */}
                     <div className="flex items-center gap-2">
-                      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        currentOnboardingStep > 1 ? 'bg-green-100 text-green-700' : 'bg-primary/10 text-primary'
-                      }`}>
-                        {currentOnboardingStep > 1 ? <Check className="h-4 w-4" /> : '1'}
-                      </div>
-                      <span className={`text-sm font-medium ${
-                        currentOnboardingStep > 1 ? 'text-green-700' : 'text-primary'
-                      }`}>Organization</span>
+                      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${org ? 'bg-green-100 text-green-700' : 'bg-primary/10 text-primary'}`}>1</div>
+                      <span className={`text-sm font-medium ${org ? 'text-green-700 line-through' : 'text-primary'}`}>Organization Details</span>
                     </div>
-                    <div className={`h-px flex-1 ${currentOnboardingStep > 1 ? 'bg-green-300' : 'bg-gray-200'}`} />
-                    {/* Step 2: Reference (partners only) */}
+                    <div className="h-px flex-1 bg-gray-200" />
                     {isPartner && (
                       <>
                         <div className="flex items-center gap-2">
-                          <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                            currentOnboardingStep > 2 ? 'bg-green-100 text-green-700' : currentOnboardingStep === 2 ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'
-                          }`}>
-                            {currentOnboardingStep > 2 ? <Check className="h-4 w-4" /> : '2'}
-                          </div>
-                          <span className={`text-sm font-medium ${
-                            currentOnboardingStep > 2 ? 'text-green-700' : currentOnboardingStep === 2 ? 'text-primary' : 'text-gray-400'
-                          }`}>Reference</span>
+                          <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${referenceCount > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>2</div>
+                          <span className={`text-sm font-medium ${referenceCount > 0 ? 'text-green-700 line-through' : 'text-gray-400'}`}>Reference</span>
                         </div>
-                        <div className={`h-px flex-1 ${currentOnboardingStep > 2 ? 'bg-green-300' : 'bg-gray-200'}`} />
+                        <div className="h-px flex-1 bg-gray-200" />
                       </>
                     )}
-                    {/* Step 3 (or 2): Admin Review */}
                     <div className="flex items-center gap-2">
-                      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        currentOnboardingStep === (isPartner ? 3 : 2) ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'
-                      }`}>
-                        {isPartner ? '3' : '2'}
-                      </div>
-                      <span className={`text-sm font-medium ${
-                        currentOnboardingStep === (isPartner ? 3 : 2) ? 'text-primary' : 'text-gray-400'
-                      }`}>Admin Review</span>
+                      <div className="h-8 w-8 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-sm font-bold">{isPartner ? '3' : '2'}</div>
+                      <span className="text-sm font-medium text-gray-400">Admin Review</span>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* ── Step 1: Organization Details ── */}
-              {currentOnboardingStep === 1 && (
-                <OrganizationTab />
-              )}
+              {/* Organization section */}
+              <OrganizationTab />
 
-              {/* ── Step 2: References (partners only) ── */}
-              {currentOnboardingStep === 2 && isPartner && (
+              {/* Reference section - partners only */}
+              {isPartner && org && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <FileText className="h-5 w-5" />
                       Professional References
-                      {referenceCount === 0 && !bypassRequest && <Badge variant="destructive" className="text-xs">Required</Badge>}
+                      {referenceCount === 0 && <Badge variant="destructive" className="text-xs">Required</Badge>}
                       {referenceCount > 0 && <Badge variant="outline" className="text-xs text-green-600 border-green-200">{referenceCount} submitted</Badge>}
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <ReferenceRequestForm
-                      onBypassSubmitted={refreshOnboardingState}
-                      onReferenceSubmitted={refreshOnboardingState}
-                    />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* ── Step 3 (or 2 for non-partners): Admin Review ── */}
-              {currentOnboardingStep === (isPartner ? 3 : 2) && (
-                <Card className="border-primary/20">
-                  <CardContent className="pt-8 pb-8">
-                    <div className="text-center space-y-4">
-                      <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mx-auto">
-                        <ShieldCheck className="h-8 w-8 text-green-600" />
-                      </div>
-                      <h3 className="text-xl font-bold text-gray-900">Profile Submitted for Review</h3>
-                      <p className="text-gray-600 max-w-md mx-auto">
-                        Thank you for completing your registration! Our team reviews profiles very quickly —
-                        you will receive a confirmation email as soon as your account is approved.
-                      </p>
-                      <div className="flex items-center justify-center gap-3 text-sm text-gray-500 mt-2">
-                        <Clock className="h-4 w-4" />
-                        <span>Typical review time: less than 24 hours</span>
-                      </div>
-                      <div className="pt-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          onClick={() => navigate('/account?tab=organization', { replace: true })}
-                        >
-                          <Pencil className="h-4 w-4" />
-                          Edit my registration
-                        </Button>
-                      </div>
-                    </div>
+                    <ReferenceRequestForm />
                   </CardContent>
                 </Card>
               )}

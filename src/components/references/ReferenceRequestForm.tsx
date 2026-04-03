@@ -32,7 +32,12 @@ interface ExistingReference {
   created_by: string;
 }
 
-export function ReferenceRequestForm() {
+interface ReferenceRequestFormProps {
+  onBypassSubmitted?: () => void;
+  onReferenceSubmitted?: () => void;
+}
+
+export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }: ReferenceRequestFormProps = {}) {
   const { user, organization } = useAuth();
   const [saving, setSaving] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -108,6 +113,7 @@ export function ReferenceRequestForm() {
         .limit(1)
         .maybeSingle();
       setBypassRequest(data);
+      onBypassSubmitted?.();
     }
     setBypassSubmitting(false);
   };
@@ -263,6 +269,7 @@ export function ReferenceRequestForm() {
       }
 
       setSubmitted(true);
+      onReferenceSubmitted?.();
       toast({ title: 'Reference request created', description: `Reference ID: ${refReq.reference_id}` });
     } catch (err: unknown) {
       if (import.meta.env.DEV) console.error(err);

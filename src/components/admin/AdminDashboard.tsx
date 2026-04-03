@@ -520,7 +520,7 @@ export function AdminDashboard() {
 
             {/* Pending Drafts */}
             <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-teal-50 to-white"
-                  onClick={() => nav('/admin/resource-drafts')}>
+                  onClick={() => nav('/admin/resources?tab=drafts')}>
               <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="h-9 w-9 rounded-xl bg-teal-100 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -584,7 +584,7 @@ export function AdminDashboard() {
             </h3>
             <div className="space-y-2">
               {stats.pendingResourceDrafts > 0 && (
-                <button onClick={() => nav('/admin/resource-drafts', { status: 'pending' })}
+                <button onClick={() => nav('/admin/resources?tab=drafts')}
                   className="flex items-center gap-3 w-full rounded-xl px-4 py-3 bg-amber-50 hover:bg-amber-100 border border-amber-200/60 transition-all group text-left">
                   <div className="h-9 w-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
                     <FolderOpen className="h-4 w-4 text-amber-600" />
@@ -625,7 +625,7 @@ export function AdminDashboard() {
             </Button>
             <Button variant="outline"
                     className="h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl bg-teal-50 hover:bg-teal-100"
-                    onClick={() => nav('/admin/resource-drafts')}>
+                    onClick={() => nav('/admin/resources?tab=drafts')}>
               <FolderOpen className="h-5 w-5 text-teal-600" />
               <span className="text-sm font-medium text-gray-700">Review Drafts</span>
             </Button>
@@ -1309,7 +1309,7 @@ export function AdminDashboard() {
             { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, gradient: 'from-pink-500 to-rose-500', bg: 'bg-pink-50', link: '/admin/events', params: { view: 'registrations' } },
             { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, gradient: 'from-purple-500 to-violet-500', bg: 'bg-purple-50', link: '/admin/sponsorships', params: { status: 'pending' } },
             { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, gradient: 'from-indigo-500 to-blue-500', bg: 'bg-indigo-50', link: '/admin/webinars', params: { status: 'submitted' } },
-            { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, gradient: 'from-teal-500 to-cyan-500', bg: 'bg-teal-50', link: '/admin/resource-drafts', params: { status: 'pending' } },
+            { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, gradient: 'from-teal-500 to-cyan-500', bg: 'bg-teal-50', link: '/admin/resources', params: { tab: 'drafts' } },
             { label: 'New Projects', value: stats.newProjects, icon: Anchor, gradient: 'from-orange-500 to-red-500', bg: 'bg-orange-50', link: '/admin/projects', params: { status: 'new' } },
             { label: 'Expo Requests', value: stats.pendingExpositions, icon: Eye, gradient: 'from-fuchsia-500 to-pink-500', bg: 'bg-fuchsia-50', link: '/admin/expositions', params: { status: 'pending' } },
             { label: 'B2B Requests', value: stats.pendingB2B, icon: Link2, gradient: 'from-rose-500 to-red-500', bg: 'bg-rose-50', link: '/admin/partner-requests', params: { status: 'pending' } },
@@ -1431,7 +1431,7 @@ export function AdminDashboard() {
           { label: 'Manage Users', icon: Users, link: '/admin/users', color: 'text-blue-600', bg: 'bg-blue-50 hover:bg-blue-100' },
           { label: 'Add Resource', icon: FileText, link: '/admin/resources', color: 'text-purple-600', bg: 'bg-purple-50 hover:bg-purple-100' },
           { label: 'Add Event', icon: Calendar, link: '/admin/events', color: 'text-pink-600', bg: 'bg-pink-50 hover:bg-pink-100' },
-          { label: 'Review Drafts', icon: FolderOpen, link: '/admin/resource-drafts', color: 'text-teal-600', bg: 'bg-teal-50 hover:bg-teal-100' },
+          { label: 'Review Drafts', icon: FolderOpen, link: '/admin/resources?tab=drafts', color: 'text-teal-600', bg: 'bg-teal-50 hover:bg-teal-100' },
         ].map((a, i) => (
           <Button key={i} variant="outline"
                   className={`h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl ${a.bg}`}

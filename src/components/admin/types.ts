@@ -168,6 +168,9 @@ export interface RFP {
   sector_id: string | null;
   deadline_date: string | null;
   is_open: boolean;
+  status: string;
+  rejection_reason: string | null;
+  admin_notes: string | null;
   created_at: string;
 }
 
@@ -178,6 +181,9 @@ export interface Consultation {
   description: string;
   sector_id: string | null;
   is_open: boolean;
+  status: string;
+  rejection_reason: string | null;
+  admin_notes: string | null;
   created_at: string;
 }
 

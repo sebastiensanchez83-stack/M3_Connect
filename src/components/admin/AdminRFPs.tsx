@@ -8,6 +8,15 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import type { RFP } from './types';
 
+const STATUS_BADGE: Record<string, { variant: string; label: string }> = {
+  submitted: { variant: 'info', label: 'Submitted' },
+  under_review: { variant: 'warning', label: 'Under Review' },
+  approved: { variant: 'success', label: 'Approved' },
+  closed: { variant: 'secondary', label: 'Closed' },
+  rejected: { variant: 'destructive', label: 'Rejected' },
+  archived: { variant: 'outline', label: 'Archived' },
+};
+
 export function AdminRFPs() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -18,12 +27,10 @@ export function AdminRFPs() {
 
   const filteredRfps = useMemo(() => {
     if (!urlStatus) return rfps;
-    if (urlStatus === 'open') return rfps.filter(r => r.is_open);
-    if (urlStatus === 'closed') return rfps.filter(r => !r.is_open);
-    return rfps;
+    return rfps.filter(r => r.status === urlStatus);
   }, [rfps, urlStatus]);
 
-  const bannerColor = urlStatus === 'open' ? 'green' : urlStatus === 'closed' ? 'red' : 'blue';
+  const bannerColor = urlStatus === 'approved' ? 'green' : urlStatus === 'rejected' ? 'red' : urlStatus === 'under_review' ? 'amber' : 'blue';
   const clearFilter = () => { setSearchParams({}); };
 
   useEffect(() => { load(); }, []);
@@ -84,9 +91,7 @@ export function AdminRFPs() {
                     </td>
                     <td className="p-4 text-sm text-gray-500">{r.deadline_date ? new Date(r.deadline_date).toLocaleDateString() : '\u2014'}</td>
                     <td className="p-4">
-                      <Badge variant={r.is_open ? 'success' : 'secondary'}>
-                        {r.is_open ? t('admin.rfps.open') : t('admin.rfps.closed')}
-                      </Badge>
+                      {(() => { const badge = STATUS_BADGE[r.status] || { variant: 'outline', label: r.status }; return <Badge variant={badge.variant as any}>{badge.label}</Badge>; })()}
                     </td>
                   </tr>
                 ))}

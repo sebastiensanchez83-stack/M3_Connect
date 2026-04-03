@@ -9,6 +9,12 @@ import { supabase } from '@/lib/supabase';
 import type { MarinaProject } from './types';
 
 const STATUS_BADGE: Record<string, { variant: any; label: string }> = {
+  submitted: { variant: 'info', label: 'Submitted' },
+  under_review: { variant: 'warning', label: 'Under Review' },
+  approved: { variant: 'success', label: 'Approved' },
+  closed: { variant: 'secondary', label: 'Closed' },
+  rejected: { variant: 'destructive', label: 'Rejected' },
+  archived: { variant: 'outline', label: 'Archived' },
   new: { variant: 'info', label: 'New' },
   in_progress: { variant: 'warning', label: 'In Progress' },
   completed: { variant: 'success', label: 'Completed' },

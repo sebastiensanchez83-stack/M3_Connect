@@ -4,11 +4,10 @@ import { useAuth } from '@/contexts/AuthContext'
 
 // Known protected routes that require authentication
 const protectedExactRoutes = new Set<string>([
-  '/account', '/onboarding', '/submit-project', '/request-webinar',
-  '/submit-rfp', '/submit-consultation',
+  '/account', '/onboarding',
 ])
 
-const protectedPrefixes = ['/admin']
+const protectedPrefixes = ['/admin', '/submit-project', '/submit-rfp', '/submit-consultation', '/request-webinar']
 
 function isProtectedRoute(pathname: string): boolean {
   if (protectedExactRoutes.has(pathname)) return true

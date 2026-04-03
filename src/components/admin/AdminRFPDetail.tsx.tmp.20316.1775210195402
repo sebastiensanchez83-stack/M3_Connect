@@ -13,15 +13,6 @@ import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import type { RFP } from './types';
 
-const STATUS_BADGE: Record<string, { variant: string; label: string }> = {
-  submitted: { variant: 'info', label: 'Submitted' },
-  under_review: { variant: 'warning', label: 'Under Review' },
-  approved: { variant: 'success', label: 'Approved' },
-  closed: { variant: 'secondary', label: 'Closed' },
-  rejected: { variant: 'destructive', label: 'Rejected' },
-  archived: { variant: 'outline', label: 'Archived' },
-};
-
 interface RFPWithDetails extends RFP {
   profile_name: string;
   profile_email: string;
@@ -37,8 +28,7 @@ export function AdminRFPDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [rfp, setRfp] = useState<RFPWithDetails | null>(null);
-  const [status, setStatus] = useState('submitted');
-  const [rejectionReason, setRejectionReason] = useState('');
+  const [isOpen, setIsOpen] = useState(true);
   const [adminNotes, setAdminNotes] = useState('');
 
   useEffect(() => {
@@ -84,8 +74,7 @@ export function AdminRFPDetail() {
     };
 
     setRfp(enriched);
-    setStatus(data.status || 'submitted');
-    setRejectionReason(data.rejection_reason || '');
+    setIsOpen(enriched.is_open);
     setAdminNotes(enriched.admin_notes || '');
     setLoading(false);
   };
@@ -94,11 +83,9 @@ export function AdminRFPDetail() {
     if (!rfp) return;
     setSaving(true);
 
-    const oldStatus = rfp.status;
-
     const { error } = await supabase
       .from('rfps')
-      .update({ status, admin_notes: adminNotes, rejection_reason: rejectionReason || null })
+      .update({ is_open: isOpen, admin_notes: adminNotes })
       .eq('id', rfp.id);
 
     if (error) {
@@ -107,21 +94,12 @@ export function AdminRFPDetail() {
       return;
     }
 
-    // Notify on approval
-    if (status === 'approved' && oldStatus !== 'approved') {
+    // Notify when closing
+    if (!isOpen && rfp.is_open) {
       sendNotification({
-        type: 'rfp_approved',
+        type: 'rfp_closed',
         userId: rfp.marina_user_id,
         data: { title: rfp.title },
-      });
-    }
-
-    // Notify on rejection
-    if (status === 'rejected' && oldStatus !== 'rejected') {
-      sendNotification({
-        type: 'rfp_rejected',
-        userId: rfp.marina_user_id,
-        data: { title: rfp.title, reason: rejectionReason },
       });
     }
 
@@ -150,8 +128,8 @@ export function AdminRFPDetail() {
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <h1 className="text-xl font-bold text-gray-900">{rfp.title}</h1>
-          <Badge variant={(STATUS_BADGE[status]?.variant || 'secondary') as any}>
-            {STATUS_BADGE[status]?.label || status}
+          <Badge variant={rfp.is_open ? 'success' : 'secondary'}>
+            {rfp.is_open ? 'Open' : 'Closed'}
           </Badge>
         </div>
         <Button onClick={handleSave} disabled={saving} className="gap-1.5">
@@ -234,29 +212,23 @@ export function AdminRFPDetail() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>Status</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="submitted">Submitted</SelectItem>
-                <SelectItem value="under_review">Under Review</SelectItem>
-                <SelectItem value="approved">Approved</SelectItem>
-                <SelectItem value="closed">Closed</SelectItem>
-                <SelectItem value="rejected">Rejected</SelectItem>
-                <SelectItem value="archived">Archived</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          {status === 'rejected' && (
-            <div className="space-y-2">
-              <Label>Rejection Reason</Label>
-              <Textarea
-                value={rejectionReason}
-                onChange={e => setRejectionReason(e.target.value)}
-                rows={3}
-                placeholder="Explain why this RFP was rejected..."
-              />
+            <div className="flex items-center gap-3">
+              <Button
+                variant={isOpen ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setIsOpen(true)}
+              >
+                Open
+              </Button>
+              <Button
+                variant={!isOpen ? 'destructive' : 'outline'}
+                size="sm"
+                onClick={() => setIsOpen(false)}
+              >
+                Closed
+              </Button>
             </div>
-          )}
+          </div>
           <div className="space-y-2">
             <Label>Admin Notes</Label>
             <Textarea

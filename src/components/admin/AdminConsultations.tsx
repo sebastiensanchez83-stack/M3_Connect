@@ -8,6 +8,15 @@ import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import type { Consultation } from './types';
 
+const STATUS_BADGE: Record<string, { variant: string; label: string }> = {
+  submitted: { variant: 'info', label: 'Submitted' },
+  under_review: { variant: 'warning', label: 'Under Review' },
+  approved: { variant: 'success', label: 'Approved' },
+  closed: { variant: 'secondary', label: 'Closed' },
+  rejected: { variant: 'destructive', label: 'Rejected' },
+  archived: { variant: 'outline', label: 'Archived' },
+};
+
 export function AdminConsultations() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -18,12 +27,10 @@ export function AdminConsultations() {
 
   const filteredConsultations = useMemo(() => {
     if (!urlStatus) return consultations;
-    if (urlStatus === 'open') return consultations.filter(c => c.is_open);
-    if (urlStatus === 'closed') return consultations.filter(c => !c.is_open);
-    return consultations;
+    return consultations.filter(c => c.status === urlStatus);
   }, [consultations, urlStatus]);
 
-  const bannerColor = urlStatus === 'open' ? 'green' : urlStatus === 'closed' ? 'red' : 'blue';
+  const bannerColor = urlStatus === 'approved' ? 'green' : urlStatus === 'rejected' ? 'red' : urlStatus === 'under_review' ? 'amber' : 'blue';
   const clearFilter = () => { setSearchParams({}); };
 
   useEffect(() => { load(); }, []);
@@ -83,9 +90,7 @@ export function AdminConsultations() {
                       {c.org_name && <div className="text-xs text-gray-500">{c.marina_name}</div>}
                     </td>
                     <td className="p-4">
-                      <Badge variant={c.is_open ? 'success' : 'secondary'}>
-                        {c.is_open ? t('admin.consultations.open') : t('admin.consultations.closed')}
-                      </Badge>
+                      {(() => { const badge = STATUS_BADGE[c.status] || { variant: 'outline', label: c.status }; return <Badge variant={badge.variant as any}>{badge.label}</Badge>; })()}
                     </td>
                     <td className="p-4 text-sm text-gray-500">{new Date(c.created_at).toLocaleDateString()}</td>
                   </tr>

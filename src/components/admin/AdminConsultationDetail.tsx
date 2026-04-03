@@ -7,10 +7,26 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import type { Consultation } from './types';
+
+const STATUS_BADGE: Record<string, { variant: string; label: string }> = {
+  submitted: { variant: 'info', label: 'Submitted' },
+  under_review: { variant: 'warning', label: 'Under Review' },
+  approved: { variant: 'success', label: 'Approved' },
+  closed: { variant: 'secondary', label: 'Closed' },
+  rejected: { variant: 'destructive', label: 'Rejected' },
+  archived: { variant: 'outline', label: 'Archived' },
+};
 
 interface ConsultationWithDetails extends Consultation {
   profile_name: string;
@@ -27,7 +43,8 @@ export function AdminConsultationDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [consultation, setConsultation] = useState<ConsultationWithDetails | null>(null);
-  const [isOpen, setIsOpen] = useState(true);
+  const [status, setStatus] = useState('submitted');
+  const [rejectionReason, setRejectionReason] = useState('');
   const [adminNotes, setAdminNotes] = useState('');
 
   useEffect(() => {
@@ -72,7 +89,8 @@ export function AdminConsultationDetail() {
     };
 
     setConsultation(enriched);
-    setIsOpen(enriched.is_open);
+    setStatus(data.status || (data.is_open ? 'approved' : 'closed'));
+    setRejectionReason(data.rejection_reason || '');
     setAdminNotes(enriched.admin_notes || '');
     setLoading(false);
   };
@@ -81,9 +99,11 @@ export function AdminConsultationDetail() {
     if (!consultation) return;
     setSaving(true);
 
+    const previousStatus = consultation.status || (consultation.is_open ? 'approved' : 'closed');
+
     const { error } = await supabase
       .from('consultations')
-      .update({ is_open: isOpen, admin_notes: adminNotes })
+      .update({ status, admin_notes: adminNotes, rejection_reason: rejectionReason || null })
       .eq('id', consultation.id);
 
     if (error) {
@@ -92,13 +112,21 @@ export function AdminConsultationDetail() {
       return;
     }
 
-    // Notify when closing
-    if (!isOpen && consultation.is_open) {
-      sendNotification({
-        type: 'consultation_closed',
-        userId: consultation.marina_user_id,
-        data: { title: consultation.title },
-      });
+    // Notify on status change
+    if (status !== previousStatus) {
+      if (status === 'approved') {
+        sendNotification({
+          type: 'consultation_approved',
+          userId: consultation.marina_user_id,
+          data: { title: consultation.title },
+        });
+      } else if (status === 'rejected') {
+        sendNotification({
+          type: 'consultation_rejected',
+          userId: consultation.marina_user_id,
+          data: { title: consultation.title, reason: rejectionReason },
+        });
+      }
     }
 
     toast({ title: 'Consultation saved!' });
@@ -116,6 +144,8 @@ export function AdminConsultationDetail() {
 
   if (!consultation) return null;
 
+  const badge = STATUS_BADGE[status] || STATUS_BADGE.submitted;
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
@@ -126,8 +156,8 @@ export function AdminConsultationDetail() {
           </Button>
           <Separator orientation="vertical" className="h-6" />
           <h1 className="text-xl font-bold text-gray-900">{consultation.title}</h1>
-          <Badge variant={consultation.is_open ? 'success' : 'secondary'}>
-            {consultation.is_open ? 'Open' : 'Closed'}
+          <Badge variant={badge.variant as any}>
+            {badge.label}
           </Badge>
         </div>
         <Button onClick={handleSave} disabled={saving} className="gap-1.5">
@@ -198,23 +228,30 @@ export function AdminConsultationDetail() {
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label>Status</Label>
-            <div className="flex items-center gap-3">
-              <Button
-                variant={isOpen ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setIsOpen(true)}
-              >
-                Open
-              </Button>
-              <Button
-                variant={!isOpen ? 'destructive' : 'outline'}
-                size="sm"
-                onClick={() => setIsOpen(false)}
-              >
-                Closed
-              </Button>
-            </div>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="w-[220px]">
+                <SelectValue placeholder="Select status" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(STATUS_BADGE).map(([key, { label }]) => (
+                  <SelectItem key={key} value={key}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+          {status === 'rejected' && (
+            <div className="space-y-2">
+              <Label>Rejection Reason</Label>
+              <Textarea
+                value={rejectionReason}
+                onChange={e => setRejectionReason(e.target.value)}
+                rows={3}
+                placeholder="Explain why this consultation was rejected..."
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Admin Notes</Label>
             <Textarea

@@ -60,6 +60,8 @@ interface RFPItem {
   sector_id: string | null;
   deadline_date: string | null;
   is_open: boolean;
+  status: string;
+  rejection_reason: string | null;
   created_at: string;
 }
 
@@ -69,6 +71,8 @@ interface ConsultationItem {
   description: string;
   sector_id: string | null;
   is_open: boolean;
+  status: string;
+  rejection_reason: string | null;
   created_at: string;
 }
 
@@ -296,14 +300,14 @@ export function AccountPage() {
         if (profile?.persona === 'marina') {
           const { data: rfpData } = await supabase
             .from('rfps')
-            .select('id, title, scope, sector_id, deadline_date, is_open, created_at')
+            .select('id, title, scope, sector_id, deadline_date, is_open, status, rejection_reason, created_at')
             .eq('marina_user_id', user.id)
             .order('created_at', { ascending: false });
           if (rfpData) setRfps(rfpData as RFPItem[]);
 
           const { data: consultData } = await supabase
             .from('consultations')
-            .select('id, title, description, sector_id, is_open, created_at')
+            .select('id, title, description, sector_id, is_open, status, rejection_reason, created_at')
             .eq('marina_user_id', user.id)
             .order('created_at', { ascending: false });
           if (consultData) setConsultations(consultData as ConsultationItem[]);
@@ -425,7 +429,7 @@ export function AccountPage() {
           isMarinaUser
             ? supabase
                 .from('rfps')
-                .select('id, title, scope, sector_id, deadline_date, is_open, created_at')
+                .select('id, title, scope, sector_id, deadline_date, is_open, status, rejection_reason, created_at')
                 .eq('marina_user_id', user.id)
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: null }),
@@ -433,7 +437,7 @@ export function AccountPage() {
           isMarinaUser
             ? supabase
                 .from('consultations')
-                .select('id, title, description, sector_id, is_open, created_at')
+                .select('id, title, description, sector_id, is_open, status, rejection_reason, created_at')
                 .eq('marina_user_id', user.id)
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: null }),
@@ -1368,17 +1372,20 @@ export function AccountPage() {
                       <div key={rfp.id} className="p-4 border rounded-lg space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="font-medium">{rfp.title}</div>
-                          <Badge variant={rfp.is_open ? 'success' : 'secondary'}>
-                            {rfp.is_open ? 'Open' : 'Closed'}
-                          </Badge>
+                          <SubmissionStatusBadge status={rfp.status || (rfp.is_open ? 'open' : 'closed')} />
                         </div>
+                        {rfp.rejection_reason && rfp.status === 'rejected' && (
+                          <p className="text-sm text-red-600 mt-1">
+                            <span className="font-medium">Reason:</span> {rfp.rejection_reason}
+                          </p>
+                        )}
                         <p className="text-sm text-gray-600 line-clamp-2">{rfp.scope}</p>
                         <div className="text-sm text-gray-500">
                           {rfp.deadline_date && `Deadline:${new Date(rfp.deadline_date).toLocaleDateString('en-US')} · `}
                           Created {new Date(rfp.created_at).toLocaleDateString('en-US')}
                         </div>
                         <div className="flex gap-2 pt-1">
-                          {rfp.is_open && (
+                          {(rfp.status === 'submitted' || rfp.status === 'rejected') && (
                             <Button variant="outline" size="sm" onClick={() => navigate(`/submit-rfp/${rfp.id}`)}>
                               <Pencil className="h-3 w-3 mr-1" />Edit
                             </Button>
@@ -1439,16 +1446,19 @@ export function AccountPage() {
                       <div key={c.id} className="p-4 border rounded-lg space-y-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="font-medium">{c.title}</div>
-                          <Badge variant={c.is_open ? 'success' : 'secondary'}>
-                            {c.is_open ? 'Open' : 'Closed'}
-                          </Badge>
+                          <SubmissionStatusBadge status={c.status || (c.is_open ? 'open' : 'closed')} />
                         </div>
+                        {c.rejection_reason && c.status === 'rejected' && (
+                          <p className="text-sm text-red-600 mt-1">
+                            <span className="font-medium">Reason:</span> {c.rejection_reason}
+                          </p>
+                        )}
                         <p className="text-sm text-gray-600 line-clamp-2">{c.description}</p>
                         <div className="text-sm text-gray-500">
                           Created {new Date(c.created_at).toLocaleDateString('en-US')}
                         </div>
                         <div className="flex gap-2 pt-1">
-                          {c.is_open && (
+                          {(c.status === 'submitted' || c.status === 'rejected') && (
                             <Button variant="outline" size="sm" onClick={() => navigate(`/submit-consultation/${c.id}`)}>
                               <Pencil className="h-3 w-3 mr-1" />Edit
                             </Button>
@@ -1588,16 +1598,19 @@ export function AccountPage() {
                                         {r.deadline_date && `Deadline: ${new Date(r.deadline_date).toLocaleDateString('en-US')} · `}
                                         Created {new Date(r.created_at).toLocaleDateString('en-US')}
                                       </div>
+                                      {r.rejection_reason && r.status === 'rejected' && (
+                                        <p className="text-xs text-red-600 mt-1">
+                                          <span className="font-medium">Reason:</span> {r.rejection_reason}
+                                        </p>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      {r.is_open && (
+                                      {(r.status === 'submitted' || r.status === 'rejected') && (
                                         <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => navigate(`/submit-rfp/${r.id}`)}>
                                           <Pencil className="h-3 w-3" />
                                         </Button>
                                       )}
-                                      <Badge variant={r.is_open ? 'success' : 'secondary'} className="shrink-0">
-                                        {r.is_open ? 'Open' : 'Closed'}
-                                      </Badge>
+                                      <SubmissionStatusBadge status={r.status || (r.is_open ? 'open' : 'closed')} />
                                     </div>
                                   </div>
                                 ))}
@@ -1640,16 +1653,19 @@ export function AccountPage() {
                                       <div className="text-xs text-gray-400">
                                         Created {new Date(c.created_at).toLocaleDateString('en-US')}
                                       </div>
+                                      {c.rejection_reason && c.status === 'rejected' && (
+                                        <p className="text-xs text-red-600 mt-1">
+                                          <span className="font-medium">Reason:</span> {c.rejection_reason}
+                                        </p>
+                                      )}
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      {c.is_open && (
+                                      {(c.status === 'submitted' || c.status === 'rejected') && (
                                         <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => navigate(`/submit-consultation/${c.id}`)}>
                                           <Pencil className="h-3 w-3" />
                                         </Button>
                                       )}
-                                      <Badge variant={c.is_open ? 'success' : 'secondary'} className="shrink-0">
-                                        {c.is_open ? 'Open' : 'Closed'}
-                                      </Badge>
+                                      <SubmissionStatusBadge status={c.status || (c.is_open ? 'open' : 'closed')} />
                                     </div>
                                   </div>
                                 ))}

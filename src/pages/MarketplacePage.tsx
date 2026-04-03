@@ -156,12 +156,12 @@ export function MarketplacePage() {
     if (!user || !isPartner) return;
     supabase
       .from('partner_requests')
-      .select('marina_user_id')
+      .select('marina_user_id, sector_id')
       .eq('partner_user_id', user.id)
       .then(({ data }) => {
         if (data) {
-          // Key: partner_user_id + marina_user_id combo already stored
-          setExistingInterests(new Set(data.map((r: { marina_user_id: string }) => r.marina_user_id)));
+          // Composite key: marina_user_id::sector_id to track per-RFP/consultation
+          setExistingInterests(new Set(data.map((r: { marina_user_id: string; sector_id: string | null }) => `${r.marina_user_id}::${r.sector_id || ''}`)));
         }
       });
   }, [user, isPartner]);
@@ -207,8 +207,8 @@ export function MarketplacePage() {
         },
       });
 
-      // Track locally so button is disabled immediately
-      setExistingInterests((prev) => new Set([...prev, interestTarget.marina_user_id]));
+      // Track locally so button is disabled immediately (composite key)
+      setExistingInterests((prev) => new Set([...prev, `${interestTarget.marina_user_id}::${interestTarget.sector_id || ''}`]));
 
       toast({
         title: t('marketplace.interestSent', 'Interest expressed successfully'),
@@ -359,7 +359,7 @@ export function MarketplacePage() {
         const { data, error } = await supabase
           .from('rfps')
           .select('id, title, scope, deadline_date, is_open, created_at, marina_user_id, sector_id, sectors(id, label)')
-          .eq('is_open', true)
+          .eq('status', 'approved')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -432,7 +432,7 @@ export function MarketplacePage() {
         const { data, error } = await supabase
           .from('consultations')
           .select('id, title, description, is_open, created_at, marina_user_id, sector_id, sectors(id, label)')
-          .eq('is_open', true)
+          .eq('status', 'approved')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -504,7 +504,7 @@ export function MarketplacePage() {
         const { data, error } = await supabase
           .from('marina_projects')
           .select('id, project_type, budget_range, timeline, description, status, created_at, user_id')
-          .neq('status', 'new')
+          .in('status', ['approved', 'in_progress'])
           .order('created_at', { ascending: false });
 
         if (error) throw error;
@@ -993,7 +993,7 @@ export function MarketplacePage() {
                           {t('marketplace.posted', 'Posted')} {formatDate(rfp.created_at, i18n.language)}
                         </p>
                         <div className="flex items-center gap-2">
-                          {isPartner && existingInterests.has(rfp.marina_user_id) && (
+                          {isPartner && existingInterests.has(`${rfp.marina_user_id}::${rfp.sector_id || ''}`) && (
                             <Badge variant="outline" className="text-xs text-green-600 border-green-300">
                               {t('marketplace.interestSentBadge', 'Interest Sent')}
                             </Badge>
@@ -1061,7 +1061,7 @@ export function MarketplacePage() {
                           {t('marketplace.posted', 'Posted')} {formatDate(c.created_at, i18n.language)}
                         </p>
                         <div className="flex items-center gap-2">
-                          {isPartner && existingInterests.has(c.marina_user_id) && (
+                          {isPartner && existingInterests.has(`${c.marina_user_id}::${c.sector_id || ''}`) && (
                             <Badge variant="outline" className="text-xs text-green-600 border-green-300">
                               {t('marketplace.interestSentBadge', 'Interest Sent')}
                             </Badge>
@@ -1258,7 +1258,7 @@ export function MarketplacePage() {
                     {t('common.close', 'Close')}
                   </Button>
                   {isPartner && (
-                    existingInterests.has(selectedRfp.marina_user_id) ? (
+                    existingInterests.has(`${selectedRfp.marina_user_id}::${selectedRfp.sector_id || ''}`) ? (
                       <Button disabled>
                         {t('marketplace.interestAlreadySent', 'Interest Already Sent')}
                       </Button>
@@ -1327,7 +1327,7 @@ export function MarketplacePage() {
                     {t('common.close', 'Close')}
                   </Button>
                   {isPartner && (
-                    existingInterests.has(selectedConsult.marina_user_id) ? (
+                    existingInterests.has(`${selectedConsult.marina_user_id}::${selectedConsult.sector_id || ''}`) ? (
                       <Button disabled>
                         {t('marketplace.interestAlreadySent', 'Interest Already Sent')}
                       </Button>

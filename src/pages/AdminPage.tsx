@@ -28,7 +28,6 @@ import {
   AdminPartnerRequestDetail,
   AdminRFPs,
   AdminConsultations,
-  AdminResourceDrafts,
   AdminPlatformSettings,
 } from '@/components/admin';
 
@@ -84,7 +83,6 @@ export function AdminPage() {
           <Route path="/rfps/:id" element={<AdminOnlyGuard><AdminRFPDetail /></AdminOnlyGuard>} />
           <Route path="/consultations" element={<AdminOnlyGuard><AdminConsultations /></AdminOnlyGuard>} />
           <Route path="/consultations/:id" element={<AdminOnlyGuard><AdminConsultationDetail /></AdminOnlyGuard>} />
-          <Route path="/resource-drafts" element={<AdminResourceDrafts />} />
           <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
         </Routes>
       </div>

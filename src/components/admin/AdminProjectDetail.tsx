@@ -23,8 +23,13 @@ interface ProjectWithUser extends MarinaProject {
 
 const STATUS_BADGE: Record<string, { variant: any; label: string }> = {
   new: { variant: 'info', label: 'New' },
+  submitted: { variant: 'info', label: 'Submitted' },
+  under_review: { variant: 'warning', label: 'Under Review' },
   in_progress: { variant: 'warning', label: 'In Progress' },
+  approved: { variant: 'success', label: 'Approved' },
   completed: { variant: 'success', label: 'Completed' },
+  rejected: { variant: 'destructive', label: 'Rejected' },
+  archived: { variant: 'outline', label: 'Archived' },
 };
 
 export function AdminProjectDetail() {
@@ -36,6 +41,7 @@ export function AdminProjectDetail() {
   const [project, setProject] = useState<ProjectWithUser | null>(null);
   const [status, setStatus] = useState('new');
   const [adminNotes, setAdminNotes] = useState('');
+  const [rejectionReason, setRejectionReason] = useState('');
 
   useEffect(() => {
     if (id) loadProject(id);
@@ -82,6 +88,7 @@ export function AdminProjectDetail() {
     setProject(enriched);
     setStatus(enriched.status);
     setAdminNotes(enriched.admin_notes || '');
+    setRejectionReason(data.rejection_reason || '');
     setLoading(false);
   };
 
@@ -91,7 +98,7 @@ export function AdminProjectDetail() {
 
     const { error } = await supabase
       .from('marina_projects')
-      .update({ status, admin_notes: adminNotes })
+      .update({ status, admin_notes: adminNotes, rejection_reason: rejectionReason || null })
       .eq('id', project.id);
 
     if (error) {
@@ -102,15 +109,26 @@ export function AdminProjectDetail() {
 
     // Notify on status change
     if (status !== project.status) {
-      sendNotification({
-        type: 'rfp_submitted',
-        userId: project.user_id,
-        data: {
-          submission_type: 'Project Status Update',
-          title: project.project_type,
-          details: `Your project status has been updated to: ${status.replace('_', ' ')}`,
-        },
-      });
+      if (status === 'rejected') {
+        sendNotification({
+          type: 'project_rejected',
+          userId: project.user_id,
+          data: {
+            title: project.project_type,
+            reason: rejectionReason,
+          },
+        });
+      } else {
+        sendNotification({
+          type: 'project_status_updated',
+          userId: project.user_id,
+          data: {
+            submission_type: 'Project Status Update',
+            title: project.project_type,
+            details: `Your project status has been updated to: ${status.replace('_', ' ')}`,
+          },
+        });
+      }
     }
 
     toast({ title: 'Project saved!' });
@@ -216,11 +234,27 @@ export function AdminProjectDetail() {
               <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="new">New</SelectItem>
+                <SelectItem value="submitted">Submitted</SelectItem>
+                <SelectItem value="under_review">Under Review</SelectItem>
                 <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="archived">Archived</SelectItem>
               </SelectContent>
             </Select>
           </div>
+          {status === 'rejected' && (
+            <div className="space-y-2">
+              <Label>Rejection Reason</Label>
+              <Textarea
+                value={rejectionReason}
+                onChange={e => setRejectionReason(e.target.value)}
+                rows={3}
+                placeholder="Explain why this project was rejected..."
+              />
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Admin Notes</Label>
             <Textarea

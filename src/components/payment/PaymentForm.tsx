@@ -57,6 +57,16 @@ export function PaymentForm({
   const formRef = useRef<HTMLDivElement>(null);
   const formInitialized = useRef(false);
 
+  // Lazy-load Lyra CSS only when payment form is needed (3.1MB, was blocking all pages)
+  useEffect(() => {
+    if (!document.querySelector('link[href*="classic-reset.css"]')) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://api-sogecommerce.societegenerale.eu/static/js/krypton-client/V4.0/ext/classic-reset.css';
+      document.head.appendChild(link);
+    }
+  }, []);
+
   const initPayment = async () => {
     if (!user) return;
     setStatus('loading');

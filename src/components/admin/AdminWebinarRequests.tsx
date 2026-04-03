@@ -91,13 +91,11 @@ export function AdminWebinarRequests() {
             .neq('user_id', user.id)
             .order('created_at', { ascending: false });
 
-          // Filter out proposals from other moderators (check via profiles table)
+          // Filter out proposals from other moderators (check via public profiles RPC)
           if (allData && allData.length > 0) {
             const userIds = [...new Set(allData.map((r: WebinarRequest) => r.user_id))];
             const { data: profiles } = await supabase
-              .from('profiles')
-              .select('user_id, persona')
-              .in('user_id', userIds);
+              .rpc('get_public_profiles', { target_user_ids: userIds });
             const moderatorUserIds = new Set(
               (profiles || [])
                 .filter((p: { persona: string }) => p.persona === 'moderator')

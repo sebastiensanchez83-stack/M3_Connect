@@ -22,6 +22,7 @@ import { ReferenceRequestForm } from '@/components/references/ReferenceRequestFo
 import { TiersPage } from '@/pages/TiersPage';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 interface EventRegistration {
   id: string;
@@ -134,6 +135,8 @@ export function AccountPage() {
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [feedResources, setFeedResources] = useState<{ id: string; title: string; type: string; summary: string }[]>([]);
   const [feedEvents, setFeedEvents] = useState<{ id: string; title: string; date_time: string }[]>([]);
+
+  const { isFeatureEnabled } = useEntitlements();
 
   const activeTab = searchParams.get('tab') || 'dashboard';
 
@@ -292,7 +295,7 @@ export function AccountPage() {
           .order('created_at', { ascending: false });
         if (regs) setRegistrations(regs as unknown as EventRegistration[]);
 
-        if (profile?.persona === 'marina') {
+        if (profile?.persona === 'marina' || isFeatureEnabled('submit_project')) {
           const { data: proj } = await supabase
             .from('marina_projects')
             .select('id, project_type, budget_range, timeline, status, created_at')
@@ -308,15 +311,17 @@ export function AccountPage() {
           .order('created_at', { ascending: false });
         if (webinars) setWebinarRequests(webinars as WebinarRequest[]);
 
-        // Fetch RFPs (marina only)
-        if (profile?.persona === 'marina') {
+        // Fetch RFPs (marina or entitlement-granted)
+        if (profile?.persona === 'marina' || isFeatureEnabled('submit_rfp')) {
           const { data: rfpData } = await supabase
             .from('rfps')
             .select('id, title, scope, sector_id, deadline_date, is_open, status, rejection_reason, created_at')
             .eq('marina_user_id', user.id)
             .order('created_at', { ascending: false });
           if (rfpData) setRfps(rfpData as RFPItem[]);
+        }
 
+        if (profile?.persona === 'marina' || isFeatureEnabled('submit_consultation')) {
           const { data: consultData } = await supabase
             .from('consultations')
             .select('id, title, description, sector_id, is_open, status, rejection_reason, created_at')
@@ -437,42 +442,40 @@ export function AccountPage() {
     };
 
     fetchData();
-  }, [user, profile, organization]);
+  }, [user, profile, organization, isFeatureEnabled]);
 
   // Fetch submissions data when tab is active
   useEffect(() => {
     if (activeTab !== 'submissions' || !user || !profile || submissionsFetched) return;
-    const isMarinaUser = profile.persona === 'marina';
+    const hasProjects = profile.persona === 'marina' || isFeatureEnabled('submit_project');
+    const hasRFPs = profile.persona === 'marina' || isFeatureEnabled('submit_rfp');
+    const hasConsultations = profile.persona === 'marina' || isFeatureEnabled('submit_consultation');
 
     setSubmissionsLoading(true);
     const fetchSubmissions = async () => {
       try {
         const [projRes, rfpRes, consultRes, webinarRes] = await Promise.all([
-          // Projects (marina only)
-          isMarinaUser
+          hasProjects
             ? supabase
                 .from('marina_projects')
                 .select('id, project_type, budget_range, timeline, status, created_at')
                 .eq('user_id', user.id)
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: null }),
-          // RFPs (marina only)
-          isMarinaUser
+          hasRFPs
             ? supabase
                 .from('rfps')
                 .select('id, title, scope, sector_id, deadline_date, is_open, status, rejection_reason, created_at')
                 .eq('marina_user_id', user.id)
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: null }),
-          // Consultations (marina only)
-          isMarinaUser
+          hasConsultations
             ? supabase
                 .from('consultations')
                 .select('id, title, description, sector_id, is_open, status, rejection_reason, created_at')
                 .eq('marina_user_id', user.id)
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: null }),
-          // Webinar requests (all users)
           supabase
             .from('webinar_requests')
             .select('id, title, description, preferred_language, preferred_timeframe, status, moderator_notes, created_at')
@@ -565,6 +568,13 @@ export function AccountPage() {
   const isPartner = profile.persona === 'partner' || profile.persona === 'media_partner';
   const org = organization;
 
+  // Entitlement-aware feature access: native persona access OR admin-granted
+  const canProjects = isMarina || isFeatureEnabled('submit_project');
+  const canRFPs = isMarina || isFeatureEnabled('submit_rfp');
+  const canConsultations = isMarina || isFeatureEnabled('submit_consultation');
+  const canWebinars = true; // always visible, gated inside
+  const canB2B = true; // always visible
+
   // Refresh bypass/reference data (called from ReferenceRequestForm callbacks)
   const refreshOnboardingState = async () => {
     if (!organization?.id) return;
@@ -602,12 +612,12 @@ export function AccountPage() {
         { value: 'organization', label: t('org.tabTitle'), icon: <Building2 className="h-4 w-4" />, notifDot: orgNeedsAction },
         { value: 'profile', label: 'Profile', icon: <Users className="h-4 w-4" /> },
         { value: 'registrations', label: 'Registrations', icon: <Calendar className="h-4 w-4" /> },
-        { value: 'projects', label: 'Projects', icon: <Anchor className="h-4 w-4" />, show: isMarina },
+        { value: 'projects', label: 'Projects', icon: <Anchor className="h-4 w-4" />, show: canProjects },
         { value: 'webinars', label: 'Webinars', icon: <Radio className="h-4 w-4" /> },
-        { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: isMarina },
-        { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: isMarina },
+        { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: canRFPs },
+        { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: canConsultations },
         { value: 'references', label: 'References', icon: <FileText className="h-4 w-4" />, show: isPartner, notifDot: isPartner && referenceCount === 0 },
-        { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: isMarina || isPartner },
+        { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: canProjects || canRFPs || canConsultations || isPartner },
         { value: 'b2b-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, notifCount: pendingB2B },
         { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
       ].filter(item => item.show !== false);
@@ -934,21 +944,22 @@ export function AccountPage() {
                     <div className="text-xl font-bold text-primary">{webinarRequests.length}</div>
                     <div className="text-xs text-gray-500">Webinar Requests</div>
                   </Link>
-                  {isMarina && (
-                    <>
-                      <Link to="/account?tab=projects" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
-                        <div className="text-xl font-bold text-primary">{projects.length}</div>
-                        <div className="text-xs text-gray-500">Projects</div>
-                      </Link>
-                      <Link to="/account?tab=rfps" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
-                        <div className="text-xl font-bold text-primary">{rfps.length + consultations.length}</div>
-                        <div className="text-xs text-gray-500">RFPs & Consultations</div>
-                      </Link>
-                    </>
+                  {canProjects && (
+                    <Link to="/account?tab=projects" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
+                      <div className="text-xl font-bold text-primary">{projects.length}</div>
+                      <div className="text-xs text-gray-500">Projects</div>
+                    </Link>
+                  )}
+                  {(canRFPs || canConsultations) && (
+                    <Link to="/account?tab=rfps" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
+                      <div className="text-xl font-bold text-primary">{rfps.length + consultations.length}</div>
+                      <div className="text-xs text-gray-500">RFPs & Consultations</div>
+                    </Link>
                   )}
                 </div>
               </CardContent>
             </Card>
+
           </div>
         </TabsContent>
 
@@ -1404,8 +1415,8 @@ export function AccountPage() {
           </Card>
         </TabsContent>
 
-        {/* ── PROJECTS (marina only) ── */}
-        {isMarina && (
+        {/* ── PROJECTS (marina or entitlement-granted) ── */}
+        {canProjects && (
           <TabsContent value="projects">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1528,8 +1539,8 @@ export function AccountPage() {
           </Card>
         </TabsContent>
 
-        {/* ── RFPs (marina only) ── */}
-        {isMarina && (
+        {/* ── RFPs (marina or entitlement-granted) ── */}
+        {canRFPs && (
           <TabsContent value="rfps">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1602,8 +1613,8 @@ export function AccountPage() {
           </TabsContent>
         )}
 
-        {/* ── CONSULTATIONS (marina only) ── */}
-        {isMarina && (
+        {/* ── CONSULTATIONS (marina or entitlement-granted) ── */}
+        {canConsultations && (
           <TabsContent value="consultations">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
@@ -1709,8 +1720,8 @@ export function AccountPage() {
                   <LoadingSkeleton variant="inline" />
                 ) : (
                   <div className="space-y-4">
-                    {/* ── Projects Section (marina only) ── */}
-                    {isMarina && (
+                    {/* ── Projects Section ── */}
+                    {canProjects && (
                       <div className="border rounded-lg">
                         <button
                           type="button"
@@ -1760,8 +1771,8 @@ export function AccountPage() {
                       </div>
                     )}
 
-                    {/* ── RFPs Section (marina only) ── */}
-                    {isMarina && (
+                    {/* ── RFPs Section ── */}
+                    {canRFPs && (
                       <div className="border rounded-lg">
                         <button
                           type="button"
@@ -1816,8 +1827,8 @@ export function AccountPage() {
                       </div>
                     )}
 
-                    {/* ── Consultations Section (marina only) ── */}
-                    {isMarina && (
+                    {/* ── Consultations Section ── */}
+                    {canConsultations && (
                       <div className="border rounded-lg">
                         <button
                           type="button"

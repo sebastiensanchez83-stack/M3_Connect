@@ -28,10 +28,12 @@ import {
   Ship, MessageSquare, Shield, LayoutDashboard, Ticket,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { useEntitlements } from '@/hooks/useEntitlements';
 
 export function Navbar() {
   const { t, i18n } = useTranslation();
   const { user, profile, signOut, isVerified, isAdmin, isModerator, organization } = useAuth();
+  const { isFeatureEnabled } = useEntitlements();
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -88,10 +90,10 @@ export function Navbar() {
 
   const orgVerified = organization?.access_status === 'verified';
   const isMarina = profile?.persona === 'marina';
-  const canSubmitProject = isMarina && isVerified && orgVerified;
-  const canSubmitRFP = isMarina && isVerified && orgVerified;
-  const canSubmitConsultation = isMarina && isVerified && orgVerified;
-  const canRequestWebinar = isVerified && orgVerified;
+  const canSubmitProject = (isMarina || isFeatureEnabled('submit_project')) && isVerified && orgVerified;
+  const canSubmitRFP = (isMarina || isFeatureEnabled('submit_rfp')) && isVerified && orgVerified;
+  const canSubmitConsultation = (isMarina || isFeatureEnabled('submit_consultation')) && isVerified && orgVerified;
+  const canRequestWebinar = (isVerified && orgVerified) && (true || isFeatureEnabled('request_webinar'));
   const hasActions = canSubmitProject || canSubmitRFP || canSubmitConsultation || canRequestWebinar;
 
   const isActive = (href: string) => {

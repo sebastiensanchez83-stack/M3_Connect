@@ -16,6 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
 import {
   Organization, OrganizationMember, OrganizationInvitation, OrganizationMarinaDetails, Sector,
   TIER_LABELS, TIER_COLORS, OrgTier,
@@ -1418,32 +1419,36 @@ export function OrganizationTab() {
                   </div>
 
                   <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide pt-2">Facilities</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="yacht_club" checked={editForm.has_yacht_club} onCheckedChange={(c) => setEditForm({ ...editForm, has_yacht_club: c as boolean })} />
-                      <Label htmlFor="yacht_club">Yacht Club</Label>
-                      {editForm.has_yacht_club && (
-                        <Input type="number" className="w-24 ml-2" placeholder="Members" value={editForm.yacht_club_members} onChange={(e) => setEditForm({ ...editForm, yacht_club_members: e.target.value })} />
-                      )}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="yacht_club" className="cursor-pointer">Yacht Club</Label>
+                      <div className="flex items-center gap-2">
+                        {editForm.has_yacht_club && (
+                          <Input type="number" className="w-24 h-8 text-xs" placeholder="Members" value={editForm.yacht_club_members} onChange={(e) => setEditForm({ ...editForm, yacht_club_members: e.target.value })} />
+                        )}
+                        <Switch id="yacht_club" checked={editForm.has_yacht_club} onCheckedChange={(c) => setEditForm({ ...editForm, has_yacht_club: c })} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="sailing_school" checked={editForm.has_sailing_school} onCheckedChange={(c) => setEditForm({ ...editForm, has_sailing_school: c as boolean })} />
-                      <Label htmlFor="sailing_school">Sailing School</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="sailing_school" className="cursor-pointer">Sailing School</Label>
+                      <Switch id="sailing_school" checked={editForm.has_sailing_school} onCheckedChange={(c) => setEditForm({ ...editForm, has_sailing_school: c })} />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="boat_yard" checked={editForm.has_boat_yard} onCheckedChange={(c) => setEditForm({ ...editForm, has_boat_yard: c as boolean })} />
-                      <Label htmlFor="boat_yard">Boat Yard</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="boat_yard" className="cursor-pointer">Boat Yard</Label>
+                      <Switch id="boat_yard" checked={editForm.has_boat_yard} onCheckedChange={(c) => setEditForm({ ...editForm, has_boat_yard: c })} />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="restaurants" checked={editForm.has_restaurants} onCheckedChange={(c) => setEditForm({ ...editForm, has_restaurants: c as boolean })} />
-                      <Label htmlFor="restaurants">Restaurants</Label>
-                      {editForm.has_restaurants && (
-                        <Input type="number" className="w-20 ml-2" placeholder="Count" value={editForm.restaurants_count} onChange={(e) => setEditForm({ ...editForm, restaurants_count: e.target.value })} />
-                      )}
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="restaurants" className="cursor-pointer">Restaurants</Label>
+                      <div className="flex items-center gap-2">
+                        {editForm.has_restaurants && (
+                          <Input type="number" className="w-20 h-8 text-xs" placeholder="Count" value={editForm.restaurants_count} onChange={(e) => setEditForm({ ...editForm, restaurants_count: e.target.value })} />
+                        )}
+                        <Switch id="restaurants" checked={editForm.has_restaurants} onCheckedChange={(c) => setEditForm({ ...editForm, has_restaurants: c })} />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Checkbox id="concierge" checked={editForm.has_concierge} onCheckedChange={(c) => setEditForm({ ...editForm, has_concierge: c as boolean })} />
-                      <Label htmlFor="concierge">Concierge Service</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="concierge" className="cursor-pointer">Concierge Service</Label>
+                      <Switch id="concierge" checked={editForm.has_concierge} onCheckedChange={(c) => setEditForm({ ...editForm, has_concierge: c })} />
                     </div>
                   </div>
 

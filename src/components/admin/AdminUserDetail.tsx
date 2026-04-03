@@ -4,8 +4,9 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, Save, Loader2, User, Building2, Shield, ShieldCheck,
   ExternalLink, UserCheck, FileCheck, FileMinus, FileX, Clock,
-  ArrowUpCircle, RefreshCw,
+  ArrowUpCircle, RefreshCw, ToggleLeft,
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -57,6 +58,23 @@ export function AdminUserDetail() {
   // Tier management
   const [updatingTier, setUpdatingTier] = useState(false);
   const [editingSeats, setEditingSeats] = useState<number | null>(null);
+
+  // Feature entitlements
+  const FEATURE_DEFINITIONS: { key: string; label: string; description: string; personas?: string[] }[] = [
+    { key: 'marketplace_access', label: 'Marketplace Access', description: 'Browse marketplace & express interest' },
+    { key: 'submit_project', label: 'Submit Projects', description: 'Submit marina projects', personas: ['marina'] },
+    { key: 'submit_rfp', label: 'Submit RFPs', description: 'Create Requests for Proposals', personas: ['marina'] },
+    { key: 'submit_consultation', label: 'Submit Consultations', description: 'Create consultation requests', personas: ['marina'] },
+    { key: 'request_webinar', label: 'Propose Webinars', description: 'Propose and host webinars' },
+    { key: 'b2b_matching', label: 'B2B Matching', description: 'Send & receive partner connection requests' },
+    { key: 'analytics_dashboard', label: 'Analytics Dashboard', description: 'View profile analytics & insights' },
+    { key: 'team_management', label: 'Team Management', description: 'Invite and manage team members' },
+    { key: 'document_upload', label: 'Document Upload', description: 'Upload organization documents' },
+    { key: 'expo_request', label: 'Expo Requests', description: 'Request exhibition booth spaces' },
+    { key: 'sponsorship_upgrade', label: 'Sponsorship Upgrade', description: 'Request tier upgrades' },
+  ];
+  const [featureStates, setFeatureStates] = useState<Record<string, boolean>>({});
+  const [featureLoading, setFeatureLoading] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (id) loadUser(id);
@@ -136,10 +154,20 @@ export function AdminUserDetail() {
       if (merged.persona === 'partner') {
         await loadReferenceStatus(orgId);
       }
+
+      // Load feature entitlements
+      const { data: entData } = await supabase
+        .from('entitlements')
+        .select('feature_key, enabled')
+        .eq('organization_id', orgId);
+      const fStates: Record<string, boolean> = {};
+      for (const e of entData || []) fStates[e.feature_key] = e.enabled;
+      setFeatureStates(fStates);
     } else {
       setOrgData(null);
       setSectors([]);
       setRefStatus(null);
+      setFeatureStates({});
     }
 
     setLoading(false);
@@ -332,6 +360,44 @@ export function AdminUserDetail() {
     loadUser(user.user_id);
   };
 
+  const toggleFeature = async (featureKey: string, enabled: boolean) => {
+    if (!user?.org_id) return;
+    setFeatureLoading(prev => ({ ...prev, [featureKey]: true }));
+
+    // Upsert entitlement row
+    const { error } = await supabase
+      .from('entitlements')
+      .upsert(
+        { organization_id: user.org_id, feature_key: featureKey, enabled, updated_at: new Date().toISOString() },
+        { onConflict: 'organization_id,feature_key' }
+      );
+
+    if (error) {
+      toast({ title: 'Failed to update feature', description: error.message, variant: 'destructive' });
+    } else {
+      setFeatureStates(prev => ({ ...prev, [featureKey]: enabled }));
+      toast({ title: `${featureKey.replace(/_/g, ' ')} ${enabled ? 'enabled' : 'disabled'}` });
+    }
+    setFeatureLoading(prev => ({ ...prev, [featureKey]: false }));
+  };
+
+  const enableAllFeatures = async () => {
+    if (!user?.org_id) return;
+    const keys = FEATURE_DEFINITIONS
+      .filter(f => !f.personas || f.personas.includes(user.persona))
+      .map(f => f.key);
+    for (const key of keys) {
+      await supabase.from('entitlements').upsert(
+        { organization_id: user.org_id, feature_key: key, enabled: true, updated_at: new Date().toISOString() },
+        { onConflict: 'organization_id,feature_key' }
+      );
+    }
+    const newStates: Record<string, boolean> = {};
+    for (const key of keys) newStates[key] = true;
+    setFeatureStates(prev => ({ ...prev, ...newStates }));
+    toast({ title: 'All features enabled' });
+  };
+
   const getPersonaBadge = (p: string) => {
     switch (p) {
       case 'admin': return <Badge variant="destructive">Admin</Badge>;
@@ -522,6 +588,51 @@ export function AdminUserDetail() {
                 )}
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Feature Access Toggles */}
+      {user.org_id && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                <ToggleLeft className="h-4 w-4 text-primary" /> Feature Access
+              </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs h-7"
+                onClick={enableAllFeatures}
+              >
+                Enable All
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="divide-y divide-gray-100">
+              {FEATURE_DEFINITIONS
+                .filter(f => !f.personas || f.personas.includes(user.persona))
+                .map(feature => (
+                  <div key={feature.key} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                    <div className="flex-1 min-w-0 pr-4">
+                      <div className="text-sm font-medium text-gray-900">{feature.label}</div>
+                      <div className="text-xs text-gray-500">{feature.description}</div>
+                    </div>
+                    <Switch
+                      checked={featureStates[feature.key] ?? false}
+                      onCheckedChange={(checked) => toggleFeature(feature.key, checked)}
+                      disabled={featureLoading[feature.key]}
+                    />
+                  </div>
+                ))}
+            </div>
+            {FEATURE_DEFINITIONS.filter(f => f.personas && !f.personas.includes(user.persona)).length > 0 && (
+              <p className="text-xs text-gray-400 mt-4 pt-3 border-t border-gray-100">
+                Some features are hidden because they don't apply to this user's persona ({user.persona}).
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

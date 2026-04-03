@@ -12,6 +12,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -644,6 +645,19 @@ export function OrganizationTab() {
         });
 
       if (error) throw error;
+
+      // Send invitation email via edge function
+      sendNotification({
+        type: 'team_invitation',
+        email: inviteForm.email.trim().toLowerCase(),
+        data: {
+          org_name: org.name || 'An organization',
+          inviter_name: `${user?.email?.split('@')[0] || 'A team member'}`,
+          signup_url: window.location.origin,
+          first_name: inviteForm.firstName.trim() || '',
+        },
+      });
+
       toast({ title: t('org.inviteSent'), description: t('org.inviteSentDesc', { email: inviteForm.email }) });
       setInviteOpen(false);
       setInviteForm({ email: '', firstName: '', lastName: '' });
@@ -1584,6 +1598,7 @@ export function OrganizationTab() {
         </CardHeader>
         <CardContent>
           <div className="divide-y">
+            {/* Active members */}
             {members.map((member) => {
               const p = member.profiles;
               const fullName = p ? `${p.first_name || ''} ${p.last_name || ''}`.trim() : '';
@@ -1648,12 +1663,79 @@ export function OrganizationTab() {
                 </div>
               );
             })}
+
+            {/* Pending invitations — shown inline in the members list */}
+            {invitations.map((inv) => {
+              const invName = [inv.first_name, inv.last_name].filter(Boolean).join(' ');
+              const invInitials = invName
+                ? invName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+                : inv.email.slice(0, 2).toUpperCase();
+              return (
+                <div key={inv.id} className="flex items-center justify-between py-3 opacity-70">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold text-sm border border-dashed border-amber-300">
+                      {invInitials}
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-700 flex items-center gap-2">
+                        {invName || inv.email.split('@')[0]}
+                        <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">
+                          <Clock className="h-3 w-3 mr-0.5" />
+                          Pending
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {inv.email}
+                        <span className="text-gray-400 ml-2">Invited {new Date(inv.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {isOwner && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-primary hover:text-primary/80"
+                          onClick={() => {
+                            sendNotification({
+                              type: 'team_invitation_reminder',
+                              email: inv.email,
+                              data: {
+                                org_name: org.name || 'An organization',
+                                inviter_name: `${user?.email?.split('@')[0] || 'A team member'}`,
+                                signup_url: window.location.origin,
+                                first_name: inv.first_name || '',
+                              },
+                            });
+                            toast({ title: 'Reminder sent', description: `Resent invitation to ${inv.email}` });
+                          }}
+                          title="Resend invitation email"
+                        >
+                          <Mail className="h-3 w-3 mr-1" />
+                          Resend
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-red-600 hover:text-red-700"
+                          onClick={() => handleCancelInvitation(inv.id)}
+                          title="Cancel invitation"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
 
-      {/* Pending Invitations (owner only) */}
-      {isOwner && invitations.length > 0 && (
+      {/* Pending Invitations card removed — invitations now shown inline in members list above */}
+      {false && isOwner && invitations.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

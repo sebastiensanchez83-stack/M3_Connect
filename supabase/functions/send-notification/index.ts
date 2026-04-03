@@ -57,7 +57,15 @@ type NotificationType =
   | "admin_new_submission"
   | "payment_confirmed"
   | "payment_failed"
-  | "membership_payment_received";
+  | "membership_payment_received"
+  | "team_invitation"
+  | "team_invitation_reminder"
+  | "rfp_approved"
+  | "rfp_rejected"
+  | "consultation_approved"
+  | "consultation_rejected"
+  | "project_rejected"
+  | "project_status_updated";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -359,6 +367,90 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         buttonText: "Review in Admin Panel",
         buttonUrl: adminUrl,
         footer: "The organization status has been updated automatically.",
+      };
+
+    // ── Team invitation ──
+    case "team_invitation":
+      return {
+        subject: `You've been invited to join ${d.org_name || "an organization"} on M3 Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Team Invitation",
+        body: `${d.org_name || "An organization"} has invited you to join their team on M3 Connect, the B2B platform for the marina industry.\n\nTo accept this invitation, simply create an account using this email address. You will be automatically linked to the organization once you sign up.`,
+        buttonText: "Sign Up Now",
+        buttonUrl: d.signup_url || SITE_URL,
+        footer: "If you weren't expecting this invitation, you can safely ignore this email.",
+      };
+    case "team_invitation_reminder":
+      return {
+        subject: `Reminder: Join ${d.org_name || "your team"} on M3 Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Invitation Reminder",
+        body: `This is a friendly reminder that ${d.org_name || "an organization"} has invited you to join their team on M3 Connect.\n\nSign up using this email address to accept the invitation and get started.`,
+        buttonText: "Sign Up Now",
+        buttonUrl: d.signup_url || SITE_URL,
+        footer: "If you've already signed up, you can log in to access your account.",
+      };
+
+    // ── Submission status notifications ──
+    case "rfp_approved":
+      return {
+        subject: `Your RFP has been approved — M3 Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "RFP Approved",
+        body: `Your RFP "${d.title || "your submission"}" has been approved and is now visible on the marketplace.`,
+        buttonText: "View My Account",
+        buttonUrl: accountUrl,
+        footer: "Partners can now see and respond to your RFP.",
+      };
+    case "rfp_rejected":
+      return {
+        subject: `Update on your RFP — M3 Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "RFP Not Approved",
+        body: `Your RFP "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nYou can edit and resubmit it from your account.`,
+        buttonText: "View My Account",
+        buttonUrl: accountUrl,
+        footer: "If you have questions, please contact our support team.",
+      };
+    case "consultation_approved":
+      return {
+        subject: `Your consultation has been approved — M3 Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Consultation Approved",
+        body: `Your consultation "${d.title || "your submission"}" has been approved and is now visible on the marketplace.`,
+        buttonText: "View My Account",
+        buttonUrl: accountUrl,
+        footer: "Partners can now see and respond to your consultation.",
+      };
+    case "consultation_rejected":
+      return {
+        subject: `Update on your consultation — M3 Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Consultation Not Approved",
+        body: `Your consultation "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nYou can edit and resubmit it from your account.`,
+        buttonText: "View My Account",
+        buttonUrl: accountUrl,
+        footer: "If you have questions, please contact our support team.",
+      };
+    case "project_rejected":
+      return {
+        subject: `Update on your project — M3 Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Project Not Approved",
+        body: `Your project "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}`,
+        buttonText: "View My Account",
+        buttonUrl: accountUrl,
+        footer: "If you have questions, please contact our support team.",
+      };
+    case "project_status_updated":
+      return {
+        subject: `Project status updated — M3 Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Project Status Updated",
+        body: d.details || `Your project "${d.title || "your submission"}" status has been updated.`,
+        buttonText: "View My Account",
+        buttonUrl: accountUrl,
+        footer: "Log in to your account to see the full details.",
       };
 
     // ── Generic admin alert ──

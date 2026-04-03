@@ -37,7 +37,9 @@ export type NotificationType =
   | 'admin_new_submission'
   | 'payment_confirmed'
   | 'payment_failed'
-  | 'membership_payment_received';
+  | 'membership_payment_received'
+  | 'team_invitation'
+  | 'team_invitation_reminder';
 
 interface SendNotificationParams {
   type: NotificationType;

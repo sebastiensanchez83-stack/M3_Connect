@@ -315,7 +315,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}/`,
+        emailRedirectTo: `${window.location.origin}/?email_confirmed=true`,
         data: {
           persona: persona || 'marina',
           first_name: firstName || '',
@@ -350,10 +350,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOrganization(null)
     setOrgRole(null)
     try {
-      await supabase.auth.signOut()
+      await supabase.auth.signOut({ scope: 'local' })
     } catch (e) {
-      if (import.meta.env.DEV) console.warn('[AuthContext] signOut API error (session cleared locally):', e)
-      try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* ignore */ }
+      if (import.meta.env.DEV) console.warn('[AuthContext] signOut error:', e)
     }
   }
 

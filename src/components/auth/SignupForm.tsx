@@ -99,8 +99,8 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
       toast({ title: t('auth.error'), description: t('auth.passwordMismatch'), variant: 'destructive' });
       return;
     }
-    if (formData.password.length < 8) {
-      toast({ title: t('auth.error'), description: t('auth.passwordTooShort'), variant: 'destructive' });
+    if (formData.password.length < 8 || !/[A-Z]/.test(formData.password) || !/[^A-Za-z0-9]/.test(formData.password)) {
+      toast({ title: t('auth.error'), description: 'Password must be at least 8 characters with one uppercase letter and one symbol.', variant: 'destructive' });
       return;
     }
     setLoading(true);
@@ -212,6 +212,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
+        <p className="text-xs text-gray-400">Min. 8 characters, 1 uppercase letter, 1 symbol</p>
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">{t('auth.confirmPassword')} *</Label>

@@ -38,12 +38,27 @@ export function Navbar() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [emailFromConfirmation, setEmailFromConfirmation] = useState('');
+  const [showConfirmedBanner, setShowConfirmedBanner] = useState(false);
 
   // Track scroll for subtle shadow effect
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 8);
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Detect email confirmation redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('email_confirmed') === 'true') {
+      setShowConfirmedBanner(true);
+      setLoginOpen(true);
+      // Clean URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete('email_confirmed');
+      window.history.replaceState({}, '', url.pathname);
+    }
   }, []);
 
   // Close mobile menu on route change
@@ -377,7 +392,11 @@ export function Navbar() {
               </button>
             </DialogDescription>
           </DialogHeader>
-          <LoginForm onSuccess={() => setLoginOpen(false)} />
+          <LoginForm
+            onSuccess={() => setLoginOpen(false)}
+            defaultEmail={emailFromConfirmation}
+            showConfirmedBanner={showConfirmedBanner}
+          />
         </DialogContent>
       </Dialog>
 

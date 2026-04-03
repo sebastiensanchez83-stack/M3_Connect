@@ -115,6 +115,7 @@ export function OrganizationTab() {
   // Membership payment
   const [showMembershipPayment, setShowMembershipPayment] = useState(false);
   const [membershipPaid, setMembershipPaid] = useState(false);
+  const [memberPaid, setMemberPaid] = useState(false);
 
   // Additional seats payment
   const [showSeatPayment, setShowSeatPayment] = useState(false);
@@ -484,14 +485,27 @@ export function OrganizationTab() {
       });
 
       if (error) throw error;
-      toast({ title: t('org.created'), description: t('org.createdDesc') });
       setShowCreateForm(false);
       setCreateStep('details');
       if (selectedPlan !== 'member') {
         setPendingUpgradePlan(selectedPlan);
       }
+      const chosePaidMember = memberPaid;
       setSelectedPlan('member');
-      fetchOrg();
+      setMemberPaid(false);
+      await fetchOrg();
+      // If the user chose the paid Member option, show the payment form
+      if (chosePaidMember) {
+        setTimeout(() => setShowMembershipPayment(true), 600);
+      }
+      // Auto-open edit mode so user can complete sector selection
+      setTimeout(() => setEditing(true), 500);
+      toast({
+        title: 'Organization created!',
+        description: chosePaidMember
+          ? 'Complete your membership payment to unlock full platform access.'
+          : 'Now complete your profile by adding your service sectors and details below.',
+      });
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -578,7 +592,14 @@ export function OrganizationTab() {
         }
       }
 
-      toast({ title: t('org.saved') });
+      // If this is the first time completing the org profile, mark as submitted for review
+      if (profile?.onboarding_status === 'draft') {
+        await supabase.from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', user!.id);
+        refreshProfile();
+        toast({ title: 'Profile submitted for review!', description: 'An admin will review your profile shortly. You will be notified once approved.' });
+      } else {
+        toast({ title: t('org.saved') });
+      }
       setEditing(false);
       fetchOrg();
     } catch (err: unknown) {
@@ -722,6 +743,22 @@ export function OrganizationTab() {
             <Building2 className="h-12 w-12 mx-auto text-gray-300 mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('org.noOrg')}</h3>
             <p className="text-gray-500 text-sm mb-6">{t('org.createOrgDesc')}</p>
+
+            <div className="space-y-3 mb-6 inline-block text-left">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-sm font-bold">1</div>
+                <span className="text-sm text-green-700 font-medium line-through">Create your account</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">2</div>
+                <span className="text-sm text-primary font-medium">Create & complete your organization profile</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-sm font-bold">3</div>
+                <span className="text-sm text-gray-400">Admin review & approval</span>
+              </div>
+            </div>
+
             <Button onClick={() => setShowCreateForm(true)}>
               <Building2 className="h-4 w-4 mr-2" />
               {t('org.createOrg')}
@@ -795,7 +832,7 @@ export function OrganizationTab() {
                   <div className="flex gap-3 justify-end">
                     <Button
                       variant="outline"
-                      onClick={() => { setShowCreateForm(false); setCreateStep('details'); setSelectedPlan('member'); }}
+                      onClick={() => { setShowCreateForm(false); setCreateStep('details'); setSelectedPlan('member'); setMemberPaid(false); }}
                     >
                       {t('common.cancel')}
                     </Button>
@@ -819,34 +856,52 @@ export function OrganizationTab() {
               {createStep === 'plan' && (
                 <>
                   <p className="text-sm text-gray-500">
-                    Start free as a Member or request a sponsor package. All sponsorships are confirmed by annual bank invoice.
+                    Choose your access level. Basic is free with limited features. Member unlocks the full platform. Sponsorship packages are confirmed by annual bank invoice.
                   </p>
                   <div className="grid gap-2">
                     {([
-                      { tier: 'member' as OrgTier, price: 'Free', note: 'No payment required', seats: 1 },
-                      { tier: 'innovation_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 5 },
-                      { tier: 'associate_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 8 },
-                      { tier: 'premium_partner' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 10 },
-                      { tier: 'premium_sponsor' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 20 },
-                      { tier: 'main_sponsor' as OrgTier, price: 'On request', note: 'Annual invoice', seats: 25 },
-                    ] as const).map(({ tier, price, note, seats }) => {
+                      { tier: 'member' as OrgTier, price: 'Free', note: 'Basic access only', seats: 1, paid: false,
+                        features: 'Register for events & webinars, view public content' },
+                      { tier: 'member' as OrgTier, price: '€500/year', note: 'Full platform access', seats: 1, paid: true,
+                        features: '5 connect requests, member resources & events, network directory', recommended: true },
+                      { tier: 'innovation_partner' as OrgTier, price: '€3,000/year', note: 'Annual invoice', seats: 5, paid: false,
+                        features: '20 connect requests, webinar proposals, all content access' },
+                      { tier: 'associate_partner' as OrgTier, price: '€15,000/year', note: 'Annual invoice', seats: 10, paid: false,
+                        features: 'Unlimited connects, priority events, sponsor badge' },
+                      { tier: 'premium_partner' as OrgTier, price: '€40,000/year', note: 'Annual invoice', seats: 15, paid: false,
+                        features: 'Unlimited connects, VIP events, priority support' },
+                      { tier: 'premium_sponsor' as OrgTier, price: '€100,000/year', note: 'Annual invoice', seats: 20, paid: false,
+                        features: 'Full VIP experience, maximum visibility' },
+                      { tier: 'main_sponsor' as OrgTier, price: '€150,000/year', note: 'Annual invoice', seats: 25, paid: false,
+                        features: 'Title sponsor, exclusive benefits' },
+                    ]).map(({ tier, price, note, seats, paid, features, recommended }) => {
                       const colors = TIER_COLORS[tier];
-                      const isSelected = selectedPlan === tier;
+                      const uniqueKey = paid ? `${tier}-paid` : tier;
+                      const isSelected = paid
+                        ? (selectedPlan === tier && memberPaid)
+                        : (selectedPlan === tier && !memberPaid);
                       return (
                         <button
-                          key={tier}
+                          key={uniqueKey}
                           type="button"
-                          onClick={() => setSelectedPlan(tier)}
-                          className={`w-full text-left rounded-lg border-2 px-4 py-3 transition-all ${
+                          onClick={() => { setSelectedPlan(tier); setMemberPaid(!!paid); }}
+                          className={`relative w-full text-left rounded-lg border-2 px-4 py-3 transition-all ${
                             isSelected
                               ? 'border-primary bg-primary/5'
-                              : 'border-gray-200 hover:border-gray-300 bg-white'
+                              : recommended
+                                ? 'border-blue-300 hover:border-blue-400 bg-blue-50/30'
+                                : 'border-gray-200 hover:border-gray-300 bg-white'
                           }`}
                         >
+                          {recommended && (
+                            <span className="absolute -top-2.5 right-3 px-2 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded-full uppercase tracking-wide">
+                              Recommended
+                            </span>
+                          )}
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold border ${colors.bg} ${colors.text} ${colors.border}`}>
-                                {TIER_LABELS[tier]}
+                                {paid && tier === 'member' ? 'Member' : (!paid && tier === 'member') ? 'Basic Access' : TIER_LABELS[tier]}
                               </span>
                               <span className="text-xs text-gray-500">Up to {seats} seat{seats > 1 ? 's' : ''}</span>
                               {isSelected && <CheckCircle className="h-4 w-4 text-primary" />}
@@ -856,6 +911,7 @@ export function OrganizationTab() {
                               <div className="text-xs text-gray-400">{note}</div>
                             </div>
                           </div>
+                          <p className="text-xs text-gray-500 mt-1.5 pl-0.5">{features}</p>
                         </button>
                       );
                     })}
@@ -863,6 +919,11 @@ export function OrganizationTab() {
                   {selectedPlan !== 'member' && (
                     <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded p-2">
                       A sponsorship upgrade request will be submitted automatically after your organization is created. M3 will contact you with invoice details.
+                    </p>
+                  )}
+                  {selectedPlan === 'member' && !memberPaid && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded p-2">
+                      Basic access is free but limited. Upgrade to Member anytime to unlock full platform features.
                     </p>
                   )}
                   <div className="flex gap-3 justify-end pt-2 border-t">

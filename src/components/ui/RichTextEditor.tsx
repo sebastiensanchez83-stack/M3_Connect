@@ -53,7 +53,8 @@ export function RichTextEditor({ content, onChange, placeholder }: RichTextEdito
     extensions: [
       StarterKit.configure({
         heading: { levels: [2, 3] },
-      }),
+        link: false,
+      } as any),
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { class: 'text-primary underline' },

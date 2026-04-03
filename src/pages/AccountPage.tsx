@@ -110,6 +110,7 @@ export function AccountPage() {
   const [rfps, setRfps] = useState<RFPItem[]>([]);
   const [consultations, setConsultations] = useState<ConsultationItem[]>([]);
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequestItem[]>([]);
+  const [referenceCount, setReferenceCount] = useState<number>(0);
   const [dataLoading, setDataLoading] = useState(false);
 
   // Submissions tab
@@ -320,6 +321,15 @@ export function AccountPage() {
           .or(`partner_user_id.eq.${user.id},marina_user_id.eq.${user.id}`)
           .order('created_at', { ascending: false });
         if (prData) setPartnerRequests(prData as PartnerRequestItem[]);
+
+        // Fetch reference count for partners
+        if (profile?.persona === 'partner' || profile?.persona === 'media_partner') {
+          const { count } = await supabase
+            .from('reference_requests')
+            .select('id', { count: 'exact' })
+            .eq('requester_user_id', user.id);
+          setReferenceCount(count || 0);
+        }
 
         // Dashboard analytics
         // Profile views count
@@ -555,7 +565,7 @@ export function AccountPage() {
     { value: 'webinars', label: 'Webinars', icon: <Radio className="h-4 w-4" /> },
     { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: isMarina },
     { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: isMarina },
-    { value: 'references', label: 'References', icon: <FileText className="h-4 w-4" />, show: isPartner },
+    { value: 'references', label: 'References', icon: <FileText className="h-4 w-4" />, show: isPartner, notifDot: isPartner && referenceCount === 0 },
     { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: isMarina || isPartner },
     { value: 'b2b-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, notifCount: pendingB2B },
     { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
@@ -614,7 +624,7 @@ export function AccountPage() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <ClipboardList className="h-5 w-5 text-blue-600 shrink-0" />
-            <p className="text-blue-800">Your profile is incomplete. Complete your organization details to be validated by our team.</p>
+            <p className="text-blue-800">Your profile is incomplete. Complete your organization details and provide a reference to be validated by our team.</p>
           </div>
           <Button size="sm" onClick={() => navigate('/account?tab=organization', { replace: true })}>Complete my profile</Button>
         </div>
@@ -1285,12 +1295,29 @@ export function AccountPage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>My Webinar Requests</CardTitle>
-              <Button size="sm" onClick={() => navigate('/request-webinar')}>
-                <Plus className="h-4 w-4 mr-2" />Propose a Webinar
-              </Button>
+              {profile?.access_status === 'verified' && (organization?.tier !== 'member' || profile?.persona !== 'partner') && (
+                <Button size="sm" onClick={() => navigate('/request-webinar')}>
+                  <Plus className="h-4 w-4 mr-2" />Propose a Webinar
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
-              {dataLoading ? (
+              {profile?.access_status !== 'verified' ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Clock className="h-8 w-8 mx-auto mb-3 text-amber-400" />
+                  <p className="font-medium text-gray-700">Account Pending Approval</p>
+                  <p className="text-sm mt-1">You'll be able to propose webinars once your profile is verified by our team.</p>
+                </div>
+              ) : (organization?.tier === 'member' && profile?.persona === 'partner') ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Radio className="h-8 w-8 mx-auto mb-3 text-gray-300" />
+                  <p className="font-medium text-gray-700">Upgrade Required</p>
+                  <p className="text-sm mt-1 max-w-md mx-auto">Webinar proposals are available starting from the Innovation Partner tier. Upgrade your membership to unlock this feature.</p>
+                  <Button className="mt-4" size="sm" variant="outline" onClick={() => navigate('/tiers')}>
+                    View Membership Plans
+                  </Button>
+                </div>
+              ) : dataLoading ? (
                 <LoadingSkeleton variant="inline" />
               ) : webinarRequests.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
@@ -1494,6 +1521,15 @@ export function AccountPage() {
         {/* ── REFERENCES (Partner only) ── */}
         {isPartner && (
           <TabsContent value="references">
+            {referenceCount === 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-amber-900 font-medium">Reference Required for Approval</p>
+                  <p className="text-amber-700 text-sm">To complete your registration and be approved, please provide at least one professional reference below.</p>
+                </div>
+              </div>
+            )}
             <ReferenceRequestForm />
           </TabsContent>
         )}

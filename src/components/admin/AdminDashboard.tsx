@@ -882,7 +882,7 @@ export function AdminDashboard() {
             ) : (
               <div className="space-y-4">
                 {/* Funnel visualization */}
-                <div className="h-[140px]">
+                <div className="h-[140px]" style={{ minWidth: 1 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={leadsPipelineData} margin={{ left: -20, right: 8, top: 8, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
@@ -977,7 +977,7 @@ export function AdminDashboard() {
               <p className="text-sm text-gray-400 text-center py-8">No users yet</p>
             ) : (
               <div className="flex items-center gap-3">
-                <div className="w-[130px] h-[130px] shrink-0">
+                <div className="w-[130px] h-[130px] shrink-0" style={{ minWidth: 1 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={personaPieData} cx="50%" cy="50%" innerRadius={35} outerRadius={60}
@@ -1026,7 +1026,7 @@ export function AdminDashboard() {
               <p className="text-sm text-gray-400 text-center py-8">No users yet</p>
             ) : (
               <div className="flex items-center gap-3">
-                <div className="w-[130px] h-[130px] shrink-0">
+                <div className="w-[130px] h-[130px] shrink-0" style={{ minWidth: 1 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
                       <Pie data={statusPieData} cx="50%" cy="50%" innerRadius={35} outerRadius={60}
@@ -1099,7 +1099,7 @@ export function AdminDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="h-[180px]">
+            <div className="h-[180px]" style={{ minWidth: 1 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={monthlySignups} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                   <defs>
@@ -1130,7 +1130,7 @@ export function AdminDashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <div className="h-[180px]">
+            <div className="h-[180px]" style={{ minWidth: 1 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={monthlyRevenue} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
                   <defs>
@@ -1240,7 +1240,7 @@ export function AdminDashboard() {
             {tierBarData.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-8">No organizations yet</p>
             ) : (
-              <div className="h-[160px]">
+              <div className="h-[160px]" style={{ minWidth: 1 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={tierBarData} layout="vertical" margin={{ left: 10, right: 16, top: 4, bottom: 4 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />

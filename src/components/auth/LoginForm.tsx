@@ -6,17 +6,19 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, CheckCircle } from 'lucide-react';
 
 interface LoginFormProps {
   onSuccess?: () => void;
+  defaultEmail?: string;
+  showConfirmedBanner?: boolean;
 }
 
-export function LoginForm({ onSuccess }: LoginFormProps) {
+export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner }: LoginFormProps) {
   const { t } = useTranslation();
   const { signIn } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(defaultEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
@@ -101,6 +103,12 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {showConfirmedBanner && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-sm">
+          <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
+          <span className="text-green-800">Email confirmed successfully! Please log in to continue.</span>
+        </div>
+      )}
       <div className="space-y-2">
         <Label htmlFor="email">{t('auth.email')}</Label>
         <Input

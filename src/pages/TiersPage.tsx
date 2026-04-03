@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -212,6 +212,7 @@ function FeatureValue({ value, isBoolean }: { value: string | boolean; isBoolean
 // ──────────────────────────────────────────────────────────────────────────────
 
 export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
+  const navigate = useNavigate();
   const { organization, profile } = useAuth();
   const currentTier = organization?.tier ?? null;
   const persona = profile?.persona as PersonaType | undefined;
@@ -364,6 +365,21 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                     {isCurrentPlan ? (
                       <Button disabled className="w-full rounded-xl" variant="outline">
                         Current plan
+                      </Button>
+                    ) : tier === 'member' && profile ? (
+                      <Button
+                        variant={config.ctaVariant}
+                        className="w-full rounded-xl group"
+                        onClick={() => {
+                          navigate(
+                            organization
+                              ? '/account?tab=organization&action=pay-membership'
+                              : '/account?tab=organization'
+                          );
+                        }}
+                      >
+                        {config.ctaLabel}
+                        <ArrowRight className="h-4 w-4 ml-1.5 group-hover:translate-x-0.5 transition-transform" />
                       </Button>
                     ) : (
                       <Button

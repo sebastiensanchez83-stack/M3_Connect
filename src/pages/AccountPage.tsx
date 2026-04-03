@@ -332,12 +332,12 @@ export function AccountPage() {
           .order('created_at', { ascending: false });
         if (prData) setPartnerRequests(prData as PartnerRequestItem[]);
 
-        // Fetch reference count for partners
-        if (profile?.persona === 'partner' || profile?.persona === 'media_partner') {
+        // Fetch reference count for partners (requires org)
+        if ((profile?.persona === 'partner' || profile?.persona === 'media_partner') && organization?.id) {
           const { count } = await supabase
             .from('reference_requests')
             .select('id', { count: 'exact' })
-            .eq('requester_user_id', user.id);
+            .eq('partner_organization_id', organization.id);
           setReferenceCount(count || 0);
         }
 

@@ -494,17 +494,14 @@ export function OrganizationTab() {
       setSelectedPlan('member');
       setMemberPaid(false);
       await fetchOrg();
-      // If the user chose the paid Member option, show the payment form
-      if (chosePaidMember) {
-        setTimeout(() => setShowMembershipPayment(true), 600);
-      }
       // Auto-open edit mode so user can complete sector selection
       setTimeout(() => setEditing(true), 500);
       toast({
         title: 'Organization created!',
         description: chosePaidMember
-          ? 'Complete your membership payment to unlock full platform access.'
+          ? 'Complete your profile details below. You can pay the \u20AC500 membership fee now or later from your account.'
           : 'Now complete your profile by adding your service sectors and details below.',
+        duration: 8000,
       });
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });

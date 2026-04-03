@@ -200,9 +200,14 @@ export function PaymentForm({
             <AlertCircle className="h-10 w-10 text-red-500 mx-auto mb-3" />
             <p className="text-red-600 font-medium mb-2">{t('payment.error', 'Payment Error')}</p>
             <p className="text-sm text-gray-600 mb-4">{errorMsg}</p>
-            <Button variant="outline" onClick={() => { formInitialized.current = false; initPayment(); }}>
-              {t('payment.retry', 'Try Again')}
-            </Button>
+            <div className="flex items-center justify-center gap-3">
+              <Button variant="outline" onClick={() => { formInitialized.current = false; initPayment(); }}>
+                {t('payment.retry', 'Try Again')}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => onError?.('skipped')} className="text-gray-500">
+                Pay later
+              </Button>
+            </div>
           </div>
         )}
 

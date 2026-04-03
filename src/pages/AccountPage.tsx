@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link } from 'react-router-dom';
@@ -107,6 +107,17 @@ export function AccountPage() {
   const [consultations, setConsultations] = useState<ConsultationItem[]>([]);
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequestItem[]>([]);
   const [dataLoading, setDataLoading] = useState(false);
+
+  // Submissions tab
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
+  const [submissionsFetched, setSubmissionsFetched] = useState(false);
+  const [subProjects, setSubProjects] = useState<MarinaProject[]>([]);
+  const [subRfps, setSubRfps] = useState<RFPItem[]>([]);
+  const [subConsultations, setSubConsultations] = useState<ConsultationItem[]>([]);
+  const [subWebinars, setSubWebinars] = useState<WebinarRequest[]>([]);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
+    projects: true, rfps: true, consultations: true, webinars: true,
+  });
 
   // Event payment dialog
   const [eventPaymentReg, setEventPaymentReg] = useState<EventRegistration | null>(null);
@@ -393,6 +404,66 @@ export function AccountPage() {
     fetchData();
   }, [user, profile, organization]);
 
+  // Fetch submissions data when tab is active
+  useEffect(() => {
+    if (activeTab !== 'submissions' || !user || !profile || submissionsFetched) return;
+    const isMarinaUser = profile.persona === 'marina';
+
+    setSubmissionsLoading(true);
+    const fetchSubmissions = async () => {
+      try {
+        const [projRes, rfpRes, consultRes, webinarRes] = await Promise.all([
+          // Projects (marina only)
+          isMarinaUser
+            ? supabase
+                .from('marina_projects')
+                .select('id, project_type, budget_range, timeline, status, created_at')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false })
+            : Promise.resolve({ data: null }),
+          // RFPs (marina only)
+          isMarinaUser
+            ? supabase
+                .from('rfps')
+                .select('id, title, scope, sector_id, deadline_date, is_open, created_at')
+                .eq('marina_user_id', user.id)
+                .order('created_at', { ascending: false })
+            : Promise.resolve({ data: null }),
+          // Consultations (marina only)
+          isMarinaUser
+            ? supabase
+                .from('consultations')
+                .select('id, title, description, sector_id, is_open, created_at')
+                .eq('marina_user_id', user.id)
+                .order('created_at', { ascending: false })
+            : Promise.resolve({ data: null }),
+          // Webinar requests (all users)
+          supabase
+            .from('webinar_requests')
+            .select('id, title, description, preferred_language, preferred_timeframe, status, moderator_notes, created_at')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false }),
+        ]);
+
+        if (projRes.data) setSubProjects(projRes.data as MarinaProject[]);
+        if (rfpRes.data) setSubRfps(rfpRes.data as RFPItem[]);
+        if (consultRes.data) setSubConsultations(consultRes.data as ConsultationItem[]);
+        if (webinarRes.data) setSubWebinars(webinarRes.data as WebinarRequest[]);
+        setSubmissionsFetched(true);
+      } catch (err) {
+        if (import.meta.env.DEV) console.error('Error fetching submissions:', err);
+      } finally {
+        setSubmissionsLoading(false);
+      }
+    };
+
+    fetchSubmissions();
+  }, [activeTab, user, profile, submissionsFetched]);
+
+  const toggleSection = (section: string) => {
+    setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
   const getAccessBadge = () => {
     if (!profile) return null;
     switch (profile.access_status) {
@@ -481,6 +552,7 @@ export function AccountPage() {
     { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: isMarina },
     { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: isMarina },
     { value: 'references', label: 'References', icon: <FileText className="h-4 w-4" />, show: isPartner },
+    { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: isMarina || isPartner },
     { value: 'b2b-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, notifCount: pendingB2B },
     { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
   ].filter(item => item.show !== false);
@@ -1374,6 +1446,213 @@ export function AccountPage() {
           </TabsContent>
         )}
 
+        {/* ── MY SUBMISSIONS ── */}
+        {(isMarina || isPartner) && (
+          <TabsContent value="submissions">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  My Submissions
+                </CardTitle>
+                <p className="text-sm text-gray-500">Track the status of everything you have submitted across the platform.</p>
+              </CardHeader>
+              <CardContent>
+                {submissionsLoading ? (
+                  <LoadingSkeleton variant="inline" />
+                ) : (
+                  <div className="space-y-4">
+                    {/* ── Projects Section (marina only) ── */}
+                    {isMarina && (
+                      <div className="border rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('projects')}
+                          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 font-medium">
+                            <Anchor className="h-4 w-4 text-gray-500" />
+                            My Projects
+                            <Badge variant="secondary" className="ml-1 text-xs">{subProjects.length}</Badge>
+                          </div>
+                          {expandedSections.projects ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                        </button>
+                        {expandedSections.projects && (
+                          <div className="border-t px-4 pb-4">
+                            {subProjects.length === 0 ? (
+                              <div className="text-center py-6 text-gray-500">
+                                <p className="text-sm">No projects submitted yet.</p>
+                                <Link to="/submit-project" className="text-sm text-primary hover:underline mt-1 inline-block">Submit a project</Link>
+                              </div>
+                            ) : (
+                              <div className="divide-y">
+                                {subProjects.map((p) => (
+                                  <div key={p.id} className="py-3 flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="font-medium text-sm">{p.project_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
+                                      <div className="text-xs text-gray-500">
+                                        {new Date(p.created_at).toLocaleDateString('en-US')}
+                                        {p.budget_range && ` · ${formatBudgetRange(p.budget_range)}`}
+                                        {p.timeline && ` · ${p.timeline.replace(/_/g, ' ')}`}
+                                      </div>
+                                    </div>
+                                    <SubmissionStatusBadge status={p.status} />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── RFPs Section (marina only) ── */}
+                    {isMarina && (
+                      <div className="border rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('rfps')}
+                          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 font-medium">
+                            <ClipboardList className="h-4 w-4 text-gray-500" />
+                            My RFPs
+                            <Badge variant="secondary" className="ml-1 text-xs">{subRfps.length}</Badge>
+                          </div>
+                          {expandedSections.rfps ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                        </button>
+                        {expandedSections.rfps && (
+                          <div className="border-t px-4 pb-4">
+                            {subRfps.length === 0 ? (
+                              <div className="text-center py-6 text-gray-500">
+                                <p className="text-sm">No RFPs submitted yet.</p>
+                                <Link to="/submit-rfp" className="text-sm text-primary hover:underline mt-1 inline-block">Submit an RFP</Link>
+                              </div>
+                            ) : (
+                              <div className="divide-y">
+                                {subRfps.map((r) => (
+                                  <div key={r.id} className="py-3 flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="font-medium text-sm">{r.title}</div>
+                                      <p className="text-xs text-gray-500 line-clamp-1">{r.scope}</p>
+                                      <div className="text-xs text-gray-400">
+                                        {r.deadline_date && `Deadline: ${new Date(r.deadline_date).toLocaleDateString('en-US')} · `}
+                                        Created {new Date(r.created_at).toLocaleDateString('en-US')}
+                                      </div>
+                                    </div>
+                                    <Badge variant={r.is_open ? 'success' : 'secondary'} className="shrink-0">
+                                      {r.is_open ? 'Open' : 'Closed'}
+                                    </Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── Consultations Section (marina only) ── */}
+                    {isMarina && (
+                      <div className="border rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => toggleSection('consultations')}
+                          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+                        >
+                          <div className="flex items-center gap-2 font-medium">
+                            <MessageSquare className="h-4 w-4 text-gray-500" />
+                            My Consultations
+                            <Badge variant="secondary" className="ml-1 text-xs">{subConsultations.length}</Badge>
+                          </div>
+                          {expandedSections.consultations ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                        </button>
+                        {expandedSections.consultations && (
+                          <div className="border-t px-4 pb-4">
+                            {subConsultations.length === 0 ? (
+                              <div className="text-center py-6 text-gray-500">
+                                <p className="text-sm">No consultations submitted yet.</p>
+                                <Link to="/submit-consultation" className="text-sm text-primary hover:underline mt-1 inline-block">Start a consultation</Link>
+                              </div>
+                            ) : (
+                              <div className="divide-y">
+                                {subConsultations.map((c) => (
+                                  <div key={c.id} className="py-3 flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="font-medium text-sm">{c.title}</div>
+                                      <p className="text-xs text-gray-500 line-clamp-1">{c.description}</p>
+                                      <div className="text-xs text-gray-400">
+                                        Created {new Date(c.created_at).toLocaleDateString('en-US')}
+                                      </div>
+                                    </div>
+                                    <Badge variant={c.is_open ? 'success' : 'secondary'} className="shrink-0">
+                                      {c.is_open ? 'Open' : 'Closed'}
+                                    </Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ── Webinar Requests Section (all users) ── */}
+                    <div className="border rounded-lg">
+                      <button
+                        type="button"
+                        onClick={() => toggleSection('webinars')}
+                        className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 font-medium">
+                          <Radio className="h-4 w-4 text-gray-500" />
+                          My Webinar Requests
+                          <Badge variant="secondary" className="ml-1 text-xs">{subWebinars.length}</Badge>
+                        </div>
+                        {expandedSections.webinars ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
+                      </button>
+                      {expandedSections.webinars && (
+                        <div className="border-t px-4 pb-4">
+                          {subWebinars.length === 0 ? (
+                            <div className="text-center py-6 text-gray-500">
+                              <p className="text-sm">No webinar requests submitted yet.</p>
+                              <Link to="/request-webinar" className="text-sm text-primary hover:underline mt-1 inline-block">Propose a webinar</Link>
+                            </div>
+                          ) : (
+                            <div className="divide-y">
+                              {subWebinars.map((w) => (
+                                <div key={w.id} className="py-3 flex items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="font-medium text-sm">{w.title}</div>
+                                    <div className="text-xs text-gray-500">
+                                      {w.preferred_language === 'EN' ? 'English' : 'Francais'}
+                                      {' · '}{new Date(w.created_at).toLocaleDateString('en-US')}
+                                    </div>
+                                  </div>
+                                  <SubmissionStatusBadge status={w.status} />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Summary if everything is empty */}
+                    {subProjects.length === 0 && subRfps.length === 0 && subConsultations.length === 0 && subWebinars.length === 0 && (
+                      <div className="text-center py-6 text-gray-500">
+                        <FileText className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+                        <p className="font-medium">No submissions yet</p>
+                        <p className="text-sm mt-1">Start by submitting a project, RFP, consultation, or webinar request.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
         {/* ── B2B PARTNER REQUESTS ── */}
         <TabsContent value="b2b-requests">
           <Card>
@@ -1604,6 +1883,30 @@ function WebinarStatusBadge({ status }: { status: string }) {
   const s = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-800' };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${s.className}`}>
+      {s.label}
+    </span>
+  );
+}
+
+function SubmissionStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; className: string }> = {
+    // Project / generic statuses
+    submitted: { label: 'Submitted', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    pending: { label: 'Pending', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
+    under_review: { label: 'Under Review', className: 'bg-blue-100 text-blue-800 border-blue-200' },
+    in_progress: { label: 'In Progress', className: 'bg-blue-100 text-blue-800 border-blue-200' },
+    accepted: { label: 'Accepted', className: 'bg-green-100 text-green-800 border-green-200' },
+    approved: { label: 'Approved', className: 'bg-green-100 text-green-800 border-green-200' },
+    completed: { label: 'Completed', className: 'bg-green-100 text-green-800 border-green-200' },
+    active: { label: 'Active', className: 'bg-green-100 text-green-800 border-green-200' },
+    open: { label: 'Open', className: 'bg-green-100 text-green-800 border-green-200' },
+    rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-200' },
+    closed: { label: 'Closed', className: 'bg-gray-100 text-gray-700 border-gray-200' },
+    cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-700 border-gray-200' },
+  };
+  const s = map[status] ?? { label: status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), className: 'bg-gray-100 text-gray-800' };
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border shrink-0 ${s.className}`}>
       {s.label}
     </span>
   );

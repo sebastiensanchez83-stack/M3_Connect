@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Search, Briefcase, FileText, MessageSquare, Globe, MapPin, Loader2,
-  Users, Anchor, Building2, Newspaper, Filter, X, ArrowRight, Calendar, Clock,
+  Users, Anchor, Building2, Newspaper, Filter, X, ArrowRight, Calendar, Clock, Wrench, DollarSign,
 } from 'lucide-react';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -55,6 +55,8 @@ interface RfpCard {
   created_at: string;
   marina_user_id: string;
   marina_name: string;
+  marina_organization_id: string | null;
+  sector_id: string | null;
   sector: { id: string; label: string } | null;
 }
 
@@ -66,7 +68,21 @@ interface ConsultationCard {
   created_at: string;
   marina_user_id: string;
   marina_name: string;
+  marina_organization_id: string | null;
+  sector_id: string | null;
   sector: { id: string; label: string } | null;
+}
+
+interface ProjectCard {
+  id: string;
+  project_type: string;
+  budget_range: string;
+  timeline: string;
+  description: string;
+  status: string;
+  created_at: string;
+  user_id: string;
+  marina_name: string;
 }
 
 
@@ -96,11 +112,13 @@ export function MarketplacePage() {
   const [orgs, setOrgs] = useState<OrgCard[]>([]);
   const [rfps, setRfps] = useState<RfpCard[]>([]);
   const [consultations, setConsultations] = useState<ConsultationCard[]>([]);
+  const [projects, setProjects] = useState<ProjectCard[]>([]);
   const [sectors, setSectors] = useState<Sector[]>([]);
 
   const [loadingOrgs, setLoadingOrgs] = useState(false);
   const [loadingRfps, setLoadingRfps] = useState(false);
   const [loadingConsultations, setLoadingConsultations] = useState(false);
+  const [loadingProjects, setLoadingProjects] = useState(false);
 
   /* --- search & filters --- */
   const [partnerSearch, setPartnerSearch] = useState('');
@@ -123,8 +141,90 @@ export function MarketplacePage() {
   const [consultDetailOpen, setConsultDetailOpen] = useState(false);
   const [selectedConsult, setSelectedConsult] = useState<ConsultationCard | null>(null);
 
+  /* --- Express Interest dialog state --- */
+  const [interestOpen, setInterestOpen] = useState(false);
+  const [interestMessage, setInterestMessage] = useState('');
+  const [interestSending, setInterestSending] = useState(false);
+  const [interestTarget, setInterestTarget] = useState<{ type: 'rfp' | 'consultation'; id: string; title: string; marina_user_id: string; marina_organization_id: string | null; sector_id: string | null } | null>(null);
+  const [existingInterests, setExistingInterests] = useState<Set<string>>(new Set());
+
   const isMarina = profile?.persona === 'marina';
   const isPartner = profile?.persona === 'partner' && isVerified;
+
+  /* ---- fetch existing partner interests (for disabling "already expressed" buttons) ---- */
+  useEffect(() => {
+    if (!user || !isPartner) return;
+    supabase
+      .from('partner_requests')
+      .select('marina_user_id')
+      .eq('partner_user_id', user.id)
+      .then(({ data }) => {
+        if (data) {
+          // Key: partner_user_id + marina_user_id combo already stored
+          setExistingInterests(new Set(data.map((r: { marina_user_id: string }) => r.marina_user_id)));
+        }
+      });
+  }, [user, isPartner]);
+
+  /* ---- Express Interest helpers ---- */
+  const openInterestDialog = (type: 'rfp' | 'consultation', item: RfpCard | ConsultationCard) => {
+    setInterestTarget({
+      type,
+      id: item.id,
+      title: item.title,
+      marina_user_id: item.marina_user_id,
+      marina_organization_id: item.marina_organization_id,
+      sector_id: item.sector_id,
+    });
+    setInterestMessage('');
+    setInterestOpen(true);
+  };
+
+  const handleExpressInterest = async () => {
+    if (!user || !interestTarget) return;
+    setInterestSending(true);
+    try {
+      const { error } = await supabase.from('partner_requests').insert({
+        partner_user_id: user.id,
+        marina_user_id: interestTarget.marina_user_id,
+        partner_organization_id: organization?.id || null,
+        marina_organization_id: interestTarget.marina_organization_id,
+        sector_id: interestTarget.sector_id,
+        message: interestMessage.trim() || `Expressed interest in ${interestTarget.type === 'rfp' ? 'RFP' : 'consultation'}: ${interestTarget.title}`,
+        status: 'pending',
+      });
+
+      if (error) throw error;
+
+      // Send notification to marina owner
+      const partnerName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A partner';
+      sendNotification({
+        type: 'partner_request_received',
+        userId: interestTarget.marina_user_id,
+        data: {
+          partner_name: partnerName,
+          message: interestMessage.trim() || `Interest in ${interestTarget.type === 'rfp' ? 'RFP' : 'consultation'}: ${interestTarget.title}`,
+        },
+      });
+
+      // Track locally so button is disabled immediately
+      setExistingInterests((prev) => new Set([...prev, interestTarget.marina_user_id]));
+
+      toast({
+        title: t('marketplace.interestSent', 'Interest expressed successfully'),
+        description: t('marketplace.interestSentDesc', 'The marina has been notified of your interest.'),
+      });
+      setInterestOpen(false);
+    } catch (err: unknown) {
+      toast({
+        title: t('marketplace.error'),
+        description: err instanceof Error ? err.message : t('marketplace.errorSending', 'Failed to send request'),
+        variant: 'destructive',
+      });
+    } finally {
+      setInterestSending(false);
+    }
+  };
 
   /* ---- fetch sectors ---- */
   useEffect(() => {
@@ -264,20 +364,24 @@ export function MarketplacePage() {
 
         if (error) throw error;
 
-        const rows = (data || []) as unknown as { id: string; title: string; scope: string | null; deadline_date: string | null; is_open: boolean; created_at: string; marina_user_id: string; sector_id: string; sectors: { id: string; label: string } | null }[];
+        const rows = (data || []) as unknown as { id: string; title: string; scope: string | null; deadline_date: string | null; is_open: boolean; created_at: string; marina_user_id: string; sector_id: string | null; sectors: { id: string; label: string } | null }[];
 
-        // Resolve marina names: prefer organization name, fall back to profile first+last
+        // Resolve marina names & org IDs: prefer organization name, fall back to profile first+last
         const marinaIds = [...new Set(rows.map((r) => r.marina_user_id))];
         const nameMap: Record<string, string> = {};
+        const orgIdMap: Record<string, string> = {};
         if (marinaIds.length > 0) {
-          // Batch-fetch organization names via organization_members -> organizations
+          // Batch-fetch organization names + IDs via organization_members -> organizations
           const { data: memberOrgs } = await supabase
             .from('organization_members')
-            .select('user_id, organizations(name)')
+            .select('user_id, organization_id, organizations(name)')
             .in('user_id', marinaIds);
-          for (const m of (memberOrgs || []) as unknown as { user_id: string; organizations: { name: string } | null }[]) {
+          for (const m of (memberOrgs || []) as unknown as { user_id: string; organization_id: string; organizations: { name: string } | null }[]) {
             if (m.organizations?.name) {
               nameMap[m.user_id] = m.organizations.name;
+            }
+            if (m.organization_id) {
+              orgIdMap[m.user_id] = m.organization_id;
             }
           }
 
@@ -302,6 +406,8 @@ export function MarketplacePage() {
           created_at: r.created_at,
           marina_user_id: r.marina_user_id,
           marina_name: nameMap[r.marina_user_id] || r.marina_user_id.slice(0, 8),
+          marina_organization_id: orgIdMap[r.marina_user_id] || null,
+          sector_id: r.sector_id || null,
           sector: r.sectors ? { id: r.sectors.id, label: r.sectors.label } : null,
         }));
 
@@ -331,20 +437,24 @@ export function MarketplacePage() {
 
         if (error) throw error;
 
-        const rows = (data || []) as unknown as { id: string; title: string; description: string | null; is_open: boolean; created_at: string; marina_user_id: string; sector_id: string; sectors: { id: string; label: string } | null }[];
+        const rows = (data || []) as unknown as { id: string; title: string; description: string | null; is_open: boolean; created_at: string; marina_user_id: string; sector_id: string | null; sectors: { id: string; label: string } | null }[];
 
-        // Resolve marina names: prefer organization name, fall back to profile first+last
+        // Resolve marina names & org IDs: prefer organization name, fall back to profile first+last
         const marinaIds = [...new Set(rows.map((c) => c.marina_user_id))];
         const nameMap: Record<string, string> = {};
+        const orgIdMap: Record<string, string> = {};
         if (marinaIds.length > 0) {
-          // Batch-fetch organization names via organization_members -> organizations
+          // Batch-fetch organization names + IDs via organization_members -> organizations
           const { data: memberOrgs } = await supabase
             .from('organization_members')
-            .select('user_id, organizations(name)')
+            .select('user_id, organization_id, organizations(name)')
             .in('user_id', marinaIds);
-          for (const m of (memberOrgs || []) as unknown as { user_id: string; organizations: { name: string } | null }[]) {
+          for (const m of (memberOrgs || []) as unknown as { user_id: string; organization_id: string; organizations: { name: string } | null }[]) {
             if (m.organizations?.name) {
               nameMap[m.user_id] = m.organizations.name;
+            }
+            if (m.organization_id) {
+              orgIdMap[m.user_id] = m.organization_id;
             }
           }
 
@@ -368,6 +478,8 @@ export function MarketplacePage() {
           created_at: c.created_at,
           marina_user_id: c.marina_user_id,
           marina_name: nameMap[c.marina_user_id] || c.marina_user_id.slice(0, 8),
+          marina_organization_id: orgIdMap[c.marina_user_id] || null,
+          sector_id: c.sector_id || null,
           sector: c.sectors ? { id: c.sectors.id, label: c.sectors.label } : null,
         }));
 
@@ -380,6 +492,71 @@ export function MarketplacePage() {
     };
 
     fetchConsultations();
+  }, [isVerified]);
+
+  /* ---- fetch Projects (approved / in_progress / completed) ---- */
+  useEffect(() => {
+    if (!isVerified) return;
+    setLoadingProjects(true);
+
+    const fetchProjects = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('marina_projects')
+          .select('id, project_type, budget_range, timeline, description, status, created_at, user_id')
+          .neq('status', 'new')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        const rows = (data || []) as { id: string; project_type: string; budget_range: string; timeline: string; description: string; status: string; created_at: string; user_id: string }[];
+
+        // Resolve marina names: prefer organization name, fall back to profile
+        const marinaIds = [...new Set(rows.map((r) => r.user_id))];
+        const nameMap: Record<string, string> = {};
+        if (marinaIds.length > 0) {
+          const { data: memberOrgs } = await supabase
+            .from('organization_members')
+            .select('user_id, organizations(name)')
+            .in('user_id', marinaIds);
+          for (const m of (memberOrgs || []) as unknown as { user_id: string; organizations: { name: string } | null }[]) {
+            if (m.organizations?.name) {
+              nameMap[m.user_id] = m.organizations.name;
+            }
+          }
+
+          const missingIds = marinaIds.filter((uid) => !nameMap[uid]);
+          if (missingIds.length > 0) {
+            const { data: profiles } = await supabase
+              .rpc('get_public_profiles', { target_user_ids: missingIds });
+            for (const p of (profiles || []) as { user_id: string; first_name: string | null; last_name: string | null }[]) {
+              const name = [p.first_name, p.last_name].filter(Boolean).join(' ');
+              nameMap[p.user_id] = name || p.user_id.slice(0, 8);
+            }
+          }
+        }
+
+        const cards: ProjectCard[] = rows.map((r) => ({
+          id: r.id,
+          project_type: r.project_type,
+          budget_range: r.budget_range,
+          timeline: r.timeline,
+          description: r.description,
+          status: r.status,
+          created_at: r.created_at,
+          user_id: r.user_id,
+          marina_name: nameMap[r.user_id] || r.user_id.slice(0, 8),
+        }));
+
+        setProjects(cards);
+      } catch (err) {
+        if (import.meta.env.DEV) console.error('Error fetching projects:', err);
+      } finally {
+        setLoadingProjects(false);
+      }
+    };
+
+    fetchProjects();
   }, [isVerified]);
 
   /* ---- contact dialog helpers ---- */
@@ -561,7 +738,7 @@ export function MarketplacePage() {
 
       <div className="container mx-auto px-4 py-6">
         <Tabs defaultValue="partners" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="partners" className="flex items-center gap-2">
               <Briefcase className="h-4 w-4" />
               <span className="hidden sm:inline">{t('marketplace.partnerDirectory')}</span>
@@ -576,6 +753,11 @@ export function MarketplacePage() {
               <MessageSquare className="h-4 w-4" />
               <span className="hidden sm:inline">{t('marketplace.openConsultations')}</span>
               <span className="sm:hidden">{t('marketplace.consults')}</span>
+            </TabsTrigger>
+            <TabsTrigger value="projects" className="flex items-center gap-2">
+              <Wrench className="h-4 w-4" />
+              <span className="hidden sm:inline">{t('marketplace.marinaProjects', 'Projects')}</span>
+              <span className="sm:hidden">{t('marketplace.projects', 'Projects')}</span>
             </TabsTrigger>
           </TabsList>
 
@@ -810,9 +992,16 @@ export function MarketplacePage() {
                         <p className="text-xs text-gray-400">
                           {t('marketplace.posted', 'Posted')} {formatDate(rfp.created_at, i18n.language)}
                         </p>
-                        <span className="text-xs text-primary font-medium flex items-center gap-1">
-                          {t('marketplace.viewDetails', 'View Details')} <ArrowRight className="h-3 w-3" />
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {isPartner && existingInterests.has(rfp.marina_user_id) && (
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                              {t('marketplace.interestSentBadge', 'Interest Sent')}
+                            </Badge>
+                          )}
+                          <span className="text-xs text-primary font-medium flex items-center gap-1">
+                            {t('marketplace.viewDetails', 'View Details')} <ArrowRight className="h-3 w-3" />
+                          </span>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -871,9 +1060,85 @@ export function MarketplacePage() {
                         <p className="text-xs text-gray-400">
                           {t('marketplace.posted', 'Posted')} {formatDate(c.created_at, i18n.language)}
                         </p>
-                        <span className="text-xs text-primary font-medium flex items-center gap-1">
-                          {t('marketplace.viewDetails', 'View Details')} <ArrowRight className="h-3 w-3" />
+                        <div className="flex items-center gap-2">
+                          {isPartner && existingInterests.has(c.marina_user_id) && (
+                            <Badge variant="outline" className="text-xs text-green-600 border-green-300">
+                              {t('marketplace.interestSentBadge', 'Interest Sent')}
+                            </Badge>
+                          )}
+                          <span className="text-xs text-primary font-medium flex items-center gap-1">
+                            {t('marketplace.viewDetails', 'View Details')} <ArrowRight className="h-3 w-3" />
+                          </span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ====== TAB 4: Marina Projects ====== */}
+          <TabsContent value="projects" className="space-y-6">
+            {!isVerified ? (
+              <div className="py-12 text-center">
+                <Wrench className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500 mb-4">{t('marketplace.verifiedOnly')}</p>
+                {!user ? (
+                  <Link to="/become-partner"><Button>{t('marketplace.signUp', 'Sign Up')}</Button></Link>
+                ) : (
+                  <Link to="/account"><Button>{t('marketplace.viewAccountStatus')}</Button></Link>
+                )}
+              </div>
+            ) : loadingProjects ? (
+              <div className="py-12 text-center">
+                <Loader2 className="h-6 w-6 animate-spin mx-auto text-primary" />
+                <p className="text-sm text-gray-400 mt-2">{t('marketplace.loadingProjects', 'Loading projects...')}</p>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="py-12 text-center">
+                <Wrench className="h-10 w-10 mx-auto text-gray-300 mb-3" />
+                <p className="text-gray-500">{t('marketplace.noProjects', 'No active projects at the moment.')}</p>
+              </div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {projects.map((proj) => (
+                  <Card key={proj.id} className="hover:shadow-md transition-shadow duration-200">
+                    <CardHeader>
+                      <div className="flex items-start justify-between gap-3">
+                        <CardTitle className="text-lg capitalize">{proj.project_type.replace(/_/g, ' ')}</CardTitle>
+                        <Badge
+                          variant={proj.status === 'completed' ? 'default' : 'secondary'}
+                          className="shrink-0 text-xs"
+                        >
+                          {proj.status.replace(/_/g, ' ')}
+                        </Badge>
+                      </div>
+                      <CardDescription className="flex items-center gap-3 flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <Anchor className="h-3.5 w-3.5" />
+                          {proj.marina_name}
                         </span>
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {proj.description && (
+                        <p className="text-sm text-gray-600 mb-3 leading-relaxed">{truncate(proj.description, 200)}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <Badge variant="outline" className="text-xs flex items-center gap-1">
+                          <DollarSign className="h-3 w-3" />
+                          {proj.budget_range.replace(/_/g, ' ')}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {proj.timeline.replace(/_/g, ' ')}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-400">
+                          {t('marketplace.posted', 'Posted')} {formatDate(proj.created_at, i18n.language)}
+                        </p>
                       </div>
                     </CardContent>
                   </Card>
@@ -993,16 +1258,19 @@ export function MarketplacePage() {
                     {t('common.close', 'Close')}
                   </Button>
                   {isPartner && (
-                    <Button onClick={() => {
-                      setRfpDetailOpen(false);
-                      toast({
-                        title: t('marketplace.rfpContactSent', 'Interest registered'),
-                        description: t('marketplace.rfpContactSentDesc', 'The marina has been notified of your interest in this RFP.'),
-                      });
-                    }}>
-                      <MessageSquare className="h-4 w-4 mr-2" />
-                      {t('marketplace.contactMarina', 'Contact Marina')}
-                    </Button>
+                    existingInterests.has(selectedRfp.marina_user_id) ? (
+                      <Button disabled>
+                        {t('marketplace.interestAlreadySent', 'Interest Already Sent')}
+                      </Button>
+                    ) : (
+                      <Button onClick={() => {
+                        setRfpDetailOpen(false);
+                        openInterestDialog('rfp', selectedRfp);
+                      }}>
+                        <MessageSquare className="h-4 w-4 mr-2" />
+                        {t('marketplace.expressInterest', 'Express Interest')}
+                      </Button>
+                    )
                   )}
                 </div>
               </div>
@@ -1059,21 +1327,71 @@ export function MarketplacePage() {
                     {t('common.close', 'Close')}
                   </Button>
                   {isPartner && (
-                    <Button onClick={() => {
-                      setConsultDetailOpen(false);
-                      toast({
-                        title: t('marketplace.consultResponseSent', 'Response registered'),
-                        description: t('marketplace.consultResponseSentDesc', 'The marina has been notified of your interest in this consultation.'),
-                      });
-                    }}>
-                      <MessageSquare className="h-4 w-4 mr-2" />
-                      {t('marketplace.respond', 'Respond')}
-                    </Button>
+                    existingInterests.has(selectedConsult.marina_user_id) ? (
+                      <Button disabled>
+                        {t('marketplace.interestAlreadySent', 'Interest Already Sent')}
+                      </Button>
+                    ) : (
+                      <Button onClick={() => {
+                        setConsultDetailOpen(false);
+                        openInterestDialog('consultation', selectedConsult);
+                      }}>
+                        <MessageSquare className="h-4 w-4 mr-2" />
+                        {t('marketplace.expressInterest', 'Express Interest')}
+                      </Button>
+                    )
                   )}
                 </div>
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ====== Express Interest Dialog ====== */}
+      <Dialog open={interestOpen} onOpenChange={setInterestOpen}>
+        <DialogContent className="sm:max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {t('marketplace.expressInterest', 'Express Interest')}
+            </DialogTitle>
+            <DialogDescription>
+              {interestTarget?.type === 'rfp'
+                ? t('marketplace.expressInterestRfpDesc', 'Let the marina know you are interested in this RFP. Your organization profile will be shared.')
+                : t('marketplace.expressInterestConsultDesc', 'Let the marina know you can help with this consultation. Your organization profile will be shared.')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            {interestTarget && (
+              <div className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3">
+                <span className="font-medium">{interestTarget.title}</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label>{t('marketplace.interestMessage', 'Message')} ({t('common.optional', 'optional')})</Label>
+              <Textarea
+                value={interestMessage}
+                onChange={(e) => setInterestMessage(e.target.value)}
+                rows={4}
+                placeholder={t('marketplace.interestMessagePlaceholder', 'Describe your relevant experience or interest...')}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setInterestOpen(false)} disabled={interestSending}>
+                {t('common.cancel', 'Cancel')}
+              </Button>
+              <Button onClick={handleExpressInterest} disabled={interestSending}>
+                {interestSending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('marketplace.sending', 'Sending...')}</>
+                ) : (
+                  t('marketplace.sendInterest', 'Send Interest')
+                )}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

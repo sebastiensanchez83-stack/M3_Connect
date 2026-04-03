@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 import type { MarinaProject } from './types';
 
 export function AdminProjects() {
@@ -50,7 +51,24 @@ export function AdminProjects() {
     setProjects(rows);
     setLoading(false);
   };
-  const updateStatus = async (id: string, status: string) => { await supabase.from('marina_projects').update({ status }).eq('id', id); toast({ title: `Status: ${status}` }); loadProjects(); };
+  const updateStatus = async (id: string, status: string) => {
+    await supabase.from('marina_projects').update({ status }).eq('id', id);
+    // Notify the project owner about the status change
+    const project = projects.find(p => p.id === id);
+    if (project) {
+      sendNotification({
+        type: 'rfp_submitted',
+        userId: project.user_id,
+        data: {
+          submission_type: 'Project Status Update',
+          title: project.project_type,
+          details: `Your project status has been updated to: ${status.replace('_', ' ')}`,
+        },
+      });
+    }
+    toast({ title: `Status: ${status}` });
+    loadProjects();
+  };
   const saveNotes = async () => { if (!selectedProject) return; await supabase.from('marina_projects').update({ admin_notes: adminNotes }).eq('id', selectedProject.id); toast({ title: 'Notes saved' }); setSelectedProject(null); loadProjects(); };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;

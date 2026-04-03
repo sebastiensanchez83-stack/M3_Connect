@@ -16,6 +16,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { notifyAdmin, sendNotification } from '@/lib/notifications';
 import { Lock, Anchor } from 'lucide-react';
 
 export function SubmitProjectPage() {
@@ -59,6 +60,22 @@ export function SubmitProjectPage() {
     if (error) {
       toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
     } else {
+      // Notify admin about the new project submission
+      notifyAdmin(
+        'Project',
+        organization?.name || profile?.first_name || user.id.slice(0, 8),
+        `Type: ${formData.project_type}, Budget: ${formData.budget_range}, Timeline: ${formData.timeline}`,
+      );
+      // Confirm to the submitter that the project was received
+      sendNotification({
+        type: 'rfp_submitted',
+        userId: user.id,
+        data: {
+          submission_type: 'Project',
+          title: formData.project_type,
+          details: 'Your project has been submitted and is under review.',
+        },
+      });
       toast({ title: t('submitProject.success') });
       setFormData({ project_type: '', budget_range: '', timeline: '', description: '' });
       setConsent(false);

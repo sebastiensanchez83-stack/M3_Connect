@@ -1,23 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { AdminContextBanner } from './AdminContextBanner';
-import { RefreshCw, Eye } from 'lucide-react';
+import { RefreshCw, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
-import { toast } from '@/hooks/use-toast';
-import { sendNotification } from '@/lib/notifications';
 
 interface ExpositionRequest {
   id: string; organization_id: string; event_id: string; requested_by: string;
@@ -28,13 +19,11 @@ interface ExpositionRequest {
 
 export function AdminExpositions() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = searchParams.get('status');
   const [requests, setRequests] = useState<ExpositionRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedReq, setSelectedReq] = useState<ExpositionRequest | null>(null);
-  const [adminNotes, setAdminNotes] = useState('');
-  const [invoiceRef, setInvoiceRef] = useState('');
   const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
 
   const bannerColor = urlStatus === 'pending' ? 'amber' : urlStatus === 'approved' ? 'green' : urlStatus === 'rejected' ? 'red' : 'blue';
@@ -56,55 +45,6 @@ export function AdminExpositions() {
     }));
     setRequests(rows as ExpositionRequest[]);
     setLoading(false);
-  };
-
-  const updateReqStatus = async (id: string, status: string) => {
-    const updates: Record<string, unknown> = { status };
-    if (invoiceRef) updates.invoice_reference = invoiceRef;
-    if (adminNotes) updates.admin_notes = adminNotes;
-    if (status === 'paid') updates.payment_confirmed_at = new Date().toISOString();
-
-    await supabase.from('exposition_requests').update(updates).eq('id', id);
-
-    // If paid, auto-create event registration
-    if (status === 'paid' && selectedReq) {
-      await supabase.from('event_registrations').insert({
-        event_id: selectedReq.event_id,
-        user_id: selectedReq.requested_by,
-        organization_id: selectedReq.organization_id,
-        registration_type: 'exhibitor',
-        payment_status: 'paid',
-        amount_due: selectedReq.amount_due || 1400,
-        invoice_reference: invoiceRef || selectedReq.invoice_reference,
-        registered_by: selectedReq.requested_by,
-      });
-    }
-
-    // Send email notification based on status change
-    if (selectedReq) {
-      const notifMap: Record<string, 'exposition_approved' | 'exposition_invoice_sent' | 'exposition_paid' | 'exposition_rejected'> = {
-        approved: 'exposition_approved',
-        invoice_sent: 'exposition_invoice_sent',
-        paid: 'exposition_paid',
-        rejected: 'exposition_rejected',
-      };
-      const notifType = notifMap[status];
-      if (notifType) {
-        sendNotification({
-          type: notifType,
-          userId: selectedReq.requested_by,
-          data: {
-            event_title: selectedReq.event_title,
-            invoice_ref: invoiceRef,
-            amount: `€${selectedReq.amount_due || 1400}`,
-          },
-        });
-      }
-    }
-
-    toast({ title: t('admin.expositions.statusUpdated', { status }) });
-    setSelectedReq(null);
-    loadReqs();
   };
 
   const filtered = statusFilter === 'all' ? requests : requests.filter(r => r.status === statusFilter);
@@ -145,70 +85,22 @@ export function AdminExpositions() {
         <th className="text-left p-4 font-medium">{t('admin.actions')}</th>
       </tr></thead><tbody>
         {filtered.map(r => (
-          <tr key={r.id} className="border-b hover:bg-gray-50">
+          <tr key={r.id} className="border-b hover:bg-muted/50 cursor-pointer transition-colors group" onClick={() => navigate(`/admin/expositions/${r.id}`)}>
             <td className="p-4">
-              <div className="font-medium">{r.org_name}</div>
+              <div className="font-medium group-hover:text-primary transition-colors">{r.org_name}</div>
               <div className="text-xs text-gray-500">{r.requester_email}</div>
             </td>
             <td className="p-4 text-sm">{r.event_title}</td>
             <td className="p-4"><Badge className={statusColors[r.status] || 'bg-gray-100'}>{r.status.replace('_', ' ')}</Badge></td>
-            <td className="p-4 text-sm">€{r.amount_due || 1400}</td>
+            <td className="p-4 text-sm">{'\u20AC'}{r.amount_due || 1400}</td>
             <td className="p-4 text-sm text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
             <td className="p-4">
-              <Button size="sm" variant="ghost" aria-label="View details" onClick={() => { setSelectedReq(r); setAdminNotes(r.admin_notes || ''); setInvoiceRef(r.invoice_reference || ''); }}>
-                <Eye className="h-4 w-4" />
-              </Button>
+              <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-primary transition-colors" />
             </td>
           </tr>
         ))}
         {filtered.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">{t('admin.expositions.noExpositions')}</td></tr>}
       </tbody></table></div></CardContent></Card>
-
-      <Dialog open={!!selectedReq} onOpenChange={() => setSelectedReq(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t('admin.expositions.dialogTitle')}</DialogTitle>
-            <DialogDescription>{t('admin.expositions.dialogDesc')}</DialogDescription>
-          </DialogHeader>
-          {selectedReq && (
-            <div className="space-y-4 mt-2">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><strong>{t('admin.expositions.marina')}:</strong> {selectedReq.org_name}</div>
-                <div><strong>{t('admin.expositions.event')}:</strong> {selectedReq.event_title}</div>
-                <div><strong>{t('admin.expositions.requester')}:</strong> {selectedReq.requester_email}</div>
-                <div><strong>{t('admin.expositions.amount')}:</strong> €{selectedReq.amount_due || 1400}</div>
-                <div><strong>{t('admin.status')}:</strong> <Badge className={statusColors[selectedReq.status] || ''}>{selectedReq.status.replace('_', ' ')}</Badge></div>
-                <div><strong>{t('admin.expositions.date')}:</strong> {new Date(selectedReq.created_at).toLocaleString()}</div>
-              </div>
-              <div className="space-y-2">
-                <Label>{t('admin.expositions.invoiceReference')}</Label>
-                <Input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder={t('admin.expositions.invoicePlaceholder')} />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('admin.expositions.adminNotes')}</Label>
-                <Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} />
-              </div>
-              <div className="flex flex-wrap gap-2 pt-2 border-t">
-                {selectedReq.status === 'pending' && (
-                  <>
-                    <Button size="sm" variant="outline" onClick={() => updateReqStatus(selectedReq.id, 'approved')}>{t('admin.expositions.approve')}</Button>
-                    <Button size="sm" variant="destructive" onClick={() => updateReqStatus(selectedReq.id, 'rejected')}>{t('admin.expositions.reject')}</Button>
-                  </>
-                )}
-                {selectedReq.status === 'approved' && (
-                  <Button size="sm" variant="outline" onClick={() => updateReqStatus(selectedReq.id, 'invoice_sent')}>{t('admin.expositions.markInvoiceSent')}</Button>
-                )}
-                {selectedReq.status === 'invoice_sent' && (
-                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => updateReqStatus(selectedReq.id, 'paid')}>{t('admin.expositions.confirmPayment')}</Button>
-                )}
-                {(selectedReq.status === 'paid' || selectedReq.status === 'rejected') && (
-                  <p className="text-sm text-gray-500 italic">{t('admin.expositions.alreadyProcessed', { status: selectedReq.status })}</p>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

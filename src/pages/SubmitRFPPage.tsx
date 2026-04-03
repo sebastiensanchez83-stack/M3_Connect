@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,9 +16,12 @@ import { notifyAdmin } from '@/lib/notifications';
 
 export function SubmitRFPPage() {
   const { t } = useTranslation();
+  const { id } = useParams<{ id: string }>();
+  const isEditMode = Boolean(id);
   const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
 
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
@@ -37,6 +40,51 @@ export function SubmitRFPPage() {
     }
   }, [user, profile, isVerified, organization, authLoading, navigate]);
 
+  // Load existing RFP for edit mode
+  useEffect(() => {
+    if (!id || !user) return;
+    setLoadingExisting(true);
+
+    const loadRfp = async () => {
+      const { data, error } = await supabase
+        .from('rfps')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (error || !data) {
+        toast({ title: 'RFP not found', variant: 'destructive' });
+        navigate('/account?tab=submissions');
+        return;
+      }
+      if (data.marina_user_id !== user.id) {
+        toast({ title: 'Unauthorized', description: 'You can only edit your own RFPs.', variant: 'destructive' });
+        navigate('/account?tab=submissions');
+        return;
+      }
+
+      setForm({
+        title: data.title || '',
+        scope: data.scope || '',
+        deadline_date: data.deadline_date || '',
+      });
+
+      // Load associated sectors from junction table
+      const { data: sectorData } = await supabase
+        .from('rfp_sectors')
+        .select('sector_id')
+        .eq('rfp_id', id);
+
+      if (sectorData && sectorData.length > 0) {
+        setSelectedSectors(sectorData.map((s: { sector_id: string }) => s.sector_id));
+      }
+
+      setLoadingExisting(false);
+    };
+
+    loadRfp();
+  }, [id, user, navigate]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -47,36 +95,63 @@ export function SubmitRFPPage() {
 
     setLoading(true);
     try {
-      const { data: rfpData, error } = await supabase
-        .from('rfps')
-        .insert({
-          marina_user_id: user.id,
-          organization_id: organization?.id || null,
-          title: form.title.trim(),
-          scope: form.scope.trim(),
-          sector_id: selectedSectors[0] || null, // Keep primary sector for backward compat
-          deadline_date: form.deadline_date || null,
-          is_open: true,
-        })
-        .select('id')
-        .single();
+      if (isEditMode && id) {
+        // Update existing RFP
+        const { error } = await supabase
+          .from('rfps')
+          .update({
+            title: form.title.trim(),
+            scope: form.scope.trim(),
+            sector_id: selectedSectors[0] || null,
+            deadline_date: form.deadline_date || null,
+          })
+          .eq('id', id)
+          .eq('marina_user_id', user.id);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      // Insert all selected sectors into rfp_sectors junction table
-      if (rfpData && selectedSectors.length > 0) {
-        await supabase.from('rfp_sectors').insert(
-          selectedSectors.map(sid => ({ rfp_id: rfpData.id, sector_id: sid }))
-        );
+        // Replace sectors: delete old, insert new
+        await supabase.from('rfp_sectors').delete().eq('rfp_id', id);
+        if (selectedSectors.length > 0) {
+          await supabase.from('rfp_sectors').insert(
+            selectedSectors.map(sid => ({ rfp_id: id, sector_id: sid }))
+          );
+        }
+
+        toast({ title: 'RFP updated successfully' });
+        navigate('/account?tab=submissions');
+      } else {
+        // Create new RFP
+        const { data: rfpData, error } = await supabase
+          .from('rfps')
+          .insert({
+            marina_user_id: user.id,
+            organization_id: organization?.id || null,
+            title: form.title.trim(),
+            scope: form.scope.trim(),
+            sector_id: selectedSectors[0] || null,
+            deadline_date: form.deadline_date || null,
+            is_open: true,
+          })
+          .select('id')
+          .single();
+
+        if (error) throw error;
+
+        if (rfpData && selectedSectors.length > 0) {
+          await supabase.from('rfp_sectors').insert(
+            selectedSectors.map(sid => ({ rfp_id: rfpData.id, sector_id: sid }))
+          );
+        }
+
+        notifyAdmin('RFP', form.title.trim(), `Submitted by marina — ${selectedSectors.length} sector(s)`);
+
+        toast({
+          title: t('submitRfp.success'),
+          description: t('submitRfp.successDesc'),
+        });
+        navigate('/account?tab=rfps');
       }
-
-      notifyAdmin('RFP', form.title.trim(), `Submitted by marina — ${selectedSectors.length} sector(s)`);
-
-      toast({
-        title: t('submitRfp.success'),
-        description: t('submitRfp.successDesc'),
-      });
-      navigate('/account?tab=rfps');
     } catch (err: unknown) {
       toast({
         title: t('submitRfp.error'),
@@ -88,7 +163,7 @@ export function SubmitRFPPage() {
     }
   };
 
-  if (authLoading) {
+  if (authLoading || loadingExisting) {
     return (
       <div className="container mx-auto py-16 text-center">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
@@ -124,17 +199,19 @@ export function SubmitRFPPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">{t('submitRfp.title')}</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2">
+          {isEditMode ? 'Edit RFP' : t('submitRfp.title')}
+        </h1>
         <p className="text-gray-600">
-          {t('submitRfp.subtitle')}
+          {isEditMode ? 'Update your RFP details below.' : t('submitRfp.subtitle')}
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>{t('submitRfp.cardTitle')}</CardTitle>
-            <CardDescription>{t('submitRfp.cardDescription')}</CardDescription>
+            <CardTitle>{isEditMode ? 'Edit RFP Details' : t('submitRfp.cardTitle')}</CardTitle>
+            <CardDescription>{isEditMode ? 'Modify the fields you want to update' : t('submitRfp.cardDescription')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
@@ -168,7 +245,7 @@ export function SubmitRFPPage() {
                       checked={selectedSectors.includes(s.id)}
                       onCheckedChange={() => {
                         setSelectedSectors(prev =>
-                          prev.includes(s.id) ? prev.filter(id => id !== s.id) : [...prev, s.id]
+                          prev.includes(s.id) ? prev.filter(sid => sid !== s.id) : [...prev, s.id]
                         );
                       }}
                     />
@@ -194,8 +271,8 @@ export function SubmitRFPPage() {
 
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
           {loading
-            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('submitRfp.submitting')}</>
-            : <><CheckCircle className="h-4 w-4 mr-2" />{t('submitRfp.submitBtn')}</>
+            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : t('submitRfp.submitting')}</>
+            : <><CheckCircle className="h-4 w-4 mr-2" />{isEditMode ? 'Save Changes' : t('submitRfp.submitBtn')}</>
           }
         </Button>
       </form>

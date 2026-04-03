@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  Users, UserCheck, RefreshCw, Search, Download,
-  Eye, AlertTriangle, ExternalLink, UserPlus, FileCheck, Clock, FileX, FileMinus, ShieldCheck,
-  ArrowUpCircle,
+  UserCheck, RefreshCw, Search, Download,
+  AlertTriangle, UserPlus, FileCheck, Clock, FileX, FileMinus, ShieldCheck,
+  ChevronRight,
 } from 'lucide-react';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,7 +19,6 @@ import {
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
@@ -46,6 +45,7 @@ const REQUIRED_REFERENCES = 2;
 
 export function AdminUsers() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = searchParams.get('status') || '';
   const urlPersona = searchParams.get('persona') || '';
@@ -58,10 +58,6 @@ export function AdminUsers() {
   const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [selectedUser, setSelectedUser] = useState<AdminProfile | null>(null);
-  const [detailData, setDetailData] = useState<Record<string, unknown> | null>(null);
-  const [detailSectors, setDetailSectors] = useState<string[]>([]);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [emailStatusMap, setEmailStatusMap] = useState<Record<string, boolean>>({});
   const [referenceStatusMap, setReferenceStatusMap] = useState<Record<string, ReferenceStatus>>({});
   const [unconfirmedUsers, setUnconfirmedUsers] = useState<{ id: string; email: string; created_at: string; first_name: string | null; last_name: string | null; persona: string | null }[]>([]);
@@ -226,43 +222,6 @@ export function AdminUsers() {
     return u.org_name || '';
   };
 
-  const openUserDetail = async (u: AdminProfile) => {
-    setSelectedUser(u);
-    setDetailData(null);
-    setDetailSectors([]);
-    setDetailLoading(true);
-    try {
-      if (!u.org_id) {
-        // No organization — nothing to load
-        setDetailLoading(false);
-        return;
-      }
-      // Load organization data
-      const { data: org } = await supabase.from('organizations').select('*').eq('id', u.org_id).maybeSingle();
-      // Determine sector table based on persona
-      const sectorTable = u.persona === 'marina' || u.persona === 'media_partner'
-        ? 'organization_interest_sectors'
-        : 'organization_service_sectors';
-      const { data: sectors } = await supabase
-        .from(sectorTable)
-        .select('sectors(label)')
-        .eq('organization_id', u.org_id);
-      // For marina, also load marina_details
-      if (u.persona === 'marina') {
-        const { data: marinaDetails } = await supabase
-          .from('organization_marina_details')
-          .select('*')
-          .eq('organization_id', u.org_id)
-          .maybeSingle();
-        setDetailData({ ...org, marina_details: marinaDetails } as Record<string, unknown>);
-      } else {
-        setDetailData(org as Record<string, unknown> | null);
-      }
-      setDetailSectors((sectors || []).map((s: Record<string, unknown>) => ((s.sectors as Record<string, unknown> | null)?.label as string) || '').filter(Boolean));
-    } catch (err) { if (import.meta.env.DEV) console.error('Error loading user detail:', err); }
-    setDetailLoading(false);
-  };
-
   // Send email notification (fire and forget — non-blocking)
   const sendStatusNotification = async (userId: string, status: 'verified' | 'rejected' | 'suspended' | 'payment_pending', reason?: string) => {
     try {
@@ -331,7 +290,6 @@ export function AdminUsers() {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
     } else {
       toast({ title: `Role updated to ${newPersona}` });
-      if (selectedUser) setSelectedUser({ ...selectedUser, persona: newPersona });
       loadUsers();
     }
     setChangingPersona(false);
@@ -550,69 +508,11 @@ export function AdminUsers() {
     return ref.confirmed >= REQUIRED_REFERENCES;
   };
 
-  // ── Tier management (merged from AdminPartners) ──
-  const [updatingTier, setUpdatingTier] = useState(false);
-  const [updatingOrgStatus, setUpdatingOrgStatus] = useState(false);
-  const [editingSeats, setEditingSeats] = useState<number | null>(null);
-
-  const updateOrgTier = async (orgId: string, newTier: string, userId: string) => {
-    setUpdatingTier(true);
-    const { data: tierConfig } = await supabase
-      .from('organization_tier_config')
-      .select('max_seats')
-      .eq('tier', newTier)
-      .single();
-    const maxSeats = tierConfig?.max_seats || 1;
-    const { error } = await supabase
-      .from('organizations')
-      .update({ tier: newTier, max_seats: maxSeats })
-      .eq('id', orgId);
-    setUpdatingTier(false);
-    if (error) {
-      toast({ title: 'Failed to update tier', description: error.message, variant: 'destructive' });
-    } else {
-      toast({ title: `Tier updated to ${TIER_LABELS[newTier as OrgTier] || newTier}` });
-      if (selectedUser?.user_id === userId) {
-        setSelectedUser({ ...selectedUser, org_tier: newTier, org_max_seats: maxSeats });
-      }
-      loadUsers();
-    }
-  };
-
-  const updateOrgStatus = async (orgId: string, status: string) => {
-    setUpdatingOrgStatus(true);
-    await supabase.from('organizations').update({ access_status: status }).eq('id', orgId);
-    setUpdatingOrgStatus(false);
-    toast({ title: `Organization status updated to ${status}` });
-    loadUsers();
-  };
-
-  const saveOrgSeats = async (orgId: string, seats: number) => {
-    const { error } = await supabase.from('organizations').update({ max_seats: seats }).eq('id', orgId);
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
-    } else {
-      toast({ title: `Seats updated to ${seats}` });
-      loadUsers();
-    }
-    setEditingSeats(null);
-  };
-
   const getTierBadge = (tier: string | null) => {
     if (!tier) return <span className="text-gray-300 text-xs">—</span>;
     const colors = TIER_COLORS[tier as OrgTier] || TIER_COLORS.member;
     const label = TIER_LABELS[tier as OrgTier] || tier;
     return <Badge className={`${colors.bg} ${colors.text} border ${colors.border} text-xs`}>{label}</Badge>;
-  };
-
-  const DetailRow = ({ label, value }: { label: string; value: React.ReactNode }) => {
-    if (!value) return null;
-    return (
-      <div className="flex justify-between py-2 border-b border-gray-100 last:border-0">
-        <span className="text-sm text-gray-500 font-medium">{label}</span>
-        <span className="text-sm text-gray-900 text-right max-w-[60%]">{value}</span>
-      </div>
-    );
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -715,9 +615,9 @@ export function AdminUsers() {
         <th className="text-left p-4 font-medium">{t('admin.userDetail.created')}</th>
       </tr></thead><tbody>
         {filteredUsers.map(user => (
-          <tr key={user.user_id} className="border-b hover:bg-gray-50 cursor-pointer" onClick={() => openUserDetail(user)}>
+          <tr key={user.user_id} className="border-b hover:bg-muted/50 cursor-pointer transition-colors group" onClick={() => navigate(`/admin/users/${user.user_id}`)}>
             <td className="p-4">
-              <Link to={`/users/${user.user_id}`} className="font-medium text-primary hover:underline" onClick={(e) => e.stopPropagation()}>{getUserName(user)}</Link>
+              <span className="font-medium text-gray-900 group-hover:text-primary transition-colors">{getUserName(user)}</span>
               <div className="flex items-center gap-1 text-xs text-gray-500">
                 {user.email || ''}
                 {emailStatusMap[user.user_id] === false && (
@@ -727,7 +627,7 @@ export function AdminUsers() {
                 )}
               </div>
             </td>
-            <td className="p-4 text-sm text-gray-700">{getOrgName(user) || <span className="text-gray-400">—</span>}</td>
+            <td className="p-4 text-sm text-gray-700">{getOrgName(user) || <span className="text-gray-400">---</span>}</td>
             <td className="p-4">
               <Select value={user.persona} onValueChange={(v) => { if (v !== user.persona) handleChangePersona(user.user_id, v); }}>
                 <SelectTrigger className="w-36 h-8 text-xs" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
@@ -742,7 +642,7 @@ export function AdminUsers() {
             </td>
             <td className="p-4">{getTierBadge(user.org_tier)}</td>
             <td className="p-4">
-              {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-gray-300 text-xs">—</span>}
+              {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-gray-300 text-xs">---</span>}
             </td>
             <td className="p-4">
               <Select value={user.access_status} onValueChange={(v) => { v !== user.access_status && updateUserStatus(user.user_id, v); }}>
@@ -753,388 +653,16 @@ export function AdminUsers() {
                 </SelectContent>
               </Select>
             </td>
-            <td className="p-4 text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString()}</td>
+            <td className="p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString()}</span>
+                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-primary transition-colors" />
+              </div>
+            </td>
           </tr>
         ))}
         {filteredUsers.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-gray-400">{t('admin.userDetail.noUsersFound', 'No users found')}</td></tr>}
       </tbody></table></div></CardContent></Card>
-
-      {/* ─── User Detail Dialog ─── */}
-      <Dialog open={!!selectedUser} onOpenChange={() => setSelectedUser(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{t('admin.userDetail.title')}</DialogTitle>
-            <DialogDescription>{selectedUser?.email || ''}</DialogDescription>
-          </DialogHeader>
-          {selectedUser && (
-            <div className="space-y-6 mt-2">
-              {/* Header */}
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold">{getUserName(selectedUser)}</h3>
-                  <p className="text-sm text-gray-500">{selectedUser.email}</p>
-                </div>
-                <div className="flex gap-2">
-                  {getPersonaBadge(selectedUser.persona)}
-                  {getStatusBadge(selectedUser.access_status)}
-                </div>
-              </div>
-
-              {/* Base info */}
-              <div className="bg-gray-50 rounded-lg p-4">
-                <DetailRow label={t('admin.userDetail.name')} value={selectedUser.first_name || selectedUser.last_name ? `${selectedUser.first_name || ''} ${selectedUser.last_name || ''}`.trim() : t('admin.userDetail.noName')} />
-                <DetailRow label={t('admin.userDetail.email')} value={selectedUser.email} />
-                <DetailRow label={t('admin.userDetail.organization')} value={getOrgName(selectedUser) || t('admin.userDetail.noOrg')} />
-                <DetailRow label={t('admin.userDetail.persona')} value={
-                  <Select value={selectedUser.persona} onValueChange={(v) => handleChangePersona(selectedUser.user_id, v)} disabled={changingPersona}>
-                    <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="marina">Marina</SelectItem>
-                      <SelectItem value="partner">Partner</SelectItem>
-                      <SelectItem value="media_partner">Media Partner</SelectItem>
-                      <SelectItem value="moderator">Moderator</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                    </SelectContent>
-                  </Select>
-                } />
-                <DetailRow label={t('admin.userDetail.onboarding')} value={selectedUser.onboarding_status} />
-                <DetailRow label={t('admin.userDetail.accessStatus')} value={selectedUser.access_status} />
-                <DetailRow label={t('admin.userDetail.created')} value={new Date(selectedUser.created_at).toLocaleDateString()} />
-                {selectedUser.rejection_reason && (
-                  <DetailRow label={t('admin.userDetail.rejectionReason')} value={<span className="text-red-600">{selectedUser.rejection_reason}</span>} />
-                )}
-              </div>
-
-              {/* Organization details */}
-              {detailLoading ? (
-                <div className="flex justify-center py-4"><RefreshCw className="h-5 w-5 animate-spin text-gray-400" /></div>
-              ) : detailData && (
-                <>
-                <div className="space-y-3">
-                  <h4 className="font-semibold text-sm text-gray-700">Organization Info</h4>
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <DetailRow label="Name" value={detailData.name as string} />
-                    <DetailRow label="Type" value={detailData.organization_type as string} />
-                    <DetailRow label="Tier" value={detailData.tier as string} />
-                    <DetailRow label="Country" value={detailData.country as string} />
-                    <DetailRow label="City" value={detailData.city as string} />
-                    <DetailRow label="Website" value={detailData.website ? <a href={detailData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{detailData.website as string}</a> : null} />
-                    <DetailRow label="Status" value={detailData.access_status as string} />
-                    {typeof detailData.description === 'string' && detailData.description && <DetailRow label="Description" value={<span className="line-clamp-3">{detailData.description}</span>} />}
-                    {selectedUser.org_id && (
-                      <div className="mt-2"><Link to={`/organizations/${selectedUser.org_id}`} target="_blank" className="text-xs text-primary hover:underline flex items-center gap-1"><ExternalLink className="h-3 w-3" />View public page</Link></div>
-                    )}
-                  </div>
-                </div>
-
-                {/* ── Tier & Org Management (merged from Partners tab) ── */}
-                {selectedUser.org_id && (
-                  <div className="space-y-3">
-                    <h4 className="font-semibold text-sm text-gray-700 flex items-center gap-2">
-                      <ArrowUpCircle className="h-4 w-4" /> Membership & Tier Management
-                    </h4>
-                    <div className="border rounded-lg p-4 bg-gray-50 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <Label className="font-semibold text-sm">Membership Tier</Label>
-                        <div className="flex items-center gap-2">
-                          <Select
-                            value={selectedUser.org_tier || 'member'}
-                            onValueChange={(v) => updateOrgTier(selectedUser.org_id!, v, selectedUser.user_id)}
-                            disabled={updatingTier}
-                          >
-                            <SelectTrigger className="w-48 h-8 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="member">Member</SelectItem>
-                              <SelectItem value="innovation_partner">Innovation Partner</SelectItem>
-                              <SelectItem value="associate_partner">Associate Partner</SelectItem>
-                              <SelectItem value="premium_partner">Premium Partner</SelectItem>
-                              <SelectItem value="premium_sponsor">Premium Sponsor</SelectItem>
-                              <SelectItem value="main_sponsor">Main Sponsor</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {updatingTier && <RefreshCw className="h-4 w-4 animate-spin text-gray-400" />}
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-500">Changing the tier updates seat limits automatically.</p>
-
-                      <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-                        <Label className="text-sm">Max Seats</Label>
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="number"
-                            min={1}
-                            max={100}
-                            className="w-20 h-8 text-xs"
-                            value={editingSeats ?? selectedUser.org_max_seats ?? 1}
-                            onChange={(e) => setEditingSeats(parseInt(e.target.value) || 1)}
-                          />
-                          {editingSeats !== null && editingSeats !== selectedUser.org_max_seats && (
-                            <Button size="sm" variant="outline" className="h-8 text-xs"
-                              onClick={() => saveOrgSeats(selectedUser.org_id!, editingSeats)}>
-                              Save
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-2 border-t border-gray-200">
-                        <Label className="text-sm">Org Status</Label>
-                        <div className="flex gap-2">
-                          {selectedUser.org_access_status !== 'verified' && (
-                            <Button size="sm" variant="outline" className="h-7 text-xs" disabled={updatingOrgStatus}
-                              onClick={() => updateOrgStatus(selectedUser.org_id!, 'verified')}>
-                              Verify Org
-                            </Button>
-                          )}
-                          {selectedUser.org_access_status === 'verified' && (
-                            <Button size="sm" variant="outline" className="h-7 text-xs text-red-600 border-red-200" disabled={updatingOrgStatus}
-                              onClick={() => updateOrgStatus(selectedUser.org_id!, 'suspended')}>
-                              Suspend Org
-                            </Button>
-                          )}
-                          <Badge className={`text-xs ${selectedUser.org_access_status === 'verified' ? 'bg-green-100 text-green-800' : selectedUser.org_access_status === 'suspended' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                            {selectedUser.org_access_status}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                </>
-              )}
-
-              {/* Persona-specific details */}
-              {!detailLoading && detailData && (
-                <div className="space-y-3">
-                  <h4 className="font-semibold text-sm text-gray-700">
-                    {selectedUser.persona === 'marina' ? t('admin.userDetail.marinaInfo')
-                      : selectedUser.persona === 'partner' ? t('admin.userDetail.partnerInfo')
-                      : t('admin.userDetail.mediaInfo')}
-                  </h4>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    {selectedUser.persona === 'marina' && (
-                      <>
-                        <DetailRow label={t('admin.userDetail.marinaName')} value={detailData.marina_name as string} />
-                        <DetailRow label={t('admin.userDetail.country')} value={detailData.country as string} />
-                        <DetailRow label={t('admin.userDetail.city')} value={detailData.city as string} />
-                        <DetailRow label={t('admin.userDetail.website')} value={detailData.website ? <a href={detailData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{detailData.website as string}</a> : null} />
-                        <DetailRow label={t('admin.userDetail.berths')} value={detailData.berths_count as number} />
-                        <DetailRow label={t('admin.userDetail.marinaType')} value={detailData.marina_type as string} />
-                        <DetailRow label={t('admin.userDetail.superyachtBerths')} value={detailData.superyacht_berths as number} />
-                        <DetailRow label={t('admin.userDetail.longestBerth')} value={detailData.longest_berth_meters as number} />
-                        <DetailRow label={t('admin.userDetail.certifications')} value={detailData.certifications ? (detailData.certifications as string[]).join(', ') : null} />
-                      </>
-                    )}
-                    {selectedUser.persona === 'partner' && (
-                      <>
-                        <DetailRow label={t('admin.userDetail.companyName')} value={detailData.company_name as string} />
-                        <DetailRow label={t('admin.userDetail.headquartersCountry')} value={detailData.headquarters_country as string} />
-                        <DetailRow label={t('admin.userDetail.website')} value={detailData.website ? <a href={detailData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{detailData.website as string}</a> : null} />
-                        <DetailRow label={t('admin.userDetail.description')} value={detailData.description as string} />
-                      </>
-                    )}
-                    {selectedUser.persona === 'media_partner' && (
-                      <>
-                        <DetailRow label={t('admin.userDetail.mediaName')} value={detailData.media_name as string} />
-                        <DetailRow label={t('admin.userDetail.website')} value={detailData.website ? <a href={detailData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{detailData.website as string}</a> : null} />
-                        <DetailRow label={t('admin.userDetail.audienceDescription')} value={detailData.audience_description as string} />
-                      </>
-                    )}
-                    {detailSectors.length > 0 && (
-                      <DetailRow label={t('admin.userDetail.sectors')} value={
-                        <div className="flex flex-wrap gap-1 justify-end">
-                          {detailSectors.map(s => <Badge key={s} variant="outline" className="text-xs">{s}</Badge>)}
-                        </div>
-                      } />
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Reference/Recommendation Status (partners only) */}
-              {selectedUser.persona === 'partner' && (
-                <div className="space-y-3">
-                  <h4 className="font-semibold text-sm text-gray-700">Recommendation / Reference Status ({REQUIRED_REFERENCES} required)</h4>
-                  {(() => {
-                    const ref = referenceStatusMap[selectedUser.user_id];
-
-                    // Bypass active
-                    if (ref?.bypass) {
-                      return (
-                        <div className="bg-violet-50 border border-violet-200 rounded-lg p-4">
-                          <div className="flex items-start gap-3">
-                            <ShieldCheck className="h-5 w-5 text-violet-600 mt-0.5 shrink-0" />
-                            <div className="flex-1">
-                              <p className="font-medium text-violet-800">Reference requirement bypassed</p>
-                              <p className="text-sm text-violet-600 mt-1">
-                                Reason: {ref.bypassReason || 'No reason provided'}
-                              </p>
-                              {ref.total > 0 && (
-                                <div className="mt-2 text-sm flex gap-4">
-                                  <span className="text-gray-600">References: {ref.confirmed}/{REQUIRED_REFERENCES} confirmed</span>
-                                  {ref.pending > 0 && <span className="text-amber-700">{ref.pending} pending</span>}
-                                </div>
-                              )}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="mt-3 text-xs border-violet-300 text-violet-700 hover:bg-violet-100"
-                                onClick={() => revokeBypass(selectedUser.user_id)}
-                              >
-                                Revoke bypass
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-
-                    if (!ref || ref.total === 0) {
-                      return (
-                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start gap-3">
-                          <FileMinus className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
-                          <div>
-                            <p className="font-medium text-amber-800">No recommendation submitted</p>
-                            <p className="text-sm text-amber-600 mt-1">
-                              This partner has not yet submitted a client reference. {REQUIRED_REFERENCES} confirmed recommendations from marinas are required before approval.
-                            </p>
-                            <p className="text-xs text-gray-500 mt-2">
-                              If this partner has not worked with marinas yet, you can bypass this requirement.
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    }
-                    const meetsRequirement = ref.confirmed >= REQUIRED_REFERENCES;
-                    return (
-                      <div className={`rounded-lg p-4 border ${meetsRequirement ? 'bg-green-50 border-green-200' : ref.confirmed > 0 || ref.pending > 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'}`}>
-                        <div className="flex items-start gap-3">
-                          {meetsRequirement ? (
-                            <FileCheck className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
-                          ) : ref.confirmed > 0 || ref.pending > 0 ? (
-                            <Clock className="h-5 w-5 text-blue-500 mt-0.5 shrink-0" />
-                          ) : (
-                            <FileX className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
-                          )}
-                          <div className="flex-1">
-                            <p className={`font-medium ${meetsRequirement ? 'text-green-800' : ref.confirmed > 0 || ref.pending > 0 ? 'text-blue-800' : 'text-red-800'}`}>
-                              {meetsRequirement
-                                ? `${ref.confirmed} references confirmed ✓`
-                                : ref.confirmed > 0
-                                  ? `${ref.confirmed}/${REQUIRED_REFERENCES} confirmed — needs ${REQUIRED_REFERENCES - ref.confirmed} more`
-                                  : ref.pending > 0 ? 'References pending marina confirmation' : 'All references rejected'}
-                            </p>
-                            <div className="mt-2 space-y-1 text-sm">
-                              <div className="flex gap-4">
-                                <span className="text-gray-600">Total requests: <strong>{ref.total}</strong></span>
-                                <span className="text-green-700">Confirmed: <strong>{ref.confirmed}</strong></span>
-                                <span className="text-amber-700">Pending: <strong>{ref.pending}</strong></span>
-                                {ref.rejected > 0 && <span className="text-red-700">Rejected: <strong>{ref.rejected}</strong></span>}
-                              </div>
-                              {ref.clientName && <p className="text-gray-500">Latest client: {ref.clientName}</p>}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Pending bypass request from partner */}
-                  {(() => {
-                    const ref = referenceStatusMap[selectedUser.user_id];
-                    if (!ref?.bypassRequestId || ref.bypass) return null;
-                    if (ref.bypassRequestStatus === 'pending') {
-                      return (
-                        <div className="mt-3 bg-violet-50 border border-violet-200 rounded-lg p-4">
-                          <div className="flex items-start gap-3">
-                            <ShieldCheck className="h-5 w-5 text-violet-600 mt-0.5 shrink-0" />
-                            <div className="flex-1">
-                              <p className="font-medium text-violet-800">Partner requested bypass</p>
-                              <p className="text-sm text-violet-700 mt-1">
-                                <strong>Reason:</strong> {ref.bypassRequestReason}
-                              </p>
-                              {ref.bypassRequestBackground && (
-                                <p className="text-sm text-violet-600 mt-1">
-                                  <strong>Background:</strong> {ref.bypassRequestBackground}
-                                </p>
-                              )}
-                              <div className="flex gap-2 mt-3">
-                                <Button
-                                  size="sm"
-                                  className="bg-violet-600 hover:bg-violet-700 text-xs"
-                                  onClick={() => {
-                                    setBypassDialogUserId(selectedUser.user_id);
-                                    setBypassReason(ref.bypassRequestReason || '');
-                                  }}
-                                >
-                                  <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                                  Approve Bypass
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="text-xs border-red-300 text-red-600 hover:bg-red-50"
-                                  onClick={() => rejectBypassRequest(selectedUser.user_id)}
-                                >
-                                  Decline
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-                    if (ref.bypassRequestStatus === 'rejected') {
-                      return (
-                        <p className="mt-2 text-xs text-gray-500 italic">Previous bypass request was declined.</p>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex flex-col gap-2 pt-2 border-t">
-                {/* Partner reference gate warning + bypass option */}
-                {selectedUser.access_status !== 'verified' && selectedUser.persona === 'partner' && !canApprovePartner(selectedUser.user_id, selectedUser.persona) && (
-                  <div className="bg-amber-50 rounded px-3 py-2 space-y-2">
-                    <p className="text-xs text-amber-700">
-                      ⚠ Cannot approve: partner needs {REQUIRED_REFERENCES} confirmed marina recommendations ({referenceStatusMap[selectedUser.user_id]?.confirmed || 0}/{REQUIRED_REFERENCES}).
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-xs border-violet-300 text-violet-700 hover:bg-violet-50"
-                      onClick={() => { setBypassDialogUserId(selectedUser.user_id); setBypassReason(''); }}
-                    >
-                      <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                      No marina clients — bypass requirement
-                    </Button>
-                  </div>
-                )}
-                <div className="flex gap-2 justify-end">
-                  {selectedUser.access_status !== 'verified' && (
-                    <Button
-                      size="sm"
-                      disabled={!canApprovePartner(selectedUser.user_id, selectedUser.persona)}
-                      title={!canApprovePartner(selectedUser.user_id, selectedUser.persona) ? `Partner needs ${REQUIRED_REFERENCES} confirmed marina recommendations` : undefined}
-                      onClick={() => { approveUser(selectedUser.user_id); setSelectedUser(null); }}
-                    >
-                      <UserCheck className="h-4 w-4 mr-1" />{t('admin.userDetail.approve')}
-                    </Button>
-                  )}
-                  {selectedUser.access_status !== 'rejected' && (
-                    <Button size="sm" variant="destructive" onClick={() => { openReject(selectedUser.user_id); setSelectedUser(null); }}>
-                      {t('admin.userDetail.reject')}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
 
       {/* ─── Reject Dialog ─── */}
       <Dialog open={!!rejectingUserId} onOpenChange={() => setRejectingUserId(null)}>

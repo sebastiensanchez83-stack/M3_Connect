@@ -58,9 +58,12 @@ function App() {
             <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
             <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
             <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
+            <Route path="/submit-project/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
             <Route path="/request-webinar" element={<ProtectedRoute requireVerified showLocked lockedMessage="Your account must be verified to request a webinar."><WebinarRequestPage /></ProtectedRoute>} />
             <Route path="/submit-rfp" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit RFPs."><SubmitRFPPage /></ProtectedRoute>} />
+            <Route path="/submit-rfp/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit RFPs."><SubmitRFPPage /></ProtectedRoute>} />
             <Route path="/submit-consultation" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
+            <Route path="/submit-consultation/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
             <Route path="/network" element={<MarketplacePage />} />
             <Route path="/marketplace" element={<Navigate to="/network" replace />} />
             <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />

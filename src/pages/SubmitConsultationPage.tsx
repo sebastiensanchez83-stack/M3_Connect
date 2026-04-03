@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,9 +16,12 @@ import { notifyAdmin } from '@/lib/notifications';
 
 export function SubmitConsultationPage() {
   const { t } = useTranslation();
+  const { id } = useParams<{ id: string }>();
+  const isEditMode = Boolean(id);
   const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
 
   const [form, setForm] = useState({
@@ -36,6 +39,35 @@ export function SubmitConsultationPage() {
     }
   }, [user, profile, isVerified, organization, authLoading, navigate]);
 
+  // Load existing consultation for edit mode
+  useEffect(() => {
+    if (!id || !user) return;
+    setLoadingExisting(true);
+    supabase
+      .from('consultations')
+      .select('*')
+      .eq('id', id)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) {
+          toast({ title: 'Consultation not found', variant: 'destructive' });
+          navigate('/account?tab=submissions');
+          return;
+        }
+        if (data.marina_user_id !== user.id) {
+          toast({ title: 'Unauthorized', description: 'You can only edit your own consultations.', variant: 'destructive' });
+          navigate('/account?tab=submissions');
+          return;
+        }
+        setForm({
+          title: data.title || '',
+          description: data.description || '',
+          sector_id: data.sector_id || '',
+        });
+        setLoadingExisting(false);
+      });
+  }, [id, user, navigate]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -46,26 +78,45 @@ export function SubmitConsultationPage() {
 
     setLoading(true);
     try {
-      const { error } = await supabase
-        .from('consultations')
-        .insert({
-          marina_user_id: user.id,
-          organization_id: organization?.id || null,
-          title: form.title.trim(),
-          description: form.description.trim(),
-          sector_id: form.sector_id || null,
-          is_open: true,
+      if (isEditMode && id) {
+        // Update existing consultation
+        const { error } = await supabase
+          .from('consultations')
+          .update({
+            title: form.title.trim(),
+            description: form.description.trim(),
+            sector_id: form.sector_id || null,
+          })
+          .eq('id', id)
+          .eq('marina_user_id', user.id);
+
+        if (error) throw error;
+
+        toast({ title: 'Consultation updated successfully' });
+        navigate('/account?tab=submissions');
+      } else {
+        // Create new consultation
+        const { error } = await supabase
+          .from('consultations')
+          .insert({
+            marina_user_id: user.id,
+            organization_id: organization?.id || null,
+            title: form.title.trim(),
+            description: form.description.trim(),
+            sector_id: form.sector_id || null,
+            is_open: true,
+          });
+
+        if (error) throw error;
+
+        notifyAdmin('Consultation', form.title.trim(), `Submitted by marina`);
+
+        toast({
+          title: t('submitConsultation.success'),
+          description: t('submitConsultation.successDesc'),
         });
-
-      if (error) throw error;
-
-      notifyAdmin('Consultation', form.title.trim(), `Submitted by marina`);
-
-      toast({
-        title: t('submitConsultation.success'),
-        description: t('submitConsultation.successDesc'),
-      });
-      navigate('/account?tab=consultations');
+        navigate('/account?tab=consultations');
+      }
     } catch (err: unknown) {
       toast({
         title: t('submitConsultation.error'),
@@ -77,7 +128,7 @@ export function SubmitConsultationPage() {
     }
   };
 
-  if (authLoading) {
+  if (authLoading || loadingExisting) {
     return (
       <div className="container mx-auto py-16 text-center">
         <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
@@ -113,17 +164,19 @@ export function SubmitConsultationPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">{t('submitConsultation.title')}</h1>
+        <h1 className="text-3xl font-bold text-primary mb-2">
+          {isEditMode ? 'Edit Consultation' : t('submitConsultation.title')}
+        </h1>
         <p className="text-gray-600">
-          {t('submitConsultation.subtitle')}
+          {isEditMode ? 'Update your consultation details below.' : t('submitConsultation.subtitle')}
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>{t('submitConsultation.cardTitle')}</CardTitle>
-            <CardDescription>{t('submitConsultation.cardDescription')}</CardDescription>
+            <CardTitle>{isEditMode ? 'Edit Consultation Details' : t('submitConsultation.cardTitle')}</CardTitle>
+            <CardDescription>{isEditMode ? 'Modify the fields you want to update' : t('submitConsultation.cardDescription')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <div className="space-y-2">
@@ -168,8 +221,8 @@ export function SubmitConsultationPage() {
 
         <Button type="submit" className="w-full" size="lg" disabled={loading}>
           {loading
-            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('submitConsultation.submitting')}</>
-            : <><CheckCircle className="h-4 w-4 mr-2" />{t('submitConsultation.submitBtn')}</>
+            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : t('submitConsultation.submitting')}</>
+            : <><CheckCircle className="h-4 w-4 mr-2" />{isEditMode ? 'Save Changes' : t('submitConsultation.submitBtn')}</>
           }
         </Button>
       </form>

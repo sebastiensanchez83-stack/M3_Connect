@@ -8,14 +8,24 @@ import {
   AdminDashboard,
   AdminUsers,
   AdminResources,
+  AdminResourceDetail,
   AdminEvents,
   AdminEventDetail,
+  AdminProjectDetail,
+  AdminRFPDetail,
+  AdminConsultationDetail,
+  AdminLeadDetail,
+  AdminUserDetail,
   AdminSponsorships,
+  AdminSponsorshipDetail,
   AdminExpositions,
+  AdminExpositionDetail,
   AdminProjects,
   AdminLeads,
   AdminWebinarRequests,
+  AdminWebinarDetail,
   AdminPartnerRequests,
+  AdminPartnerRequestDetail,
   AdminRFPs,
   AdminConsultations,
   AdminResourceDrafts,
@@ -52,18 +62,28 @@ export function AdminPage() {
         <Routes>
           <Route path="/" element={<AdminDashboard />} />
           <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
+          <Route path="/users/:id" element={<AdminOnlyGuard><AdminUserDetail /></AdminOnlyGuard>} />
           <Route path="/resources" element={<AdminResources />} />
+          <Route path="/resources/:id" element={<AdminResourceDetail />} />
           <Route path="/events" element={<AdminOnlyGuard><AdminEvents /></AdminOnlyGuard>} />
           <Route path="/events/:id" element={<AdminOnlyGuard><AdminEventDetail /></AdminOnlyGuard>} />
           {/* Partners merged into Users tab */}
           <Route path="/sponsorships" element={<AdminOnlyGuard><AdminSponsorships /></AdminOnlyGuard>} />
+          <Route path="/sponsorships/:id" element={<AdminOnlyGuard><AdminSponsorshipDetail /></AdminOnlyGuard>} />
           <Route path="/expositions" element={<AdminOnlyGuard><AdminExpositions /></AdminOnlyGuard>} />
+          <Route path="/expositions/:id" element={<AdminOnlyGuard><AdminExpositionDetail /></AdminOnlyGuard>} />
           <Route path="/projects" element={<AdminOnlyGuard><AdminProjects /></AdminOnlyGuard>} />
+          <Route path="/projects/:id" element={<AdminOnlyGuard><AdminProjectDetail /></AdminOnlyGuard>} />
           <Route path="/leads" element={<AdminOnlyGuard><AdminLeads /></AdminOnlyGuard>} />
+          <Route path="/leads/:id" element={<AdminOnlyGuard><AdminLeadDetail /></AdminOnlyGuard>} />
           <Route path="/webinars" element={<AdminWebinarRequests />} />
+          <Route path="/webinars/:id" element={<AdminWebinarDetail />} />
           <Route path="/partner-requests" element={<AdminOnlyGuard><AdminPartnerRequests /></AdminOnlyGuard>} />
+          <Route path="/partner-requests/:id" element={<AdminOnlyGuard><AdminPartnerRequestDetail /></AdminOnlyGuard>} />
           <Route path="/rfps" element={<AdminOnlyGuard><AdminRFPs /></AdminOnlyGuard>} />
+          <Route path="/rfps/:id" element={<AdminOnlyGuard><AdminRFPDetail /></AdminOnlyGuard>} />
           <Route path="/consultations" element={<AdminOnlyGuard><AdminConsultations /></AdminOnlyGuard>} />
+          <Route path="/consultations/:id" element={<AdminOnlyGuard><AdminConsultationDetail /></AdminOnlyGuard>} />
           <Route path="/resource-drafts" element={<AdminResourceDrafts />} />
           <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
         </Routes>

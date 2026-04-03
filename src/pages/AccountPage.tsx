@@ -633,15 +633,15 @@ export function AccountPage() {
                 <AlertCircle className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-amber-900 font-semibold">Membership Payment Required</p>
-                <p className="text-amber-700 text-sm">Your account has been approved! Complete your €500 annual membership fee to unlock full platform access.</p>
+                <p className="text-amber-900 font-semibold">Registration Pending</p>
+                <p className="text-amber-700 text-sm">Your profile has been approved. Complete your annual membership payment (&euro;500) to finalize your registration.</p>
               </div>
             </div>
             <Button
               className="bg-amber-600 hover:bg-amber-700 text-white shrink-0"
               onClick={() => navigate('/account?tab=organization&action=pay-membership', { replace: true })}
             >
-              Pay €500 Membership
+              Complete Payment
             </Button>
           </div>
         </div>
@@ -720,6 +720,31 @@ export function AccountPage() {
         {/* ── DASHBOARD ── */}
         <TabsContent value="dashboard">
           <div className="space-y-6">
+            {/* Payment Pending Alert */}
+            {isPaymentPending && (
+              <Card className="border-2 border-amber-300 bg-amber-50/80">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-amber-100 rounded-full p-3">
+                        <AlertCircle className="h-6 w-6 text-amber-600" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-amber-900 text-lg">Finalize Your Registration</h3>
+                        <p className="text-sm text-amber-700">Your profile has been approved by M3. Complete your annual membership payment (&euro;500) to activate full platform access for your organization.</p>
+                      </div>
+                    </div>
+                    <Button
+                      className="bg-amber-600 hover:bg-amber-700 text-white shrink-0 shadow-sm"
+                      onClick={() => navigate('/account?tab=organization&action=pay-membership', { replace: true })}
+                    >
+                      Complete Payment
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Analytics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Link to="/account?tab=b2b-requests" className="block">
@@ -1235,7 +1260,14 @@ export function AccountPage() {
                             </div>
                           </div>
                         </div>
-                        <Badge variant="outline">{project.status}</Badge>
+                        <div className="flex items-center gap-2">
+                          {project.status === 'new' && (
+                            <Button variant="outline" size="sm" onClick={() => navigate(`/submit-project/${project.id}`)}>
+                              <Pencil className="h-3 w-3 mr-1" />Edit
+                            </Button>
+                          )}
+                          <Badge variant="outline">{project.status}</Badge>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1346,6 +1378,11 @@ export function AccountPage() {
                           Created {new Date(rfp.created_at).toLocaleDateString('en-US')}
                         </div>
                         <div className="flex gap-2 pt-1">
+                          {rfp.is_open && (
+                            <Button variant="outline" size="sm" onClick={() => navigate(`/submit-rfp/${rfp.id}`)}>
+                              <Pencil className="h-3 w-3 mr-1" />Edit
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm" onClick={async () => {
                             const newOpen = !rfp.is_open;
                             await supabase.from('rfps').update({ is_open: newOpen }).eq('id', rfp.id);
@@ -1411,6 +1448,11 @@ export function AccountPage() {
                           Created {new Date(c.created_at).toLocaleDateString('en-US')}
                         </div>
                         <div className="flex gap-2 pt-1">
+                          {c.is_open && (
+                            <Button variant="outline" size="sm" onClick={() => navigate(`/submit-consultation/${c.id}`)}>
+                              <Pencil className="h-3 w-3 mr-1" />Edit
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm" onClick={async () => {
                             const newOpen = !c.is_open;
                             await supabase.from('consultations').update({ is_open: newOpen }).eq('id', c.id);
@@ -1496,7 +1538,14 @@ export function AccountPage() {
                                         {p.timeline && ` · ${p.timeline.replace(/_/g, ' ')}`}
                                       </div>
                                     </div>
-                                    <SubmissionStatusBadge status={p.status} />
+                                    <div className="flex items-center gap-2">
+                                      {p.status === 'new' && (
+                                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => navigate(`/submit-project/${p.id}`)}>
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                      <SubmissionStatusBadge status={p.status} />
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -1540,9 +1589,16 @@ export function AccountPage() {
                                         Created {new Date(r.created_at).toLocaleDateString('en-US')}
                                       </div>
                                     </div>
-                                    <Badge variant={r.is_open ? 'success' : 'secondary'} className="shrink-0">
-                                      {r.is_open ? 'Open' : 'Closed'}
-                                    </Badge>
+                                    <div className="flex items-center gap-2">
+                                      {r.is_open && (
+                                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => navigate(`/submit-rfp/${r.id}`)}>
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                      <Badge variant={r.is_open ? 'success' : 'secondary'} className="shrink-0">
+                                        {r.is_open ? 'Open' : 'Closed'}
+                                      </Badge>
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -1585,9 +1641,16 @@ export function AccountPage() {
                                         Created {new Date(c.created_at).toLocaleDateString('en-US')}
                                       </div>
                                     </div>
-                                    <Badge variant={c.is_open ? 'success' : 'secondary'} className="shrink-0">
-                                      {c.is_open ? 'Open' : 'Closed'}
-                                    </Badge>
+                                    <div className="flex items-center gap-2">
+                                      {c.is_open && (
+                                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => navigate(`/submit-consultation/${c.id}`)}>
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                      <Badge variant={c.is_open ? 'success' : 'secondary'} className="shrink-0">
+                                        {c.is_open ? 'Open' : 'Closed'}
+                                      </Badge>
+                                    </div>
                                   </div>
                                 ))}
                               </div>

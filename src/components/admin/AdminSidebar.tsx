@@ -28,7 +28,7 @@ export function AdminSidebar() {
     { to: '/admin/partner-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
-    { to: '/admin/resource-drafts', label: 'Resource Requests', icon: <FolderOpen className="h-4 w-4" /> },
+    { to: '/admin/resources?tab=drafts', label: 'Resource Requests', icon: <FolderOpen className="h-4 w-4" /> },
     { to: '/admin/settings', label: 'Platform Settings', icon: <Settings className="h-4 w-4" />, adminOnly: true },
   ];
 
@@ -37,9 +37,10 @@ export function AdminSidebar() {
   const isActive = (to: string, exact?: boolean) => {
     // Strip query params from comparison — /admin/events?foo=bar should still highlight "Events"
     const path = location.pathname;
-    if (exact) return path === to;
+    const toPath = to.split('?')[0]; // Strip query params from the link target too
+    if (exact) return path === toPath;
     // Special: /admin/events/123 should still highlight /admin/events
-    return path.startsWith(to) && to !== '/admin';
+    return path.startsWith(toPath) && toPath !== '/admin';
   };
 
   return (

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -17,13 +17,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { notifyAdmin, sendNotification } from '@/lib/notifications';
-import { Lock, Anchor } from 'lucide-react';
+import { Lock, Anchor, Loader2 } from 'lucide-react';
 
 export function SubmitProjectPage() {
   const { t } = useTranslation();
+  const { id } = useParams<{ id: string }>();
+  const isEditMode = Boolean(id);
   const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(false);
   const [consent, setConsent] = useState(false);
   const [formData, setFormData] = useState({
     project_type: '',
@@ -38,6 +41,38 @@ export function SubmitProjectPage() {
     }
   }, [user, authLoading, navigate]);
 
+  // Load existing project for edit mode
+  useEffect(() => {
+    if (!id || !user) return;
+    setLoadingExisting(true);
+    supabase
+      .from('marina_projects')
+      .select('*')
+      .eq('id', id)
+      .single()
+      .then(({ data, error }) => {
+        if (error || !data) {
+          toast({ title: 'Project not found', variant: 'destructive' });
+          navigate('/account?tab=submissions');
+          return;
+        }
+        // Only allow editing own projects
+        if (data.user_id !== user.id) {
+          toast({ title: 'Unauthorized', description: 'You can only edit your own projects.', variant: 'destructive' });
+          navigate('/account?tab=submissions');
+          return;
+        }
+        setFormData({
+          project_type: data.project_type || '',
+          budget_range: data.budget_range || '',
+          timeline: data.timeline || '',
+          description: data.description || '',
+        });
+        setConsent(true); // Pre-check consent for editing
+        setLoadingExisting(false);
+      });
+  }, [id, user, navigate]);
+
   const isVerifiedMarina = profile?.persona === 'marina' && isVerified && organization?.access_status === 'verified';
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -48,37 +83,58 @@ export function SubmitProjectPage() {
     }
     if (!user) return;
     setLoading(true);
-    const { error } = await supabase.from('marina_projects').insert({
-      user_id: user.id,
-      organization_id: organization?.id || null,
-      project_type: formData.project_type,
-      budget_range: formData.budget_range,
-      timeline: formData.timeline,
-      description: formData.description,
-      status: 'new',
-    });
-    if (error) {
-      toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+
+    if (isEditMode && id) {
+      // Update existing project
+      const { error } = await supabase
+        .from('marina_projects')
+        .update({
+          project_type: formData.project_type,
+          budget_range: formData.budget_range,
+          timeline: formData.timeline,
+          description: formData.description,
+        })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) {
+        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      } else {
+        toast({ title: 'Project updated successfully' });
+        navigate('/account?tab=submissions');
+      }
     } else {
-      // Notify admin about the new project submission
-      notifyAdmin(
-        'Project',
-        organization?.name || profile?.first_name || user.id.slice(0, 8),
-        `Type: ${formData.project_type}, Budget: ${formData.budget_range}, Timeline: ${formData.timeline}`,
-      );
-      // Confirm to the submitter that the project was received
-      sendNotification({
-        type: 'rfp_submitted',
-        userId: user.id,
-        data: {
-          submission_type: 'Project',
-          title: formData.project_type,
-          details: 'Your project has been submitted and is under review.',
-        },
+      // Create new project
+      const { error } = await supabase.from('marina_projects').insert({
+        user_id: user.id,
+        organization_id: organization?.id || null,
+        project_type: formData.project_type,
+        budget_range: formData.budget_range,
+        timeline: formData.timeline,
+        description: formData.description,
+        status: 'new',
       });
-      toast({ title: t('submitProject.success') });
-      setFormData({ project_type: '', budget_range: '', timeline: '', description: '' });
-      setConsent(false);
+      if (error) {
+        toast({ title: 'Erreur', description: error.message, variant: 'destructive' });
+      } else {
+        notifyAdmin(
+          'Project',
+          organization?.name || profile?.first_name || user.id.slice(0, 8),
+          `Type: ${formData.project_type}, Budget: ${formData.budget_range}, Timeline: ${formData.timeline}`,
+        );
+        sendNotification({
+          type: 'rfp_submitted',
+          userId: user.id,
+          data: {
+            submission_type: 'Project',
+            title: formData.project_type,
+            details: 'Your project has been submitted and is under review.',
+          },
+        });
+        toast({ title: t('submitProject.success') });
+        setFormData({ project_type: '', budget_range: '', timeline: '', description: '' });
+        setConsent(false);
+      }
     }
     setLoading(false);
   };
@@ -87,8 +143,13 @@ export function SubmitProjectPage() {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  if (authLoading) {
-    return <div className="container mx-auto px-4 py-8 text-center">{t('common.loading')}</div>;
+  if (authLoading || loadingExisting) {
+    return (
+      <div className="container mx-auto px-4 py-8 text-center">
+        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
+        <p className="mt-2 text-gray-500">{t('common.loading')}</p>
+      </div>
+    );
   }
 
   if (!isVerifiedMarina) {
@@ -114,14 +175,18 @@ export function SubmitProjectPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-2xl">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">{t('submitProject.title')}</h1>
-        <p className="text-gray-600">{t('submitProject.subtitle')}</p>
+        <h1 className="text-3xl font-bold text-primary mb-2">
+          {isEditMode ? 'Edit Project' : t('submitProject.title')}
+        </h1>
+        <p className="text-gray-600">
+          {isEditMode ? 'Update your project details below.' : t('submitProject.subtitle')}
+        </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Project Details</CardTitle>
-          <CardDescription>Tell us about your project needs</CardDescription>
+          <CardTitle>{isEditMode ? 'Edit Project Details' : 'Project Details'}</CardTitle>
+          <CardDescription>{isEditMode ? 'Modify the fields you want to update' : 'Tell us about your project needs'}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -178,7 +243,7 @@ export function SubmitProjectPage() {
             </div>
 
             <Button type="submit" className="w-full" disabled={loading || !consent}>
-              {loading ? t('common.loading') : t('submitProject.submit')}
+              {loading ? t('common.loading') : isEditMode ? 'Save Changes' : t('submitProject.submit')}
             </Button>
           </form>
         </CardContent>

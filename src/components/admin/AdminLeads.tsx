@@ -1,44 +1,36 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Eye, Target, Flame, Thermometer, Snowflake } from 'lucide-react';
+import { RefreshCw, Flame, Thermometer, Snowflake } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
-import { toast } from '@/hooks/use-toast';
 import { AdminContextBanner } from './AdminContextBanner';
 import type { PartnerLead } from './types';
 
 export function AdminLeads() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = searchParams.get('status') || '';
   const hasUrlFilters = !!urlStatus;
   const [leads, setLeads] = useState<PartnerLead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedLead, setSelectedLead] = useState<PartnerLead | null>(null);
-  const [adminNotes, setAdminNotes] = useState('');
   const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
 
   useEffect(() => { loadLeads(); }, []);
-  const loadLeads = async () => { setLoading(true); const { data } = await supabase.from('partner_leads').select('*').order('created_at', { ascending: false }); setLeads(data || []); setLoading(false); };
-  const updateStatus = async (id: string, status: string) => { await supabase.from('partner_leads').update({ status }).eq('id', id); toast({ title: `Status: ${status}` }); loadLeads(); };
-  const saveNotes = async () => { if (!selectedLead) return; await supabase.from('partner_leads').update({ admin_notes: adminNotes }).eq('id', selectedLead.id); toast({ title: 'Notes saved' }); setSelectedLead(null); loadLeads(); };
+  const loadLeads = async () => {
+    setLoading(true);
+    const { data } = await supabase.from('partner_leads').select('*').order('created_at', { ascending: false });
+    setLeads(data || []);
+    setLoading(false);
+  };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   const filteredLeads = statusFilter === 'all' ? leads : leads.filter(l => l.status === statusFilter);
 
-  // Lead intensity calculation
   const getIntensity = (l: PartnerLead) => {
     const daysSince = Math.floor((Date.now() - new Date(l.created_at).getTime()) / 86400000);
     if (l.status === 'in_discussion') return { label: 'Hot', icon: Flame, color: 'text-red-600 bg-red-50' };
@@ -53,7 +45,6 @@ export function AdminLeads() {
         <h1 className="text-2xl font-bold">{t('admin.partnerLeads')} ({filteredLeads.length})</h1>
       </div>
 
-      {/* Context banner */}
       {hasUrlFilters && (
         <AdminContextBanner
           label={`Showing ${urlStatus.replace('_', ' ')} leads`}
@@ -81,7 +72,7 @@ export function AdminLeads() {
         ))}
       </div>
 
-      {/* Lead cards (clickable rows) */}
+      {/* Lead cards */}
       <div className="space-y-2">
         {filteredLeads.length === 0 ? (
           <Card><CardContent className="py-12 text-center text-gray-400">No leads match this filter</CardContent></Card>
@@ -89,15 +80,16 @@ export function AdminLeads() {
           const intensity = getIntensity(l);
           const daysSince = Math.floor((Date.now() - new Date(l.created_at).getTime()) / 86400000);
           return (
-            <Card key={l.id} className="border-0 shadow-sm hover:shadow-md transition-all cursor-pointer group"
-              onClick={() => { setSelectedLead(l); setAdminNotes(l.admin_notes || ''); }}>
+            <Card
+              key={l.id}
+              className="border-0 shadow-sm hover:shadow-md transition-all cursor-pointer group"
+              onClick={() => navigate(`/admin/leads/${l.id}`)}
+            >
               <CardContent className="p-4">
                 <div className="flex items-center gap-4">
-                  {/* Intensity indicator */}
                   <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${intensity.color}`}>
                     <intensity.icon className="h-5 w-5" />
                   </div>
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-sm font-semibold text-gray-900">{l.company}</span>
@@ -110,19 +102,17 @@ export function AdminLeads() {
                       <span className="text-gray-300">{daysSince}d ago</span>
                     </div>
                   </div>
-                  {/* Status + Actions */}
-                  <div className="flex items-center gap-3 shrink-0" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center gap-3 shrink-0">
                     <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${intensity.color}`}>{intensity.label}</div>
-                    <Select value={l.status} onValueChange={v => updateStatus(l.id, v)}>
-                      <SelectTrigger className="w-36 h-8"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="new">New</SelectItem>
-                        <SelectItem value="qualified">Qualified</SelectItem>
-                        <SelectItem value="in_discussion">In Discussion</SelectItem>
-                        <SelectItem value="signed">Signed</SelectItem>
-                        <SelectItem value="rejected">Rejected</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Badge variant={
+                      l.status === 'new' ? 'info' :
+                      l.status === 'qualified' ? 'warning' :
+                      l.status === 'in_discussion' ? 'default' :
+                      l.status === 'signed' ? 'success' :
+                      'destructive'
+                    }>
+                      {l.status.replace('_', ' ')}
+                    </Badge>
                   </div>
                 </div>
               </CardContent>
@@ -130,7 +120,6 @@ export function AdminLeads() {
           );
         })}
       </div>
-      <Dialog open={!!selectedLead} onOpenChange={() => setSelectedLead(null)}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Lead Details</DialogTitle><DialogDescription>View lead information and manage notes.</DialogDescription></DialogHeader>{selectedLead && (<div className="space-y-4 mt-4"><div className="grid grid-cols-2 gap-4"><div><strong>Company:</strong> {selectedLead.company}</div><div><strong>Country:</strong> {selectedLead.country}</div><div><strong>Contact:</strong> {selectedLead.first_name} {selectedLead.last_name}</div><div><strong>Email:</strong> {selectedLead.email}</div></div><div className="space-y-2"><Label>Admin Notes</Label><Textarea value={adminNotes} onChange={e => setAdminNotes(e.target.value)} rows={3} /></div><Button onClick={saveNotes} className="w-full">Save Notes</Button></div>)}</DialogContent></Dialog>
     </div>
   );
 }

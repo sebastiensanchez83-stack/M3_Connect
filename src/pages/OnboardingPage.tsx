@@ -9,12 +9,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper, Building2, Users } from 'lucide-react';
+import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper, Building2, Users, Clock, Send } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
 import { Sector, PersonaType, PendingInvitationResult } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
+import { getStoredInvite, clearStoredInvite } from '@/lib/invite-store';
+import { sendNotification } from '@/lib/notifications';
 
 /* ─── Types ─── */
 interface MarinaOrgForm {
@@ -116,6 +118,8 @@ export function OnboardingPage() {
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
   const [acceptingInvite, setAcceptingInvite] = useState(false);
   const [joiningOrg, setJoiningOrg] = useState(false);
+  const [joinRequested, setJoinRequested] = useState(false);
+  const [requestingJoin, setRequestingJoin] = useState(false);
 
   // Org creation state
   const [orgCreated, setOrgCreated] = useState(false);
@@ -189,7 +193,34 @@ export function OnboardingPage() {
     const resolveOrg = async () => {
       setResolving(true);
       try {
-        // 1. Check for pending invitation
+        // ── Priority 1: Check localStorage invite token (from email link ?invite=<id>) ──
+        const storedInviteId = getStoredInvite();
+        if (storedInviteId) {
+          const { data: invRow } = await supabase
+            .from('organization_invitations')
+            .select('id, organization_id, email, status, organizations(name), profiles!organization_invitations_invited_by_user_id_fkey(first_name, last_name)')
+            .eq('id', storedInviteId)
+            .eq('status', 'pending')
+            .maybeSingle();
+
+          if (invRow && (invRow as Record<string, unknown>)) {
+            const row = invRow as Record<string, unknown>;
+            const org = row.organizations as { name: string } | null;
+            const inviter = row.profiles as { first_name: string | null; last_name: string | null } | null;
+            setPendingInvitation({
+              invitation_id: row.id as string,
+              organization_id: row.organization_id as string,
+              organization_name: org?.name || 'Unknown Organization',
+              invited_by_name: inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : 'A team member',
+            });
+            setResolving(false);
+            return;
+          }
+          // Invalid/expired invite token → clear it and continue
+          clearStoredInvite();
+        }
+
+        // ── Priority 2: Check for pending invitation by email (RPC fallback) ──
         const { data: invData } = await supabase.rpc('check_pending_invitation', { p_email: user.email });
         if (invData && invData.length > 0) {
           setPendingInvitation(invData[0] as PendingInvitationResult);
@@ -197,8 +228,25 @@ export function OnboardingPage() {
           return;
         }
 
-        // 2. Check domain match (partner/media only — marinas use invite-only)
-        if (profile.persona !== 'marina' && user.email) {
+        // ── Priority 3: Check if an existing join request was already sent ──
+        if (user.email) {
+          const { data: existingRequest } = await supabase
+            .from('organization_invitations')
+            .select('id, organization_id, status, organizations(name)')
+            .eq('email', user.email.toLowerCase())
+            .eq('status', 'join_requested')
+            .maybeSingle();
+          if (existingRequest) {
+            const org = (existingRequest as Record<string, unknown>).organizations as { name: string } | null;
+            setDetectedOrg({ id: existingRequest.organization_id, name: org?.name || 'Organization' });
+            setJoinRequested(true);
+            setResolving(false);
+            return;
+          }
+        }
+
+        // ── Priority 4: Check domain match → offer to request to join ──
+        if (user.email) {
           const domain = user.email.split('@')[1]?.toLowerCase();
           if (domain && !PUBLIC_DOMAINS.includes(domain)) {
             const { data: orgMatch } = await supabase
@@ -214,7 +262,7 @@ export function OnboardingPage() {
           }
         }
 
-        // 3. No match → go to org creation form
+        // ── No match → go to org creation form ──
         setStep('org-form');
         // Pre-fill from signup metadata
         const metaCompanyName = user.user_metadata?.company_name || '';
@@ -247,6 +295,7 @@ export function OnboardingPage() {
     try {
       const { error } = await supabase.rpc('accept_org_invitation', { p_invitation_id: pendingInvitation.invitation_id });
       if (error) throw error;
+      clearStoredInvite();
       await refreshProfile();
       toast({ title: 'Welcome!', description: `You've joined ${pendingInvitation.organization_name}` });
       // Check if profile has name — if not, show completion form
@@ -281,7 +330,45 @@ export function OnboardingPage() {
     setSavingProfile(false);
   };
 
-  /* ─── Join via domain match ─── */
+  /* ─── Request to join via domain match (pending owner approval) ─── */
+  const handleRequestJoinOrg = async () => {
+    if (!detectedOrg || !user) return;
+    setRequestingJoin(true);
+    try {
+      const { error } = await supabase.rpc('request_org_join', { p_organization_id: detectedOrg.id });
+      if (error) throw error;
+
+      // Notify org owner about the join request
+      const { data: ownerMember } = await supabase
+        .from('organization_members')
+        .select('user_id')
+        .eq('organization_id', detectedOrg.id)
+        .eq('role', 'owner')
+        .maybeSingle();
+      if (ownerMember?.user_id) {
+        sendNotification({
+          type: 'admin_new_submission',
+          userId: ownerMember.user_id,
+          data: {
+            submission_type: 'Join Request',
+            submitter: `${profile?.first_name || ''} ${profile?.last_name || ''} (${user.email})`.trim(),
+            details: `Requesting to join ${detectedOrg.name} based on matching email domain.`,
+          },
+        });
+      }
+
+      setJoinRequested(true);
+      // Mark onboarding as submitted so user lands on account page with pending status
+      await supabase.from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', user.id);
+      await refreshProfile();
+      toast({ title: 'Request sent!', description: `Your request to join ${detectedOrg.name} has been sent to the organization owner for approval.` });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
+    }
+    setRequestingJoin(false);
+  };
+
+  /* ─── Join via domain match (legacy — kept for direct invitation acceptance) ─── */
   const handleJoinDetectedOrg = async () => {
     if (!detectedOrg || !user) return;
     setJoiningOrg(true);
@@ -682,27 +769,43 @@ export function OnboardingPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Building2 className="h-5 w-5 text-primary" />
-                {t('onboarding.orgFoundTitle')}
+                {joinRequested ? 'Join Request Sent' : 'Organization Found'}
               </CardTitle>
               <CardDescription>
-                {t('onboarding.orgFoundDesc')}
+                {joinRequested
+                  ? 'Your request is pending approval from the organization owner.'
+                  : 'We found an organization matching your email domain.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-primary/5 rounded-lg p-4 text-center">
-                <Building2 className="h-10 w-10 text-primary mx-auto mb-2" />
+              <div className={`rounded-lg p-4 text-center ${joinRequested ? 'bg-amber-50 border border-amber-200' : 'bg-primary/5'}`}>
+                {joinRequested ? (
+                  <Clock className="h-10 w-10 text-amber-500 mx-auto mb-2" />
+                ) : (
+                  <Building2 className="h-10 w-10 text-primary mx-auto mb-2" />
+                )}
                 <div className="font-semibold text-lg">{detectedOrg.name}</div>
-                <div className="text-sm text-gray-500">{t('onboarding.domainMatchesOrg')}</div>
+                <div className="text-sm text-gray-500">
+                  {joinRequested
+                    ? 'Waiting for the organization owner to approve your request. You will be notified by email.'
+                    : 'Your email domain matches this organization.'}
+                </div>
               </div>
+              {joinRequested ? (
+                <div className="flex gap-3">
+                  <Button className="flex-1" onClick={() => navigate('/account')}>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Go to My Account
+                  </Button>
+                </div>
+              ) : (
               <div className="flex gap-3">
-                <Button className="flex-1" onClick={handleJoinDetectedOrg} disabled={joiningOrg}>
-                  {joiningOrg ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-                  {t('onboarding.joinOrgName', { name: detectedOrg.name })}
-                </Button>
-                <Button variant="outline" onClick={() => { setDetectedOrg(null); setStep('org-form'); }}>
-                  {t('onboarding.createNewOrg')}
+                <Button className="flex-1" onClick={handleRequestJoinOrg} disabled={requestingJoin}>
+                  {requestingJoin ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                  Request to Join {detectedOrg.name}
                 </Button>
               </div>
+              )}
             </CardContent>
           </Card>
         )}

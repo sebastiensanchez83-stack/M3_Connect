@@ -1713,84 +1713,47 @@ export function OrganizationTab() {
               );
             })}
 
-            {/* Pending invitations & join requests — shown inline in the members list */}
+            {/* Pending invitations — shown inline in the members list */}
             {invitations.map((inv) => {
               const invName = [inv.first_name, inv.last_name].filter(Boolean).join(' ');
               const invInitials = invName
                 ? invName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
                 : inv.email.slice(0, 2).toUpperCase();
-              const isJoinRequest = inv.status === 'join_requested';
               return (
                 <div key={inv.id} className="flex items-center justify-between py-3 opacity-70">
                   <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border border-dashed ${
-                      isJoinRequest ? 'bg-blue-100 text-blue-600 border-blue-300' : 'bg-amber-100 text-amber-600 border-amber-300'
-                    }`}>
+                    <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold text-sm border border-dashed border-amber-300">
                       {invInitials}
                     </div>
                     <div>
                       <div className="font-medium text-gray-700 flex items-center gap-2">
                         {invName || inv.email.split('@')[0]}
-                        {isJoinRequest ? (
-                          <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">
-                            <Users className="h-3 w-3 mr-0.5" />
-                            Join Request
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">
-                            <Clock className="h-3 w-3 mr-0.5" />
-                            Pending
-                          </Badge>
-                        )}
+                        <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">
+                          <Clock className="h-3 w-3 mr-0.5" />
+                          Pending
+                        </Badge>
                       </div>
                       <div className="text-xs text-gray-500">
                         {inv.email}
-                        <span className="text-gray-400 ml-2">
-                          {isJoinRequest ? 'Requested' : 'Invited'} {new Date(inv.created_at).toLocaleDateString()}
-                        </span>
+                        <span className="text-gray-400 ml-2">Invited {new Date(inv.created_at).toLocaleDateString()}</span>
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {isOwner && isJoinRequest && (
-                      <>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
-                          onClick={() => handleApproveJoinRequest(inv.id, inv.email)}
-                          title="Approve join request"
-                        >
-                          <CheckCircle className="h-3 w-3 mr-1" />
-                          Approve
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs text-red-600 hover:text-red-700"
-                          onClick={() => handleRejectJoinRequest(inv.id, inv.email)}
-                          title="Reject join request"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </>
-                    )}
-                    {isOwner && !isJoinRequest && (
+                    {isOwner && (
                       <>
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-7 text-xs text-primary hover:text-primary/80"
                           onClick={() => {
-                            // Fetch invite ID for the reminder URL
-                            const reminderUrl = `${window.location.origin}/?invite=${inv.id}`;
                             sendNotification({
                               type: 'team_invitation_reminder',
                               email: inv.email,
                               data: {
                                 org_name: org.name || 'An organization',
                                 inviter_name: `${user?.email?.split('@')[0] || 'A team member'}`,
-                                signup_url: reminderUrl,
+                                signup_url: window.location.origin,
                                 first_name: inv.first_name || '',
                               },
                             });

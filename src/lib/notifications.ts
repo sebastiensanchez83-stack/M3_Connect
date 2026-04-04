@@ -39,7 +39,9 @@ export type NotificationType =
   | 'payment_failed'
   | 'membership_payment_received'
   | 'team_invitation'
-  | 'team_invitation_reminder';
+  | 'team_invitation_reminder'
+  | 'join_request_approved'
+  | 'join_request_rejected';
 
 interface SendNotificationParams {
   type: NotificationType;

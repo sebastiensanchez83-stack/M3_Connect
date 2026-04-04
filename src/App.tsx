@@ -5,6 +5,10 @@ import { AuthRedirector } from '@/components/auth/AuthRedirector';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CookieBanner } from '@/components/layout/CookieBanner';
+import { captureInviteFromUrl } from '@/lib/invite-store';
+
+// Capture ?invite= param on initial page load (before React renders)
+captureInviteFromUrl();
 import { HomePage } from '@/pages/HomePage';
 import { ResourcesPage } from '@/pages/ResourcesPage';
 import { ResourceDetailPage } from '@/pages/ResourceDetailPage';

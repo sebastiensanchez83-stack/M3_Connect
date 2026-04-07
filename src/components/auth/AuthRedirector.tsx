@@ -23,9 +23,13 @@ export function AuthRedirector() {
 
   const isAdminRoute = pathname.startsWith('/admin')
   const isOnboardingRoute = pathname === '/onboarding'
+  const isJoinRoute = pathname.startsWith('/join/')
 
   useEffect(() => {
     if (loading) return
+
+    // Never interfere with the /join/:inviteId page — it handles its own auth flow
+    if (isJoinRoute) return
 
     // Logged out: allow public routes only
     if (!user) {
@@ -51,17 +55,17 @@ export function AuthRedirector() {
       return
     }
 
-    // If user has a pending invite token, send them to /onboarding to resolve it
-    const hasPendingInvite = !!getStoredInvite()
+    // If user has a pending invite token, send them to /join/:id page
+    const pendingInviteId = getStoredInvite()
 
     const isDraft = profile.onboarding_status === 'draft'
     const isRejected = profile.access_status === 'rejected'
     const isCompleted = profile.onboarding_status === 'completed'
     const isAccountRoute = pathname === '/account' || pathname.startsWith('/account?')
 
-    // Pending invite → always route to onboarding (where invite acceptance lives)
-    if (hasPendingInvite && !isOnboardingRoute) {
-      navigate('/onboarding', { replace: true })
+    // Pending invite → route to the join page (handles accept flow)
+    if (pendingInviteId && !isOnboardingRoute && !isJoinRoute) {
+      navigate(`/join/${pendingInviteId}`, { replace: true })
       return
     }
 
@@ -70,7 +74,7 @@ export function AuthRedirector() {
       return
     }
 
-    if (isCompleted && isOnboardingRoute && !hasPendingInvite) {
+    if (isCompleted && isOnboardingRoute && !pendingInviteId) {
       navigate('/account', { replace: true })
     }
   }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute])

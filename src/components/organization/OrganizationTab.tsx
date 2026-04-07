@@ -656,7 +656,7 @@ export function OrganizationTab() {
         .maybeSingle();
 
       const inviteUrl = newInvite?.id
-        ? `${window.location.origin}/?invite=${newInvite.id}`
+        ? `${window.location.origin}/join/${newInvite.id}`
         : window.location.origin;
 
       // Send invitation email via edge function
@@ -1790,7 +1790,7 @@ export function OrganizationTab() {
                           size="sm"
                           className="h-7 text-xs text-primary hover:text-primary/80"
                           onClick={() => {
-                            const reminderUrl = `${window.location.origin}/?invite=${inv.id}`;
+                            const reminderUrl = `${window.location.origin}/join/${inv.id}`;
                             sendNotification({
                               type: 'team_invitation_reminder',
                               email: inv.email,

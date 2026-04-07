@@ -35,6 +35,7 @@ import { MentionsLegalesPage } from '@/pages/MentionsLegalesPage';
 import { ConditionsCommercialesPage } from '@/pages/ConditionsCommercialesPage';
 import { CookiePolicyPage } from '@/pages/CookiePolicyPage';
 import { TiersPage } from '@/pages/TiersPage';
+import { JoinPage } from '@/pages/JoinPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 
 function App() {
@@ -73,6 +74,7 @@ function App() {
             <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
             <Route path="/users/:id" element={<UserProfilePage />} />
             <Route path="/admin/*" element={<ProtectedRoute requireModerator><AdminPage /></ProtectedRoute>} />
+            <Route path="/join/:inviteId" element={<JoinPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/contact" element={<ContactPage />} />

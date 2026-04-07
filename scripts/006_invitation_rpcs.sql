@@ -3,6 +3,13 @@
 -- RPC functions for organization invitation & join-request workflows
 -- =============================================================================
 
+-- Drop existing functions first (to handle return type changes)
+DROP FUNCTION IF EXISTS check_pending_invitation(TEXT);
+DROP FUNCTION IF EXISTS accept_org_invitation(UUID);
+DROP FUNCTION IF EXISTS request_org_join(UUID);
+DROP FUNCTION IF EXISTS approve_join_request(UUID);
+DROP FUNCTION IF EXISTS reject_join_request(UUID);
+
 -- -----------------------------------------------------------------------------
 -- 1. check_pending_invitation(p_email TEXT)
 --    Returns any pending invitations for the given email address.

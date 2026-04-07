@@ -23,6 +23,13 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import type { Resource, ResourceDraft, SpeakerFormRow, ProfileSearchResult } from './types';
 
+interface Sector {
+  id: string;
+  label: string;
+  slug: string;
+  is_active: boolean;
+}
+
 const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
 const topics = ['Sustainability', 'Technology', 'Energy', 'Management', 'Events', 'Infrastructure'];
 
@@ -58,12 +65,22 @@ export function AdminResourceDetail() {
   const [profileResults, setProfileResults] = useState<ProfileSearchResult[]>([]);
   const [linkingSpeakerIndex, setLinkingSpeakerIndex] = useState<number | null>(null);
 
+  // Sector management
+  const [allSectors, setAllSectors] = useState<Sector[]>([]);
+  const [selectedSectorIds, setSelectedSectorIds] = useState<string[]>([]);
+
   // Draft-specific state
   const [draft, setDraft] = useState<DraftRow | null>(null);
   const [reviewComment, setReviewComment] = useState('');
 
   // Existing resource reference
   const [resourceId, setResourceId] = useState<string | null>(null);
+
+  // Load all active sectors once
+  useEffect(() => {
+    supabase.from('sectors').select('*').eq('is_active', true).order('label')
+      .then(({ data }) => { if (data) setAllSectors(data as Sector[]); });
+  }, []);
 
   useEffect(() => {
     if (!isNew && id) {
@@ -105,6 +122,13 @@ export function AdminResourceDetail() {
       job_title: (s.job_title as string) || '',
       company_name: (s.company_name as string) || '',
     })));
+
+    // Load linked sectors
+    const { data: sectorData } = await supabase
+      .from('resource_sectors')
+      .select('sector_id')
+      .eq('resource_id', r.id);
+    setSelectedSectorIds((sectorData || []).map((s: Record<string, unknown>) => s.sector_id as string));
 
     setLoading(false);
   };
@@ -192,6 +216,16 @@ export function AdminResourceDetail() {
         display_order: i,
       }));
       await supabase.from('resource_speakers').insert(speakerRows);
+    }
+
+    // Save sectors
+    await supabase.from('resource_sectors').delete().eq('resource_id', savedId);
+    if (selectedSectorIds.length > 0) {
+      const sectorRows = selectedSectorIds.map(sectorId => ({
+        resource_id: savedId,
+        sector_id: sectorId,
+      }));
+      await supabase.from('resource_sectors').insert(sectorRows);
     }
 
     setSaving(false);
@@ -590,6 +624,40 @@ export function AdminResourceDetail() {
             <Label>SEO Keywords</Label>
             <Input value={form.seo_keywords} onChange={e => setForm({ ...form, seo_keywords: e.target.value })} placeholder="marina,sustainability,innovation" />
             <p className="text-xs text-gray-500">Comma-separated target keywords.</p>
+          </div>
+
+          {/* Sectors */}
+          <div className="space-y-2">
+            <Label>Sectors</Label>
+            <p className="text-xs text-gray-500">Select the sectors this resource is relevant to. Users with matching sectors will see this resource.</p>
+            {allSectors.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">Loading sectors...</p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3 bg-gray-50">
+                {allSectors.map(s => {
+                  const isChecked = selectedSectorIds.includes(s.id);
+                  return (
+                    <div key={s.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={`sector-${s.id}`}
+                        checked={isChecked}
+                        onCheckedChange={() => {
+                          setSelectedSectorIds(prev =>
+                            isChecked ? prev.filter(sid => sid !== s.id) : [...prev, s.id]
+                          );
+                        }}
+                      />
+                      <Label htmlFor={`sector-${s.id}`} className="text-sm cursor-pointer font-normal">
+                        {s.label}
+                      </Label>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {selectedSectorIds.length > 0 && (
+              <p className="text-xs text-gray-500">{selectedSectorIds.length} sector{selectedSectorIds.length > 1 ? 's' : ''} selected</p>
+            )}
           </div>
         </CardContent>
       </Card>

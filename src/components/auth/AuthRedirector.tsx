@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
+import { getStoredInvite } from '@/lib/invite-store'
 
 // Known protected routes that require authentication
 const protectedExactRoutes = new Set<string>([
@@ -50,22 +51,26 @@ export function AuthRedirector() {
       return
     }
 
-    // Phase 4 rules:
-    // - draft => allow /account (user completes org info there), redirect other private pages
-    // - rejected => allow /account + /onboarding (edit + resubmit)
-    // - submitted/pending => allow /account (pending review screen)
-    // - completed => allow /account (and block /onboarding)
+    // If user has a pending invite token, send them to /onboarding to resolve it
+    const hasPendingInvite = !!getStoredInvite()
+
     const isDraft = profile.onboarding_status === 'draft'
     const isRejected = profile.access_status === 'rejected'
     const isCompleted = profile.onboarding_status === 'completed'
     const isAccountRoute = pathname === '/account' || pathname.startsWith('/account?')
+
+    // Pending invite → always route to onboarding (where invite acceptance lives)
+    if (hasPendingInvite && !isOnboardingRoute) {
+      navigate('/onboarding', { replace: true })
+      return
+    }
 
     if ((isDraft || isRejected) && !isOnboardingRoute && !isAccountRoute && isProtectedRoute(pathname)) {
       navigate('/account', { replace: true })
       return
     }
 
-    if (isCompleted && isOnboardingRoute) {
+    if (isCompleted && isOnboardingRoute && !hasPendingInvite) {
       navigate('/account', { replace: true })
     }
   }, [user, loading, profile, profileTimedOut, pathname, navigate, isModerator, isAdminRoute, isOnboardingRoute])

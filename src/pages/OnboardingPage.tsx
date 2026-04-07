@@ -146,11 +146,17 @@ export function OnboardingPage() {
   }, []);
 
   /* ─── Navigation guards ─── */
-  // After email confirmation, users go to /account and complete their profile
-  // from the Organization tab. OnboardingPage is only used for rejected re-submissions.
+  // If user has a pending invite token, STAY on onboarding to resolve it.
+  // Otherwise redirect to /account as normal.
+  const hasPendingInvite = !!getStoredInvite();
+
   useEffect(() => {
     if (authLoading || submitted) return;
     if (!user) { navigate('/'); return; }
+
+    // If there's a pending invite, skip ALL redirects — let resolveOrg handle it
+    if (hasPendingInvite) return;
+
     // Completed or submitted → always go to account
     if (profile?.onboarding_status === 'completed') { navigate('/account', { replace: true }); return; }
     if (profile?.onboarding_status === 'submitted' && profile?.access_status !== 'rejected') {
@@ -177,7 +183,7 @@ export function OnboardingPage() {
           }
         });
     }
-  }, [user, profile, authLoading, hasOrganization, submitted, navigate]);
+  }, [user, profile, authLoading, hasOrganization, submitted, hasPendingInvite, navigate]);
 
   /* ─── Organization resolution: check invitation + domain ─── */
   useEffect(() => {
@@ -463,6 +469,29 @@ export function OnboardingPage() {
     try {
       let createdOrgId = orgId;
 
+      // ── Prevent duplicate organizations by domain ──
+      const emailDomain = user.email?.split('@')[1]?.toLowerCase();
+      const primaryDomain = emailDomain && !PUBLIC_DOMAINS.includes(emailDomain) ? emailDomain : null;
+
+      if (!createdOrgId && primaryDomain) {
+        const { data: existingOrg } = await supabase
+          .from('organizations')
+          .select('id, name')
+          .eq('primary_domain', primaryDomain)
+          .maybeSingle();
+        if (existingOrg) {
+          toast({
+            title: 'Organization already exists',
+            description: `An organization with the domain "${primaryDomain}" already exists (${existingOrg.name}). Please request to join it instead.`,
+            variant: 'destructive',
+          });
+          setDetectedOrg(existingOrg);
+          setStep('resolve');
+          setLoading(false);
+          return;
+        }
+      }
+
       if (profile.persona === 'marina') {
         if (!marina.marina_name || !marina.country || !marina.city || !marina.marina_type) {
           toast({ title: 'Required fields', description: 'Name, country, city and marina type are mandatory.', variant: 'destructive' });
@@ -471,8 +500,6 @@ export function OnboardingPage() {
 
         // Create organization if not already created
         if (!createdOrgId) {
-          const domain = user.email?.split('@')[1]?.toLowerCase();
-          const primaryDomain = domain && !PUBLIC_DOMAINS.includes(domain) ? domain : null;
           const { data: orgResult, error: orgErr } = await supabase.rpc('create_organization', {
             p_name: marina.marina_name,
             p_organization_type: 'marina',
@@ -542,8 +569,6 @@ export function OnboardingPage() {
         }
 
         if (!createdOrgId) {
-          const domain = user.email?.split('@')[1]?.toLowerCase();
-          const primaryDomain = domain && !PUBLIC_DOMAINS.includes(domain) ? domain : null;
           const { data: orgResult, error: orgErr } = await supabase.rpc('create_organization', {
             p_name: partner.company_name,
             p_organization_type: 'partner',
@@ -579,8 +604,6 @@ export function OnboardingPage() {
         }
 
         if (!createdOrgId) {
-          const domain = user.email?.split('@')[1]?.toLowerCase();
-          const primaryDomain = domain && !PUBLIC_DOMAINS.includes(domain) ? domain : null;
           const { data: orgResult, error: orgErr } = await supabase.rpc('create_organization', {
             p_name: media.media_name,
             p_organization_type: 'media_partner',

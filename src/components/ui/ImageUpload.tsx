@@ -6,10 +6,54 @@ import { toast } from '@/hooks/use-toast';
 
 const BUCKET = 'resource-images';
 
+/** Resize an image file to fit within maxWidth × maxHeight, returns a Blob. */
+async function resizeImage(
+  file: File,
+  maxWidth = 1200,
+  maxHeight = 800,
+  quality = 0.85,
+): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let { width, height } = img;
+
+      // Only downscale, never upscale
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width = Math.round(width * ratio);
+        height = Math.round(height * ratio);
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas not supported')); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Failed to create blob'));
+        },
+        file.type === 'image/png' ? 'image/png' : 'image/jpeg',
+        quality,
+      );
+    };
+    img.onerror = () => reject(new Error('Failed to load image'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+
 interface ImageUploadProps {
   value: string;
   onChange: (url: string) => void;
   label?: string;
+  /** Max thumbnail width in px (default 1200) */
+  maxWidth?: number;
+  /** Max thumbnail height in px (default 800) */
+  maxHeight?: number;
 }
 
 interface StorageImage {
@@ -18,7 +62,7 @@ interface StorageImage {
   created_at: string;
 }
 
-export function ImageUpload({ value, onChange, label = 'Image' }: ImageUploadProps) {
+export function ImageUpload({ value, onChange, label = 'Image', maxWidth = 1200, maxHeight = 800 }: ImageUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
@@ -36,27 +80,37 @@ export function ImageUpload({ value, onChange, label = 'Image' }: ImageUploadPro
       toast({ title: 'Invalid file type', description: 'Please upload an image file (JPEG, PNG, WebP, GIF)', variant: 'destructive' });
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Maximum file size is 5MB', variant: 'destructive' });
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum file size is 10MB (will be resized)', variant: 'destructive' });
       return;
     }
 
     setUploading(true);
-    const ext = file.name.split('.').pop() || 'jpg';
-    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    try {
+      // Resize image client-side before upload
+      const resizedBlob = await resizeImage(file, maxWidth, maxHeight);
+      const outExt = file.type === 'image/png' ? 'png' : 'jpg';
+      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${outExt}`;
 
-    const { error } = await supabase.storage.from(BUCKET).upload(fileName, file, {
-      cacheControl: '3600',
-      upsert: false,
-    });
+      const { error } = await supabase.storage.from(BUCKET).upload(fileName, resizedBlob, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: file.type === 'image/png' ? 'image/png' : 'image/jpeg',
+      });
 
-    if (error) {
-      if (import.meta.env.DEV) console.error('Upload error:', error);
-      toast({ title: 'Upload failed', description: error.message, variant: 'destructive' });
-    } else {
-      const url = getPublicUrl(fileName);
-      onChange(url);
-      toast({ title: 'Image uploaded' });
+      if (error) {
+        if (import.meta.env.DEV) console.error('Upload error:', error);
+        toast({ title: 'Upload failed', description: error.message, variant: 'destructive' });
+      } else {
+        const url = getPublicUrl(fileName);
+        onChange(url);
+        const savedKb = Math.round(resizedBlob.size / 1024);
+        const origKb = Math.round(file.size / 1024);
+        toast({ title: 'Image uploaded', description: origKb > savedKb ? `Resized: ${origKb}KB → ${savedKb}KB` : undefined });
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) console.error('Resize error:', err);
+      toast({ title: 'Image processing failed', variant: 'destructive' });
     }
     setUploading(false);
   };
@@ -237,11 +291,19 @@ export function ImageUpload({ value, onChange, label = 'Image' }: ImageUploadPro
 
 /** Upload an image and return the public URL (for use in the RichTextEditor) */
 export async function uploadImageToStorage(file: File): Promise<string | null> {
-  if (!file.type.startsWith('image/') || file.size > 5 * 1024 * 1024) return null;
-  const ext = file.name.split('.').pop() || 'jpg';
-  const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const { error } = await supabase.storage.from(BUCKET).upload(fileName, file, { cacheControl: '3600' });
-  if (error) return null;
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(fileName);
-  return data.publicUrl;
+  if (!file.type.startsWith('image/') || file.size > 10 * 1024 * 1024) return null;
+  try {
+    const resizedBlob = await resizeImage(file, 1200, 800);
+    const outExt = file.type === 'image/png' ? 'png' : 'jpg';
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${outExt}`;
+    const { error } = await supabase.storage.from(BUCKET).upload(fileName, resizedBlob, {
+      cacheControl: '3600',
+      contentType: file.type === 'image/png' ? 'image/png' : 'image/jpeg',
+    });
+    if (error) return null;
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(fileName);
+    return data.publicUrl;
+  } catch {
+    return null;
+  }
 }

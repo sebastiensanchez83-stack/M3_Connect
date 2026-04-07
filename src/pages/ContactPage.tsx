@@ -117,7 +117,7 @@ export function ContactPage() {
       `Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`
     );
     window.open(
-      `mailto:contact@m3connect.mc?subject=${mailtoSubject}&body=${mailtoBody}`,
+      `mailto:contact@smartmarinaconnect.com?subject=${mailtoSubject}&body=${mailtoBody}`,
       '_self'
     );
     toast({
@@ -298,10 +298,10 @@ export function ContactPage() {
             </CardHeader>
             <CardContent>
               <a
-                href="mailto:contact@m3connect.mc"
+                href="mailto:contact@smartmarinaconnect.com"
                 className="text-primary hover:underline"
               >
-                contact@m3connect.mc
+                contact@smartmarinaconnect.com
               </a>
               <p className="text-sm text-gray-500 mt-2">
                 {t('contact.emailNote', 'We typically respond within 24-48 hours.')}

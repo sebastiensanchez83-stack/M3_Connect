@@ -4,10 +4,10 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "M3 Connect <noreply@m3monaco.com>";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-const SITE_URL = Deno.env.get("SITE_URL") || "https://connect.m3monaco.com";
+const SITE_URL = Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com";
 
 const ALLOWED_ORIGINS = [
-  "https://connect.m3monaco.com",
+  "https://smartmarinaconnect.com",
   "https://m3connect.netlify.app",
   "http://localhost:5173",
   "http://localhost:3000",
@@ -632,7 +632,7 @@ function buildPlainEmail(content: EmailContent): string {
 <p style="margin:24px 0 0;color:#6b7280;font-size:14px;line-height:1.6;">${htmlFooter}</p>
 </td></tr>
 <tr><td style="padding:16px 40px;border-top:1px solid #f3f4f6;">
-<p style="margin:0;color:#9ca3af;font-size:11px;">Monaco Marina Management — M3 Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">connect.m3monaco.com</a></p>
+<p style="margin:0;color:#9ca3af;font-size:11px;">Monaco Marina Management — M3 Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">smartmarinaconnect.com</a></p>
 </td></tr>
 </table>
 </td></tr></table>

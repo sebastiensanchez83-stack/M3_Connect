@@ -39,7 +39,7 @@ export function generateICS(event: { title: string; description: string; date_ti
 VERSION:2.0
 PRODID:-//M3 Connect//Events//EN
 BEGIN:VEVENT
-UID:${Date.now()}@m3connect.com
+UID:${Date.now()}@smartmarinaconnect.com
 DTSTAMP:${formatICSDate(new Date())}
 DTSTART:${formatICSDate(startDate)}
 DTEND:${formatICSDate(endDate)}

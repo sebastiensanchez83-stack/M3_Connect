@@ -4,10 +4,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const SITE_URL = Deno.env.get("SITE_URL") || "https://connect.m3monaco.com";
+const SITE_URL = Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com";
 
 const ALLOWED_ORIGINS = [
-  "https://connect.m3monaco.com",
+  "https://smartmarinaconnect.com",
   "https://m3connect.netlify.app",
   "http://localhost:5173",
   "http://localhost:3000",

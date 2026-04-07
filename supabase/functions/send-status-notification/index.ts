@@ -4,7 +4,7 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "M3 Connect <noreply@m3monaco.com>";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-const SITE_URL = Deno.env.get("SITE_URL") || "https://m3connect.netlify.app";
+const SITE_URL = Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com";
 
 interface RequestBody {
   user_id: string;

@@ -386,8 +386,13 @@ export function OrganizationTab() {
         .in('status', ['pending', 'join_requested', 'accepted'])
         .order('created_at', { ascending: false });
 
-      if (!invErr && invData) setInvitations(invData as OrganizationInvitation[]);
-      // If invErr (e.g. 403 from RLS), silently ignore — query may fail for non-owners
+      if (invErr) {
+        if (import.meta.env.DEV) console.warn('[OrganizationTab] Invitation fetch error (check RLS policy):', invErr);
+        // Fallback: try fetching with service role via RPC if direct query fails
+        // For now, log the error so we can diagnose
+      }
+      if (invData) setInvitations(invData as OrganizationInvitation[]);
+      else if (import.meta.env.DEV) console.log('[OrganizationTab] No invitation data returned. invErr:', invErr);
     } catch (err) {
       if (import.meta.env.DEV) console.error('Error fetching org:', err);
     }
@@ -1712,6 +1717,14 @@ export function OrganizationTab() {
             })}
 
             {/* Invitations & join requests — visible to all members, actions owner-only */}
+            {invitations.length > 0 && (
+              <div className="pt-3 mt-3 border-t border-gray-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Mail className="h-4 w-4 text-amber-500" />
+                  <span className="text-sm font-semibold text-gray-600">Invitations & Requests ({invitations.length})</span>
+                </div>
+              </div>
+            )}
             {invitations.map((inv) => {
               const invName = [inv.first_name, inv.last_name].filter(Boolean).join(' ');
               const invInitials = invName

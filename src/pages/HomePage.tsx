@@ -252,7 +252,7 @@ export function HomePage() {
         <meta property="og:title" content="M3 Connect — The B2B Platform for the Marina & Yachting Industry" />
         <meta property="og:description" content="Connect marinas, service providers, and media partners. Share expertise, find solutions, and grow your marina business on the industry's professional network." />
         <meta property="og:type" content="website" />
-        <meta property="og:url" content="https://m3connect.com/" />
+        <meta property="og:url" content="https://smartmarinaconnect.com/" />
       </Helmet>
       {/* Hero Section */}
       <section className="gradient-hero text-white py-20 md:py-32">

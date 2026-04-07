@@ -1490,7 +1490,10 @@ export function OrganizationTab() {
                       <Label htmlFor="yacht_club" className="cursor-pointer">Yacht Club</Label>
                       <div className="flex items-center gap-2">
                         {editForm.has_yacht_club && (
-                          <Input type="number" className="w-24 h-8 text-xs" placeholder="Members" value={editForm.yacht_club_members} onChange={(e) => setEditForm({ ...editForm, yacht_club_members: e.target.value })} />
+                          <div className="flex items-center gap-1.5">
+                            <Input type="number" min="0" className="w-20 h-8 text-xs" placeholder="0" value={editForm.yacht_club_members} onChange={(e) => setEditForm({ ...editForm, yacht_club_members: e.target.value })} />
+                            <span className="text-xs text-gray-500 whitespace-nowrap">members</span>
+                          </div>
                         )}
                         <Switch id="yacht_club" checked={editForm.has_yacht_club} onCheckedChange={(c) => setEditForm({ ...editForm, has_yacht_club: c })} />
                       </div>
@@ -1507,7 +1510,10 @@ export function OrganizationTab() {
                       <Label htmlFor="restaurants" className="cursor-pointer">Restaurants</Label>
                       <div className="flex items-center gap-2">
                         {editForm.has_restaurants && (
-                          <Input type="number" className="w-20 h-8 text-xs" placeholder="Count" value={editForm.restaurants_count} onChange={(e) => setEditForm({ ...editForm, restaurants_count: e.target.value })} />
+                          <div className="flex items-center gap-1.5">
+                            <Input type="number" min="0" className="w-16 h-8 text-xs" placeholder="0" value={editForm.restaurants_count} onChange={(e) => setEditForm({ ...editForm, restaurants_count: e.target.value })} />
+                            <span className="text-xs text-gray-500 whitespace-nowrap">restaurants</span>
+                          </div>
                         )}
                         <Switch id="restaurants" checked={editForm.has_restaurants} onCheckedChange={(c) => setEditForm({ ...editForm, has_restaurants: c })} />
                       </div>

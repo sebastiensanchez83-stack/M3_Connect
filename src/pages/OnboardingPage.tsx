@@ -973,8 +973,11 @@ export function OnboardingPage() {
                       <Label htmlFor="yacht-club" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.yachtClub')}</Label>
                     </div>
                     {marina.has_yacht_club && (
-                      <Input type="number" min="0" value={marina.yacht_club_members} onChange={e => updateMarina('yacht_club_members', e.target.value)}
-                        placeholder={t('onboarding.marinaFacilities.yachtClubMembers')} className="w-48" />
+                      <div className="flex items-center gap-2">
+                        <Input type="number" min="0" value={marina.yacht_club_members} onChange={e => updateMarina('yacht_club_members', e.target.value)}
+                          placeholder="0" className="w-24" />
+                        <span className="text-sm text-gray-500">members</span>
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center space-x-3">
@@ -991,8 +994,11 @@ export function OnboardingPage() {
                       <Label htmlFor="restaurants" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.restaurants')}</Label>
                     </div>
                     {marina.has_restaurants && (
-                      <Input type="number" min="1" value={marina.restaurants_count} onChange={e => updateMarina('restaurants_count', e.target.value)}
-                        placeholder={t('onboarding.marinaFacilities.restaurantsCount')} className="w-48" />
+                      <div className="flex items-center gap-2">
+                        <Input type="number" min="1" value={marina.restaurants_count} onChange={e => updateMarina('restaurants_count', e.target.value)}
+                          placeholder="0" className="w-20" />
+                        <span className="text-sm text-gray-500">restaurants</span>
+                      </div>
                     )}
                   </div>
                   <div className="flex items-center space-x-3">

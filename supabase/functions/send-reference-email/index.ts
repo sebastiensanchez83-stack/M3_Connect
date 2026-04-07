@@ -247,7 +247,7 @@ Deno.serve(async (req: Request) => {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              from: 'M3 Connect <noreply@m3monaco.com>',
+              from: Deno.env.get("SENDER_EMAIL") || 'Smart Marina Connect <noreply@smartmarinaconnect.com>',
               to: recipient.email,
               subject: `Action requise — Confirmer une recommandation client (${refReq.reference_id})`,
               html: emailHtml,

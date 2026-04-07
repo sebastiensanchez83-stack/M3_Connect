@@ -192,7 +192,8 @@ export function OnboardingPage() {
       setResolving(false);
       return;
     }
-    if (!profile || hasOrganization) {
+    // If already in an org AND no pending invite, skip resolution
+    if (!profile || (hasOrganization && !hasPendingInvite)) {
       setResolving(false);
       return;
     }
@@ -302,10 +303,12 @@ export function OnboardingPage() {
       const { error } = await supabase.rpc('accept_org_invitation', { p_invitation_id: pendingInvitation.invitation_id });
       if (error) throw error;
       clearStoredInvite();
+      // Re-fetch profile to get updated state
+      const { data: freshProfile } = await supabase.from('profiles').select('first_name, last_name').eq('user_id', user!.id).single();
       await refreshProfile();
       toast({ title: 'Welcome!', description: `You've joined ${pendingInvitation.organization_name}` });
-      // Check if profile has name — if not, show completion form
-      if (!profile?.first_name || !profile?.last_name) {
+      // Only show completion form if name is truly missing (wasn't provided at signup)
+      if (!freshProfile?.first_name || !freshProfile?.last_name) {
         setShowProfileCompletion(true);
       } else {
         navigate('/account');
@@ -718,15 +721,10 @@ export function OnboardingPage() {
                 <div className="font-semibold text-lg">{pendingInvitation.organization_name}</div>
                 <div className="text-sm text-gray-500">{t('onboarding.invitedBy', { name: pendingInvitation.invited_by_name })}</div>
               </div>
-              <div className="flex gap-3">
-                <Button className="flex-1" onClick={handleAcceptInvitation} disabled={acceptingInvite}>
-                  {acceptingInvite ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-                  {t('onboarding.acceptJoin')}
-                </Button>
-                <Button variant="outline" onClick={() => { setPendingInvitation(null); setStep('org-form'); }}>
-                  {t('onboarding.createOwnOrg')}
-                </Button>
-              </div>
+              <Button className="w-full" onClick={handleAcceptInvitation} disabled={acceptingInvite}>
+                {acceptingInvite ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+                {t('onboarding.acceptJoin')}
+              </Button>
             </CardContent>
           </Card>
         )}

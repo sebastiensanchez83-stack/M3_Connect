@@ -378,18 +378,16 @@ export function OrganizationTab() {
       // Fetch organization documents
       fetchDocs(membership.organization_id);
 
-      // Fetch pending invitations + join requests (owner only — ignore RLS 403 gracefully)
-      if (membership.role === 'owner') {
-        const { data: invData, error: invErr } = await supabase
-          .from('organization_invitations')
-          .select('*')
-          .eq('organization_id', membership.organization_id)
-          .in('status', ['pending', 'join_requested'])
-          .order('created_at', { ascending: false });
+      // Fetch pending invitations + join requests (visible to all members, actions owner-only)
+      const { data: invData, error: invErr } = await supabase
+        .from('organization_invitations')
+        .select('*')
+        .eq('organization_id', membership.organization_id)
+        .in('status', ['pending', 'join_requested', 'accepted'])
+        .order('created_at', { ascending: false });
 
-        if (!invErr && invData) setInvitations(invData as OrganizationInvitation[]);
-        // If invErr (e.g. 403 from RLS), silently ignore — owner check above is best-effort
-      }
+      if (!invErr && invData) setInvitations(invData as OrganizationInvitation[]);
+      // If invErr (e.g. 403 from RLS), silently ignore — query may fail for non-owners
     } catch (err) {
       if (import.meta.env.DEV) console.error('Error fetching org:', err);
     }
@@ -1713,25 +1711,35 @@ export function OrganizationTab() {
               );
             })}
 
-            {/* Pending invitations & join requests — shown inline in the members list */}
+            {/* Invitations & join requests — visible to all members, actions owner-only */}
             {invitations.map((inv) => {
               const invName = [inv.first_name, inv.last_name].filter(Boolean).join(' ');
               const invInitials = invName
                 ? invName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
                 : inv.email.slice(0, 2).toUpperCase();
               const isJoinRequest = inv.status === 'join_requested';
+              const isAccepted = inv.status === 'accepted';
+              // Don't show accepted invitations if the person is already in the members list
+              if (isAccepted && members.some(m => m.profiles?.email?.toLowerCase() === inv.email.toLowerCase())) return null;
               return (
-                <div key={inv.id} className="flex items-center justify-between py-3 opacity-70">
+                <div key={inv.id} className={`flex items-center justify-between py-3 ${isAccepted ? '' : 'opacity-70'}`}>
                   <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border border-dashed ${
-                      isJoinRequest ? 'bg-blue-100 text-blue-600 border-blue-300' : 'bg-amber-100 text-amber-600 border-amber-300'
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border ${
+                      isAccepted ? 'bg-green-100 text-green-600 border-green-300' :
+                      isJoinRequest ? 'bg-blue-100 text-blue-600 border-blue-300 border-dashed' :
+                      'bg-amber-100 text-amber-600 border-amber-300 border-dashed'
                     }`}>
                       {invInitials}
                     </div>
                     <div>
                       <div className="font-medium text-gray-700 flex items-center gap-2">
                         {invName || inv.email.split('@')[0]}
-                        {isJoinRequest ? (
+                        {isAccepted ? (
+                          <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">
+                            <CheckCircle className="h-3 w-3 mr-0.5" />
+                            Joined
+                          </Badge>
+                        ) : isJoinRequest ? (
                           <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">
                             <Users className="h-3 w-3 mr-0.5" />
                             Join Request
@@ -1746,7 +1754,7 @@ export function OrganizationTab() {
                       <div className="text-xs text-gray-500">
                         {inv.email}
                         <span className="text-gray-400 ml-2">
-                          {isJoinRequest ? 'Requested' : 'Invited'} {new Date(inv.created_at).toLocaleDateString()}
+                          {isAccepted ? 'Joined' : isJoinRequest ? 'Requested' : 'Invited'} {new Date(inv.created_at).toLocaleDateString()}
                         </span>
                       </div>
                     </div>
@@ -1775,14 +1783,13 @@ export function OrganizationTab() {
                         </Button>
                       </>
                     )}
-                    {isOwner && !isJoinRequest && (
+                    {isOwner && !isJoinRequest && !isAccepted && (
                       <>
                         <Button
                           variant="ghost"
                           size="sm"
                           className="h-7 text-xs text-primary hover:text-primary/80"
                           onClick={() => {
-                            // Fetch invite ID for the reminder URL
                             const reminderUrl = `${window.location.origin}/?invite=${inv.id}`;
                             sendNotification({
                               type: 'team_invitation_reminder',

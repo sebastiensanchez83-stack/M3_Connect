@@ -55,28 +55,51 @@ export function JoinPage() {
     if (!inviteId) { setPageState('error'); return; }
 
     const loadInvite = async () => {
+      // Fetch invitation (simple query — no joins that might fail on FK names)
       const { data, error } = await supabase
         .from('organization_invitations')
-        .select('id, email, organization_id, status, organizations(name), profiles!organization_invitations_invited_by_user_id_fkey(first_name, last_name)')
+        .select('id, email, organization_id, status, invited_by_user_id, first_name, last_name')
         .eq('id', inviteId)
         .maybeSingle();
 
       if (error || !data) {
+        if (import.meta.env.DEV) console.error('[JoinPage] Invitation fetch error:', error);
         setPageState('error');
         return;
       }
 
-      const row = data as Record<string, unknown>;
-      const org = row.organizations as { name: string } | null;
-      const inviter = row.profiles as { first_name: string | null; last_name: string | null } | null;
+      // Fetch org name separately
+      let orgName = 'Organization';
+      if (data.organization_id) {
+        const { data: orgData } = await supabase
+          .from('organizations')
+          .select('name')
+          .eq('id', data.organization_id)
+          .maybeSingle();
+        if (orgData?.name) orgName = orgData.name;
+      }
+
+      // Fetch inviter name separately (optional — don't fail if missing)
+      let inviterName = 'A team member';
+      if (data.invited_by_user_id) {
+        const { data: inviterData } = await supabase
+          .from('profiles')
+          .select('first_name, last_name')
+          .eq('user_id', data.invited_by_user_id)
+          .maybeSingle();
+        if (inviterData) {
+          const name = `${inviterData.first_name || ''} ${inviterData.last_name || ''}`.trim();
+          if (name) inviterName = name;
+        }
+      }
 
       const info: InviteInfo = {
-        id: row.id as string,
-        email: row.email as string,
-        organization_id: row.organization_id as string,
-        organization_name: org?.name || 'Organization',
-        inviter_name: inviter ? `${inviter.first_name || ''} ${inviter.last_name || ''}`.trim() : 'A team member',
-        status: row.status as string,
+        id: data.id,
+        email: data.email,
+        organization_id: data.organization_id,
+        organization_name: orgName,
+        inviter_name: inviterName,
+        status: data.status,
       };
 
       setInvite(info);

@@ -6,7 +6,7 @@ export function TermsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Terms of Use — M3 Connect</title>
+        <title>Terms of Use — Smart Marina Connect</title>
       </Helmet>
 
       <div className="container mx-auto px-4 py-12 max-w-4xl">
@@ -22,7 +22,7 @@ export function TermsPage() {
           {/* Article 1 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 1 — Purpose</h2>
-            <p>These terms of use (hereinafter the "Terms") govern access to and use of the M3 Connect platform, accessible at connect.m3monaco.com (hereinafter the "Platform"), published by M3 Monaco SAM.</p>
+            <p>These terms of use (hereinafter the "Terms") govern access to and use of the Smart Marina Connect platform, accessible at connect.m3monaco.com (hereinafter the "Platform"), published by M3 Monaco SAM.</p>
             <p className="mt-2">The Platform is a B2B ecosystem dedicated to the marina, yacht club, waterfront, leisure port, and sailing school sector. It offers, among other things: a showcase website, member and partner areas, a resource library, webinars and replays, contact forms, payment features, and commercial solicitation tools.</p>
           </section>
 

@@ -6,7 +6,7 @@ export function PrivacyPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Privacy Policy — M3 Connect</title>
+        <title>Privacy Policy — Smart Marina Connect</title>
       </Helmet>
 
       <div className="container mx-auto px-4 py-12 max-w-4xl">
@@ -22,7 +22,7 @@ export function PrivacyPage() {
           {/* Article 1 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 1 — Data Controller</h2>
-            <p>This privacy policy describes how M3 Monaco SAM processes personal data in connection with the operation of the M3 Connect website and platform.</p>
+            <p>This privacy policy describes how M3 Monaco SAM processes personal data in connection with the operation of the Smart Marina Connect website and platform.</p>
             <div className="bg-gray-50 rounded-lg p-4 mt-3 text-sm space-y-1">
               <p><strong>Data Controller:</strong> M3 Monaco SAM, Société Anonyme Monégasque with a share capital of 150 000 EUR</p>
               <p><strong>RCI:</strong> I18S07927</p>
@@ -43,7 +43,7 @@ export function PrivacyPage() {
           {/* Article 3 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 3 — Data Subjects</h2>
-            <p>This policy applies to, among others, website visitors, account holders, legal representatives of companies, affiliated employees, professional contacts, participants in webinars or workshops, prospects, partners, partner applicants, advertisers, sponsors, and more generally any natural person whose data is processed through M3 Connect.</p>
+            <p>This policy applies to, among others, website visitors, account holders, legal representatives of companies, affiliated employees, professional contacts, participants in webinars or workshops, prospects, partners, partner applicants, advertisers, sponsors, and more generally any natural person whose data is processed through Smart Marina Connect.</p>
           </section>
 
           {/* Article 4 */}
@@ -71,7 +71,7 @@ export function PrivacyPage() {
             <p>Personal data is processed for the following purposes:</p>
             <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
               <li>Account creation and management, authentication, access and rights management</li>
-              <li>M3 Connect community engagement</li>
+              <li>Smart Marina Connect community engagement</li>
               <li>Sending newsletters, invitations to webinars or events</li>
               <li>Content and replay management</li>
               <li>Processing contact forms and matchmaking requests</li>
@@ -150,7 +150,7 @@ export function PrivacyPage() {
           {/* Article 11 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 11 — Cookies and Similar Technologies</h2>
-            <p>The use of cookies and other trackers by M3 Connect is described in the <Link to="/cookies" className="text-primary hover:underline">Cookie Policy</Link>. Where trackers require prior consent, such consent must be obtainable and revocable at any time through the dedicated management interface.</p>
+            <p>The use of cookies and other trackers by Smart Marina Connect is described in the <Link to="/cookies" className="text-primary hover:underline">Cookie Policy</Link>. Where trackers require prior consent, such consent must be obtainable and revocable at any time through the dedicated management interface.</p>
           </section>
 
           {/* Article 12 */}
@@ -163,7 +163,7 @@ export function PrivacyPage() {
           {/* Article 13 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 13 — Data of Minors</h2>
-            <p>M3 Connect is a platform intended for professional use. It is not designed to be used by minors in the normal course of its services.</p>
+            <p>Smart Marina Connect is a platform intended for professional use. It is not designed to be used by minors in the normal course of its services.</p>
           </section>
 
           {/* Article 14 */}

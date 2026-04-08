@@ -694,9 +694,9 @@ export function MarketplacePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Network — M3 Connect</title>
+        <title>Network — Smart Marina Connect</title>
         <meta name="description" content="Find marina industry partners, service providers and experts. Browse open RFPs and consultation requests." />
-        <meta property="og:title" content="Network — M3 Connect" />
+        <meta property="og:title" content="Network — Smart Marina Connect" />
         <meta property="og:description" content="B2B network connecting marina operators with service providers." />
       </Helmet>
       {/* Search Bar Section */}

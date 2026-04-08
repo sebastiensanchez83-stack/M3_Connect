@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "M3 Connect <noreply@m3monaco.com>";
+const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "Smart Marina Connect <noreply@m3monaco.com>";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const SITE_URL = Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com";
@@ -65,7 +65,10 @@ type NotificationType =
   | "consultation_approved"
   | "consultation_rejected"
   | "project_rejected"
-  | "project_status_updated";
+  | "project_status_updated"
+  | "join_request_received"
+  | "join_request_approved"
+  | "join_request_rejected";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -100,17 +103,17 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         body: `Great news! Your webinar proposal "${d.title || "your proposal"}" has been approved. Our team will be in touch with scheduling details soon.`,
         buttonText: "View My Account",
         buttonUrl: accountUrl,
-        footer: "Thank you for contributing to the M3 Connect community.",
+        footer: "Thank you for contributing to the Smart Marina Connect community.",
       };
     case "webinar_rejected":
       return {
-        subject: "Update on your webinar proposal — M3 Connect",
+        subject: "Update on your webinar proposal — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Webinar Proposal Update",
         body: `We've reviewed your webinar proposal "${d.title || "your proposal"}" and unfortunately it has not been selected at this time.${d.reason ? `\n\nFeedback: ${d.reason}` : ""}\n\nYou're welcome to submit new proposals in the future.`,
         buttonText: "View My Account",
         buttonUrl: accountUrl,
-        footer: "Thank you for your interest in contributing to M3 Connect.",
+        footer: "Thank you for your interest in contributing to Smart Marina Connect.",
       };
     case "webinar_moderator_approved":
       return {
@@ -126,7 +129,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── RFP notifications ──
     case "rfp_submitted":
       return {
-        subject: "New RFP submitted on M3 Connect",
+        subject: "New RFP submitted on Smart Marina Connect",
         greeting: "Hello Admin,",
         title: "New RFP Submission",
         body: `A new RFP "${d.title || "N/A"}" has been submitted by ${d.marina_name || "a marina"}.${d.deadline ? `\n\nDeadline: ${d.deadline}` : ""}`,
@@ -148,7 +151,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── Consultation notifications ──
     case "consultation_submitted":
       return {
-        subject: "New consultation request on M3 Connect",
+        subject: "New consultation request on Smart Marina Connect",
         greeting: "Hello Admin,",
         title: "New Consultation Request",
         body: `A new consultation "${d.title || "N/A"}" has been submitted by ${d.marina_name || "a marina"}.`,
@@ -170,7 +173,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── Exposition notifications ──
     case "exposition_approved":
       return {
-        subject: "Your exposition request has been approved — M3 Connect",
+        subject: "Your exposition request has been approved — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Exposition Request Approved",
         body: `Your exposition request for "${d.event_title || "the event"}" has been approved. An invoice will be sent to you shortly.`,
@@ -180,7 +183,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "exposition_invoice_sent":
       return {
-        subject: "Invoice for your exposition — M3 Connect",
+        subject: "Invoice for your exposition — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Exposition Invoice Sent",
         body: `An invoice${d.invoice_ref ? ` (ref: ${d.invoice_ref})` : ""} has been sent for your exposition at "${d.event_title || "the event"}".${d.amount ? ` Amount due: ${d.amount}.` : ""}\n\nPlease process payment at your earliest convenience.`,
@@ -200,7 +203,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "exposition_rejected":
       return {
-        subject: "Update on your exposition request — M3 Connect",
+        subject: "Update on your exposition request — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Exposition Request Update",
         body: `We've reviewed your exposition request for "${d.event_title || "the event"}" and unfortunately it has not been approved at this time.${d.reason ? `\n\nReason: ${d.reason}` : ""}`,
@@ -212,7 +215,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── Sponsorship notifications ──
     case "sponsorship_invoice_sent":
       return {
-        subject: "Invoice for your sponsorship upgrade — M3 Connect",
+        subject: "Invoice for your sponsorship upgrade — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Sponsorship Invoice Sent",
         body: `An invoice${d.invoice_ref ? ` (ref: ${d.invoice_ref})` : ""} has been prepared for your sponsorship upgrade to ${d.requested_tier || "the requested tier"}.${d.amount ? ` Amount due: ${d.amount}.` : ""}`,
@@ -222,27 +225,27 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "sponsorship_paid":
       return {
-        subject: "Sponsorship payment confirmed — M3 Connect",
+        subject: "Sponsorship payment confirmed — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Payment Confirmed",
         body: `Your sponsorship payment has been confirmed. Your tier upgrade to ${d.requested_tier || "the requested tier"} is pending final approval.`,
         buttonText: "View My Account",
         buttonUrl: accountUrl,
-        footer: "Thank you for your support of M3 Connect!",
+        footer: "Thank you for your support of Smart Marina Connect!",
       };
     case "sponsorship_approved":
       return {
-        subject: "Sponsorship tier upgraded — M3 Connect",
+        subject: "Sponsorship tier upgraded — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Sponsorship Tier Upgraded",
-        body: `Great news! Your organization has been upgraded to ${d.requested_tier || "the new tier"}!\n\nHere's what you now have access to:\n• Enhanced visibility on the M3 Connect marketplace\n• Increased seat allocation for team members\n• Priority listing in partner directories\n• Sponsor badge displayed on your organization profile\n• Access to exclusive sponsor networking events\n\nAll members of your organization have been notified of this upgrade.`,
+        body: `Great news! Your organization has been upgraded to ${d.requested_tier || "the new tier"}!\n\nHere's what you now have access to:\n• Enhanced visibility on the Smart Marina Connect marketplace\n• Increased seat allocation for team members\n• Priority listing in partner directories\n• Sponsor badge displayed on your organization profile\n• Access to exclusive sponsor networking events\n\nAll members of your organization have been notified of this upgrade.`,
         buttonText: "Explore New Features",
         buttonUrl: accountUrl,
-        footer: "Thank you for being a valued sponsor of M3 Connect!",
+        footer: "Thank you for being a valued sponsor of Smart Marina Connect!",
       };
     case "sponsorship_rejected":
       return {
-        subject: "Update on your sponsorship request — M3 Connect",
+        subject: "Update on your sponsorship request — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Sponsorship Request Update",
         body: `Your sponsorship request has not been approved at this time.${d.reason ? `\n\nReason: ${d.reason}` : ""}`,
@@ -254,33 +257,33 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── Partner B2B request notifications ──
     case "partner_request_received":
       return {
-        subject: "New partner contact request — M3 Connect",
+        subject: "New partner contact request — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "New Contact Request",
-        body: `You've received a new contact request from ${d.partner_name || "a partner"} on M3 Connect.${d.message ? `\n\nMessage: "${d.message}"` : ""}`,
+        body: `You've received a new contact request from ${d.partner_name || "a partner"} on Smart Marina Connect.${d.message ? `\n\nMessage: "${d.message}"` : ""}`,
         buttonText: "View Request",
         buttonUrl: accountUrl,
         footer: "Log in to your account to respond.",
       };
     case "partner_request_accepted":
       return {
-        subject: "Introduction — M3 Connect",
+        subject: "Introduction — Smart Marina Connect",
         greeting: "Dear all,",
         title: "",
-        body: `We are pleased to introduce ${d.first_name || "the requesting party"} and ${d.acceptor_name || d.marina_name || "the accepting party"}.\n\n${d.acceptor_name || d.marina_name || "The recipient"} has accepted the contact request on M3 Connect. We encourage you both to connect directly to discuss collaboration opportunities.\n\nWe wish you a productive exchange and remain at your disposal should you need any assistance.`,
-        buttonText: "View M3 Connect",
+        body: `We are pleased to introduce ${d.first_name || "the requesting party"} and ${d.acceptor_name || d.marina_name || "the accepting party"}.\n\n${d.acceptor_name || d.marina_name || "The recipient"} has accepted the contact request on Smart Marina Connect. We encourage you both to connect directly to discuss collaboration opportunities.\n\nWe wish you a productive exchange and remain at your disposal should you need any assistance.`,
+        buttonText: "View Smart Marina Connect",
         buttonUrl: accountUrl,
-        footer: "Best regards,\nThe M3 Connect Team",
+        footer: "Best regards,\nThe Smart Marina Connect Team",
       };
     case "partner_request_rejected":
       return {
-        subject: "Update on your contact request — M3 Connect",
+        subject: "Update on your contact request — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Contact Request Update",
         body: `${d.marina_name || "The marina"} has declined your contact request at this time.`,
         buttonText: "Browse Other Marinas",
         buttonUrl: loginUrl,
-        footer: "Don't worry, there are many other opportunities on M3 Connect!",
+        footer: "Don't worry, there are many other opportunities on Smart Marina Connect!",
       };
 
     // ── Reference / bypass notifications ──
@@ -296,7 +299,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "reference_rejected":
       return {
-        subject: "Reference update — M3 Connect",
+        subject: "Reference update — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Reference Not Confirmed",
         body: `A marina contact has declined to confirm a reference for your organization. You may submit additional references to meet the requirement.`,
@@ -306,17 +309,17 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "bypass_approved":
       return {
-        subject: "Reference bypass approved — M3 Connect",
+        subject: "Reference bypass approved — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Reference Bypass Approved",
         body: `Your request to bypass the reference requirement has been approved. Your account can now proceed to full verification.${d.admin_notes ? `\n\nAdmin notes: ${d.admin_notes}` : ""}`,
         buttonText: "View My Account",
         buttonUrl: accountUrl,
-        footer: "Welcome to M3 Connect!",
+        footer: "Welcome to Smart Marina Connect!",
       };
     case "bypass_rejected":
       return {
-        subject: "Reference bypass request update — M3 Connect",
+        subject: "Reference bypass request update — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Bypass Request Declined",
         body: `Your request to bypass the reference requirement has been declined.${d.admin_notes ? `\n\nFeedback: ${d.admin_notes}` : ""}\n\nPlease submit marina references to proceed with your application.`,
@@ -328,7 +331,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── Event registration ──
     case "event_registration_confirmed":
       return {
-        subject: `Registration confirmed — ${d.event_title || "M3 Connect Event"}`,
+        subject: `Registration confirmed — ${d.event_title || "Smart Marina Connect Event"}`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Registration Confirmed",
         body: `You are now registered for "${d.event_title || "the event"}".${d.event_date ? `\n\nDate: ${d.event_date}` : ""}${d.event_location ? `\nLocation: ${d.event_location}` : ""}`,
@@ -340,7 +343,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── Payment notifications ──
     case "payment_confirmed":
       return {
-        subject: "Payment confirmed — M3 Connect",
+        subject: "Payment confirmed — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Payment Confirmed",
         body: `Your payment of ${d.amount || "the specified amount"} has been successfully processed.\n\nPayment type: ${d.payment_type === "membership" ? "Membership Fee" : d.payment_type === "additional_seats" ? "Additional Seats" : d.payment_type === "event_participation" ? "Event Participation" : d.payment_type || "N/A"}\nTransaction ID: ${d.transaction_id || "N/A"}\n\nA confirmation receipt has been recorded in your account.`,
@@ -350,7 +353,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "payment_failed":
       return {
-        subject: "Payment issue — M3 Connect",
+        subject: "Payment issue — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Payment Not Completed",
         body: `We were unable to process your payment of ${d.amount || "the specified amount"}.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nPlease try again or use a different payment method.`,
@@ -360,7 +363,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "membership_payment_received":
       return {
-        subject: "New membership payment received — M3 Connect",
+        subject: "New membership payment received — Smart Marina Connect",
         greeting: "Hello Admin,",
         title: "Membership Payment Received",
         body: `A membership payment of ${d.amount || "€500"} has been received from ${d.submitter || "a member"}.\n\nOrganization: ${d.org_name || "N/A"}\nTransaction ID: ${d.transaction_id || "N/A"}`,
@@ -372,20 +375,20 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── Team invitation ──
     case "team_invitation":
       return {
-        subject: `You've been invited to join ${d.org_name || "an organization"} on M3 Connect`,
+        subject: `You've been invited to join ${d.org_name || "an organization"} on Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Team Invitation",
-        body: `${d.org_name || "An organization"} has invited you to join their team on M3 Connect, the B2B platform for the marina industry.\n\nTo accept this invitation, simply create an account using this email address. You will be automatically linked to the organization once you sign up.`,
+        body: `${d.org_name || "An organization"} has invited you to join their team on Smart Marina Connect, the B2B platform for the marina industry.\n\nTo accept this invitation, simply create an account using this email address. You will be automatically linked to the organization once you sign up.`,
         buttonText: "Sign Up Now",
         buttonUrl: d.signup_url || SITE_URL,
         footer: "If you weren't expecting this invitation, you can safely ignore this email.",
       };
     case "team_invitation_reminder":
       return {
-        subject: `Reminder: Join ${d.org_name || "your team"} on M3 Connect`,
+        subject: `Reminder: Join ${d.org_name || "your team"} on Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Invitation Reminder",
-        body: `This is a friendly reminder that ${d.org_name || "an organization"} has invited you to join their team on M3 Connect.\n\nSign up using this email address to accept the invitation and get started.`,
+        body: `This is a friendly reminder that ${d.org_name || "an organization"} has invited you to join their team on Smart Marina Connect.\n\nSign up using this email address to accept the invitation and get started.`,
         buttonText: "Sign Up Now",
         buttonUrl: d.signup_url || SITE_URL,
         footer: "If you've already signed up, you can log in to access your account.",
@@ -394,7 +397,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // ── Submission status notifications ──
     case "rfp_approved":
       return {
-        subject: `Your RFP has been approved — M3 Connect`,
+        subject: `Your RFP has been approved — Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "RFP Approved",
         body: `Your RFP "${d.title || "your submission"}" has been approved and is now visible on the marketplace.`,
@@ -404,7 +407,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "rfp_rejected":
       return {
-        subject: `Update on your RFP — M3 Connect`,
+        subject: `Update on your RFP — Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "RFP Not Approved",
         body: `Your RFP "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nYou can edit and resubmit it from your account.`,
@@ -414,7 +417,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "consultation_approved":
       return {
-        subject: `Your consultation has been approved — M3 Connect`,
+        subject: `Your consultation has been approved — Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Consultation Approved",
         body: `Your consultation "${d.title || "your submission"}" has been approved and is now visible on the marketplace.`,
@@ -424,7 +427,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "consultation_rejected":
       return {
-        subject: `Update on your consultation — M3 Connect`,
+        subject: `Update on your consultation — Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Consultation Not Approved",
         body: `Your consultation "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nYou can edit and resubmit it from your account.`,
@@ -434,7 +437,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "project_rejected":
       return {
-        subject: `Update on your project — M3 Connect`,
+        subject: `Update on your project — Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Project Not Approved",
         body: `Your project "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}`,
@@ -444,7 +447,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
     case "project_status_updated":
       return {
-        subject: `Project status updated — M3 Connect`,
+        subject: `Project status updated — Smart Marina Connect`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Project Status Updated",
         body: d.details || `Your project "${d.title || "your submission"}" status has been updated.`,
@@ -453,10 +456,46 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         footer: "Log in to your account to see the full details.",
       };
 
+    // ── Join request received (sent to org owner) ──
+    case "join_request_received":
+      return {
+        subject: `New join request for ${d.org_name || "your organization"} on Smart Marina Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "New Join Request",
+        body: `${d.requester_name || "Someone"} (${d.requester_email || ""}) has requested to join ${d.org_name || "your organization"} on Smart Marina Connect.\n\nTheir email domain matches your organization. You can approve or reject this request from your organization settings.`,
+        buttonText: "Review Request",
+        buttonUrl: `${SITE_URL}/account?tab=organization`,
+        footer: "You are receiving this email because you are the owner of this organization on Smart Marina Connect.",
+      };
+
+    // ── Join request approved (sent to requester) ──
+    case "join_request_approved":
+      return {
+        subject: `You've been approved to join ${d.org_name || "an organization"} on Smart Marina Connect`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Join Request Approved!",
+        body: `Great news! Your request to join ${d.org_name || "the organization"} on Smart Marina Connect has been approved.\n\nYou now have access to the organization's resources and can collaborate with your team. Log in to get started.`,
+        buttonText: "Go to My Account",
+        buttonUrl: `${SITE_URL}/account`,
+        footer: "Welcome to the team! If you have any questions, contact your organization administrator.",
+      };
+
+    // ── Join request rejected (sent to requester) ──
+    case "join_request_rejected":
+      return {
+        subject: `Update on your join request for ${d.org_name || "an organization"}`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Join Request Update",
+        body: `Your request to join ${d.org_name || "the organization"} on Smart Marina Connect was not approved.\n\nYou can still create your own organization profile and continue using the platform independently.`,
+        buttonText: "Go to My Account",
+        buttonUrl: `${SITE_URL}/account`,
+        footer: "If you believe this was a mistake, please contact the organization directly.",
+      };
+
     // ── Generic admin alert ──
     case "admin_new_submission":
       return {
-        subject: `New ${d.submission_type || "submission"} on M3 Connect`,
+        subject: `New ${d.submission_type || "submission"} on Smart Marina Connect`,
         greeting: "Hello Admin,",
         title: `New ${d.submission_type || "Submission"}`,
         body: `A new ${d.submission_type || "submission"} has been received from ${d.submitter || "a member"}.${d.details ? `\n\n${d.details}` : ""}`,
@@ -467,11 +506,11 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
 
     default:
       return {
-        subject: "M3 Connect Notification",
+        subject: "Smart Marina Connect Notification",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Notification",
-        body: d.message || "You have a new notification on M3 Connect.",
-        buttonText: "View M3 Connect",
+        body: d.message || "You have a new notification on Smart Marina Connect.",
+        buttonText: "View Smart Marina Connect",
         buttonUrl: loginUrl,
         footer: "If you have questions, please contact our support team.",
       };
@@ -588,7 +627,7 @@ function buildEmail(content: EmailContent): string {
 <tr><td align="center">
 <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
 <tr><td style="background-color:#0c4a6e;padding:32px 40px;text-align:center;">
-<h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">M3 Connect</h1>
+<h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;letter-spacing:-0.5px;">Smart Marina Connect</h1>
 <p style="margin:6px 0 0;color:#93c5fd;font-size:13px;font-weight:400;">The B2B platform for the marina industry</p>
 </td></tr>
 <tr><td style="padding:40px;">
@@ -602,7 +641,7 @@ function buildEmail(content: EmailContent): string {
 <p style="margin:32px 0 0;color:#9ca3af;font-size:13px;line-height:1.5;">${content.footer}</p>
 </td></tr>
 <tr><td style="padding:24px 40px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
-<p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management &mdash; M3 Connect</p>
+<p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management &mdash; Smart Marina Connect</p>
 <p style="margin:4px 0 0;color:#9ca3af;font-size:12px;">The B2B platform for the marina industry</p>
 </td></tr>
 </table>
@@ -632,7 +671,7 @@ function buildPlainEmail(content: EmailContent): string {
 <p style="margin:24px 0 0;color:#6b7280;font-size:14px;line-height:1.6;">${htmlFooter}</p>
 </td></tr>
 <tr><td style="padding:16px 40px;border-top:1px solid #f3f4f6;">
-<p style="margin:0;color:#9ca3af;font-size:11px;">Monaco Marina Management — M3 Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">smartmarinaconnect.com</a></p>
+<p style="margin:0;color:#9ca3af;font-size:11px;">Monaco Marina Management — Smart Marina Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">smartmarinaconnect.com</a></p>
 </td></tr>
 </table>
 </td></tr></table>

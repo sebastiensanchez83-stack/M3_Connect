@@ -141,7 +141,7 @@ const resources = {
       },
       // Become Partner
       becomePartner: {
-        heroTitle: 'Partner with M3 Connect',
+        heroTitle: 'Partner with Smart Marina Connect',
         heroSubtitle: 'Join 50+ industry leaders connecting with marinas worldwide.',
         benefits: {
           title: 'Why Partner with Us',
@@ -159,7 +159,7 @@ const resources = {
           },
           recognition: {
             title: 'Industry Recognition',
-            desc: 'M3 Connect partner badge and certification.',
+            desc: 'Smart Marina Connect partner badge and certification.',
           },
         },
         stats: {
@@ -192,14 +192,14 @@ const resources = {
           solutions: 'Your solutions for marinas',
           solutionsPlaceholder: 'Describe your products or services...',
           goals: 'What are your goals?',
-          goalsPlaceholder: 'What do you hope to achieve with M3 Connect?',
+          goalsPlaceholder: 'What do you hope to achieve with Smart Marina Connect?',
           engagementLevel: 'Engagement Level',
           engagement: {
             info: 'Just want information',
             meeting: 'Request a meeting',
             proposal: 'Request a partnership proposal',
           },
-          consent: 'I agree to be contacted by M3 Connect',
+          consent: 'I agree to be contacted by Smart Marina Connect',
           submit: 'Send my request',
           success: "Thank you! We'll contact you within 48 hours.",
         },
@@ -367,7 +367,7 @@ const resources = {
         },
         description: 'Project Description',
         descriptionPlaceholder: 'Describe your project needs, goals, and any specific requirements...',
-        consent: 'I consent to M3 Connect processing this information',
+        consent: 'I consent to Smart Marina Connect processing this information',
         submit: 'Submit Project',
         success: 'Project submitted! Our team will contact you soon.',
       },
@@ -729,7 +729,7 @@ const resources = {
       },
       // Become Partner / Join page
       join: {
-        heroTitle: 'Join M3 Connect',
+        heroTitle: 'Join Smart Marina Connect',
         heroSubtitle: 'The platform connecting the marina industry. Choose your profile and access a network of verified professionals.',
         chooseProfile: 'Choose Your Profile',
         chooseProfileDesc: 'Select the member type that matches your activity to discover the associated benefits.',
@@ -766,7 +766,7 @@ const resources = {
           ],
           cta: 'Join as Media',
         },
-        whyTitle: 'Why M3 Connect?',
+        whyTitle: 'Why Smart Marina Connect?',
         benefit1Title: 'International Network',
         benefit1Desc: 'Connect with marina industry professionals in 8+ countries.',
         benefit2Title: 'Verified Community',
@@ -776,7 +776,7 @@ const resources = {
         benefit4Title: 'Support',
         benefit4Desc: 'Our team supports you at every stage of your integration.',
         readyTitle: 'Ready to Join?',
-        readySubtitle: 'Create your free account and start exploring M3 Connect network opportunities.',
+        readySubtitle: 'Create your free account and start exploring Smart Marina Connect network opportunities.',
         accessMySpace: 'Access My Space',
         createAccount: 'Create My Account',
         signupTitle: 'Create an Account',
@@ -797,16 +797,16 @@ const resources = {
         // FAQ
         faq: {
           title: 'Frequently Asked Questions',
-          subtitle: 'Everything you need to know before joining M3 Connect.',
-          q1: 'Is M3 Connect free?',
+          subtitle: 'Everything you need to know before joining Smart Marina Connect.',
+          q1: 'Is Smart Marina Connect free?',
           a1: 'Creating an account and basic access is free. Some premium features and resources may require a subscription depending on your membership tier.',
-          q2: 'Who can join M3 Connect?',
-          a2: 'M3 Connect is open to marina operators, industry service providers, equipment manufacturers, and media professionals specialized in the maritime sector.',
+          q2: 'Who can join Smart Marina Connect?',
+          a2: 'Smart Marina Connect is open to marina operators, industry service providers, equipment manufacturers, and media professionals specialized in the maritime sector.',
           q3: 'How long does verification take?',
           a3: 'Our team typically reviews new profiles within 24 to 48 business hours. You will receive an email notification once your profile is verified.',
           q4: 'Can I access resources before being verified?',
           a4: 'Public resources are accessible to everyone. Member-only and marina-exclusive content requires a verified profile.',
-          q5: 'How do I contact the M3 Connect team?',
+          q5: 'How do I contact the Smart Marina Connect team?',
           a5: 'You can reach us at connect@monacomarinamanagement.com or through the contact form on the platform.',
         },
       },
@@ -828,7 +828,7 @@ const resources = {
       },
       // Onboarding
       onboarding: {
-        welcome: 'Welcome to M3 Connect',
+        welcome: 'Welcome to Smart Marina Connect',
         selectProfile: 'Select your profile type to get started.',
         creatingProfile: 'Creating profile...',
         joinOrg: 'Join your Organization',
@@ -1003,7 +1003,7 @@ const resources = {
         legalNotice: 'Legal Notice',
         commercialTerms: 'Commercial Terms',
         cookiePolicy: 'Cookie Policy',
-        copyright: '© 2026 M3 Connect. All rights reserved.',
+        copyright: '© 2026 Smart Marina Connect. All rights reserved.',
       },
     },
   },
@@ -1146,7 +1146,7 @@ const resources = {
       },
       // Become Partner
       becomePartner: {
-        heroTitle: 'Devenez Partenaire M3 Connect',
+        heroTitle: 'Devenez Partenaire Smart Marina Connect',
         heroSubtitle: "Rejoignez 50+ leaders de l'industrie connectés aux marinas du monde entier.",
         benefits: {
           title: 'Pourquoi Devenir Partenaire',
@@ -1164,7 +1164,7 @@ const resources = {
           },
           recognition: {
             title: 'Reconnaissance Sectorielle',
-            desc: 'Badge et certification partenaire M3 Connect.',
+            desc: 'Badge et certification partenaire Smart Marina Connect.',
           },
         },
         stats: {
@@ -1197,14 +1197,14 @@ const resources = {
           solutions: 'Vos solutions pour les marinas',
           solutionsPlaceholder: 'Décrivez vos produits ou services...',
           goals: 'Quels sont vos objectifs ?',
-          goalsPlaceholder: 'Que souhaitez-vous accomplir avec M3 Connect ?',
+          goalsPlaceholder: 'Que souhaitez-vous accomplir avec Smart Marina Connect ?',
           engagementLevel: "Niveau d'engagement",
           engagement: {
             info: 'Juste des informations',
             meeting: 'Demander un rendez-vous',
             proposal: 'Demander une proposition de partenariat',
           },
-          consent: "J'accepte d'être contacté par M3 Connect",
+          consent: "J'accepte d'être contacté par Smart Marina Connect",
           submit: 'Envoyer ma demande',
           success: 'Merci ! Nous vous contacterons sous 48 heures.',
         },
@@ -1372,7 +1372,7 @@ const resources = {
         },
         description: 'Description du Projet',
         descriptionPlaceholder: 'Décrivez vos besoins, objectifs et exigences spécifiques...',
-        consent: "J'autorise M3 Connect à traiter ces informations",
+        consent: "J'autorise Smart Marina Connect à traiter ces informations",
         submit: 'Soumettre le Projet',
         success: 'Projet soumis ! Notre équipe vous contactera prochainement.',
       },
@@ -1734,7 +1734,7 @@ const resources = {
       },
       // Become Partner / Join page
       join: {
-        heroTitle: 'Rejoignez M3 Connect',
+        heroTitle: 'Rejoignez Smart Marina Connect',
         heroSubtitle: "La plateforme qui connecte l'industrie marina. Choisissez votre profil et accédez à un réseau de professionnels vérifiés.",
         chooseProfile: 'Choisissez votre profil',
         chooseProfileDesc: 'Sélectionnez le type de membre qui correspond à votre activité pour découvrir les avantages associés.',
@@ -1771,7 +1771,7 @@ const resources = {
           ],
           cta: 'Rejoindre en tant que Média',
         },
-        whyTitle: 'Pourquoi M3 Connect ?',
+        whyTitle: 'Pourquoi Smart Marina Connect ?',
         benefit1Title: 'Réseau International',
         benefit1Desc: "Connectez-vous avec des professionnels de l'industrie marina dans plus de 8 pays.",
         benefit2Title: 'Communauté Vérifiée',
@@ -1781,7 +1781,7 @@ const resources = {
         benefit4Title: 'Accompagnement',
         benefit4Desc: "Notre équipe vous accompagne à chaque étape de votre intégration.",
         readyTitle: 'Prêt à nous rejoindre ?',
-        readySubtitle: 'Créez votre compte gratuitement et commencez à explorer les opportunités du réseau M3 Connect.',
+        readySubtitle: 'Créez votre compte gratuitement et commencez à explorer les opportunités du réseau Smart Marina Connect.',
         accessMySpace: 'Accéder à mon espace',
         createAccount: 'Créer mon compte',
         signupTitle: 'Créer un compte',
@@ -1802,16 +1802,16 @@ const resources = {
         // FAQ
         faq: {
           title: 'Questions fréquentes',
-          subtitle: 'Tout ce que vous devez savoir avant de rejoindre M3 Connect.',
-          q1: 'M3 Connect est-il gratuit ?',
+          subtitle: 'Tout ce que vous devez savoir avant de rejoindre Smart Marina Connect.',
+          q1: 'Smart Marina Connect est-il gratuit ?',
           a1: "La création de compte et l'accès de base sont gratuits. Certaines fonctionnalités et ressources premium peuvent nécessiter un abonnement selon votre niveau d'adhésion.",
-          q2: 'Qui peut rejoindre M3 Connect ?',
-          a2: "M3 Connect est ouvert aux opérateurs de marina, fournisseurs de services, fabricants d'équipements et professionnels des médias spécialisés dans le secteur maritime.",
+          q2: 'Qui peut rejoindre Smart Marina Connect ?',
+          a2: "Smart Marina Connect est ouvert aux opérateurs de marina, fournisseurs de services, fabricants d'équipements et professionnels des médias spécialisés dans le secteur maritime.",
           q3: 'Combien de temps dure la vérification ?',
           a3: 'Notre équipe examine généralement les nouveaux profils sous 24 à 48 heures ouvrées. Vous recevrez une notification par email une fois votre profil vérifié.',
           q4: 'Puis-je accéder aux ressources avant la vérification ?',
           a4: 'Les ressources publiques sont accessibles à tous. Le contenu réservé aux membres ou aux marinas nécessite un profil vérifié.',
-          q5: "Comment contacter l'équipe M3 Connect ?",
+          q5: "Comment contacter l'équipe Smart Marina Connect ?",
           a5: 'Vous pouvez nous contacter à connect@monacomarinamanagement.com ou via le formulaire de contact de la plateforme.',
         },
       },
@@ -1833,7 +1833,7 @@ const resources = {
       },
       // Onboarding
       onboarding: {
-        welcome: 'Bienvenue sur M3 Connect',
+        welcome: 'Bienvenue sur Smart Marina Connect',
         selectProfile: 'Sélectionnez votre type de profil pour commencer.',
         creatingProfile: 'Création du profil...',
         joinOrg: 'Rejoindre votre Organisation',
@@ -2008,7 +2008,7 @@ const resources = {
         legalNotice: 'Mentions Légales',
         commercialTerms: 'Conditions Commerciales',
         cookiePolicy: 'Politique de Cookies',
-        copyright: '© 2026 M3 Connect. Tous droits réservés.',
+        copyright: '© 2026 Smart Marina Connect. Tous droits réservés.',
       },
     },
   },

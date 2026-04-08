@@ -28,7 +28,6 @@ interface DashboardStats {
   totalUsers: number;
   verifiedUsers: number;
   pendingUsers: number;
-  paymentPendingUsers: number;
   rejectedUsers: number;
   suspendedUsers: number;
   marinaCount: number;
@@ -98,7 +97,7 @@ const PERSONA_COLORS: Record<string, string> = {
   individual: '#f59e0b', admin: '#ef4444', moderator: '#ef4444',
 };
 const STATUS_COLORS: Record<string, string> = {
-  verified: '#22c55e', pending: '#eab308', payment_pending: '#f59e0b',
+  verified: '#22c55e', pending: '#eab308',
   rejected: '#ef4444', suspended: '#6b7280',
 };
 const TIER_CHART_COLORS: Record<string, string> = {
@@ -130,7 +129,7 @@ export function AdminDashboard() {
   };
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats>({
-    totalUsers: 0, verifiedUsers: 0, pendingUsers: 0, paymentPendingUsers: 0,
+    totalUsers: 0, verifiedUsers: 0, pendingUsers: 0,
     rejectedUsers: 0, suspendedUsers: 0,
     marinaCount: 0, partnerCount: 0, mediaCount: 0, individualCount: 0,
     signupsThisMonth: 0, signupsLastMonth: 0, signupsThisWeek: 0, signupsLastWeek: 0,
@@ -175,7 +174,7 @@ export function AdminDashboard() {
 
       const [
         { count: totalUsers }, { count: verifiedUsers }, { count: pendingUsers },
-        { count: paymentPendingUsers }, { count: rejectedUsers }, { count: suspendedUsers },
+        { count: rejectedUsers }, { count: suspendedUsers },
         { count: marinaCount }, { count: partnerCount }, { count: mediaCount }, { count: individualCount },
         { count: signupsThisMonth }, { count: signupsLastMonth },
         { count: signupsThisWeek }, { count: signupsLastWeek },
@@ -204,7 +203,6 @@ export function AdminDashboard() {
         supabase.from('profiles').select('user_id', { count: 'exact' }),
         supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'verified'),
         supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'pending'),
-        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'payment_pending'),
         supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'rejected'),
         supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'suspended'),
         supabase.from('profiles').select('user_id', { count: 'exact' }).eq('persona', 'marina'),
@@ -316,7 +314,7 @@ export function AdminDashboard() {
 
       setStats({
         totalUsers: totalUsers || 0, verifiedUsers: verifiedUsers || 0,
-        pendingUsers: pendingUsers || 0, paymentPendingUsers: paymentPendingUsers || 0,
+        pendingUsers: pendingUsers || 0,
         rejectedUsers: rejectedUsers || 0, suspendedUsers: suspendedUsers || 0,
         marinaCount: marinaCount || 0, partnerCount: partnerCount || 0,
         mediaCount: mediaCount || 0, individualCount: individualCount || 0,
@@ -371,7 +369,7 @@ export function AdminDashboard() {
   };
 
   const statusDot = (status: string) => {
-    const c: Record<string, string> = { verified: 'bg-green-500', pending: 'bg-yellow-500', payment_pending: 'bg-amber-500', rejected: 'bg-red-500', suspended: 'bg-gray-500' };
+    const c: Record<string, string> = { verified: 'bg-green-500', pending: 'bg-yellow-500', rejected: 'bg-red-500', suspended: 'bg-gray-500' };
     return <span className={`inline-block h-2 w-2 rounded-full ${c[status] || 'bg-gray-400'}`} title={status} />;
   };
 
@@ -418,7 +416,6 @@ export function AdminDashboard() {
   const statusPieData = [
     { name: 'Verified', value: stats.verifiedUsers, color: STATUS_COLORS.verified },
     { name: 'Pending', value: stats.pendingUsers, color: STATUS_COLORS.pending },
-    { name: 'Awaiting Pay', value: stats.paymentPendingUsers, color: STATUS_COLORS.payment_pending },
     { name: 'Rejected', value: stats.rejectedUsers, color: STATUS_COLORS.rejected },
     { name: 'Suspended', value: stats.suspendedUsers, color: STATUS_COLORS.suspended },
   ].filter(d => d.value > 0);
@@ -474,7 +471,7 @@ export function AdminDashboard() {
   );
 
   const totalUrgent = stats.usersWaiting48h + stats.oldLeadsNotContacted + stats.oldB2BRequests
-    + stats.pendingRegistrations + stats.paymentPendingUsers;
+    + stats.pendingRegistrations;
 
   /* ══════════════════════════════ MODERATOR DASHBOARD ══════════════════════════════ */
 
@@ -692,19 +689,6 @@ export function AdminDashboard() {
                 <div className="min-w-0">
                   <div className="text-lg font-bold text-amber-700">{stats.oldB2BRequests}</div>
                   <div className="text-[10px] text-amber-600/80 font-medium leading-tight">B2B unanswered 7d+</div>
-                </div>
-                <ChevronRight className="h-3.5 w-3.5 text-amber-300 ml-auto group-hover:text-amber-500 transition-colors" />
-              </button>
-            )}
-            {stats.paymentPendingUsers > 0 && (
-              <button onClick={() => nav('/admin/users', { status: 'payment_pending' })}
-                className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-amber-200/50 group">
-                <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                  <CreditCard className="h-4 w-4 text-amber-600" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-lg font-bold text-amber-700">{stats.paymentPendingUsers}</div>
-                  <div className="text-[10px] text-amber-600/80 font-medium leading-tight">awaiting payment</div>
                 </div>
                 <ChevronRight className="h-3.5 w-3.5 text-amber-300 ml-auto group-hover:text-amber-500 transition-colors" />
               </button>
@@ -1305,7 +1289,6 @@ export function AdminDashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
           {[
             { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, gradient: 'from-yellow-500 to-amber-500', bg: 'bg-yellow-50', link: '/admin/users', params: { status: 'pending' } },
-            { label: 'Awaiting Payment', value: stats.paymentPendingUsers, icon: CreditCard, gradient: 'from-amber-500 to-orange-500', bg: 'bg-amber-50', link: '/admin/users', params: { status: 'payment_pending' } },
             { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, gradient: 'from-pink-500 to-rose-500', bg: 'bg-pink-50', link: '/admin/events', params: { view: 'registrations' } },
             { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, gradient: 'from-purple-500 to-violet-500', bg: 'bg-purple-50', link: '/admin/sponsorships', params: { status: 'pending' } },
             { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, gradient: 'from-indigo-500 to-blue-500', bg: 'bg-indigo-50', link: '/admin/webinars', params: { status: 'submitted' } },

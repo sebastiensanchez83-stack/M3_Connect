@@ -1,14 +1,14 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "M3 Connect <noreply@m3monaco.com>";
+const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "Smart Marina Connect <noreply@m3monaco.com>";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const SITE_URL = Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com";
 
 interface RequestBody {
   user_id: string;
-  status: "verified" | "rejected" | "suspended" | "payment_pending";
+  status: "verified" | "rejected" | "suspended";
   reason?: string;
 }
 
@@ -64,31 +64,23 @@ async function sendNotification(email: string, firstName: string, status: string
 
   switch (status) {
     case "verified":
-      subject = "Your M3 Connect account has been approved!";
+      subject = "Your Smart Marina Connect account has been approved!";
       title = "Account Approved";
-      body = "Great news! Your M3 Connect account has been reviewed and approved. You now have full access to the platform. Log in to explore resources, events, and connect with the marina industry network.";
-      buttonText = "Log In to M3 Connect";
+      body = "Great news! Your Smart Marina Connect account has been reviewed and approved. You now have full access to the platform. Log in to explore resources, events, and connect with the marina industry network.";
+      buttonText = "Log In to Smart Marina Connect";
       footer = "Welcome aboard! If you have any questions, don't hesitate to contact our support team.";
       break;
-    case "payment_pending":
-      subject = "Your M3 Connect account is approved — Complete your membership payment";
-      title = "Account Approved — Payment Required";
-      body = "Great news! Your M3 Connect account has been reviewed and approved by our team.\n\nTo activate your full membership and access all platform features, please complete your annual membership fee of €500.\n\nUntil the payment is completed, you will have limited access to the platform. Once paid, you will unlock:\n\n• Full access to M3 Connect resources and events\n• B2B marketplace and partner directory\n• Connect requests and webinar proposals\n• Team collaboration with additional seats";
-      buttonText = "Pay Membership Fee (€500)";
-      buttonUrl = `${SITE_URL}/account?tab=organization&action=pay-membership`;
-      footer = "This is a one-time annual fee for your organization's membership. If you have any questions about the payment, please contact our support team.";
-      break;
     case "rejected":
-      subject = "Update on your M3 Connect application";
+      subject = "Update on your Smart Marina Connect application";
       title = "Application Update";
-      body = `We've reviewed your M3 Connect application and unfortunately it has not been approved at this time.${reason ? `\n\nReason: ${reason}` : ""}\n\nYou can update your profile and resubmit your application for another review.`;
+      body = `We've reviewed your Smart Marina Connect application and unfortunately it has not been approved at this time.${reason ? `\n\nReason: ${reason}` : ""}\n\nYou can update your profile and resubmit your application for another review.`;
       buttonText = "Update My Profile";
       footer = "If you believe this was a mistake or have questions, please contact our support team.";
       break;
     case "suspended":
-      subject = "Your M3 Connect account has been suspended";
+      subject = "Your Smart Marina Connect account has been suspended";
       title = "Account Suspended";
-      body = "Your M3 Connect account has been temporarily suspended. During this time, you will not be able to access platform features.";
+      body = "Your Smart Marina Connect account has been temporarily suspended. During this time, you will not be able to access platform features.";
       buttonText = "Contact Support";
       footer = "If you believe this was done in error, please contact our support team for clarification.";
       break;
@@ -148,7 +140,7 @@ function buildEmail({ greeting, title, body, buttonText, buttonUrl, footer }: Em
         <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);">
           <tr>
             <td style="background-color: #0c4a6e; padding: 32px 40px; text-align: center;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">M3 Connect</h1>
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">Smart Marina Connect</h1>
               <p style="margin: 6px 0 0; color: #93c5fd; font-size: 13px; font-weight: 400;">The B2B platform for the marina industry</p>
             </td>
           </tr>
@@ -169,7 +161,7 @@ function buildEmail({ greeting, title, body, buttonText, buttonUrl, footer }: Em
           </tr>
           <tr>
             <td style="padding: 24px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0; color: #9ca3af; font-size: 12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management — M3 Connect</p>
+              <p style="margin: 0; color: #9ca3af; font-size: 12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management — Smart Marina Connect</p>
               <p style="margin: 4px 0 0; color: #9ca3af; font-size: 12px;">The B2B platform for the marina industry</p>
             </td>
           </tr>

@@ -6,7 +6,7 @@ export function ConditionsCommercialesPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Commercial Terms — M3 Connect</title>
+        <title>Commercial Terms — Smart Marina Connect</title>
       </Helmet>
 
       <div className="container mx-auto px-4 py-12 max-w-4xl">
@@ -22,14 +22,14 @@ export function ConditionsCommercialesPage() {
           {/* Article 1 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 1 — Purpose and Scope</h2>
-            <p>These commercial terms apply to paid offers, subscriptions, visibility campaigns, premium access, sponsorships, placements, partner spaces, and more generally to any M3 Connect commercial offer subscribed to by a client, partner, or paying member.</p>
+            <p>These commercial terms apply to paid offers, subscriptions, visibility campaigns, premium access, sponsorships, placements, partner spaces, and more generally to any Smart Marina Connect commercial offer subscribed to by a client, partner, or paying member.</p>
             <p className="mt-2">They supplement the <Link to="/terms" className="text-primary hover:underline">Terms of Use</Link> and, in the event of a conflict, shall prevail with respect to all matters concerning financial conditions, subscription terms, renewal, suspension, and termination of paid offers.</p>
           </section>
 
           {/* Article 2 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 2 — Nature of Offers</h2>
-            <p>M3 Connect may market, among other things, memberships, premium access, partner or certified partner profiles, media partner spaces, visibility campaigns, editorial placements, sponsorships, access to specific content or workshops, attendance or exhibition packages, and any other professional offer defined by M3.</p>
+            <p>Smart Marina Connect may market, among other things, memberships, premium access, partner or certified partner profiles, media partner spaces, visibility campaigns, editorial placements, sponsorships, access to specific content or workshops, attendance or exhibition packages, and any other professional offer defined by M3.</p>
             <p className="mt-2">The exact content of each offer, its scope, duration, price, access level, specific terms, and any limitations are defined in the applicable commercial proposal, purchase order, insertion order, or pricing page.</p>
           </section>
 
@@ -37,7 +37,7 @@ export function ConditionsCommercialesPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 3 — Subscription and Contract Formation</h2>
             <p>Subscription to a paid offer takes effect on the date of signature of the applicable commercial document, online acceptance, or actual payment when the platform allows digital subscription.</p>
-            <p className="mt-2">M3 reserves the right to refuse a subscription for legitimate reasons, including compliance risk, reputational harm, sector inconsistency, conflict of interest, inaccurate information, prior non-payment, or use incompatible with the positioning of M3 Connect.</p>
+            <p className="mt-2">M3 reserves the right to refuse a subscription for legitimate reasons, including compliance risk, reputational harm, sector inconsistency, conflict of interest, inaccurate information, prior non-payment, or use incompatible with the positioning of Smart Marina Connect.</p>
           </section>
 
           {/* Article 4 */}
@@ -59,7 +59,7 @@ export function ConditionsCommercialesPage() {
           {/* Article 6 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 6 — No Professional Right of Withdrawal</h2>
-            <p>As M3 Connect offers are intended for professionals, no right of withdrawal applies unless an overriding mandatory provision expressly provides otherwise.</p>
+            <p>As Smart Marina Connect offers are intended for professionals, no right of withdrawal applies unless an overriding mandatory provision expressly provides otherwise.</p>
           </section>
 
           {/* Article 7 */}
@@ -80,7 +80,7 @@ export function ConditionsCommercialesPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 9 — Visibility, Sponsorship, and Placements</h2>
             <p>Visibility spaces, sponsorships, partner placements, featured content, or publications of a commercial nature are distributed according to the formats, positions, periods, quotas, editorial approvals, and quality standards defined by M3.</p>
-            <p className="mt-2">M3 retains editorial oversight over any creative, resource, visual, text, press release, banner, publication, or sponsored content intended to appear on M3 Connect.</p>
+            <p className="mt-2">M3 retains editorial oversight over any creative, resource, visual, text, press release, banner, publication, or sponsored content intended to appear on Smart Marina Connect.</p>
             <p className="mt-2">M3 may reject or remove any commercial content that does not comply with applicable laws, its editorial line, its image, or the targeted sector.</p>
           </section>
 
@@ -88,7 +88,7 @@ export function ConditionsCommercialesPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 10 — No Guarantee of Commercial Results</h2>
             <p>Unless otherwise expressly agreed in writing, M3 does not guarantee any volume of leads, number of meetings, number of views, number of introductions, contract value, commercial conversion, or media coverage.</p>
-            <p className="mt-2">The value of an M3 Connect offer may result from a combination of visibility, positioning, access to the ecosystem, content, editorial presence, and matchmaking opportunities, without any guarantee of quantified results.</p>
+            <p className="mt-2">The value of an Smart Marina Connect offer may result from a combination of visibility, positioning, access to the ecosystem, content, editorial presence, and matchmaking opportunities, without any guarantee of quantified results.</p>
           </section>
 
           {/* Article 11 */}

@@ -187,9 +187,9 @@ export function ResourcesPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Resources — M3 Connect</title>
-        <meta name="description" content="Browse articles, whitepapers, guides and case studies about the marina industry on M3 Connect." />
-        <meta property="og:title" content="Resources — M3 Connect" />
+        <title>Resources — Smart Marina Connect</title>
+        <meta name="description" content="Browse articles, whitepapers, guides and case studies about the marina industry on Smart Marina Connect." />
+        <meta property="og:title" content="Resources — Smart Marina Connect" />
         <meta property="og:description" content="Explore marina industry resources: articles, whitepapers, guides and case studies." />
       </Helmet>
       {/* Hero Section */}

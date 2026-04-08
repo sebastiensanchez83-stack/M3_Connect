@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { Organization } from '@/types/database';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrganizationTab } from '@/components/organization/OrganizationTab';
-import { PaymentForm } from '@/components/payment/PaymentForm';
+// PaymentForm removed — payment integration deferred
 // PreAuditTab archived — will be deployed later
 // import { PreAuditTab } from '@/components/preaudit/PreAuditTab';
 import { ReferenceRequestForm } from '@/components/references/ReferenceRequestForm';
@@ -127,7 +127,7 @@ export function AccountPage() {
   });
 
   // Event payment dialog
-  const [eventPaymentReg, setEventPaymentReg] = useState<EventRegistration | null>(null);
+  // eventPaymentReg removed — payment integration deferred
 
   // Dashboard analytics state
   const [profileViewCount, setProfileViewCount] = useState(0);
@@ -509,8 +509,6 @@ export function AccountPage() {
         return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
       case 'rejected':
         return <Badge className="bg-red-100 text-red-800 border-red-200"><XCircle className="h-3 w-3 mr-1" />Rejected</Badge>;
-      case 'payment_pending':
-        return <Badge className="bg-amber-100 text-amber-800 border-amber-200"><AlertCircle className="h-3 w-3 mr-1" />Payment Pending</Badge>;
       case 'suspended':
         return <Badge className="bg-gray-100 text-gray-800 border-gray-200"><XCircle className="h-3 w-3 mr-1" />Suspended</Badge>;
       default:
@@ -1353,15 +1351,7 @@ export function AccountPage() {
                           {needsPayment && <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs shrink-0"><AlertCircle className="h-3 w-3 mr-1" />Payment Due</Badge>}
                         </Link>
                         <div className="flex items-center gap-2 shrink-0">
-                          {needsPayment && (
-                            <Button
-                              size="sm"
-                              className="bg-amber-600 hover:bg-amber-700 text-white"
-                              onClick={(e) => { e.stopPropagation(); setEventPaymentReg(reg); }}
-                            >
-                              Pay Now{reg.amount_due_cents ? ` — €${(reg.amount_due_cents / 100).toFixed(0)}` : ''}
-                            </Button>
-                          )}
+                          {/* Event payment button removed — payment integration deferred */}
                           {!isPaid && (
                             <Button
                               variant="ghost"
@@ -2086,41 +2076,7 @@ export function AccountPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Event Payment Dialog */}
-      <Dialog open={!!eventPaymentReg} onOpenChange={(open) => { if (!open) setEventPaymentReg(null); }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Event Registration Payment</DialogTitle>
-          </DialogHeader>
-          {eventPaymentReg && (
-            <div className="space-y-3 mt-2">
-              <div className="text-sm text-gray-600">
-                <p className="font-medium text-gray-900">{eventPaymentReg.events?.title}</p>
-                {eventPaymentReg.events?.date_time && (
-                  <p>{new Date(eventPaymentReg.events.date_time).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                )}
-              </div>
-              <PaymentForm
-                amountCents={eventPaymentReg.amount_due_cents || 0}
-                paymentType="event_participation"
-                organizationId={organization?.id}
-                referenceId={eventPaymentReg.id}
-                metadata={{ event_id: eventPaymentReg.event_id, registration_type: eventPaymentReg.registration_type }}
-                label="Event Participation Fee"
-                description={`€${((eventPaymentReg.amount_due_cents || 0) / 100).toFixed(0)} — ${eventPaymentReg.events?.title || 'Event registration'}`}
-                onSuccess={() => {
-                  toast({ title: 'Payment successful!', description: 'Your event registration is now confirmed.' });
-                  setEventPaymentReg(null);
-                  setRegistrations(prev => prev.map(r => r.id === eventPaymentReg.id ? { ...r, payment_status: 'paid' } : r));
-                }}
-                onError={(err) => {
-                  toast({ title: 'Payment failed', description: err, variant: 'destructive' });
-                }}
-              />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Event Payment Dialog removed — payment integration deferred */}
     </div>
   );
 }

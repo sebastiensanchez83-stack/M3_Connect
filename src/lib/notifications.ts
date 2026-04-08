@@ -40,6 +40,7 @@ export type NotificationType =
   | 'membership_payment_received'
   | 'team_invitation'
   | 'team_invitation_reminder'
+  | 'join_request_received'
   | 'join_request_approved'
   | 'join_request_rejected';
 

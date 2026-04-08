@@ -14,7 +14,7 @@ interface State {
 
 /**
  * React Error Boundary that catches render-time errors in its subtree and
- * displays a user-friendly fallback with M3 Connect branding.
+ * displays a user-friendly fallback with Smart Marina Connect branding.
  */
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
@@ -89,7 +89,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
             </div>
 
-            <p className="mt-8 text-xs text-gray-400">M3 Connect</p>
+            <p className="mt-8 text-xs text-gray-400">Smart Marina Connect</p>
           </div>
         </div>
       );

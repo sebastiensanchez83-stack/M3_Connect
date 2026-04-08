@@ -115,7 +115,7 @@ export function OnboardingPage() {
 
   // Organization resolution state
   const [pendingInvitation, setPendingInvitation] = useState<PendingInvitationResult | null>(null);
-  const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
+  const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string; logo_url?: string | null; tier?: string | null; member_count?: number; auto_approve?: boolean } | null>(null);
   const [acceptingInvite, setAcceptingInvite] = useState(false);
   const [joiningOrg, setJoiningOrg] = useState(false);
   const [joinRequested, setJoinRequested] = useState(false);
@@ -259,11 +259,20 @@ export function OnboardingPage() {
           if (domain && !PUBLIC_DOMAINS.includes(domain)) {
             const { data: orgMatch } = await supabase
               .from('organizations')
-              .select('id, name')
+              .select('id, name, logo_url, tier, auto_approve_domain_joins')
               .eq('primary_domain', domain)
               .maybeSingle();
             if (orgMatch) {
-              setDetectedOrg(orgMatch);
+              // Fetch member count for the detected org
+              const { count: memberCount } = await supabase
+                .from('organization_members')
+                .select('id', { count: 'exact' })
+                .eq('organization_id', orgMatch.id);
+              setDetectedOrg({
+                ...orgMatch,
+                member_count: memberCount || 0,
+                auto_approve: orgMatch.auto_approve_domain_joins || false,
+              });
               setResolving(false);
               return;
             }
@@ -340,15 +349,52 @@ export function OnboardingPage() {
     setSavingProfile(false);
   };
 
-  /* ─── Request to join via domain match (pending owner approval) ─── */
+  /* ─── Request to join via domain match (pending owner approval or auto-approve) ─── */
   const handleRequestJoinOrg = async () => {
     if (!detectedOrg || !user) return;
     setRequestingJoin(true);
     try {
+      // If org has auto-approve enabled, directly join instead of requesting
+      if (detectedOrg.auto_approve) {
+        // Check if already a member
+        const { data: existing } = await supabase
+          .from('organization_members')
+          .select('id')
+          .eq('organization_id', detectedOrg.id)
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (!existing) {
+          const { error } = await supabase
+            .from('organization_members')
+            .insert({ organization_id: detectedOrg.id, user_id: user.id, role: 'collaborator' });
+          if (error) throw error;
+        }
+        // Check org verification status → auto-verify user if org is verified
+        const { data: orgData } = await supabase
+          .from('organizations')
+          .select('access_status')
+          .eq('id', detectedOrg.id)
+          .single();
+        if (orgData?.access_status === 'verified') {
+          await supabase.from('profiles')
+            .update({ access_status: 'verified', onboarding_status: 'completed' })
+            .eq('user_id', user.id);
+        } else {
+          await supabase.from('profiles')
+            .update({ onboarding_status: 'submitted' })
+            .eq('user_id', user.id);
+        }
+        await refreshProfile();
+        toast({ title: 'Welcome!', description: `You've automatically joined ${detectedOrg.name}.` });
+        navigate('/account');
+        return;
+      }
+
+      // Standard flow: create join request pending owner approval
       const { error } = await supabase.rpc('request_org_join', { p_organization_id: detectedOrg.id });
       if (error) throw error;
 
-      // Notify org owner about the join request
+      // Notify org owner about the join request (in-app + email)
       const { data: ownerMember } = await supabase
         .from('organization_members')
         .select('user_id')
@@ -356,13 +402,14 @@ export function OnboardingPage() {
         .eq('role', 'owner')
         .maybeSingle();
       if (ownerMember?.user_id) {
+        // Send email notification to owner
         sendNotification({
-          type: 'admin_new_submission',
+          type: 'join_request_received',
           userId: ownerMember.user_id,
           data: {
-            submission_type: 'Join Request',
-            submitter: `${profile?.first_name || ''} ${profile?.last_name || ''} (${user.email})`.trim(),
-            details: `Requesting to join ${detectedOrg.name} based on matching email domain.`,
+            org_name: detectedOrg.name,
+            requester_name: `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || user.email?.split('@')[0] || '',
+            requester_email: user.email || '',
           },
         });
       }
@@ -787,46 +834,73 @@ export function OnboardingPage() {
         )}
 
         {!pendingInvitation && detectedOrg && (
-          <Card>
-            <CardHeader>
+          <Card className="overflow-hidden">
+            <CardHeader className={joinRequested ? 'bg-amber-50/50' : 'bg-primary/5'}>
               <CardTitle className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-primary" />
+                {joinRequested ? (
+                  <Clock className="h-5 w-5 text-amber-600" />
+                ) : (
+                  <Building2 className="h-5 w-5 text-primary" />
+                )}
                 {joinRequested ? 'Join Request Sent' : 'Organization Found'}
               </CardTitle>
               <CardDescription>
                 {joinRequested
                   ? 'Your request is pending approval from the organization owner.'
-                  : 'We found an organization matching your email domain.'}
+                  : 'We found an organization matching your email domain. Join your team instead of creating a new profile.'}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className={`rounded-lg p-4 text-center ${joinRequested ? 'bg-amber-50 border border-amber-200' : 'bg-primary/5'}`}>
-                {joinRequested ? (
-                  <Clock className="h-10 w-10 text-amber-500 mx-auto mb-2" />
+            <CardContent className="space-y-5 pt-6">
+              {/* Org card with logo, name, tier, member count */}
+              <div className={`rounded-xl p-5 text-center border ${joinRequested ? 'bg-amber-50/50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+                {detectedOrg.logo_url ? (
+                  <img src={detectedOrg.logo_url} alt={detectedOrg.name} className="h-16 w-16 rounded-lg object-cover mx-auto mb-3 border border-gray-200" />
                 ) : (
-                  <Building2 className="h-10 w-10 text-primary mx-auto mb-2" />
+                  <div className="h-16 w-16 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                    <Building2 className={`h-8 w-8 ${joinRequested ? 'text-amber-500' : 'text-primary'}`} />
+                  </div>
                 )}
-                <div className="font-semibold text-lg">{detectedOrg.name}</div>
-                <div className="text-sm text-gray-500">
-                  {joinRequested
-                    ? 'Waiting for the organization owner to approve your request. You will be notified by email.'
-                    : 'Your email domain matches this organization.'}
+                <div className="font-bold text-xl text-gray-900">{detectedOrg.name}</div>
+                <div className="flex items-center justify-center gap-3 mt-2 text-sm text-gray-500">
+                  {detectedOrg.member_count !== undefined && (
+                    <span className="flex items-center gap-1">
+                      <Users className="h-3.5 w-3.5" />
+                      {detectedOrg.member_count} member{detectedOrg.member_count !== 1 ? 's' : ''}
+                    </span>
+                  )}
                 </div>
+                {joinRequested && (
+                  <div className="mt-3 text-sm text-amber-700 bg-amber-100/60 rounded-lg px-3 py-2">
+                    The organization owner has been notified by email. You'll receive an email when your request is approved.
+                  </div>
+                )}
+                {!joinRequested && detectedOrg.auto_approve && (
+                  <div className="mt-3 text-sm text-green-700 bg-green-100/60 rounded-lg px-3 py-2 flex items-center justify-center gap-1.5">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    This organization accepts new members automatically
+                  </div>
+                )}
               </div>
+
               {joinRequested ? (
-                <div className="flex gap-3">
-                  <Button className="flex-1" onClick={() => navigate('/account')}>
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Go to My Account
-                  </Button>
-                </div>
-              ) : (
-              <div className="flex gap-3">
-                <Button className="flex-1" onClick={handleRequestJoinOrg} disabled={requestingJoin}>
-                  {requestingJoin ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                  Request to Join {detectedOrg.name}
+                <Button className="w-full" onClick={() => navigate('/account')}>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Go to My Account
                 </Button>
-              </div>
+              ) : (
+                <div className="space-y-3">
+                  <Button className="w-full" size="lg" onClick={handleRequestJoinOrg} disabled={requestingJoin}>
+                    {requestingJoin ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                    {detectedOrg.auto_approve ? `Join ${detectedOrg.name}` : `Request to Join ${detectedOrg.name}`}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => { setDetectedOrg(null); setStep('org-form'); }}
+                    className="w-full text-center text-sm text-gray-400 hover:text-gray-600 transition-colors py-2"
+                  >
+                    I want to create a new organization instead
+                  </button>
+                </div>
               )}
             </CardContent>
           </Card>

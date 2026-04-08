@@ -248,9 +248,9 @@ export function HomePage() {
   return (
     <div className="flex flex-col">
       <Helmet>
-        <title>M3 Connect — The B2B Platform for the Marina &amp; Yachting Industry</title>
-        <meta name="description" content="M3 Connect is the professional B2B network connecting marinas, service providers, and media partners worldwide. Access exclusive resources, industry events, RFPs, and grow your marina business." />
-        <meta property="og:title" content="M3 Connect — The B2B Platform for the Marina & Yachting Industry" />
+        <title>Smart Marina Connect — The B2B Platform for the Marina &amp; Yachting Industry</title>
+        <meta name="description" content="Smart Marina Connect is the professional B2B network connecting marinas, service providers, and media partners worldwide. Access exclusive resources, industry events, RFPs, and grow your marina business." />
+        <meta property="og:title" content="Smart Marina Connect — The B2B Platform for the Marina & Yachting Industry" />
         <meta property="og:description" content="Connect marinas, service providers, and media partners. Share expertise, find solutions, and grow your marina business on the industry's professional network." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://smartmarinaconnect.com/" />
@@ -330,7 +330,7 @@ export function HomePage() {
         <section className="py-16 bg-white">
           <div className="container mx-auto px-4">
             <h2 className="text-3xl font-bold text-center text-primary mb-3">
-              {t('home.whyJoinTitle', 'Why Join M3 Connect?')}
+              {t('home.whyJoinTitle', 'Why Join Smart Marina Connect?')}
             </h2>
             <p className="text-gray-600 text-center max-w-2xl mx-auto mb-10">
               {t('home.whyJoinSubtitle', 'A dedicated platform for every stakeholder in the marina ecosystem.')}
@@ -709,7 +709,7 @@ export function HomePage() {
             <Anchor className="h-12 w-12 mx-auto mb-4 text-secondary" />
             <h2 className="text-3xl font-bold mb-4">{t('home.ctaTitle', 'Ready to Grow Your Marina Business?')}</h2>
             <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-              {t('home.ctaSubtitle', 'Join hundreds of marina professionals already on M3 Connect. It\'s free to get started.')}
+              {t('home.ctaSubtitle', 'Join hundreds of marina professionals already on Smart Marina Connect. It\'s free to get started.')}
             </p>
             <Button size="lg" variant="outline" className="bg-transparent border-secondary text-secondary hover:bg-secondary hover:text-primary" asChild>
               <Link to="/become-partner">

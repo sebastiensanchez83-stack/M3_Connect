@@ -176,7 +176,7 @@ export function WebinarRequestPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-primary mb-2">Propose a Webinar</h1>
         <p className="text-gray-600">
-          Suggest a topic or expert you'd like to see featured in an M3 Connect webinar.
+          Suggest a topic or expert you'd like to see featured in an Smart Marina Connect webinar.
           Our team will review your proposal and notify you.
         </p>
 

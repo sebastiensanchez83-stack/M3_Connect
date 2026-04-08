@@ -687,16 +687,35 @@ export function OrganizationTab() {
       const { error } = await supabase.rpc('approve_join_request', { p_invitation_id: invId });
       if (error) throw error;
       toast({ title: 'Join request approved', description: `${invEmail} has been added to the team.` });
-      // Notify the requester
+      // Notify the requester by email
       sendNotification({
-        type: 'team_invitation',
+        type: 'join_request_approved',
         email: invEmail,
         data: {
           org_name: org?.name || 'Your organization',
-          inviter_name: profile?.first_name ? `${profile.first_name}${profile.last_name ? ' ' + profile.last_name : ''}` : user?.email?.split('@')[0] || 'The owner',
-          signup_url: window.location.origin,
           first_name: '',
         },
+      });
+      fetchOrg();
+    } catch (err: unknown) {
+      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+  };
+
+  const handleToggleAutoApprove = async () => {
+    if (!org) return;
+    const newValue = !org.auto_approve_domain_joins;
+    try {
+      const { error } = await supabase
+        .from('organizations')
+        .update({ auto_approve_domain_joins: newValue })
+        .eq('id', org.id);
+      if (error) throw error;
+      toast({
+        title: newValue ? 'Auto-approve enabled' : 'Auto-approve disabled',
+        description: newValue
+          ? 'New members with matching email domain will be automatically added to your team.'
+          : 'New members will need your approval to join the team.',
       });
       fetchOrg();
     } catch (err: unknown) {
@@ -710,6 +729,15 @@ export function OrganizationTab() {
       const { error } = await supabase.rpc('reject_join_request', { p_invitation_id: invId });
       if (error) throw error;
       toast({ title: 'Join request rejected' });
+      // Notify the requester by email
+      sendNotification({
+        type: 'join_request_rejected',
+        email: invEmail,
+        data: {
+          org_name: org?.name || 'Your organization',
+          first_name: '',
+        },
+      });
       fetchOrg();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
@@ -1587,6 +1615,21 @@ export function OrganizationTab() {
               <p className="text-xs text-amber-600 mt-1">
                 All seats are occupied. Contact M3 to request additional seats.
               </p>
+            )}
+            {/* Auto-approve toggle — only visible to org owners with a domain */}
+            {isOwner && org.primary_domain && (
+              <div className="mt-3 flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200">
+                <Switch
+                  checked={org.auto_approve_domain_joins}
+                  onCheckedChange={handleToggleAutoApprove}
+                  id="auto-approve-toggle"
+                />
+                <label htmlFor="auto-approve-toggle" className="text-xs text-gray-600 cursor-pointer leading-tight">
+                  <span className="font-medium text-gray-700">Auto-approve</span>
+                  <br />
+                  <span className="text-gray-500">Automatically add users with @{org.primary_domain} email</span>
+                </label>
+              </div>
             )}
           </div>
           {canInvite && (

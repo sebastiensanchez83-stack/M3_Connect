@@ -10,7 +10,7 @@ export function NotFoundPage() {
   return (
     <div className="container mx-auto px-4 py-24 text-center">
       <Helmet>
-        <title>404 — M3 Connect</title>
+        <title>404 — Smart Marina Connect</title>
       </Helmet>
       <AlertCircle className="h-16 w-16 text-gray-300 mx-auto mb-6" />
       <h1 className="text-4xl font-bold text-primary mb-3">404</h1>

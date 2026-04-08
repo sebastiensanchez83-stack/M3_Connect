@@ -154,9 +154,9 @@ export function ResourceDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>{resource.title} — M3 Connect</title>
-        <meta name="description" content={resource.summary || `Read ${resource.title} on M3 Connect`} />
-        <meta property="og:title" content={`${resource.title} — M3 Connect`} />
+        <title>{resource.title} — Smart Marina Connect</title>
+        <meta name="description" content={resource.summary || `Read ${resource.title} on Smart Marina Connect`} />
+        <meta property="og:title" content={`${resource.title} — Smart Marina Connect`} />
         <meta property="og:description" content={resource.summary || ''} />
         <meta property="og:type" content="article" />
         {resource.thumbnail_url && <meta property="og:image" content={resource.thumbnail_url} />}

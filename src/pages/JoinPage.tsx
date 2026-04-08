@@ -259,7 +259,7 @@ export function JoinPage() {
         Join {invite?.organization_name}
       </h1>
       <p className="text-gray-500 text-sm">
-        {invite?.inviter_name} invited you to join their organization on M3 Connect
+        {invite?.inviter_name} invited you to join their organization on Smart Marina Connect
       </p>
     </div>
   );

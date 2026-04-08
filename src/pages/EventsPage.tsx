@@ -113,7 +113,7 @@ export function EventsPage() {
     const end = new Date(start.getTime() + 60 * 60 * 1000); // default 1h duration
     const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
     const icsContent = [
-      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//M3 Connect//EN', 'BEGIN:VEVENT',
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Smart Marina Connect//EN', 'BEGIN:VEVENT',
       `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
       `SUMMARY:${event.title}`,
       `DESCRIPTION:${(event.description || '').replace(/\n/g, '\\n')}`,
@@ -237,9 +237,9 @@ export function EventsPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <Helmet>
-        <title>Events — M3 Connect</title>
-        <meta name="description" content="Discover upcoming marina industry events, webinars and conferences on M3 Connect." />
-        <meta property="og:title" content="Events — M3 Connect" />
+        <title>Events — Smart Marina Connect</title>
+        <meta name="description" content="Discover upcoming marina industry events, webinars and conferences on Smart Marina Connect." />
+        <meta property="og:title" content="Events — Smart Marina Connect" />
         <meta property="og:description" content="Marina industry events, webinars and conferences. Register and connect with professionals." />
       </Helmet>
       <div className="mb-8">

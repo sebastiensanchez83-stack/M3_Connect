@@ -6,7 +6,7 @@ export function MentionsLegalesPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Legal Notice — M3 Connect</title>
+        <title>Legal Notice — Smart Marina Connect</title>
       </Helmet>
 
       <div className="container mx-auto px-4 py-12 max-w-4xl">

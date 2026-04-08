@@ -69,24 +69,24 @@ function buildEmailHtml(data: {
 }): string {
   return `<!doctype html>
 <html lang="fr">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>M3 Connect \u2013 Recommandation</title></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Smart Marina Connect \u2013 Recommandation</title></head>
 <body style="margin:0;padding:0;background-color:#f4f6f8;">
 <div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">Confirmation de recommandation client, ${data.referenceId}, ${data.projectName}, action requise.</div>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f4f6f8;"><tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px;max-width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06);">
 <tr><td style="padding:22px 24px;background-color:#0b1f3a;color:#ffffff;">
-  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;opacity:0.9;">M3 Connect \u2014 v\u00e9rification de recommandation</div>
+  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;opacity:0.9;">Smart Marina Connect \u2014 v\u00e9rification de recommandation</div>
   <div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:700;margin-top:6px;">Action requise \u2014 confirmer une recommandation client</div>
 </td></tr>
 <tr><td style="padding:22px 24px 10px 24px;">
   <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;color:#111827;">
     Bonjour <strong>${data.recipientFirstName}</strong>,<br><br>
     <strong>${data.partnerLegalName}</strong> a indiqu\u00e9 que vous \u00eates habilit\u00e9(e) \u00e0 confirmer une recommandation client concernant le projet ci-dessous.
-    Cette confirmation s'inscrit dans le processus d'onboarding et d'enqu\u00eate d'honorabilit\u00e9 de M3 Connect.
+    Cette confirmation s'inscrit dans le processus d'onboarding et d'enqu\u00eate d'honorabilit\u00e9 de Smart Marina Connect.
   </div>
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:16px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
     <tr><td style="padding:12px 14px;"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:18px;color:#111827;">
-      <strong>R\u00e9f\u00e9rence M3 Connect</strong> : ${data.referenceId}<br>
+      <strong>R\u00e9f\u00e9rence Smart Marina Connect</strong> : ${data.referenceId}<br>
       <strong>Code de v\u00e9rification</strong> : ${data.verificationCode}<br>
       <strong>Expiration</strong> : ${data.expiresAt}<br>
       <strong>Email destinataire</strong> : ${data.recipientEmail}
@@ -135,7 +135,7 @@ function buildEmailHtml(data: {
   <div style="margin-top:20px;padding:14px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
     <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#6b7280;">
       <strong>Confidentialit\u00e9 et consentement</strong><br>
-      En confirmant cette recommandation, vous acceptez que votre nom, titre et confirmation soient partag\u00e9s avec M3 Connect dans le cadre du processus d'onboarding du partenaire. Vos donn\u00e9es sont trait\u00e9es conform\u00e9ment \u00e0 notre politique de confidentialit\u00e9.<br><br>
+      En confirmant cette recommandation, vous acceptez que votre nom, titre et confirmation soient partag\u00e9s avec Smart Marina Connect dans le cadre du processus d'onboarding du partenaire. Vos donn\u00e9es sont trait\u00e9es conform\u00e9ment \u00e0 notre politique de confidentialit\u00e9.<br><br>
       Si vous avez des questions, contactez notre \u00e9quipe \u00e0 <a href="mailto:info@m3monaco.com" style="color:#2563eb;">info@m3monaco.com</a>
     </div>
   </div>
@@ -143,7 +143,7 @@ function buildEmailHtml(data: {
 <tr><td style="padding:16px 24px;background-color:#f9fafb;border-top:1px solid #e5e7eb;">
   <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#9ca3af;text-align:center;">
     M3 Monaco SAM \u00b7 3 Boulevard des Moulins, Monte Carlo Palace, Office B21, 98000 Monaco<br>
-    Cet email a \u00e9t\u00e9 envoy\u00e9 par M3 Connect dans le cadre d'un processus d'onboarding partenaire.
+    Cet email a \u00e9t\u00e9 envoy\u00e9 par Smart Marina Connect dans le cadre d'un processus d'onboarding partenaire.
   </div>
 </td></tr>
 </table></td></tr></table></body></html>`;

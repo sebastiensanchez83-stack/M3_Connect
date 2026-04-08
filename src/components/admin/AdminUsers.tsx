@@ -223,7 +223,7 @@ export function AdminUsers() {
   };
 
   // Send email notification (fire and forget — non-blocking)
-  const sendStatusNotification = async (userId: string, status: 'verified' | 'rejected' | 'suspended' | 'payment_pending', reason?: string) => {
+  const sendStatusNotification = async (userId: string, status: 'verified' | 'rejected' | 'suspended', reason?: string) => {
     try {
       await supabase.functions.invoke('send-status-notification', {
         body: { user_id: userId, status, reason },
@@ -545,7 +545,7 @@ export function AdminUsers() {
             setStatusFilter('all');
             setPersonaFilter('all');
           }}
-          color={urlStatus === 'pending' ? 'amber' : urlStatus === 'payment_pending' ? 'amber' : urlStatus === 'rejected' ? 'red' : 'blue'}
+          color={urlStatus === 'pending' ? 'amber' : urlStatus === 'rejected' ? 'red' : 'blue'}
         />
       )}
 

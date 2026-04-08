@@ -122,7 +122,7 @@ export function Navbar() {
               <Anchor className="h-5 w-5 text-white" aria-hidden="true" />
             </div>
             <span className="text-xl font-bold text-primary hidden sm:inline">
-              M3 Connect
+              Smart Marina Connect
             </span>
           </Link>
 

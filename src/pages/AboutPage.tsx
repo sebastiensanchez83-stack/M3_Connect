@@ -15,7 +15,7 @@ export function AboutPage() {
           <div className="flex items-center space-x-3 mb-6">
             <Anchor className="h-12 w-12" />
             <h1 className="text-4xl md:text-5xl font-bold">
-              {t('about.title', 'About M3 Connect')}
+              {t('about.title', 'About Smart Marina Connect')}
             </h1>
           </div>
           <p className="text-xl text-white/90 max-w-3xl leading-relaxed">
@@ -179,7 +179,7 @@ export function AboutPage() {
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl">
             {t(
               'about.companyDesc',
-              'M3 Connect is operated by Monaco Marina Management (M3), based in the Principality of Monaco. With deep expertise in the marina industry, M3 is committed to advancing the sector through professional networking and business development.'
+              'Smart Marina Connect is operated by Monaco Marina Management (M3), based in the Principality of Monaco. With deep expertise in the marina industry, M3 is committed to advancing the sector through professional networking and business development.'
             )}
           </p>
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl mt-4">
@@ -200,7 +200,7 @@ export function AboutPage() {
           <p className="text-lg text-white/90 mb-8 max-w-2xl mx-auto">
             {t(
               'about.ctaDesc',
-              'Whether you are a marina operator, technology partner, or media professional, M3 Connect is your gateway to the global marina industry.'
+              'Whether you are a marina operator, technology partner, or media professional, Smart Marina Connect is your gateway to the global marina industry.'
             )}
           </p>
           <div className="flex flex-wrap justify-center gap-4">

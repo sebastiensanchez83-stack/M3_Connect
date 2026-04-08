@@ -6,7 +6,7 @@ export function CookiePolicyPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Cookie Policy — M3 Connect</title>
+        <title>Cookie Policy — Smart Marina Connect</title>
       </Helmet>
 
       <div className="container mx-auto px-4 py-12 max-w-4xl">
@@ -22,7 +22,7 @@ export function CookiePolicyPage() {
           {/* Article 1 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 1 — Purpose</h2>
-            <p>This cookie policy describes the conditions under which M3 Connect uses cookies and similar technologies on the website and platform at connect.m3monaco.com.</p>
+            <p>This cookie policy describes the conditions under which Smart Marina Connect uses cookies and similar technologies on the website and platform at connect.m3monaco.com.</p>
           </section>
 
           {/* Article 2 */}
@@ -34,7 +34,7 @@ export function CookiePolicyPage() {
           {/* Article 3 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 3 — Categories of Trackers Used</h2>
-            <p>M3 Connect may use trackers strictly necessary for the operation of the website and platform, security trackers, audience measurement trackers, preference trackers, trackers related to embedded content and webinars, as well as trackers related to B2B communication or remarketing operations when such uses are activated.</p>
+            <p>Smart Marina Connect may use trackers strictly necessary for the operation of the website and platform, security trackers, audience measurement trackers, preference trackers, trackers related to embedded content and webinars, as well as trackers related to B2B communication or remarketing operations when such uses are activated.</p>
             <div className="bg-gray-50 rounded-lg p-4 mt-3">
               <p className="text-sm font-medium text-gray-900 mb-2">Key services that may place trackers:</p>
               <ul className="list-disc list-inside text-sm space-y-1">
@@ -73,7 +73,7 @@ export function CookiePolicyPage() {
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 5 — Consent</h2>
             <p>Trackers strictly necessary for the operation or security of the website may be placed without prior consent when they are genuinely essential to the requested service.</p>
             <p className="mt-2">Other trackers, in particular non-exempt audience measurement trackers, remarketing trackers, embedded third-party content trackers, or marketing tracking trackers, require prior consent where applicable regulations so require.</p>
-            <p className="mt-2">M3 Connect implements a cookie information banner. User preferences must be manageable and modifiable at any time via a permanent cookie management link accessible from the website.</p>
+            <p className="mt-2">Smart Marina Connect implements a cookie information banner. User preferences must be manageable and modifiable at any time via a permanent cookie management link accessible from the website.</p>
           </section>
 
           {/* Article 6 */}

@@ -224,10 +224,10 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
     <>
       {!embedded && (
         <Helmet>
-          <title>Membership & Sponsorship | M3 Connect</title>
+          <title>Membership & Sponsorship | Smart Marina Connect</title>
           <meta
             name="description"
-            content="Choose the M3 Connect membership tier that fits your organization — from free member access to full main sponsor visibility in the marina industry."
+            content="Choose the Smart Marina Connect membership tier that fits your organization — from free member access to full main sponsor visibility in the marina industry."
           />
         </Helmet>
       )}
@@ -530,7 +530,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
           </h2>
           <p className="text-gray-500 mb-7">
             Sponsorship packages are tailored to your visibility goals and budget. Reach
-            out to the M3 Connect team and we will find the right fit together.
+            out to the Smart Marina Connect team and we will find the right fit together.
           </p>
           <Button asChild className="rounded-xl bg-primary hover:bg-primary/90">
             <Link to="/contact">

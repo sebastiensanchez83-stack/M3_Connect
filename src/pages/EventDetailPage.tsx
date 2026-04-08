@@ -214,9 +214,9 @@ export function EventDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>{event.title} — Events — M3 Connect</title>
-        <meta name="description" content={event.description?.substring(0, 160) || `Join ${event.title} on M3 Connect`} />
-        <meta property="og:title" content={`${event.title} — M3 Connect`} />
+        <title>{event.title} — Events — Smart Marina Connect</title>
+        <meta name="description" content={event.description?.substring(0, 160) || `Join ${event.title} on Smart Marina Connect`} />
+        <meta property="og:title" content={`${event.title} — Smart Marina Connect`} />
         <meta property="og:description" content={event.description?.substring(0, 160) || ''} />
         <meta property="og:type" content="event" />
       </Helmet>

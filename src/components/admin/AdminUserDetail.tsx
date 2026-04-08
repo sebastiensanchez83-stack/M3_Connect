@@ -279,14 +279,7 @@ export function AdminUserDetail() {
     loadUser(user.user_id);
   };
 
-  const handleSetPaymentPending = async () => {
-    if (!user) return;
-    setSaving(true);
-    await supabase.from('profiles').update({ access_status: 'payment_pending' }).eq('user_id', user.user_id);
-    toast({ title: 'Status set to payment pending' });
-    setSaving(false);
-    loadUser(user.user_id);
-  };
+  // handleSetPaymentPending removed — no payment flow
 
   const handleSaveAdminNotes = async () => {
     if (!user?.org_id) return;
@@ -413,7 +406,6 @@ export function AdminUserDetail() {
       case 'pending': return <Badge variant="warning">Pending</Badge>;
       case 'rejected': return <Badge variant="destructive">Rejected</Badge>;
       case 'suspended': return <Badge variant="destructive">Suspended</Badge>;
-      case 'payment_pending': return <Badge variant="warning">Payment Pending</Badge>;
       default: return <Badge variant="secondary">{status}</Badge>;
     }
   };

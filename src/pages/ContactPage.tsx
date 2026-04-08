@@ -112,7 +112,7 @@ export function ContactPage() {
   function fallbackMailto() {
     const subjectLabel =
       SUBJECT_OPTIONS.find((s) => s.value === form.subject)?.fallback || form.subject;
-    const mailtoSubject = encodeURIComponent(`[M3 Connect] ${subjectLabel}`);
+    const mailtoSubject = encodeURIComponent(`[Smart Marina Connect] ${subjectLabel}`);
     const mailtoBody = encodeURIComponent(
       `Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`
     );
@@ -167,7 +167,7 @@ export function ContactPage() {
       <p className="text-gray-600 mb-10">
         {t(
           'contact.subtitle',
-          'Have a question or want to learn more about M3 Connect? We would love to hear from you.'
+          'Have a question or want to learn more about Smart Marina Connect? We would love to hear from you.'
         )}
       </p>
 

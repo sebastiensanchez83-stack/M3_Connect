@@ -152,9 +152,9 @@ export function BecomePartnerPage() {
   return (
     <div>
       <Helmet>
-        <title>Become a Member — M3 Connect</title>
-        <meta name="description" content="Join M3 Connect as a marina operator, service provider or media partner. Discover the membership process and start connecting with the marina industry." />
-        <meta property="og:title" content="Become a Member — M3 Connect" />
+        <title>Become a Member — Smart Marina Connect</title>
+        <meta name="description" content="Join Smart Marina Connect as a marina operator, service provider or media partner. Discover the membership process and start connecting with the marina industry." />
+        <meta property="og:title" content="Become a Member — Smart Marina Connect" />
         <meta property="og:description" content="Join the B2B platform connecting marina professionals worldwide." />
       </Helmet>
 

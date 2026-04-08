@@ -37,7 +37,7 @@ export function generateICS(event: { title: string; description: string; date_ti
 
   const ics = `BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//M3 Connect//Events//EN
+PRODID:-//Smart Marina Connect//Events//EN
 BEGIN:VEVENT
 UID:${Date.now()}@smartmarinaconnect.com
 DTSTAMP:${formatICSDate(new Date())}

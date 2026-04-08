@@ -214,9 +214,9 @@ export function OrganizationPublicPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>{org.name} — M3 Connect</title>
-        <meta name="description" content={org.description || `${org.name} on M3 Connect — B2B platform for the marina industry.`} />
-        <meta property="og:title" content={`${org.name} — M3 Connect`} />
+        <title>{org.name} — Smart Marina Connect</title>
+        <meta name="description" content={org.description || `${org.name} on Smart Marina Connect — B2B platform for the marina industry.`} />
+        <meta property="og:title" content={`${org.name} — Smart Marina Connect`} />
         <meta property="og:description" content={org.description || ''} />
       </Helmet>
 

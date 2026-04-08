@@ -1,6 +1,6 @@
 {
-  "name": "M3 Connect",
-  "short_name": "M3 Connect",
+  "name": "Smart Marina Connect",
+  "short_name": "Smart Marina",
   "description": "The professional network for the marina industry",
   "start_url": "/",
   "display": "standalone",

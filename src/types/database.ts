@@ -1,5 +1,5 @@
 export type PersonaType = 'marina' | 'partner' | 'media_partner' | 'moderator' | 'admin';
-export type AccessStatus = 'pending' | 'verified' | 'rejected' | 'suspended' | 'payment_pending';
+export type AccessStatus = 'pending' | 'verified' | 'rejected' | 'suspended';
 export type OnboardingStatus = 'draft' | 'submitted' | 'under_review' | 'completed';
 
 export interface Profile {
@@ -63,6 +63,7 @@ export interface Organization {
   headquarters_country: string | null;
   social_media_links: string | null;
   marina_subtype: 'visitor' | 'exhibitor' | null;
+  auto_approve_domain_joins: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -197,29 +198,6 @@ export interface ExpositionRequest {
   created_at: string;
   // Joined data
   organizations?: Pick<Organization, 'id' | 'name' | 'logo_url'>;
-}
-
-// Payment types
-export type PaymentType = 'membership' | 'additional_seats' | 'event_participation';
-export type PaymentStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
-
-export interface Payment {
-  id: string;
-  organization_id: string | null;
-  user_id: string;
-  payment_type: PaymentType;
-  amount_cents: number;
-  currency: string;
-  status: PaymentStatus;
-  form_token: string | null;
-  transaction_id: string | null;
-  transaction_uuid: string | null;
-  reference_type: string | null;
-  reference_id: string | null;
-  metadata: Record<string, unknown>;
-  paid_at: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 // Sponsor tier helpers

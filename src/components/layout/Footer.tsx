@@ -13,7 +13,7 @@ export function Footer() {
           <div className="col-span-1 sm:col-span-2">
             <div className="flex items-center space-x-2 mb-4">
               <Anchor className="h-8 w-8" />
-              <span className="text-xl font-bold">M3 Connect</span>
+              <span className="text-xl font-bold">Smart Marina Connect</span>
             </div>
             <p className="text-gray-300 mb-4">{t('footer.tagline')}</p>
             <div className="flex space-x-4">

@@ -2,7 +2,7 @@ import { Webhook } from "https://esm.sh/standardwebhooks@1.0.0";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const HOOK_SECRET = Deno.env.get("SEND_EMAIL_HOOK_SECRET");
-const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "M3 Connect <noreply@m3monaco.com>";
+const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "Smart Marina Connect <noreply@m3monaco.com>";
 
 interface EmailPayload {
   user: {
@@ -78,10 +78,10 @@ Deno.serve(async (req: Request) => {
 
     switch (email_action_type) {
       case "signup":
-        subject = "Confirm your M3 Connect account";
+        subject = "Confirm your Smart Marina Connect account";
         html = buildEmail({
           greeting,
-          title: "Welcome to M3 Connect!",
+          title: "Welcome to Smart Marina Connect!",
           body: "Thank you for creating your account. Please confirm your email address by clicking the button below.",
           buttonText: "Confirm Email",
           buttonUrl: confirmUrl,
@@ -89,7 +89,7 @@ Deno.serve(async (req: Request) => {
         });
         break;
       case "recovery":
-        subject = "Reset your M3 Connect password";
+        subject = "Reset your Smart Marina Connect password";
         html = buildEmail({
           greeting,
           title: "Password Reset Request",
@@ -100,7 +100,7 @@ Deno.serve(async (req: Request) => {
         });
         break;
       case "email_change":
-        subject = "Confirm your new email address — M3 Connect";
+        subject = "Confirm your new email address — Smart Marina Connect";
         html = buildEmail({
           greeting,
           title: "Email Change Confirmation",
@@ -111,29 +111,29 @@ Deno.serve(async (req: Request) => {
         });
         break;
       case "magiclink":
-        subject = "Your M3 Connect login link";
+        subject = "Your Smart Marina Connect login link";
         html = buildEmail({
           greeting,
           title: "Login Link",
-          body: "Click the button below to log in to your M3 Connect account.",
+          body: "Click the button below to log in to your Smart Marina Connect account.",
           buttonText: "Log In",
           buttonUrl: confirmUrl,
           footer: "If you did not request this login link, you can safely ignore this email.",
         });
         break;
       case "invite":
-        subject = "You're invited to M3 Connect";
+        subject = "You're invited to Smart Marina Connect";
         html = buildEmail({
           greeting: "Hello,",
           title: "You've Been Invited!",
-          body: "You have been invited to join M3 Connect, the B2B platform for the marina industry. Click the button below to accept your invitation and set up your account.",
+          body: "You have been invited to join Smart Marina Connect, the B2B platform for the marina industry. Click the button below to accept your invitation and set up your account.",
           buttonText: "Accept Invitation",
           buttonUrl: confirmUrl,
           footer: "If you were not expecting this invitation, you can safely ignore this email.",
         });
         break;
       default:
-        subject = "M3 Connect — Action Required";
+        subject = "Smart Marina Connect — Action Required";
         html = buildEmail({
           greeting,
           title: "Action Required",
@@ -220,7 +220,7 @@ function buildEmail({ greeting, title, body, buttonText, buttonUrl, footer }: Em
           <!-- Header -->
           <tr>
             <td style="background-color: #0c4a6e; padding: 32px 40px; text-align: center;">
-              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">M3 Connect</h1>
+              <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">Smart Marina Connect</h1>
               <p style="margin: 6px 0 0; color: #93c5fd; font-size: 13px; font-weight: 400;">The B2B platform for the marina industry</p>
             </td>
           </tr>
@@ -244,7 +244,7 @@ function buildEmail({ greeting, title, body, buttonText, buttonUrl, footer }: Em
           <!-- Footer -->
           <tr>
             <td style="padding: 24px 40px; background-color: #f9fafb; border-top: 1px solid #e5e7eb; text-align: center;">
-              <p style="margin: 0; color: #9ca3af; font-size: 12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management — M3 Connect</p>
+              <p style="margin: 0; color: #9ca3af; font-size: 12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management — Smart Marina Connect</p>
               <p style="margin: 4px 0 0; color: #9ca3af; font-size: 12px;">The B2B platform for the marina industry</p>
             </td>
           </tr>

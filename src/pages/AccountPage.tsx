@@ -563,7 +563,9 @@ export function AccountPage() {
   }
 
   const isMarina = profile.persona === 'marina';
-  const isPartner = profile.persona === 'partner' || profile.persona === 'media_partner';
+  const isPartnerOnly = profile.persona === 'partner';
+  const isMediaPartner = profile.persona === 'media_partner';
+  const isPartner = isPartnerOnly || isMediaPartner; // either partner type (for shared UI like B2B tabs)
   const org = organization;
 
   // Entitlement-aware feature access: native persona access OR admin-granted
@@ -586,10 +588,11 @@ export function AccountPage() {
 
   // Onboarding wizard step calculation
   // Step 1: Organization Details — complete when org exists
-  // Step 2: Reference (partners only) — complete when references submitted OR bypass pending/approved
+  // Step 2: Reference (partners only, NOT media) — complete when references submitted OR bypass pending/approved
   // Step 3 (or 2 for non-partners): Admin Review
   const referenceStepDone = referenceCount > 0 || bypassRequest?.status === 'pending' || bypassRequest?.status === 'approved';
-  const currentOnboardingStep = !org ? 1 : (isPartner && !referenceStepDone) ? 2 : (isPartner ? 3 : 2);
+  const needsReferences = isPartnerOnly; // only partners, not media_partner
+  const currentOnboardingStep = !org ? 1 : (needsReferences && !referenceStepDone) ? 2 : (needsReferences ? 3 : 2);
 
   // Notification badge counts for tabs
   const orgNeedsAction = profile.onboarding_status === 'draft' || !org;
@@ -614,7 +617,7 @@ export function AccountPage() {
         { value: 'webinars', label: 'Webinars', icon: <Radio className="h-4 w-4" /> },
         { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: canRFPs },
         { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: canConsultations },
-        { value: 'references', label: 'References', icon: <FileText className="h-4 w-4" />, show: isPartner, notifDot: isPartner && referenceCount === 0 },
+        { value: 'references', label: 'References', icon: <FileText className="h-4 w-4" />, show: isPartnerOnly, notifDot: isPartnerOnly && referenceCount === 0 },
         { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: canProjects || canRFPs || canConsultations || isPartner },
         { value: 'b2b-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, notifCount: pendingB2B },
         { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
@@ -971,8 +974,8 @@ export function AccountPage() {
                   <h2 className="text-lg font-bold mb-4">Complete Your Registration</h2>
                   <p className="text-sm text-gray-500 mb-6">
                     {currentOnboardingStep === 1 && 'Fill in your organization details to get started.'}
-                    {currentOnboardingStep === 2 && isPartner && 'Provide professional references or request a bypass.'}
-                    {currentOnboardingStep === (isPartner ? 3 : 2) && 'Your profile is submitted for review.'}
+                    {currentOnboardingStep === 2 && needsReferences && 'Provide professional references or request a bypass.'}
+                    {currentOnboardingStep === (needsReferences ? 3 : 2) && 'Your profile is submitted for review.'}
                   </p>
                   <div className="flex items-center gap-3 mb-2">
                     {/* Step 1: Organization */}
@@ -987,8 +990,8 @@ export function AccountPage() {
                       }`}>Organization</span>
                     </div>
                     <div className={`h-px flex-1 ${currentOnboardingStep > 1 ? 'bg-green-300' : 'bg-gray-200'}`} />
-                    {/* Step 2: Reference (partners only) */}
-                    {isPartner && (
+                    {/* Step 2: Reference (partners only, not media) */}
+                    {needsReferences && (
                       <>
                         <div className="flex items-center gap-2">
                           <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
@@ -1006,12 +1009,12 @@ export function AccountPage() {
                     {/* Step 3 (or 2): Admin Review */}
                     <div className="flex items-center gap-2">
                       <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        currentOnboardingStep === (isPartner ? 3 : 2) ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'
+                        currentOnboardingStep === (needsReferences ? 3 : 2) ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'
                       }`}>
-                        {isPartner ? '3' : '2'}
+                        {needsReferences ? '3' : '2'}
                       </div>
                       <span className={`text-sm font-medium ${
-                        currentOnboardingStep === (isPartner ? 3 : 2) ? 'text-primary' : 'text-gray-400'
+                        currentOnboardingStep === (needsReferences ? 3 : 2) ? 'text-primary' : 'text-gray-400'
                       }`}>Admin Review</span>
                     </div>
                   </div>
@@ -1023,8 +1026,8 @@ export function AccountPage() {
                 <OrganizationTab />
               )}
 
-              {/* ── Step 2: References (partners only) ── */}
-              {currentOnboardingStep === 2 && isPartner && (
+              {/* ── Step 2: References (partners only, not media) ── */}
+              {currentOnboardingStep === 2 && needsReferences && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -1044,7 +1047,7 @@ export function AccountPage() {
               )}
 
               {/* ── Step 3 (or 2 for non-partners): Admin Review ── */}
-              {currentOnboardingStep === (isPartner ? 3 : 2) && (
+              {currentOnboardingStep === (needsReferences ? 3 : 2) && (
                 <Card className="border-primary/20">
                   <CardContent className="pt-8 pb-8">
                     <div className="text-center space-y-4">
@@ -1710,8 +1713,8 @@ export function AccountPage() {
 
         {/* S3 Pre-Audit archived — will be deployed later */}
 
-        {/* ── REFERENCES (Partner only) ── */}
-        {isPartner && (
+        {/* ── REFERENCES (Partner only, not media) ── */}
+        {isPartnerOnly && (
           <TabsContent value="references">
             {referenceCount === 0 && (
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 flex items-start gap-3">

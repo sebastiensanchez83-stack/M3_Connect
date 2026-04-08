@@ -15,10 +15,6 @@ import {
 // ──────────────────────────────────────────────────────────────────────────────
 
 interface TierFeatures {
-  pricePartner: string;
-  priceMarina: string;
-  priceNote: string | null;
-  renewalPrice: string | null;
   connectRequests: string;
   webinarRequests: string;
   teamMembers: number;
@@ -51,10 +47,6 @@ const TIERS: OrgTier[] = [
 
 const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
   member: {
-    pricePartner: 'Free',
-    priceMarina: 'Free',
-    priceNote: null,
-    renewalPrice: null,
     connectRequests: '5',
     webinarRequests: 'Not included',
     teamMembers: 1,
@@ -72,10 +64,6 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     highlighted: false,
   },
   innovation_partner: {
-    pricePartner: '€3,000',
-    priceMarina: '€3,000',
-    priceNote: 'Annual invoice',
-    renewalPrice: '€2,500',
     connectRequests: '20',
     webinarRequests: '5 / year',
     teamMembers: 5,
@@ -93,10 +81,6 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     highlighted: false,
   },
   associate_partner: {
-    pricePartner: '€15,000',
-    priceMarina: '€15,000',
-    priceNote: 'Annual invoice',
-    renewalPrice: '€10,000',
     connectRequests: 'Unlimited',
     webinarRequests: 'Unlimited',
     teamMembers: 10,
@@ -114,10 +98,6 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     highlighted: true,
   },
   premium_partner: {
-    pricePartner: '€40,000',
-    priceMarina: '€40,000',
-    priceNote: 'Annual invoice',
-    renewalPrice: '€35,000',
     connectRequests: 'Unlimited',
     webinarRequests: 'Unlimited',
     teamMembers: 15,
@@ -135,10 +115,6 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     highlighted: false,
   },
   premium_sponsor: {
-    pricePartner: '€100,000',
-    priceMarina: '€100,000',
-    priceNote: 'Annual invoice',
-    renewalPrice: '€90,000',
     connectRequests: 'Unlimited',
     webinarRequests: 'Unlimited',
     teamMembers: 20,
@@ -156,10 +132,6 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     highlighted: false,
   },
   main_sponsor: {
-    pricePartner: '€150,000',
-    priceMarina: '€150,000',
-    priceNote: 'Annual invoice',
-    renewalPrice: '€150,000',
     connectRequests: 'Unlimited',
     webinarRequests: 'Unlimited',
     teamMembers: 25,
@@ -218,7 +190,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
   const persona = profile?.persona as PersonaType | undefined;
   const isMarina = persona === 'marina';
   const isMedia = persona === 'media_partner';
-  const getPrice = (config: TierFeatures) => (isMarina || isMedia) ? config.priceMarina : config.pricePartner;
+  // Pricing removed — all paid tiers show "Contact Us"
 
   return (
     <>
@@ -305,18 +277,13 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
 
                     {/* Price */}
                     <div className="mb-1">
-                      <span className="text-3xl font-bold text-gray-900">{getPrice(config)}</span>
+                      <span className="text-3xl font-bold text-gray-900">
+                        {tier === 'member' ? 'Free' : 'Contact Us'}
+                      </span>
                     </div>
                     <p className="text-xs text-gray-400">
-                      {tier === 'member'
-                        ? 'Free forever'
-                        : (config.priceNote || '')}
+                      {tier === 'member' ? 'Free forever' : 'Custom pricing'}
                     </p>
-                    {config.renewalPrice && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        Renewal: {config.renewalPrice}/year
-                      </p>
-                    )}
                   </CardHeader>
 
                   <CardContent className="flex flex-col flex-1 gap-5 px-5 pb-6">
@@ -429,20 +396,10 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                 </tr>
               </thead>
               <tbody>
-                {/* Pricing */}
+                {/* Features */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Pricing</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Plan Details</td>
                 </tr>
-                <ComparisonRow
-                  label="Price"
-                  values={TIERS.map((t) => getPrice(TIER_CONFIG[t]))}
-                  isText
-                />
-                <ComparisonRow
-                  label="Renewal"
-                  values={TIERS.map((t) => TIER_CONFIG[t].renewalPrice || '—')}
-                  isText
-                />
                 <ComparisonRow
                   label="Team members"
                   values={TIERS.map((t) => String(TIER_CONFIG[t].teamMembers))}

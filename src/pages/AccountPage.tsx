@@ -102,7 +102,7 @@ function formatBudgetRange(raw: string): string {
 
 export function AccountPage() {
   const { t } = useTranslation();
-  const { user, profile, organization, orgRole, loading: authLoading, isPaymentPending } = useAuth();
+  const { user, profile, organization, orgRole, loading: authLoading, isPaymentPending, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
@@ -221,8 +221,7 @@ export function AccountPage() {
 
       toast({ title: 'Profile updated', description: 'Your personal information has been saved.' });
       setEditingProfile(false);
-      // Force a page reload to refresh profile from AuthContext
-      window.location.reload();
+      await refreshProfile();
     } catch (err: unknown) {
       toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to update profile.', variant: 'destructive' });
     } finally {
@@ -260,8 +259,7 @@ export function AccountPage() {
         }
         toast({ title: 'Company logo updated' });
       }
-      // Refresh profile data
-      window.location.reload();
+      await refreshProfile();
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
     }
@@ -553,7 +551,7 @@ export function AccountPage() {
         <p className="text-gray-600 mb-2">Could not load your profile.</p>
         <p className="text-sm text-gray-400 mb-4">This may be due to a slow connection. Please try again.</p>
         <div className="flex gap-3 justify-center">
-          <Button onClick={() => window.location.reload()}>
+          <Button onClick={() => refreshProfile()}>
             Retry
           </Button>
           <Button variant="outline" onClick={() => navigate('/onboarding')}>
@@ -689,7 +687,7 @@ export function AccountPage() {
         </div>
       )}
 
-      {/* Membership payment required banner (partner accounts approved but unpaid) */}
+      {/* Membership payment required banner — only for sponsor upgrade requests */}
       {isPaymentPending && (
         <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-6">
           <div className="flex items-center justify-between gap-4">
@@ -698,8 +696,8 @@ export function AccountPage() {
                 <AlertCircle className="h-5 w-5 text-amber-600" />
               </div>
               <div>
-                <p className="text-amber-900 font-semibold">Registration Pending</p>
-                <p className="text-amber-700 text-sm">Your profile has been approved. Complete your annual membership payment (&euro;500) to finalize your registration.</p>
+                <p className="text-amber-900 font-semibold">Sponsorship Payment Pending</p>
+                <p className="text-amber-700 text-sm">Your sponsorship upgrade has been approved. Complete the payment to activate your sponsor benefits.</p>
               </div>
             </div>
             <Button
@@ -795,8 +793,8 @@ export function AccountPage() {
                         <AlertCircle className="h-6 w-6 text-amber-600" />
                       </div>
                       <div>
-                        <h3 className="font-semibold text-amber-900 text-lg">Finalize Your Registration</h3>
-                        <p className="text-sm text-amber-700">Your profile has been approved by M3. Complete your annual membership payment (&euro;500) to activate full platform access for your organization.</p>
+                        <h3 className="font-semibold text-amber-900 text-lg">Sponsorship Payment Pending</h3>
+                        <p className="text-sm text-amber-700">Your sponsorship upgrade has been approved. Complete the payment to activate your sponsor benefits.</p>
                       </div>
                     </div>
                     <Button
@@ -1310,6 +1308,30 @@ export function AccountPage() {
                   </Button>
                 </div>
               )}
+
+              {/* Security */}
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Security</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={async () => {
+                    if (!user?.email) return;
+                    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+                      redirectTo: `${window.location.origin}/account?tab=profile`,
+                    });
+                    if (error) {
+                      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+                    } else {
+                      toast({ title: 'Password reset email sent', description: 'Check your inbox for a link to reset your password.' });
+                    }
+                  }}
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  Change Password
+                </Button>
+              </div>
 
               {/* Preview profile button */}
               <div className="pt-4 border-t">

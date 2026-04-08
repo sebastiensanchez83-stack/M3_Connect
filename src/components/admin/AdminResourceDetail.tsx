@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import DOMPurify from 'dompurify';
 import {
   ArrowLeft, Save, Trash2, Loader2, Eye, UserPlus, Search,
   ChevronUp, ChevronDown, X, CheckCircle, XCircle,
@@ -464,7 +465,7 @@ export function AdminResourceDetail() {
               <p className="text-sm font-medium text-gray-600 mb-1">Content</p>
               <div
                 className="text-sm p-3 bg-gray-50 rounded border max-h-64 overflow-y-auto prose prose-sm"
-                dangerouslySetInnerHTML={{ __html: draft.content }}
+                dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(draft.content) }}
               />
             </div>
 
@@ -622,7 +623,7 @@ export function AdminResourceDetail() {
           </div>
           <div className="space-y-2">
             <Label>SEO Keywords</Label>
-            <Input value={form.seo_keywords} onChange={e => setForm({ ...form, seo_keywords: e.target.value })} placeholder="marina,sustainability,innovation" />
+            <Input value={form.seo_keywords} onChange={e => setForm({ ...form, seo_keywords: e.target.value })} placeholder="marina,sustainability,operations" />
             <p className="text-xs text-gray-500">Comma-separated target keywords.</p>
           </div>
 

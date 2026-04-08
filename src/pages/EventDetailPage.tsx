@@ -13,7 +13,7 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import {
   ChevronLeft, Calendar, Clock, MapPin, Users, Play,
   Download, DollarSign, UserCheck, AlertCircle, Loader2,
-  Video, Building2, ExternalLink, FileDown, Globe, Users as UsersIcon,
+  Video, Building2, ExternalLink, FileDown, Globe, Users as UsersIcon, Lock,
 } from 'lucide-react';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -50,6 +50,16 @@ interface EventDetail {
   created_at: string;
 }
 
+interface EventParticipant {
+  user_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+  job_title: string | null;
+  org_name: string | null;
+  org_logo_url: string | null;
+}
+
 export function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
@@ -60,6 +70,7 @@ export function EventDetailPage() {
   const [registrationCount, setRegistrationCount] = useState(0);
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
+  const [participants, setParticipants] = useState<EventParticipant[]>([]);
 
   const profileComplete = profile?.access_status === 'verified' && profile?.onboarding_status === 'completed';
 
@@ -95,6 +106,64 @@ export function EventDetailPage() {
     };
     fetchCount();
   }, [id]);
+
+  // Fetch participants (profiles + org info) for logged-in verified users
+  useEffect(() => {
+    if (!id || !user || !profileComplete) return;
+    const fetchParticipants = async () => {
+      // Step 1: Get registrations with profile data
+      const { data: regs, error: regsError } = await supabase
+        .from('event_registrations')
+        .select('user_id, profiles!inner(first_name, last_name, avatar_url, job_title, user_id)')
+        .eq('event_id', id);
+
+      if (regsError || !regs) {
+        if (import.meta.env.DEV) console.error('Error fetching participants:', regsError);
+        return;
+      }
+
+      // Extract unique user_ids
+      const userIds = regs.map((r: any) => r.user_id as string);
+
+      // Step 2: Get organization memberships for these users
+      let orgMap: Record<string, { name: string; logo_url: string | null }> = {};
+      if (userIds.length > 0) {
+        const { data: orgMembers } = await supabase
+          .from('organization_members')
+          .select('user_id, organizations(name, logo_url)')
+          .in('user_id', userIds);
+
+        if (orgMembers) {
+          for (const om of orgMembers as any[]) {
+            if (om.organizations) {
+              orgMap[om.user_id] = {
+                name: om.organizations.name,
+                logo_url: om.organizations.logo_url,
+              };
+            }
+          }
+        }
+      }
+
+      // Combine into EventParticipant[]
+      const combined: EventParticipant[] = regs.map((r: any) => {
+        const p = r.profiles;
+        const org = orgMap[r.user_id];
+        return {
+          user_id: r.user_id,
+          first_name: p?.first_name || null,
+          last_name: p?.last_name || null,
+          avatar_url: p?.avatar_url || null,
+          job_title: p?.job_title || null,
+          org_name: org?.name || null,
+          org_logo_url: org?.logo_url || null,
+        };
+      });
+
+      setParticipants(combined);
+    };
+    fetchParticipants();
+  }, [id, user, profileComplete]);
 
   const getAccessBadge = (level: string) => {
     switch (level) {
@@ -211,6 +280,71 @@ export function EventDetailPage() {
                 <div className="prose prose-gray max-w-none text-gray-600 leading-relaxed whitespace-pre-wrap">
                   {event.description}
                 </div>
+              </div>
+            )}
+
+            {/* Participants */}
+            {registrationCount > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <UserCheck className="h-5 w-5 text-primary" />
+                  Participants
+                  <span className="ml-auto text-sm font-normal text-gray-500">
+                    {registrationCount} registered
+                  </span>
+                </h2>
+                {user && profileComplete ? (
+                  participants.length > 0 ? (
+                    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {participants.map((p) => (
+                        <Link
+                          key={p.user_id}
+                          to={`/users/${p.user_id}`}
+                          className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                        >
+                          {p.avatar_url ? (
+                            <img
+                              src={p.avatar_url}
+                              alt={`${p.first_name || ''} ${p.last_name || ''}`}
+                              className="w-10 h-10 rounded-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                              {((p.first_name?.[0] || '') + (p.last_name?.[0] || '')).toUpperCase() || '?'}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="font-medium text-primary text-sm truncate">
+                              {[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Member'}
+                            </div>
+                            {p.job_title && (
+                              <div className="text-xs text-gray-500 truncate">{p.job_title}</div>
+                            )}
+                            {p.org_name && (
+                              <div className="text-xs text-gray-400 truncate">{p.org_name}</div>
+                            )}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">Loading participants...</div>
+                  )
+                ) : (
+                  <div className="flex items-center gap-3 p-4 rounded-lg bg-gray-50 text-gray-600">
+                    <Lock className="h-5 w-5 text-gray-400 shrink-0" />
+                    <span className="text-sm">
+                      {registrationCount} participant{registrationCount !== 1 ? 's' : ''} registered &mdash;{' '}
+                      <button
+                        className="text-primary hover:underline font-medium"
+                        onClick={() => setLoginOpen(true)}
+                      >
+                        Log in
+                      </button>{' '}
+                      to see who's attending.
+                    </span>
+                  </div>
+                )}
               </div>
             )}
 

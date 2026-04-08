@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
+import DOMPurify from 'dompurify';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +17,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { AdBanner } from '@/components/ui/AdBanner';
 
 interface Resource {
   id: string;
@@ -283,7 +285,7 @@ export function ResourceDetailPage() {
               <article className="pb-8">
                 <div
                   className="article-content text-gray-700 leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: resource.content }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(resource.content) }}
                 />
               </article>
             )}
@@ -308,7 +310,7 @@ export function ResourceDetailPage() {
               <div className="relative overflow-hidden max-h-64">
                 <div
                   className="article-content text-gray-700 leading-relaxed select-none"
-                  dangerouslySetInnerHTML={{ __html: resource.content }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(resource.content) }}
                   style={{ filter: 'blur(5px)', pointerEvents: 'none' }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/60 to-white" />
@@ -349,6 +351,9 @@ export function ResourceDetailPage() {
             </div>
           </div>
         )}
+
+        {/* Sponsor Ad Banner */}
+        <AdBanner placement="resources" className="my-6" />
 
         {/* Tags */}
         {resource.tags && resource.tags.length > 0 && (

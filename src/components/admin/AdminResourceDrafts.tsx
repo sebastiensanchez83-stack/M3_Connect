@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import DOMPurify from 'dompurify';
 import { RefreshCw, Eye, CheckCircle, XCircle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -381,7 +382,7 @@ export function AdminResourceDrafts() {
                 <p className="text-sm font-medium text-gray-600 mb-1">{t('admin.resourceDrafts.content')}</p>
                 <div
                   className="text-sm p-3 bg-gray-50 rounded border max-h-52 overflow-y-auto prose prose-sm"
-                  dangerouslySetInnerHTML={{ __html: selected.content }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(selected.content) }}
                 />
               </div>
 

@@ -51,8 +51,8 @@ const TIERS: OrgTier[] = [
 
 const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
   member: {
-    pricePartner: '€500',
-    priceMarina: '€0',
+    pricePartner: 'Free',
+    priceMarina: 'Free',
     priceNote: null,
     renewalPrice: null,
     connectRequests: '5',
@@ -66,7 +66,7 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: false,
-    ctaLabel: 'Join as Member',
+    ctaLabel: 'Join for Free',
     ctaHref: '/become-partner',
     ctaVariant: 'outline',
     highlighted: false,
@@ -87,8 +87,8 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: false,
-    ctaLabel: 'Request upgrade',
-    ctaHref: '/account?tab=organization',
+    ctaLabel: 'Contact Us',
+    ctaHref: '/contact',
     ctaVariant: 'default',
     highlighted: false,
   },
@@ -108,8 +108,8 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: true,
-    ctaLabel: 'Request upgrade',
-    ctaHref: '/account?tab=organization',
+    ctaLabel: 'Contact Us',
+    ctaHref: '/contact',
     ctaVariant: 'default',
     highlighted: true,
   },
@@ -129,8 +129,8 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: true,
-    ctaLabel: 'Request upgrade',
-    ctaHref: '/account?tab=organization',
+    ctaLabel: 'Contact Us',
+    ctaHref: '/contact',
     ctaVariant: 'default',
     highlighted: false,
   },
@@ -150,8 +150,8 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: true,
-    ctaLabel: 'Request upgrade',
-    ctaHref: '/account?tab=organization',
+    ctaLabel: 'Contact Us',
+    ctaHref: '/contact',
     ctaVariant: 'default',
     highlighted: false,
   },
@@ -171,8 +171,8 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: true,
-    ctaLabel: 'Request upgrade',
-    ctaHref: '/account?tab=organization',
+    ctaLabel: 'Contact Us',
+    ctaHref: '/contact',
     ctaVariant: 'default',
     highlighted: false,
   },
@@ -309,7 +309,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                     </div>
                     <p className="text-xs text-gray-400">
                       {tier === 'member'
-                        ? (isMarina || isMedia ? 'Free forever' : 'Annual membership fee')
+                        ? 'Free forever'
                         : (config.priceNote || '')}
                     </p>
                     {config.renewalPrice && (
@@ -365,21 +365,6 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                     {isCurrentPlan ? (
                       <Button disabled className="w-full rounded-xl" variant="outline">
                         Current plan
-                      </Button>
-                    ) : tier === 'member' && profile ? (
-                      <Button
-                        variant={config.ctaVariant}
-                        className="w-full rounded-xl group"
-                        onClick={() => {
-                          navigate(
-                            organization
-                              ? '/account?tab=organization&action=pay-membership'
-                              : '/account?tab=organization'
-                          );
-                        }}
-                      >
-                        {config.ctaLabel}
-                        <ArrowRight className="h-4 w-4 ml-1.5 group-hover:translate-x-0.5 transition-transform" />
                       </Button>
                     ) : (
                       <Button

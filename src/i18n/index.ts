@@ -25,8 +25,8 @@ const resources = {
       },
       // Homepage
       home: {
-        heroTitle: 'The Platform for Marina Innovation',
-        heroSubtitle: 'Connecting marinas with industry partners to drive sustainable innovation in the waterfront sector.',
+        heroTitle: 'The B2B Platform for the Marina Industry',
+        heroSubtitle: 'Connecting marinas with qualified industry partners to grow, operate, and succeed together.',
         exploreResources: 'Explore Resources',
         becomePartner: 'Become a Partner',
         stats: {
@@ -111,7 +111,7 @@ const resources = {
       // Partners
       partners: {
         title: 'Our Partners',
-        subtitle: 'Industry leaders driving innovation in the marina sector.',
+        subtitle: 'Industry leaders serving the global marina sector.',
         filterBySector: 'Filter by sector',
         allSectors: 'All Sectors',
         visitWebsite: 'Visit Website',
@@ -140,7 +140,7 @@ const resources = {
           },
           codevelop: {
             title: 'Co-develop Projects',
-            desc: 'Collaborate on innovative marina projects.',
+            desc: 'Collaborate on marina projects and RFPs.',
           },
           recognition: {
             title: 'Industry Recognition',
@@ -736,7 +736,7 @@ const resources = {
             'Visibility to 500+ marinas',
             'Access to projects and requests for proposals',
             'Listed in the partner directory',
-            'Co-development and innovation',
+            'Co-development and collaboration',
           ],
           cta: 'Become a Partner',
         },
@@ -756,8 +756,8 @@ const resources = {
         benefit1Desc: 'Connect with marina industry professionals in 8+ countries.',
         benefit2Title: 'Verified Community',
         benefit2Desc: 'Every member is verified by our team to ensure quality exchanges.',
-        benefit3Title: 'Innovation',
-        benefit3Desc: 'Access the latest innovations and projects in the maritime sector.',
+        benefit3Title: 'Industry Insights',
+        benefit3Desc: 'Access the latest projects, resources, and opportunities in the marina sector.',
         benefit4Title: 'Support',
         benefit4Desc: 'Our team supports you at every stage of your integration.',
         readyTitle: 'Ready to Join?',
@@ -1015,8 +1015,8 @@ const resources = {
       },
       // Homepage
       home: {
-        heroTitle: "La Plateforme de l'Innovation Marina",
-        heroSubtitle: 'Connecter les marinas aux partenaires industriels pour une innovation durable dans le secteur portuaire.',
+        heroTitle: "La Plateforme B2B de l'Industrie Marina",
+        heroSubtitle: 'Connecter les marinas aux partenaires qualifi\u00e9s pour grandir, op\u00e9rer et r\u00e9ussir ensemble.',
         exploreResources: 'Explorer les Ressources',
         becomePartner: 'Devenir Partenaire',
         stats: {
@@ -1101,7 +1101,7 @@ const resources = {
       // Partners
       partners: {
         title: 'Nos Partenaires',
-        subtitle: "Leaders de l'industrie, moteurs de l'innovation marina.",
+        subtitle: "Leaders de l'industrie au service du secteur marina mondial.",
         filterBySector: 'Filtrer par secteur',
         allSectors: 'Tous les Secteurs',
         visitWebsite: 'Visiter le Site',
@@ -1726,7 +1726,7 @@ const resources = {
             'Visibilité auprès de 500+ marinas',
             "Accès aux projets et appels d'offres",
             "Référencement dans l'annuaire partenaires",
-            'Co-développement et innovation',
+            'Co-d\u00e9veloppement et collaboration',
           ],
           cta: 'Devenir Partenaire',
         },
@@ -1746,8 +1746,8 @@ const resources = {
         benefit1Desc: "Connectez-vous avec des professionnels de l'industrie marina dans plus de 8 pays.",
         benefit2Title: 'Communauté Vérifiée',
         benefit2Desc: 'Chaque membre est vérifié par notre équipe pour garantir la qualité des échanges.',
-        benefit3Title: 'Innovation',
-        benefit3Desc: 'Accédez aux dernières innovations et projets du secteur maritime.',
+        benefit3Title: 'Veille Sectorielle',
+        benefit3Desc: 'Acc\u00e9dez aux derniers projets, ressources et opportunit\u00e9s du secteur marina.',
         benefit4Title: 'Accompagnement',
         benefit4Desc: "Notre équipe vous accompagne à chaque étape de votre intégration.",
         readyTitle: 'Prêt à nous rejoindre ?',

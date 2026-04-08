@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2, Newspaper, BarChart3, CheckCircle, Globe, Shield, UserPlus, ClipboardCheck, Unlock, Eye, Link2, Inbox, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { AdBanner } from '@/components/ui/AdBanner';
 
 interface FeaturedResource {
   id: string;
@@ -566,6 +567,13 @@ export function HomePage() {
               </div>
             </div>
           )}
+        </div>
+      </section>
+
+      {/* Sponsor Ad Banner */}
+      <section className="py-4">
+        <div className="container mx-auto px-4">
+          <AdBanner placement="homepage" />
         </div>
       </section>
 

@@ -670,7 +670,7 @@ export function OrganizationTab() {
         email: inviteForm.email.trim().toLowerCase(),
         data: {
           org_name: org.name || 'An organization',
-          inviter_name: `${user?.email?.split('@')[0] || 'A team member'}`,
+          inviter_name: profile?.first_name ? `${profile.first_name}${profile.last_name ? ' ' + profile.last_name : ''}` : user?.email?.split('@')[0] || 'A team member',
           signup_url: inviteUrl,
           first_name: inviteForm.firstName.trim() || '',
         },
@@ -711,7 +711,7 @@ export function OrganizationTab() {
         email: invEmail,
         data: {
           org_name: org?.name || 'Your organization',
-          inviter_name: `${user?.email?.split('@')[0] || 'The owner'}`,
+          inviter_name: profile?.first_name ? `${profile.first_name}${profile.last_name ? ' ' + profile.last_name : ''}` : user?.email?.split('@')[0] || 'The owner',
           signup_url: window.location.origin,
           first_name: '',
         },
@@ -1815,7 +1815,7 @@ export function OrganizationTab() {
                               email: inv.email,
                               data: {
                                 org_name: org.name || 'An organization',
-                                inviter_name: `${user?.email?.split('@')[0] || 'A team member'}`,
+                                inviter_name: profile?.first_name ? `${profile.first_name}${profile.last_name ? ' ' + profile.last_name : ''}` : user?.email?.split('@')[0] || 'A team member',
                                 signup_url: reminderUrl,
                                 first_name: inv.first_name || '',
                               },

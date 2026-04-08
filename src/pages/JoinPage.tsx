@@ -116,11 +116,26 @@ export function JoinPage() {
       }
 
       // Store invite in localStorage for persistence through auth flows
-      localStorage.setItem('m3_pending_invite', inviteId);
+      // Uses same key as invite-store.ts ('m3_pending_invite')
+      localStorage.setItem('m3_pending_invite', inviteId!);
 
       // Determine: is user logged in? do they need signup or login?
       if (user && profile) {
-        // Already logged in — show accept button
+        // Check if logged-in user's email matches the invitation
+        const userEmail = user.email?.toLowerCase();
+        const inviteEmail = info.email.toLowerCase();
+        if (userEmail && userEmail !== inviteEmail) {
+          // Wrong account — clear invite and redirect to account
+          clearStoredInvite();
+          toast({
+            title: 'Wrong account',
+            description: `This invitation is for ${info.email}. You are logged in as ${userEmail}. Please log out first or share the link with the right person.`,
+            variant: 'destructive',
+          });
+          navigate('/account', { replace: true });
+          return;
+        }
+        // Correct account — show accept button
         setPageState('accept');
       } else {
         // Check if this email already has an account

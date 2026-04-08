@@ -21,7 +21,7 @@ export function AboutPage() {
           <p className="text-xl text-white/90 max-w-3xl leading-relaxed">
             {t(
               'about.hero',
-              'The B2B platform dedicated to the global marina industry. We connect marinas, technology partners, and media professionals to drive innovation and sustainable growth across the sector.'
+              'The B2B platform dedicated to the global marina industry. We connect marinas with qualified partners and media professionals to foster collaboration, knowledge sharing, and business growth across the sector.'
             )}
           </p>
         </div>
@@ -39,7 +39,7 @@ export function AboutPage() {
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl">
             {t(
               'about.mission',
-              'Our mission is to foster innovation, collaboration, and sustainable growth across the global marina ecosystem by providing a centralized platform for knowledge sharing, networking, and business development.'
+              'Our mission is to foster collaboration, knowledge sharing, and sustainable growth across the global marina ecosystem by providing a centralized platform for networking and business development.'
             )}
           </p>
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl mt-4">
@@ -100,7 +100,7 @@ export function AboutPage() {
                 <p className="text-gray-600">
                   {t(
                     'about.feature3Desc',
-                    'Participate in industry events, conferences, and webinars. Network with peers, discover innovations, and stay ahead of market developments.'
+                    'Participate in industry events, conferences, and webinars. Network with peers and stay ahead of market developments.'
                   )}
                 </p>
               </CardContent>
@@ -129,7 +129,7 @@ export function AboutPage() {
               <p className="text-gray-600">
                 {t(
                   'about.audience1Desc',
-                  'Marina operators and managers looking for innovative solutions, industry knowledge, and qualified partners to improve their operations and services.'
+                  'Marina operators and managers looking for qualified partners, industry knowledge, and proven solutions to improve their operations and services.'
                 )}
               </p>
             </div>
@@ -179,7 +179,7 @@ export function AboutPage() {
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl">
             {t(
               'about.companyDesc',
-              'M3 Connect is operated by Monaco Marina Management (M3), based in the Principality of Monaco. With deep expertise in the marina industry, M3 is committed to advancing the sector through digital innovation and professional networking.'
+              'M3 Connect is operated by Monaco Marina Management (M3), based in the Principality of Monaco. With deep expertise in the marina industry, M3 is committed to advancing the sector through professional networking and business development.'
             )}
           </p>
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl mt-4">

@@ -228,6 +228,7 @@ export function OnboardingPage() {
         }
 
         // ── Priority 2: Check for pending invitation by email (RPC fallback) ──
+        if (!user.email) { setResolving(false); return; }
         const { data: invData } = await supabase.rpc('check_pending_invitation', { p_email: user.email });
         if (invData && invData.length > 0) {
           setPendingInvitation(invData[0] as PendingInvitationResult);
@@ -304,7 +305,7 @@ export function OnboardingPage() {
       if (error) throw error;
       clearStoredInvite();
       // Re-fetch profile to get updated state
-      const { data: freshProfile } = await supabase.from('profiles').select('first_name, last_name').eq('user_id', user!.id).single();
+      const { data: freshProfile } = await supabase.from('profiles').select('first_name, last_name').eq('user_id', user!.id).maybeSingle();
       await refreshProfile();
       toast({ title: 'Welcome!', description: `You've joined ${pendingInvitation.organization_name}` });
       // Only show completion form if name is truly missing (wasn't provided at signup)

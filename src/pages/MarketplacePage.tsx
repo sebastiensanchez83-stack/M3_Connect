@@ -21,6 +21,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector, OrgTier } from '@/types/database';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
+import { AdBanner } from '@/components/ui/AdBanner';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 
@@ -158,7 +159,8 @@ export function MarketplacePage() {
       .from('partner_requests')
       .select('marina_user_id, sector_id')
       .eq('partner_user_id', user.id)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) { console.error('[Marketplace] Failed to fetch partner interests:', error); return; }
         if (data) {
           // Composite key: marina_user_id::sector_id to track per-RFP/consultation
           setExistingInterests(new Set(data.map((r: { marina_user_id: string; sector_id: string | null }) => `${r.marina_user_id}::${r.sector_id || ''}`)));
@@ -233,7 +235,8 @@ export function MarketplacePage() {
       .select('*')
       .eq('is_active', true)
       .order('label')
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) { console.error('[Marketplace] Failed to fetch sectors:', error); return; }
         if (data) setSectors(data as Sector[]);
       });
   }, []);
@@ -737,6 +740,7 @@ export function MarketplacePage() {
       </section>
 
       <div className="container mx-auto px-4 py-6">
+        <AdBanner placement="marketplace" className="mb-6" />
         <Tabs defaultValue="partners" className="space-y-6">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="partners" className="flex items-center gap-2">

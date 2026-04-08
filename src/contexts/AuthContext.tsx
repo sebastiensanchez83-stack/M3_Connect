@@ -345,6 +345,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── signOut ────────────────────────────────────────────────────────
   const signOut = async () => {
+    // Clear any pending invite token from localStorage
+    try { localStorage.removeItem('m3_pending_invite') } catch (_) { /* ignore */ }
     profileLoadedRef.current = false
     setProfileTimedOut(false)
     setUser(null)

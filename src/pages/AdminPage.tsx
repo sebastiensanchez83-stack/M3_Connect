@@ -29,6 +29,8 @@ import {
   AdminRFPs,
   AdminConsultations,
   AdminPlatformSettings,
+  AdminBanners,
+  AdminBannerDetail,
 } from '@/components/admin';
 
 /* ─── Admin-only Route Guard ─── */
@@ -83,6 +85,8 @@ export function AdminPage() {
           <Route path="/rfps/:id" element={<AdminOnlyGuard><AdminRFPDetail /></AdminOnlyGuard>} />
           <Route path="/consultations" element={<AdminOnlyGuard><AdminConsultations /></AdminOnlyGuard>} />
           <Route path="/consultations/:id" element={<AdminOnlyGuard><AdminConsultationDetail /></AdminOnlyGuard>} />
+          <Route path="/banners" element={<AdminOnlyGuard><AdminBanners /></AdminOnlyGuard>} />
+          <Route path="/banners/:id" element={<AdminOnlyGuard><AdminBannerDetail /></AdminOnlyGuard>} />
           <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
         </Routes>
       </div>

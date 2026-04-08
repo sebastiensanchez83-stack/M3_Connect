@@ -117,7 +117,7 @@ export function OrganizationTab() {
   // Membership payment
   const [showMembershipPayment, setShowMembershipPayment] = useState(false);
   const [membershipPaid, setMembershipPaid] = useState(false);
-  const [memberPaid, setMemberPaid] = useState(false);
+  // memberPaid removed — member tier is always free
 
   // Additional seats payment
   const [showSeatPayment, setShowSeatPayment] = useState(false);
@@ -495,17 +495,13 @@ export function OrganizationTab() {
       if (selectedPlan !== 'member') {
         setPendingUpgradePlan(selectedPlan);
       }
-      const chosePaidMember = memberPaid;
       setSelectedPlan('member');
-      setMemberPaid(false);
       await fetchOrg();
       // Auto-open edit mode so user can complete sector selection
       setTimeout(() => setEditing(true), 500);
       toast({
         title: 'Organization created!',
-        description: chosePaidMember
-          ? 'Complete your profile details below. You can pay the \u20AC500 membership fee now or later from your account.'
-          : 'Now complete your profile by adding your service sectors and details below.',
+        description: 'Now complete your profile by adding your service sectors and details below.',
         duration: 8000,
       });
     } catch (err: unknown) {
@@ -896,7 +892,7 @@ export function OrganizationTab() {
                   <div className="flex gap-3 justify-end">
                     <Button
                       variant="outline"
-                      onClick={() => { setShowCreateForm(false); setCreateStep('details'); setSelectedPlan('member'); setMemberPaid(false); }}
+                      onClick={() => { setShowCreateForm(false); setCreateStep('details'); setSelectedPlan('member'); }}
                     >
                       {t('common.cancel')}
                     </Button>
@@ -920,35 +916,30 @@ export function OrganizationTab() {
               {createStep === 'plan' && (
                 <>
                   <p className="text-sm text-gray-500">
-                    Choose your access level. Basic is free with limited features. Member unlocks the full platform. Sponsorship packages are confirmed by annual bank invoice.
+                    Choose your membership tier. Member access is free. Sponsorship packages provide enhanced visibility and are confirmed by M3 after your organization is created.
                   </p>
                   <div className="grid gap-2">
                     {([
-                      { tier: 'member' as OrgTier, price: 'Free', note: 'Basic access only', seats: 1, paid: false,
-                        features: 'Register for events & webinars, view public content' },
-                      { tier: 'member' as OrgTier, price: '€500/year', note: 'Full platform access', seats: 1, paid: true,
-                        features: '5 connect requests, member resources & events, network directory', recommended: true },
-                      { tier: 'innovation_partner' as OrgTier, price: '€3,000/year', note: 'Annual invoice', seats: 5, paid: false,
+                      { tier: 'member' as OrgTier, price: 'Free', note: 'Full platform access', seats: 1,
+                        features: 'Events & webinars, connect requests, member resources, network directory', recommended: true },
+                      { tier: 'innovation_partner' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 5,
                         features: '20 connect requests, webinar proposals, all content access' },
-                      { tier: 'associate_partner' as OrgTier, price: '€15,000/year', note: 'Annual invoice', seats: 10, paid: false,
+                      { tier: 'associate_partner' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 10,
                         features: 'Unlimited connects, priority events, sponsor badge' },
-                      { tier: 'premium_partner' as OrgTier, price: '€40,000/year', note: 'Annual invoice', seats: 15, paid: false,
+                      { tier: 'premium_partner' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 15,
                         features: 'Unlimited connects, VIP events, priority support' },
-                      { tier: 'premium_sponsor' as OrgTier, price: '€100,000/year', note: 'Annual invoice', seats: 20, paid: false,
+                      { tier: 'premium_sponsor' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 20,
                         features: 'Full VIP experience, maximum visibility' },
-                      { tier: 'main_sponsor' as OrgTier, price: '€150,000/year', note: 'Annual invoice', seats: 25, paid: false,
+                      { tier: 'main_sponsor' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 25,
                         features: 'Title sponsor, exclusive benefits' },
-                    ]).map(({ tier, price, note, seats, paid, features, recommended }) => {
+                    ]).map(({ tier, price, note, seats, features, recommended }) => {
                       const colors = TIER_COLORS[tier];
-                      const uniqueKey = paid ? `${tier}-paid` : tier;
-                      const isSelected = paid
-                        ? (selectedPlan === tier && memberPaid)
-                        : (selectedPlan === tier && !memberPaid);
+                      const isSelected = selectedPlan === tier;
                       return (
                         <button
-                          key={uniqueKey}
+                          key={tier}
                           type="button"
-                          onClick={() => { setSelectedPlan(tier); setMemberPaid(!!paid); }}
+                          onClick={() => { setSelectedPlan(tier); }}
                           className={`relative w-full text-left rounded-lg border-2 px-4 py-3 transition-all ${
                             isSelected
                               ? 'border-primary bg-primary/5'
@@ -965,7 +956,7 @@ export function OrganizationTab() {
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold border ${colors.bg} ${colors.text} ${colors.border}`}>
-                                {paid && tier === 'member' ? 'Member' : (!paid && tier === 'member') ? 'Basic Access' : TIER_LABELS[tier]}
+                                {TIER_LABELS[tier]}
                               </span>
                               <span className="text-xs text-gray-500">Up to {seats} seat{seats > 1 ? 's' : ''}</span>
                               {isSelected && <CheckCircle className="h-4 w-4 text-primary" />}
@@ -983,11 +974,6 @@ export function OrganizationTab() {
                   {selectedPlan !== 'member' && (
                     <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded p-2">
                       A sponsorship upgrade request will be submitted automatically after your organization is created. M3 will contact you with invoice details.
-                    </p>
-                  )}
-                  {selectedPlan === 'member' && !memberPaid && (
-                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded p-2">
-                      Basic access is free but limited. Upgrade to Member anytime to unlock full platform features.
                     </p>
                   )}
                   <div className="flex gap-3 justify-end pt-2 border-t">
@@ -1022,7 +1008,7 @@ export function OrganizationTab() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-amber-900">Complete Your Membership Payment</h3>
-                  <p className="text-sm text-amber-700">Your account has been approved by M3. Pay the €500 annual membership fee to activate full platform access for your organization.</p>
+                  <p className="text-sm text-amber-700">Your account has been approved by M3. Complete your payment to activate your sponsorship tier for your organization.</p>
                 </div>
               </div>
               <Button
@@ -1030,7 +1016,7 @@ export function OrganizationTab() {
                 onClick={() => setShowMembershipPayment(true)}
               >
                 <CreditCard className="h-4 w-4 mr-2" />
-                Pay €500
+                Complete Payment
               </Button>
             </div>
           </CardContent>
@@ -2041,7 +2027,7 @@ export function OrganizationTab() {
         </DialogContent>
       </Dialog>
 
-      {/* Membership Payment Dialog (€500 for partner/media) */}
+      {/* Membership Payment Dialog (sponsorship tiers) */}
       <Dialog open={showMembershipPayment} onOpenChange={setShowMembershipPayment}>
         <DialogContent className="max-w-md">
           <DialogHeader>
@@ -2050,7 +2036,7 @@ export function OrganizationTab() {
               Membership Payment
             </DialogTitle>
             <DialogDescription>
-              Complete your €500 annual membership fee to activate your organization on M3 Connect.
+              Complete your payment to activate your organization on M3 Connect.
             </DialogDescription>
           </DialogHeader>
           {membershipPaid ? (
@@ -2069,7 +2055,7 @@ export function OrganizationTab() {
                 paymentType="membership"
                 organizationId={org?.id}
                 label="Annual Membership Fee"
-                description="€500.00 — M3 Connect annual membership for your organization"
+                description="M3 Connect membership payment for your organization"
                 onSuccess={() => {
                   setMembershipPaid(true);
                   toast({ title: 'Membership activated', description: 'Your membership payment has been processed successfully. You now have full access!' });
@@ -2154,7 +2140,7 @@ export function OrganizationTab() {
             <DialogDescription>
               {isSponsorTier(org.tier as OrgTier)
                 ? `You are currently a ${TIER_LABELS[org.tier as OrgTier]}. Submit an upgrade request and M3 will contact you with details about the higher tier package. Your existing sponsorship investment will be accounted for.`
-                : 'Submit a sponsorship request to M3 Monaco. Our team will contact you with details about the selected package. Your current membership fee (€500) will be deducted from the sponsor package price.'}
+                : 'Submit a sponsorship request to M3 Monaco. Our team will contact you with details about the selected package.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
@@ -2218,7 +2204,7 @@ export function OrganizationTab() {
               <ol className="list-decimal ml-4 space-y-1 text-blue-700">
                 <li>Submit your sponsorship request</li>
                 <li>M3 team will contact you with pricing details</li>
-                <li>Upload your invoice when received (€500 membership deducted)</li>
+                <li>Upload your invoice when received</li>
                 <li>Once payment is confirmed, your tier is upgraded</li>
               </ol>
             </div>

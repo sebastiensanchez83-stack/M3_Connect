@@ -315,7 +315,7 @@ export function HomePage() {
                 </Button>
               </div>
               {/* Trust indicators */}
-              <div className="flex flex-wrap justify-center gap-6 mt-8 text-sm text-gray-200">
+              <div className="flex flex-wrap justify-center gap-3 sm:gap-6 mt-8 text-xs sm:text-sm text-gray-200">
                 <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustFree', 'Free for Marinas')}</span>
                 <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustVerified', 'Verified Partners')}</span>
                 <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustEvents', 'Industry Events & Resources')}</span>
@@ -381,7 +381,7 @@ export function HomePage() {
             <h2 className="text-3xl font-bold text-center text-primary mb-10">
               {t('home.howItWorksTitle', 'How It Works')}
             </h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 max-w-4xl mx-auto">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6 max-w-4xl mx-auto">
               {[
                 { icon: <UserPlus className="h-6 w-6 text-white" />, title: t('home.step1', 'Create Your Free Account'), num: '1' },
                 { icon: <Building2 className="h-6 w-6 text-white" />, title: t('home.step2', 'Complete Your Organization Profile'), num: '2' },
@@ -411,8 +411,8 @@ export function HomePage() {
                 <div>
                   <p className="text-sm font-medium text-amber-900">
                     {!organization
-                      ? 'Complete your organization profile to unlock all platform features.'
-                      : 'Your profile setup is not yet complete. Finish it to get the most out of M3 Connect.'}
+                      ? t('home.completeOrgBanner', 'Complete your organization profile to unlock all platform features.')
+                      : t('home.completeOrgBanner', 'Complete your organization profile to unlock all platform features.')}
                   </p>
                 </div>
               </div>
@@ -548,7 +548,7 @@ export function HomePage() {
               </Link>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-8 text-center">
               <div>
                 <div className="text-3xl md:text-4xl font-bold text-primary">{stats.marinas ? `${stats.marinas}+` : '—'}</div>
                 <div className="text-gray-600">{t('home.stats.marinas', 'Marinas Worldwide')}</div>
@@ -680,7 +680,7 @@ export function HomePage() {
               <p className="text-gray-500">{t('home.noPartners', 'Partner directory launching soon.')}</p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-4 sm:gap-6">
               {partnerPreviews.map((partner) => (
                 <Link
                   key={partner.id}

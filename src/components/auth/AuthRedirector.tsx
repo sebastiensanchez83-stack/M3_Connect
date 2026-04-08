@@ -4,17 +4,25 @@ import { useAuth } from '@/contexts/AuthContext'
 import { getStoredInvite } from '@/lib/invite-store'
 import { toast } from '@/hooks/use-toast'
 
-// Known protected routes that require authentication
-const protectedExactRoutes = new Set<string>([
+// Routes that should hard-redirect when logged out (no showLocked behavior)
+const hardRedirectExactRoutes = new Set<string>([
   '/account', '/onboarding',
 ])
 
-const protectedPrefixes = ['/admin', '/submit-project', '/submit-rfp', '/submit-consultation', '/request-webinar']
+const hardRedirectPrefixes = ['/admin']
+
+// Routes with showLocked — ProtectedRoute handles these, not AuthRedirector
+const showLockedPrefixes = ['/submit-project', '/submit-rfp', '/submit-consultation', '/request-webinar']
+
+function isHardRedirectRoute(pathname: string): boolean {
+  if (hardRedirectExactRoutes.has(pathname)) return true
+  if (pathname.startsWith('/account?')) return true
+  return hardRedirectPrefixes.some((prefix) => pathname.startsWith(prefix))
+}
 
 function isProtectedRoute(pathname: string): boolean {
-  if (protectedExactRoutes.has(pathname)) return true
-  if (pathname.startsWith('/account?')) return true
-  return protectedPrefixes.some((prefix) => pathname.startsWith(prefix))
+  if (isHardRedirectRoute(pathname)) return true
+  return showLockedPrefixes.some((prefix) => pathname.startsWith(prefix))
 }
 
 export function AuthRedirector() {
@@ -32,12 +40,13 @@ export function AuthRedirector() {
     // Never interfere with the /join/:inviteId page — it handles its own auth flow
     if (isJoinRoute) return
 
-    // Logged out: allow public routes only
+    // Logged out: hard-redirect protected routes (but let showLocked routes render their own locked state)
     if (!user) {
-      if (isProtectedRoute(pathname)) {
+      if (isHardRedirectRoute(pathname)) {
         toast({ title: 'Please log in to access this page.', variant: 'destructive' })
         navigate('/', { replace: true })
       }
+      // showLocked routes (/submit-project, /submit-rfp, etc.) are handled by ProtectedRoute
       return
     }
 

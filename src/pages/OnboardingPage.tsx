@@ -157,13 +157,19 @@ export function OnboardingPage() {
     // If there's a pending invite, skip ALL redirects — let resolveOrg handle it
     if (hasPendingInvite) return;
 
+    // While resolving org (checking invites/domain match), don't redirect
+    if (resolving) return;
+
+    // If resolve step found a domain match or pending invitation, stay on onboarding
+    if (step === 'resolve' && (detectedOrg || pendingInvitation || joinRequested)) return;
+
     // Completed or submitted → always go to account
     if (profile?.onboarding_status === 'completed') { navigate('/account', { replace: true }); return; }
     if (profile?.onboarding_status === 'submitted' && profile?.access_status !== 'rejected') {
       navigate('/account', { replace: true }); return;
     }
-    // Draft status (new user after email confirm) → go to account, complete from there
-    if (profile?.onboarding_status === 'draft' && profile?.access_status !== 'rejected') {
+    // Draft status — only redirect if resolve step didn't find a match (step moved to 'org-form')
+    if (profile?.onboarding_status === 'draft' && profile?.access_status !== 'rejected' && step === 'org-form') {
       navigate('/account?tab=organization', { replace: true }); return;
     }
     // If already has org, redirect to account
@@ -171,7 +177,7 @@ export function OnboardingPage() {
       navigate('/account', { replace: true }); return;
     }
     // If AuthContext didn't load org (timeout), double-check directly
-    if (profile && !hasOrganization) {
+    if (profile && !hasOrganization && step === 'org-form') {
       supabase
         .from('organization_members')
         .select('organization_id')
@@ -183,7 +189,7 @@ export function OnboardingPage() {
           }
         });
     }
-  }, [user, profile, authLoading, hasOrganization, submitted, hasPendingInvite, navigate]);
+  }, [user, profile, authLoading, hasOrganization, submitted, hasPendingInvite, resolving, step, detectedOrg, pendingInvitation, joinRequested, navigate]);
 
   /* ─── Organization resolution: check invitation + domain ─── */
   useEffect(() => {

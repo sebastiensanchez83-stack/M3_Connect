@@ -414,7 +414,7 @@ export function Navbar() {
               </button>
             </DialogDescription>
           </DialogHeader>
-          <SignupForm onSuccess={() => setSignupOpen(false)} />
+          <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
         </DialogContent>
       </Dialog>
     </header>

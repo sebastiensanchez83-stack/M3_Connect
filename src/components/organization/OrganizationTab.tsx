@@ -604,7 +604,7 @@ export function OrganizationTab() {
       const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];
       toast({
         title: 'Team capacity reached',
-        description: `Your ${tierLabel} plan includes ${org.max_seats} seat${org.max_seats > 1 ? 's' : ''}. Contact M3 to request additional seats.`,
+        description: `Your ${tierLabel} plan includes ${org.max_seats} seat${org.max_seats > 1 ? 's' : ''}. Contact Smart Marina Connect to request additional seats.`,
         variant: 'destructive',
       });
       return;
@@ -1613,7 +1613,7 @@ export function OrganizationTab() {
             )}
             {org.organization_type !== 'marina' && org.max_seats > 0 && members.length >= org.max_seats && (
               <p className="text-xs text-amber-600 mt-1">
-                All seats are occupied. Contact M3 to request additional seats.
+                All seats are occupied. Contact Smart Marina Connect to request additional seats.
               </p>
             )}
             {/* Auto-approve toggle — only visible to org owners with a domain */}

@@ -116,7 +116,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
       if (orgRegistrationCount >= pricing.max_included_seats) {
         toast({
           title: 'Included seats exhausted',
-          description: `Your ${TIER_LABELS[orgTier]} package includes ${pricing.max_included_seats} seat(s). All included seats are used. Contact M3 for additional seats.`,
+          description: `Your ${TIER_LABELS[orgTier]} package includes ${pricing.max_included_seats} seat(s). All included seats are used. Contact Smart Marina Connect for additional seats.`,
           variant: 'destructive',
         });
         return;
@@ -250,7 +250,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
       expo_approved: { color: 'bg-blue-50/80 border-blue-200 text-blue-800', icon: CheckCircle, label: 'Exposition Approved', desc: 'Your request has been approved. You will receive an invoice shortly.' },
       expo_invoice_sent: { color: 'bg-indigo-50/80 border-indigo-200 text-indigo-800', icon: AlertCircle, label: 'Invoice Sent', desc: 'Please complete the payment to confirm your exhibition spot.' },
       expo_paid: { color: 'bg-green-50/80 border-green-200 text-green-800', icon: CheckCircle, label: 'Exhibition Confirmed', desc: 'Your payment has been confirmed. You are registered as an exhibitor.' },
-      expo_rejected: { color: 'bg-red-50/80 border-red-200 text-red-800', icon: AlertCircle, label: 'Request Rejected', desc: 'Your exhibition request was not approved. Contact M3 for details.' },
+      expo_rejected: { color: 'bg-red-50/80 border-red-200 text-red-800', icon: AlertCircle, label: 'Request Rejected', desc: 'Your exhibition request was not approved. Contact Smart Marina Connect for details.' },
     };
     const info = expoStatusMap[status];
     if (info) {
@@ -283,7 +283,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
               <p className="font-semibold">Included seats exhausted</p>
               <p className="text-sm mt-0.5 opacity-80">
                 All {maxSeats} included seat(s) for your {TIER_LABELS[orgTier]} package are used.
-                Contact M3 for additional seats.
+                Contact Smart Marina Connect for additional seats.
               </p>
             </div>
           </div>

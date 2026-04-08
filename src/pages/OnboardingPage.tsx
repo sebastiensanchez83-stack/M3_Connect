@@ -374,38 +374,49 @@ export function OnboardingPage() {
     try {
       // If org has auto-approve enabled, directly join instead of requesting
       if (detectedOrg.auto_approve) {
-        // Check if already a member
-        const { data: existing } = await supabase
-          .from('organization_members')
-          .select('id')
-          .eq('organization_id', detectedOrg.id)
-          .eq('user_id', user.id)
-          .maybeSingle();
-        if (!existing) {
-          const { error } = await supabase
-            .from('organization_members')
-            .insert({ organization_id: detectedOrg.id, user_id: user.id, role: 'collaborator' });
-          if (error) throw error;
-        }
-        // Check org verification status → auto-verify user if org is verified
-        const { data: orgData } = await supabase
+        // Check seat availability before joining
+        const { data: orgInfo } = await supabase
           .from('organizations')
-          .select('access_status')
+          .select('max_seats, access_status')
           .eq('id', detectedOrg.id)
           .single();
-        if (orgData?.access_status === 'verified') {
-          await supabase.from('profiles')
-            .update({ access_status: 'verified', onboarding_status: 'completed' })
-            .eq('user_id', user.id);
+        const { count: currentMembers } = await supabase
+          .from('organization_members')
+          .select('id', { count: 'exact' })
+          .eq('organization_id', detectedOrg.id);
+        if (orgInfo && orgInfo.max_seats > 0 && (currentMembers || 0) >= orgInfo.max_seats) {
+          toast({ title: 'Team capacity reached', description: `${detectedOrg.name} has no available seats. Your join request will be sent to the organization owner instead.`, variant: 'destructive' });
+          // Fall through to standard join-request flow below
         } else {
-          await supabase.from('profiles')
-            .update({ onboarding_status: 'submitted' })
-            .eq('user_id', user.id);
+          // Check if already a member
+          const { data: existing } = await supabase
+            .from('organization_members')
+            .select('id')
+            .eq('organization_id', detectedOrg.id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+          if (!existing) {
+            const { error } = await supabase
+              .from('organization_members')
+              .insert({ organization_id: detectedOrg.id, user_id: user.id, role: 'collaborator' });
+            if (error) throw error;
+          }
+          // Auto-verify user if org is verified
+          if (orgInfo?.access_status === 'verified') {
+            await supabase.from('profiles')
+              .update({ access_status: 'verified', onboarding_status: 'completed' })
+              .eq('user_id', user.id);
+          } else {
+            await supabase.from('profiles')
+              .update({ onboarding_status: 'submitted' })
+              .eq('user_id', user.id);
+          }
+          await refreshProfile();
+          toast({ title: 'Welcome!', description: `You've automatically joined ${detectedOrg.name}.` });
+          // Small delay so toast is visible before navigation
+          setTimeout(() => navigate('/account'), 600);
+          return;
         }
-        await refreshProfile();
-        toast({ title: 'Welcome!', description: `You've automatically joined ${detectedOrg.name}.` });
-        navigate('/account');
-        return;
       }
 
       // Standard flow: create join request pending owner approval

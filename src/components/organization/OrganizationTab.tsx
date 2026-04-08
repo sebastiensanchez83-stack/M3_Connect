@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { isSponsorTier } from '@/types/database';
-import { PaymentForm } from '@/components/payment/PaymentForm';
+// PaymentForm removed — member tier is free, payment integration deferred
 
 interface OrgDocument {
   id: string;
@@ -52,7 +52,7 @@ const timelineOptions = [
 
 export function OrganizationTab() {
   const { t } = useTranslation();
-  const { user, profile, isPaymentPending, refreshProfile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<Organization | null>(null);
@@ -115,14 +115,11 @@ export function OrganizationTab() {
   const [pendingUpgradePlan, setPendingUpgradePlan] = useState<OrgTier | null>(null);
 
   // Membership payment
-  const [showMembershipPayment, setShowMembershipPayment] = useState(false);
-  const [membershipPaid, setMembershipPaid] = useState(false);
+  // Membership payment states removed — member tier is free
   // memberPaid removed — member tier is always free
 
   // Additional seats payment
-  const [showSeatPayment, setShowSeatPayment] = useState(false);
-  const [seatsToBuy, setSeatsToBuy] = useState(1);
-  const ADDITIONAL_SEAT_PRICE_CENTS = 25000; // €250 per additional seat
+  // Seat payment states removed — contact M3 for additional seats
 
   // Logo upload
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -401,16 +398,7 @@ export function OrganizationTab() {
 
   useEffect(() => { fetchOrg(); }, [fetchOrg]);
 
-  // Auto-open membership payment dialog when URL has ?action=pay-membership
-  useEffect(() => {
-    if (org && searchParams.get('action') === 'pay-membership' && isPaymentPending) {
-      setShowMembershipPayment(true);
-      // Clear the action param so it doesn't re-trigger
-      const newParams = new URLSearchParams(searchParams);
-      newParams.delete('action');
-      setSearchParams(newParams, { replace: true });
-    }
-  }, [org, searchParams, isPaymentPending, setSearchParams]);
+  // Payment auto-open removed — member tier is free
 
   // Open upgrade dialog after org is created when a sponsor plan was pre-selected
   useEffect(() => {
@@ -616,11 +604,9 @@ export function OrganizationTab() {
       const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];
       toast({
         title: 'Team capacity reached',
-        description: `Your ${tierLabel} plan includes ${org.max_seats} seat${org.max_seats > 1 ? 's' : ''}. You can purchase additional seats below.`,
+        description: `Your ${tierLabel} plan includes ${org.max_seats} seat${org.max_seats > 1 ? 's' : ''}. Contact M3 to request additional seats.`,
         variant: 'destructive',
       });
-      setSeatsToBuy(1);
-      setShowSeatPayment(true);
       return;
     }
 
@@ -997,31 +983,7 @@ export function OrganizationTab() {
 
   return (
     <div className="space-y-6">
-      {/* Membership payment required banner */}
-      {isPaymentPending && isOwner && (
-        <Card className="border-2 border-amber-300 bg-amber-50/50">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="bg-amber-100 rounded-full p-2.5">
-                  <CreditCard className="h-6 w-6 text-amber-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-amber-900">Complete Your Membership Payment</h3>
-                  <p className="text-sm text-amber-700">Your account has been approved by M3. Complete your payment to activate your sponsorship tier for your organization.</p>
-                </div>
-              </div>
-              <Button
-                className="bg-amber-600 hover:bg-amber-700 text-white shrink-0 shadow-sm"
-                onClick={() => setShowMembershipPayment(true)}
-              >
-                <CreditCard className="h-4 w-4 mr-2" />
-                Complete Payment
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Payment banner removed — member tier is free */}
 
       {/* Organization Info Card */}
       <Card>
@@ -1623,9 +1585,7 @@ export function OrganizationTab() {
             )}
             {org.organization_type !== 'marina' && org.max_seats > 0 && members.length >= org.max_seats && (
               <p className="text-xs text-amber-600 mt-1">
-                {isSponsorTier((org.tier || 'member') as OrgTier)
-                  ? 'Contact M3 to request additional seats.'
-                  : 'Additional team members cost €250 each. Contact M3 to add seats.'}
+                All seats are occupied. Contact M3 to request additional seats.
               </p>
             )}
           </div>
@@ -2027,110 +1987,7 @@ export function OrganizationTab() {
         </DialogContent>
       </Dialog>
 
-      {/* Membership Payment Dialog (sponsorship tiers) */}
-      <Dialog open={showMembershipPayment} onOpenChange={setShowMembershipPayment}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CreditCard className="h-5 w-5" />
-              Membership Payment
-            </DialogTitle>
-            <DialogDescription>
-              Complete your payment to activate your organization on M3 Connect.
-            </DialogDescription>
-          </DialogHeader>
-          {membershipPaid ? (
-            <div className="text-center py-6">
-              <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-3" />
-              <h3 className="text-lg font-semibold text-green-800 mb-1">Payment Successful!</h3>
-              <p className="text-sm text-gray-600 mb-4">Your membership is now active. Welcome to M3 Connect!</p>
-              <Button onClick={() => { setShowMembershipPayment(false); setMembershipPaid(false); }}>
-                Continue
-              </Button>
-            </div>
-          ) : (
-            <div className="mt-2">
-              <PaymentForm
-                amountCents={50000}
-                paymentType="membership"
-                organizationId={org?.id}
-                label="Annual Membership Fee"
-                description="M3 Connect membership payment for your organization"
-                onSuccess={() => {
-                  setMembershipPaid(true);
-                  toast({ title: 'Membership activated', description: 'Your membership payment has been processed successfully. You now have full access!' });
-                  fetchOrg();
-                  refreshProfile();
-                }}
-                onError={(err) => {
-                  toast({ title: 'Payment failed', description: err, variant: 'destructive' });
-                }}
-              />
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Additional Seats Payment Dialog */}
-      <Dialog open={showSeatPayment} onOpenChange={setShowSeatPayment}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Users className="h-5 w-5" />
-              Purchase Additional Seats
-            </DialogTitle>
-            <DialogDescription>
-              Your current plan includes {org?.max_seats || 1} seat{(org?.max_seats || 1) > 1 ? 's' : ''} and all are occupied. Purchase additional seats at €{(ADDITIONAL_SEAT_PRICE_CENTS / 100).toFixed(0)} per seat.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 mt-2">
-            <div className="flex items-center gap-3">
-              <Label className="whitespace-nowrap">Number of seats:</Label>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setSeatsToBuy(Math.max(1, seatsToBuy - 1))}
-                  disabled={seatsToBuy <= 1}
-                >
-                  −
-                </Button>
-                <span className="w-8 text-center font-semibold">{seatsToBuy}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setSeatsToBuy(seatsToBuy + 1)}
-                  disabled={seatsToBuy >= 20}
-                >
-                  +
-                </Button>
-              </div>
-              <span className="text-sm text-gray-600 ml-auto font-medium">
-                €{((ADDITIONAL_SEAT_PRICE_CENTS * seatsToBuy) / 100).toFixed(0)}
-              </span>
-            </div>
-            <PaymentForm
-              key={`seats-${seatsToBuy}`}
-              amountCents={ADDITIONAL_SEAT_PRICE_CENTS * seatsToBuy}
-              paymentType="additional_seats"
-              organizationId={org?.id}
-              metadata={{ seats_count: String(seatsToBuy) }}
-              label={`Purchase ${seatsToBuy} Additional Seat${seatsToBuy > 1 ? 's' : ''}`}
-              description={`€${((ADDITIONAL_SEAT_PRICE_CENTS * seatsToBuy) / 100).toFixed(0)}.00 — ${seatsToBuy} additional seat${seatsToBuy > 1 ? 's' : ''} for your organization`}
-              onSuccess={() => {
-                toast({ title: 'Seats purchased!', description: `${seatsToBuy} additional seat${seatsToBuy > 1 ? 's have' : ' has'} been added to your organization.` });
-                setShowSeatPayment(false);
-                fetchOrg();
-              }}
-              onError={(err) => {
-                toast({ title: 'Payment failed', description: err, variant: 'destructive' });
-              }}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Payment dialogs removed — member tier is free, sponsor upgrades handled via contact */}
 
       {/* Upgrade to Sponsor Dialog */}
       <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>

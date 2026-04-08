@@ -102,7 +102,7 @@ function formatBudgetRange(raw: string): string {
 
 export function AccountPage() {
   const { t } = useTranslation();
-  const { user, profile, organization, orgRole, loading: authLoading, isPaymentPending, refreshProfile } = useAuth();
+  const { user, profile, organization, orgRole, loading: authLoading, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
@@ -690,28 +690,7 @@ export function AccountPage() {
         </div>
       )}
 
-      {/* Membership payment required banner — only for sponsor upgrade requests */}
-      {isPaymentPending && (
-        <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 mb-6">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-amber-100 rounded-full p-2">
-                <AlertCircle className="h-5 w-5 text-amber-600" />
-              </div>
-              <div>
-                <p className="text-amber-900 font-semibold">Sponsorship Payment Pending</p>
-                <p className="text-amber-700 text-sm">Your sponsorship upgrade has been approved. Complete the payment to activate your sponsor benefits.</p>
-              </div>
-            </div>
-            <Button
-              className="bg-amber-600 hover:bg-amber-700 text-white shrink-0"
-              onClick={() => navigate('/account?tab=organization&action=pay-membership', { replace: true })}
-            >
-              Complete Payment
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* Payment banners removed — member tier is free, sponsor upgrades handled via contact */}
 
       {/* Rejected account banner */}
       {profile.access_status === 'rejected' && (
@@ -786,30 +765,7 @@ export function AccountPage() {
         {/* ── DASHBOARD ── */}
         <TabsContent value="dashboard">
           <div className="space-y-6">
-            {/* Payment Pending Alert */}
-            {isPaymentPending && (
-              <Card className="border-2 border-amber-300 bg-amber-50/80">
-                <CardContent className="p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-amber-100 rounded-full p-3">
-                        <AlertCircle className="h-6 w-6 text-amber-600" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-amber-900 text-lg">Sponsorship Payment Pending</h3>
-                        <p className="text-sm text-amber-700">Your sponsorship upgrade has been approved. Complete the payment to activate your sponsor benefits.</p>
-                      </div>
-                    </div>
-                    <Button
-                      className="bg-amber-600 hover:bg-amber-700 text-white shrink-0 shadow-sm"
-                      onClick={() => navigate('/account?tab=organization&action=pay-membership', { replace: true })}
-                    >
-                      Complete Payment
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            {/* Payment banners removed — member tier is free */}
 
             {/* Analytics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

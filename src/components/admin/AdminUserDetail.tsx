@@ -232,21 +232,19 @@ export function AdminUserDetail() {
       toast({ title: 'Cannot approve partner', description: `This partner needs ${REQUIRED_REFERENCES} confirmed marina recommendations (or admin bypass) before approval.`, variant: 'destructive' });
       return;
     }
-    const isPartner = persona === 'partner';
-    const newStatus = isPartner ? 'payment_pending' : 'verified';
     setSaving(true);
 
-    const { error } = await supabase.from('profiles').update({ access_status: newStatus, onboarding_status: 'completed', rejection_reason: null }).eq('user_id', user.user_id);
+    const { error } = await supabase.from('profiles').update({ access_status: 'verified', onboarding_status: 'completed', rejection_reason: null }).eq('user_id', user.user_id);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); setSaving(false); return; }
 
     // Also update org
     const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.user_id).maybeSingle();
     if (membership?.organization_id) {
-      await supabase.from('organizations').update({ access_status: newStatus, onboarding_status: 'completed' }).eq('id', membership.organization_id);
+      await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id);
     }
 
-    sendNotification({ type: isPartner ? 'bypass_approved' : 'event_registration_confirmed', userId: user.user_id, data: { status: newStatus } });
-    toast({ title: isPartner ? 'Partner approved - payment pending' : 'User approved' });
+    sendNotification({ type: 'event_registration_confirmed', userId: user.user_id, data: { status: 'verified' } });
+    toast({ title: 'User approved' });
     setSaving(false);
     loadUser(user.user_id);
   };
@@ -795,7 +793,7 @@ export function AdminUserDetail() {
                 className="gap-1.5"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
-                Approve (set {persona === 'partner' ? 'payment_pending' : 'verified'})
+                Approve
               </Button>
             )}
             {user.access_status !== 'rejected' && !showRejectForm && (
@@ -808,11 +806,7 @@ export function AdminUserDetail() {
                 Suspend
               </Button>
             )}
-            {user.access_status !== 'payment_pending' && (
-              <Button variant="outline" onClick={handleSetPaymentPending} disabled={saving} className="gap-1.5">
-                Set Payment Pending
-              </Button>
-            )}
+            {/* Payment pending button removed — member tier is free */}
           </div>
 
           {/* Reject form */}

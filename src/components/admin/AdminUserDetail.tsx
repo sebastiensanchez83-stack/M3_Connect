@@ -555,7 +555,7 @@ export function AdminUserDetail() {
                   onValueChange={updateOrgTier}
                   disabled={updatingTier}
                 >
-                  <SelectTrigger className="w-48 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="w-full sm:w-48 h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="member">Member</SelectItem>
                     <SelectItem value="innovation_partner">Innovation Partner</SelectItem>

@@ -20,6 +20,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
+import { AdBanner } from '@/components/ui/AdBanner';
 
 interface Sector {
   id: string;
@@ -266,7 +267,7 @@ export function ResourcesPage() {
             <div className="flex items-center gap-2 flex-shrink-0">
               {user && !isVerified && (
                 <Select value={accessFilter} onValueChange={setAccessFilter}>
-                  <SelectTrigger className="h-8 w-[120px] text-xs">
+                  <SelectTrigger className="h-8 w-full sm:w-[120px] text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -280,6 +281,11 @@ export function ResourcesPage() {
           </div>
         </div>
       </section>
+
+      {/* Sponsor Banner */}
+      <div className="container mx-auto px-4 pt-6">
+        <AdBanner placement="resources" className="mb-2" />
+      </div>
 
       {/* Content */}
       <div className="container mx-auto px-4 py-8 lg:py-12">

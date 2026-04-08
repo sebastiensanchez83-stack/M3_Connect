@@ -1,8 +1,9 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Menu, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
 import {
   AdminSidebar,
   AdminDashboard,
@@ -52,14 +53,32 @@ function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
 /* ─── Admin / Moderator Page ─── */
 export function AdminPage() {
   const { loading, isModerator } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (loading) return <div className="flex items-center justify-center h-screen"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
   if (!isModerator) return null;
 
   return (
-    <div className="flex">
+    <div className="flex relative">
+      {/* Mobile sidebar toggle */}
+      <Button
+        variant="ghost"
+        size="sm"
+        className="md:hidden fixed top-[72px] left-2 z-50 bg-white shadow-md rounded-lg"
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+      >
+        {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+      </Button>
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div className="md:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setSidebarOpen(false)}>
+          <div className="w-56 bg-white h-full shadow-xl" onClick={e => e.stopPropagation()}>
+            <AdminSidebar />
+          </div>
+        </div>
+      )}
       <AdminSidebar />
-      <div className="flex-1 p-8 bg-gray-50 min-h-[calc(100vh-64px)] overflow-auto">
+      <div className="flex-1 p-4 md:p-8 bg-gray-50 min-h-[calc(100vh-64px)] overflow-auto">
         <Routes>
           <Route path="/" element={<AdminDashboard />} />
           <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />

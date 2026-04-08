@@ -229,7 +229,7 @@ export function AdminConsultationDetail() {
           <div className="space-y-2">
             <Label>Status</Label>
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="w-[220px]">
+              <SelectTrigger className="w-full sm:w-[220px]">
                 <SelectValue placeholder="Select status" />
               </SelectTrigger>
               <SelectContent>

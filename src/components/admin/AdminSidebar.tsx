@@ -44,7 +44,7 @@ export function AdminSidebar() {
   };
 
   return (
-    <div className="w-56 shrink-0 bg-white border-r min-h-[calc(100vh-64px)] p-4">
+    <div className="hidden md:block w-56 shrink-0 bg-white border-r min-h-[calc(100vh-64px)] p-4">
       {isMod && (
         <div className="mb-3 px-3 py-1.5 bg-amber-50 text-amber-700 text-xs rounded-lg font-medium">
           Moderator View

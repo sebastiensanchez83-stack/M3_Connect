@@ -26,6 +26,22 @@ CREATE POLICY "Anyone can view active banners" ON ad_banners
 CREATE POLICY "Admins manage banners" ON ad_banners
   FOR ALL USING (public.is_moderator());
 
+-- ─── Storage bucket for banner images (private from regular users) ───
+-- Run this in Supabase Dashboard > Storage > Create new bucket:
+--   Name: ad-banners
+--   Public: YES (images need to be served publicly)
+--   File size limit: 10MB
+--   Allowed MIME types: image/jpeg, image/png, image/webp
+--
+-- Then add these RLS policies on the ad-banners bucket:
+--   SELECT (read): Allow public access (anyone can view banner images)
+--   INSERT: Only admins/moderators → using: public.is_moderator()
+--   UPDATE: Only admins/moderators → using: public.is_moderator()
+--   DELETE: Only admins/moderators → using: public.is_moderator()
+--
+-- This keeps banner images separate from resource-images and profile-images,
+-- so regular users cannot browse or reuse sponsor branding.
+
 -- Increment functions
 CREATE OR REPLACE FUNCTION increment_banner_clicks(banner_id UUID)
 RETURNS void AS $$

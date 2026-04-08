@@ -29,7 +29,7 @@ export function OrganizationPublicPage() {
   const { t } = useTranslation();
   const { user, profile, organization, isVerified } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
-  const [members, setMembers] = useState<(OrganizationMember & { profiles: { first_name: string | null; last_name: string | null; email: string | null; persona: string; job_title: string | null } })[]>([]);
+  const [members, setMembers] = useState<(OrganizationMember & { profiles: { first_name: string | null; last_name: string | null; persona: string; job_title: string | null; avatar_url: string | null } })[]>([]);
   const [marinaDetails, setMarinaDetails] = useState<OrganizationMarinaDetails | null>(null);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [futurePlans, setFuturePlans] = useState<{ sector_label: string; timeline: string }[]>([]);
@@ -65,7 +65,7 @@ export function OrganizationPublicPage() {
         // Fetch members with job_title
         const { data: membersData } = await supabase
           .from('organization_members')
-          .select('id, organization_id, user_id, role, joined_at, profiles(first_name, last_name, email, persona, job_title, avatar_url)')
+          .select('id, organization_id, user_id, role, joined_at, profiles(first_name, last_name, persona, job_title, avatar_url)')
           .eq('organization_id', o.id)
           .order('joined_at', { ascending: true });
 
@@ -573,7 +573,7 @@ export function OrganizationPublicPage() {
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {members.map((member) => {
                 const fullName = `${member.profiles?.first_name || ''} ${member.profiles?.last_name || ''}`.trim();
-                const displayName = fullName || member.profiles?.email?.split('@')[0] || 'Team Member';
+                const displayName = fullName || 'Team Member';
                 const initials = fullName
                   ? fullName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
                   : displayName.slice(0, 2).toUpperCase();

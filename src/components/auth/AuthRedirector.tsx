@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStoredInvite } from '@/lib/invite-store'
+import { toast } from '@/hooks/use-toast'
 
 // Known protected routes that require authentication
 const protectedExactRoutes = new Set<string>([
@@ -33,12 +34,16 @@ export function AuthRedirector() {
 
     // Logged out: allow public routes only
     if (!user) {
-      if (isProtectedRoute(pathname)) navigate('/', { replace: true })
+      if (isProtectedRoute(pathname)) {
+        toast({ title: 'Please log in to access this page.', variant: 'destructive' })
+        navigate('/', { replace: true })
+      }
       return
     }
 
     // Admin: only verified moderators
     if (isAdminRoute && !isModerator) {
+      toast({ title: 'Admin access required.', variant: 'destructive' })
       navigate('/account', { replace: true })
       return
     }

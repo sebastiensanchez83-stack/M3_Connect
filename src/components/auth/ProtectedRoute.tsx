@@ -1,8 +1,21 @@
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { PersonaType } from '@/types/database';
 import { RefreshCw, Lock } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
+
+/** Show a toast once per redirect reason */
+function RedirectWithToast({ to, message }: { to: string; message: string }) {
+  const shown = useRef(false);
+  useEffect(() => {
+    if (!shown.current) {
+      shown.current = true;
+      toast({ title: message, variant: 'destructive' });
+    }
+  }, [message]);
+  return <Navigate to={to} replace />;
+}
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -47,27 +60,27 @@ export function ProtectedRoute({
 
   // Check auth
   if (requireAuth && !user) {
-    return showLocked ? <LockedState message={lockedMessage || 'Please log in to access this page.'} /> : <Navigate to={redirectTo} replace />;
+    return showLocked ? <LockedState message={lockedMessage || 'Please log in to access this page.'} /> : <RedirectWithToast to={redirectTo} message="Please log in to access this page." />;
   }
 
   // Check verified
   if (requireVerified && !isVerified) {
-    return showLocked ? <LockedState message={lockedMessage || 'Your account must be verified to access this feature.'} /> : <Navigate to="/account" replace />;
+    return showLocked ? <LockedState message={lockedMessage || 'Your account must be verified to access this feature.'} /> : <RedirectWithToast to="/account" message="Your account must be verified to access this feature." />;
   }
 
   // Check persona
   if (requirePersona && profile && !requirePersona.includes(profile.persona)) {
-    return showLocked ? <LockedState message={lockedMessage || 'This feature is not available for your account type.'} /> : <Navigate to={redirectTo} replace />;
+    return showLocked ? <LockedState message={lockedMessage || 'This feature is not available for your account type.'} /> : <RedirectWithToast to={redirectTo} message="This feature is not available for your account type." />;
   }
 
   // Check admin
   if (requireAdmin && !isAdmin) {
-    return showLocked ? <LockedState message={lockedMessage || 'Admin access required.'} /> : <Navigate to={redirectTo} replace />;
+    return showLocked ? <LockedState message={lockedMessage || 'Admin access required.'} /> : <RedirectWithToast to={redirectTo} message="Admin access required." />;
   }
 
   // Check moderator
   if (requireModerator && !isModerator) {
-    return showLocked ? <LockedState message={lockedMessage || 'Access denied.'} /> : <Navigate to={redirectTo} replace />;
+    return showLocked ? <LockedState message={lockedMessage || 'Access denied.'} /> : <RedirectWithToast to={redirectTo} message="Access denied." />;
   }
 
   return <>{children}</>;

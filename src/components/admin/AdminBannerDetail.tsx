@@ -13,9 +13,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import { ImageUpload } from '@/components/ui/ImageUpload';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+
+const BANNER_BUCKET = 'ad-banners';
 
 interface AdBanner {
   id: string;
@@ -46,6 +47,7 @@ export function AdminBannerDetail() {
 
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [banner, setBanner] = useState<AdBanner | null>(null);
   const [organizations, setOrganizations] = useState<OrgOption[]>([]);
 
@@ -251,13 +253,70 @@ export function AdminBannerDetail() {
             />
           </div>
 
-          <ImageUpload
-            value={form.image_url}
-            onChange={(url) => setForm({ ...form, image_url: url })}
-            label="Banner Image *"
-            maxWidth={1920}
-            maxHeight={600}
-          />
+          {/* Banner image upload — uses private ad-banners bucket, no shared gallery */}
+          <div className="space-y-2">
+            <Label>Banner Image *</Label>
+            {form.image_url ? (
+              <div className="relative group rounded-lg overflow-hidden border bg-gray-50">
+                <img src={form.image_url} alt="Banner" className="w-full h-40 object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, image_url: '' })}
+                  className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <label className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors hover:border-primary/50 hover:bg-gray-50 block">
+                {uploading ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <span className="text-sm text-gray-600">Uploading...</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <ImageIcon className="h-8 w-8 text-gray-400" />
+                    <span className="text-sm text-gray-600">Click to upload banner image</span>
+                    <span className="text-xs text-gray-400">JPEG, PNG, WebP — Max 10MB — Recommended: 1920x600 or 728x90</span>
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    if (!file.type.startsWith('image/')) {
+                      toast({ title: 'Invalid file type', variant: 'destructive' });
+                      return;
+                    }
+                    if (file.size > 10 * 1024 * 1024) {
+                      toast({ title: 'File too large (max 10MB)', variant: 'destructive' });
+                      return;
+                    }
+                    setUploading(true);
+                    try {
+                      const ext = file.name.split('.').pop() || 'jpg';
+                      const fileName = `banner-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+                      const { error: uploadErr } = await supabase.storage
+                        .from(BANNER_BUCKET)
+                        .upload(fileName, file, { cacheControl: '3600', upsert: false });
+                      if (uploadErr) throw uploadErr;
+                      const { data: urlData } = supabase.storage.from(BANNER_BUCKET).getPublicUrl(fileName);
+                      setForm(f => ({ ...f, image_url: urlData.publicUrl }));
+                      toast({ title: 'Banner image uploaded' });
+                    } catch (err: unknown) {
+                      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'Unknown error', variant: 'destructive' });
+                    }
+                    setUploading(false);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            )}
+          </div>
 
           <div className="space-y-2">
             <Label>Target URL *</Label>

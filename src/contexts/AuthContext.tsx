@@ -316,7 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       options: {
         emailRedirectTo: getStoredInvite()
           ? `${window.location.origin}/join/${getStoredInvite()}?email_confirmed=true`
-          : `${window.location.origin}/?email_confirmed=true`,
+          : `${window.location.origin}/onboarding?email_confirmed=true`,
         data: {
           persona: persona || 'marina',
           first_name: firstName || '',

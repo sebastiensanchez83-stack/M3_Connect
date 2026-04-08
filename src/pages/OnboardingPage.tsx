@@ -139,6 +139,18 @@ export function OnboardingPage() {
 
   const needsPersonaSetup = !authLoading && !!user && !profile;
 
+  // Handle email_confirmed query param (user arriving from confirmation link)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('email_confirmed') === 'true') {
+      toast({ title: '✉️ Email confirmed!', description: 'Your email has been verified. Let\'s complete your registration.' });
+      // Clean URL
+      const url = new URL(window.location.href);
+      url.searchParams.delete('email_confirmed');
+      window.history.replaceState({}, '', url.pathname);
+    }
+  }, []);
+
   // Load sectors independently (not inside navigation guards so it always runs)
   useEffect(() => {
     supabase.from('sectors').select('*').eq('is_active', true).order('label')
@@ -707,8 +719,9 @@ export function OnboardingPage() {
   }
 
   // Synchronous redirect guard — prevent form from flashing before useEffect fires
-  // Draft users go to /account to complete their profile from the Organization tab
-  if (profile?.onboarding_status === 'draft' && profile?.access_status !== 'rejected') {
+  // BUT: if we're still resolving or found a domain/invitation match, let the resolve UI show
+  if (profile?.onboarding_status === 'draft' && profile?.access_status !== 'rejected'
+      && !resolving && !detectedOrg && !pendingInvitation && !joinRequested && step === 'org-form') {
     return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /><p className="text-sm text-gray-500 mt-3">{t('onboarding.redirecting')}</p></div>;
   }
   if (profile?.onboarding_status === 'completed' || (profile?.onboarding_status === 'submitted' && profile?.access_status !== 'rejected')) {

@@ -50,10 +50,10 @@ export function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Detect email confirmation redirect
+  // Detect email confirmation redirect (only on homepage — /onboarding handles its own)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('email_confirmed') === 'true') {
+    if (params.get('email_confirmed') === 'true' && window.location.pathname === '/') {
       setShowConfirmedBanner(true);
       setLoginOpen(true);
       // Clean URL

@@ -25,10 +25,10 @@ Test partner signup with 2 real mailinator references on https://smartmarinaconn
 - A timestamp string (use the same one across all 3 emails below)
 
 === Test credentials ===
-- Partner email:  qa-partner-<ts>@mailinator.com
+- Partner email:  qa2-partner-<ts>@mailinator.com
 - Password:       TestQa!2026SecurePass
 - First / Last:   Partner / Tester
-- Org name:       "QA Partner Services <ts>"
+- Org name:       "QA2 Partner Services <ts>"
 - Persona:        Partner (service provider)
 
 === Steps ===
@@ -39,22 +39,22 @@ Test partner signup with 2 real mailinator references on https://smartmarinaconn
     ✅ Expected: immediate login, redirect to /account?tab=organization. NO email-confirm screen.
 
 3.  Fill the Partner onboarding form on the Organization tab:
-    - Company name: "QA Partner Services <ts>"
+    - Company name: "QA2 Partner Services <ts>"
     - 2–3 service sectors (e.g. Fuel & Bunkering, Dredging, IT & Software)
     - Company description (>50 chars)
     - Other required fields
 4.  Submit Organization.
 
 5.  Proceed to the References step. Add TWO references:
-    - Ref 1: Ref One, ref1-<ts>@mailinator.com, "QA Marina Alpha", Harbour Master
-    - Ref 2: Ref Two, ref2-<ts>@mailinator.com, "QA Marina Beta",  General Manager
+    - Ref 1: Ref One, qa2-ref1-<ts>@mailinator.com, "QA2 Marina Alpha", Harbour Master
+    - Ref 2: Ref Two, qa2-ref2-<ts>@mailinator.com, "QA2 Marina Beta",  General Manager
     Submit Ref 1, then submit Ref 2 (previously the form hid after ref 1 — that is fixed).
     ✅ Expected: both references appear in the list with status "pending".
     ❌ If the form disappears after ref 1 → P0 (regression).
 
 6.  Open both mailinator inboxes:
-    - https://www.mailinator.com/v4/public/inboxes.jsp?to=ref1-<ts>
-    - https://www.mailinator.com/v4/public/inboxes.jsp?to=ref2-<ts>
+    - https://www.mailinator.com/v4/public/inboxes.jsp?to=qa2-ref1-<ts>
+    - https://www.mailinator.com/v4/public/inboxes.jsp?to=qa2-ref2-<ts>
     For EACH verify within 2 minutes:
     - Email arrives
     - Sender: noreply@smartmarinaconnect.com  (flag old m3monaco.com)
@@ -96,9 +96,9 @@ Report format: | Step | Expected | Actual | Status |
 Test the partner reference-BYPASS flow on https://smartmarinaconnect.com.
 
 === Test credentials ===
-- Partner email:  qa-partner-bypass-<ts>@mailinator.com
+- Partner email:  qa2-partner-bypass-<ts>@mailinator.com
 - Password:       TestQa!2026SecurePass
-- Org name:       "QA Partner Bypass <ts>"
+- Org name:       "QA2 Partner Bypass <ts>"
 
 === Steps ===
 
@@ -115,7 +115,7 @@ Test the partner reference-BYPASS flow on https://smartmarinaconnect.com.
 5.  🛑 ADMIN CHECKPOINT — Sebastien does this
     Action:
       a. In Chrome Profile B (admin), go to /admin → "Users" or "Bypass Requests" section.
-      b. Find the "QA Partner Bypass <ts>" request.
+      b. Find the "QA2 Partner Bypass <ts>" request.
       c. Review it (verify the bypass form data is visible).
       d. Click "Approve bypass".
       e. Confirm the success toast.

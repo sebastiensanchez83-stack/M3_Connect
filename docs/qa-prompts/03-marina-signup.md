@@ -22,11 +22,11 @@ Test the marina signup + onboarding flow on https://smartmarinaconnect.com.
 - Note the exact timestamp you start — you'll reuse it in the email + org name
 
 === Test credentials ===
-- Email:       qa-marina-<timestamp>@mailinator.com
+- Email:       qa2-marina-<timestamp>@mailinator.com
 - Password:    TestQa!2026SecurePass
 - First name:  Marina
 - Last name:   Tester
-- Org name:    "QA Test Marina <timestamp>"
+- Org name:    "QA2 Test Marina <timestamp>"
 - Country:     Monaco
 - Persona:     Marina
 
@@ -80,8 +80,8 @@ P2 — Styling issues at 1440×900.
 P3 — Copy polish.
 
 === Save for Prompt 06 ===
-- Email used: qa-marina-<timestamp>@mailinator.com
-- Org name:   QA Test Marina <timestamp>
+- Email used: qa2-marina-<timestamp>@mailinator.com
+- Org name:   QA2 Test Marina <timestamp>
 - User UUID (grab from /account URL or supabase.auth getSession in console if visible)
 
 Report format:

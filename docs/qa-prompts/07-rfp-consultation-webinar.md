@@ -16,7 +16,7 @@ Test the verified-marina submission flows on https://smartmarinaconnect.com, the
 
 === Pre-requisites ===
 - QA marina user from Prompt 03 was approved in Prompt 06.
-- You have its credentials: qa-marina-<ts>@mailinator.com / TestQa!2026SecurePass.
+- You have its credentials: qa2-marina-<ts>@mailinator.com / TestQa!2026SecurePass.
 - Mailinator tab open.
 - Two Chrome profiles available: Profile A (QA marina) and Profile B (Sebastien admin).
 

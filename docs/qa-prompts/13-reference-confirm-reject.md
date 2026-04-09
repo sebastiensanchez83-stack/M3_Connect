@@ -21,12 +21,12 @@ Deep-test the reference confirm/reject links on https://smartmarinaconnect.com.
 === Steps ===
 
 1.  Signup a NEW partner with:
-    - Email: qa-partner-refs-<ts>@mailinator.com
-    - Org:   "QA Partner Refs <ts>"
+    - Email: qa2-partner-refs-<ts>@mailinator.com
+    - Org:   "QA2 Partner Refs <ts>"
     Fill onboarding, add 3 references:
-      - ref-confirm-<ts>@mailinator.com
-      - ref-reject-<ts>@mailinator.com
-      - ref-tamper-<ts>@mailinator.com
+      - qa2-ref-confirm-<ts>@mailinator.com
+      - qa2-ref-reject-<ts>@mailinator.com
+      - qa2-ref-tamper-<ts>@mailinator.com
 
 2.  Confirm all 3 emails arrive in their mailinator inboxes (sender noreply@smartmarinaconnect.com).
 
@@ -61,7 +61,7 @@ Deep-test the reference confirm/reject links on https://smartmarinaconnect.com.
 === Test E: Admin visibility ===
 
 9.  🛑 ADMIN CHECKPOINT — Sebastien logs in as admin in Profile B.
-10. /admin/users → find qa-partner-refs-<ts>. Open detail → references section.
+10. /admin/users → find qa2-partner-refs-<ts>. Open detail → references section.
     ✅ Expected:
       - ref-confirm → "Confirmed"
       - ref-reject  → "Rejected"

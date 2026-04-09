@@ -31,7 +31,7 @@ Pre-requisites (verify before starting):
 3.  Fill:
     - First: QA
     - Last: GuestOne
-    - Email: qa-guest-<timestamp>@mailinator.com (write it down)
+    - Email: qa2-guest-<timestamp>@mailinator.com (write it down)
     - Company: QA Test Co
 4.  Submit and capture:
     - HTTP status of POST to /functions/v1/guest-webinar-register
@@ -63,7 +63,7 @@ Pre-requisites (verify before starting):
 === Test 4: Rate limiting ===
 
 9.  In a fresh incognito window (same IP), register 6 different mailinator emails
-    (qa-guest-rate-1..6@mailinator.com) on any QA SAMPLE webinar as fast as possible.
+    (qa2-guest-rate-1..6@mailinator.com) on any QA SAMPLE webinar as fast as possible.
     Expected: 6th call is rate-limited (5/IP/hour). Capture status + message.
 10. Separately, try 4 different QA SAMPLE webinars with the SAME email within 1h.
     Expected: 4th call rate-limited (3/email/hour).
@@ -86,5 +86,5 @@ P3 = copy polish
 At the end, list:
 - Every mailinator address you used
 - Every event ID you registered against
-(so Sebastien can clean them up post-QA)
+(so Victor can clean them up post-QA)
 ```

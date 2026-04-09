@@ -22,18 +22,18 @@ Test the guest-to-account upgrade path on https://smartmarinaconnect.com.
 === Steps ===
 
 1.  As a guest (logged out), register for a QA SAMPLE webinar with:
-    - Email: qa-upgrade-<ts>@mailinator.com
+    - Email: qa2-upgrade-<ts>@mailinator.com
     - Name:  Upgrade Tester
-    - Company: QA Upgrade Co
+    - Company: QA2 Upgrade Co
     ✅ Expected: success, confirmation email with .ics.
 2.  Note the event title + date.
 
 3.  Without clearing cookies, go to /become-partner and signup with the SAME email:
-    - Email:    qa-upgrade-<ts>@mailinator.com
+    - Email:    qa2-upgrade-<ts>@mailinator.com
     - Password: TestQa!2026SecurePass
     - First/Last: Upgrade / Tester
     - Persona:  Marina (any is fine)
-    - Org:      "QA Upgrade Org <ts>"
+    - Org:      "QA2 Upgrade Org <ts>"
 4.  Submit signup.
     ✅ Expected: signup succeeds without "email already in use" (guest registrations should
        not block auth signup — they only hold `guest_email`, no auth user). Immediate login.
@@ -50,7 +50,7 @@ Test the guest-to-account upgrade path on https://smartmarinaconnect.com.
 
 8.  Cross-check in the Supabase DB (if Sebastien can run a quick SQL):
     SELECT id, user_id, guest_email, registration_type FROM event_registrations
-    WHERE guest_email = 'qa-upgrade-<ts>@mailinator.com' OR user_id = '<new_user_id>';
+    WHERE guest_email = 'qa2-upgrade-<ts>@mailinator.com' OR user_id = '<new_user_id>';
     ✅ Expected: row's user_id is now populated, guest_email is either preserved or nulled
        per schema, registration_type may flip from 'guest' to something else depending on
        logic.

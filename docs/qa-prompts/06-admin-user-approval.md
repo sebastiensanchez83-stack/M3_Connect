@@ -29,21 +29,21 @@ Test admin user approval / rejection / suspend on https://smartmarinaconnect.com
 === PART A — Approve the QA marina (from Prompt 03) ===
 
 1.  /admin/users → filter Pending.
-2.  Find the user whose email starts with "qa-marina-". Open detail page.
-3.  Verify fields: name "Marina Tester", org "QA Test Marina ...", persona Marina,
+2.  Find the user whose email starts with "qa2-marina-". Open detail page.
+3.  Verify fields: name "Marina Tester", org "QA2 Test Marina ...", persona Marina,
     onboarding info (berths, facilities, sectors) all present.
 4.  Click "Approve" → confirm in the dialog.
     ✅ Expected: toast success, status → Verified, row updates.
     ❌ If the network call to send-status-notification returns 401/403 → P0 regression
        (check the x-caller-user-id header in devtools Network tab).
-5.  Open mailinator for qa-marina-<ts>. Within 90s expect:
+5.  Open mailinator for qa2-marina-<ts>. Within 90s expect:
     - Sender: noreply@smartmarinaconnect.com (flag m3monaco.com)
     - Subject: "approved" / "welcome"
     - Body mentions first name + a "Log in" CTA linking to smartmarinaconnect.com
 
 6.  🛑 ADMIN CHECKPOINT — Sebastien does this
     Action: log out of admin (use user menu). Then log in as the QA marina
-    (qa-marina-<ts>@mailinator.com / TestQa!2026SecurePass).
+    (qa2-marina-<ts>@mailinator.com / TestQa!2026SecurePass).
     Resume after: Sebastien tells Claude "logged in as marina".
 
 7.  On /account verify:
@@ -56,7 +56,7 @@ Test admin user approval / rejection / suspend on https://smartmarinaconnect.com
 
 === PART B — Approve the QA partner (Path A, from Prompt 04) ===
 
-9.  /admin/users → Pending. Find qa-partner-<ts>. Open detail.
+9.  /admin/users → Pending. Find qa2-partner-<ts>. Open detail.
 10. Verify both references show "confirmed". If either is still pending → P0 (Prompt 04
     bug or reference-click flow broken).
 11. Click "Approve". Confirm dialog.
@@ -65,7 +65,7 @@ Test admin user approval / rejection / suspend on https://smartmarinaconnect.com
 
 === PART C — Approve the Path-B partner (bypass) ===
 
-13. Find qa-partner-bypass-<ts>. Open detail.
+13. Find qa2-partner-bypass-<ts>. Open detail.
 14. Verify the bypass request is visible and marked "approved" (from Prompt 04 Path B).
 15. Click "Approve" user. Confirm.
 16. Verify approval email in mailinator.
@@ -73,11 +73,11 @@ Test admin user approval / rejection / suspend on https://smartmarinaconnect.com
 === PART D — Reject a test user ===
 
 17. If no additional pending QA user exists, signup a throwaway Marina in a separate tab:
-    - qa-reject-<ts>@mailinator.com / TestQa!2026SecurePass / Reject Tester / "QA Reject Test"
+    - qa2-reject-<ts>@mailinator.com / TestQa!2026SecurePass / Reject Tester / "QA2 Reject Test"
     - Fill minimal onboarding fields and log out.
     🛑 ADMIN CHECKPOINT — Sebastien logs back in as admin after creating the reject user.
 
-18. In /admin/users → Pending, open qa-reject-<ts>.
+18. In /admin/users → Pending, open qa2-reject-<ts>.
 19. Click "Reject". The dialog MUST require a rejection reason (textarea).
     Fill: "QA test rejection — please ignore."
 20. Confirm.

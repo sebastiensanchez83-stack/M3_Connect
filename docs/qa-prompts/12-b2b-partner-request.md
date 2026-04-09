@@ -26,7 +26,7 @@ Test the B2B partner → marina contact request flow on https://smartmarinaconne
 1.  In Profile A, log in as the verified QA partner.
 2.  Open /network (the marketplace). Verify marina cards render with sector chips,
     location, and a "Contact" / "Request introduction" CTA.
-3.  Search or filter for the QA marina ("QA Test Marina <ts>"). Open its card.
+3.  Search or filter for the QA marina ("QA2 Test Marina <ts>"). Open its card.
 4.  Click "Contact" / "Send request".
 5.  Fill the request form:
     - Sector of interest: pick one matching both sides

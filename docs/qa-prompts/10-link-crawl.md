@@ -1,5 +1,13 @@
 # Prompt 10 — Full link crawl & health check
 
+**Admin intervention needed:** No (reuses existing sessions, no mutating actions)
+
+**Known baseline issues to confirm fixed or still present:**
+- `/join` returns 404 (should redirect to `/become-partner`)
+- `info@m3monaco.com` still appears on 5 legal pages
+- Footer LinkedIn link points to a dead page
+- `connect.m3monaco.com` / `m3connect.mc` should be removed
+
 ## Copy-paste to Claude Chrome
 
 ```

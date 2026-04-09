@@ -1,136 +1,92 @@
 # Prompt 07 — Verified marina flows: RFP, Consultation, Webinar request, Project
 
-## Prerequisites
-- Prompt 06 completed: a QA marina user is now verified
-- Marina credentials known from Prompt 03
+**Admin intervention needed:** Yes — mid-test, Sebastien must switch to the admin profile to
+approve/reject the submissions, then switch back.
+
+**Background (context for Claude, not to paste):**
+Needs the marina from Prompt 03 to have been approved in Prompt 06. The four submission
+tables (`rfps`, `consultations`, `webinar_requests`, `projects`) all use RLS: only the
+owning marina or admins can read. Admin list pages live at /admin/rfps, /admin/consultations,
+/admin/webinars, /admin/projects (or /admin/leads).
 
 ## Copy-paste to Claude Chrome
 
 ```
-Test the verified marina submission flows at https://smartmarinaconnect.com
+Test the verified-marina submission flows on https://smartmarinaconnect.com, then admin review.
 
-CONTEXT:
-- Log in as the QA marina user approved in Prompt 06:
-  - Email: qa-marina-{timestamp}@mailinator.com
-  - Password: TestQa!2026SecurePass
+=== Pre-requisites ===
+- QA marina user from Prompt 03 was approved in Prompt 06.
+- You have its credentials: qa-marina-<ts>@mailinator.com / TestQa!2026SecurePass.
+- Mailinator tab open.
+- Two Chrome profiles available: Profile A (QA marina) and Profile B (Sebastien admin).
 
-STEPS:
+=== Part 1: Submit the 4 items as the verified marina ===
 
-=== PART A: Submit RFP ===
+1.  In Profile A, log in as the QA marina. Confirm no pending banner.
 
-1. Log in as the QA marina.
-2. Navigate to /submit-rfp (or via navbar "Submit RFP").
-3. Fill:
-   - Title: "QA Test RFP — Dredging needed {timestamp}"
-   - Scope: "QA test description — looking for dredging services to maintain draft depth at our entrance channel. Estimated volume: 5000 m³. Safe to reject." (must be >50 chars)
-   - Sector(s): pick 2 relevant (e.g. "Dredging", "Marine Engineering")
-   - Deadline: 30 days from today
-   - Any attachments field: leave empty OR upload a tiny dummy PDF if required
-4. Submit.
-5. EXPECTED: success toast + redirect to /account or /submit-rfp with a "pending review" status.
+2.  /submit-rfp:
+    - Title: "QA Test RFP — Dredging <ts>"
+    - Scope/description (>50 chars): "QA test — dredging, 5000 m³, safe to reject."
+    - Sectors: Dredging, Marine Engineering
+    - Deadline: 30 days out
+    - Submit → ✅ success + pending state
 
-=== PART B: Submit Consultation ===
+3.  /submit-consultation:
+    - Title: "QA Test Consultation <ts>"
+    - Description (>50 chars): "QA test — sustainable certification advice."
+    - Sector: Sustainability
+    - Submit → ✅ success
 
-6. Navigate to /submit-consultation.
-7. Fill:
-   - Title: "QA Test Consultation {timestamp}"
-   - Description: "QA test — asking for advice about sustainable marina certification process. Safe to reject." (>50 chars)
-   - Sector: pick 1 (e.g. "Sustainability")
-8. Submit.
-9. EXPECTED: success toast + redirect to /account with "pending" state.
+4.  /request-webinar:
+    - Topic: "QA Test Webinar Proposal <ts>"
+    - Description (>50 chars): "QA test — marina digitalization trends webinar."
+    - Sector tags: 2–3
+    - Submit → ✅ success
 
-=== PART C: Request Webinar ===
+5.  /submit-project:
+    - Title: "QA Test Project — Marina Expansion <ts>"
+    - Description (>50 chars): "QA test — 50-berth expansion over 2 years."
+    - Sectors: 2
+    - Submit → ✅ success
 
-10. Navigate to /request-webinar.
-11. Fill:
-    - Topic: "QA Test Webinar Proposal {timestamp}"
-    - Description: "QA test webinar proposal — requesting a webinar on marina digitalization trends. Safe to reject." (>50 chars)
-    - Sector tags: pick 2-3
-    - Preferred date range (if field exists)
-12. Submit.
-13. EXPECTED: success toast + redirect to /account with pending state.
+6.  /account — verify all 4 appear under their respective tabs/sections with "Pending review".
+    Click into each to confirm the detail view shows the data you submitted.
 
-=== PART D: Submit Project ===
+=== Part 2: 🛑 ADMIN CHECKPOINT — Sebastien reviews in admin ===
 
-14. Navigate to /submit-project.
-15. Fill:
-    - Project title: "QA Test Project — Marina Expansion {timestamp}"
-    - Description: "QA test project — expanding capacity by 50 berths over the next 2 years. Safe to reject." (>50 chars)
-    - Sectors involved: pick 2
-    - Budget range (if field exists)
-    - Timeline (if field exists)
-16. Submit.
-17. EXPECTED: success toast + pending state on /account.
+Action (Sebastien, in Profile B):
+  a. /admin/rfps → open the QA RFP → Approve with notes "QA test approval".
+  b. /admin/consultations → open QA consultation → Reject with reason "QA test rejection".
+  c. /admin/webinars (or /admin/webinar-requests) → open QA webinar → Approve with notes
+     "QA approved". **Do NOT click "Convert to Event"** — we don't want real event rows.
+  d. /admin/projects (or /admin/leads) → open QA project → set status "Under review".
 
-=== PART E: Verify all 4 appear in /account ===
+Resume after: Sebastien says "admin review done".
 
-18. Navigate to /account.
-19. Verify all 4 submissions are visible:
-    - RFP in RFPs tab/section
-    - Consultation in Consultations tab/section
-    - Webinar request in Webinars or Activity tab
-    - Project in Projects tab/section
-20. Each should show "Pending review" or similar status.
-21. Click into each and verify the detail view shows the data you submitted.
+=== Part 3: Verify the status updates propagate to the marina ===
 
-=== PART F: Admin review round-trip ===
+7.  Back in Profile A, refresh /account. Verify:
+    - RFP            → "Open" or "Approved"
+    - Consultation   → "Rejected", reason "QA test rejection" visible to the user
+    - Webinar request → "Approved"
+    - Project        → "Under review"
 
-22. Open a NEW Chrome profile (or incognito) and log in as Sebastien's admin account.
+8.  Check mailinator for any status-change emails. Status-update emails are optional — if
+    missing flag as P2, not P0.
 
-23. Navigate to /admin/rfps:
-    - Find the QA Test RFP
-    - Open detail
-    - Approve it (add admin notes: "QA test approval")
-    - Verify status changes to "Open" or "Approved"
+=== Flag ===
 
-24. Navigate to /admin/consultations:
-    - Find the QA Test Consultation
-    - Reject it with reason "QA test rejection"
-    - Verify status changes to "Rejected"
+P0 — Any form returns 4xx/5xx (capture body)
+P0 — Submission succeeds but item doesn't appear in /account
+P0 — Admin action doesn't propagate to marina view after refresh
+P0 — Rejection reason hidden from user
+P1 — Missing validation on required fields
+P1 — Date picker allows past dates
+P2 — No status-change email; unclear copy
 
-25. Navigate to /admin/webinars:
-    - Find the QA webinar request
-    - Review the detail page
-    - Look for a "Convert to Event" or "Approve" action
-    - Do NOT click convert (it would create real event rows) — just verify the button exists
-    - Approve with notes "QA approved"
-
-26. Navigate to /admin/projects (or /admin/leads):
-    - Find the QA Test Project
-    - Open detail
-    - Update status if possible (set to "under review")
-
-=== PART G: Verify user sees status updates ===
-
-27. Log out of admin (or switch back to the other browser profile).
-
-28. Log in as the QA marina.
-
-29. Go to /account.
-
-30. Verify:
-    - RFP now shows "Open" or "Approved" status
-    - Consultation now shows "Rejected" with reason "QA test rejection" visible
-    - Webinar request shows "Approved"
-    - Project shows "Under review"
-
-31. For the REJECTED consultation, verify the rejection reason is displayed to the user (not hidden).
-
-32. Check mailinator qa-marina-{timestamp} for any status update emails (may or may not be implemented per status type — flag as P2 if missing).
-
-SPECIFIC THINGS TO FLAG:
-
-- (P0) Any submission form returns 4xx/5xx → capture response
-- (P0) Submission succeeds but item doesn't appear in /account
-- (P0) Admin approve/reject doesn't propagate to user's /account view
-- (P0) Rejection reason not visible to user
-- (P1) Any form has missing validation (allows empty required fields)
-- (P1) No status update email when a status changes (may be acceptable — flag as P2)
-- (P1) Date picker doesn't work or allows past dates for deadlines
-- (P2) Copy/wording unclear on pending/approved/rejected states
+=== Save for cleanup ===
+- IDs of the 4 QA submissions so Sebastien can delete them post-QA.
 
 Report format:
-| Flow | Submit OK | Admin action OK | Status sync to user | Issues |
-
-At the end, give pass/fail count. List the IDs of the 4 QA items so Sebastien can clean them up.
+| Flow | Submit OK | Admin action OK | Synced to user | Notes |
 ```

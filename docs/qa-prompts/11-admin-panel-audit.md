@@ -1,7 +1,11 @@
 # Prompt 11 — Full admin panel audit
 
+**Admin intervention needed:** Yes — Sebastien must be logged in as admin the entire time.
+All dialogs are opened read-only and cancelled without saving.
+
 ## Prerequisite
 - Sebastien is already logged in as admin in this Chrome session
+- Prompts 03, 04, 05, 06, 07 have been run (so there's QA data in most sections)
 
 ## Copy-paste to Claude Chrome
 

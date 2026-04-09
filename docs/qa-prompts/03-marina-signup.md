@@ -1,77 +1,89 @@
 # Prompt 03 — Marina signup & onboarding
 
+**Admin intervention needed:** No (admin approval comes later in Prompt 06)
+
+**Background (context for Claude, not to paste):**
+- Email confirmation is DISABLED in Supabase Auth for QA. Signup must log the user in immediately.
+- The post-signup redirect is `/account?tab=organization`, NOT `/onboarding` (there is no
+  standalone /onboarding route anymore).
+- Mailinator addresses are temporarily allowed by a patch in `SignupForm.tsx` (post-QA revert).
+- The marina onboarding is a multi-section form rendered inside the Organization tab of
+  AccountPage. The correct field labels are "Total Berths", "Longest Berth", "Facilities",
+  "Sectors of Interest", "Future Plans".
+
 ## Copy-paste to Claude Chrome
 
 ```
-Test the marina signup flow at https://smartmarinaconnect.com
+Test the marina signup + onboarding flow on https://smartmarinaconnect.com.
 
-CONTEXT: Email confirmation is currently DISABLED for QA. Signup should log the user in immediately with NO email verification step. If you see a "Check your email" screen during this flow, flag it as a BUG.
+=== Pre-requisites ===
+- Logged OUT (fresh incognito preferred)
+- Mailinator tab open
+- Note the exact timestamp you start — you'll reuse it in the email + org name
 
-Use these test credentials (replace {timestamp} with the current unix timestamp):
-- Email: qa-marina-{timestamp}@mailinator.com
-- Password: TestQa!2026SecurePass
-- First name: Marina
-- Last name: Tester
-- Organization name: "QA Test Marina {timestamp}"
-- Country: Monaco
-- Persona: Marina
+=== Test credentials ===
+- Email:       qa-marina-<timestamp>@mailinator.com
+- Password:    TestQa!2026SecurePass
+- First name:  Marina
+- Last name:   Tester
+- Org name:    "QA Test Marina <timestamp>"
+- Country:     Monaco
+- Persona:     Marina
 
-STEPS:
+=== Steps ===
 
-1. From the homepage, click "Become a Member" or "Join" in the nav.
+1.  From the homepage click "Become a Member" / "Join" in the nav.
+2.  Pick "Marina" persona and fill the signup form with the credentials above.
+3.  Submit.
+    ✅ Expected: immediate login, auto-redirect to /account?tab=organization.
+    ❌ If you see any "Check your email to confirm" screen → flag P0 (email confirm should be off).
+    ❌ If you're redirected to /onboarding (old route) → flag P0.
 
-2. Complete the signup form with the credentials above. Select persona "Marina".
+4.  On the Organization tab, fill the marina onboarding form:
+    - Total Berths: 250
+    - Longest Berth (m): 80
+    - Facilities: pick 3+ checkboxes (fuel, water, electricity, etc.)
+    - Sectors of Interest: pick 2–3 sectors
+    - Future Plans: pick 1–2 items if available
+    - Any other required fields (website, contact phone, description…)
+5.  Submit the Organization form.
+    ✅ Expected: success toast, page stays on /account?tab=organization, and a
+       "Pending Verification" (or equivalent) banner is now visible at the top of AccountPage.
 
-3. Submit the form.
+6.  Gated route checks — for a pending user, verify each of these is locked:
+    - /submit-project      → locked / "must be verified" message, NO form shown
+    - /request-webinar     → locked
+    - /submit-rfp          → locked
+    - /submit-consultation → locked
+    - /network             → either hidden or read-only with lock icons
+    Capture the exact copy of whatever lock message is shown.
 
-4. EXPECTED: immediate login, auto-redirect to /onboarding (no email verification step, no "check your email" screen).
-
-5. On the onboarding page, fill in all required marina fields:
-   - Number of berths (pick a realistic number, e.g. 250)
-   - Length range (e.g. min 10m, max 80m)
-   - Services offered (select 3+ checkboxes)
-   - Sectors of interest (select 2-3)
-   - Future plans (pick 1-2 if available)
-   - Any other required fields
-
-6. Submit onboarding.
-
-7. EXPECTED: redirect to /account with a "Pending Verification" (or similar) banner at the top.
-
-8. Navigate to /submit-project:
-   - EXPECTED: shows a locked/pending state or a message like "Your account must be verified to submit projects"
-   - Should NOT crash or show the project form
-
-9. Navigate to /request-webinar:
-   - EXPECTED: same locked/pending state
-
-10. Navigate to /submit-rfp:
-    - EXPECTED: same locked/pending state
-
-11. Go back to /account. Read the pending banner text carefully:
-    - Is it clear what the user needs to do next?
+7.  Back on /account, evaluate the pending banner:
+    - Is it clear what happens next?
+    - Does it mention expected review time?
     - Is there a "contact support" link?
-    - Does it mention how long verification takes?
 
-12. Log out via the user menu in the navbar.
+8.  Open the navbar user menu:
+    - Does it show the pending state (e.g. badge, icon)?
+    - Is there a logout action? Log out and confirm redirect to home.
 
-SPECIFIC THINGS TO FLAG:
+9.  Try to log back in with the same credentials.
+    ✅ Expected: you land back on /account in pending state.
 
-- (P0) "Check your email" screen appears → email confirmation is supposed to be off for QA
-- (P0) Signup form rejects valid input with generic error
-- (P0) Onboarding submission returns 4xx/5xx → capture the response body
-- (P0) After onboarding, /account doesn't show pending banner
-- (P0) /submit-project or /request-webinar shows the actual form (not locked) for a pending user
-- (P1) Pending banner text is unclear or missing actions
-- (P1) Any field validation is confusing or fails to give feedback
-- (P2) Form styling is broken on desktop 1440px
+=== Things to flag ===
 
-SAVE THESE FOR PROMPT 06:
-- The test email used: qa-marina-{timestamp}@mailinator.com
-- The test organization name: "QA Test Marina {timestamp}"
+P0 — "Check your email" screen appears; signup returns 4xx/5xx; redirect goes to /onboarding;
+     organization submit returns 4xx/5xx (capture body); pending banner missing after submit;
+     any gated route shows the real form instead of the lock.
+P1 — Unclear pending-state copy; missing contact/help link; broken validation.
+P2 — Styling issues at 1440×900.
+P3 — Copy polish.
+
+=== Save for Prompt 06 ===
+- Email used: qa-marina-<timestamp>@mailinator.com
+- Org name:   QA Test Marina <timestamp>
+- User UUID (grab from /account URL or supabase.auth getSession in console if visible)
 
 Report format:
-| Step | Expected | Actual | Status (✅/⚠️/❌) |
-
-At the end, give pass/fail count and list any P0/P1 issues.
+| Step | Expected | Actual | Status |
 ```

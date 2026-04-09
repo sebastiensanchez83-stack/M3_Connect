@@ -1,151 +1,110 @@
 # Prompt 06 — Admin user approval flow
 
-## Prerequisites
-- Prompts 03 and 04 completed (creates 1 pending marina user + 1 pending partner user)
-- Admin logged in as Sebastien's admin account
+**Admin intervention needed:** Yes — this prompt IS the admin flow. Sebastien must be logged in
+as admin in THIS Chrome profile for the whole prompt. All approve/reject/suspend clicks are
+executed by Claude inside that session.
+
+**Background (context for Claude, not to paste):**
+- `send-status-notification` was previously returning 401 at the Supabase gateway. It is now
+  redeployed with `verify_jwt: false` and requires the frontend to pass an `x-caller-user-id`
+  header. `AdminUsers.tsx` was updated to send it. The function internally verifies that the
+  caller has `persona IN ('admin','moderator')` and `access_status='verified'`. So approval /
+  rejection / suspend emails should now actually reach Resend.
+- Prompts 03 and 04 created pending users. This prompt acts on them.
+- The marina created in Prompt 03 has NO references (marinas don't need refs).
+- The partner from Prompt 04 Path A should have 2 confirmed references by this point.
+  The partner from Path B should have an approved bypass request.
 
 ## Copy-paste to Claude Chrome
 
 ```
-Test the admin user approval flow at https://smartmarinaconnect.com/admin/users
+Test admin user approval / rejection / suspend on https://smartmarinaconnect.com/admin/users.
 
-CONTEXT:
-- Sebastien is logged in as admin.
-- From Prompt 03 there is a pending marina user with email starting with "qa-marina-".
-- From Prompt 04 there is a pending partner user with email starting with "qa-partner-".
-- The Partner has Reference 1 verified and Reference 2 still pending.
-- Approve and Reject emails are sent via edge function `send-status-notification` — these DO still send even though signup confirmation is off.
+=== Pre-requisites ===
+- Sebastien is logged in as admin in THIS Chrome profile.
+- Prompts 03 and 04 have been completed (test users exist in Pending state).
+- Mailinator tab open.
+- Do NOT log out of the admin session until the prompt asks you to.
 
-STEPS:
+=== PART A — Approve the QA marina (from Prompt 03) ===
 
-=== PART A: Approve the QA marina ===
+1.  /admin/users → filter Pending.
+2.  Find the user whose email starts with "qa-marina-". Open detail page.
+3.  Verify fields: name "Marina Tester", org "QA Test Marina ...", persona Marina,
+    onboarding info (berths, facilities, sectors) all present.
+4.  Click "Approve" → confirm in the dialog.
+    ✅ Expected: toast success, status → Verified, row updates.
+    ❌ If the network call to send-status-notification returns 401/403 → P0 regression
+       (check the x-caller-user-id header in devtools Network tab).
+5.  Open mailinator for qa-marina-<ts>. Within 90s expect:
+    - Sender: noreply@smartmarinaconnect.com (flag m3monaco.com)
+    - Subject: "approved" / "welcome"
+    - Body mentions first name + a "Log in" CTA linking to smartmarinaconnect.com
 
-1. Go to /admin/users. Apply filter "Pending" to narrow the list.
+6.  🛑 ADMIN CHECKPOINT — Sebastien does this
+    Action: log out of admin (use user menu). Then log in as the QA marina
+    (qa-marina-<ts>@mailinator.com / TestQa!2026SecurePass).
+    Resume after: Sebastien tells Claude "logged in as marina".
 
-2. Find the user whose email starts with "qa-marina-" (from Prompt 03). Click into their detail page.
+7.  On /account verify:
+    - No pending banner
+    - /submit-project, /request-webinar, /submit-rfp, /submit-consultation all show the real form
+    - Navbar now shows "Submit Project" + "Propose Webinar"
 
-3. Verify the detail page shows:
-   - Correct name "Marina Tester"
-   - Organization "QA Test Marina {timestamp}"
-   - Persona: Marina
-   - Status: Pending
-   - All onboarding info (berths, services, sectors)
+8.  🛑 ADMIN CHECKPOINT — Sebastien logs back in as admin.
+    Resume after: "back as admin".
 
-4. Click the "Approve" (or "Verify") button.
+=== PART B — Approve the QA partner (Path A, from Prompt 04) ===
 
-5. A dialog should open with a confirmation message. Confirm.
+9.  /admin/users → Pending. Find qa-partner-<ts>. Open detail.
+10. Verify both references show "confirmed". If either is still pending → P0 (Prompt 04
+    bug or reference-click flow broken).
+11. Click "Approve". Confirm dialog.
+    ✅ Expected: status → Verified, email sent.
+12. Check mailinator for approval email (same checks as step 5).
 
-6. EXPECTED:
-   - Success toast
-   - User's status updates to "Verified"
-   - Page auto-refreshes or shows the new status
+=== PART C — Approve the Path-B partner (bypass) ===
 
-7. Open a new tab and go to https://www.mailinator.com/v4/public/inboxes.jsp?to=qa-marina-{timestamp}
+13. Find qa-partner-bypass-<ts>. Open detail.
+14. Verify the bypass request is visible and marked "approved" (from Prompt 04 Path B).
+15. Click "Approve" user. Confirm.
+16. Verify approval email in mailinator.
 
-8. EXPECTED: within 1 minute, an approval email arrives.
-   - Sender: noreply@smartmarinaconnect.com
-   - Subject contains "approved" or "welcome"
-   - Body mentions the user's first name
-   - Body has a "Log in" button linking to https://smartmarinaconnect.com
+=== PART D — Reject a test user ===
 
-9. Log out as admin.
+17. If no additional pending QA user exists, signup a throwaway Marina in a separate tab:
+    - qa-reject-<ts>@mailinator.com / TestQa!2026SecurePass / Reject Tester / "QA Reject Test"
+    - Fill minimal onboarding fields and log out.
+    🛑 ADMIN CHECKPOINT — Sebastien logs back in as admin after creating the reject user.
 
-10. Log in as the QA marina with password "TestQa!2026SecurePass".
+18. In /admin/users → Pending, open qa-reject-<ts>.
+19. Click "Reject". The dialog MUST require a rejection reason (textarea).
+    Fill: "QA test rejection — please ignore."
+20. Confirm.
+    ✅ Expected: status → Rejected, reason saved and visible in admin.
+21. Check mailinator for rejection email. Body must mention the rejection reason and an
+    "Update my profile" link.
 
-11. Verify:
-    - /account no longer shows the pending banner
-    - /submit-project is now accessible (shows the form, not locked state)
-    - /request-webinar is now accessible
-    - /submit-rfp is now accessible
-    - Navbar shows "Submit Project" + "Propose Webinar" links
+=== PART E — Suspend / Re-activate ===
 
-12. Log out.
+22. Pick one of the verified QA users from Part A/B/C. Open detail → "Suspend".
+23. Confirm dialog.
+    ✅ Expected: status → Suspended.
+24. Check mailinator for a suspension email (P2 if missing).
+25. Click "Re-activate" / "Verify" → status returns to Verified.
 
-=== PART B: Reject a test user (create one first if needed) ===
+=== Flag ===
 
-13. Log back in as admin.
-
-14. Go to /admin/users. Look for another pending QA user. If there's no second pending QA user, go to /join and quickly create one:
-    - Email: qa-reject-{timestamp}@mailinator.com
-    - Password: TestQa!2026SecurePass
-    - Name: Reject Tester
-    - Persona: Marina
-    - Org: "QA Reject Test"
-    - Complete onboarding with minimal fields
-    - Log out
-    - Log back in as admin
-
-15. In /admin/users find the qa-reject- user. Click their row.
-
-16. Click "Reject".
-
-17. A dialog should open with a REQUIRED rejection reason textarea. Fill: "QA test rejection — please ignore."
-
-18. Confirm rejection.
-
-19. EXPECTED:
-    - Success toast
-    - User status updates to "Rejected"
-    - Rejection reason saved and visible in admin
-
-20. Check mailinator at qa-reject-{timestamp}:
-    - Rejection email arrived
-    - Sender: noreply@smartmarinaconnect.com
-    - Body mentions the rejection reason
-    - Body has an "Update my profile" or similar link
-
-=== PART C: Partner approval with pending references ===
-
-21. Log in as admin. Go to /admin/users → Pending.
-
-22. Find the qa-partner- user from Prompt 04. Click their detail page.
-
-23. Verify the references section shows:
-    - Reference 1: verified ✅
-    - Reference 2: pending ⏳
-
-24. Try to click "Approve".
-
-25. The admin should see either:
-    - (A) An approve button that works (admin can force-approve even with pending refs), OR
-    - (B) A warning that refs are incomplete, with an option to override
-
-    Either behavior is acceptable — note which one you see.
-
-26. If you can approve, do so. Check mailinator qa-partner-{timestamp} for the approval email.
-
-27. Log out as admin, log in as the QA partner, verify /account no longer shows pending.
-
-=== PART D: Suspend test ===
-
-28. Log back in as admin.
-
-29. Go to /admin/users, find any VERIFIED user whose email starts with "qa-" (prefer one of the ones you just approved).
-
-30. Click their detail page. Click "Suspend".
-
-31. Dialog should open with confirmation. Confirm.
-
-32. EXPECTED: status changes to "Suspended".
-
-33. Check mailinator for a suspension email (may or may not be implemented — flag if missing as P2).
-
-34. Click "Re-activate" or "Verify" to restore the user.
-
-SPECIFIC THINGS TO FLAG:
-
-- (P0) Approval does not update the user's status
-- (P0) Approval email does not arrive within 2 minutes
-- (P0) Approval email sender is m3monaco.com (wrong domain)
-- (P0) Approved user still sees pending banner on /account after login
-- (P0) /submit-project is still locked for the approved marina
-- (P0) Rejection reason not saved in DB or not shown in email
-- (P1) Email body is unstyled or missing personalization
-- (P1) Suspend action does not work or shows error
-- (P2) Missing "reactivate" path for suspended users
+P0 — Approve/Reject/Suspend action fails or returns 4xx/5xx
+P0 — Any email does not arrive within 2 minutes
+P0 — Email sender is m3monaco.com
+P0 — Approved user still sees pending banner after login
+P0 — /submit-project still locked for approved marina
+P0 — Rejection reason not persisted or not shown in email
+P1 — Email body unstyled or missing personalization
+P1 — Suspend error, no re-activate path
+P2 — Missing suspension notification email
 
 Report format:
-| Action | User | Email arrived (y/n) | User state updated | Issues |
-
-At the end, list pass/fail count and P0 issues.
+| Action | User | HTTP status | Email received | State updated | Notes |
 ```

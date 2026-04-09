@@ -597,9 +597,10 @@ export function AccountPage() {
 
   // Onboarding wizard step calculation
   // Step 1: Organization Details — complete when org exists
-  // Step 2: Reference (partners only, NOT media) — complete when references submitted OR bypass pending/approved
+  // Step 2: Reference (partners only, NOT media) — complete when ≥2 references submitted OR bypass pending/approved
   // Step 3 (or 2 for non-partners): Admin Review
-  const referenceStepDone = referenceCount > 0 || bypassRequest?.status === 'pending' || bypassRequest?.status === 'approved';
+  const REQUIRED_REFERENCES = 2;
+  const referenceStepDone = referenceCount >= REQUIRED_REFERENCES || bypassRequest?.status === 'pending' || bypassRequest?.status === 'approved';
   const needsReferences = isPartnerOnly; // only partners, not media_partner
   const currentOnboardingStep = !org ? 1 : (needsReferences && !referenceStepDone) ? 2 : (needsReferences ? 3 : 2);
 

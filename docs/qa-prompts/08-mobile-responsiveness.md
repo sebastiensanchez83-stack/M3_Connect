@@ -1,5 +1,8 @@
 # Prompt 08 — Mobile responsiveness audit
 
+**Admin intervention needed:** No (admin session reused for /admin mobile checks, but no clicks
+that mutate data)
+
 ## Copy-paste to Claude Chrome
 
 ```
@@ -33,7 +36,7 @@ For each viewport, test the following pages and interactions:
    - Packages (if any) reflow
    - No horizontal scroll on the page
 
-4. /join (signup)
+4. /become-partner (signup entry — /join is a 404 and should NOT be used)
    - Form fields full width
    - Labels readable (>= 14px)
    - Keyboard doesn't obscure the submit button

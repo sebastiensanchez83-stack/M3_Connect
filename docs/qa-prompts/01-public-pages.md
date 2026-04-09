@@ -1,45 +1,76 @@
 # Prompt 01 — Public pages & anonymous flows
 
+**Admin intervention needed:** No
+
 ## Copy-paste to Claude Chrome
 
 ```
-Test every public page of https://smartmarinaconnect.com without logging in.
+Test every public page of https://smartmarinaconnect.com while logged OUT.
 
-Visit in order and verify each loads without console errors, layout is not broken on desktop 1440px width, and all images load:
-1. / (home)
-2. /about
-3. /events (note how many events are shown)
-4. /resources
-5. /partners
-6. /network (marketplace — may be gated)
-7. /join (become a member)
-8. /tiers (pricing)
-9. /contact
+Visit in order and verify each loads without console errors, layout is not broken at desktop 1440×900, and all images load:
+
+1.  /                            (home)
+2.  /about
+3.  /events                      (should show ≥10 upcoming events — QA samples exist)
+4.  /resources
+5.  /partners
+6.  /network                     (public marketplace)
+7.  /become-partner              (signup entry — NOT /join, see step 14)
+8.  /tiers
+9.  /contact
 10. /terms
 11. /privacy
-12. /cookies (or /cookie-policy)
+12. /cookies
 13. /mentions-legales
 14. /conditions-commerciales
 
-For each page capture:
+For each page record:
 - Page title (browser tab)
-- Any red console errors (y/n + details)
-- Any 4xx/5xx network requests (y/n + URLs)
-- Whether the footer renders all legal links
+- Red console errors (y/n + details)
+- 4xx/5xx network requests (y/n + URLs)
+- Whether the footer renders with all legal links
+- Screenshot any broken layout
 
-IMPORTANT: Click every link in the footer to verify no 404s.
+=== Known baseline issues (verify whether they're fixed) ===
 
-Then click into one event detail and verify the page loads.
+Flag the following explicitly — if any are STILL present, report them; if FIXED, note that too:
 
-SPECIFIC THINGS TO FLAG:
-- Any reference to the old domain "connect.m3monaco.com" or "m3connect.mc" — should no longer exist
-- Any broken image (404 on the image URL)
-- Any page that takes >5 seconds to first paint
-- Any page that shows a "Something went wrong" error screen
-- Any footer link that 404s
+a) `/join` returns 404 → it should ideally redirect to `/become-partner`. Visit /join and confirm.
+b) `info@m3monaco.com` appears on 5 legal pages (/terms, /privacy, /cookies, /mentions-legales, /conditions-commerciales). Search each page with Ctrl+F and count occurrences.
+c) Footer LinkedIn link points to `linkedin.com/company/monaco-marina-management` which returns "Page isn't available". Click it to confirm.
+d) Resource card "Meeting Crew, Guest & Vessel Needs in Modern Marinas" had no author shown. Check the Resources page.
 
-Report format per page:
-| URL | Status (✅/⚠️/❌) | Console errors (y/n) | Broken images (y/n) | Notes |
+=== Event detail smoke test ===
 
-At the end, give a total pass/fail count and list P0/P1 issues.
+15. On /events, click into any event whose title starts with "QA SAMPLE —" (these are seeded test events, safe to view).
+16. Verify the detail page renders hero image, title, date, description, and registration card.
+17. Try one webinar type and one on-site type to cover both layouts.
+
+=== Footer link health ===
+
+18. On the homepage, click EVERY link in the footer (Platform, Legal, Social columns). For each:
+    - Note HTTP status
+    - Note if it's same-tab vs new-tab
+    - For external links, verify target="_blank" + rel="noopener noreferrer" (use Elements inspector)
+
+=== Page-level text search ===
+
+On every page visited, search with Ctrl+F for:
+- "connect.m3monaco.com"  → should NOT exist (old domain)
+- "m3connect.mc"           → should NOT exist
+- "lorem ipsum"            → should NOT exist
+- "[object Object]"        → should NOT exist (broken render)
+- "undefined" (unstyled)   → should NOT exist
+- "NaN"                    → should NOT exist
+
+=== Report format ===
+
+| # | URL | Title | Status ✅/⚠️/❌ | Console err | 4xx/5xx | Footer OK | Notes |
+
+At the end, summarize:
+- Total pages: X
+- ✅ Pass / ⚠️ Warn / ❌ Fail counts
+- P0 issues (with fix suggestion)
+- P1 issues
+- Confirm which of the 4 baseline issues (a-d) are still present vs fixed
 ```

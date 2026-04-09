@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { sendNotification } from '@/lib/notifications';
 import { AdminContextBanner } from './AdminContextBanner';
 import type { AdminProfile } from './types';
@@ -45,6 +46,7 @@ const REQUIRED_REFERENCES = 2;
 
 export function AdminUsers() {
   const { t } = useTranslation();
+  const { user: currentUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = searchParams.get('status') || '';
@@ -227,6 +229,7 @@ export function AdminUsers() {
     try {
       await supabase.functions.invoke('send-status-notification', {
         body: { user_id: userId, status, reason },
+        headers: currentUser?.id ? { 'x-caller-user-id': currentUser.id } : undefined,
       });
     } catch (err) {
       if (import.meta.env.DEV) console.warn('[AdminUsers] Email notification failed (non-blocking):', err);

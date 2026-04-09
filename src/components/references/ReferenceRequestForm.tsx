@@ -243,29 +243,16 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
         .update({ client_organization_id: clientOrg.id })
         .eq('id', refReq.id);
 
-      // Send emails via edge function
-      const { data: { session } } = await supabase.auth.getSession();
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://djjbgzasuomhyfvtlidi.supabase.co';
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
-      const emailResponse = await fetch(
-        `${supabaseUrl}/functions/v1/send-reference-email`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token || anonKey}`,
-            'apikey': anonKey,
-          },
-          body: JSON.stringify({
-            reference_request_id: refReq.id,
-            recipients: validRecipients,
-          }),
-        }
-      );
+      // Send emails via edge function (verify_jwt is now disabled — use invoke for consistent headers)
+      const { error: emailInvokeErr } = await supabase.functions.invoke('send-reference-email', {
+        body: {
+          reference_request_id: refReq.id,
+          recipients: validRecipients,
+        },
+      });
 
-      if (!emailResponse.ok) {
-        const errData = await emailResponse.json();
-        if (import.meta.env.DEV) console.warn('Email sending issue:', errData);
+      if (emailInvokeErr && import.meta.env.DEV) {
+        console.warn('Email sending issue:', emailInvokeErr);
       }
 
       setSubmitted(true);

@@ -1,5 +1,11 @@
 # Prompt 09 — Error resilience & edge cases
 
+**Admin intervention needed:** No
+
+**Note:** One of the baseline bugs is that `/join` returns a 404 (it should redirect to
+`/become-partner`). This prompt intentionally uses `/become-partner` for all signup-related
+tests; the `/join` redirect gap is tested separately in Prompt 01.
+
 ## Copy-paste to Claude Chrome
 
 ```
@@ -75,7 +81,7 @@ CONTEXT: There is a brand-new "lazyWithRetry" + enhanced ErrorBoundary system (a
 
 === PART E: Network failure handling ===
 
-19. Go to /join (signup form).
+19. Go to /become-partner (signup form).
 
 20. Open DevTools → Network → set throttling to "Offline".
 
@@ -114,7 +120,7 @@ CONTEXT: There is a brand-new "lazyWithRetry" + enhanced ErrorBoundary system (a
 
 === PART H: Form validation errors ===
 
-31. Go to /join. Submit the form with:
+31. Go to /become-partner. Submit the form with:
     - Empty email → expect inline error
     - Invalid email format → expect inline error
     - Password < 8 chars → expect inline error

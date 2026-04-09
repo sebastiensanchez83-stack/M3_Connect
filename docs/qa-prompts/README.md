@@ -34,7 +34,7 @@ CURRENT PLATFORM STATE (2026-04-09):
 - Stripe/payments are REMOVED — there should be no payment UI anywhere.
 - Mailinator is currently ALLOWED as a signup email domain (temporary QA patch in SignupForm.tsx; will be reverted post-QA).
 - 10 QA SAMPLE events are seeded in the DB (titles start with "QA SAMPLE —"). Do NOT delete them.
-- After signup, users redirect to /account?tab=organization (NOT /onboarding — there is no dedicated /onboarding route).
+- After signup, users redirect to **/onboarding** (OnboardingPage — persona + org form). Once the onboarding form is submitted, `onboarding_status` flips from `draft` → `submitted` and the user is routed to /account with a pending-verification banner.
 - Partners need 2 confirmed client references OR an approved bypass request before admin can verify them.
 - Admin panel lives at /admin. Victor's admin account is the only user with persona='admin'.
 
@@ -318,6 +318,60 @@ All 14 pages + /join were searched. **No matches found** for: `connect.m3monaco.
 | Event ID | Event Title | Registrations |
 |----------|------------|---------------|
 | `35ed58b5-e182-4655-adff-1ff9651ca5bf` | QA SAMPLE — Public Webinar TOMORROW: Sustainability in Marinas | `qa-guest-1775737404821@mailinator.com`, `qa-guest-test2-1775737974834@mailinator.com`, `foo@guerrillamail.com`, `foo2@yopmail.com` |
+
+## Marina Signup + Onboarding Flow — QA Report
+
+**Test Credentials (Save for Prompt 06):**
+- Email: `qa2-marina-1775740410371@mailinator.com`
+- Password: `TestQa!2026SecurePass`
+- Org name: `QA2 Test Marina 1775740410371`
+- User UUID: `2a70e108-d9b2-46e8-bb27-2579bf8f685b`
+
+---
+
+| Step | Expected | Actual | Status |
+|---|---|---|---|
+| **1. Click Sign Up → persona** | Persona picker opens from navbar | Persona picker dialog appeared with Marina/Port, Partner, Media options | ✅ |
+| **2. Select Marina / Port → fill form** | Signup form opens with persona pre-selected | Form opened with "Marina / Port" confirmed at top; all fields filled (name, email, company, website, password, terms) | ✅ |
+| **3. Submit signup → immediate login, redirect to /account?tab=organization** | No "check your email" screen; auto-login; redirect to /account?tab=organization | Immediate login ✅, **redirect to /account?tab=organization** ✅. No email confirmation screen. "Pending" badge visible. | ✅ |
+| **3a. /onboarding redirect?** | Should NOT redirect to /onboarding | This time it correctly went to /account?tab=organization (unlike previous test run which hit /onboarding). Behavior may be intermittent or was fixed. | ✅ |
+| **4a. Create Organization form** | Form pre-fills org name, domain, website from signup | Pre-filled correctly: "QA2 Test Marina 1775740410371", "mailinator.com", website. Filled Country=Monaco, City=Monaco, Description (>50 chars). Submitted. | ✅ |
+| **4b. Fill marina details** | Full marina profile form with berths, facilities, sectors, future plans | Form appeared after org creation with all expected fields. Filled: Marina Type=In Operation, Total Berths=250, Superyacht=20, Longest=80m, Fresh Water=Yes, Certs=Blue Flag+ISO14001, 5 Facilities toggled ON, Marina Description (>50 chars), Services Description (>50 chars), 3 Sectors of Interest, 2 Future Plans with timelines. | ✅ |
+| **5. Submit onboarding form** | Success toast; redirect to /account with Pending Verification banner | Save succeeded. Page switched to read-only view showing all data. Status = "Pending". **No visible success toast observed** (may have been brief). "Complete Registration" sidebar with "Profile Submitted for Review" page appeared. | ⚠️ P3 |
+| **5a. Pending banner present?** | "Pending Verification" banner at top of /account | "Pending" badge in header banner ✅. "Profile Submitted for Review" card with review info on /account ✅. On homepage dashboard: "Complete your organization profile to unlock all platform features." banner ✅. | ✅ |
+| **6a. /submit-project** | Locked — no form shown | Redirected to /account?tab=complete-registration with "Profile Submitted for Review" | ✅ Locked |
+| **6b. /request-webinar** | Locked — no form shown | Redirected to /account?tab=complete-registration | ✅ Locked |
+| **6c. /submit-rfp** | Locked — no form shown | Redirected to /account?tab=complete-registration | ✅ Locked |
+| **6d. /submit-consultation** | Locked — no form shown | Redirected to /account?tab=complete-registration | ✅ Locked |
+| **6e. /network** | Locked or read-only with lock icons | Partner Directory tab: **accessible** (shows orgs, search, filters). Open RFPs / Open Consultations / Projects tabs: **locked** with "Only verified members can access the marketplace." + "View Account Status" button. | ⚠️ See note |
+| **7. Pending banner evaluation** | Clear next-steps, review time, contact support link | ✅ Clear messaging: "Our team reviews profiles very quickly — you will receive a confirmation email as soon as your account is approved." ✅ Review time: "Typical review time: less than 24 hours." ❌ **No "contact support" link on pending review page.** | ⚠️ P1 |
+| **8. Navbar user menu** | Shows pending state; has logout action | Dropdown shows: user name, email, "My Account", "My Registrations", "Logout". **No pending badge/icon in dropdown** (P2). Logout present ✅. Logged out → redirected to homepage ✅. | ⚠️ P2 |
+| **9. Re-login** | Lands on /account in pending state | Logged in successfully ✅. Landed on homepage dashboard (/) with "Welcome back, Marina!" and a pending banner. Navigating to /account shows pending state correctly with "Profile Submitted for Review". | ✅ |
+
+---
+
+### Issues Found
+
+**P1 — Missing "contact support" link on pending review page**
+The "Profile Submitted for Review" page has clear messaging about review time and next steps, but provides no way to contact support if users have questions or need help. Should add a "Contact Support" or "Need Help?" link (pointing to /contact or a support email).
+
+**P2 — No pending-state indicator in navbar user dropdown**
+The "Pending" badge appears in the account header banner, but the navbar user dropdown menu doesn't show any visual indicator of the pending status. Could add a small badge or status text next to the user name.
+
+**P3 — No visible success toast after saving marina details**
+After clicking "Save Changes" on the organization/marina details form, the page transitioned to read-only view but no success toast was visually observed. It may have appeared briefly or might be missing.
+
+**Note on /network access:** The Partner Directory tab on /network is accessible to pending users (they can browse organizations). The marketplace tabs (Open RFPs, Consultations, Projects) are correctly locked. This may be by design — the Partner Directory could be intentionally public. Flag for confirmation if directory browsing should be gated for pending users.
+
+**Improvement vs. previous test run:** The signup redirect went correctly to `/account?tab=organization` this time (previously it redirected to `/onboarding` which was flagged as P0). This may have been fixed or the behavior may depend on whether existing orgs match the email domain.
+
+---
+
+### Lock message copy (Step 6):
+- **/submit-project, /request-webinar, /submit-rfp, /submit-consultation:** Redirect to `/account?tab=complete-registration` → "Profile Submitted for Review" page
+- **/network (Open RFPs, Open Consultations, Projects tabs):** "Only verified members can access the marketplace." + \[View Account Status\] button
+
+
 
 
 ## Action items before launch

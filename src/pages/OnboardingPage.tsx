@@ -78,6 +78,11 @@ const PUBLIC_DOMAINS = [
   'mail.com','protonmail.com','proton.me','gmx.com','gmx.fr',
   'wanadoo.fr','orange.fr','free.fr','sfr.fr','laposte.net',
   'msn.com','ymail.com','fastmail.com','zoho.com',
+  'yandex.com','tutanota.com',
+  // Disposable / public test inboxes — never treat as a corporate domain
+  'mailinator.com','guerrillamail.com','guerrillamail.info','sharklasers.com',
+  'trashmail.com','10minutemail.com','tempmail.com','yopmail.com',
+  'maildrop.cc','mintemail.com','throwawaymail.com','dispostable.com',
 ];
 
 const personaCards: { value: PersonaType; icon: JSX.Element; title: string; desc: string }[] = [

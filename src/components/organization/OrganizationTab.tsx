@@ -424,6 +424,10 @@ export function OrganizationTab() {
       'mail.com','protonmail.com','proton.me','gmx.com','gmx.fr',
       'wanadoo.fr','orange.fr','free.fr','sfr.fr','laposte.net',
       'msn.com','ymail.com','fastmail.com','zoho.com',
+      'yandex.com','tutanota.com',
+      'mailinator.com','guerrillamail.com','guerrillamail.info','sharklasers.com',
+      'trashmail.com','10minutemail.com','tempmail.com','yopmail.com',
+      'maildrop.cc','mintemail.com','throwawaymail.com','dispostable.com',
     ];
 
     setCreateForm((prev) => ({

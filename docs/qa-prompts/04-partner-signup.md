@@ -4,7 +4,11 @@
 
 **Background (context for Claude, not to paste):**
 - Signup email confirmation is OFF for QA.
-- Post-signup redirect is `/account?tab=organization` (no /onboarding route).
+- **Post-signup flow:** signup → `/onboarding` (persona + partner form with company name,
+  sectors, description, references). Submitting flips `onboarding_status` → `submitted`
+  and AuthRedirector routes to `/account` with a pending-verification banner. References
+  may be added during onboarding or from the AccountPage "complete-registration" tab once
+  the base profile is saved — verify the actual UX as you go.
 - Partner onboarding now correctly requires **2 verified references** (previous run advanced
   after only 1 due to AccountPage bug — fixed: `REQUIRED_REFERENCES = 2`).
 - Reference verification emails were previously blocked by a 401 on the Supabase gateway.
@@ -33,19 +37,25 @@ Test partner signup with 2 real mailinator references on https://smartmarinaconn
 
 === Steps ===
 
-1.  /become-partner or "Join" → signup form. Select Partner persona and fill with the
-    credentials above.
+1.  /become-partner → click the Partner persona card → SignupForm opens.
+    Fill with the credentials above and submit.
 2.  Submit.
-    ✅ Expected: immediate login, redirect to /account?tab=organization. NO email-confirm screen.
+    ✅ Expected: immediate login, redirect to **/onboarding**. NO email-confirm screen.
 
-3.  Fill the Partner onboarding form on the Organization tab:
+3.  On /onboarding, confirm Partner persona is selected and fill the partner form:
     - Company name: "QA2 Partner Services <ts>"
+    - Headquarters country: Monaco
+    - City: Monaco
+    - Website: https://example.com
     - 2–3 service sectors (e.g. Fuel & Bunkering, Dredging, IT & Software)
     - Company description (>50 chars)
-    - Other required fields
-4.  Submit Organization.
+    - Any other required fields
+4.  Submit onboarding.
+    ✅ Expected: `onboarding_status` flips to `submitted`, redirect to /account with
+       pending banner. The AccountPage "complete-registration" tab should still be visible
+       for the references step (until 2 refs are verified).
 
-5.  Proceed to the References step. Add TWO references:
+5.  In AccountPage → "Complete Registration" tab (or wherever references live), add TWO references:
     - Ref 1: Ref One, qa2-ref1-<ts>@mailinator.com, "QA2 Marina Alpha", Harbour Master
     - Ref 2: Ref Two, qa2-ref2-<ts>@mailinator.com, "QA2 Marina Beta",  General Manager
     Submit Ref 1, then submit Ref 2 (previously the form hid after ref 1 — that is fixed).
@@ -102,8 +112,9 @@ Test the partner reference-BYPASS flow on https://smartmarinaconnect.com.
 
 === Steps ===
 
-1.  Signup as Partner with the credentials above → land on /account?tab=organization.
-2.  Fill + submit the Organization form.
+1.  Signup as Partner with the credentials above → land on /onboarding.
+2.  Fill + submit the partner onboarding form (company name, sectors, description…).
+    After submit, you should be redirected to /account with the "Complete Registration" tab.
 3.  At the References step, click "I can't provide references" / "Request bypass" (whatever
     the current CTA is). Fill the bypass form:
     - Reason: "QA test: no clients yet / confidentiality"

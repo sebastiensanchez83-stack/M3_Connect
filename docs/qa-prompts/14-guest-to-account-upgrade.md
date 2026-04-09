@@ -38,7 +38,7 @@ Test the guest-to-account upgrade path on https://smartmarinaconnect.com.
     ✅ Expected: signup succeeds without "email already in use" (guest registrations should
        not block auth signup — they only hold `guest_email`, no auth user). Immediate login.
 
-5.  Land on /account?tab=organization. Fill onboarding minimally and submit.
+5.  Land on /onboarding. Fill the persona + org form minimally and submit → redirect to /account.
 
 6.  Go to /account → Events / Registrations tab.
     ✅ Expected: the prior guest webinar registration is now visible and linked to the

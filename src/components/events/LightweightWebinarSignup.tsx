@@ -39,55 +39,67 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
     }
     setSubmitting(true);
     try {
-      const { error } = await supabase.from('event_registrations').insert({
-        event_id: eventId,
-        user_id: null,
-        guest_first_name: firstName.trim(),
-        guest_last_name: lastName.trim(),
-        guest_email: email.trim().toLowerCase(),
-        guest_company: company.trim() || null,
-        registration_type: 'guest',
-        payment_status: 'free',
+      // Route through the guest-webinar-register edge function, which:
+      //  - enforces per-IP + per-email rate limits
+      //  - validates the event is an eligible public webinar
+      //  - inserts the registration using the service role
+      //  - sends a confirmation email with an .ics calendar attachment
+      const { data, error } = await supabase.functions.invoke('guest-webinar-register', {
+        body: {
+          event_id: eventId,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          email: email.trim().toLowerCase(),
+          company: company.trim() || null,
+        },
       });
+
       if (error) {
-        if (error.code === '23505') {
-          toast({
-            title: 'Already registered',
-            description: 'This email is already signed up for this webinar.',
-            variant: 'destructive',
-          });
+        // Try to parse the structured error returned by the edge function
+        // (supabase-js wraps 4xx/5xx into FunctionsHttpError)
+        let code: string | undefined;
+        let message = error.message || 'Signup failed';
+        try {
+          const ctx = (error as unknown as { context?: Response }).context;
+          if (ctx && typeof ctx.json === 'function') {
+            const payload = await ctx.json();
+            if (payload?.error) message = payload.error;
+            if (payload?.code) code = payload.code;
+          }
+        } catch {
+          // ignore parse errors, fall back to generic message
+        }
+
+        if (code === 'DUPLICATE') {
+          toast({ title: 'Already registered', description: 'This email is already signed up for this webinar.', variant: 'destructive' });
+        } else if (code === 'RATE_LIMIT_IP' || code === 'RATE_LIMIT_EMAIL') {
+          toast({ title: 'Too many attempts', description: message, variant: 'destructive' });
         } else {
-          toast({ title: 'Signup failed', description: error.message, variant: 'destructive' });
+          toast({ title: 'Signup failed', description: message, variant: 'destructive' });
         }
         return;
       }
 
-      // Send confirmation email via edge function (best effort — don't block on failure)
-      try {
-        await supabase.functions.invoke('send-notification', {
-          body: {
-            type: 'guest_webinar_confirmation',
-            guest_email: email.trim().toLowerCase(),
-            guest_first_name: firstName.trim(),
-            event_title: eventTitle,
-          },
-        });
-      } catch {
-        // Non-fatal — registration still succeeded
+      if (data && (data as { error?: string }).error) {
+        toast({ title: 'Signup failed', description: String((data as { error?: string }).error), variant: 'destructive' });
+        return;
       }
 
       setDone(true);
       onRegistered?.();
       toast({
-        title: 'You\'re signed up!',
-        description: 'Check your email for webinar details.',
+        title: "You're signed up!",
+        description: 'Check your email for webinar details and the calendar invite.',
       });
     } catch (err) {
-      toast({ title: 'Signup failed', description: 'An unexpected error occurred.', variant: 'destructive' });
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
+      toast({ title: 'Signup failed', description: message, variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }
   };
+  // eventTitle is kept in props for future use (passed to edge function for templates).
+  void eventTitle;
 
   if (done) {
     return (

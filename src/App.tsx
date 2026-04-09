@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
@@ -7,6 +7,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CookieBanner } from '@/components/layout/CookieBanner';
 import { captureInviteFromUrl } from '@/lib/invite-store';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { RefreshCw } from 'lucide-react';
 
 // Capture ?invite= param on initial page load (before React renders)
@@ -21,28 +22,29 @@ import { EventDetailPage } from '@/pages/EventDetailPage';
 import { PartnersPage } from '@/pages/PartnersPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 
-// Lazy loaded pages (behind auth or lower traffic)
-const AccountPage = lazy(() => import('@/pages/AccountPage').then(m => ({ default: m.AccountPage })));
-const OnboardingPage = lazy(() => import('@/pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })));
-const AdminPage = lazy(() => import('@/pages/AdminPage').then(m => ({ default: m.AdminPage })));
-const MarketplacePage = lazy(() => import('@/pages/MarketplacePage').then(m => ({ default: m.MarketplacePage })));
-const OrganizationPublicPage = lazy(() => import('@/pages/OrganizationPublicPage').then(m => ({ default: m.OrganizationPublicPage })));
-const UserProfilePage = lazy(() => import('@/pages/UserProfilePage').then(m => ({ default: m.UserProfilePage })));
-const SubmitProjectPage = lazy(() => import('@/pages/SubmitProjectPage').then(m => ({ default: m.SubmitProjectPage })));
-const SubmitRFPPage = lazy(() => import('@/pages/SubmitRFPPage').then(m => ({ default: m.SubmitRFPPage })));
-const SubmitConsultationPage = lazy(() => import('@/pages/SubmitConsultationPage').then(m => ({ default: m.SubmitConsultationPage })));
-const WebinarRequestPage = lazy(() => import('@/pages/WebinarRequestPage').then(m => ({ default: m.WebinarRequestPage })));
-const BecomePartnerPage = lazy(() => import('@/pages/BecomePartnerPage').then(m => ({ default: m.BecomePartnerPage })));
-const TiersPage = lazy(() => import('@/pages/TiersPage').then(m => ({ default: m.TiersPage })));
-const JoinPage = lazy(() => import('@/pages/JoinPage').then(m => ({ default: m.JoinPage })));
-const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
-const AboutPage = lazy(() => import('@/pages/AboutPage').then(m => ({ default: m.AboutPage })));
-const ContactPage = lazy(() => import('@/pages/ContactPage').then(m => ({ default: m.ContactPage })));
-const PrivacyPage = lazy(() => import('@/pages/PrivacyPage').then(m => ({ default: m.PrivacyPage })));
-const TermsPage = lazy(() => import('@/pages/TermsPage').then(m => ({ default: m.TermsPage })));
-const MentionsLegalesPage = lazy(() => import('@/pages/MentionsLegalesPage').then(m => ({ default: m.MentionsLegalesPage })));
-const ConditionsCommercialesPage = lazy(() => import('@/pages/ConditionsCommercialesPage').then(m => ({ default: m.ConditionsCommercialesPage })));
-const CookiePolicyPage = lazy(() => import('@/pages/CookiePolicyPage').then(m => ({ default: m.CookiePolicyPage })));
+// Lazy loaded pages (behind auth or lower traffic).
+// lazyWithRetry auto-recovers from stale-chunk errors after a new deploy.
+const AccountPage = lazyWithRetry(() => import('@/pages/AccountPage').then(m => ({ default: m.AccountPage })));
+const OnboardingPage = lazyWithRetry(() => import('@/pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })));
+const AdminPage = lazyWithRetry(() => import('@/pages/AdminPage').then(m => ({ default: m.AdminPage })));
+const MarketplacePage = lazyWithRetry(() => import('@/pages/MarketplacePage').then(m => ({ default: m.MarketplacePage })));
+const OrganizationPublicPage = lazyWithRetry(() => import('@/pages/OrganizationPublicPage').then(m => ({ default: m.OrganizationPublicPage })));
+const UserProfilePage = lazyWithRetry(() => import('@/pages/UserProfilePage').then(m => ({ default: m.UserProfilePage })));
+const SubmitProjectPage = lazyWithRetry(() => import('@/pages/SubmitProjectPage').then(m => ({ default: m.SubmitProjectPage })));
+const SubmitRFPPage = lazyWithRetry(() => import('@/pages/SubmitRFPPage').then(m => ({ default: m.SubmitRFPPage })));
+const SubmitConsultationPage = lazyWithRetry(() => import('@/pages/SubmitConsultationPage').then(m => ({ default: m.SubmitConsultationPage })));
+const WebinarRequestPage = lazyWithRetry(() => import('@/pages/WebinarRequestPage').then(m => ({ default: m.WebinarRequestPage })));
+const BecomePartnerPage = lazyWithRetry(() => import('@/pages/BecomePartnerPage').then(m => ({ default: m.BecomePartnerPage })));
+const TiersPage = lazyWithRetry(() => import('@/pages/TiersPage').then(m => ({ default: m.TiersPage })));
+const JoinPage = lazyWithRetry(() => import('@/pages/JoinPage').then(m => ({ default: m.JoinPage })));
+const ResetPasswordPage = lazyWithRetry(() => import('@/pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
+const AboutPage = lazyWithRetry(() => import('@/pages/AboutPage').then(m => ({ default: m.AboutPage })));
+const ContactPage = lazyWithRetry(() => import('@/pages/ContactPage').then(m => ({ default: m.ContactPage })));
+const PrivacyPage = lazyWithRetry(() => import('@/pages/PrivacyPage').then(m => ({ default: m.PrivacyPage })));
+const TermsPage = lazyWithRetry(() => import('@/pages/TermsPage').then(m => ({ default: m.TermsPage })));
+const MentionsLegalesPage = lazyWithRetry(() => import('@/pages/MentionsLegalesPage').then(m => ({ default: m.MentionsLegalesPage })));
+const ConditionsCommercialesPage = lazyWithRetry(() => import('@/pages/ConditionsCommercialesPage').then(m => ({ default: m.ConditionsCommercialesPage })));
+const CookiePolicyPage = lazyWithRetry(() => import('@/pages/CookiePolicyPage').then(m => ({ default: m.CookiePolicyPage })));
 
 function LazyFallback() {
   return (

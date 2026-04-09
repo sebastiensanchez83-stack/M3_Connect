@@ -12,9 +12,30 @@ interface State {
   error: Error | null;
 }
 
+const CHUNK_RELOAD_FLAG = 'smc:chunk-reload-attempted';
+
+/** Detect stale-chunk errors from Vite/Webpack dynamic imports. */
+function isChunkLoadError(err: unknown): boolean {
+  if (!err) return false;
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    /Failed to fetch dynamically imported module/i.test(message) ||
+    /error loading dynamically imported module/i.test(message) ||
+    /Importing a module script failed/i.test(message) ||
+    /Loading chunk \d+ failed/i.test(message) ||
+    /ChunkLoadError/i.test(message) ||
+    (err instanceof Error && err.name === 'ChunkLoadError')
+  );
+}
+
 /**
  * React Error Boundary that catches render-time errors in its subtree and
  * displays a user-friendly fallback with Smart Marina Connect branding.
+ *
+ * Special-cases stale chunk errors after a new deploy: if the user's browser
+ * has a cached `index.html` pointing to old asset hashes, the dynamic import
+ * will fail. We detect this and trigger a single hard reload to fetch fresh
+ * assets — all transparent to the user.
  */
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
@@ -27,6 +48,20 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    // Stale-deploy recovery: reload once per session to pick up new chunk paths.
+    if (isChunkLoadError(error) && typeof window !== 'undefined') {
+      const alreadyReloaded =
+        window.sessionStorage.getItem(CHUNK_RELOAD_FLAG) === 'true';
+      if (!alreadyReloaded) {
+        window.sessionStorage.setItem(CHUNK_RELOAD_FLAG, 'true');
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[ErrorBoundary] Stale chunk detected — reloading once to fetch fresh assets.'
+        );
+        window.location.reload();
+        return;
+      }
+    }
     // Log to console in dev; could be forwarded to an external service later.
     console.error('[ErrorBoundary] Uncaught error:', error, info.componentStack);
   }

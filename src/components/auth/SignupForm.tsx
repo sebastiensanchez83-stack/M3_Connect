@@ -30,6 +30,11 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [errors, setErrors] = useState<{ passwordMismatch?: boolean; termsRequired?: boolean }>({});
 
   // Public email domain blacklist
+  // ⚠️⚠️⚠️  QA-ONLY TEMPORARY EXCEPTION  ⚠️⚠️⚠️
+  // 'mailinator.com' and 'guerrillamail.com' have been temporarily removed from
+  // this blacklist to allow Claude Chrome automated QA runs to sign up with
+  // disposable inboxes it can read without authentication.
+  // REVERT BEFORE LAUNCH — put them back on the line marked below.
   const PUBLIC_DOMAINS = [
     'gmail.com','yahoo.com','yahoo.fr','hotmail.com','hotmail.fr',
     'outlook.com','outlook.fr','live.com','live.fr',
@@ -37,7 +42,8 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     'mail.com','protonmail.com','proton.me','gmx.com','gmx.fr',
     'wanadoo.fr','orange.fr','free.fr','sfr.fr','laposte.net',
     'msn.com','ymail.com','fastmail.com','zoho.com',
-    'yandex.com','tutanota.com','mailinator.com','guerrillamail.com',
+    'yandex.com','tutanota.com',
+    // QA REVERT: add back → 'mailinator.com','guerrillamail.com',
   ];
 
   // Domain detection: check if an organization exists for this email domain

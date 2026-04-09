@@ -122,19 +122,20 @@ export function AdminWebinarDetail() {
       reviewed_at: new Date().toISOString(),
     }).eq('id', id);
 
-    // Auto-create event from webinar request
-    const { error: eventErr } = await supabase.from('events').insert({
+    // Auto-create event from webinar request (date TBD — admin should edit after)
+    const { error: eventErr, data: newEvent } = await supabase.from('events').insert({
       title: request.title,
       description: request.description || '',
       event_type: 'webinar',
       language: request.preferred_language || 'EN',
       access_level: 'members',
-    });
+      date_time: null, // Admin needs to set the actual date in the event editor
+    }).select('id').single();
 
     if (eventErr) {
       toast({ title: 'Accepted but event creation failed', description: eventErr.message, variant: 'destructive' });
     } else {
-      toast({ title: 'Webinar accepted and event created!' });
+      toast({ title: 'Webinar accepted & event draft created', description: 'Go to Events to set the date and publish it.' });
     }
 
     sendNotification({

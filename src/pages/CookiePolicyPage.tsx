@@ -22,7 +22,7 @@ export function CookiePolicyPage() {
           {/* Article 1 */}
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 1 — Purpose</h2>
-            <p>This cookie policy describes the conditions under which Smart Marina Connect uses cookies and similar technologies on the website and platform at connect.m3monaco.com.</p>
+            <p>This cookie policy describes the conditions under which Smart Marina Connect uses cookies and similar technologies on the website and platform at smartmarinaconnect.com.</p>
           </section>
 
           {/* Article 2 */}

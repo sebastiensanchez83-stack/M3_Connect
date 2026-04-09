@@ -32,6 +32,7 @@ import {
   AdminPlatformSettings,
   AdminBanners,
   AdminBannerDetail,
+  AdminOrganizations,
 } from '@/components/admin';
 
 /* ─── Admin-only Route Guard ─── */
@@ -83,6 +84,7 @@ export function AdminPage() {
           <Route path="/" element={<AdminDashboard />} />
           <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
           <Route path="/users/:id" element={<AdminOnlyGuard><AdminUserDetail /></AdminOnlyGuard>} />
+          <Route path="/organizations" element={<AdminOnlyGuard><AdminOrganizations /></AdminOnlyGuard>} />
           <Route path="/resources" element={<AdminResources />} />
           <Route path="/resources/:id" element={<AdminResourceDetail />} />
           <Route path="/events" element={<AdminOnlyGuard><AdminEvents /></AdminOnlyGuard>} />

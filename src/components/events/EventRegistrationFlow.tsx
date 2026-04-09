@@ -4,19 +4,31 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Loader2, CheckCircle, Clock, AlertCircle, Ship, Eye, Users } from 'lucide-react';
+import { Loader2, CheckCircle, Clock, AlertCircle, Ship, Eye, Users, Lock, Package } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import { OrgTier, isSponsorTier, TIER_LABELS } from '@/types/database';
 
+interface EventPackage {
+  id: string;
+  name: string;
+  description: string | null;
+  price_cents: number;
+  max_seats: number | null;
+  display_order: number;
+}
+
 interface EventRegistrationFlowProps {
   eventId: string;
+  eventType?: 'webinar' | 'on_site';
+  invitationOnly?: boolean;
+  packages?: EventPackage[];
   onRegistrationChange?: (isRegistered: boolean, count: number) => void;
 }
 
-type RegistrationStatus = 'none' | 'registered' | 'expo_pending' | 'expo_approved' | 'expo_invoice_sent' | 'expo_paid' | 'expo_rejected';
+type RegistrationStatus = 'none' | 'registered' | 'invitation_requested' | 'expo_pending' | 'expo_approved' | 'expo_invoice_sent' | 'expo_paid' | 'expo_rejected';
 
 interface PricingConfig {
   price_cents: number;
@@ -25,7 +37,18 @@ interface PricingConfig {
   discount_pct: number;
 }
 
-export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRegistrationFlowProps) {
+const formatPrice = (cents: number) => {
+  if (cents === 0) return 'Free';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+};
+
+export function EventRegistrationFlow({
+  eventId,
+  eventType = 'on_site',
+  invitationOnly = false,
+  packages = [],
+  onRegistrationChange,
+}: EventRegistrationFlowProps) {
   const { user, profile, organization, isVerified } = useAuth();
 
   const [loading, setLoading] = useState(true);
@@ -33,6 +56,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
   const [status, setStatus] = useState<RegistrationStatus>('none');
   const [registrationCount, setRegistrationCount] = useState(0);
   const [marinaChoiceOpen, setMarinaChoiceOpen] = useState(false);
+  const [packageSelectOpen, setPackageSelectOpen] = useState(false);
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [orgRegistrationCount, setOrgRegistrationCount] = useState(0);
 
@@ -40,15 +64,15 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
   const isPartner = organization?.organization_type === 'partner' || organization?.organization_type === 'media_partner';
   const orgTier = (organization?.tier || 'member') as OrgTier;
   const isSponsor = isSponsorTier(orgTier);
+  const hasPackages = packages.length > 0 && eventType === 'on_site';
 
   const checkStatus = useCallback(async () => {
     if (!user || !eventId) return;
     setLoading(true);
 
     try {
-      // Run all queries individually to avoid Promise.all misalignment
       const regRes = await supabase
-        .from('event_registrations').select('id')
+        .from('event_registrations').select('id, registration_type, payment_status')
         .eq('event_id', eventId).eq('user_id', user.id).maybeSingle();
 
       const countRes = await supabase
@@ -66,14 +90,11 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
         setPricing(pricingRes.data as PricingConfig);
       }
 
-      // Org-specific queries (only if user has an org)
       if (organization?.id) {
-        // Expo request check
         const expoRes = await supabase
           .from('exposition_requests').select('id, status')
           .eq('event_id', eventId).eq('organization_id', organization.id).maybeSingle();
 
-        // Org registration count
         const orgCountRes = await supabase
           .from('event_registrations').select('id', { count: 'exact' })
           .eq('event_id', eventId).eq('organization_id', organization.id);
@@ -81,34 +102,43 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
         setOrgRegistrationCount(orgCountRes.count || 0);
 
         if (regRes.data) {
-          setStatus('registered');
+          // Check if it was an invitation request
+          if (regRes.data.payment_status === 'pending_approval' && invitationOnly) {
+            setStatus('invitation_requested');
+          } else {
+            setStatus('registered');
+          }
         } else if (expoRes.data) {
           const expoStatus = expoRes.data.status as string;
           const statusMap: Record<string, RegistrationStatus> = {
-            pending: 'expo_pending',
-            approved: 'expo_approved',
-            invoice_sent: 'expo_invoice_sent',
-            paid: 'expo_paid',
-            rejected: 'expo_rejected',
+            pending: 'expo_pending', approved: 'expo_approved',
+            invoice_sent: 'expo_invoice_sent', paid: 'expo_paid', rejected: 'expo_rejected',
           };
           setStatus(statusMap[expoStatus] || 'none');
         } else {
           setStatus('none');
         }
       } else {
-        // No org — just check direct registration
-        setStatus(regRes.data ? 'registered' : 'none');
+        if (regRes.data) {
+          if (regRes.data.payment_status === 'pending_approval' && invitationOnly) {
+            setStatus('invitation_requested');
+          } else {
+            setStatus('registered');
+          }
+        } else {
+          setStatus('none');
+        }
       }
     } catch (err) {
       if (import.meta.env.DEV) console.error('Error checking registration status:', err);
     }
     setLoading(false);
-  }, [user, eventId, organization?.id, orgTier]);
+  }, [user, eventId, organization?.id, orgTier, invitationOnly]);
 
   useEffect(() => { checkStatus(); }, [checkStatus]);
 
-  // Simple registration (for sponsors with included seats or basic registration)
-  const registerDirect = async (type: string) => {
+  // Simple registration
+  const registerDirect = async (type: string, packageId?: string) => {
     if (!user || !eventId) return;
 
     // Sponsor quota check
@@ -125,33 +155,41 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
 
     setRegistering(true);
     try {
-      // Sponsor-included = free & auto-confirmed; all others = pending approval by admin
       const isFree = type === 'sponsor_included';
-      const { error } = await supabase.from('event_registrations').insert({
+      const insertData: Record<string, any> = {
         event_id: eventId,
         user_id: user.id,
         organization_id: organization?.id || null,
         registration_type: type,
         payment_status: isFree ? 'free' : 'pending_approval',
         registered_by: user.id,
-      });
+      };
+      if (packageId) {
+        insertData.package_id = packageId;
+      }
+
+      const { error } = await supabase.from('event_registrations').insert(insertData);
       if (error) {
         toast({ title: 'Registration failed', description: error.message, variant: 'destructive' });
       } else {
         if (isFree) {
           sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventId } });
         }
-        setStatus('registered');
+        setStatus(invitationOnly && !isFree ? 'invitation_requested' : 'registered');
         setRegistrationCount(c => c + 1);
         setOrgRegistrationCount(c => c + 1);
         onRegistrationChange?.(true, registrationCount + 1);
         toast({
-          title: isFree
-            ? 'Registered (included in your sponsorship)'
-            : 'Registration submitted',
-          description: !isFree
-            ? 'Your registration has been submitted. M3 will review and notify you when payment is due.'
-            : undefined,
+          title: invitationOnly
+            ? 'Invitation requested'
+            : isFree
+              ? 'Registered (included in your sponsorship)'
+              : 'Registration submitted',
+          description: invitationOnly
+            ? 'Your invitation request has been sent. You will be notified once approved.'
+            : !isFree
+              ? 'Your registration has been submitted. You will be notified when payment is due.'
+              : undefined,
         });
       }
     } catch (err) {
@@ -181,7 +219,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
         setStatus('expo_pending');
         toast({
           title: 'Exposition request submitted',
-          description: 'M3 will review your request and contact you.',
+          description: 'Smart Marina Connect will review your request and contact you.',
         });
       }
     } catch (err) {
@@ -204,7 +242,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
         setRegistrationCount(c => Math.max(0, c - 1));
         setOrgRegistrationCount(c => Math.max(0, c - 1));
         onRegistrationChange?.(false, Math.max(0, registrationCount - 1));
-        toast({ title: 'Registration cancelled' });
+        toast({ title: invitationOnly ? 'Invitation request cancelled' : 'Registration cancelled' });
       }
     } catch (err) {
       toast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' });
@@ -214,9 +252,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
   };
 
   // Not logged in or not verified
-  if (!user || !profile || !isVerified) {
-    return null; // Parent component handles login/verification prompt
-  }
+  if (!user || !profile || !isVerified) return null;
 
   if (loading) {
     return (
@@ -243,10 +279,29 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
     );
   }
 
+  // Invitation requested (pending)
+  if (status === 'invitation_requested') {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-start gap-2.5 text-purple-700 bg-purple-50/80 backdrop-blur-sm border border-purple-200 rounded-xl px-4 py-3 shadow-sm">
+          <Clock className="h-5 w-5 mt-0.5 shrink-0" />
+          <div>
+            <p className="font-semibold">Invitation Requested</p>
+            <p className="text-sm mt-0.5 opacity-80">Your request is being reviewed. You will be notified once approved.</p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg" onClick={handleCancel} disabled={registering}>
+          {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+          Cancel Request
+        </Button>
+      </div>
+    );
+  }
+
   // Exposition request status
   if (status.startsWith('expo_')) {
     const expoStatusMap: Record<string, { color: string; icon: typeof Clock; label: string; desc: string }> = {
-      expo_pending: { color: 'bg-yellow-50/80 border-yellow-200 text-yellow-800', icon: Clock, label: 'Exposition Request Pending', desc: 'Your request to exhibit is being reviewed by M3.' },
+      expo_pending: { color: 'bg-yellow-50/80 border-yellow-200 text-yellow-800', icon: Clock, label: 'Exposition Request Pending', desc: 'Your request to exhibit is being reviewed.' },
       expo_approved: { color: 'bg-blue-50/80 border-blue-200 text-blue-800', icon: CheckCircle, label: 'Exposition Approved', desc: 'Your request has been approved. You will receive an invoice shortly.' },
       expo_invoice_sent: { color: 'bg-indigo-50/80 border-indigo-200 text-indigo-800', icon: AlertCircle, label: 'Invoice Sent', desc: 'Please complete the payment to confirm your exhibition spot.' },
       expo_paid: { color: 'bg-green-50/80 border-green-200 text-green-800', icon: CheckCircle, label: 'Exhibition Confirmed', desc: 'Your payment has been confirmed. You are registered as an exhibitor.' },
@@ -267,9 +322,122 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
     }
   }
 
-  // --- Registration Flow by Profile Type ---
+  // --- Invitation-only flow ---
+  if (invitationOnly) {
+    // Sponsors can still auto-register for invitation-only events
+    if (isSponsor) {
+      const maxSeats = pricing?.max_included_seats;
+      const quotaReached = maxSeats != null && orgRegistrationCount >= maxSeats;
+      if (!quotaReached) {
+        return (
+          <div className="space-y-3">
+            <Button onClick={() => registerDirect('sponsor_included')} disabled={registering} className="rounded-xl shadow-sm w-full">
+              {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Register (Included in {TIER_LABELS[orgTier]})
+            </Button>
+            <p className="text-xs text-gray-500">
+              Your sponsorship includes access to invitation-only events.
+            </p>
+          </div>
+        );
+      }
+    }
 
-  // Sponsor check FIRST (even marina sponsors get sponsor benefits)
+    return (
+      <div className="space-y-3">
+        <Button
+          onClick={() => registerDirect('invitation_request')}
+          disabled={registering}
+          variant="outline"
+          className="w-full rounded-xl shadow-sm border-purple-200 text-purple-700 hover:bg-purple-50"
+        >
+          {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+          <Lock className="h-4 w-4 mr-2" />
+          Request Invitation
+        </Button>
+        <p className="text-xs text-gray-500">
+          This event requires an invitation. Submit a request and you will be notified once approved.
+        </p>
+      </div>
+    );
+  }
+
+  // --- Package selection flow (on-site with packages) ---
+  if (hasPackages && !isSponsor) {
+    return (
+      <>
+        <Button onClick={() => setPackageSelectOpen(true)} disabled={registering} className="w-full rounded-xl shadow-sm">
+          {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+          <Package className="h-4 w-4 mr-2" />
+          Choose a Package
+        </Button>
+
+        <Dialog open={packageSelectOpen} onOpenChange={setPackageSelectOpen}>
+          <DialogContent className="max-w-md rounded-2xl">
+            <DialogHeader>
+              <DialogTitle>Select a Registration Package</DialogTitle>
+              <DialogDescription>Choose your preferred registration package for this event.</DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3 mt-2">
+              {packages.map(pkg => (
+                <Card
+                  key={pkg.id}
+                  className="cursor-pointer hover:border-primary hover:shadow-md transition-all duration-200 rounded-xl"
+                  onClick={() => {
+                    setPackageSelectOpen(false);
+                    registerDirect(isMarina ? 'marina_package' : 'package', pkg.id);
+                  }}
+                >
+                  <CardContent className="flex items-center gap-4 p-4">
+                    <div className="bg-primary/10 rounded-xl p-3">
+                      <Package className="h-6 w-6 text-primary" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-semibold">{pkg.name}</h3>
+                      {pkg.description && (
+                        <p className="text-sm text-gray-600">{pkg.description}</p>
+                      )}
+                      {pkg.max_seats != null && (
+                        <p className="text-xs text-gray-400">{pkg.max_seats} seats available</p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <span className="text-lg font-bold text-primary">{formatPrice(pkg.price_cents)}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+
+              {/* Also offer marina-specific options if applicable */}
+              {isMarina && (
+                <Card
+                  className="cursor-pointer hover:border-primary hover:shadow-md transition-all duration-200 rounded-xl"
+                  onClick={() => {
+                    setPackageSelectOpen(false);
+                    submitExpositionRequest();
+                  }}
+                >
+                  <CardContent className="flex items-center gap-4 p-4">
+                    <div className="bg-amber-100 rounded-xl p-3">
+                      <Ship className="h-6 w-6 text-amber-700" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold">Exhibitor</h3>
+                      <p className="text-sm text-gray-600">Request an exhibition spot. Subject to approval.</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
+
+  // --- Standard registration flows (no packages) ---
+
+  // Sponsor check FIRST
   if (isSponsor) {
     const maxSeats = pricing?.max_included_seats;
     const quotaReached = maxSeats != null && orgRegistrationCount >= maxSeats;
@@ -308,7 +476,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
     );
   }
 
-  // Marina (non-sponsor): choice between visitor and exhibitor
+  // Marina (non-sponsor, no packages): choice between visitor and exhibitor
   if (isMarina) {
     return (
       <>
@@ -342,7 +510,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
                   </div>
                   <div>
                     <h3 className="font-semibold">Exhibitor</h3>
-                    <p className="text-sm text-gray-600">Request an exhibition spot (€1,400). Subject to approval.</p>
+                    <p className="text-sm text-gray-600">Request an exhibition spot. Subject to approval.</p>
                   </div>
                 </CardContent>
               </Card>
@@ -353,7 +521,7 @@ export function EventRegistrationFlow({ eventId, onRegistrationChange }: EventRe
     );
   }
 
-  // Member classique or partner: register with pending approval (discounted)
+  // Member with discount
   if (isPartner && orgTier === 'member') {
     const discount = pricing?.discount_pct || 10;
     return (

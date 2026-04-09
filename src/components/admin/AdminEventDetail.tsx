@@ -3,15 +3,18 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, Save, Trash2, Loader2, Calendar, MapPin, Globe, Users,
-  DollarSign, Eye, Radio, Film, Plus, X,
+  DollarSign, Eye, Radio, Film, Plus, X, Upload, FileText, Lock,
+  Tag, Package, Sun,
 } from 'lucide-react';
-import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
+import { TIER_LABELS, TIER_COLORS, OrgTier, Sector } from '@/types/database';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -33,6 +36,15 @@ interface RegistrationRow {
   org_name: string | null;
 }
 
+interface PackageRow {
+  id?: string;
+  name: string;
+  description: string;
+  price_cents: number;
+  max_seats: number | null;
+  display_order: number;
+}
+
 export function AdminEventDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -45,18 +57,39 @@ export function AdminEventDetail() {
 
   // Form
   const [form, setForm] = useState({
-    title: '', description: '', date_time: '', location: '', language: 'EN',
-    access_level: 'public', event_type: 'webinar', replay_url: '',
+    title: '', description: '', date_time: '', end_date_time: '', location: '',
+    language: 'EN', access_level: 'public', event_type: 'webinar', replay_url: '',
+    invitation_only: false, is_full_day: false, published: true,
   });
   const [speakers, setSpeakers] = useState<{ name: string; title: string }[]>([]);
 
-  // Pricing
+  // Sectors
+  const [allSectors, setAllSectors] = useState<Sector[]>([]);
+  const [selectedSectorIds, setSelectedSectorIds] = useState<string[]>([]);
+
+  // Packages (for on-site events)
+  const [packages, setPackages] = useState<PackageRow[]>([]);
+
+  // Pricing (legacy tier-based — kept for backward compat)
   const [pricingRows, setPricingRows] = useState<EventPricingRow[]>([]);
   const [pricingLoading, setPricingLoading] = useState(false);
+
+  // PDF upload
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [uploadingPdf, setUploadingPdf] = useState(false);
 
   // Registrations
   const [registrations, setRegistrations] = useState<RegistrationRow[]>([]);
   const [regsLoading, setRegsLoading] = useState(false);
+
+  const isOnSite = form.event_type === 'on_site';
+  const isWebinar = form.event_type === 'webinar';
+
+  // Load sectors once
+  useEffect(() => {
+    supabase.from('sectors').select('*').eq('is_active', true).order('label')
+      .then(({ data }) => { if (data) setAllSectors(data as Sector[]); });
+  }, []);
 
   useEffect(() => {
     if (!isNew && id) loadEvent(id);
@@ -70,20 +103,42 @@ export function AdminEventDetail() {
       navigate('/admin/events');
       return;
     }
-    const evt = data as Event;
-    setEvent(evt);
+    const evt = data as any;
+    setEvent(evt as Event);
     setForm({
-      title: evt.title, description: evt.description,
+      title: evt.title, description: evt.description || '',
       date_time: evt.date_time ? new Date(evt.date_time).toISOString().slice(0, 16) : '',
-      location: evt.location || '', language: evt.language, access_level: evt.access_level,
+      end_date_time: evt.end_date_time ? new Date(evt.end_date_time).toISOString().slice(0, 16) : '',
+      location: evt.location || '', language: evt.language || 'EN',
+      access_level: evt.access_level || 'public',
       event_type: evt.event_type || 'webinar', replay_url: evt.replay_url || '',
+      invitation_only: evt.invitation_only || false,
+      is_full_day: evt.is_full_day || false,
+      published: evt.published !== false,
     });
     setSpeakers(evt.speakers || []);
+    setPdfUrl(evt.pdf_url || null);
     setLoading(false);
 
-    // Load pricing and registrations in parallel
+    // Load related data in parallel
     loadPricing(eventId);
     loadRegistrations(eventId);
+    loadEventSectors(eventId);
+    loadPackages(eventId);
+  };
+
+  const loadEventSectors = async (eventId: string) => {
+    const { data } = await supabase.from('event_sectors').select('sector_id').eq('event_id', eventId);
+    setSelectedSectorIds((data || []).map((r: any) => r.sector_id));
+  };
+
+  const loadPackages = async (eventId: string) => {
+    const { data } = await supabase
+      .from('event_packages')
+      .select('id, name, description, price_cents, max_seats, display_order')
+      .eq('event_id', eventId)
+      .order('display_order');
+    setPackages((data || []) as PackageRow[]);
   };
 
   const loadPricing = async (eventId: string) => {
@@ -105,7 +160,6 @@ export function AdminEventDetail() {
       .order('registered_at', { ascending: false });
 
     if (data && data.length > 0) {
-      // Enrich with user names
       const userIds = [...new Set(data.map((r: any) => r.user_id))];
       const { data: profiles } = await supabase
         .from('profiles').select('user_id, first_name, last_name, email')
@@ -132,44 +186,90 @@ export function AdminEventDetail() {
     setRegsLoading(false);
   };
 
+  /* ─── Save ─── */
   const handleSave = async () => {
-    if (!form.title || !form.date_time) {
-      toast({ title: 'Title and date are required', variant: 'destructive' });
+    if (!form.title) {
+      toast({ title: 'Title is required', variant: 'destructive' });
       return;
     }
     setSaving(true);
-    const payload = {
-      title: form.title, description: form.description, date_time: form.date_time,
-      location: form.location || null, language: form.language, access_level: form.access_level,
-      speakers, replay_url: form.replay_url || null, event_type: form.event_type,
+    const payload: Record<string, unknown> = {
+      title: form.title, description: form.description,
+      date_time: form.date_time || null,
+      end_date_time: form.end_date_time || null,
+      location: isOnSite ? (form.location || null) : null,
+      language: form.language, access_level: form.access_level,
+      speakers, replay_url: isWebinar ? (form.replay_url || null) : null,
+      event_type: form.event_type,
+      invitation_only: isOnSite ? form.invitation_only : false,
+      is_full_day: form.is_full_day,
+      published: form.published,
+      pdf_url: pdfUrl,
     };
 
+    let eventId: string;
+
     if (isNew) {
-      const { data, error } = await supabase.from('events').insert(payload).select().single();
-      if (error) { toast({ title: 'Failed to create event', variant: 'destructive' }); setSaving(false); return; }
+      const { data, error } = await supabase.from('events').insert(payload).select('id').single();
+      if (error) { toast({ title: 'Failed to create event', description: error.message, variant: 'destructive' }); setSaving(false); return; }
+      eventId = data.id;
       toast({ title: 'Event created!' });
-      // Save pricing
-      await savePricingForEvent(data.id);
-      navigate(`/admin/events/${data.id}`, { replace: true });
     } else if (event) {
+      eventId = event.id;
       const { error } = await supabase.from('events').update(payload).eq('id', event.id);
-      if (error) { toast({ title: 'Failed to update', variant: 'destructive' }); setSaving(false); return; }
-      await savePricingForEvent(event.id);
+      if (error) { toast({ title: 'Failed to update', description: error.message, variant: 'destructive' }); setSaving(false); return; }
+    } else {
+      setSaving(false); return;
+    }
+
+    // Save related data in parallel
+    await Promise.all([
+      savePricingForEvent(eventId),
+      saveSectorsForEvent(eventId),
+      savePackagesForEvent(eventId),
+    ]);
+
+    if (isNew) {
+      navigate(`/admin/events/${eventId}`, { replace: true });
+    } else {
       toast({ title: 'Event saved!' });
-      loadEvent(event.id);
+      loadEvent(eventId);
     }
     setSaving(false);
   };
 
   const savePricingForEvent = async (eventId: string) => {
     await supabase.from('event_pricing').delete().eq('event_id', eventId);
-    const rows = pricingRows.map(r => ({
-      event_id: eventId, tier: r.tier, price_cents: r.price_cents,
-      max_included_seats: r.max_included_seats,
-      additional_member_price_cents: r.additional_member_price_cents,
-      discount_pct: r.discount_pct,
-    }));
-    await supabase.from('event_pricing').insert(rows);
+    if (isOnSite && pricingRows.length > 0) {
+      const rows = pricingRows.map(r => ({
+        event_id: eventId, tier: r.tier, price_cents: r.price_cents,
+        max_included_seats: r.max_included_seats,
+        additional_member_price_cents: r.additional_member_price_cents,
+        discount_pct: r.discount_pct,
+      }));
+      await supabase.from('event_pricing').insert(rows);
+    }
+  };
+
+  const saveSectorsForEvent = async (eventId: string) => {
+    await supabase.from('event_sectors').delete().eq('event_id', eventId);
+    if (selectedSectorIds.length > 0) {
+      await supabase.from('event_sectors').insert(
+        selectedSectorIds.map(sid => ({ event_id: eventId, sector_id: sid }))
+      );
+    }
+  };
+
+  const savePackagesForEvent = async (eventId: string) => {
+    await supabase.from('event_packages').delete().eq('event_id', eventId);
+    if (packages.length > 0) {
+      await supabase.from('event_packages').insert(
+        packages.map((p, i) => ({
+          event_id: eventId, name: p.name, description: p.description || null,
+          price_cents: p.price_cents, max_seats: p.max_seats, display_order: i,
+        }))
+      );
+    }
   };
 
   const handleDelete = async () => {
@@ -179,18 +279,48 @@ export function AdminEventDetail() {
     navigate('/admin/events');
   };
 
+  /* ─── PDF Upload ─── */
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') { toast({ title: 'Only PDF files allowed', variant: 'destructive' }); return; }
+    if (file.size > 10 * 1024 * 1024) { toast({ title: 'File too large (max 10MB)', variant: 'destructive' }); return; }
+
+    setUploadingPdf(true);
+    const fileName = `event-pdfs/${Date.now()}-${file.name}`;
+    const { error } = await supabase.storage.from('public-assets').upload(fileName, file);
+    if (error) {
+      toast({ title: 'Upload failed', description: error.message, variant: 'destructive' });
+      setUploadingPdf(false);
+      return;
+    }
+    const { data: urlData } = supabase.storage.from('public-assets').getPublicUrl(fileName);
+    setPdfUrl(urlData.publicUrl);
+    toast({ title: 'PDF uploaded!' });
+    setUploadingPdf(false);
+  };
+
+  /* ─── Helpers ─── */
   const updatePricingRow = (index: number, field: keyof EventPricingRow, value: number | null) => {
-    setPricingRows(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      return updated;
-    });
+    setPricingRows(prev => { const u = [...prev]; u[index] = { ...u[index], [field]: value }; return u; });
   };
 
   const addSpeaker = () => setSpeakers([...speakers, { name: '', title: '' }]);
   const removeSpeaker = (i: number) => setSpeakers(speakers.filter((_, idx) => idx !== i));
   const updateSpeaker = (i: number, field: 'name' | 'title', value: string) => {
     setSpeakers(prev => { const n = [...prev]; n[i] = { ...n[i], [field]: value }; return n; });
+  };
+
+  const addPackage = () => setPackages([...packages, { name: '', description: '', price_cents: 0, max_seats: null, display_order: packages.length }]);
+  const removePackage = (i: number) => setPackages(packages.filter((_, idx) => idx !== i));
+  const updatePackage = (i: number, field: keyof PackageRow, value: any) => {
+    setPackages(prev => { const n = [...prev]; n[i] = { ...n[i], [field]: value }; return n; });
+  };
+
+  const toggleSector = (sectorId: string) => {
+    setSelectedSectorIds(prev =>
+      prev.includes(sectorId) ? prev.filter(id => id !== sectorId) : [...prev, sectorId]
+    );
   };
 
   const approveRegistration = async (regId: string) => {
@@ -201,7 +331,7 @@ export function AdminEventDetail() {
       payment_status: cents > 0 ? 'pending_payment' : 'paid',
       amount_due_cents: cents,
     }).eq('id', regId);
-    toast({ title: cents > 0 ? 'Approved — payment pending' : 'Approved — free entry' });
+    toast({ title: cents > 0 ? 'Approved \u2014 payment pending' : 'Approved \u2014 free entry' });
     if (event) loadRegistrations(event.id);
   };
 
@@ -244,10 +374,11 @@ export function AdminEventDetail() {
           <h1 className="text-xl font-bold text-gray-900">{isNew ? 'Create Event' : form.title || 'Edit Event'}</h1>
           {!isNew && event && (
             <>
-              <Badge variant={form.event_type === 'on_site' ? 'info' : 'secondary'}>
-                {form.event_type === 'on_site' ? 'On-Site' : 'Webinar'}
+              <Badge variant={isOnSite ? 'info' : 'secondary'}>
+                {isOnSite ? 'On-Site' : 'Webinar'}
               </Badge>
               {isPast && <Badge variant="outline" className="text-gray-500">Past Event</Badge>}
+              {!form.published && <Badge variant="warning">Draft</Badge>}
             </>
           )}
         </div>
@@ -264,7 +395,38 @@ export function AdminEventDetail() {
         </div>
       </div>
 
-      {/* Event Details */}
+      {/* ── EVENT TYPE SELECTOR (top of form) ── */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-6">
+            <Label className="text-sm font-bold text-gray-700">Event Type</Label>
+            <div className="flex gap-2">
+              {[
+                { value: 'on_site', label: 'On-Site Event', icon: <MapPin className="h-4 w-4" /> },
+                { value: 'webinar', label: 'Webinar (Online)', icon: <Radio className="h-4 w-4" /> },
+              ].map(opt => (
+                <button key={opt.value} type="button"
+                  onClick={() => setForm({ ...form, event_type: opt.value })}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+                    form.event_type === opt.value
+                      ? 'border-primary bg-primary/5 text-primary'
+                      : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                  }`}>
+                  {opt.icon} {opt.label}
+                </button>
+              ))}
+            </div>
+            <div className="ml-auto flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <Switch checked={form.published} onCheckedChange={v => setForm({ ...form, published: v })} />
+                <Label className="text-xs text-gray-500">Published</Label>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── EVENT DETAILS ── */}
       <Card className="border-0 shadow-sm">
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -277,30 +439,47 @@ export function AdminEventDetail() {
             <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Event title" />
           </div>
           <div className="space-y-2">
-            <Label>Description *</Label>
+            <Label>Description</Label>
             <Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={4} placeholder="Describe the event..." />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-gray-400" /> Date & Time *</Label>
-              <Input type="datetime-local" value={form.date_time} onChange={e => setForm({ ...form, date_time: e.target.value })} />
+
+          {/* Date & Time */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <Label className="flex items-center gap-1.5"><Calendar className="h-3.5 w-3.5 text-gray-400" /> Date & Time</Label>
+              <div className="flex items-center gap-2 ml-auto">
+                <Switch checked={form.is_full_day} onCheckedChange={v => setForm({ ...form, is_full_day: v })} />
+                <span className="text-xs text-gray-500 flex items-center gap-1"><Sun className="h-3 w-3" /> Full day</span>
+              </div>
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label className="text-xs text-gray-400">Start {form.is_full_day ? 'date' : 'date & time'}</Label>
+                <Input
+                  type={form.is_full_day ? 'date' : 'datetime-local'}
+                  value={form.is_full_day && form.date_time ? form.date_time.slice(0, 10) : form.date_time}
+                  onChange={e => setForm({ ...form, date_time: e.target.value })}
+                />
+              </div>
+              {!form.is_full_day && (
+                <div className="space-y-1">
+                  <Label className="text-xs text-gray-400">End date & time</Label>
+                  <Input type="datetime-local" value={form.end_date_time}
+                    onChange={e => setForm({ ...form, end_date_time: e.target.value })} />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Location (on-site only) */}
+          {isOnSite && (
             <div className="space-y-2">
               <Label className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5 text-gray-400" /> Location</Label>
               <Input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="Monaco Yacht Club" />
             </div>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1.5"><Radio className="h-3.5 w-3.5 text-gray-400" /> Event Type *</Label>
-              <Select value={form.event_type} onValueChange={v => setForm({ ...form, event_type: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="webinar">Webinar (Online)</SelectItem>
-                  <SelectItem value="on_site">On-Site Event</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="flex items-center gap-1.5"><Globe className="h-3.5 w-3.5 text-gray-400" /> Language</Label>
               <Select value={form.language} onValueChange={v => setForm({ ...form, language: v })}>
@@ -323,14 +502,87 @@ export function AdminEventDetail() {
               </Select>
             </div>
           </div>
-          <div className="space-y-2">
-            <Label className="flex items-center gap-1.5"><Film className="h-3.5 w-3.5 text-gray-400" /> Replay URL</Label>
-            <Input value={form.replay_url} onChange={e => setForm({ ...form, replay_url: e.target.value })} placeholder="https://..." />
+
+          {/* Replay URL (webinar only) */}
+          {isWebinar && (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5"><Film className="h-3.5 w-3.5 text-gray-400" /> Replay URL</Label>
+              <Input value={form.replay_url} onChange={e => setForm({ ...form, replay_url: e.target.value })} placeholder="https://..." />
+            </div>
+          )}
+
+          {/* Invitation Only (on-site only) */}
+          {isOnSite && (
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
+              <Lock className="h-4 w-4 text-gray-500" />
+              <div className="flex-1">
+                <div className="text-sm font-medium text-gray-700">Invitation Only</div>
+                <div className="text-xs text-gray-400">Users must request an invitation which you approve manually</div>
+              </div>
+              <Switch checked={form.invitation_only} onCheckedChange={v => setForm({ ...form, invitation_only: v })} />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ── SECTORS ── */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
+            <Tag className="h-4 w-4 text-teal-500" /> Sectors ({selectedSectorIds.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-gray-400 mb-3">Select sectors to show this event to relevant users in their recommendations.</p>
+          <div className="flex flex-wrap gap-2">
+            {allSectors.map(s => {
+              const selected = selectedSectorIds.includes(s.id);
+              return (
+                <button key={s.id} type="button" onClick={() => toggleSector(s.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    selected
+                      ? 'bg-teal-50 border-teal-300 text-teal-700'
+                      : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+                  }`}>
+                  {s.label}
+                </button>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
 
-      {/* Speakers */}
+      {/* ── PDF UPLOAD (on-site only) ── */}
+      {isOnSite && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
+              <FileText className="h-4 w-4 text-orange-500" /> Event Presentation (PDF)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {pdfUrl ? (
+              <div className="flex items-center gap-3 bg-orange-50 rounded-xl p-3 border border-orange-200">
+                <FileText className="h-5 w-5 text-orange-600 shrink-0" />
+                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-orange-700 hover:underline truncate flex-1">
+                  {pdfUrl.split('/').pop()}
+                </a>
+                <Button variant="ghost" size="sm" onClick={() => setPdfUrl(null)} className="text-red-400 hover:text-red-600 h-7 px-2">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <label className="flex items-center gap-3 p-4 border-2 border-dashed border-gray-200 rounded-xl cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all">
+                {uploadingPdf ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Upload className="h-5 w-5 text-gray-400" />}
+                <span className="text-sm text-gray-500">{uploadingPdf ? 'Uploading...' : 'Click to upload PDF presentation (max 10MB)'}</span>
+                <input type="file" accept=".pdf" className="hidden" onChange={handlePdfUpload} disabled={uploadingPdf} />
+              </label>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── SPEAKERS ── */}
       <Card className="border-0 shadow-sm">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -366,59 +618,119 @@ export function AdminEventDetail() {
         </CardContent>
       </Card>
 
-      {/* Pricing */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-            <DollarSign className="h-4 w-4 text-emerald-500" /> Tier Pricing
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {pricingLoading ? (
-            <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
-          ) : (
-            <div className="space-y-3">
-              {pricingRows.map((row, i) => {
-                const colors = TIER_COLORS[row.tier as OrgTier];
-                return (
-                  <div key={row.tier} className="flex items-center gap-4 bg-gray-50 rounded-xl p-3">
-                    <Badge className={`${colors?.bg || 'bg-gray-100'} ${colors?.text || 'text-gray-800'} border ${colors?.border || 'border-gray-200'} min-w-[120px] justify-center`}>
-                      {TIER_LABELS[row.tier as OrgTier] || row.tier}
-                    </Badge>
-                    <div className="flex-1 grid grid-cols-4 gap-3">
-                      <div>
-                        <Label className="text-[10px] text-gray-500">Price (\u20AC)</Label>
-                        <Input type="number" min={0} className="h-8" value={row.price_cents / 100}
-                          onChange={e => updatePricingRow(i, 'price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} />
+      {/* ── EVENT PACKAGES (on-site events) ── */}
+      {isOnSite && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                <Package className="h-4 w-4 text-purple-500" /> Event Packages ({packages.length})
+              </CardTitle>
+              <Button variant="outline" size="sm" onClick={addPackage} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" /> Add Package
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-gray-400 mb-3">Define packages that users can select when registering. These are shown on the event page.</p>
+            {packages.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">No packages defined \u2014 users will register without a package selection</p>
+            ) : (
+              <div className="space-y-3">
+                {packages.map((pkg, i) => (
+                  <div key={i} className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 grid grid-cols-3 gap-3">
+                        <div className="col-span-2 space-y-1">
+                          <Label className="text-[10px] text-gray-500">Package Name *</Label>
+                          <Input value={pkg.name} onChange={e => updatePackage(i, 'name', e.target.value)}
+                            placeholder="e.g. Visitor, Exhibitor, VIP..." className="h-8" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] text-gray-500">Price (\u20AC)</Label>
+                          <Input type="number" min={0} className="h-8" value={pkg.price_cents / 100}
+                            onChange={e => updatePackage(i, 'price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} />
+                        </div>
                       </div>
-                      <div>
-                        <Label className="text-[10px] text-gray-500">Included Seats</Label>
-                        <Input type="number" min={0} className="h-8" value={row.max_included_seats ?? ''} placeholder="\u221E"
-                          onChange={e => updatePricingRow(i, 'max_included_seats', e.target.value ? parseInt(e.target.value) : null)} />
+                      <Button variant="ghost" size="sm" onClick={() => removePackage(i)} className="h-8 w-8 p-0 text-red-400 hover:text-red-600 shrink-0">
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-[10px] text-gray-500">Description</Label>
+                        <Input value={pkg.description} onChange={e => updatePackage(i, 'description', e.target.value)}
+                          placeholder="What's included in this package..." className="h-8" />
                       </div>
-                      <div>
-                        <Label className="text-[10px] text-gray-500">Extra Seat (\u20AC)</Label>
-                        <Input type="number" min={0} className="h-8" value={row.additional_member_price_cents / 100}
-                          onChange={e => updatePricingRow(i, 'additional_member_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} />
-                      </div>
-                      <div>
-                        <Label className="text-[10px] text-gray-500">Discount %</Label>
-                        <Input type="number" min={0} max={100} className="h-8" value={row.discount_pct}
-                          onChange={e => updatePricingRow(i, 'discount_pct', parseFloat(e.target.value || '0'))} />
+                      <div className="space-y-1">
+                        <Label className="text-[10px] text-gray-500">Max Seats</Label>
+                        <Input type="number" min={0} className="h-8" value={pkg.max_seats ?? ''} placeholder="\u221E"
+                          onChange={e => updatePackage(i, 'max_seats', e.target.value ? parseInt(e.target.value) : null)} />
                       </div>
                     </div>
                   </div>
-                );
-              })}
-              <p className="text-xs text-gray-500 mt-2">
-                "Included Seats" = free registrations per tier. "Extra Seat" = price for additional members beyond included. Leave blank for unlimited.
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Registrations */}
+      {/* ── TIER PRICING (on-site events) ── */}
+      {isOnSite && (
+        <Card className="border-0 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-emerald-500" /> Sponsorship Tier Pricing
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {pricingLoading ? (
+              <div className="flex items-center justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+            ) : (
+              <div className="space-y-3">
+                {pricingRows.map((row, i) => {
+                  const colors = TIER_COLORS[row.tier as OrgTier];
+                  return (
+                    <div key={row.tier} className="flex items-center gap-4 bg-gray-50 rounded-xl p-3">
+                      <Badge className={`${colors?.bg || 'bg-gray-100'} ${colors?.text || 'text-gray-800'} border ${colors?.border || 'border-gray-200'} min-w-[120px] justify-center`}>
+                        {TIER_LABELS[row.tier as OrgTier] || row.tier}
+                      </Badge>
+                      <div className="flex-1 grid grid-cols-4 gap-3">
+                        <div>
+                          <Label className="text-[10px] text-gray-500">Price (\u20AC)</Label>
+                          <Input type="number" min={0} className="h-8" value={row.price_cents / 100}
+                            onChange={e => updatePricingRow(i, 'price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} />
+                        </div>
+                        <div>
+                          <Label className="text-[10px] text-gray-500">Included Seats</Label>
+                          <Input type="number" min={0} className="h-8" value={row.max_included_seats ?? ''} placeholder="\u221E"
+                            onChange={e => updatePricingRow(i, 'max_included_seats', e.target.value ? parseInt(e.target.value) : null)} />
+                        </div>
+                        <div>
+                          <Label className="text-[10px] text-gray-500">Extra Seat (\u20AC)</Label>
+                          <Input type="number" min={0} className="h-8" value={row.additional_member_price_cents / 100}
+                            onChange={e => updatePricingRow(i, 'additional_member_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} />
+                        </div>
+                        <div>
+                          <Label className="text-[10px] text-gray-500">Discount %</Label>
+                          <Input type="number" min={0} max={100} className="h-8" value={row.discount_pct}
+                            onChange={e => updatePricingRow(i, 'discount_pct', parseFloat(e.target.value || '0'))} />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-xs text-gray-500 mt-2">
+                  Sponsor tier pricing for included seats and additional members. Leave "Included Seats" blank for unlimited.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── REGISTRATIONS ── */}
       {!isNew && (
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-3">

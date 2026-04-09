@@ -27,3 +27,4 @@ export { AdminResourceDrafts } from './AdminResourceDrafts';
 export { AdminPlatformSettings } from './AdminPlatformSettings';
 export { AdminBanners } from './AdminBanners';
 export { AdminBannerDetail } from './AdminBannerDetail';
+export { AdminOrganizations } from './AdminOrganizations';

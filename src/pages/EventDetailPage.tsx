@@ -14,12 +14,14 @@ import {
   ChevronLeft, Calendar, Clock, MapPin, Users, Play,
   Download, DollarSign, UserCheck, AlertCircle, Loader2,
   Video, Building2, ExternalLink, FileDown, Globe, Users as UsersIcon, Lock,
+  Tag, Package,
 } from 'lucide-react';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow';
+import { LightweightWebinarSignup } from '@/components/events/LightweightWebinarSignup';
 
 type EventType = 'webinar' | 'on_site';
 
@@ -29,15 +31,33 @@ interface EventPartner {
   website?: string;
 }
 
+interface EventPackage {
+  id: string;
+  name: string;
+  description: string | null;
+  price_cents: number;
+  max_seats: number | null;
+  display_order: number;
+}
+
+interface EventSector {
+  id: string;
+  label: string;
+}
+
 interface EventDetail {
   id: string;
   title: string;
   description: string | null;
-  date_time: string;
+  date_time: string | null;
+  end_date_time: string | null;
+  is_full_day: boolean;
   location: string | null;
   language: string;
   access_level: string;
   event_type: EventType;
+  invitation_only: boolean;
+  published: boolean;
   speakers: { name: string; title: string; profile_id?: string }[];
   replay_url: string | null;
   pdf_url: string | null;
@@ -64,13 +84,15 @@ export function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user, profile, isVerified } = useAuth();
+  const { user, profile, isVerified, isModerator } = useAuth();
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [registrationCount, setRegistrationCount] = useState(0);
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [participants, setParticipants] = useState<EventParticipant[]>([]);
+  const [packages, setPackages] = useState<EventPackage[]>([]);
+  const [sectors, setSectors] = useState<EventSector[]>([]);
 
   const profileComplete = profile?.access_status === 'verified' && profile?.onboarding_status === 'completed';
 
@@ -87,14 +109,50 @@ export function EventDetailPage() {
       if (error) {
         if (import.meta.env.DEV) console.error('Error fetching event:', error);
       } else {
-        setEvent(data as EventDetail);
+        const ev = data as EventDetail;
+        // Hide unpublished events from non-admins
+        if (ev.published === false && !isModerator) {
+          setEvent(null);
+          setLoading(false);
+          return;
+        }
+        setEvent(ev);
       }
       setLoading(false);
     };
     fetchEvent();
+  }, [id, isModerator]);
+
+  // Fetch packages for on-site events
+  useEffect(() => {
+    if (!id || !event || event.event_type !== 'on_site') return;
+    supabase
+      .from('event_packages')
+      .select('*')
+      .eq('event_id', id)
+      .order('display_order')
+      .then(({ data }) => { if (data) setPackages(data as EventPackage[]); });
+  }, [id, event?.event_type]);
+
+  // Fetch sectors
+  useEffect(() => {
+    if (!id) return;
+    supabase
+      .from('event_sectors')
+      .select('sector_id, sectors(id, label)')
+      .eq('event_id', id)
+      .then(({ data }) => {
+        if (data) {
+          const s = (data as any[]).map(row => ({
+            id: row.sectors?.id || row.sector_id,
+            label: row.sectors?.label || '',
+          })).filter(s => s.label);
+          setSectors(s);
+        }
+      });
   }, [id]);
 
-  // Fetch registration count for capacity display
+  // Fetch registration count
   useEffect(() => {
     if (!id) return;
     const fetchCount = async () => {
@@ -107,46 +165,34 @@ export function EventDetailPage() {
     fetchCount();
   }, [id]);
 
-  // Fetch participants (profiles + org info) for logged-in verified users
+  // Fetch participants for logged-in verified users
   useEffect(() => {
     if (!id || !user || !profileComplete) return;
     const fetchParticipants = async () => {
-      // Step 1: Get registrations with profile data
       const { data: regs, error: regsError } = await supabase
         .from('event_registrations')
         .select('user_id, profiles!inner(first_name, last_name, avatar_url, job_title, user_id)')
         .eq('event_id', id);
 
-      if (regsError || !regs) {
-        if (import.meta.env.DEV) console.error('Error fetching participants:', regsError);
-        return;
-      }
+      if (regsError || !regs) return;
 
-      // Extract unique user_ids
       const userIds = regs.map((r: any) => r.user_id as string);
-
-      // Step 2: Get organization memberships for these users
       let orgMap: Record<string, { name: string; logo_url: string | null }> = {};
       if (userIds.length > 0) {
         const { data: orgMembers } = await supabase
           .from('organization_members')
           .select('user_id, organizations(name, logo_url)')
           .in('user_id', userIds);
-
         if (orgMembers) {
           for (const om of orgMembers as any[]) {
             if (om.organizations) {
-              orgMap[om.user_id] = {
-                name: om.organizations.name,
-                logo_url: om.organizations.logo_url,
-              };
+              orgMap[om.user_id] = { name: om.organizations.name, logo_url: om.organizations.logo_url };
             }
           }
         }
       }
 
-      // Combine into EventParticipant[]
-      const combined: EventParticipant[] = regs.map((r: any) => {
+      setParticipants(regs.map((r: any) => {
         const p = r.profiles;
         const org = orgMap[r.user_id];
         return {
@@ -158,9 +204,7 @@ export function EventDetailPage() {
           org_name: org?.name || null,
           org_logo_url: org?.logo_url || null,
         };
-      });
-
-      setParticipants(combined);
+      }));
     };
     fetchParticipants();
   }, [id, user, profileComplete]);
@@ -190,9 +234,12 @@ export function EventDetailPage() {
     });
   };
 
-  if (loading) {
-    return <LoadingSkeleton variant="page" />;
-  }
+  const formatPrice = (cents: number) => {
+    if (cents === 0) return 'Free';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+  };
+
+  if (loading) return <LoadingSkeleton variant="page" />;
 
   if (!event) {
     return (
@@ -208,7 +255,7 @@ export function EventDetailPage() {
     );
   }
 
-  const isPast = new Date(event.date_time) <= new Date();
+  const isPast = event.date_time ? new Date(event.date_time) <= new Date() : false;
   const isFull = event.max_attendance ? registrationCount >= event.max_attendance : false;
 
   return (
@@ -220,6 +267,7 @@ export function EventDetailPage() {
         <meta property="og:description" content={event.description?.substring(0, 160) || ''} />
         <meta property="og:type" content="event" />
       </Helmet>
+
       {/* Hero */}
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-12 lg:py-16">
@@ -228,8 +276,7 @@ export function EventDetailPage() {
             {t('events.backToEvents', 'Back to Events')}
           </Link>
           <div className="max-w-3xl">
-            <div className="flex items-center gap-3 mb-4">
-              {/* Event type badge */}
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
               <Badge className={event.event_type === 'webinar'
                 ? 'bg-violet-500/90 text-white border-0'
                 : 'bg-amber-500/90 text-white border-0'
@@ -241,22 +288,55 @@ export function EventDetailPage() {
                 )}
               </Badge>
               {getAccessBadge(event.access_level)}
+              {event.invitation_only && (
+                <Badge className="bg-purple-500/90 text-white border-0">
+                  <Lock className="h-3 w-3 mr-1" /> Invitation Only
+                </Badge>
+              )}
               {isPast && (
                 <Badge variant="outline" className="border-white/30 text-white">
                   {t('events.past', 'Past Event')}
                 </Badge>
               )}
+              {!event.published && isModerator && (
+                <Badge className="bg-gray-500/90 text-white border-0">Draft</Badge>
+              )}
             </div>
             <h1 className="text-3xl lg:text-4xl font-bold mb-4">{event.title}</h1>
             <div className="flex flex-wrap gap-6 text-white/80">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                <span>{formatDate(event.date_time)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                <span>{formatTime(event.date_time)}</span>
-              </div>
+              {event.date_time ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5" />
+                    <span>
+                      {formatDate(event.date_time)}
+                      {event.end_date_time && event.end_date_time !== event.date_time && (
+                        <> — {formatDate(event.end_date_time)}</>
+                      )}
+                    </span>
+                  </div>
+                  {!event.is_full_day && (
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-5 w-5" />
+                      <span>
+                        {formatTime(event.date_time)}
+                        {event.end_date_time && <> — {formatTime(event.end_date_time)}</>}
+                      </span>
+                    </div>
+                  )}
+                  {event.is_full_day && (
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-5 w-5" />
+                      <span>All day</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5" />
+                  <span>Date to be announced</span>
+                </div>
+              )}
               {event.location && (
                 <div className="flex items-center gap-2">
                   <MapPin className="h-5 w-5" />
@@ -264,6 +344,17 @@ export function EventDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Sector tags in hero */}
+            {sectors.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-4">
+                {sectors.map(s => (
+                  <span key={s.id} className="inline-flex items-center gap-1 text-xs bg-white/15 text-white/90 rounded-full px-3 py-1">
+                    <Tag className="h-3 w-3" />{s.label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -279,6 +370,33 @@ export function EventDetailPage() {
                 <h2 className="text-xl font-semibold text-gray-900 mb-4">{t('events.description', 'Description')}</h2>
                 <div className="prose prose-gray max-w-none text-gray-600 leading-relaxed whitespace-pre-wrap">
                   {event.description}
+                </div>
+              </div>
+            )}
+
+            {/* Packages (on-site events) */}
+            {event.event_type === 'on_site' && packages.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                  <Package className="h-5 w-5 text-primary" />
+                  Registration Packages
+                </h2>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {packages.map(pkg => (
+                    <div key={pkg.id} className="rounded-xl border border-gray-200 p-4 hover:border-primary/30 hover:shadow-sm transition-all">
+                      <h3 className="font-semibold text-gray-900 mb-1">{pkg.name}</h3>
+                      {pkg.description && (
+                        <p className="text-sm text-gray-500 mb-3">{pkg.description}</p>
+                      )}
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-2xl font-bold text-primary">{formatPrice(pkg.price_cents)}</span>
+                        {pkg.price_cents > 0 && <span className="text-xs text-gray-400">/ person</span>}
+                      </div>
+                      {pkg.max_seats != null && (
+                        <p className="text-xs text-gray-400 mt-1">{pkg.max_seats} seats available</p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -303,11 +421,7 @@ export function EventDetailPage() {
                           className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
                         >
                           {p.avatar_url ? (
-                            <img
-                              src={p.avatar_url}
-                              alt={`${p.first_name || ''} ${p.last_name || ''}`}
-                              className="w-10 h-10 rounded-full object-cover"
-                            />
+                            <img src={p.avatar_url} alt={`${p.first_name || ''} ${p.last_name || ''}`} className="w-10 h-10 rounded-full object-cover" />
                           ) : (
                             <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
                               {((p.first_name?.[0] || '') + (p.last_name?.[0] || '')).toUpperCase() || '?'}
@@ -317,12 +431,8 @@ export function EventDetailPage() {
                             <div className="font-medium text-primary text-sm truncate">
                               {[p.first_name, p.last_name].filter(Boolean).join(' ') || 'Member'}
                             </div>
-                            {p.job_title && (
-                              <div className="text-xs text-gray-500 truncate">{p.job_title}</div>
-                            )}
-                            {p.org_name && (
-                              <div className="text-xs text-gray-400 truncate">{p.org_name}</div>
-                            )}
+                            {p.job_title && <div className="text-xs text-gray-500 truncate">{p.job_title}</div>}
+                            {p.org_name && <div className="text-xs text-gray-400 truncate">{p.org_name}</div>}
                           </div>
                         </Link>
                       ))}
@@ -335,10 +445,7 @@ export function EventDetailPage() {
                     <Lock className="h-5 w-5 text-gray-400 shrink-0" />
                     <span className="text-sm">
                       {registrationCount} participant{registrationCount !== 1 ? 's' : ''} registered &mdash;{' '}
-                      <button
-                        className="text-primary hover:underline font-medium"
-                        onClick={() => setLoginOpen(true)}
-                      >
+                      <button className="text-primary hover:underline font-medium" onClick={() => setLoginOpen(true)}>
                         Log in
                       </button>{' '}
                       to see who's attending.
@@ -348,7 +455,7 @@ export function EventDetailPage() {
               </div>
             )}
 
-            {/* Speakers — only for webinars (on-site events have too many) */}
+            {/* Speakers — webinars */}
             {event.event_type === 'webinar' && event.speakers && event.speakers.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
                 <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -364,9 +471,7 @@ export function EventDetailPage() {
                         </div>
                         <div>
                           <div className={`font-medium ${speaker.profile_id ? 'text-primary' : 'text-gray-900'}`}>{speaker.name}</div>
-                          {speaker.title && (
-                            <div className="text-sm text-gray-500">{speaker.title}</div>
-                          )}
+                          {speaker.title && <div className="text-sm text-gray-500">{speaker.title}</div>}
                         </div>
                       </>
                     );
@@ -384,10 +489,9 @@ export function EventDetailPage() {
               </div>
             )}
 
-            {/* On-site event extras: partners, brochure, website, map */}
+            {/* On-site extras: partners, brochure, website, map */}
             {event.event_type === 'on_site' && (
               <>
-                {/* Event Partners */}
                 {event.event_partners && event.event_partners.length > 0 && (
                   <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
                     <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -418,7 +522,6 @@ export function EventDetailPage() {
                   </div>
                 )}
 
-                {/* Brochure + Event Website */}
                 {(event.brochure_url || event.event_website_url) && (
                   <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
                     <h2 className="text-xl font-semibold text-gray-900 mb-4">Event Resources</h2>
@@ -443,7 +546,6 @@ export function EventDetailPage() {
                   </div>
                 )}
 
-                {/* Map location */}
                 {event.location_details && (event.location_details.map_url || event.location_details.address) && (
                   <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
                     <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -495,10 +597,18 @@ export function EventDetailPage() {
             {!isPast && (
               <Card className="sticky top-20 rounded-2xl shadow-md border-0 overflow-hidden">
                 <CardContent className="pt-6 space-y-4">
-                  <h3 className="font-semibold text-lg">{t('events.register', 'Register')}</h3>
+                  <h3 className="font-semibold text-lg">
+                    {event.invitation_only ? 'Request Invitation' : t('events.register', 'Register')}
+                  </h3>
 
                   {/* Event Info */}
                   <div className="space-y-3 text-sm">
+                    {event.invitation_only && (
+                      <div className="flex items-center gap-2 text-purple-700 bg-purple-50 p-3 rounded-lg">
+                        <Lock className="h-4 w-4" />
+                        <span>This is an invitation-only event</span>
+                      </div>
+                    )}
                     {event.fees && (
                       <div className="flex items-center gap-2 text-gray-600">
                         <DollarSign className="h-4 w-4 text-primary" />
@@ -532,16 +642,41 @@ export function EventDetailPage() {
                   ) : user && profileComplete ? (
                     <EventRegistrationFlow
                       eventId={event.id}
+                      eventType={event.event_type}
+                      invitationOnly={event.invitation_only}
+                      packages={packages}
                       onRegistrationChange={(_reg, count) => {
                         setRegistrationCount(count);
                       }}
                     />
+                  ) : event.event_type === 'webinar'
+                      && event.access_level === 'public'
+                      && !event.invitation_only ? (
+                    <div className="space-y-3">
+                      <LightweightWebinarSignup
+                        eventId={event.id}
+                        eventTitle={event.title}
+                        onRegistered={() => setRegistrationCount(c => c + 1)}
+                      />
+                      <div className="text-center text-xs text-gray-500 pt-1 border-t">
+                        Already have an account?{' '}
+                        <button
+                          type="button"
+                          className="text-primary hover:underline font-medium"
+                          onClick={() => setLoginOpen(true)}
+                        >
+                          Log in
+                        </button>
+                      </div>
+                    </div>
                   ) : (
                     <Button
                       className="w-full"
                       onClick={() => setLoginOpen(true)}
                     >
-                      {t('events.loginToRegister', 'Log in to Register')}
+                      {event.invitation_only
+                        ? 'Log in to Request Invitation'
+                        : t('events.loginToRegister', 'Log in to Register')}
                     </Button>
                   )}
                 </CardContent>

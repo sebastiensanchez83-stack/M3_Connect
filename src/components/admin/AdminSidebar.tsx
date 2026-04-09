@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Users, FileText, Calendar, Anchor, RefreshCw,
   Radio, Link2, ClipboardList, MessageSquare,
-  ArrowUpCircle, LayoutDashboard, Settings, Image,
+  ArrowUpCircle, LayoutDashboard, Settings, Image, Building2,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -17,6 +17,7 @@ export function AdminSidebar() {
   const allLinks = [
     { to: '/admin', label: isAdmin ? t('admin.dashboard') : 'Moderator Dashboard', icon: <LayoutDashboard className="h-4 w-4" />, exact: true },
     { to: '/admin/users', label: t('admin.users'), icon: <Users className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/organizations', label: 'Organizations', icon: <Building2 className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/resources', label: isAdmin ? t('admin.resources') : 'Propose Resources', icon: <FileText className="h-4 w-4" /> },
     { to: '/admin/events', label: t('admin.events'), icon: <Calendar className="h-4 w-4" />, adminOnly: true },
     // Partners merged into Users tab

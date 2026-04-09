@@ -64,6 +64,10 @@ export interface Organization {
   social_media_links: string | null;
   marina_subtype: 'visitor' | 'exhibitor' | null;
   auto_approve_domain_joins: boolean;
+  reference_bypass: boolean;
+  reference_bypass_reason: string | null;
+  reference_bypass_at: string | null;
+  reference_bypass_by: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -344,15 +344,20 @@ export function AccountPage() {
             .eq('partner_organization_id', organization.id);
           setReferenceCount(count || 0);
 
-          // Check for bypass request
-          const { data: bypassData } = await supabase
-            .from('reference_bypass_requests')
-            .select('id, status')
-            .eq('organization_id', organization.id)
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          setBypassRequest(bypassData || null);
+          // Check for bypass: first check if admin directly approved on the org, then check bypass_requests table
+          if (organization.reference_bypass) {
+            // Admin approved bypass directly on the organization
+            setBypassRequest({ id: organization.id, status: 'approved' });
+          } else {
+            const { data: bypassData } = await supabase
+              .from('reference_bypass_requests')
+              .select('id, status')
+              .eq('organization_id', organization.id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            setBypassRequest(bypassData || null);
+          }
         }
 
         // Dashboard analytics
@@ -576,12 +581,18 @@ export function AccountPage() {
   // Refresh bypass/reference data (called from ReferenceRequestForm callbacks)
   const refreshOnboardingState = async () => {
     if (!organization?.id) return;
+    // Re-fetch org to get latest reference_bypass status
+    const { data: freshOrg } = await supabase.from('organizations').select('reference_bypass').eq('id', organization.id).single();
     const [{ count }, { data: bypassData }] = await Promise.all([
       supabase.from('reference_requests').select('id', { count: 'exact' }).eq('partner_organization_id', organization.id),
       supabase.from('reference_bypass_requests').select('id, status').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     ]);
     setReferenceCount(count || 0);
-    setBypassRequest(bypassData || null);
+    if (freshOrg?.reference_bypass) {
+      setBypassRequest({ id: organization.id, status: 'approved' });
+    } else {
+      setBypassRequest(bypassData || null);
+    }
   };
 
   // Onboarding wizard step calculation

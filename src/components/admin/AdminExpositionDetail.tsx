@@ -117,7 +117,7 @@ export function AdminExpositionDetail() {
         data: {
           event_title: request.event_title,
           invoice_ref: invoiceRef,
-          amount: `\u20AC${amountDue || request.amount_due || 1400}`,
+          amount: `€${amountDue || request.amount_due || 1400}`,
         },
       });
     }
@@ -193,7 +193,7 @@ export function AdminExpositionDetail() {
             </div>
             <div>
               <span className="text-gray-500 font-medium">Amount Due:</span>
-              <span className="ml-2 text-gray-900 font-semibold">\u20AC{request.amount_due || 1400}</span>
+              <span className="ml-2 text-gray-900 font-semibold">€{request.amount_due || 1400}</span>
             </div>
             <div>
               <span className="text-gray-500 font-medium">Status:</span>
@@ -233,7 +233,7 @@ export function AdminExpositionDetail() {
               <Input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="INV-2024-001" />
             </div>
             <div className="space-y-2">
-              <Label>Amount Due (\u20AC)</Label>
+              <Label>Amount Due (€)</Label>
               <Input type="number" value={amountDue} onChange={e => setAmountDue(e.target.value)} placeholder="1400" />
             </div>
           </div>

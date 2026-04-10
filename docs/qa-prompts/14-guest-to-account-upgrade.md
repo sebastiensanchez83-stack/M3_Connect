@@ -48,7 +48,7 @@ Test the guest-to-account upgrade path on https://smartmarinaconnect.com.
 7.  Open the event detail page. It should now show the user as "Registered" (not offering
     the guest signup form).
 
-8.  Cross-check in the Supabase DB (if Sebastien can run a quick SQL):
+8.  Cross-check in the Supabase DB (if Victor can run a quick SQL):
     SELECT id, user_id, guest_email, registration_type FROM event_registrations
     WHERE guest_email = 'qa2-upgrade-<ts>@mailinator.com' OR user_id = '<new_user_id>';
     ✅ Expected: row's user_id is now populated, guest_email is either preserved or nulled

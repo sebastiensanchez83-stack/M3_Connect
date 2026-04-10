@@ -1,7 +1,7 @@
 # Prompt 05 — Event verification (10 QA SAMPLE events) + create 1 new
 
-**Admin intervention needed:** Yes — Sebastien must be logged in as admin for this prompt;
-the actual "Create Event" step is executed by Claude in Sebastien's admin session.
+**Admin intervention needed:** Yes — Victor must be logged in as admin for this prompt;
+the actual "Create Event" step is executed by Claude in Victor's admin session.
 
 **Background (context for Claude, not to paste):**
 10 "QA SAMPLE —" events are already seeded in the DB covering the main variants (webinar/on-site,
@@ -16,14 +16,14 @@ Audit the 10 seeded QA SAMPLE events on https://smartmarinaconnect.com/admin/eve
 create ONE new event to smoke-test the admin form.
 
 === Pre-requisites ===
-- Sebastien is logged in as admin in THIS Chrome profile.
+- Victor is logged in as admin in THIS Chrome profile.
 - Do NOT delete any QA SAMPLE event.
 - Do NOT log out.
 
 === Part 1: Verify the 10 seeded events ===
 
 1.  Go to /admin/events. Filter or search for "QA SAMPLE —". Confirm there are exactly 10.
-    If fewer → 🛑 STOP and tell Sebastien (seed missing).
+    If fewer → 🛑 STOP and tell Victor (seed missing).
 
 2.  For EACH of the 10 events, capture in a table:
     - Title
@@ -82,7 +82,7 @@ P2 — draft visual indicator missing; admin form missing required-field validat
 
 === Cleanup note ===
 Leave the 10 SEED events intact. The 1 new "Admin Smoke Test" event will be deleted by
-Sebastien post-QA.
+Victor post-QA.
 
 Report format:
 | # | Title | Type | Admin OK | Public OK | Notes |

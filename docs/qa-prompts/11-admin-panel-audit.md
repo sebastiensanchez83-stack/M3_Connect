@@ -1,10 +1,10 @@
 # Prompt 11 — Full admin panel audit
 
-**Admin intervention needed:** Yes — Sebastien must be logged in as admin the entire time.
+**Admin intervention needed:** Yes — Victor must be logged in as admin the entire time.
 All dialogs are opened read-only and cancelled without saving.
 
 ## Prerequisite
-- Sebastien is already logged in as admin in this Chrome session
+- Victor is already logged in as admin in this Chrome session
 - Prompts 03, 04, 05, 06, 07 have been run (so there's QA data in most sections)
 
 ## Copy-paste to Claude Chrome
@@ -13,7 +13,7 @@ All dialogs are opened read-only and cancelled without saving.
 You are auditing the admin panel of https://smartmarinaconnect.com
 
 IMPORTANT CONTEXT:
-- Sebastien is already logged in as admin in this Chrome session — do NOT log out.
+- Victor is already logged in as admin in this Chrome session — do NOT log out.
 - Do NOT approve/reject/delete ANY real users, events, resources, or organizations unless the item's title/name explicitly contains "QA" or "TEST". If unsure, read-only.
 - Do NOT click "Delete" buttons on production data.
 - It's OK to: open any page, apply filters, search, sort, scroll, open detail pages, view modals, and CLOSE them without saving.

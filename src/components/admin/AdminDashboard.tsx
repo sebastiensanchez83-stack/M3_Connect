@@ -344,7 +344,7 @@ export function AdminDashboard() {
 
   /* ─── HELPERS ─── */
 
-  const fmt = (cents: number) => `\u20AC${(cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmt = (cents: number) => `€${(cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
   const pctChange = (current: number, previous: number) => {
     if (!previous) return current > 0 ? 100 : 0;
@@ -1126,7 +1126,7 @@ export function AdminDashboard() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="month" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={false} tickLine={false}
-                         tickFormatter={(v) => `\u20AC${v}`} />
+                         tickFormatter={(v) => `€${v}`} />
                   <Tooltip content={<ChartTooltip />} />
                   <Area type="monotone" dataKey="revenue" name="Revenue" stroke="#10b981" strokeWidth={2.5}
                         fill="url(#revGrad)" dot={{ r: 4, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}

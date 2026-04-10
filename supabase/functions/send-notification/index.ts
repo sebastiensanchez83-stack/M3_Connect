@@ -68,7 +68,9 @@ type NotificationType =
   | "project_status_updated"
   | "join_request_received"
   | "join_request_approved"
-  | "join_request_rejected";
+  | "join_request_rejected"
+  | "user_account_approved"
+  | "user_account_rejected";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -492,6 +494,30 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         footer: "If you believe this was a mistake, please contact the organization directly.",
       };
 
+    // ── User account approved by admin ──
+    case "user_account_approved":
+      return {
+        subject: "Your Smart Marina Connect account has been approved",
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Account Approved",
+        body: `Good news! Your Smart Marina Connect account has been verified and approved by our team. You now have full access to the platform${d.org_name ? ` on behalf of ${d.org_name}` : ""}.\n\nYou can now connect with marinas, partners, events, and resources.`,
+        buttonText: "Go to My Account",
+        buttonUrl: accountUrl,
+        footer: "Welcome aboard! If you have any questions, please reach out to our support team.",
+      };
+
+    // ── User account rejected by admin ──
+    case "user_account_rejected":
+      return {
+        subject: "Update on your Smart Marina Connect application",
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Account Application Update",
+        body: `Thank you for your interest in Smart Marina Connect. After reviewing your application, we are unable to approve your account at this time.${d.reason ? `\n\nReason provided by our team:\n${d.reason}` : ""}\n\nIf you believe this decision was made in error or if you would like to provide additional information, you are welcome to contact us.`,
+        buttonText: "Contact Support",
+        buttonUrl: `${SITE_URL}/contact`,
+        footer: "We appreciate your interest in the Smart Marina Connect community.",
+      };
+
     // ── Generic admin alert ──
     case "admin_new_submission":
       return {
@@ -641,7 +667,7 @@ function buildEmail(content: EmailContent): string {
 <p style="margin:32px 0 0;color:#9ca3af;font-size:13px;line-height:1.5;">${content.footer}</p>
 </td></tr>
 <tr><td style="padding:24px 40px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
-<p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management &mdash; Smart Marina Connect</p>
+<p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} Smart Marina Connect</p>
 <p style="margin:4px 0 0;color:#9ca3af;font-size:12px;">The B2B platform for the marina industry</p>
 </td></tr>
 </table>
@@ -671,7 +697,7 @@ function buildPlainEmail(content: EmailContent): string {
 <p style="margin:24px 0 0;color:#6b7280;font-size:14px;line-height:1.6;">${htmlFooter}</p>
 </td></tr>
 <tr><td style="padding:16px 40px;border-top:1px solid #f3f4f6;">
-<p style="margin:0;color:#9ca3af;font-size:11px;">Monaco Marina Management — Smart Marina Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">smartmarinaconnect.com</a></p>
+<p style="margin:0;color:#9ca3af;font-size:11px;">Smart Marina Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">smartmarinaconnect.com</a></p>
 </td></tr>
 </table>
 </td></tr></table>

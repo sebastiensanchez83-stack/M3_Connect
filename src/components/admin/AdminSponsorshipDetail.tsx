@@ -124,7 +124,7 @@ export function AdminSponsorshipDetail() {
           data: {
             requested_tier: TIER_LABELS[request.requested_tier as OrgTier] || request.requested_tier,
             invoice_ref: invoiceRef,
-            amount: amountDue ? `\u20AC${amountDue}` : '',
+            amount: amountDue ? `€${amountDue}` : '',
           },
         });
       }
@@ -211,7 +211,7 @@ export function AdminSponsorshipDetail() {
             </div>
             <div>
               <span className="text-gray-500 font-medium">Already Paid:</span>
-              <span className="ml-2 text-gray-900">{request.amount_already_paid > 0 ? `\u20AC${request.amount_already_paid}` : '--'}</span>
+              <span className="ml-2 text-gray-900">{request.amount_already_paid > 0 ? `€${request.amount_already_paid}` : '--'}</span>
             </div>
             <div>
               <span className="text-gray-500 font-medium">Status:</span>
@@ -265,7 +265,7 @@ export function AdminSponsorshipDetail() {
               <Input value={invoiceRef} onChange={e => setInvoiceRef(e.target.value)} placeholder="INV-2024-001" />
             </div>
             <div className="space-y-2">
-              <Label>Amount Due (\u20AC)</Label>
+              <Label>Amount Due (€)</Label>
               <Input type="number" value={amountDue} onChange={e => setAmountDue(e.target.value)} placeholder="0" />
             </div>
           </div>

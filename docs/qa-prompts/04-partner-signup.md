@@ -123,14 +123,14 @@ Test the partner reference-BYPASS flow on https://smartmarinaconnect.com.
 4.  Submit bypass request.
     ✅ Expected: /account shows "Bypass request pending" banner. No references required.
 
-5.  🛑 ADMIN CHECKPOINT — Sebastien does this
+5.  🛑 ADMIN CHECKPOINT — Victor does this
     Action:
       a. In Chrome Profile B (admin), go to /admin → "Users" or "Bypass Requests" section.
       b. Find the "QA2 Partner Bypass <ts>" request.
       c. Review it (verify the bypass form data is visible).
       d. Click "Approve bypass".
       e. Confirm the success toast.
-    Resume after: Sebastien tells Claude "bypass approved".
+    Resume after: Victor tells Claude "bypass approved".
 
 6.  Back in Profile A, refresh /account.
     ✅ Expected: banner updates to "Awaiting admin verification" or similar (bypass granted,
@@ -147,7 +147,7 @@ P0 — bypass form submit returns 4xx/5xx; admin panel doesn't show the bypass r
 P1 — unclear bypass copy; no notification email.
 
 === Save for Prompt 06 ===
-- Bypass partner email + org name so Sebastien can approve/verify later.
+- Bypass partner email + org name so Victor can approve/verify later.
 
 Report format: | Step | Expected | Actual | Status |
 ```

@@ -42,7 +42,7 @@ Test the B2B partner → marina contact request flow on https://smartmarinaconne
 
 === Part 2: Marina receives the request ===
 
-8.  🛑 ADMIN CHECKPOINT — Sebastien switches to Profile B (marina).
+8.  🛑 ADMIN CHECKPOINT — Victor switches to Profile B (marina).
     Action: Log in as QA marina in Profile B.
     Resume after: "logged in as marina".
 
@@ -56,13 +56,13 @@ Test the B2B partner → marina contact request flow on https://smartmarinaconne
 
 === Part 3: Partner sees the update ===
 
-14. 🛑 ADMIN CHECKPOINT — Sebastien switches back to Profile A.
+14. 🛑 ADMIN CHECKPOINT — Victor switches back to Profile A.
 15. In Profile A, refresh /account → the request status should now be "Accepted".
 16. Optional: check partner's mailinator for a "marina accepted your request" email (P2 if missing).
 
 === Part 4: Admin visibility ===
 
-17. 🛑 ADMIN CHECKPOINT — Sebastien logs in as admin in a third tab (or Profile B after logout).
+17. 🛑 ADMIN CHECKPOINT — Victor logs in as admin in a third tab (or Profile B after logout).
 18. /admin/partner-requests → verify the QA request appears with status "Accepted" and
     correct sender/recipient/sector/message.
 
@@ -81,6 +81,8 @@ P2 — missing notification emails.
 
 === Save for cleanup ===
 - IDs of the 2 QA partner_requests rows.
+
+
 
 Report format: | Step | Expected | Actual | Status |
 ```

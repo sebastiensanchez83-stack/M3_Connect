@@ -127,24 +127,9 @@ export function WebinarRequestPage() {
     );
   }
 
-  // ── Entitlement guard: feature disabled for this tier ─────────────────
-  const featureEnabled = isFeatureEnabled(FEATURE_KEY);
-
-  if (!featureEnabled) {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <AlertCircle className="h-12 w-12 mx-auto text-amber-400 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Upgrade Required</h1>
-        <p className="text-gray-500 mb-6">
-          Webinar requests require an Innovation Partner membership or higher.
-          Upgrade your plan to access this feature.
-        </p>
-        <Button asChild>
-          <Link to="/tiers">View Membership Plans</Link>
-        </Button>
-      </div>
-    );
-  }
+  // ── Entitlement: webinar requests are open to all verified members ────
+  // (tier gating removed — any verified marina/partner can propose)
+  void isFeatureEnabled;
 
   // ── Quota display (quota=null means unlimited) ────────────────────────
   const quota = getQuota(FEATURE_KEY);

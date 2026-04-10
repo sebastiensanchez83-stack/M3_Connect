@@ -344,9 +344,16 @@ export function AccountPage() {
             .eq('partner_organization_id', organization.id);
           setReferenceCount(count || 0);
 
-          // Check for bypass: first check if admin directly approved on the org, then check bypass_requests table
-          if (organization.reference_bypass) {
-            // Admin approved bypass directly on the organization
+          // Check for bypass: always re-read reference_bypass directly from DB because the
+          // AuthContext `organization` object is snapshotted at login and does NOT refresh
+          // when an admin flips reference_bypass — that caused /account to stay "Required"
+          // even after bypass approval. Then fall back to reference_bypass_requests table.
+          const { data: freshOrg } = await supabase
+            .from('organizations')
+            .select('reference_bypass')
+            .eq('id', organization.id)
+            .maybeSingle();
+          if (freshOrg?.reference_bypass) {
             setBypassRequest({ id: organization.id, status: 'approved' });
           } else {
             const { data: bypassData } = await supabase
@@ -636,9 +643,9 @@ export function AccountPage() {
   return (
     <div className="container mx-auto px-4 py-8 max-w-6xl">
       {/* Account Header */}
-      <div className="rounded-xl bg-gradient-to-r from-[#0b2653] to-[#143a6b] p-6 text-white mb-8">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <div className="rounded-xl bg-gradient-to-r from-[#0b2653] to-[#143a6b] p-4 sm:p-6 text-white mb-8">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0 flex-1">
             {/* Avatar */}
             <div className="relative group">
               {profile?.avatar_url ? (
@@ -662,16 +669,16 @@ export function AccountPage() {
                 {uploadingAvatar ? <Loader2 className="h-5 w-5 animate-spin text-white" /> : <Camera className="h-5 w-5 text-white" />}
               </button>
             </div>
-            <div>
-              <h1 className="text-2xl font-bold">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-xl sm:text-2xl font-bold truncate">
                 {profile?.first_name || profile?.last_name
                   ? `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim()
                   : 'My Account'}
               </h1>
-              <div className="flex items-center gap-2 mt-1 text-white/80 text-sm">
+              <div className="flex items-center gap-2 mt-1 text-white/80 text-sm flex-wrap">
                 {getPersonaIcon()}
                 <span>{getPersonaLabel()}</span>
-                {org && <span>• {org.name}</span>}
+                {org && <span className="truncate">• {org.name}</span>}
               </div>
             </div>
           </div>
@@ -683,20 +690,24 @@ export function AccountPage() {
 
       {/* Incomplete onboarding banner — hidden during onboarding since complete-registration tab has guidance */}
       {!isOnboarding && profile.onboarding_status === 'draft' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <ClipboardList className="h-5 w-5 text-blue-600 shrink-0" />
-            <p className="text-blue-800">Your profile is incomplete. Complete your organization details and provide a reference to be validated by our team.</p>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-3 min-w-0">
+            <ClipboardList className="h-5 w-5 text-blue-600 shrink-0 mt-0.5 sm:mt-0" />
+            <p className="text-blue-800 text-sm sm:text-base">Your profile is incomplete. Complete your organization details and provide a reference to be validated by our team.</p>
           </div>
-          <Button size="sm" onClick={() => navigate('/account?tab=complete-registration', { replace: true })}>Complete my profile</Button>
+          <Button size="sm" className="shrink-0 w-full sm:w-auto" onClick={() => navigate('/account?tab=complete-registration', { replace: true })}>Complete my profile</Button>
         </div>
       )}
 
       {/* Pending validation banner */}
       {profile.onboarding_status === 'submitted' && profile.access_status === 'pending' && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 flex items-center gap-3">
-          <AlertCircle className="h-5 w-5 text-yellow-600 shrink-0" />
-          <p className="text-yellow-800">Your profile is being reviewed by our team. You will receive a confirmation email.</p>
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 flex items-start gap-3">
+          <AlertCircle className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
+          <p className="text-yellow-800">
+            Your profile is being reviewed by our team. You will receive a confirmation email.{' '}
+            <Link to="/contact" className="underline font-medium hover:text-yellow-900">Contact support</Link>{' '}
+            if you have questions.
+          </p>
         </div>
       )}
 
@@ -720,7 +731,7 @@ export function AccountPage() {
         </div>
       )}
 
-      <div className="flex gap-6">
+      <div className="flex flex-col md:flex-row gap-6">
         {/* ── Sidebar Navigation ── */}
         <aside className="hidden md:block w-56 shrink-0">
           <nav className="sticky top-24 space-y-1">
@@ -1433,7 +1444,7 @@ export function AccountPage() {
                               <Pencil className="h-3 w-3 mr-1" />Edit
                             </Button>
                           )}
-                          <Badge variant="outline">{project.status}</Badge>
+                          <SubmissionStatusBadge status={project.status} />
                         </div>
                       </div>
                     ))}

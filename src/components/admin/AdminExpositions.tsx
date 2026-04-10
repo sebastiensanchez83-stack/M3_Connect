@@ -92,7 +92,7 @@ export function AdminExpositions() {
             </td>
             <td className="p-4 text-sm">{r.event_title}</td>
             <td className="p-4"><Badge className={statusColors[r.status] || 'bg-gray-100'}>{r.status.replace('_', ' ')}</Badge></td>
-            <td className="p-4 text-sm">{'\u20AC'}{r.amount_due || 1400}</td>
+            <td className="p-4 text-sm">€{r.amount_due || 1400}</td>
             <td className="p-4 text-sm text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
             <td className="p-4">
               <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-primary transition-colors" />

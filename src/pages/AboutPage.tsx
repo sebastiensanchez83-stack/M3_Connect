@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
+import { Helmet } from 'react-helmet-async';
 import { Anchor, Globe, Users, Link2, Building2, Target, Lightbulb, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,6 +10,10 @@ export function AboutPage() {
 
   return (
     <div className="min-h-screen">
+      <Helmet>
+        <title>About — Smart Marina Connect</title>
+        <meta name="description" content="Learn about Smart Marina Connect, the B2B platform connecting marinas, ports and service providers in the yachting industry." />
+      </Helmet>
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-primary to-primary/80 text-white py-20">
         <div className="container mx-auto px-4 max-w-5xl">

@@ -1,6 +1,6 @@
 # Prompt 07 — Verified marina flows: RFP, Consultation, Webinar request, Project
 
-**Admin intervention needed:** Yes — mid-test, Sebastien must switch to the admin profile to
+**Admin intervention needed:** Yes — mid-test, Victor must switch to the admin profile to
 approve/reject the submissions, then switch back.
 
 **Background (context for Claude, not to paste):**
@@ -18,7 +18,7 @@ Test the verified-marina submission flows on https://smartmarinaconnect.com, the
 - QA marina user from Prompt 03 was approved in Prompt 06.
 - You have its credentials: qa2-marina-<ts>@mailinator.com / TestQa!2026SecurePass.
 - Mailinator tab open.
-- Two Chrome profiles available: Profile A (QA marina) and Profile B (Sebastien admin).
+- Two Chrome profiles available: Profile A (QA marina) and Profile B (Victor admin).
 
 === Part 1: Submit the 4 items as the verified marina ===
 
@@ -52,16 +52,16 @@ Test the verified-marina submission flows on https://smartmarinaconnect.com, the
 6.  /account — verify all 4 appear under their respective tabs/sections with "Pending review".
     Click into each to confirm the detail view shows the data you submitted.
 
-=== Part 2: 🛑 ADMIN CHECKPOINT — Sebastien reviews in admin ===
+=== Part 2: 🛑 ADMIN CHECKPOINT — Victor reviews in admin ===
 
-Action (Sebastien, in Profile B):
+Action (Victor, in Profile B):
   a. /admin/rfps → open the QA RFP → Approve with notes "QA test approval".
   b. /admin/consultations → open QA consultation → Reject with reason "QA test rejection".
   c. /admin/webinars (or /admin/webinar-requests) → open QA webinar → Approve with notes
      "QA approved". **Do NOT click "Convert to Event"** — we don't want real event rows.
   d. /admin/projects (or /admin/leads) → open QA project → set status "Under review".
 
-Resume after: Sebastien says "admin review done".
+Resume after: Victor says "admin review done".
 
 === Part 3: Verify the status updates propagate to the marina ===
 
@@ -85,7 +85,7 @@ P1 — Date picker allows past dates
 P2 — No status-change email; unclear copy
 
 === Save for cleanup ===
-- IDs of the 4 QA submissions so Sebastien can delete them post-QA.
+- IDs of the 4 QA submissions so Victor can delete them post-QA.
 
 Report format:
 | Flow | Submit OK | Admin action OK | Synced to user | Notes |

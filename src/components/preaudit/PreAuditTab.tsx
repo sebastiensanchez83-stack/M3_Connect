@@ -554,11 +554,11 @@ export function PreAuditTab() {
                 ))}
 
                 <div className="pt-3 space-y-2">
-                  <Button className="w-full" size="sm" onClick={() => window.open('mailto:info@m3monaco.com?subject=Full%20S3%20Audit%20Request', '_blank')}>
+                  <Button className="w-full" size="sm" onClick={() => window.open('mailto:contact@smartmarinaconnect.com?subject=Full%20S3%20Audit%20Request', '_blank')}>
                     <Anchor className="h-4 w-4 mr-2" />
                     {t('preaudit.requestFullAudit')}
                   </Button>
-                  <Button variant="outline" className="w-full" size="sm" onClick={() => window.open('mailto:info@m3monaco.com?subject=S3%20Roadmap%20Discussion', '_blank')}>
+                  <Button variant="outline" className="w-full" size="sm" onClick={() => window.open('mailto:contact@smartmarinaconnect.com?subject=S3%20Roadmap%20Discussion', '_blank')}>
                     {t('preaudit.discussRoadmap')}
                   </Button>
                 </div>

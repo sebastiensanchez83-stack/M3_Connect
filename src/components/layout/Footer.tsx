@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Anchor, Linkedin, Instagram } from 'lucide-react';
+import { Anchor, Instagram } from 'lucide-react';
 
 export function Footer() {
   const { t } = useTranslation();
@@ -17,9 +17,7 @@ export function Footer() {
             </div>
             <p className="text-gray-300 mb-4">{t('footer.tagline')}</p>
             <div className="flex space-x-4">
-              <a href="https://www.linkedin.com/company/monaco-marina-management" target="_blank" rel="noopener noreferrer" className="text-gray-300 hover:text-white transition-colors" aria-label="LinkedIn">
-                <Linkedin className="h-5 w-5" />
-              </a>
+              {/* LinkedIn link removed pre-launch — pending correct Smart Marina Connect company page URL */}
               <a href="https://www.instagram.com/monacomarinamanagement/" target="_blank" rel="noopener noreferrer" className="text-gray-300 hover:text-white transition-colors" aria-label="Instagram">
                 <Instagram className="h-5 w-5" />
               </a>

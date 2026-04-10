@@ -87,8 +87,8 @@ export function AdminPage() {
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div className="md:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setSidebarOpen(false)}>
-          <div className="w-56 bg-white h-full shadow-xl" onClick={e => e.stopPropagation()}>
-            <AdminSidebar />
+          <div className="w-56 bg-white h-full shadow-xl overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} />
           </div>
         </div>
       )}

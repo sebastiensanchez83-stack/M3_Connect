@@ -124,7 +124,9 @@ export function UserProfilePage() {
         status: 'pending',
       });
       if (error) throw error;
-      sendNotification({ type: 'partner_request_received', userId: id, data: { partner_name: displayName || '', message: connectMessage.trim() } });
+      // partner_name = REQUESTER's organization (who is reaching out), not the recipient.
+      const requesterOrgName = organization?.name || 'A partner';
+      sendNotification({ type: 'partner_request_received', userId: id, data: { partner_name: requesterOrgName, message: connectMessage.trim() } });
       toast({ title: 'Connection request sent!' });
       setConnectOpen(false);
       setConnectMessage('');

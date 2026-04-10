@@ -134,6 +134,7 @@ export function SubmitProjectPage() {
         toast({ title: t('submitProject.success') });
         setFormData({ project_type: '', budget_range: '', timeline: '', description: '' });
         setConsent(false);
+        navigate('/account?tab=submissions');
       }
     }
     setLoading(false);

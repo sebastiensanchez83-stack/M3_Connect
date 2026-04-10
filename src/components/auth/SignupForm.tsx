@@ -27,7 +27,11 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
   const [isPublicDomain, setIsPublicDomain] = useState(false);
-  const [errors, setErrors] = useState<{ passwordMismatch?: boolean; termsRequired?: boolean }>({});
+  const [errors, setErrors] = useState<{ passwordMismatch?: boolean; termsRequired?: boolean; passwordWeak?: boolean }>({});
+
+  const validatePasswordStrength = (pwd: string) => {
+    return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd);
+  };
 
   // Public email domain blacklist
   // ⚠️⚠️⚠️  QA-ONLY TEMPORARY EXCEPTION  ⚠️⚠️⚠️
@@ -105,7 +109,8 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
       toast({ title: t('auth.error'), description: t('auth.passwordMismatch'), variant: 'destructive' });
       return;
     }
-    if (formData.password.length < 8 || !/[A-Z]/.test(formData.password) || !/[^A-Za-z0-9]/.test(formData.password)) {
+    if (!validatePasswordStrength(formData.password)) {
+      setErrors(prev => ({ ...prev, passwordWeak: true }));
       toast({ title: t('auth.error'), description: 'Password must be at least 8 characters with one uppercase letter and one symbol.', variant: 'destructive' });
       return;
     }
@@ -213,12 +218,34 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
       <div className="space-y-2">
         <Label htmlFor="password">{t('auth.password')} *</Label>
         <div className="relative">
-          <Input id="password" type={showPassword ? 'text' : 'password'} value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} required minLength={8} placeholder={t('auth.passwordPlaceholder')} className="pr-10" />
+          <Input
+            id="password"
+            type={showPassword ? 'text' : 'password'}
+            value={formData.password}
+            onChange={(e) => {
+              const pwd = e.target.value;
+              setFormData({ ...formData, password: pwd });
+              if (pwd.length > 0) {
+                setErrors(prev => ({ ...prev, passwordWeak: !validatePasswordStrength(pwd) }));
+              } else {
+                setErrors(prev => ({ ...prev, passwordWeak: false }));
+              }
+            }}
+            required
+            minLength={8}
+            placeholder={t('auth.passwordPlaceholder')}
+            className="pr-10"
+            aria-invalid={errors.passwordWeak || undefined}
+          />
           <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors" tabIndex={-1}>
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
         </div>
-        <p className="text-xs text-gray-400">Min. 8 characters, 1 uppercase letter, 1 symbol</p>
+        {errors.passwordWeak ? (
+          <p className="text-sm text-red-600 mt-1">Password must be at least 8 characters and include one uppercase letter and one symbol.</p>
+        ) : (
+          <p className="text-xs text-gray-400">Min. 8 characters, 1 uppercase letter, 1 symbol</p>
+        )}
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">{t('auth.confirmPassword')} *</Label>

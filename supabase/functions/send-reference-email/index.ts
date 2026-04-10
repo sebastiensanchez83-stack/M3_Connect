@@ -68,82 +68,82 @@ function buildEmailHtml(data: {
   rejectUrl: string;
 }): string {
   return `<!doctype html>
-<html lang="fr">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Smart Marina Connect \u2013 Recommandation</title></head>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Smart Marina Connect \u2013 Reference verification</title></head>
 <body style="margin:0;padding:0;background-color:#f4f6f8;">
-<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">Confirmation de recommandation client, ${data.referenceId}, ${data.projectName}, action requise.</div>
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">Client reference confirmation, ${data.referenceId}, ${data.projectName}, action required.</div>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#f4f6f8;"><tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px;max-width:100%;background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06);">
 <tr><td style="padding:22px 24px;background-color:#0b1f3a;color:#ffffff;">
-  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;opacity:0.9;">Smart Marina Connect \u2014 v\u00e9rification de recommandation</div>
-  <div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:700;margin-top:6px;">Action requise \u2014 confirmer une recommandation client</div>
+  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;opacity:0.9;">Smart Marina Connect \u2014 reference verification</div>
+  <div style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:700;margin-top:6px;">Action required \u2014 confirm a client recommendation</div>
 </td></tr>
 <tr><td style="padding:22px 24px 10px 24px;">
   <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;color:#111827;">
-    Bonjour <strong>${data.recipientFirstName}</strong>,<br><br>
-    <strong>${data.partnerLegalName}</strong> a indiqu\u00e9 que vous \u00eates habilit\u00e9(e) \u00e0 confirmer une recommandation client concernant le projet ci-dessous.
-    Cette confirmation s'inscrit dans le processus d'onboarding et d'enqu\u00eate d'honorabilit\u00e9 de Smart Marina Connect.
+    Hello <strong>${data.recipientFirstName}</strong>,<br><br>
+    <strong>${data.partnerLegalName}</strong> has indicated that you are authorised to confirm a client recommendation regarding the project below.
+    This confirmation is part of Smart Marina Connect's partner onboarding and trust-verification process.
   </div>
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:16px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
     <tr><td style="padding:12px 14px;"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:18px;color:#111827;">
-      <strong>R\u00e9f\u00e9rence Smart Marina Connect</strong> : ${data.referenceId}<br>
-      <strong>Code de v\u00e9rification</strong> : ${data.verificationCode}<br>
-      <strong>Expiration</strong> : ${data.expiresAt}<br>
-      <strong>Email destinataire</strong> : ${data.recipientEmail}
+      <strong>Smart Marina Connect reference</strong>: ${data.referenceId}<br>
+      <strong>Verification code</strong>: ${data.verificationCode}<br>
+      <strong>Expires</strong>: ${data.expiresAt}<br>
+      <strong>Recipient email</strong>: ${data.recipientEmail}
     </div></td></tr>
   </table>
-  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#111827;margin-top:18px;">1. Organisation cliente</div>
+  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#111827;margin-top:18px;">1. Client organisation</div>
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
     <tr><td style="padding:10px 12px;background-color:#ffffff;"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:18px;color:#111827;">
-      <strong>Soci\u00e9t\u00e9</strong> : ${data.clientLegalName}<br>
-      <strong>Pays</strong> : ${data.clientCountry || 'N/A'}<br>
-      <strong>Site</strong> : ${data.clientWebsite || 'N/A'}<br>
-      <strong>Signataire d\u00e9clar\u00e9</strong> : ${data.signerName}, ${data.signerTitle}
+      <strong>Company</strong>: ${data.clientLegalName}<br>
+      <strong>Country</strong>: ${data.clientCountry || 'N/A'}<br>
+      <strong>Website</strong>: ${data.clientWebsite || 'N/A'}<br>
+      <strong>Declared signer</strong>: ${data.signerName}, ${data.signerTitle}
     </div></td></tr>
   </table>
-  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#111827;margin-top:18px;">2. Projet et p\u00e9rim\u00e8tre</div>
+  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#111827;margin-top:18px;">2. Project and scope</div>
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
     <tr><td style="padding:10px 12px;background-color:#ffffff;"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:18px;color:#111827;">
-      <strong>Projet</strong> : ${data.projectName}<br>
-      <strong>Localisation</strong> : ${data.projectLocation || 'N/A'}<br>
-      <strong>P\u00e9riode</strong> : ${data.projectStartDate || 'N/A'} \u00e0 ${data.projectEndDate || 'N/A'}<br>
-      <strong>Mise en service</strong> : ${data.projectDeliveryDate || 'N/A'}<br>
-      <strong>R\u00e9f\u00e9rence contrat</strong> : ${data.contractReference || 'N/A'}<br>
-      <strong>Solution / produit</strong> : ${data.solutionProduct || 'N/A'}<br>
-      <strong>P\u00e9rim\u00e8tre</strong> : ${data.scopeDescription || 'N/A'}
+      <strong>Project</strong>: ${data.projectName}<br>
+      <strong>Location</strong>: ${data.projectLocation || 'N/A'}<br>
+      <strong>Period</strong>: ${data.projectStartDate || 'N/A'} to ${data.projectEndDate || 'N/A'}<br>
+      <strong>Delivered</strong>: ${data.projectDeliveryDate || 'N/A'}<br>
+      <strong>Contract reference</strong>: ${data.contractReference || 'N/A'}<br>
+      <strong>Solution / product</strong>: ${data.solutionProduct || 'N/A'}<br>
+      <strong>Scope</strong>: ${data.scopeDescription || 'N/A'}
     </div></td></tr>
   </table>
-  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#111827;margin-top:18px;">3. R\u00e9sultats et valeur observ\u00e9e</div>
+  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#111827;margin-top:18px;">3. Results and value delivered</div>
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px;border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
     <tr><td style="padding:10px 12px;background-color:#ffffff;"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:18px;color:#111827;">
       ${data.resultsSummary || 'N/A'}<br>
-      <strong>KPIs</strong> : ${data.keyKpis || 'N/A'}
+      <strong>KPIs</strong>: ${data.keyKpis || 'N/A'}
     </div></td></tr>
   </table>
-  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#111827;margin-top:18px;">Recommandation propos\u00e9e</div>
+  <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;color:#111827;margin-top:18px;">Proposed recommendation</div>
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:8px;background-color:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;">
     <tr><td style="padding:14px;">
       <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:18px;color:#15803d;font-style:italic;">
-        \u00ab ${data.recommendationStatement} \u00bb
+        \u201c ${data.recommendationStatement} \u201d
       </div>
     </td></tr>
   </table>
   <div style="margin-top:24px;text-align:center;">
-    <a href="${data.confirmUrl}" style="display:inline-block;padding:14px 28px;background-color:#16a34a;color:#ffffff;text-decoration:none;border-radius:8px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;margin:0 6px 12px;">\u2713 Je confirme et je signe</a>
-    <a href="${data.rejectUrl}" style="display:inline-block;padding:14px 28px;background-color:#ffffff;color:#dc2626;text-decoration:none;border-radius:8px;border:1px solid #fca5a5;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;margin:0 6px 12px;">\u2717 Je ne confirme pas</a>
+    <a href="${data.confirmUrl}" style="display:inline-block;padding:14px 28px;background-color:#16a34a;color:#ffffff;text-decoration:none;border-radius:8px;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;margin:0 6px 12px;">\u2713 I confirm and approve</a>
+    <a href="${data.rejectUrl}" style="display:inline-block;padding:14px 28px;background-color:#ffffff;color:#dc2626;text-decoration:none;border-radius:8px;border:1px solid #fca5a5;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;margin:0 6px 12px;">\u2717 I do not confirm</a>
   </div>
   <div style="margin-top:20px;padding:14px;background-color:#f9fafb;border:1px solid #e5e7eb;border-radius:10px;">
     <div style="font-family:Arial,Helvetica,sans-serif;font-size:12px;line-height:16px;color:#6b7280;">
-      <strong>Confidentialit\u00e9 et consentement</strong><br>
-      En confirmant cette recommandation, vous acceptez que votre nom, titre et confirmation soient partag\u00e9s avec Smart Marina Connect dans le cadre du processus d'onboarding du partenaire. Vos donn\u00e9es sont trait\u00e9es conform\u00e9ment \u00e0 notre politique de confidentialit\u00e9.<br><br>
-      Si vous avez des questions, contactez notre \u00e9quipe \u00e0 <a href="mailto:info@m3monaco.com" style="color:#2563eb;">info@m3monaco.com</a>
+      <strong>Privacy and consent</strong><br>
+      By confirming this recommendation, you agree that your name, title and confirmation may be shared with Smart Marina Connect as part of the partner's onboarding process. Your data is processed in accordance with our privacy policy.<br><br>
+      If you have any questions, please contact our team at <a href="mailto:contact@smartmarinaconnect.com" style="color:#2563eb;">contact@smartmarinaconnect.com</a>
     </div>
   </div>
 </td></tr>
 <tr><td style="padding:16px 24px;background-color:#f9fafb;border-top:1px solid #e5e7eb;">
   <div style="font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#9ca3af;text-align:center;">
-    M3 Monaco SAM \u00b7 3 Boulevard des Moulins, Monte Carlo Palace, Office B21, 98000 Monaco<br>
-    Cet email a \u00e9t\u00e9 envoy\u00e9 par Smart Marina Connect dans le cadre d'un processus d'onboarding partenaire.
+    Smart Marina Connect \u00b7 3 Boulevard des Moulins, Monte Carlo Palace, Office B21, 98000 Monaco<br>
+    This email was sent by Smart Marina Connect as part of a partner onboarding process.
   </div>
 </td></tr>
 </table></td></tr></table></body></html>`;
@@ -212,11 +212,11 @@ Deno.serve(async (req: Request) => {
       const rejectUrl = `${SITE_URL}/reference/reject?token=${rejectToken}&ref=${refReq.reference_id}`;
 
       const emailHtml = buildEmailHtml({
-        recipientFirstName: recipient.first_name || 'Madame/Monsieur',
+        recipientFirstName: recipient.first_name || 'Madam/Sir',
         partnerLegalName: partnerOrg?.name || 'Partner',
         referenceId: refReq.reference_id,
         verificationCode: refReq.verification_code,
-        expiresAt: new Date(refReq.expires_at).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' }),
+        expiresAt: new Date(refReq.expires_at).toLocaleString('en-GB', { timeZone: 'Europe/Paris' }),
         recipientEmail: recipient.email,
         clientLegalName: refReq.client_legal_name,
         clientCountry: refReq.client_country || '',
@@ -249,7 +249,7 @@ Deno.serve(async (req: Request) => {
             body: JSON.stringify({
               from: Deno.env.get("SENDER_EMAIL") || 'Smart Marina Connect <noreply@smartmarinaconnect.com>',
               to: recipient.email,
-              subject: `Action requise — Confirmer une recommandation client (${refReq.reference_id})`,
+              subject: `Action required — Confirm a client recommendation (${refReq.reference_id})`,
               html: emailHtml,
             }),
           });

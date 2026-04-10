@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Search, Building2, MapPin } from 'lucide-react';
+import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 
@@ -104,6 +105,10 @@ export function PartnersPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <Helmet>
+        <title>Our Partners — Smart Marina Connect</title>
+        <meta name="description" content="Discover verified partners in the Smart Marina Connect network — trusted service and equipment providers for the marina industry." />
+      </Helmet>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-primary mb-2">{t('partners.title')}</h1>
         <p className="text-gray-600">{t('partners.subtitle')}</p>

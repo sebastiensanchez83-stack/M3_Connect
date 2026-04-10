@@ -60,7 +60,7 @@ Deep-test the reference confirm/reject links on https://smartmarinaconnect.com.
 
 === Test E: Admin visibility ===
 
-9.  🛑 ADMIN CHECKPOINT — Sebastien logs in as admin in Profile B.
+9.  🛑 ADMIN CHECKPOINT — Victor logs in as admin in Profile B.
 10. /admin/users → find qa2-partner-refs-<ts>. Open detail → references section.
     ✅ Expected:
       - ref-confirm → "Confirmed"

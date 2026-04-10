@@ -27,8 +27,8 @@ export function PrivacyPage() {
               <p><strong>Data Controller:</strong> M3 Monaco SAM, Société Anonyme Monégasque with a share capital of 150 000 EUR</p>
               <p><strong>RCI:</strong> I18S07927</p>
               <p><strong>Registered office:</strong> 3 Boulevard des Moulins, Monte Carlo Palace, 2nd floor - Office B21, 98000 Monaco</p>
-              <p><strong>General contact:</strong> <a href="mailto:info@m3monaco.com" className="text-primary hover:underline">info@m3monaco.com</a></p>
-              <p><strong>Data protection officer:</strong> Victor Meyer, reachable at <a href="mailto:info@m3monaco.com" className="text-primary hover:underline">info@m3monaco.com</a></p>
+              <p><strong>General contact:</strong> <a href="mailto:contact@smartmarinaconnect.com" className="text-primary hover:underline">contact@smartmarinaconnect.com</a></p>
+              <p><strong>Data protection officer:</strong> Victor Meyer, reachable at <a href="mailto:contact@smartmarinaconnect.com" className="text-primary hover:underline">contact@smartmarinaconnect.com</a></p>
             </div>
             <p className="mt-3 text-sm">As of the date of this document, M3 has not appointed a Data Protection Officer or a representative within the European Union.</p>
           </section>
@@ -143,7 +143,7 @@ export function PrivacyPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 10 — Data Subject Rights</h2>
             <p>Under the conditions set forth by applicable legislation, any data subject has the right to information, access, rectification, erasure, restriction, objection, and, where applicable, data portability and withdrawal of consent.</p>
-            <p className="mt-2">These rights may be exercised by writing to <a href="mailto:info@m3monaco.com" className="text-primary hover:underline">info@m3monaco.com</a>, to the attention of Victor Meyer. M3 may request any information reasonably necessary to verify the identity of the requester and to securely process the request.</p>
+            <p className="mt-2">These rights may be exercised by writing to <a href="mailto:contact@smartmarinaconnect.com" className="text-primary hover:underline">contact@smartmarinaconnect.com</a>, to the attention of Victor Meyer. M3 may request any information reasonably necessary to verify the identity of the requester and to securely process the request.</p>
             <p className="mt-2">If the data subject believes, after contacting M3, that their rights have not been respected, they may lodge a complaint with the Data Protection Authority of the Principality of Monaco or, where the GDPR applies, the competent supervisory authority.</p>
           </section>
 
@@ -174,7 +174,7 @@ export function PrivacyPage() {
 
           {/* Contact */}
           <section className="border-t pt-6">
-            <p className="text-sm text-gray-500">For any questions regarding this privacy policy, please contact: <a href="mailto:info@m3monaco.com" className="text-primary hover:underline">info@m3monaco.com</a></p>
+            <p className="text-sm text-gray-500">For any questions regarding this privacy policy, please contact: <a href="mailto:contact@smartmarinaconnect.com" className="text-primary hover:underline">contact@smartmarinaconnect.com</a></p>
           </section>
         </div>
       </div>

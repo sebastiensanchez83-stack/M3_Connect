@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
-export function AdminSidebar() {
+export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void } = {}) {
   const { t } = useTranslation();
   const location = useLocation();
   const { profile, isAdmin } = useAuth();
@@ -45,7 +45,7 @@ export function AdminSidebar() {
   };
 
   return (
-    <div className="hidden md:block w-56 shrink-0 bg-white border-r min-h-[calc(100vh-64px)] p-4">
+    <div className={`${mobile ? 'block' : 'hidden md:block'} w-56 shrink-0 bg-white border-r min-h-[calc(100vh-64px)] p-4`}>
       {isMod && (
         <div className="mb-3 px-3 py-1.5 bg-amber-50 text-amber-700 text-xs rounded-lg font-medium">
           Moderator View
@@ -56,6 +56,7 @@ export function AdminSidebar() {
           <Link
             key={l.to}
             to={l.to}
+            onClick={onNavigate}
             className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
               isActive(l.to, l.exact)
                 ? 'bg-primary/10 text-primary'

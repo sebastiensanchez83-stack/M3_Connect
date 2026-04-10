@@ -42,7 +42,9 @@ export type NotificationType =
   | 'team_invitation_reminder'
   | 'join_request_received'
   | 'join_request_approved'
-  | 'join_request_rejected';
+  | 'join_request_rejected'
+  | 'user_account_approved'
+  | 'user_account_rejected';
 
 interface SendNotificationParams {
   type: NotificationType;
@@ -82,7 +84,7 @@ export async function sendNotification({ type, userId, email, data }: SendNotifi
 export async function notifyAdmin(submissionType: string, submitter: string, details?: string): Promise<void> {
   await sendNotification({
     type: 'admin_new_submission',
-    email: 'info@m3monaco.com',
+    email: 'contact@smartmarinaconnect.com',
     data: {
       submission_type: submissionType,
       submitter,

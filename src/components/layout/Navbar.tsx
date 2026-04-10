@@ -277,7 +277,7 @@ export function Navbar() {
             <Button
               variant="ghost"
               size="icon"
-              className="lg:hidden h-9 w-9 rounded-xl"
+              className="lg:hidden h-11 w-11 rounded-xl"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={mobileMenuOpen}
@@ -289,10 +289,10 @@ export function Navbar() {
         </div>
 
         {/* Mobile menu - slide down with animation */}
-        <div id="mobile-menu" aria-hidden={!mobileMenuOpen} className={`lg:hidden overflow-hidden transition-all duration-300 ease-in-out ${
-          mobileMenuOpen ? 'max-h-[80vh] opacity-100' : 'max-h-0 opacity-0'
+        <div id="mobile-menu" aria-hidden={!mobileMenuOpen} className={`lg:hidden transition-all duration-300 ease-in-out ${
+          mobileMenuOpen ? 'max-h-[calc(100vh-4rem)] opacity-100 overflow-y-auto' : 'max-h-0 opacity-0 overflow-hidden'
         }`}>
-          <div className="py-4 border-t border-gray-100 space-y-1">
+          <div className="py-4 border-t border-gray-100 space-y-1 pb-8">
             {navLinks.map((link) => {
               const Icon = link.icon;
               return (

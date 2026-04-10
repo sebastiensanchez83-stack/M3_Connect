@@ -618,7 +618,9 @@ export function MarketplacePage() {
 
       if (error) throw error;
 
-      sendNotification({ type: 'partner_request_received', userId: targetUserId, data: { partner_name: contactPartner.company_name || '', message: contactMessage.trim() } });
+      // partner_name = REQUESTER's organization (the marina reaching out), not the recipient partner's name.
+      const requesterOrgName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A marina';
+      sendNotification({ type: 'partner_request_received', userId: targetUserId, data: { partner_name: requesterOrgName, message: contactMessage.trim() } });
 
       toast({ title: t('marketplace.requestSent'), description: t('marketplace.requestSentDesc', { name: contactPartner.company_name }) });
       setContactOpen(false);

@@ -28,12 +28,15 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
   const [company, setCompany] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
 
   const validEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setInlineError(null);
     if (!firstName.trim() || !lastName.trim() || !validEmail(email)) {
+      setInlineError('Please fill in all required fields with a valid email.');
       toast({ title: 'Please fill in all required fields with a valid email', variant: 'destructive' });
       return;
     }
@@ -71,17 +74,23 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
         }
 
         if (code === 'DUPLICATE') {
-          toast({ title: 'Already registered', description: 'This email is already signed up for this webinar.', variant: 'destructive' });
+          const msg = 'This email is already signed up for this webinar.';
+          setInlineError(msg);
+          toast({ title: 'Already registered', description: msg, variant: 'destructive' });
         } else if (code === 'RATE_LIMIT_IP' || code === 'RATE_LIMIT_EMAIL') {
+          setInlineError(message);
           toast({ title: 'Too many attempts', description: message, variant: 'destructive' });
         } else {
+          setInlineError(message);
           toast({ title: 'Signup failed', description: message, variant: 'destructive' });
         }
         return;
       }
 
       if (data && (data as { error?: string }).error) {
-        toast({ title: 'Signup failed', description: String((data as { error?: string }).error), variant: 'destructive' });
+        const msg = String((data as { error?: string }).error);
+        setInlineError(msg);
+        toast({ title: 'Signup failed', description: msg, variant: 'destructive' });
         return;
       }
 
@@ -93,6 +102,7 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
+      setInlineError(message);
       toast({ title: 'Signup failed', description: message, variant: 'destructive' });
     } finally {
       setSubmitting(false);
@@ -174,6 +184,12 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
           className="h-9"
         />
       </div>
+
+      {inlineError && (
+        <div role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          {inlineError}
+        </div>
+      )}
 
       <Button type="submit" className="w-full" disabled={submitting}>
         {submitting ? (

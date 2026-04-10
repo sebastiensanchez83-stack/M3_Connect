@@ -93,8 +93,32 @@ export function EventDetailPage() {
   const [participants, setParticipants] = useState<EventParticipant[]>([]);
   const [packages, setPackages] = useState<EventPackage[]>([]);
   const [sectors, setSectors] = useState<EventSector[]>([]);
+  const [isUserRegistered, setIsUserRegistered] = useState(false);
 
   const profileComplete = profile?.access_status === 'verified' && profile?.onboarding_status === 'completed';
+
+  // Check if the logged-in user already has a registration for this event
+  // (covers both direct registrations and guest → account upgrades via email match)
+  useEffect(() => {
+    if (!id || !user) {
+      setIsUserRegistered(false);
+      return;
+    }
+    const checkRegistration = async () => {
+      const email = user.email?.toLowerCase();
+      const filter = email
+        ? `user_id.eq.${user.id},guest_email.eq.${email}`
+        : `user_id.eq.${user.id}`;
+      const { data } = await supabase
+        .from('event_registrations')
+        .select('id')
+        .eq('event_id', id)
+        .or(filter)
+        .limit(1);
+      setIsUserRegistered(!!(data && data.length > 0));
+    };
+    checkRegistration();
+  }, [id, user]);
 
   useEffect(() => {
     if (!id) return;
@@ -167,7 +191,7 @@ export function EventDetailPage() {
 
   // Fetch participants for logged-in verified users
   useEffect(() => {
-    if (!id || !user || !profileComplete) return;
+    if (!id || !user) return;
     const fetchParticipants = async () => {
       const { data: regs, error: regsError } = await supabase
         .from('event_registrations')
@@ -411,7 +435,7 @@ export function EventDetailPage() {
                     {registrationCount} registered
                   </span>
                 </h2>
-                {user && profileComplete ? (
+                {user ? (
                   participants.length > 0 ? (
                     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {participants.map((p) => (
@@ -624,10 +648,23 @@ export function EventDetailPage() {
                   </div>
 
                   {/* Registration Flow */}
-                  {isFull ? (
+                  {isFull && !isUserRegistered ? (
                     <div className="flex items-center gap-2 text-amber-600 bg-amber-50 p-3 rounded-lg">
                       <AlertCircle className="h-5 w-5" />
                       <span className="font-medium">{t('events.eventFull', 'This event is full')}</span>
+                    </div>
+                  ) : user && isUserRegistered ? (
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-2 text-green-700 bg-green-50 border border-green-200 p-3 rounded-lg text-sm">
+                        <UserCheck className="h-5 w-5 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-medium">You're registered for this event</p>
+                          <p className="text-xs text-green-600 mt-0.5">See all your registrations in your account.</p>
+                        </div>
+                      </div>
+                      <Button variant="outline" className="w-full" onClick={() => navigate('/account?tab=registrations')}>
+                        View My Registrations
+                      </Button>
                     </div>
                   ) : user && !profileComplete ? (
                     <div className="space-y-3">

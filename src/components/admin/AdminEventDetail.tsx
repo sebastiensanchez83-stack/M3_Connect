@@ -24,6 +24,14 @@ import { toast } from '@/hooks/use-toast';
 import type { Event, EventPricingRow } from './types';
 import { DEFAULT_PRICING } from './types';
 
+// Convert a DB timestamp (UTC ISO string) to a local "YYYY-MM-DDTHH:mm" string
+// suitable for <input type="datetime-local"> (which expects local wall-clock time).
+function toLocalDatetimeInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 interface RegistrationRow {
   id: string;
   user_id: string;
@@ -107,8 +115,11 @@ export function AdminEventDetail() {
     setEvent(evt as Event);
     setForm({
       title: evt.title, description: evt.description || '',
-      date_time: evt.date_time ? new Date(evt.date_time).toISOString().slice(0, 16) : '',
-      end_date_time: evt.end_date_time ? new Date(evt.end_date_time).toISOString().slice(0, 16) : '',
+      // datetime-local inputs expect LOCAL wall-clock time, not UTC. Using .toISOString()
+      // (which returns UTC) caused the admin to see a UTC value, then re-save it as local,
+      // shifting every event by the browser's TZ offset (+2h in CEST). Convert to local here.
+      date_time: evt.date_time ? toLocalDatetimeInput(evt.date_time) : '',
+      end_date_time: evt.end_date_time ? toLocalDatetimeInput(evt.end_date_time) : '',
       location: evt.location || '', language: evt.language || 'EN',
       access_level: evt.access_level || 'public',
       event_type: evt.event_type || 'webinar', replay_url: evt.replay_url || '',
@@ -195,13 +206,16 @@ export function AdminEventDetail() {
     setSaving(true);
     const payload: Record<string, unknown> = {
       title: form.title, description: form.description,
-      date_time: form.date_time || null,
-      end_date_time: form.end_date_time || null,
+      // form.date_time is a local wall-clock string from a datetime-local input.
+      // Convert it to a real ISO (UTC) timestamp before sending to Postgres so the
+      // "timestamptz" column stores the intended local instant, not a UTC string mis-interpreted.
+      date_time: form.date_time ? new Date(form.date_time).toISOString() : null,
+      end_date_time: form.end_date_time ? new Date(form.end_date_time).toISOString() : null,
       location: isOnSite ? (form.location || null) : null,
       language: form.language, access_level: form.access_level,
       speakers, replay_url: isWebinar ? (form.replay_url || null) : null,
       event_type: form.event_type,
-      invitation_only: isOnSite ? form.invitation_only : false,
+      invitation_only: form.invitation_only,
       is_full_day: form.is_full_day,
       published: form.published,
       pdf_url: pdfUrl,
@@ -511,17 +525,19 @@ export function AdminEventDetail() {
             </div>
           )}
 
-          {/* Invitation Only (on-site only) */}
-          {isOnSite && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
-              <Lock className="h-4 w-4 text-gray-500" />
-              <div className="flex-1">
-                <div className="text-sm font-medium text-gray-700">Invitation Only</div>
-                <div className="text-xs text-gray-400">Users must request an invitation which you approve manually</div>
+          {/* Invitation Only (applies to both on-site events and webinars) */}
+          <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-200">
+            <Lock className="h-4 w-4 text-gray-500" />
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-700">Invitation Only</div>
+              <div className="text-xs text-gray-400">
+                {isOnSite
+                  ? 'Users must request an invitation which you approve manually'
+                  : 'Restricts the webinar to invited users only — disables public guest signup'}
               </div>
-              <Switch checked={form.invitation_only} onCheckedChange={v => setForm({ ...form, invitation_only: v })} />
             </div>
-          )}
+            <Switch checked={form.invitation_only} onCheckedChange={v => setForm({ ...form, invitation_only: v })} />
+          </div>
         </CardContent>
       </Card>
 
@@ -647,7 +663,7 @@ export function AdminEventDetail() {
                             placeholder="e.g. Visitor, Exhibitor, VIP..." className="h-8" />
                         </div>
                         <div className="space-y-1">
-                          <Label className="text-[10px] text-gray-500">Price (\u20AC)</Label>
+                          <Label className="text-[10px] text-gray-500">Price (€)</Label>
                           <Input type="number" min={0} className="h-8" value={pkg.price_cents / 100}
                             onChange={e => updatePackage(i, 'price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} />
                         </div>
@@ -698,7 +714,7 @@ export function AdminEventDetail() {
                       </Badge>
                       <div className="flex-1 grid grid-cols-4 gap-3">
                         <div>
-                          <Label className="text-[10px] text-gray-500">Price (\u20AC)</Label>
+                          <Label className="text-[10px] text-gray-500">Price (€)</Label>
                           <Input type="number" min={0} className="h-8" value={row.price_cents / 100}
                             onChange={e => updatePricingRow(i, 'price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} />
                         </div>
@@ -708,7 +724,7 @@ export function AdminEventDetail() {
                             onChange={e => updatePricingRow(i, 'max_included_seats', e.target.value ? parseInt(e.target.value) : null)} />
                         </div>
                         <div>
-                          <Label className="text-[10px] text-gray-500">Extra Seat (\u20AC)</Label>
+                          <Label className="text-[10px] text-gray-500">Extra Seat (€)</Label>
                           <Input type="number" min={0} className="h-8" value={row.additional_member_price_cents / 100}
                             onChange={e => updatePricingRow(i, 'additional_member_price_cents', Math.round(parseFloat(e.target.value || '0') * 100))} />
                         </div>
@@ -763,7 +779,7 @@ export function AdminEventDetail() {
                       <Badge variant="outline" className="text-xs">{reg.registration_type || 'standard'}</Badge>
                       {paymentBadge(reg.payment_status)}
                       {reg.amount_due_cents && reg.amount_due_cents > 0 && (
-                        <span className="text-xs font-medium text-gray-600">\u20AC{(reg.amount_due_cents / 100).toFixed(0)}</span>
+                        <span className="text-xs font-medium text-gray-600">€{(reg.amount_due_cents / 100).toFixed(0)}</span>
                       )}
                       {reg.payment_status === 'pending_approval' && (
                         <div className="flex gap-1">

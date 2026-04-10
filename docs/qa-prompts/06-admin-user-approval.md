@@ -1,6 +1,6 @@
 # Prompt 06 — Admin user approval flow
 
-**Admin intervention needed:** Yes — this prompt IS the admin flow. Sebastien must be logged in
+**Admin intervention needed:** Yes — this prompt IS the admin flow. Victor must be logged in
 as admin in THIS Chrome profile for the whole prompt. All approve/reject/suspend clicks are
 executed by Claude inside that session.
 
@@ -21,7 +21,7 @@ executed by Claude inside that session.
 Test admin user approval / rejection / suspend on https://smartmarinaconnect.com/admin/users.
 
 === Pre-requisites ===
-- Sebastien is logged in as admin in THIS Chrome profile.
+- Victor is logged in as admin in THIS Chrome profile.
 - Prompts 03 and 04 have been completed (test users exist in Pending state).
 - Mailinator tab open.
 - Do NOT log out of the admin session until the prompt asks you to.
@@ -41,17 +41,17 @@ Test admin user approval / rejection / suspend on https://smartmarinaconnect.com
     - Subject: "approved" / "welcome"
     - Body mentions first name + a "Log in" CTA linking to smartmarinaconnect.com
 
-6.  🛑 ADMIN CHECKPOINT — Sebastien does this
+6.  🛑 ADMIN CHECKPOINT — Victor does this
     Action: log out of admin (use user menu). Then log in as the QA marina
     (qa2-marina-<ts>@mailinator.com / TestQa!2026SecurePass).
-    Resume after: Sebastien tells Claude "logged in as marina".
+    Resume after: Victor tells Claude "logged in as marina".
 
 7.  On /account verify:
     - No pending banner
     - /submit-project, /request-webinar, /submit-rfp, /submit-consultation all show the real form
     - Navbar now shows "Submit Project" + "Propose Webinar"
 
-8.  🛑 ADMIN CHECKPOINT — Sebastien logs back in as admin.
+8.  🛑 ADMIN CHECKPOINT — Victor logs back in as admin.
     Resume after: "back as admin".
 
 === PART B — Approve the QA partner (Path A, from Prompt 04) ===
@@ -75,7 +75,7 @@ Test admin user approval / rejection / suspend on https://smartmarinaconnect.com
 17. If no additional pending QA user exists, signup a throwaway Marina in a separate tab:
     - qa2-reject-<ts>@mailinator.com / TestQa!2026SecurePass / Reject Tester / "QA2 Reject Test"
     - Fill minimal onboarding fields and log out.
-    🛑 ADMIN CHECKPOINT — Sebastien logs back in as admin after creating the reject user.
+    🛑 ADMIN CHECKPOINT — Victor logs back in as admin after creating the reject user.
 
 18. In /admin/users → Pending, open qa2-reject-<ts>.
 19. Click "Reject". The dialog MUST require a rejection reason (textarea).

@@ -38,6 +38,8 @@ const BecomePartnerPage = lazyWithRetry(() => import('@/pages/BecomePartnerPage'
 const TiersPage = lazyWithRetry(() => import('@/pages/TiersPage').then(m => ({ default: m.TiersPage })));
 const JoinPage = lazyWithRetry(() => import('@/pages/JoinPage').then(m => ({ default: m.JoinPage })));
 const ResetPasswordPage = lazyWithRetry(() => import('@/pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
+const ReferenceConfirmPage = lazyWithRetry(() => import('@/pages/ReferenceConfirmPage').then(m => ({ default: m.ReferenceConfirmPage })));
+const ReferenceRejectPage = lazyWithRetry(() => import('@/pages/ReferenceRejectPage').then(m => ({ default: m.ReferenceRejectPage })));
 const AboutPage = lazyWithRetry(() => import('@/pages/AboutPage').then(m => ({ default: m.AboutPage })));
 const ContactPage = lazyWithRetry(() => import('@/pages/ContactPage').then(m => ({ default: m.ContactPage })));
 const PrivacyPage = lazyWithRetry(() => import('@/pages/PrivacyPage').then(m => ({ default: m.PrivacyPage })));
@@ -91,8 +93,11 @@ function App() {
               <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
               <Route path="/users/:id" element={<UserProfilePage />} />
               <Route path="/admin/*" element={<ProtectedRoute requireModerator><AdminPage /></ProtectedRoute>} />
+              <Route path="/join" element={<Navigate to="/become-partner" replace />} />
               <Route path="/join/:inviteId" element={<JoinPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/reference/confirm" element={<ReferenceConfirmPage />} />
+              <Route path="/reference/reject" element={<ReferenceRejectPage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />

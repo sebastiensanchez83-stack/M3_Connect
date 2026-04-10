@@ -25,6 +25,14 @@ import type { AdminProfile } from './types';
 
 const REQUIRED_REFERENCES = 2;
 
+interface ReferenceItem {
+  id: string;
+  status: string;
+  client_legal_name: string;
+  confirmed_at: string | null;
+  created_at: string;
+}
+
 interface ReferenceStatus {
   total: number;
   confirmed: number;
@@ -34,6 +42,7 @@ interface ReferenceStatus {
   clientName: string | null;
   bypass: boolean;
   bypassReason: string | null;
+  items: ReferenceItem[];
 }
 
 export function AdminUserDetail() {
@@ -203,6 +212,7 @@ export function AdminUserDetail() {
       clientName: latest?.client_legal_name || null,
       bypass: bp.reference_bypass,
       bypassReason: bp.reference_bypass_reason,
+      items: refs as ReferenceItem[],
     });
   };
 
@@ -243,7 +253,14 @@ export function AdminUserDetail() {
       await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id);
     }
 
-    sendNotification({ type: 'event_registration_confirmed', userId: user.user_id, data: { status: 'verified' } });
+    sendNotification({
+      type: 'user_account_approved',
+      userId: user.user_id,
+      data: {
+        first_name: user.first_name || '',
+        org_name: user.org_name || '',
+      },
+    });
     toast({ title: 'User approved' });
     setSaving(false);
     loadUser(user.user_id);
@@ -263,7 +280,14 @@ export function AdminUserDetail() {
       await supabase.from('organizations').update({ access_status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', membership.organization_id);
     }
 
-    sendNotification({ type: 'bypass_rejected', userId: user.user_id, data: { reason: rejectReason.trim() } });
+    sendNotification({
+      type: 'user_account_rejected',
+      userId: user.user_id,
+      data: {
+        first_name: user.first_name || '',
+        reason: rejectReason.trim(),
+      },
+    });
     toast({ title: 'User rejected' });
     setSaving(false);
     setShowRejectForm(false);
@@ -703,6 +727,35 @@ export function AdminUserDetail() {
                   <Button size="sm" variant="outline" className="text-xs border-violet-300 text-violet-700 hover:bg-violet-50" onClick={handleBypass}>
                     <ShieldCheck className="h-3.5 w-3.5 mr-1" /> Bypass reference requirement
                   </Button>
+                )}
+
+                {/* Per-reference breakdown */}
+                {refStatus.items.length > 0 && (
+                  <div className="mt-4 border rounded-lg divide-y">
+                    <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide bg-gray-50">
+                      Individual references ({refStatus.items.length})
+                    </div>
+                    {refStatus.items.map((ref) => {
+                      const statusColor =
+                        ref.status === 'confirmed' ? 'text-green-700 bg-green-50 border-green-200'
+                        : ref.status === 'rejected' ? 'text-red-700 bg-red-50 border-red-200'
+                        : 'text-amber-700 bg-amber-50 border-amber-200';
+                      return (
+                        <div key={ref.id} className="px-3 py-2 flex items-center justify-between gap-3 text-sm">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium text-gray-800 truncate">{ref.client_legal_name || 'Unnamed client'}</div>
+                            <div className="text-xs text-gray-500">
+                              Submitted {new Date(ref.created_at).toLocaleDateString()}
+                              {ref.confirmed_at && ` · Confirmed ${new Date(ref.confirmed_at).toLocaleDateString()}`}
+                            </div>
+                          </div>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${statusColor} capitalize`}>
+                            {ref.status}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             ) : (

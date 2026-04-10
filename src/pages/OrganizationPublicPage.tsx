@@ -156,7 +156,10 @@ export function OrganizationPublicPage() {
         status: 'pending',
       });
       if (error) throw error;
-      sendNotification({ type: 'partner_request_received', userId: org.owner_user_id!, data: { partner_name: org.name || '', message: connectMessage.trim() } });
+      // partner_name must be the REQUESTER's organization (the one initiating contact),
+      // not the recipient's org. The email tells the marina who is reaching out.
+      const requesterOrgName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A partner';
+      sendNotification({ type: 'partner_request_received', userId: org.owner_user_id!, data: { partner_name: requesterOrgName, message: connectMessage.trim() } });
       toast({ title: 'Connection request sent!', description: `Your request has been sent to ${org.name}.` });
       setConnectOpen(false);
       setConnectMessage('');

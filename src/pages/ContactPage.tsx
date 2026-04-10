@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import { Mail, MapPin, Send, CheckCircle } from 'lucide-react';
+import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/lib/supabase';
 
 interface ContactForm {
@@ -161,6 +162,10 @@ export function ContactPage() {
 
   return (
     <div className="container mx-auto px-4 py-16 max-w-5xl">
+      <Helmet>
+        <title>Contact Us — Smart Marina Connect</title>
+        <meta name="description" content="Get in touch with the Smart Marina Connect team. We're here to answer questions about the platform, partnerships and onboarding." />
+      </Helmet>
       <h1 className="text-3xl font-bold text-primary mb-2">
         {t('contact.title', 'Contact Us')}
       </h1>

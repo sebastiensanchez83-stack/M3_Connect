@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Anchor, Instagram } from 'lucide-react';
+import { Instagram } from 'lucide-react';
 
 export function Footer() {
   const { t } = useTranslation();
@@ -11,9 +11,14 @@ export function Footer() {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-8">
           {/* Logo & Tagline */}
           <div className="col-span-1 sm:col-span-2">
-            <div className="flex items-center space-x-2 mb-4">
-              <Anchor className="h-8 w-8" />
-              <span className="text-xl font-bold">Smart Marina Connect</span>
+            <div className="flex items-center gap-2.5 mb-4">
+              <img src="/logo-white.png" alt="" aria-hidden="true" className="h-11 w-auto" />
+              <span
+                className="text-xl tracking-tight"
+                style={{ fontFamily: "'Outfit', system-ui, sans-serif", fontWeight: 600, letterSpacing: '-0.01em' }}
+              >
+                Smart Marina Connect
+              </span>
             </div>
             <p className="text-gray-300 mb-4">{t('footer.tagline')}</p>
             <div className="flex space-x-4">

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /account
+Disallow: /onboarding
+Disallow: /auth
+Disallow: /reference/
+
+Sitemap: https://smartmarinaconnect.com/sitemap.xml

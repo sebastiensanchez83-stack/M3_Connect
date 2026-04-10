@@ -22,7 +22,7 @@ import {
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import {
-  Anchor, Menu, X, User, Globe, ChevronDown,
+  Menu, X, User, Globe, ChevronDown,
   CalendarDays, BookOpen, Building2, Users,
   UserPlus, LogOut, Settings, FileText, Mic2,
   Ship, MessageSquare, Shield, LayoutDashboard, Ticket,
@@ -117,11 +117,17 @@ export function Navbar() {
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2.5 group">
-            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow">
-              <Anchor className="h-5 w-5 text-white" aria-hidden="true" />
-            </div>
-            <span className="text-xl font-bold text-primary hidden sm:inline">
+          <Link to="/" className="flex items-center gap-2.5 group" aria-label="Smart Marina Connect — home">
+            <img
+              src="/logo-color.png"
+              alt=""
+              aria-hidden="true"
+              className="h-10 w-auto transition-transform group-hover:scale-105"
+            />
+            <span
+              className="text-xl text-primary hidden sm:inline tracking-tight"
+              style={{ fontFamily: "'Outfit', system-ui, sans-serif", fontWeight: 600, letterSpacing: '-0.01em' }}
+            >
               Smart Marina Connect
             </span>
           </Link>

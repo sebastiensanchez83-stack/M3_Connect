@@ -103,8 +103,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Webinar Proposal Accepted",
         body: `Great news! Your webinar proposal "${d.title || "your proposal"}" has been approved. Our team will be in touch with scheduling details soon.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Webinars",
+        buttonUrl: `${accountUrl}?tab=webinars`,
         footer: "Thank you for contributing to the Smart Marina Connect community.",
       };
     case "webinar_rejected":
@@ -113,8 +113,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Webinar Proposal Update",
         body: `We've reviewed your webinar proposal "${d.title || "your proposal"}" and unfortunately it has not been selected at this time.${d.reason ? `\n\nFeedback: ${d.reason}` : ""}\n\nYou're welcome to submit new proposals in the future.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Webinars",
+        buttonUrl: `${accountUrl}?tab=webinars`,
         footer: "Thank you for your interest in contributing to Smart Marina Connect.",
       };
     case "webinar_moderator_approved":
@@ -145,8 +145,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "RFP Closed",
         body: `The RFP "${d.title || "your RFP"}" has been closed by an administrator. No further bids will be accepted.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My RFPs",
+        buttonUrl: `${accountUrl}?tab=rfps`,
         footer: "If you have questions, please contact our support team.",
       };
 
@@ -167,8 +167,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Consultation Closed",
         body: `Your consultation "${d.title || "your consultation"}" has been closed by an administrator.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Consultations",
+        buttonUrl: `${accountUrl}?tab=consultations`,
         footer: "If you have questions, please contact our support team.",
       };
 
@@ -179,8 +179,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Exposition Request Approved",
         body: `Your exposition request for "${d.event_title || "the event"}" has been approved. An invoice will be sent to you shortly.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Registrations",
+        buttonUrl: `${accountUrl}?tab=registrations`,
         footer: "Thank you for your participation!",
       };
     case "exposition_invoice_sent":
@@ -189,8 +189,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Exposition Invoice Sent",
         body: `An invoice${d.invoice_ref ? ` (ref: ${d.invoice_ref})` : ""} has been sent for your exposition at "${d.event_title || "the event"}".${d.amount ? ` Amount due: ${d.amount}.` : ""}\n\nPlease process payment at your earliest convenience.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View Pricing & Payments",
+        buttonUrl: `${accountUrl}?tab=pricing`,
         footer: "Contact us if you have questions about the invoice.",
       };
     case "exposition_paid":
@@ -199,8 +199,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Payment Confirmed",
         body: `Your payment for the exposition at "${d.event_title || "the event"}" has been confirmed. You are now registered as an exhibitor.`,
-        buttonText: "View My Events",
-        buttonUrl: accountUrl,
+        buttonText: "View My Registrations",
+        buttonUrl: `${accountUrl}?tab=registrations`,
         footer: "We look forward to seeing you at the event!",
       };
     case "exposition_rejected":
@@ -209,8 +209,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Exposition Request Update",
         body: `We've reviewed your exposition request for "${d.event_title || "the event"}" and unfortunately it has not been approved at this time.${d.reason ? `\n\nReason: ${d.reason}` : ""}`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Registrations",
+        buttonUrl: `${accountUrl}?tab=registrations`,
         footer: "If you have questions, please contact our support team.",
       };
 
@@ -221,8 +221,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Sponsorship Invoice Sent",
         body: `An invoice${d.invoice_ref ? ` (ref: ${d.invoice_ref})` : ""} has been prepared for your sponsorship upgrade to ${d.requested_tier || "the requested tier"}.${d.amount ? ` Amount due: ${d.amount}.` : ""}`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View Pricing & Payments",
+        buttonUrl: `${accountUrl}?tab=pricing`,
         footer: "Please process payment at your earliest convenience.",
       };
     case "sponsorship_paid":
@@ -231,8 +231,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Payment Confirmed",
         body: `Your sponsorship payment has been confirmed. Your tier upgrade to ${d.requested_tier || "the requested tier"} is pending final approval.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View Pricing & Payments",
+        buttonUrl: `${accountUrl}?tab=pricing`,
         footer: "Thank you for your support of Smart Marina Connect!",
       };
     case "sponsorship_approved":
@@ -241,8 +241,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Sponsorship Tier Upgraded",
         body: `Great news! Your organization has been upgraded to ${d.requested_tier || "the new tier"}!\n\nHere's what you now have access to:\n• Enhanced visibility on the Smart Marina Connect marketplace\n• Increased seat allocation for team members\n• Priority listing in partner directories\n• Sponsor badge displayed on your organization profile\n• Access to exclusive sponsor networking events\n\nAll members of your organization have been notified of this upgrade.`,
-        buttonText: "Explore New Features",
-        buttonUrl: accountUrl,
+        buttonText: "View My Organization",
+        buttonUrl: `${accountUrl}?tab=organization`,
         footer: "Thank you for being a valued sponsor of Smart Marina Connect!",
       };
     case "sponsorship_rejected":
@@ -251,8 +251,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Sponsorship Request Update",
         body: `Your sponsorship request has not been approved at this time.${d.reason ? `\n\nReason: ${d.reason}` : ""}`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View Pricing & Payments",
+        buttonUrl: `${accountUrl}?tab=pricing`,
         footer: "If you have questions, please contact our support team.",
       };
 
@@ -263,8 +263,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "New Contact Request",
         body: `You've received a new contact request from ${d.partner_name || "a partner"} on Smart Marina Connect.${d.message ? `\n\nMessage: "${d.message}"` : ""}`,
-        buttonText: "View Request",
-        buttonUrl: accountUrl,
+        buttonText: "View B2B Requests",
+        buttonUrl: `${accountUrl}?tab=b2b-requests`,
         footer: "Log in to your account to respond.",
       };
     case "partner_request_accepted":
@@ -273,8 +273,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: "Dear all,",
         title: "",
         body: `We are pleased to introduce ${d.first_name || "the requesting party"} and ${d.acceptor_name || d.marina_name || "the accepting party"}.\n\n${d.acceptor_name || d.marina_name || "The recipient"} has accepted the contact request on Smart Marina Connect. We encourage you both to connect directly to discuss collaboration opportunities.\n\nWe wish you a productive exchange and remain at your disposal should you need any assistance.`,
-        buttonText: "View Smart Marina Connect",
-        buttonUrl: accountUrl,
+        buttonText: "View B2B Requests",
+        buttonUrl: `${accountUrl}?tab=b2b-requests`,
         footer: "Best regards,\nThe Smart Marina Connect Team",
       };
     case "partner_request_rejected":
@@ -283,8 +283,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Contact Request Update",
         body: `${d.marina_name || "The marina"} has declined your contact request at this time.`,
-        buttonText: "Browse Other Marinas",
-        buttonUrl: loginUrl,
+        buttonText: "View B2B Requests",
+        buttonUrl: `${accountUrl}?tab=b2b-requests`,
         footer: "Don't worry, there are many other opportunities on Smart Marina Connect!",
       };
 
@@ -296,7 +296,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         title: "Reference Confirmed",
         body: `Great news! A marina has confirmed a reference for your organization.${d.confirmed_count ? ` You now have ${d.confirmed_count} confirmed reference(s).` : ""}${d.required ? ` (${d.required} required for approval.)` : ""}`,
         buttonText: "View References",
-        buttonUrl: accountUrl,
+        buttonUrl: `${accountUrl}?tab=references`,
         footer: "Keep going! References help build trust in the marina community.",
       };
     case "reference_rejected":
@@ -306,7 +306,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         title: "Reference Not Confirmed",
         body: `A marina contact has declined to confirm a reference for your organization. You may submit additional references to meet the requirement.`,
         buttonText: "Manage References",
-        buttonUrl: accountUrl,
+        buttonUrl: `${accountUrl}?tab=references`,
         footer: "If you believe this is an error, please contact our support team.",
       };
     case "bypass_approved":
@@ -315,8 +315,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Reference Bypass Approved",
         body: `Your request to bypass the reference requirement has been approved. Your account can now proceed to full verification.${d.admin_notes ? `\n\nAdmin notes: ${d.admin_notes}` : ""}`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "Go to My Account",
+        buttonUrl: `${accountUrl}?tab=dashboard`,
         footer: "Welcome to Smart Marina Connect!",
       };
     case "bypass_rejected":
@@ -326,7 +326,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         title: "Bypass Request Declined",
         body: `Your request to bypass the reference requirement has been declined.${d.admin_notes ? `\n\nFeedback: ${d.admin_notes}` : ""}\n\nPlease submit marina references to proceed with your application.`,
         buttonText: "Submit References",
-        buttonUrl: accountUrl,
+        buttonUrl: `${accountUrl}?tab=references`,
         footer: "If you have questions, please contact our support team.",
       };
 
@@ -337,8 +337,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Registration Confirmed",
         body: `You are now registered for "${d.event_title || "the event"}".${d.event_date ? `\n\nDate: ${d.event_date}` : ""}${d.event_location ? `\nLocation: ${d.event_location}` : ""}`,
-        buttonText: "View My Events",
-        buttonUrl: accountUrl,
+        buttonText: "View My Registrations",
+        buttonUrl: `${accountUrl}?tab=registrations`,
         footer: "We look forward to seeing you there!",
       };
 
@@ -349,8 +349,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Payment Confirmed",
         body: `Your payment of ${d.amount || "the specified amount"} has been successfully processed.\n\nPayment type: ${d.payment_type === "membership" ? "Membership Fee" : d.payment_type === "additional_seats" ? "Additional Seats" : d.payment_type === "event_participation" ? "Event Participation" : d.payment_type || "N/A"}\nTransaction ID: ${d.transaction_id || "N/A"}\n\nA confirmation receipt has been recorded in your account.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View Pricing & Payments",
+        buttonUrl: `${accountUrl}?tab=pricing`,
         footer: "Thank you for your payment!",
       };
     case "payment_failed":
@@ -360,7 +360,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         title: "Payment Not Completed",
         body: `We were unable to process your payment of ${d.amount || "the specified amount"}.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nPlease try again or use a different payment method.`,
         buttonText: "Retry Payment",
-        buttonUrl: accountUrl,
+        buttonUrl: `${accountUrl}?tab=pricing`,
         footer: "If the issue persists, please contact our support team.",
       };
     case "membership_payment_received":
@@ -369,8 +369,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: "Hello Admin,",
         title: "Membership Payment Received",
         body: `A membership payment of ${d.amount || "€500"} has been received from ${d.submitter || "a member"}.\n\nOrganization: ${d.org_name || "N/A"}\nTransaction ID: ${d.transaction_id || "N/A"}`,
-        buttonText: "Review in Admin Panel",
-        buttonUrl: adminUrl,
+        buttonText: "Review Sponsorships",
+        buttonUrl: `${adminUrl}/sponsorships`,
         footer: "The organization status has been updated automatically.",
       };
 
@@ -403,8 +403,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "RFP Approved",
         body: `Your RFP "${d.title || "your submission"}" has been approved and is now visible on the marketplace.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My RFPs",
+        buttonUrl: `${accountUrl}?tab=rfps`,
         footer: "Partners can now see and respond to your RFP.",
       };
     case "rfp_rejected":
@@ -413,8 +413,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "RFP Not Approved",
         body: `Your RFP "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nYou can edit and resubmit it from your account.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My RFPs",
+        buttonUrl: `${accountUrl}?tab=rfps`,
         footer: "If you have questions, please contact our support team.",
       };
     case "consultation_approved":
@@ -423,8 +423,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Consultation Approved",
         body: `Your consultation "${d.title || "your submission"}" has been approved and is now visible on the marketplace.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Consultations",
+        buttonUrl: `${accountUrl}?tab=consultations`,
         footer: "Partners can now see and respond to your consultation.",
       };
     case "consultation_rejected":
@@ -433,8 +433,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Consultation Not Approved",
         body: `Your consultation "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nYou can edit and resubmit it from your account.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Consultations",
+        buttonUrl: `${accountUrl}?tab=consultations`,
         footer: "If you have questions, please contact our support team.",
       };
     case "project_rejected":
@@ -443,8 +443,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Project Not Approved",
         body: `Your project "${d.title || "your submission"}" has not been approved.${d.reason ? `\n\nReason: ${d.reason}` : ""}`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Projects",
+        buttonUrl: `${accountUrl}?tab=projects`,
         footer: "If you have questions, please contact our support team.",
       };
     case "project_status_updated":
@@ -453,8 +453,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Project Status Updated",
         body: d.details || `Your project "${d.title || "your submission"}" status has been updated.`,
-        buttonText: "View My Account",
-        buttonUrl: accountUrl,
+        buttonText: "View My Projects",
+        buttonUrl: `${accountUrl}?tab=projects`,
         footer: "Log in to your account to see the full details.",
       };
 
@@ -477,8 +477,8 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Join Request Approved!",
         body: `Great news! Your request to join ${d.org_name || "the organization"} on Smart Marina Connect has been approved.\n\nYou now have access to the organization's resources and can collaborate with your team. Log in to get started.`,
-        buttonText: "Go to My Account",
-        buttonUrl: `${SITE_URL}/account`,
+        buttonText: "View My Organization",
+        buttonUrl: `${accountUrl}?tab=organization`,
         footer: "Welcome to the team! If you have any questions, contact your organization administrator.",
       };
 

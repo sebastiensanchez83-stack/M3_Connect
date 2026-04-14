@@ -47,22 +47,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── Data fetching ────────────────────────────────────────────────
   const fetchUserData = useCallback(async (userId: string) => {
-    const { data: profileData, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle()
+    // Fetch profile + membership in parallel for faster load
+    const [{ data: profileData, error }, { data: membership }] = await Promise.all([
+      supabase.from('profiles').select('*').eq('user_id', userId).maybeSingle(),
+      supabase.from('organization_members').select('organization_id, role').eq('user_id', userId).maybeSingle(),
+    ])
 
     if (error || !profileData) return { profile: null as Profile | null, org: null as Organization | null, role: null as OrgMemberRole | null }
 
     const p = profileData as Profile
-
-    // Organization data is the single source of truth (legacy per-persona profile tables removed)
-    const { data: membership } = await supabase
-      .from('organization_members')
-      .select('organization_id, role')
-      .eq('user_id', userId)
-      .maybeSingle()
 
     let org: Organization | null = null
     let role: OrgMemberRole | null = null

@@ -292,20 +292,22 @@ export function AdminDashboard() {
       });
       setMonthlyRevenue(Object.entries(revenueByMonth).map(([month, revenue]) => ({ month, revenue })));
 
-      // Event performance (registrations per upcoming event)
+      // Event performance (registrations per upcoming event) — parallel fetch
       if (upcomingEventsData && upcomingEventsData.length > 0) {
-        const evtPerfs: EventPerf[] = [];
-        for (const evt of upcomingEventsData) {
-          const { count: regCount } = await supabase.from('event_registrations').select('id', { count: 'exact' }).eq('event_id', evt.id);
-          // Get total capacity from event_pricing
-          const { data: pricing } = await supabase.from('event_pricing').select('max_included_seats').eq('event_id', evt.id);
-          const capacity = (pricing || []).reduce((s: number, p: { max_included_seats: number }) => s + (p.max_included_seats || 0), 0) || 50;
-          const regs = regCount || 0;
-          evtPerfs.push({
-            id: evt.id, title: evt.title, date_time: evt.date_time,
-            registrations: regs, capacity, fillRate: capacity > 0 ? Math.round((regs / capacity) * 100) : 0,
-          });
-        }
+        const evtIds = upcomingEventsData.map((e: { id: string }) => e.id);
+        const [{ data: allRegs }, { data: allPricing }] = await Promise.all([
+          supabase.from('event_registrations').select('event_id').in('event_id', evtIds),
+          supabase.from('event_pricing').select('event_id, max_included_seats').in('event_id', evtIds),
+        ]);
+        const regCounts: Record<string, number> = {};
+        (allRegs || []).forEach((r: { event_id: string }) => { regCounts[r.event_id] = (regCounts[r.event_id] || 0) + 1; });
+        const capCounts: Record<string, number> = {};
+        (allPricing || []).forEach((p: { event_id: string; max_included_seats: number }) => { capCounts[p.event_id] = (capCounts[p.event_id] || 0) + (p.max_included_seats || 0); });
+        const evtPerfs: EventPerf[] = upcomingEventsData.map((evt: { id: string; title: string; date_time: string }) => {
+          const regs = regCounts[evt.id] || 0;
+          const capacity = capCounts[evt.id] || 50;
+          return { id: evt.id, title: evt.title, date_time: evt.date_time, registrations: regs, capacity, fillRate: capacity > 0 ? Math.round((regs / capacity) * 100) : 0 };
+        });
         setEventPerf(evtPerfs);
       }
 

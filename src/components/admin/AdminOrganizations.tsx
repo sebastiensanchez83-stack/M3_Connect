@@ -67,16 +67,16 @@ export function AdminOrganizations() {
 
     if (!orgData) { setOrgs([]); setLoading(false); return; }
 
-    // Fetch member counts
+    // Fetch member counts in a single query (avoid N+1)
     const orgIds = orgData.map(o => o.id);
     const memberCounts: Record<string, number> = {};
-    for (const oid of orgIds) {
-      const { count } = await supabase
-        .from('organization_members')
-        .select('id', { count: 'exact' })
-        .eq('organization_id', oid);
-      memberCounts[oid] = count || 0;
-    }
+    const { data: memberRows } = await supabase
+      .from('organization_members')
+      .select('organization_id')
+      .in('organization_id', orgIds);
+    (memberRows || []).forEach((m: { organization_id: string }) => {
+      memberCounts[m.organization_id] = (memberCounts[m.organization_id] || 0) + 1;
+    });
 
     // Fetch owner profiles
     const ownerIds = orgData.map(o => o.owner_user_id).filter(Boolean) as string[];
@@ -200,7 +200,7 @@ export function AdminOrganizations() {
             return (
               <Card key={o.id}
                 className="border-0 shadow-sm hover:shadow-md transition-all cursor-pointer group"
-                onClick={() => navigate(`/admin/users?org=${o.id}`)}>
+                onClick={() => navigate(`/admin/organizations/${o.id}`)}>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     {/* Logo */}

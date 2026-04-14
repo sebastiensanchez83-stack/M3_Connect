@@ -17,6 +17,7 @@ const AdminDashboard = lazyWithRetry(() => import('@/components/admin/AdminDashb
 const AdminUsers = lazyWithRetry(() => import('@/components/admin/AdminUsers').then(m => ({ default: m.AdminUsers })));
 const AdminUserDetail = lazyWithRetry(() => import('@/components/admin/AdminUserDetail').then(m => ({ default: m.AdminUserDetail })));
 const AdminOrganizations = lazyWithRetry(() => import('@/components/admin/AdminOrganizations').then(m => ({ default: m.AdminOrganizations })));
+const AdminOrganizationDetail = lazyWithRetry(() => import('@/components/admin/AdminOrganizationDetail').then(m => ({ default: m.AdminOrganizationDetail })));
 const AdminResources = lazyWithRetry(() => import('@/components/admin/AdminResources').then(m => ({ default: m.AdminResources })));
 const AdminResourceDetail = lazyWithRetry(() => import('@/components/admin/AdminResourceDetail').then(m => ({ default: m.AdminResourceDetail })));
 const AdminEvents = lazyWithRetry(() => import('@/components/admin/AdminEvents').then(m => ({ default: m.AdminEvents })));
@@ -100,6 +101,7 @@ export function AdminPage() {
             <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
             <Route path="/users/:id" element={<AdminOnlyGuard><AdminUserDetail /></AdminOnlyGuard>} />
             <Route path="/organizations" element={<AdminOnlyGuard><AdminOrganizations /></AdminOnlyGuard>} />
+            <Route path="/organizations/:id" element={<AdminOnlyGuard><AdminOrganizationDetail /></AdminOnlyGuard>} />
             <Route path="/resources" element={<AdminResources />} />
             <Route path="/resources/:id" element={<AdminResourceDetail />} />
             <Route path="/events" element={<AdminOnlyGuard><AdminEvents /></AdminOnlyGuard>} />

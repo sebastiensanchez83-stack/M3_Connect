@@ -124,7 +124,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         title: "Webinar Pre-Approved by Moderator",
         body: `A moderator has pre-approved the webinar proposal "${d.title || "N/A"}" submitted by ${d.submitter || "a member"}.${d.moderator_notes ? `\n\nModerator notes: ${d.moderator_notes}` : ""}\n\nPlease review and give final approval.`,
         buttonText: "Review in Admin Panel",
-        buttonUrl: `${adminUrl}?tab=webinars`,
+        buttonUrl: `${adminUrl}/webinars`,
         footer: "This requires your final approval before proceeding.",
       };
 
@@ -136,7 +136,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         title: "New RFP Submission",
         body: `A new RFP "${d.title || "N/A"}" has been submitted by ${d.marina_name || "a marina"}.${d.deadline ? `\n\nDeadline: ${d.deadline}` : ""}`,
         buttonText: "Review RFPs",
-        buttonUrl: `${adminUrl}?tab=rfps`,
+        buttonUrl: `${adminUrl}/rfps`,
         footer: "Please review this submission at your earliest convenience.",
       };
     case "rfp_closed":
@@ -158,7 +158,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         title: "New Consultation Request",
         body: `A new consultation "${d.title || "N/A"}" has been submitted by ${d.marina_name || "a marina"}.`,
         buttonText: "Review Consultations",
-        buttonUrl: `${adminUrl}?tab=consultations`,
+        buttonUrl: `${adminUrl}/consultations`,
         footer: "Please review this request at your earliest convenience.",
       };
     case "consultation_closed":

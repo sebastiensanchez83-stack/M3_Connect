@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper, Building2, Users, Clock, Send } from 'lucide-react';
+import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper, Building2, Users, Clock, Send, KeyRound } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
@@ -131,6 +131,10 @@ export function OnboardingPage() {
   const [orgId, setOrgId] = useState<string | null>(null);
   // Prevent re-render loop after submission
   const [submitted, setSubmitted] = useState(false);
+
+  // Claim code state
+  const [claimCode, setClaimCode] = useState('');
+  const [claimingOrg, setClaimingOrg] = useState(false);
 
   // Marina org form
   const [marina, setMarina] = useState<MarinaOrgForm>(defaultMarinaForm);
@@ -520,6 +524,25 @@ export function OnboardingPage() {
     } finally {
       setCreatingProfile(false);
     }
+  };
+
+  /* ─── Claim organization via code ─── */
+  const handleClaimOrg = async () => {
+    if (!claimCode.trim()) return;
+    setClaimingOrg(true);
+    try {
+      const { data, error } = await supabase.rpc('claim_organization', { p_claim_code: claimCode.trim() });
+      if (error) throw error;
+      const result = data as { organization_id: string; organization_name: string; role: string };
+      await refreshProfile();
+      toast({ title: 'Welcome!', description: `You've joined ${result.organization_name} as ${result.role}.` });
+      setSubmitted(true);
+      navigate('/account', { replace: true });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Invalid code';
+      toast({ title: 'Invalid organization code', description: msg, variant: 'destructive' });
+    }
+    setClaimingOrg(false);
   };
 
   /* ─── Marina helpers ─── */
@@ -968,6 +991,36 @@ export function OnboardingPage() {
           </span>{' '}{t('onboarding.orgProfileDescSuffix')}
         </p>
       </div>
+
+      {/* ── Claim Code Banner ── */}
+      <Card className="mb-8 border-primary/20 bg-primary/[0.02]">
+        <CardContent className="pt-6">
+          <div className="flex items-start gap-3">
+            <div className="shrink-0 mt-0.5">
+              <KeyRound className="h-5 w-5 text-primary" />
+            </div>
+            <div className="flex-1 space-y-3">
+              <div>
+                <h3 className="font-semibold text-gray-900">Have an organization code?</h3>
+                <p className="text-sm text-gray-500">If your marina or organization has already been registered on the platform, enter the code provided to you to join directly.</p>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. ACI-SPLIT"
+                  className="max-w-[200px] uppercase tracking-wider font-mono"
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleClaimOrg(); } }}
+                />
+                <Button type="button" onClick={handleClaimOrg} disabled={claimingOrg || !claimCode.trim()}>
+                  {claimingOrg ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Join
+                </Button>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <form onSubmit={handleSubmit} className="space-y-8">
 

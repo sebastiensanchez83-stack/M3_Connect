@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Save, Loader2, Building2, Globe, MapPin, Users,
   ExternalLink, RefreshCw, Anchor, Copy, CheckCircle, Shield,
-  KeyRound,
+  KeyRound, Send,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import {
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { sendNotification } from '@/lib/notifications';
 
 /* ─── Types ─── */
 
@@ -91,6 +92,8 @@ export function AdminOrganizationDetail() {
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [marina, setMarina] = useState<MarinaDetails | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [sendingInvite, setSendingInvite] = useState(false);
 
   // Editable fields
   const [status, setStatus] = useState('');
@@ -168,6 +171,26 @@ export function AdminOrganizationDetail() {
     navigator.clipboard.writeText(claimCode);
     setCodeCopied(true);
     setTimeout(() => setCodeCopied(false), 2000);
+  };
+
+  const handleSendConnectLink = async () => {
+    if (!inviteEmail.trim() || !claimCode.trim() || !org) return;
+    setSendingInvite(true);
+    try {
+      await sendNotification({
+        type: 'org_claim_code',
+        email: inviteEmail.trim(),
+        data: {
+          org_name: org.name,
+          claim_code: claimCode,
+        },
+      });
+      toast({ title: 'Connect link sent', description: `Email sent to ${inviteEmail.trim()} with claim code ${claimCode}.` });
+      setInviteEmail('');
+    } catch {
+      toast({ title: 'Failed to send', description: 'Please try again.', variant: 'destructive' });
+    }
+    setSendingInvite(false);
   };
 
   if (loading) return (
@@ -272,28 +295,57 @@ export function AdminOrganizationDetail() {
             </CardContent>
           </Card>
 
-          {/* Claim Code */}
+          {/* Claim Code & Send Connect Link */}
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <KeyRound className="h-4 w-4" /> Claim Code
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={claimCode}
-                  onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. ACI-SPLIT"
-                  className="max-w-[200px] uppercase tracking-wider font-mono text-sm"
-                />
-                {claimCode && (
-                  <Button variant="ghost" size="sm" onClick={copyCode}>
-                    {codeCopied ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                )}
+            <CardContent className="space-y-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={claimCode}
+                    onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. ACI-SPLIT"
+                    className="max-w-[200px] uppercase tracking-wider font-mono text-sm"
+                  />
+                  {claimCode && (
+                    <Button variant="ghost" size="sm" onClick={copyCode}>
+                      {codeCopied ? <CheckCircle className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Users enter this code during onboarding to join this organization.</p>
               </div>
-              <p className="text-xs text-gray-400 mt-2">Users enter this code during onboarding to join this organization.</p>
+
+              {claimCode && (
+                <>
+                  <Separator />
+                  <div>
+                    <Label className="text-xs font-medium text-gray-600 mb-1.5 block">Send Connect Link</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="email"
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        placeholder="manager@marina.com"
+                        className="text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        onClick={handleSendConnectLink}
+                        disabled={sendingInvite || !inviteEmail.trim()}
+                      >
+                        {sendingInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+                        {sendingInvite ? '' : 'Send'}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1.5">Sends an email with the claim code and signup instructions.</p>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 

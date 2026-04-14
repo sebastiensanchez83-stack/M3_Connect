@@ -49,7 +49,7 @@ const articles: ArticleDef[] = [
       { full_name: 'Yasser Al Jaidah', job_title: 'President & CEO', company_name: 'UDC' },
       { full_name: 'Luca Dini', job_title: 'President & CEO', company_name: 'Luca Dini Design & Architecture' },
     ],
-    sector_slugs: ['sustainability', 'infrastructure', 'consulting', 'architecture'],
+    sector_slugs: ['environmental-sustainability', 'marina-design-architecture'],
   },
   {
     file: 'article-02-financial-regulatory-frameworks.html',
@@ -64,7 +64,7 @@ const articles: ArticleDef[] = [
       { full_name: 'Benjamin Wong', job_title: 'Head of Transport and Logistics', company_name: 'Invest Hong Kong' },
       { full_name: 'Derek Van Brussel', job_title: 'Co-Founder', company_name: 'Baltisse Marinas' },
     ],
-    sector_slugs: ['consulting', 'management', 'infrastructure'],
+    sector_slugs: ['legal-regulatory', 'marina-management-operations'],
   },
   {
     file: 'article-03-leveraging-data-analytics.html',
@@ -78,7 +78,7 @@ const articles: ArticleDef[] = [
       { full_name: 'Marco Landi', job_title: 'AI Expert', company_name: 'Maison de l\'Intelligence Artificielle' },
       { full_name: 'Idan Cohen', job_title: 'Co-Founder & CEO', company_name: 'Pick a Pier' },
     ],
-    sector_slugs: ['technology', 'sustainability', 'consulting'],
+    sector_slugs: ['ict-smart-marina-solutions', 'environmental-sustainability', 'marina-software-saas'],
   },
   {
     file: 'article-04-meeting-crew-guest-vessel-needs.html',
@@ -89,7 +89,7 @@ const articles: ArticleDef[] = [
     speakers: [
       { full_name: 'Oscar Siches', job_title: 'Workshop Leader', company_name: 'Marina Consultant' },
     ],
-    sector_slugs: ['management', 'technology', 'consulting'],
+    sector_slugs: ['marina-management-operations', 'ict-smart-marina-solutions', 'yacht-services-concierge'],
   },
   {
     file: 'article-05-marina-management-meets-opera.html',
@@ -100,7 +100,7 @@ const articles: ArticleDef[] = [
     speakers: [
       { full_name: 'Oscar Siches', job_title: 'Workshop Moderator', company_name: 'Marina Consultant' },
     ],
-    sector_slugs: ['consulting', 'management'],
+    sector_slugs: ['marina-management-operations', 'yacht-services-concierge'],
   },
   {
     file: 'article-06-what-to-do-with-data.html',
@@ -111,7 +111,7 @@ const articles: ArticleDef[] = [
     speakers: [
       { full_name: 'Idan Cohen', job_title: 'Workshop Leader & CEO', company_name: 'Pick a Pier' },
     ],
-    sector_slugs: ['technology', 'sustainability', 'consulting'],
+    sector_slugs: ['ict-smart-marina-solutions', 'environmental-sustainability', 'marina-software-saas'],
   },
   {
     file: 'article-07-raising-startup-funding.html',
@@ -120,7 +120,7 @@ const articles: ArticleDef[] = [
     topic: 'Management',
     seo_keywords: 'startup funding, venture capital, angel investment, blue economy, marine technology, fundraising, investor relations',
     speakers: [],
-    sector_slugs: ['consulting', 'technology'],
+    sector_slugs: ['legal-regulatory', 'ict-smart-marina-solutions'],
   },
 ];
 

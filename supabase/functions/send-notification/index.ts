@@ -70,7 +70,8 @@ type NotificationType =
   | "join_request_approved"
   | "join_request_rejected"
   | "user_account_approved"
-  | "user_account_rejected";
+  | "user_account_rejected"
+  | "org_claim_code";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -516,6 +517,18 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         buttonText: "Contact Support",
         buttonUrl: `${SITE_URL}/contact`,
         footer: "We appreciate your interest in the Smart Marina Connect community.",
+      };
+
+    // ── Organization claim code (sent by admin to marina manager) ──
+    case "org_claim_code":
+      return {
+        subject: `Your organization code for ${d.org_name || "Smart Marina Connect"}`,
+        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
+        title: "Join Your Organization on Smart Marina Connect",
+        body: `You have been invited to join ${d.org_name || "your organization"} on Smart Marina Connect, the B2B platform for the marina industry.\n\nYour organization code is:\n\n<strong style="font-size:24px;letter-spacing:2px;color:#0c4a6e;">${d.claim_code || "N/A"}</strong>\n\nTo get started:\n1. Click the button below to create your account\n2. During onboarding, enter the code above when prompted\n3. You will be automatically linked to your organization\n\nThis code is unique to your organization and can be reused by your team members.`,
+        buttonText: "Sign Up Now",
+        buttonUrl: `${SITE_URL}/?signup=true`,
+        footer: "If you weren't expecting this invitation, you can safely ignore this email.",
       };
 
     // ── Generic admin alert ──

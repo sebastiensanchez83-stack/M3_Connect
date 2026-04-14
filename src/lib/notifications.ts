@@ -44,7 +44,8 @@ export type NotificationType =
   | 'join_request_approved'
   | 'join_request_rejected'
   | 'user_account_approved'
-  | 'user_account_rejected';
+  | 'user_account_rejected'
+  | 'org_claim_code';
 
 interface SendNotificationParams {
   type: NotificationType;

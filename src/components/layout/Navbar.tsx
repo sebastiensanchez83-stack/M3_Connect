@@ -50,6 +50,14 @@ export function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Auto-open signup modal when arriving via ?signup=true (e.g. from org_claim_code email link)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('signup') === 'true') {
+      setSignupOpen(true);
+    }
+  }, [location.search]);
+
   // Detect email confirmation redirect (only on homepage — /onboarding handles its own)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

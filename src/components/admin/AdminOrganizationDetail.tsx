@@ -183,6 +183,7 @@ export function AdminOrganizationDetail() {
         data: {
           org_name: org.name,
           claim_code: claimCode,
+          email: inviteEmail.trim(),
         },
       });
       toast({ title: 'Connect link sent', description: `Email sent to ${inviteEmail.trim()} with claim code ${claimCode}.` });

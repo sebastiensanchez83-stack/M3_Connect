@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -132,8 +132,20 @@ export function OnboardingPage() {
   // Prevent re-render loop after submission
   const [submitted, setSubmitted] = useState(false);
 
-  // Claim code state
-  const [claimCode, setClaimCode] = useState('');
+  // Claim code state — auto-fill from URL param or sessionStorage (set by SignupForm)
+  const [claimCode, setClaimCode] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlCode = params.get('code');
+      if (urlCode) return urlCode;
+      const stored = sessionStorage.getItem('pending_claim_code');
+      if (stored) {
+        sessionStorage.removeItem('pending_claim_code');
+        return stored;
+      }
+    } catch { /* ignore */ }
+    return '';
+  });
   const [claimingOrg, setClaimingOrg] = useState(false);
 
   // Marina org form
@@ -165,6 +177,33 @@ export function OnboardingPage() {
     supabase.from('sectors').select('*').eq('is_active', true).order('label')
       .then(({ data }) => { if (data) setSectors(data as Sector[]); });
   }, []);
+
+  // Auto-claim org if user arrives with a pending claim code (from email link / SignupForm)
+  // Runs once after user + profile are loaded
+  const autoClaimAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (autoClaimAttemptedRef.current) return;
+    if (authLoading || !user || !profile || !claimCode.trim() || submitted) return;
+    autoClaimAttemptedRef.current = true;
+
+    (async () => {
+      setClaimingOrg(true);
+      try {
+        const { data, error } = await supabase.rpc('claim_organization', { p_claim_code: claimCode.trim() });
+        if (error) throw error;
+        const result = data as { organization_id: string; organization_name: string; role: string };
+        await refreshProfile();
+        toast({ title: 'Welcome!', description: `You've joined ${result.organization_name} as ${result.role}. Setup complete.` });
+        setSubmitted(true);
+        navigate('/account', { replace: true });
+      } catch (err: unknown) {
+        // If auto-claim fails (e.g. already a member), just stay on onboarding — user can retry manually
+        const msg = err instanceof Error ? err.message : 'Unable to auto-claim';
+        console.warn('Auto-claim failed:', msg);
+      }
+      setClaimingOrg(false);
+    })();
+  }, [authLoading, user, profile, claimCode, submitted, refreshProfile, navigate]);
 
   /* ─── Navigation guards ─── */
   // If user has a pending invite token, STAY on onboarding to resolve it.

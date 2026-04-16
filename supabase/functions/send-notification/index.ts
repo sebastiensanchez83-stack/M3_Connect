@@ -520,16 +520,20 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
       };
 
     // ── Organization claim code (sent by admin to marina manager) ──
-    case "org_claim_code":
+    case "org_claim_code": {
+      const recipientEmailForUrl = d.email || d.recipient_email || "";
+      const claimCodeForUrl = d.claim_code || "";
+      const signupUrl = `${SITE_URL}/?signup=true${recipientEmailForUrl ? `&email=${encodeURIComponent(recipientEmailForUrl)}` : ""}${claimCodeForUrl ? `&code=${encodeURIComponent(claimCodeForUrl)}` : ""}`;
       return {
         subject: `Your organization code for ${d.org_name || "Smart Marina Connect"}`,
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Join Your Organization on Smart Marina Connect",
-        body: `You have been invited to join ${d.org_name || "your organization"} on Smart Marina Connect, the B2B platform for the marina industry.\n\nYour organization code is:\n\n<strong style="font-size:24px;letter-spacing:2px;color:#0c4a6e;">${d.claim_code || "N/A"}</strong>\n\nTo get started:\n1. Click the button below to create your account\n2. During onboarding, enter the code above when prompted\n3. You will be automatically linked to your organization\n\nThis code is unique to your organization and can be reused by your team members.`,
+        body: `You have been invited to join ${d.org_name || "your organization"} on Smart Marina Connect, the B2B platform for the marina industry.\n\nYour organization code is:\n\n<strong style="font-size:24px;letter-spacing:2px;color:#0c4a6e;">${claimCodeForUrl || "N/A"}</strong>\n\nClick the button below to sign up — your email and code will be pre-filled automatically. You will be linked to your organization as soon as you complete signup.\n\nThis code is unique to your organization and can be reused by your team members.`,
         buttonText: "Sign Up Now",
-        buttonUrl: `${SITE_URL}/?signup=true`,
+        buttonUrl: signupUrl,
         footer: "If you weren't expecting this invitation, you can safely ignore this email.",
       };
+    }
 
     // ── Generic admin alert ──
     case "admin_new_submission":
@@ -612,12 +616,20 @@ Deno.serve(async (req: Request) => {
     const isPlainStyle = type === "partner_request_accepted";
     const html = isPlainStyle ? buildPlainEmail(content) : buildEmail(content);
 
-    // Build email payload
+    // Build email payload (with anti-spam improvements)
+    const unsubscribeUrl = `${SITE_URL}/unsubscribe?email=${encodeURIComponent(recipientEmail)}`;
     const emailPayload: Record<string, unknown> = {
       from: SENDER_EMAIL,
       to: [recipientEmail],
+      reply_to: "contact@smartmarinaconnect.com",
       subject: content.subject,
       html,
+      text: buildPlainText(content, unsubscribeUrl),
+      headers: {
+        "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        "X-Entity-Ref-ID": `${type}-${Date.now()}`,
+      },
     };
     // For B2B acceptance: send to BOTH parties (requester + acceptor) with victor in CC as introduction
     if (type === "partner_request_accepted") {
@@ -654,6 +666,29 @@ Deno.serve(async (req: Request) => {
   }
 });
 
+// ── Plain text version (required for good deliverability, prevents spam) ──
+
+function buildPlainText(content: EmailContent, unsubscribeUrl: string): string {
+  // Strip HTML from body for plain text
+  const plainBody = content.body.replace(/<[^>]*>/g, "").replace(/\n/g, "\n");
+  return `${content.greeting}
+
+${content.title}
+
+${plainBody}
+
+${content.buttonText}: ${content.buttonUrl}
+
+---
+${content.footer}
+
+Smart Marina Connect — The B2B platform for the marina industry
+${SITE_URL}
+
+To unsubscribe from these notifications: ${unsubscribeUrl}
+`;
+}
+
 // ── Email template builder (consistent M3 branding) ──
 
 function buildEmail(content: EmailContent): string {
@@ -682,6 +717,7 @@ function buildEmail(content: EmailContent): string {
 <tr><td style="padding:24px 40px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
 <p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} Smart Marina Connect</p>
 <p style="margin:4px 0 0;color:#9ca3af;font-size:12px;">The B2B platform for the marina industry</p>
+<p style="margin:12px 0 0;color:#9ca3af;font-size:11px;">You received this email because you have an account on Smart Marina Connect.<br><a href="${SITE_URL}/account" style="color:#6b7280;text-decoration:underline;">Manage preferences</a> &nbsp;&middot;&nbsp; <a href="${SITE_URL}/unsubscribe" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a> &nbsp;&middot;&nbsp; <a href="${SITE_URL}/contact" style="color:#6b7280;text-decoration:underline;">Contact</a></p>
 </td></tr>
 </table>
 </td></tr></table>
@@ -710,7 +746,7 @@ function buildPlainEmail(content: EmailContent): string {
 <p style="margin:24px 0 0;color:#6b7280;font-size:14px;line-height:1.6;">${htmlFooter}</p>
 </td></tr>
 <tr><td style="padding:16px 40px;border-top:1px solid #f3f4f6;">
-<p style="margin:0;color:#9ca3af;font-size:11px;">Smart Marina Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">smartmarinaconnect.com</a></p>
+<p style="margin:0;color:#9ca3af;font-size:11px;">Smart Marina Connect | <a href="${SITE_URL}" style="color:#6b7280;text-decoration:underline;">smartmarinaconnect.com</a> | <a href="${SITE_URL}/unsubscribe" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a></p>
 </td></tr>
 </table>
 </td></tr></table>

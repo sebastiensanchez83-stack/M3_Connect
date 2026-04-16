@@ -11,11 +11,11 @@ interface AdBannerData {
 interface AdBannerProps {
   placement: string;
   className?: string;
-  /** Rotation interval in seconds (0 = no rotation). Default: 30 */
+  /** Rotation interval in seconds (0 = no rotation). Default: 8 */
   rotateInterval?: number;
 }
 
-export function AdBanner({ placement, className = '', rotateInterval = 30 }: AdBannerProps) {
+export function AdBanner({ placement, className = '', rotateInterval = 8 }: AdBannerProps) {
   const [banners, setBanners] = useState<AdBannerData[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fade, setFade] = useState(true);
@@ -87,7 +87,7 @@ export function AdBanner({ placement, className = '', rotateInterval = 30 }: AdB
   if (!banner) return null;
 
   return (
-    <div className={`relative rounded-xl overflow-hidden shadow-sm max-h-[120px] sm:max-h-[160px] transition-opacity duration-300 ${fade ? 'opacity-100' : 'opacity-0'} ${className}`}>
+    <div className={`relative rounded-xl overflow-hidden shadow-sm transition-opacity duration-300 ${fade ? 'opacity-100' : 'opacity-0'} ${className}`}>
       <a
         href={banner.target_url}
         target="_blank"
@@ -98,7 +98,7 @@ export function AdBanner({ placement, className = '', rotateInterval = 30 }: AdB
         <img
           src={banner.image_url}
           alt={banner.title}
-          className="w-full h-full object-cover rounded-xl"
+          className="w-full h-auto rounded-xl"
         />
       </a>
       <span className="absolute top-2 right-2 bg-black/50 text-white text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm">

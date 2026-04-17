@@ -80,17 +80,21 @@ export async function sendNotification({ type, userId, email, data }: SendNotifi
 }
 
 /**
- * Notify admin team about a new submission (generic).
- * Sends to a hardcoded admin email — the edge function also supports user_id lookup.
+ * Notify the admin team about a new submission.
+ * Calls the `notify-admins` edge function which fans out to every admin user
+ * in the profiles table (persona = 'admin') plus the generic contact inbox.
  */
 export async function notifyAdmin(submissionType: string, submitter: string, details?: string): Promise<void> {
-  await sendNotification({
-    type: 'admin_new_submission',
-    email: 'contact@smartmarinaconnect.com',
-    data: {
-      submission_type: submissionType,
-      submitter,
-      details: details || '',
-    },
-  });
+  try {
+    await supabase.functions.invoke('notify-admins', {
+      body: {
+        submission_type: submissionType,
+        submitter,
+        details: details || '',
+        include_contact_inbox: true,
+      },
+    });
+  } catch {
+    // Fire-and-forget: swallow all errors silently in production
+  }
 }

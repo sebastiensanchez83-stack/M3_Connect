@@ -3,6 +3,7 @@ import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase, setAuthListener } from '@/lib/supabase'
 import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 import { getStoredInvite } from '@/lib/invite-store'
+import { notifyAdmin } from '@/lib/notifications'
 
 interface AuthContextType {
   user: User | null
@@ -321,6 +322,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       },
     })
+
+    // Fire-and-forget admin notification for any new signup (does not block or affect auth result)
+    if (!error) {
+      const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || email;
+      const details = [
+        `Email: ${email}`,
+        `Persona: ${persona || 'marina'}`,
+        jobTitle ? `Job title: ${jobTitle}` : '',
+        companyName ? `Company: ${companyName}` : '',
+        companyWebsite ? `Website: ${companyWebsite}` : '',
+      ].filter(Boolean).join('\n');
+      notifyAdmin('new user signup', fullName, details).catch(() => { /* swallow */ });
+    }
+
     return { error: error ?? null }
   }
 

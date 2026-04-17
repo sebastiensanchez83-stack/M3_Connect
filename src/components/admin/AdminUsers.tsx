@@ -67,6 +67,9 @@ export function AdminUsers() {
   const [createAdminOpen, setCreateAdminOpen] = useState(false);
   const [createAdminForm, setCreateAdminForm] = useState({ email: '', password: '', firstName: '', lastName: '' });
   const [creatingAdmin, setCreatingAdmin] = useState(false);
+  const [invitePartnerOpen, setInvitePartnerOpen] = useState(false);
+  const [invitePartnerForm, setInvitePartnerForm] = useState({ email: '', firstName: '' });
+  const [sendingPartnerInvite, setSendingPartnerInvite] = useState(false);
   const [changingPersona, setChangingPersona] = useState(false);
   const [bypassDialogUserId, setBypassDialogUserId] = useState<string | null>(null);
   const [bypassReason, setBypassReason] = useState('');
@@ -527,6 +530,7 @@ export function AdminUsers() {
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />{t('admin.export')}</Button>
+          <Button variant="outline" size="sm" onClick={() => setInvitePartnerOpen(true)}><UserPlus className="h-4 w-4 mr-2" />Invite Partner</Button>
           <Button size="sm" onClick={() => setCreateAdminOpen(true)}><UserPlus className="h-4 w-4 mr-2" />Create Admin</Button>
         </div>
       </div>
@@ -704,6 +708,66 @@ export function AdminUsers() {
               <Button onClick={handleCreateAdmin} disabled={creatingAdmin}>
                 {creatingAdmin && <RefreshCw className="h-4 w-4 animate-spin mr-2" />}
                 Create Admin
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Invite Partner Dialog ─── */}
+      <Dialog open={invitePartnerOpen} onOpenChange={setInvitePartnerOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite a Partner</DialogTitle>
+            <DialogDescription>
+              Send the onboarding guide email to a partner. They'll receive a short email explaining the 3-step signup process with a direct link to create their account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>First Name</Label>
+              <Input
+                value={invitePartnerForm.firstName}
+                onChange={(e) => setInvitePartnerForm({ ...invitePartnerForm, firstName: e.target.value })}
+                placeholder="(optional — used in greeting)"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Partner Email *</Label>
+              <Input
+                type="email"
+                value={invitePartnerForm.email}
+                onChange={(e) => setInvitePartnerForm({ ...invitePartnerForm, email: e.target.value })}
+                placeholder="partner@company.com"
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setInvitePartnerOpen(false)}>Cancel</Button>
+              <Button
+                onClick={async () => {
+                  if (!invitePartnerForm.email.trim()) return;
+                  setSendingPartnerInvite(true);
+                  try {
+                    await sendNotification({
+                      type: 'partner_onboarding_welcome',
+                      email: invitePartnerForm.email.trim(),
+                      data: {
+                        email: invitePartnerForm.email.trim(),
+                        first_name: invitePartnerForm.firstName.trim(),
+                      },
+                    });
+                    toast({ title: 'Invitation sent', description: `Onboarding guide sent to ${invitePartnerForm.email.trim()}.` });
+                    setInvitePartnerForm({ email: '', firstName: '' });
+                    setInvitePartnerOpen(false);
+                  } catch {
+                    toast({ title: 'Failed to send', description: 'Please try again.', variant: 'destructive' });
+                  }
+                  setSendingPartnerInvite(false);
+                }}
+                disabled={sendingPartnerInvite || !invitePartnerForm.email.trim()}
+              >
+                {sendingPartnerInvite && <RefreshCw className="h-4 w-4 animate-spin mr-2" />}
+                Send Invitation
               </Button>
             </div>
           </div>

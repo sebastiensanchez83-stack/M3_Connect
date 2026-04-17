@@ -71,7 +71,8 @@ type NotificationType =
   | "join_request_rejected"
   | "user_account_approved"
   | "user_account_rejected"
-  | "org_claim_code";
+  | "org_claim_code"
+  | "partner_onboarding_welcome";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -517,6 +518,18 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         buttonText: "Contact Support",
         buttonUrl: `${SITE_URL}/contact`,
         footer: "We appreciate your interest in the Smart Marina Connect community.",
+      };
+
+    // ── Partner onboarding welcome (sent by admin to invite a partner) ──
+    case "partner_onboarding_welcome":
+      return {
+        subject: "Welcome to Smart Marina Connect — Get started in 3 steps",
+        greeting: d.first_name ? `Hi ${d.first_name},` : "Hi there,",
+        title: "Welcome to Smart Marina Connect",
+        body: `Smart Marina Connect is the B2B platform connecting marinas with trusted industry partners.\n\nHere's how to get your company onboarded in 3 quick steps:\n\n<strong>1. Create your account</strong>\nSign up at smartmarinaconnect.com and fill in your company information (name, website, country, sectors you serve, and a short description). This takes about 5 minutes.\n\n<strong>2. Add marina references (can be done later)</strong>\nFrom your account → References tab, enter 2 to 3 marinas you've worked with. We'll contact them directly to confirm the reference — you don't need to chase anyone.\n\n<strong>3. Get verified</strong>\nOnce your references are confirmed, our team verifies your profile and you gain full access: the B2B marketplace, RFPs from marinas, event registrations, and more.\n\n<strong>Good to know:</strong>\n• Your progress is saved automatically — come back anytime\n• You can invite teammates once your account is active\n• Need help? Just reply to this email, we're happy to guide you`,
+        buttonText: "Get Started",
+        buttonUrl: `${SITE_URL}/?signup=true${d.email ? `&email=${encodeURIComponent(d.email)}` : ""}`,
+        footer: "Looking forward to having you on the platform.",
       };
 
     // ── Organization claim code (sent by admin to marina manager) ──

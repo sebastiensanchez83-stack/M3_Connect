@@ -71,20 +71,6 @@ const timelineOptions = [
   { value: '3+years', label: '3+ years' },
 ];
 
-const PUBLIC_DOMAINS = [
-  'gmail.com','yahoo.com','yahoo.fr','hotmail.com','hotmail.fr',
-  'outlook.com','outlook.fr','live.com','live.fr',
-  'aol.com','icloud.com','me.com','mac.com',
-  'mail.com','protonmail.com','proton.me','gmx.com','gmx.fr',
-  'wanadoo.fr','orange.fr','free.fr','sfr.fr','laposte.net',
-  'msn.com','ymail.com','fastmail.com','zoho.com',
-  'yandex.com','tutanota.com',
-  // Disposable / public test inboxes — never treat as a corporate domain
-  'mailinator.com','guerrillamail.com','guerrillamail.info','sharklasers.com',
-  'trashmail.com','10minutemail.com','tempmail.com','yopmail.com',
-  'maildrop.cc','mintemail.com','throwawaymail.com','dispostable.com',
-];
-
 const personaCards: { value: PersonaType; icon: JSX.Element; title: string; desc: string }[] = [
   { value: 'marina', icon: <Anchor className="h-8 w-8" />, title: 'Marina', desc: 'I manage or represent a marina or port.' },
   { value: 'partner', icon: <Briefcase className="h-8 w-8" />, title: 'Industry Partner', desc: 'I provide products or services to the marina sector.' },
@@ -319,31 +305,9 @@ export function OnboardingPage() {
           }
         }
 
-        // ── Priority 4: Check domain match → offer to request to join ──
-        if (user.email) {
-          const domain = user.email.split('@')[1]?.toLowerCase();
-          if (domain && !PUBLIC_DOMAINS.includes(domain)) {
-            const { data: orgMatch } = await supabase
-              .from('organizations')
-              .select('id, name, logo_url, tier, auto_approve_domain_joins')
-              .eq('primary_domain', domain)
-              .maybeSingle();
-            if (orgMatch) {
-              // Fetch member count for the detected org
-              const { count: memberCount } = await supabase
-                .from('organization_members')
-                .select('id', { count: 'exact' })
-                .eq('organization_id', orgMatch.id);
-              setDetectedOrg({
-                ...orgMatch,
-                member_count: memberCount || 0,
-                auto_approve: orgMatch.auto_approve_domain_joins || false,
-              });
-              setResolving(false);
-              return;
-            }
-          }
-        }
+        // ── Domain-match check removed: users can create a new org even if
+        //    another org exists with the same email domain. Priority 1\u20133 (invites
+        //    and pending join requests) still take precedence.
 
         // ── No match → go to org creation form ──
         setStep('org-form');
@@ -616,28 +580,12 @@ export function OnboardingPage() {
     try {
       let createdOrgId = orgId;
 
-      // ── Prevent duplicate organizations by domain ──
+      // Duplicate-domain check removed \u2014 multiple organizations can share an
+      // email domain (e.g. two independent marinas using the same holding
+      // company's mail suffix). Domain is still stored for reference but is no
+      // longer used to block creation.
       const emailDomain = user.email?.split('@')[1]?.toLowerCase();
-      const primaryDomain = emailDomain && !PUBLIC_DOMAINS.includes(emailDomain) ? emailDomain : null;
-
-      if (!createdOrgId && primaryDomain) {
-        const { data: existingOrg } = await supabase
-          .from('organizations')
-          .select('id, name')
-          .eq('primary_domain', primaryDomain)
-          .maybeSingle();
-        if (existingOrg) {
-          toast({
-            title: 'Organization already exists',
-            description: `An organization with the domain "${primaryDomain}" already exists (${existingOrg.name}). Please request to join it instead.`,
-            variant: 'destructive',
-          });
-          setDetectedOrg(existingOrg);
-          setStep('resolve');
-          setLoading(false);
-          return;
-        }
-      }
+      const primaryDomain = emailDomain || null;
 
       if (profile.persona === 'marina') {
         if (!marina.marina_name || !marina.country || !marina.city || !marina.marina_type) {

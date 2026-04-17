@@ -26,7 +26,6 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
-  const [isPublicDomain, setIsPublicDomain] = useState(false);
   const [errors, setErrors] = useState<{ passwordMismatch?: boolean; termsRequired?: boolean; passwordWeak?: boolean }>({});
   const [incomingClaimCode, setIncomingClaimCode] = useState<string | null>(null);
 
@@ -34,36 +33,12 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd);
   };
 
-  // Public email domain blacklist
-  // ⚠️⚠️⚠️  QA-ONLY TEMPORARY EXCEPTION  ⚠️⚠️⚠️
-  // 'mailinator.com' and 'guerrillamail.com' have been temporarily removed from
-  // this blacklist to allow Claude Chrome automated QA runs to sign up with
-  // disposable inboxes it can read without authentication.
-  // REVERT BEFORE LAUNCH — put them back on the line marked below.
-  const PUBLIC_DOMAINS = [
-    'gmail.com','yahoo.com','yahoo.fr','hotmail.com','hotmail.fr',
-    'outlook.com','outlook.fr','live.com','live.fr',
-    'aol.com','icloud.com','me.com','mac.com',
-    'mail.com','protonmail.com','proton.me','gmx.com','gmx.fr',
-    'wanadoo.fr','orange.fr','free.fr','sfr.fr','laposte.net',
-    'msn.com','ymail.com','fastmail.com','zoho.com',
-    'yandex.com','tutanota.com',
-    // QA REVERT: add back → 'mailinator.com','guerrillamail.com',
-  ];
-
   // Domain detection: check if an organization exists for this email domain
+  // (Public/personal email domains are now allowed — no blacklist)
   const checkDomain = useCallback(async (email: string) => {
-    if (!email.includes('@')) { setDetectedOrg(null); setIsPublicDomain(false); return; }
+    if (!email.includes('@')) { setDetectedOrg(null); return; }
     const domain = email.split('@')[1]?.toLowerCase();
-    if (!domain) { setDetectedOrg(null); setIsPublicDomain(false); return; }
-
-    // Check if it's a public/personal domain — block registration
-    if (PUBLIC_DOMAINS.includes(domain)) {
-      setDetectedOrg(null);
-      setIsPublicDomain(true);
-      return;
-    }
-    setIsPublicDomain(false);
+    if (!domain) { setDetectedOrg(null); return; }
 
     // Check if organization already exists for this domain
     try {
@@ -276,17 +251,8 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         <Label htmlFor="email">{t('auth.emailPro')} *</Label>
         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
       </div>
-      {/* Public domain warning */}
-      {isPublicDomain && (
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-red-50 border border-red-200 text-sm">
-          <Info className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
-          <span className="text-red-800">
-            {t('auth.publicDomainWarning', 'Please use your professional organization email address. Personal email addresses (Gmail, Outlook, Yahoo, etc.) are not accepted.')}
-          </span>
-        </div>
-      )}
       {/* Domain detection banner - organization found */}
-      {detectedOrg && !isPublicDomain && (
+      {detectedOrg && (
         <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm">
           <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
           <span className="text-blue-800">
@@ -377,7 +343,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
       {errors.termsRequired && !acceptTerms && (
         <p className="text-sm text-red-600 mt-1 ml-7">{t('auth.acceptTermsRequired', 'Please accept the Terms and Conditions to continue')}</p>
       )}
-      <Button type="submit" className="w-full" disabled={loading || isPublicDomain}>
+      <Button type="submit" className="w-full" disabled={loading}>
         {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
         {loading ? t('auth.creating') : t('auth.createAccount')}
       </Button>

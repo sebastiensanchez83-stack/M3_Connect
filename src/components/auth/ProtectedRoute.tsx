@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEntitlements } from '@/hooks/useEntitlements';
 import { PersonaType } from '@/types/database';
 import { RefreshCw, Lock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -35,6 +36,13 @@ interface ProtectedRouteProps {
   showLocked?: boolean;
   /** Custom locked message */
   lockedMessage?: string;
+  /**
+   * Feature entitlement key that bypasses the persona check.
+   * If the user's organization has this entitlement enabled (granted by an admin
+   * via the entitlements table), they can access the route even if their persona
+   * isn't in `requirePersona`. Admin & moderator users are always bypassed.
+   */
+  bypassEntitlement?: string;
 }
 
 export function ProtectedRoute({
@@ -47,10 +55,12 @@ export function ProtectedRoute({
   redirectTo = '/',
   showLocked = false,
   lockedMessage,
+  bypassEntitlement,
 }: ProtectedRouteProps) {
   const { user, loading, profile, isVerified, isAdmin, isModerator } = useAuth();
+  const { isFeatureEnabled, isLoading: entitlementsLoading } = useEntitlements();
 
-  if (loading) {
+  if (loading || (bypassEntitlement && entitlementsLoading)) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <RefreshCw className="h-8 w-8 animate-spin text-primary" />
@@ -68,9 +78,13 @@ export function ProtectedRoute({
     return showLocked ? <LockedState message={lockedMessage || 'Your account must be verified to access this feature.'} /> : <RedirectWithToast to="/account" message="Your account must be verified to access this feature." />;
   }
 
-  // Check persona
+  // Check persona (with admin/moderator & entitlement bypass)
   if (requirePersona && profile && !requirePersona.includes(profile.persona)) {
-    return showLocked ? <LockedState message={lockedMessage || 'This feature is not available for your account type.'} /> : <RedirectWithToast to={redirectTo} message="This feature is not available for your account type." />;
+    const hasEntitlementBypass = bypassEntitlement ? isFeatureEnabled(bypassEntitlement) : false;
+    const canBypass = isAdmin || isModerator || hasEntitlementBypass;
+    if (!canBypass) {
+      return showLocked ? <LockedState message={lockedMessage || 'This feature is not available for your account type.'} /> : <RedirectWithToast to={redirectTo} message="This feature is not available for your account type." />;
+    }
   }
 
   // Check admin

@@ -398,9 +398,8 @@ export function AdminUserDetail() {
 
   const enableAllFeatures = async () => {
     if (!user?.org_id) return;
-    const keys = FEATURE_DEFINITIONS
-      .filter(f => !f.personas || f.personas.includes(user.persona))
-      .map(f => f.key);
+    // Enable every defined feature, including cross-persona ones
+    const keys = FEATURE_DEFINITIONS.map(f => f.key);
     for (const key of keys) {
       await supabase.from('entitlements').upsert(
         { organization_id: user.org_id, feature_key: key, enabled: true, updated_at: new Date().toISOString() },
@@ -626,13 +625,27 @@ export function AdminUserDetail() {
           </CardHeader>
           <CardContent>
             <div className="divide-y divide-gray-100">
-              {FEATURE_DEFINITIONS
-                .filter(f => !f.personas || f.personas.includes(user.persona))
-                .map(feature => (
+              {FEATURE_DEFINITIONS.map(feature => {
+                const isNative = !feature.personas || feature.personas.includes(user.persona);
+                return (
                   <div key={feature.key} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
                     <div className="flex-1 min-w-0 pr-4">
-                      <div className="text-sm font-medium text-gray-900">{feature.label}</div>
-                      <div className="text-xs text-gray-500">{feature.description}</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="text-sm font-medium text-gray-900">{feature.label}</div>
+                        {!isNative && (
+                          <Badge variant="outline" className="text-[10px] font-normal border-amber-300 text-amber-700 bg-amber-50">
+                            Cross-persona
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {feature.description}
+                        {!isNative && feature.personas && (
+                          <span className="ml-1 text-amber-700">
+                            — normally {feature.personas.join(', ')} only. Enabling grants manual access.
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <Switch
                       checked={featureStates[feature.key] ?? false}
@@ -640,13 +653,12 @@ export function AdminUserDetail() {
                       disabled={featureLoading[feature.key]}
                     />
                   </div>
-                ))}
+                );
+              })}
             </div>
-            {FEATURE_DEFINITIONS.filter(f => f.personas && !f.personas.includes(user.persona)).length > 0 && (
-              <p className="text-xs text-gray-400 mt-4 pt-3 border-t border-gray-100">
-                Some features are hidden because they don't apply to this user's persona ({user.persona}).
-              </p>
-            )}
+            <p className="text-xs text-gray-400 mt-4 pt-3 border-t border-gray-100">
+              All features are manageable. Enabling a "cross-persona" feature grants this user manual access to something normally restricted to another account type.
+            </p>
           </CardContent>
         </Card>
       )}

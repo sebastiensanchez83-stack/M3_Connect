@@ -58,6 +58,7 @@ export function AdminUsers() {
   const [search, setSearch] = useState('');
   const [personaFilter, setPersonaFilter] = useState(urlPersona || 'all');
   const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
+  const [onboardingFilter, setOnboardingFilter] = useState('all');
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [emailStatusMap, setEmailStatusMap] = useState<Record<string, boolean>>({});
@@ -407,8 +408,16 @@ export function AdminUsers() {
     const matchesSearch = search === '' || name.includes(q) || org.includes(q) || email.includes(q) || user.persona.includes(q);
     const matchesPersona = personaFilter === 'all' || user.persona === personaFilter;
     const matchesStatus = statusFilter === 'all' || user.access_status === statusFilter;
-    return matchesSearch && matchesPersona && matchesStatus;
+    const matchesOnboarding = onboardingFilter === 'all'
+      || (onboardingFilter === 'in_progress' && ['draft', 'submitted', 'under_review'].includes(user.onboarding_status))
+      || user.onboarding_status === onboardingFilter;
+    return matchesSearch && matchesPersona && matchesStatus && matchesOnboarding;
   });
+
+  // Count users by onboarding stage (for the summary strip)
+  const inProgressCount = users.filter(u => ['draft', 'submitted', 'under_review'].includes(u.onboarding_status)).length;
+  const draftCount = users.filter(u => u.onboarding_status === 'draft').length;
+  const submittedCount = users.filter(u => u.onboarding_status === 'submitted').length;
 
   const exportCSV = () => {
     const csv = [['Name', 'Email', 'Organization', 'Persona', 'Access Status', 'Onboarding', 'Created'].join(','),
@@ -438,6 +447,37 @@ export function AdminUsers() {
       case 'rejected': return <Badge variant="destructive">Rejected</Badge>;
       case 'suspended': return <Badge variant="destructive">Suspended</Badge>;
       default: return <Badge variant="secondary">{status}</Badge>;
+    }
+  };
+
+  const getOnboardingBadge = (user: AdminProfile) => {
+    // Email not confirmed yet — before they even created a profile
+    if (emailStatusMap[user.user_id] === false) {
+      return <Badge variant="outline" className="text-xs gap-1 border-amber-300 text-amber-700 bg-amber-50" title="Account created but email not yet confirmed">
+        <Clock className="h-3 w-3" /> Email unconfirmed
+      </Badge>;
+    }
+    const stage = user.onboarding_status;
+    const hasOrg = !!user.org_id;
+    switch (stage) {
+      case 'draft':
+        return <Badge variant="outline" className="text-xs gap-1 border-orange-300 text-orange-700 bg-orange-50" title={hasOrg ? 'Persona & profile created, organization form in progress' : 'Persona selected, has not filled organization form yet'}>
+          <Clock className="h-3 w-3" /> {hasOrg ? 'Filling profile' : 'Step 1/3 — persona chosen'}
+        </Badge>;
+      case 'submitted':
+        return <Badge variant="outline" className="text-xs gap-1 border-blue-300 text-blue-700 bg-blue-50" title="Organization form submitted, waiting for admin review">
+          <FileCheck className="h-3 w-3" /> Submitted — awaiting review
+        </Badge>;
+      case 'under_review':
+        return <Badge variant="outline" className="text-xs gap-1 border-purple-300 text-purple-700 bg-purple-50">
+          <FileCheck className="h-3 w-3" /> Under review
+        </Badge>;
+      case 'completed':
+        return <Badge variant="outline" className="text-xs gap-1 border-green-300 text-green-700 bg-green-50">
+          <FileCheck className="h-3 w-3" /> Completed
+        </Badge>;
+      default:
+        return <Badge variant="outline" className="text-xs text-gray-500">{stage || '—'}</Badge>;
     }
   };
 
@@ -580,6 +620,49 @@ export function AdminUsers() {
           </CardContent>
         </Card>
       )}
+      {/* Onboarding progress strip — quick overview of users still in the signup funnel */}
+      {inProgressCount > 0 && (
+        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <button
+            type="button"
+            onClick={() => setOnboardingFilter(onboardingFilter === 'in_progress' ? 'all' : 'in_progress')}
+            className={`rounded-lg border p-3 text-left transition-colors ${onboardingFilter === 'in_progress' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
+          >
+            <div className="text-xs text-gray-500">In progress</div>
+            <div className="text-2xl font-bold text-orange-700">{inProgressCount}</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">users still onboarding</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOnboardingFilter(onboardingFilter === 'draft' ? 'all' : 'draft')}
+            className={`rounded-lg border p-3 text-left transition-colors ${onboardingFilter === 'draft' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
+          >
+            <div className="text-xs text-gray-500">Draft</div>
+            <div className="text-2xl font-bold text-orange-700">{draftCount}</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">filling profile (pre-submit)</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOnboardingFilter(onboardingFilter === 'submitted' ? 'all' : 'submitted')}
+            className={`rounded-lg border p-3 text-left transition-colors ${onboardingFilter === 'submitted' ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
+          >
+            <div className="text-xs text-gray-500">Submitted</div>
+            <div className="text-2xl font-bold text-blue-700">{submittedCount}</div>
+            <div className="text-[11px] text-gray-400 mt-0.5">awaiting your review</div>
+          </button>
+          {onboardingFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setOnboardingFilter('all')}
+              className="rounded-lg border border-gray-200 bg-white p-3 text-left hover:bg-gray-50 transition-colors"
+            >
+              <div className="text-xs text-gray-500">Clear filter</div>
+              <div className="text-sm font-medium text-gray-700 mt-2">Show all users</div>
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="flex gap-4 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -593,6 +676,17 @@ export function AdminUsers() {
             <SelectItem value="verified">Verified</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
             <SelectItem value="suspended">Suspended</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={onboardingFilter} onValueChange={setOnboardingFilter}>
+          <SelectTrigger className="w-44"><SelectValue placeholder="Onboarding" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All stages</SelectItem>
+            <SelectItem value="in_progress">In progress (any)</SelectItem>
+            <SelectItem value="draft">Draft — filling profile</SelectItem>
+            <SelectItem value="submitted">Submitted</SelectItem>
+            <SelectItem value="under_review">Under review</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
           </SelectContent>
         </Select>
         <Select value={personaFilter} onValueChange={setPersonaFilter}>
@@ -611,6 +705,7 @@ export function AdminUsers() {
         <th className="text-left p-4 font-medium">{t('admin.userDetail.name')}</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.organization')}</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.persona')}</th>
+        <th className="text-left p-4 font-medium">Onboarding</th>
         <th className="text-left p-4 font-medium">Tier</th>
         <th className="text-left p-4 font-medium">Reference</th>
         <th className="text-left p-4 font-medium">{t('admin.userDetail.accessStatus')}</th>
@@ -642,6 +737,7 @@ export function AdminUsers() {
                 </SelectContent>
               </Select>
             </td>
+            <td className="p-4">{getOnboardingBadge(user)}</td>
             <td className="p-4">{getTierBadge(user.org_tier)}</td>
             <td className="p-4">
               {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-gray-300 text-xs">---</span>}
@@ -663,7 +759,7 @@ export function AdminUsers() {
             </td>
           </tr>
         ))}
-        {filteredUsers.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-gray-400">{t('admin.userDetail.noUsersFound', 'No users found')}</td></tr>}
+        {filteredUsers.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-gray-400">{t('admin.userDetail.noUsersFound', 'No users found')}</td></tr>}
       </tbody></table></div></CardContent></Card>
 
       {/* ─── Reject Dialog ─── */}

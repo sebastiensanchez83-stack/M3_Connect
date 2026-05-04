@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { checkSectorMatch } from '@/lib/sector-matching';
 import {
   Building2, Anchor, Newspaper, ChevronLeft, Link2, Loader2,
   Users, Mail, Briefcase, CheckCircle, MapPin,
@@ -116,6 +117,19 @@ export function UserProfilePage() {
     if (!user || !id) return;
     setConnectSending(true);
     try {
+      // Sector matching gate (only relevant for cross-type connections marina↔partner)
+      if (organization?.id && userOrg?.id) {
+        const match = await checkSectorMatch(organization.id, userOrg.id);
+        if (!match.allowed) {
+          toast({
+            title: 'Sectors do not match',
+            description: match.reason || 'No overlapping sectors with this user\u2019s organization.',
+            variant: 'destructive',
+          });
+          setConnectSending(false);
+          return;
+        }
+      }
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
         marina_user_id: id,

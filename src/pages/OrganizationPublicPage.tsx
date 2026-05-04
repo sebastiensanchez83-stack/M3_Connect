@@ -10,6 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { checkSectorMatch } from '@/lib/sector-matching';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
@@ -19,6 +20,7 @@ import {
   Building2, Globe, MapPin, Users, Mail, ChevronLeft,
   Loader2, ExternalLink, Anchor, Newspaper, Ship, Droplets,
   CheckCircle, GraduationCap, Wrench, UtensilsCrossed, Sparkles, Link2,
+  Award,
 } from 'lucide-react';
 import { Organization, OrganizationMember, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
@@ -33,6 +35,14 @@ export function OrganizationPublicPage() {
   const [marinaDetails, setMarinaDetails] = useState<OrganizationMarinaDetails | null>(null);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [futurePlans, setFuturePlans] = useState<{ sector_label: string; timeline: string }[]>([]);
+  const [confirmedReferences, setConfirmedReferences] = useState<{
+    client_legal_name: string;
+    client_country: string | null;
+    project_name: string | null;
+    confirmed_signer_name: string | null;
+    confirmed_signer_title: string | null;
+    confirmed_at: string | null;
+  }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Connect request state
@@ -119,6 +129,20 @@ export function OrganizationPublicPage() {
             );
           }
         }
+
+        // Fetch confirmed references for partners (these are marinas that recommended them)
+        if (o.organization_type === 'partner') {
+          const { data: refsData } = await supabase
+            .from('reference_requests')
+            .select('client_legal_name, client_country, project_name, confirmed_signer_name, confirmed_signer_title, confirmed_at')
+            .eq('partner_organization_id', o.id)
+            .eq('status', 'confirmed')
+            .order('confirmed_at', { ascending: false });
+
+          if (refsData && refsData.length > 0) {
+            setConfirmedReferences(refsData);
+          }
+        }
       }
       } catch (err) {
         if (import.meta.env.DEV) console.error('Error loading organization:', err);
@@ -148,6 +172,20 @@ export function OrganizationPublicPage() {
     if (!user || !org || !org.owner_user_id) return;
     setConnectSending(true);
     try {
+      // Sector matching gate: marinas and partners must have overlapping
+      // sectors of interest / service for the connection to be relevant.
+      if (organization?.id && org.id) {
+        const match = await checkSectorMatch(organization.id, org.id);
+        if (!match.allowed) {
+          toast({
+            title: 'Sectors do not match',
+            description: match.reason || 'No overlapping sectors between your organization and theirs.',
+            variant: 'destructive',
+          });
+          setConnectSending(false);
+          return;
+        }
+      }
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
         marina_user_id: org.owner_user_id,
@@ -341,6 +379,45 @@ export function OrganizationPublicPage() {
                         <Badge key={s.id} variant="secondary" className="text-sm py-1 px-3">
                           {s.label}
                         </Badge>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Recommended by — confirmed marina references for partners */}
+              {org.organization_type === 'partner' && confirmedReferences.length > 0 && (
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Award className="h-5 w-5 text-amber-500" />
+                      <h2 className="text-lg font-semibold text-gray-900">
+                        Recommended by {confirmedReferences.length} marina{confirmedReferences.length > 1 ? 's' : ''}
+                      </h2>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-4">
+                      These marinas have confirmed working with {org.name} and recommend their services.
+                    </p>
+                    <div className="space-y-3">
+                      {confirmedReferences.map((ref, idx) => (
+                        <div key={idx} className="flex items-start gap-3 p-3 rounded-lg bg-amber-50/50 border border-amber-100">
+                          <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                            <CheckCircle className="h-5 w-5 text-amber-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-gray-900 truncate">{ref.client_legal_name}</div>
+                            <div className="text-xs text-gray-500 flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
+                              {ref.client_country && (
+                                <span className="inline-flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" /> {ref.client_country}
+                                </span>
+                              )}
+                              {ref.project_name && (
+                                <span>Project: <span className="text-gray-700">{ref.project_name}</span></span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </CardContent>

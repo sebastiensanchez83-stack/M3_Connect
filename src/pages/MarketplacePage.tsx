@@ -24,6 +24,7 @@ import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { checkSectorMatch } from '@/lib/sector-matching';
 
 /* ---------- local types ---------- */
 
@@ -186,6 +187,19 @@ export function MarketplacePage() {
     if (!user || !interestTarget) return;
     setInterestSending(true);
     try {
+      // Sector matching gate
+      if (organization?.id && interestTarget.marina_organization_id) {
+        const match = await checkSectorMatch(organization.id, interestTarget.marina_organization_id);
+        if (!match.allowed) {
+          toast({
+            title: 'Sectors do not match',
+            description: match.reason || 'No overlapping sectors with this marina.',
+            variant: 'destructive',
+          });
+          setInterestSending(false);
+          return;
+        }
+      }
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
         marina_user_id: interestTarget.marina_user_id,
@@ -605,6 +619,20 @@ export function MarketplacePage() {
 
       // Get user's org id for the marina side
       const userOrgId = organization?.id || null;
+
+      // Sector matching gate
+      if (userOrgId && contactPartner.id) {
+        const match = await checkSectorMatch(userOrgId, contactPartner.id);
+        if (!match.allowed) {
+          toast({
+            title: 'Sectors do not match',
+            description: match.reason || 'No overlapping sectors with this partner.',
+            variant: 'destructive',
+          });
+          setContactSending(false);
+          return;
+        }
+      }
 
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: targetUserId,

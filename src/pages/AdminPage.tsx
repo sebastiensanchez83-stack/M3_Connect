@@ -41,6 +41,7 @@ const AdminConsultationDetail = lazyWithRetry(() => import('@/components/admin/A
 const AdminBanners = lazyWithRetry(() => import('@/components/admin/AdminBanners').then(m => ({ default: m.AdminBanners })));
 const AdminBannerDetail = lazyWithRetry(() => import('@/components/admin/AdminBannerDetail').then(m => ({ default: m.AdminBannerDetail })));
 const AdminPlatformSettings = lazyWithRetry(() => import('@/components/admin/AdminPlatformSettings').then(m => ({ default: m.AdminPlatformSettings })));
+const AdminSectors = lazyWithRetry(() => import('@/components/admin/AdminSectors').then(m => ({ default: m.AdminSectors })));
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -125,6 +126,7 @@ export function AdminPage() {
             <Route path="/consultations/:id" element={<AdminOnlyGuard><AdminConsultationDetail /></AdminOnlyGuard>} />
             <Route path="/banners" element={<AdminOnlyGuard><AdminBanners /></AdminOnlyGuard>} />
             <Route path="/banners/:id" element={<AdminOnlyGuard><AdminBannerDetail /></AdminOnlyGuard>} />
+            <Route path="/sectors" element={<AdminOnlyGuard><AdminSectors /></AdminOnlyGuard>} />
             <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
           </Routes>
         </Suspense>

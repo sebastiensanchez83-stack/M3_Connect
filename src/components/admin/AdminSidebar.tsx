@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Users, FileText, Calendar, Anchor, RefreshCw,
   Radio, Link2, ClipboardList, MessageSquare,
-  ArrowUpCircle, LayoutDashboard, Settings, Image, Building2,
+  ArrowUpCircle, LayoutDashboard, Settings, Image, Building2, Tag,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -30,6 +30,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     { to: '/admin/rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/banners', label: 'Ad Banners', icon: <Image className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/sectors', label: 'Sectors', icon: <Tag className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/settings', label: 'Platform Settings', icon: <Settings className="h-4 w-4" />, adminOnly: true },
   ];
 

@@ -33,7 +33,7 @@ interface ShortlistEntry {
 }
 
 export function ShortlistTab() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [entries, setEntries] = useState<ShortlistEntry[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -113,16 +113,21 @@ export function ShortlistTab() {
   }
 
   if (entries.length === 0) {
+    const isInvestor = profile?.persona === 'investor';
     return (
       <Card>
         <CardContent className="pt-12 pb-12 text-center">
           <Star className="h-10 w-10 text-gray-300 mx-auto mb-3" />
           <h3 className="font-medium text-gray-800 mb-1">Your shortlist is empty</h3>
           <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
-            Star any organization on the platform to save it here with private notes. Useful for tracking vendors you might want to work with on a future project.
+            {isInvestor
+              ? 'Pin any organization to save it here with private notes. Useful for tracking deal-flow targets and capital-seekers worth a second look.'
+              : 'Star any organization on the platform to save it here with private notes. Useful for tracking vendors you might want to work with on a future project.'}
           </p>
           <Button asChild variant="outline">
-            <Link to="/partners">Browse partners</Link>
+            <Link to={isInvestor ? '/investments' : '/partners'}>
+              {isInvestor ? 'Browse deal flow' : 'Browse partners'}
+            </Link>
           </Button>
         </CardContent>
       </Card>

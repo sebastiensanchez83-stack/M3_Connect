@@ -28,6 +28,7 @@ const AccountPage = lazyWithRetry(() => import('@/pages/AccountPage').then(m => 
 const OnboardingPage = lazyWithRetry(() => import('@/pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })));
 const AdminPage = lazyWithRetry(() => import('@/pages/AdminPage').then(m => ({ default: m.AdminPage })));
 const MarketplacePage = lazyWithRetry(() => import('@/pages/MarketplacePage').then(m => ({ default: m.MarketplacePage })));
+const DealFlowPage = lazyWithRetry(() => import('@/pages/DealFlowPage').then(m => ({ default: m.DealFlowPage })));
 const OrganizationPublicPage = lazyWithRetry(() => import('@/pages/OrganizationPublicPage').then(m => ({ default: m.OrganizationPublicPage })));
 const UserProfilePage = lazyWithRetry(() => import('@/pages/UserProfilePage').then(m => ({ default: m.UserProfilePage })));
 const SubmitProjectPage = lazyWithRetry(() => import('@/pages/SubmitProjectPage').then(m => ({ default: m.SubmitProjectPage })));
@@ -90,6 +91,7 @@ function App() {
               <Route path="/submit-consultation/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
               <Route path="/network" element={<MarketplacePage />} />
               <Route path="/marketplace" element={<Navigate to="/network" replace />} />
+              <Route path="/investments" element={<ProtectedRoute requireVerified requirePersona={['investor']} showLocked lockedMessage="Deal flow is reserved for verified investor accounts."><DealFlowPage /></ProtectedRoute>} />
               <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
               <Route path="/users/:id" element={<UserProfilePage />} />
               <Route path="/admin/*" element={<ProtectedRoute requireModerator><AdminPage /></ProtectedRoute>} />

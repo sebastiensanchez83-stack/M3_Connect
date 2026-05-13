@@ -6,6 +6,11 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { isMarinaLikePersona } from '@/types/database';
 
+/** Personas allowed to maintain a private shortlist of organizations. */
+function canMaintainShortlist(p: string | null | undefined): boolean {
+  return isMarinaLikePersona(p) || p === 'investor';
+}
+
 interface BookmarkButtonProps {
   /** Organization being bookmarked. */
   organizationId: string;
@@ -37,7 +42,7 @@ export function BookmarkButton({
 
   const canBookmark = !!user
     && !!profile
-    && isMarinaLikePersona(profile.persona)
+    && canMaintainShortlist(profile.persona)
     && ownOrg?.id !== organizationId;
 
   // Load current state

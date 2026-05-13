@@ -568,6 +568,7 @@ export function AccountPage() {
   const canProjects = isMarinaLike || isFeatureEnabled('submit_project');
   const canRFPs = isMarinaLike || isFeatureEnabled('submit_rfp');
   const canConsultations = isMarinaLike || isFeatureEnabled('submit_consultation');
+  void isInvestor;
   const canWebinars = true; // always visible, gated inside
   const canB2B = true; // always visible
 

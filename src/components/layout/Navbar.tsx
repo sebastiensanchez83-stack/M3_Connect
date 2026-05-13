@@ -25,7 +25,7 @@ import {
   Menu, X, User, Globe, ChevronDown,
   CalendarDays, BookOpen, Building2, Users,
   UserPlus, LogOut, Settings, FileText, Mic2,
-  Ship, MessageSquare, Shield, LayoutDashboard, Ticket,
+  Ship, MessageSquare, Shield, LayoutDashboard, Ticket, TrendingUp,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -87,12 +87,14 @@ export function Navbar() {
     navigate('/', { replace: true });
   };
 
+  const isInvestor = profile?.persona === 'investor';
   const navLinks = [
     { href: '/', label: t('nav.home'), icon: LayoutDashboard },
     { href: '/resources', label: t('nav.resources'), icon: BookOpen },
     { href: '/events', label: t('nav.events'), icon: CalendarDays },
     { href: '/partners', label: t('nav.partners'), icon: Building2 },
     { href: '/network', label: t('nav.marketplace'), icon: Users },
+    ...(isInvestor ? [{ href: '/investments', label: t('nav.dealFlow', 'Deal flow'), icon: TrendingUp }] : []),
     { href: '/become-partner', label: t('nav.becomePartner'), icon: UserPlus },
   ];
 

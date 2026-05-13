@@ -178,7 +178,7 @@ export function OrganizationPublicPage() {
         const match = await checkSectorMatch(organization.id, org.id);
         if (!match.allowed) {
           toast({
-            title: 'Sectors do not match',
+            title: 'Connection blocked',
             description: match.reason || 'No overlapping sectors between your organization and theirs.',
             variant: 'destructive',
           });

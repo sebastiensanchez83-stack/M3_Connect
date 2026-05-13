@@ -1,53 +1,65 @@
 /**
  * Sector matching helpers — used to gate B2B connection requests.
  *
- * Rule:
- *   A marina's "interest sectors" must overlap with a partner's "service
- *   sectors" (or vice-versa) for a connection request to make sense.
- *   If there is zero overlap, the request is blocked client-side with a
- *   helpful error message.
- *
- *   Marina ↔ Marina and Partner ↔ Partner connections are allowed unconditionally
- *   (no sector check) since both sides use the same kind of sector list.
+ * Rules (strict, applied in order):
+ *   1. The target organization must have at least one team member.
+ *      A pre-seeded marina with no claimed owner can't actually receive
+ *      a connection request, so we block at the source and ask the
+ *      sender to find an active org instead.
+ *   2. For cross-type connections (marina ↔ partner / media_partner):
+ *      a. Both organizations must have sectors configured.
+ *         The sender is asked to add their sectors of interest before
+ *         sending. The target is reported as not yet configured.
+ *      b. Sectors must overlap by at least one entry.
+ *   3. Same-type connections (marina↔marina, partner↔partner) skip the
+ *      sector check (no meaningful overlap to compute), but still
+ *      require the target to have members.
  */
 import { supabase } from '@/lib/supabase';
 
 export type OrgType = 'marina' | 'partner' | 'media_partner' | string | null;
 
-interface OrgSectorInfo {
+interface OrgInfo {
   organizationType: OrgType;
+  name: string;
   sectorIds: Set<string>;
+  memberCount: number;
 }
 
-/** Fetch an organization's type + sector ids (interest for marina, service for partner/media). */
-async function getOrgSectorInfo(orgId: string): Promise<OrgSectorInfo | null> {
+/** Fetch an organization's type, name, sector ids, and team member count. */
+async function getOrgInfo(orgId: string): Promise<OrgInfo | null> {
   const { data: org, error: orgErr } = await supabase
     .from('organizations')
-    .select('id, organization_type')
+    .select('id, organization_type, name')
     .eq('id', orgId)
     .maybeSingle();
   if (orgErr || !org) return null;
 
   const orgType = (org as { organization_type: OrgType }).organization_type;
+  const orgName = (org as { name: string | null }).name || 'this organization';
+
   const sectorTable = orgType === 'marina'
     ? 'organization_interest_sectors'
     : (orgType === 'partner' || orgType === 'media_partner')
     ? 'organization_service_sectors'
     : null;
 
-  if (!sectorTable) {
-    return { organizationType: orgType, sectorIds: new Set() };
-  }
-
-  const { data: links } = await supabase
-    .from(sectorTable)
-    .select('sector_id')
-    .eq('organization_id', orgId);
+  const [sectorsResult, membersResult] = await Promise.all([
+    sectorTable
+      ? supabase.from(sectorTable).select('sector_id').eq('organization_id', orgId)
+      : Promise.resolve({ data: [] as { sector_id: string }[] }),
+    supabase
+      .from('organization_members')
+      .select('id', { count: 'exact', head: true })
+      .eq('organization_id', orgId),
+  ]);
 
   const sectorIds = new Set<string>(
-    (links as { sector_id: string }[] | null || []).map((l) => l.sector_id)
+    ((sectorsResult.data as { sector_id: string }[] | null) || []).map((l) => l.sector_id)
   );
-  return { organizationType: orgType, sectorIds };
+  const memberCount = membersResult.count || 0;
+
+  return { organizationType: orgType, name: orgName, sectorIds, memberCount };
 }
 
 export interface SectorMatchResult {
@@ -60,15 +72,8 @@ export interface SectorMatchResult {
 }
 
 /**
- * Checks whether two organizations have overlapping sectors of relevance.
- *
- * Marina ↔ Partner / Media: requires at least one overlap between marina
- * interest sectors and partner service sectors.
- * Same-type connections (marina↔marina, partner↔partner): always allowed.
- *
- * If either org has no sectors configured, the connection is allowed (we
- * cannot fairly enforce matching against an empty list — that would punish
- * users who haven't filled out their sectors yet). Admins can still filter.
+ * Checks whether a connection request from one organization to another
+ * should be allowed. See file-level docstring for the rules.
  */
 export async function checkSectorMatch(
   fromOrgId: string,
@@ -79,28 +84,52 @@ export async function checkSectorMatch(
   }
 
   const [from, to] = await Promise.all([
-    getOrgSectorInfo(fromOrgId),
-    getOrgSectorInfo(toOrgId),
+    getOrgInfo(fromOrgId),
+    getOrgInfo(toOrgId),
   ]);
   if (!from || !to) {
-    // If we can't load info, fail open rather than blocking legitimate users.
+    // Can't load org info — fail open rather than block on infra issues.
     return { allowed: true, overlapCount: 0 };
+  }
+
+  // Rule 1: target must have at least one team member.
+  if (to.memberCount === 0) {
+    return {
+      allowed: false,
+      overlapCount: 0,
+      reason: `${to.name} doesn’t have any team members yet, so they can’t receive your request. Try another organization, or reach out via the contact page.`,
+    };
   }
 
   const isCrossType =
     (from.organizationType === 'marina' && (to.organizationType === 'partner' || to.organizationType === 'media_partner')) ||
     ((from.organizationType === 'partner' || from.organizationType === 'media_partner') && to.organizationType === 'marina');
 
-  // Same-type connections aren't gated by sector matching
+  // Same-type connections aren't sector-gated (overlap isn't meaningful between
+  // two marinas' interest lists, or between two partners' service lists).
   if (!isCrossType) {
     return { allowed: true, overlapCount: 0 };
   }
 
-  // Empty sector lists on either side: allow (don't punish unconfigured profiles)
-  if (from.sectorIds.size === 0 || to.sectorIds.size === 0) {
-    return { allowed: true, overlapCount: 0 };
+  // Rule 2a: sender must have sectors configured.
+  if (from.sectorIds.size === 0) {
+    return {
+      allowed: false,
+      overlapCount: 0,
+      reason: 'Please add your sectors of interest on your organization profile before sending connection requests.',
+    };
   }
 
+  // Rule 2a: target must have sectors configured.
+  if (to.sectorIds.size === 0) {
+    return {
+      allowed: false,
+      overlapCount: 0,
+      reason: `${to.name} hasn’t added their sectors yet, so we can’t tell whether your activities are a fit.`,
+    };
+  }
+
+  // Rule 2b: at least one shared sector.
   let overlap = 0;
   for (const id of from.sectorIds) {
     if (to.sectorIds.has(id)) overlap += 1;
@@ -110,8 +139,7 @@ export async function checkSectorMatch(
     return {
       allowed: false,
       overlapCount: 0,
-      reason:
-        'Connection blocked: your sectors do not match. A marina\u2019s sectors of interest must overlap with the partner\u2019s service sectors for a connection to be relevant.',
+      reason: `Your sectors don’t overlap with ${to.name}’s. A marina’s sectors of interest must match the partner’s service sectors for a connection to be relevant.`,
     };
   }
 

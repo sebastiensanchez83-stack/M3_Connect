@@ -192,7 +192,7 @@ export function MarketplacePage() {
         const match = await checkSectorMatch(organization.id, interestTarget.marina_organization_id);
         if (!match.allowed) {
           toast({
-            title: 'Sectors do not match',
+            title: 'Connection blocked',
             description: match.reason || 'No overlapping sectors with this marina.',
             variant: 'destructive',
           });
@@ -625,7 +625,7 @@ export function MarketplacePage() {
         const match = await checkSectorMatch(userOrgId, contactPartner.id);
         if (!match.allowed) {
           toast({
-            title: 'Sectors do not match',
+            title: 'Connection blocked',
             description: match.reason || 'No overlapping sectors with this partner.',
             variant: 'destructive',
           });

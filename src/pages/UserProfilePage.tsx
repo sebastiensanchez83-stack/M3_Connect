@@ -122,7 +122,7 @@ export function UserProfilePage() {
         const match = await checkSectorMatch(organization.id, userOrg.id);
         if (!match.allowed) {
           toast({
-            title: 'Sectors do not match',
+            title: 'Connection blocked',
             description: match.reason || 'No overlapping sectors with this user\u2019s organization.',
             variant: 'destructive',
           });

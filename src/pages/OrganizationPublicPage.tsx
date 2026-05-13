@@ -26,6 +26,8 @@ import { Organization, OrganizationMember, OrganizationMarinaDetails, Sector, Or
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
+import { formatCapitalRange } from '@/components/capital/InvestmentThesisSection';
+import { HOLD_PERIODS } from '@/types/database';
 
 export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -385,6 +387,53 @@ export function OrganizationPublicPage() {
                   <CardContent className="pt-6">
                     <h2 className="text-lg font-semibold text-gray-900 mb-3">Audience</h2>
                     <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">{org.audience_description}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Investment thesis — public on investor profiles */}
+              {org.organization_type === 'investor' && (
+                org.investment_thesis ||
+                (org.investment_geographies && org.investment_geographies.length > 0) ||
+                org.investment_size_min != null ||
+                org.investment_size_max != null ||
+                org.investment_hold_period
+              ) && (
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <TrendingUp className="h-5 w-5 text-emerald-500" />
+                      <h2 className="text-lg font-semibold text-gray-900">Investment thesis</h2>
+                    </div>
+                    {org.investment_thesis && (
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap mb-5">
+                        {org.investment_thesis}
+                      </p>
+                    )}
+                    <div className="grid sm:grid-cols-3 gap-4 text-sm">
+                      {org.investment_geographies && org.investment_geographies.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Geographies</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {org.investment_geographies.map((g) => (
+                              <Badge key={g} variant="outline" className="text-xs">{g}</Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {(org.investment_size_min != null || org.investment_size_max != null) && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Check size</p>
+                          <p className="text-gray-700">{formatCapitalRange(org.investment_size_min, org.investment_size_max)}</p>
+                        </div>
+                      )}
+                      {org.investment_hold_period && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1.5">Hold period</p>
+                          <p className="text-gray-700">{HOLD_PERIODS.find(h => h.value === org.investment_hold_period)?.label ?? org.investment_hold_period}</p>
+                        </div>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               )}

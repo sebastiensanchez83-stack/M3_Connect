@@ -32,6 +32,49 @@ export function usesServiceSectors(p: string | null | undefined): boolean {
   return p === 'partner' || p === 'media_partner';
 }
 
+/** Per-org capital-raise intent. Stored in org_capital_intents (strict RLS). */
+export interface OrgCapitalIntent {
+  organization_id: string;
+  seeking_capital: boolean;
+  capital_type: string | null;
+  amount_min: number | null;
+  amount_max: number | null;
+  stage: string | null;
+  use_of_funds: string | null;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+/** Capital types an org can be raising. Values stored as text in the DB. */
+export const CAPITAL_TYPES = [
+  { value: 'equity', label: 'Equity' },
+  { value: 'debt', label: 'Debt' },
+  { value: 'convertible', label: 'Convertible' },
+  { value: 'project_finance', label: 'Project finance' },
+  { value: 'acquisition', label: 'Acquisition / buyout' },
+  { value: 'strategic', label: 'Strategic partnership' },
+] as const;
+
+export const CAPITAL_STAGES = [
+  { value: 'seed', label: 'Seed' },
+  { value: 'series_a', label: 'Series A' },
+  { value: 'series_b', label: 'Series B' },
+  { value: 'growth', label: 'Growth' },
+  { value: 'project_finance', label: 'Project finance' },
+  { value: 'acquisition', label: 'Acquisition' },
+  { value: 'other', label: 'Other' },
+] as const;
+
+/** Typical hold periods for an investor. */
+export const HOLD_PERIODS = [
+  { value: 'under_3y', label: 'Less than 3 years' },
+  { value: '3_to_5y', label: '3–5 years' },
+  { value: '5_to_10y', label: '5–10 years' },
+  { value: '10y_plus', label: '10+ years' },
+  { value: 'perpetual', label: 'Perpetual / evergreen' },
+  { value: 'flexible', label: 'Flexible' },
+] as const;
+
 export interface Profile {
   user_id: string;
   first_name: string | null;
@@ -96,6 +139,11 @@ export interface Organization {
   owner_user_id: string;
   logo_url: string | null;
   banner_url: string | null;
+  investment_geographies: string[] | null;
+  investment_size_min: number | null;
+  investment_size_max: number | null;
+  investment_hold_period: string | null;
+  investment_thesis: string | null;
   description: string | null;
   website: string | null;
   country: string | null;

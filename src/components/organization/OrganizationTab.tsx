@@ -29,6 +29,8 @@ import {
 } from 'lucide-react';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { isSponsorTier } from '@/types/database';
+import { CapitalIntentSection } from '@/components/capital/CapitalIntentSection';
+import { InvestmentThesisSection } from '@/components/capital/InvestmentThesisSection';
 // PaymentForm removed — member tier is free, payment integration deferred
 
 interface OrgDocument {
@@ -2050,6 +2052,20 @@ export function OrganizationTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* Capital raise (marina / developer / partner) */}
+      {(org.organization_type === 'marina' || org.organization_type === 'developer' || org.organization_type === 'partner') && (
+        <CapitalIntentSection organizationId={org.id} isOwner={isOwner} />
+      )}
+
+      {/* Investment thesis (investor) */}
+      {org.organization_type === 'investor' && (
+        <InvestmentThesisSection
+          org={org}
+          isOwner={isOwner}
+          onSaved={(updated) => setOrg(org ? ({ ...org, ...updated } as Organization) : null)}
+        />
+      )}
 
       {/* Invite Dialog */}
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>

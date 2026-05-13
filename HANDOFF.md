@@ -17,7 +17,7 @@
 | **Email provider** | Resend (via `send-notification` edge function) |
 | **Stack** | React 18 + TS + Vite + Supabase + Tailwind + Radix UI |
 | **i18n** | English + French (i18next) |
-| **Local path** | `/c/Users/sebas/M3 Dropbox/Tehana Guihard/MONACO MARINA MANAGEMENT/9 M3 Connect/Dev plateform/M3_Connect/` |
+| **Local path** | Varies by machine. Pattern: `C:\Users\<WindowsUser>\<DropboxOwner> Dropbox\MONACO MARINA MANAGEMENT\9 M3 Connect\Dev plateform\M3_Connect`. To find it, in Git Bash: `find /c/Users/$USER -maxdepth 6 -type d -name "M3_Connect" 2>/dev/null` |
 
 ### Admin accounts
 - `sebastien@m3monaco.com` (admin)
@@ -33,22 +33,26 @@
 ## 2. Setting Up the New Computer
 
 ```bash
-# 1. Make sure Dropbox finishes syncing the project folder
+# 1. Make sure Dropbox finishes syncing the project folder (green checkmark on tray icon)
 
-# 2. Open a terminal at the project root
-cd "/c/Users/<user>/<dropbox path>/M3_Connect"
+# 2. Find the project (Dropbox account name varies per machine — folder is shared)
+find /c/Users/$USER -maxdepth 6 -type d -name "M3_Connect" 2>/dev/null
+#    Example output: /c/Users/victor/Victor Meyer Dropbox/MONACO MARINA MANAGEMENT/9 M3 Connect/Dev plateform/M3_Connect
 
-# 3. Install dependencies (Dropbox is empty of node_modules by design)
+# 3. cd into it — wrap full path in double quotes due to spaces
+cd "/c/Users/victor/Victor Meyer Dropbox/MONACO MARINA MANAGEMENT/9 M3 Connect/Dev plateform/M3_Connect"
+
+# 4. Install dependencies (Dropbox is empty of node_modules by design)
 npm install
 
-# 4. Verify git is happy
+# 5. Verify git is happy
 git status
-git pull   # should already be at fb3f244 or later
+git pull   # should already be at the latest commit
 
-# 5. Check Supabase auth (optional — only needed for local edge function deploys)
+# 6. Check Supabase auth (optional — only needed for local edge function deploys)
 npx supabase login
 
-# 6. Tools you'll want installed:
+# 7. Tools you'll want installed:
 #    - Node 20+ and npm
 #    - GitHub CLI (`gh`) authenticated
 #    - VS Code or your editor of choice

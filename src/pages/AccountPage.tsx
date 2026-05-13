@@ -24,7 +24,6 @@ import { NotificationPreferencesTab } from '@/components/notifications/Notificat
 import { ShortlistTab } from '@/components/shortlist/ShortlistTab';
 import { InboxTab } from '@/components/inbox/InboxTab';
 import { toast } from '@/hooks/use-toast';
-import { sendNotification } from '@/lib/notifications';
 import { useEntitlements } from '@/hooks/useEntitlements';
 
 interface EventRegistration {
@@ -152,47 +151,6 @@ export function AccountPage() {
 
   // During onboarding (draft), only show completion-related tabs
   const isOnboarding = profile?.onboarding_status === 'draft';
-
-  const handleB2BResponse = async (requestId: string, newStatus: 'accepted' | 'rejected') => {
-    try {
-      const { error } = await supabase
-        .from('partner_requests')
-        .update({ status: newStatus })
-        .eq('id', requestId);
-      if (error) throw error;
-      setPartnerRequests((prev) => prev.map((pr) => pr.id === requestId ? { ...pr, status: newStatus } : pr));
-
-      // Send email notifications
-      const req = partnerRequests.find(pr => pr.id === requestId);
-      if (req) {
-        if (newStatus === 'accepted') {
-          // Send introduction email to the requester (with CC to victor handled by edge function)
-          const marinaName = organization?.name || profile?.first_name || 'A marina';
-          const acceptorEmail = user?.email || '';
-          sendNotification({
-            type: 'partner_request_accepted',
-            userId: req.partner_user_id,
-            data: {
-              marina_name: marinaName,
-              acceptor_email: acceptorEmail,
-              acceptor_name: `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || marinaName,
-            },
-          });
-        } else {
-          const marinaName = organization?.name || profile?.first_name || 'A marina';
-          sendNotification({
-            type: 'partner_request_rejected',
-            userId: req.partner_user_id,
-            data: { marina_name: marinaName },
-          });
-        }
-      }
-
-      toast({ title: newStatus === 'accepted' ? 'Request accepted' : 'Request rejected' });
-    } catch (err: unknown) {
-      toast({ title: 'Error', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
-    }
-  };
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -781,7 +739,7 @@ export function AccountPage() {
 
             {/* Analytics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Link to="/account?tab=b2b-requests" className="block">
+              <Link to="/account?tab=inbox" className="block">
                 <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-blue-500">
                   <CardContent className="pt-5 pb-5">
                     <div className="flex items-center justify-between">
@@ -796,7 +754,7 @@ export function AccountPage() {
                   </CardContent>
                 </Card>
               </Link>
-              <Link to="/account?tab=b2b-requests" className="block">
+              <Link to="/account?tab=inbox" className="block">
                 <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-green-500">
                   <CardContent className="pt-5 pb-5">
                     <div className="flex items-center justify-between">
@@ -811,7 +769,7 @@ export function AccountPage() {
                   </CardContent>
                 </Card>
               </Link>
-              <Link to="/account?tab=b2b-requests" className="block">
+              <Link to="/account?tab=inbox" className="block">
                 <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-amber-500">
                   <CardContent className="pt-5 pb-5">
                     <div className="flex items-center justify-between">
@@ -2005,20 +1963,6 @@ export function AccountPage() {
 
       {/* Event Payment Dialog removed — payment integration deferred */}
     </div>
-  );
-}
-
-function B2BStatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    pending: { label: 'Pending', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    accepted: { label: 'Accepted', className: 'bg-green-100 text-green-800 border-green-200' },
-    rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-200' },
-  };
-  const s = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-800' };
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${s.className}`}>
-      {s.label}
-    </span>
   );
 }
 

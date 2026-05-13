@@ -532,14 +532,14 @@ export function HomePage() {
                 <div className="text-2xl md:text-3xl font-bold text-primary">{personalStats.profileViews}</div>
                 <div className="text-sm text-gray-600">{t('home.personalStats.profileViews', 'Profile Views')}</div>
               </Link>
-              <Link to="/account?tab=b2b-requests" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
+              <Link to="/account?tab=inbox" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
                 <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-50 text-amber-700 mb-2 group-hover:scale-110 transition-transform">
                   <Link2 className="h-5 w-5" />
                 </div>
                 <div className="text-2xl md:text-3xl font-bold text-primary">{personalStats.connectionRequests}</div>
                 <div className="text-sm text-gray-600">{t('home.personalStats.connections', 'Connections')}</div>
               </Link>
-              <Link to="/account?tab=b2b-requests" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
+              <Link to="/account?tab=inbox" className="text-center group hover:bg-gray-50 rounded-xl p-4 transition-colors">
                 <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-amber-50 text-amber-600 mb-2 group-hover:scale-110 transition-transform">
                   <Inbox className="h-5 w-5" />
                 </div>

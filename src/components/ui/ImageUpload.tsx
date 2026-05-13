@@ -9,8 +9,8 @@ const BUCKET = 'resource-images';
 /** Resize an image file to fit within maxWidth × maxHeight, returns a Blob. */
 async function resizeImage(
   file: File,
-  maxWidth = 1200,
-  maxHeight = 800,
+  maxWidth = 1600,
+  maxHeight = 900,
   quality = 0.85,
 ): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -50,9 +50,9 @@ interface ImageUploadProps {
   value: string;
   onChange: (url: string) => void;
   label?: string;
-  /** Max thumbnail width in px (default 1200) */
+  /** Max thumbnail width in px (default 1600 — 16:9 native) */
   maxWidth?: number;
-  /** Max thumbnail height in px (default 800) */
+  /** Max thumbnail height in px (default 900 — 16:9 native) */
   maxHeight?: number;
 }
 
@@ -62,7 +62,7 @@ interface StorageImage {
   created_at: string;
 }
 
-export function ImageUpload({ value, onChange, label = 'Image', maxWidth = 1200, maxHeight = 800 }: ImageUploadProps) {
+export function ImageUpload({ value, onChange, label = 'Image', maxWidth = 1600, maxHeight = 900 }: ImageUploadProps) {
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [showGallery, setShowGallery] = useState(false);
@@ -187,10 +187,12 @@ export function ImageUpload({ value, onChange, label = 'Image', maxWidth = 1200,
         </Button>
       </div>
 
-      {/* Current image preview */}
+      {/* Current image preview — 16:9 to match the rendered thumbnail + banner */}
       {value && (
         <div className="relative group rounded-lg overflow-hidden border bg-gray-50">
-          <img src={value} alt="Selected" className="w-full h-40 object-cover" />
+          <div className="aspect-video w-full">
+            <img src={value} alt="Selected" className="w-full h-full object-cover" />
+          </div>
           <button
             type="button"
             onClick={() => onChange('')}
@@ -221,7 +223,7 @@ export function ImageUpload({ value, onChange, label = 'Image', maxWidth = 1200,
             <div className="flex flex-col items-center gap-2">
               <Upload className="h-8 w-8 text-gray-400" />
               <span className="text-sm text-gray-600">Drop an image here or click to browse</span>
-              <span className="text-xs text-gray-400">JPEG, PNG, WebP, GIF — Max 5MB</span>
+              <span className="text-xs text-gray-400">JPEG, PNG, WebP, GIF — Recommended: 1600×900 px (16:9) — Max 10 MB</span>
             </div>
           )}
         </div>
@@ -293,7 +295,7 @@ export function ImageUpload({ value, onChange, label = 'Image', maxWidth = 1200,
 export async function uploadImageToStorage(file: File): Promise<string | null> {
   if (!file.type.startsWith('image/') || file.size > 10 * 1024 * 1024) return null;
   try {
-    const resizedBlob = await resizeImage(file, 1200, 800);
+    const resizedBlob = await resizeImage(file, 1600, 900);
     const outExt = file.type === 'image/png' ? 'png' : 'jpg';
     const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${outExt}`;
     const { error } = await supabase.storage.from(BUCKET).upload(fileName, resizedBlob, {

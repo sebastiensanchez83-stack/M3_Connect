@@ -162,15 +162,17 @@ export function ResourceDetailPage() {
         {resource.thumbnail_url && <meta property="og:image" content={resource.thumbnail_url} />}
         {resource.seo_keywords && <meta name="keywords" content={resource.seo_keywords} />}
       </Helmet>
-      {/* Hero Header */}
+      {/* Hero Header — banner uses a fixed 3:1 panorama ratio inside a
+          max-width container so the same source image fits both here and
+          in the 16:10 thumbnail cards without surprises. */}
       <div className="relative">
         {resource.thumbnail_url ? (
-          <div className="w-full h-64 sm:h-80 lg:h-96 relative">
-            <img src={resource.thumbnail_url} alt={resource.title} className="w-full h-full object-cover" />
+          <div className="max-w-7xl mx-auto relative aspect-[3/1] min-h-[14rem] overflow-hidden">
+            <img src={resource.thumbnail_url} alt={resource.title} className="w-full h-full object-cover object-center" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
           </div>
         ) : (
-          <div className="w-full h-64 sm:h-80 lg:h-96 bg-gradient-to-br from-[#0b2653] to-[#143a6b] relative">
+          <div className="max-w-7xl mx-auto relative aspect-[3/1] min-h-[14rem] overflow-hidden bg-gradient-to-br from-[#0b2653] to-[#143a6b]">
             <div className="absolute inset-0 flex items-center justify-center opacity-10">
               <FileText className="h-40 w-40 text-white" />
             </div>

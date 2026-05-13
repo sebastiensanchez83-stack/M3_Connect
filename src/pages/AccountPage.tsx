@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Bell, Star } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Bell, Star, Inbox } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link } from 'react-router-dom';
@@ -22,6 +22,7 @@ import { ReferenceRequestForm } from '@/components/references/ReferenceRequestFo
 import { TiersPage } from '@/pages/TiersPage';
 import { NotificationPreferencesTab } from '@/components/notifications/NotificationPreferencesTab';
 import { ShortlistTab } from '@/components/shortlist/ShortlistTab';
+import { InboxTab } from '@/components/inbox/InboxTab';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -106,7 +107,7 @@ export function AccountPage() {
   const { t } = useTranslation();
   const { user, profile, organization, orgRole, loading: authLoading, refreshProfile } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
   const [projects, setProjects] = useState<MarinaProject[]>([]);
   const [webinarRequests, setWebinarRequests] = useState<WebinarRequest[]>([]);
@@ -140,6 +141,14 @@ export function AccountPage() {
   const { isFeatureEnabled } = useEntitlements();
 
   const activeTab = searchParams.get('tab') || 'dashboard';
+
+  // Redirect deprecated tab URLs to the new Inbox so old email links / bookmarks
+  // still land in a meaningful place.
+  useEffect(() => {
+    if (activeTab === 'b2b-requests') {
+      setSearchParams({ tab: 'inbox' }, { replace: true });
+    }
+  }, [activeTab, setSearchParams]);
 
   // During onboarding (draft), only show completion-related tabs
   const isOnboarding = profile?.onboarding_status === 'draft';
@@ -611,7 +620,7 @@ export function AccountPage() {
         { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: canConsultations },
         { value: 'references', label: 'Recommendations', icon: <FileText className="h-4 w-4" />, show: isPartnerOnly },
         { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: canProjects || canRFPs || canConsultations || isPartner },
-        { value: 'b2b-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, notifCount: pendingB2B },
+        { value: 'inbox', label: 'Inbox', icon: <Inbox className="h-4 w-4" />, notifCount: pendingB2B },
         { value: 'shortlist', label: 'Shortlist', icon: <Star className="h-4 w-4" />, show: isMarinaLike || isInvestor },
         { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
         { value: 'notifications', label: 'Notifications', icon: <Bell className="h-4 w-4" /> },
@@ -1863,63 +1872,9 @@ export function AccountPage() {
           </TabsContent>
         )}
 
-        {/* ── B2B PARTNER REQUESTS ── */}
-        <TabsContent value="b2b-requests">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Link2 className="h-5 w-5" />
-                B2B Requests
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {dataLoading ? (
-                <LoadingSkeleton variant="inline" />
-              ) : partnerRequests.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Link2 className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                  <p>No B2B requests yet.</p>
-                  <p className="text-sm mt-1">
-                    {isMarina
-                      ? 'Partners can contact you through the Marketplace.'
-                      : 'Your contact requests to marinas will appear here.'}
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {partnerRequests.map((pr) => {
-                    const isReceived = pr.partner_user_id !== user?.id;
-                    const isPending = pr.status === 'pending';
-                    return (
-                      <div key={pr.id} className="p-4 border rounded-lg space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="text-sm text-gray-500">
-                              {isReceived ? 'Received' : 'Sent'}
-                              {' · '}{new Date(pr.created_at).toLocaleDateString('en-US')}
-                            </div>
-                            <p className="text-sm mt-1">{pr.message}</p>
-                          </div>
-                          <B2BStatusBadge status={pr.status} />
-                        </div>
-                        {/* Accept / Reject buttons for received pending requests */}
-                        {isReceived && isPending && (
-                          <div className="flex gap-2 pt-1">
-                            <Button size="sm" variant="default" onClick={() => handleB2BResponse(pr.id, 'accepted')}>
-                              <Check className="h-3 w-3 mr-1" /> Accept
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => handleB2BResponse(pr.id, 'rejected')}>
-                              <X className="h-3 w-3 mr-1" /> Reject
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        {/* ── INBOX (unified) ── */}
+        <TabsContent value="inbox">
+          <InboxTab />
         </TabsContent>
 
         {/* ── PRICING ── */}

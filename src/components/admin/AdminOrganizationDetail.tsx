@@ -40,7 +40,6 @@ interface OrgDetail {
   onboarding_status: string;
   rejection_reason: string | null;
   auto_approve_domain_joins: boolean;
-  reference_bypass: boolean;
   claim_code: string | null;
   created_at: string;
   updated_at: string;
@@ -457,7 +456,6 @@ export function AdminOrganizationDetail() {
               <Separator />
               <div className="text-xs text-gray-400 space-y-1">
                 <p>Auto-approve domain joins: <span className="font-medium text-gray-600">{org.auto_approve_domain_joins ? 'Yes' : 'No'}</span></p>
-                <p>Reference bypass: <span className="font-medium text-gray-600">{org.reference_bypass ? 'Yes' : 'No'}</span></p>
               </div>
             </CardContent>
           </Card>

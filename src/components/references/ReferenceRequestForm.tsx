@@ -8,11 +8,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import {
-  FileText, Send, Loader2, Plus, Trash2, CheckCircle, AlertCircle, Globe, User, Briefcase, MapPin, Calendar,
-  Clock, FileX, RefreshCw,
+  Award, Send, Loader2, Plus, Trash2, CheckCircle, AlertCircle, Globe, Briefcase,
+  Clock, FileX, RefreshCw, FileText,
 } from 'lucide-react';
-
-const REQUIRED_REFERENCES = 2;
 
 interface Recipient {
   email: string;
@@ -33,17 +31,17 @@ interface ExistingReference {
 }
 
 interface ReferenceRequestFormProps {
-  onBypassSubmitted?: () => void;
   onReferenceSubmitted?: () => void;
 }
 
-export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }: ReferenceRequestFormProps = {}) {
+export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestFormProps = {}) {
   const { user, organization } = useAuth();
   const [saving, setSaving] = useState(false);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [submitted, setSubmitted] = useState(false);
   const [existingRefs, setExistingRefs] = useState<ExistingReference[]>([]);
   const [loadingRefs, setLoadingRefs] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   // Load existing references for this organization (org-level, not user-level)
   useEffect(() => {
@@ -61,62 +59,6 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
   }, [organization?.id, submitted]);
 
   const confirmedCount = existingRefs.filter(r => r.status === 'confirmed').length;
-  const pendingCount = existingRefs.filter(r => r.status === 'pending' || r.status === 'sent').length;
-  const meetsRequirement = confirmedCount >= REQUIRED_REFERENCES;
-  const remaining = Math.max(0, REQUIRED_REFERENCES - confirmedCount);
-
-  // Bypass request state
-  const [showBypassForm, setShowBypassForm] = useState(false);
-  const [bypassReason, setBypassReason] = useState('');
-  const [bypassBackground, setBypassBackground] = useState('');
-  const [bypassSubmitting, setBypassSubmitting] = useState(false);
-  const [bypassRequest, setBypassRequest] = useState<{ id: string; status: string; reason: string; admin_notes: string | null } | null>(null);
-
-  // Load existing bypass request
-  useEffect(() => {
-    const loadBypassReq = async () => {
-      if (!organization?.id) return;
-      const { data } = await supabase
-        .from('reference_bypass_requests')
-        .select('id, status, reason, admin_notes')
-        .eq('organization_id', organization.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      setBypassRequest(data);
-    };
-    loadBypassReq();
-  }, [organization?.id, submitted]);
-
-  const submitBypassRequest = async () => {
-    if (!organization?.id || !user?.id || !bypassReason.trim()) return;
-    setBypassSubmitting(true);
-    const { error } = await supabase.from('reference_bypass_requests').insert({
-      organization_id: organization.id,
-      requested_by: user.id,
-      reason: bypassReason.trim(),
-      company_background: bypassBackground.trim() || null,
-    });
-    if (error) {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-    } else {
-      toast({ title: 'Bypass request submitted', description: 'Our team will review your request and get back to you.' });
-      setShowBypassForm(false);
-      setBypassReason('');
-      setBypassBackground('');
-      // Reload
-      const { data } = await supabase
-        .from('reference_bypass_requests')
-        .select('id, status, reason, admin_notes')
-        .eq('organization_id', organization.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      setBypassRequest(data);
-      onBypassSubmitted?.();
-    }
-    setBypassSubmitting(false);
-  };
 
   // Client info
   const [clientForm, setClientForm] = useState({
@@ -257,7 +199,7 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
 
       setSubmitted(true);
       onReferenceSubmitted?.();
-      toast({ title: 'Reference request created', description: `Reference ID: ${refReq.reference_id}` });
+      toast({ title: 'Recommendation sent', description: `Reference ID: ${refReq.reference_id}` });
     } catch (err: unknown) {
       if (import.meta.env.DEV) console.error(err);
       toast({
@@ -275,13 +217,13 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
       <Card className="border-green-200 bg-green-50">
         <CardContent className="pt-6 text-center">
           <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-          <h3 className="text-xl font-bold text-green-900 mb-2">Reference Request Submitted</h3>
+          <h3 className="text-xl font-bold text-green-900 mb-2">Recommendation Sent</h3>
           <p className="text-green-700 mb-4">
-            Your reference request has been created and confirmation emails are being sent to the recipients.
-            You will be notified when they respond.
+            We've created your recommendation request and sent a confirmation email to the marina contact(s). You'll be notified when they respond.
           </p>
           <Button variant="outline" onClick={() => {
             setSubmitted(false);
+            setShowForm(false);
             setStep(1);
             setClientForm({ legal_name: '', country: '', website: '', primary_domain: '' });
             setProjectForm({
@@ -292,7 +234,7 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
             setRecommendationStatement('');
             setRecipients([{ email: '', first_name: '', last_name: '', job_title: '' }]);
           }}>
-            Submit Another Reference
+            Back to recommendations
           </Button>
         </CardContent>
       </Card>
@@ -301,53 +243,44 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
 
   return (
     <div className="space-y-6">
-      {/* Header + Progress Summary */}
+      {/* Header */}
       <Card className="border-primary/20">
         <CardContent className="pt-6">
           <div className="flex items-start gap-4">
             <div className="p-3 bg-primary/10 rounded-xl">
-              <FileText className="h-8 w-8 text-primary" />
+              <Award className="h-8 w-8 text-primary" />
             </div>
             <div className="flex-1">
-              <h2 className="text-2xl font-bold text-gray-900 mb-1">Client Reference Request</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-1">Marina Recommendations</h2>
               <p className="text-gray-600">
-                Submit client references to validate your partner profile. {REQUIRED_REFERENCES} confirmed references from marina clients are required for approval.
+                Show marinas that recommend you. Confirmed recommendations appear publicly on your organization profile and help marinas trust your services. This is optional — submit as many as you like, whenever you like.
               </p>
-              {/* Reference progress bar */}
-              {!loadingRefs && (
-                <div className="mt-4">
-                  <div className="flex items-center justify-between text-sm mb-2">
-                    <span className="text-gray-600">
-                      {meetsRequirement
-                        ? 'Requirement met!'
-                        : `${remaining} more confirmed reference${remaining > 1 ? 's' : ''} needed`}
-                    </span>
-                    <span className="font-medium">{confirmedCount}/{REQUIRED_REFERENCES} confirmed</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                    <div
-                      className={`h-2.5 rounded-full transition-all ${meetsRequirement ? 'bg-green-500' : 'bg-primary'}`}
-                      style={{ width: `${Math.min(100, (confirmedCount / REQUIRED_REFERENCES) * 100)}%` }}
-                    />
-                  </div>
-                </div>
+              {!loadingRefs && existingRefs.length > 0 && (
+                <p className="text-sm text-gray-500 mt-3">
+                  {confirmedCount} confirmed · {existingRefs.length} total
+                </p>
               )}
             </div>
+            {!showForm && (
+              <Button onClick={() => setShowForm(true)} className="shrink-0">
+                <Plus className="h-4 w-4 mr-1" /> New recommendation
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Existing References (org-level — shared by all team members) */}
+      {/* Existing references (org-level — shared by all team members) */}
       {loadingRefs ? (
         <div className="flex items-center justify-center py-6">
           <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
         </div>
-      ) : existingRefs.length > 0 && (
+      ) : existingRefs.length > 0 ? (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <FileText className="h-4 w-4" />
-              Organization References ({existingRefs.length})
+              Submitted recommendations ({existingRefs.length})
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -371,7 +304,7 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
                     )}
                     {ref.status === 'rejected' && (
                       <Badge variant="destructive" className="text-xs gap-1">
-                        <FileX className="h-3 w-3" /> Rejected
+                        <FileX className="h-3 w-3" /> Declined
                       </Badge>
                     )}
                     {ref.status === 'expired' && (
@@ -386,139 +319,17 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
             </div>
           </CardContent>
         </Card>
-      )}
-
-      {/* Success state when requirement is fully met */}
-      {!loadingRefs && meetsRequirement && (
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="pt-6 pb-4">
-            <div className="flex items-start gap-3">
-              <CheckCircle className="h-6 w-6 text-green-600 shrink-0" />
-              <div>
-                <h3 className="font-bold text-green-900">Reference requirement met</h3>
-                <p className="text-sm text-green-700 mt-1">
-                  Your organization has {confirmedCount} confirmed marina references. You can still submit additional references to strengthen your profile.
-                </p>
-              </div>
-            </div>
+      ) : !showForm && (
+        <Card className="border-dashed">
+          <CardContent className="pt-6 pb-6 text-center">
+            <Award className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+            <p className="text-sm text-gray-500 mb-1">No recommendations submitted yet.</p>
+            <p className="text-xs text-gray-400">Click "New recommendation" to invite a marina contact to endorse you.</p>
           </CardContent>
         </Card>
       )}
 
-      {/* ── Bypass Request Section (no marina clients) ── */}
-      {!loadingRefs && !meetsRequirement && (
-        <Card className="border-dashed border-violet-300">
-          <CardContent className="pt-6 pb-4">
-            {/* Already submitted a bypass request */}
-            {bypassRequest ? (
-              <div className="flex items-start gap-3">
-                {bypassRequest.status === 'pending' && (
-                  <>
-                    <Clock className="h-5 w-5 text-violet-500 mt-0.5 shrink-0" />
-                    <div>
-                      <h3 className="font-semibold text-violet-900">Bypass request under review</h3>
-                      <p className="text-sm text-violet-700 mt-1">
-                        Your request to bypass the reference requirement is being reviewed by our team. We'll notify you once a decision is made.
-                      </p>
-                      <p className="text-xs text-gray-500 mt-2">Your reason: "{bypassRequest.reason}"</p>
-                    </div>
-                  </>
-                )}
-                {bypassRequest.status === 'approved' && (
-                  <>
-                    <CheckCircle className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
-                    <div>
-                      <h3 className="font-semibold text-green-900">Bypass approved</h3>
-                      <p className="text-sm text-green-700 mt-1">
-                        Your organization has been approved without the reference requirement. Your account can now be validated by admin.
-                      </p>
-                      {bypassRequest.admin_notes && <p className="text-xs text-gray-500 mt-2">Admin note: {bypassRequest.admin_notes}</p>}
-                    </div>
-                  </>
-                )}
-                {bypassRequest.status === 'rejected' && (
-                  <>
-                    <FileX className="h-5 w-5 text-red-500 mt-0.5 shrink-0" />
-                    <div>
-                      <h3 className="font-semibold text-red-900">Bypass request declined</h3>
-                      <p className="text-sm text-red-700 mt-1">
-                        Your bypass request was not approved. Please submit {REQUIRED_REFERENCES} client references to proceed.
-                      </p>
-                      {bypassRequest.admin_notes && <p className="text-xs text-gray-500 mt-2">Reason: {bypassRequest.admin_notes}</p>}
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : showBypassForm ? (
-              /* Bypass form */
-              <div className="space-y-4">
-                <div className="flex items-start gap-3 mb-2">
-                  <AlertCircle className="h-5 w-5 text-violet-500 mt-0.5 shrink-0" />
-                  <div>
-                    <h3 className="font-semibold text-gray-900">Request Reference Bypass</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      If your company has not yet implemented solutions in a marina, explain your situation and we'll evaluate your request.
-                    </p>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Why can't you provide marina references? *</Label>
-                  <textarea
-                    value={bypassReason}
-                    onChange={(e) => setBypassReason(e.target.value)}
-                    rows={3}
-                    placeholder="e.g. We are a new company entering the marina industry, our solutions have been deployed in ports but not yet in marinas..."
-                    className="w-full resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-violet-300"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Company background & credentials (optional)</Label>
-                  <textarea
-                    value={bypassBackground}
-                    onChange={(e) => setBypassBackground(e.target.value)}
-                    rows={3}
-                    placeholder="e.g. 10 years in port security, certified ISO 27001, deployed in 50+ ports worldwide, recommended by [industry body]..."
-                    className="w-full resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-violet-300"
-                  />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button variant="outline" size="sm" onClick={() => setShowBypassForm(false)}>Cancel</Button>
-                  <Button
-                    size="sm"
-                    className="bg-violet-600 hover:bg-violet-700"
-                    onClick={submitBypassRequest}
-                    disabled={bypassSubmitting || !bypassReason.trim()}
-                  >
-                    {bypassSubmitting && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-                    Submit Bypass Request
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              /* CTA to open bypass form */
-              <div className="flex items-center justify-between">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 text-violet-500 mt-0.5 shrink-0" />
-                  <div>
-                    <h3 className="font-semibold text-gray-900 text-sm">No marina clients yet?</h3>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      Request a bypass if your company hasn't worked with marinas before.
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0 border-violet-300 text-violet-700 hover:bg-violet-50"
-                  onClick={() => setShowBypassForm(true)}
-                >
-                  Request Bypass
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {!showForm ? null : (<>
 
       {/* Progress steps */}
       <div className="flex items-center gap-2 px-2">
@@ -591,7 +402,8 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
                 </p>
               </div>
             </div>
-            <div className="flex justify-end">
+            <div className="flex justify-between">
+              <Button variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
               <Button onClick={() => setStep(2)} disabled={!clientForm.legal_name || !clientForm.primary_domain}>
                 Next: Project Details
               </Button>
@@ -799,12 +611,13 @@ export function ReferenceRequestForm({ onBypassSubmitted, onReferenceSubmitted }
                 disabled={saving || !recipients.some((r) => r.email)}
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                Submit Reference Request
+                Send Recommendation
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
+      </>)}
     </div>
   );
 }

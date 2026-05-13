@@ -112,7 +112,6 @@ export function AccountPage() {
   const [consultations, setConsultations] = useState<ConsultationItem[]>([]);
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequestItem[]>([]);
   const [referenceCount, setReferenceCount] = useState<number>(0);
-  const [bypassRequest, setBypassRequest] = useState<{ id: string; status: string } | null>(null);
   const [dataLoading, setDataLoading] = useState(false);
 
   // Submissions tab
@@ -336,35 +335,13 @@ export function AccountPage() {
           .order('created_at', { ascending: false });
         if (prData) setPartnerRequests(prData as PartnerRequestItem[]);
 
-        // Fetch reference count + bypass request for partners (requires org)
+        // Fetch recommendation count for partners (informational only)
         if ((profile?.persona === 'partner' || profile?.persona === 'media_partner') && organization?.id) {
           const { count } = await supabase
             .from('reference_requests')
             .select('id', { count: 'exact' })
             .eq('partner_organization_id', organization.id);
           setReferenceCount(count || 0);
-
-          // Check for bypass: always re-read reference_bypass directly from DB because the
-          // AuthContext `organization` object is snapshotted at login and does NOT refresh
-          // when an admin flips reference_bypass — that caused /account to stay "Required"
-          // even after bypass approval. Then fall back to reference_bypass_requests table.
-          const { data: freshOrg } = await supabase
-            .from('organizations')
-            .select('reference_bypass')
-            .eq('id', organization.id)
-            .maybeSingle();
-          if (freshOrg?.reference_bypass) {
-            setBypassRequest({ id: organization.id, status: 'approved' });
-          } else {
-            const { data: bypassData } = await supabase
-              .from('reference_bypass_requests')
-              .select('id, status')
-              .eq('organization_id', organization.id)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            setBypassRequest(bypassData || null);
-          }
         }
 
         // Dashboard analytics
@@ -585,31 +562,20 @@ export function AccountPage() {
   const canWebinars = true; // always visible, gated inside
   const canB2B = true; // always visible
 
-  // Refresh bypass/reference data (called from ReferenceRequestForm callbacks)
+  // Refresh recommendation count (called from ReferenceRequestForm callbacks)
   const refreshOnboardingState = async () => {
     if (!organization?.id) return;
-    // Re-fetch org to get latest reference_bypass status
-    const { data: freshOrg } = await supabase.from('organizations').select('reference_bypass').eq('id', organization.id).single();
-    const [{ count }, { data: bypassData }] = await Promise.all([
-      supabase.from('reference_requests').select('id', { count: 'exact' }).eq('partner_organization_id', organization.id),
-      supabase.from('reference_bypass_requests').select('id, status').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    ]);
+    const { count } = await supabase
+      .from('reference_requests')
+      .select('id', { count: 'exact' })
+      .eq('partner_organization_id', organization.id);
     setReferenceCount(count || 0);
-    if (freshOrg?.reference_bypass) {
-      setBypassRequest({ id: organization.id, status: 'approved' });
-    } else {
-      setBypassRequest(bypassData || null);
-    }
   };
 
   // Onboarding wizard step calculation
   // Step 1: Organization Details — complete when org exists
-  // Step 2: Reference (partners only, NOT media) — complete when ≥2 references submitted OR bypass pending/approved
-  // Step 3 (or 2 for non-partners): Admin Review
-  const REQUIRED_REFERENCES = 2;
-  const referenceStepDone = referenceCount >= REQUIRED_REFERENCES || bypassRequest?.status === 'pending' || bypassRequest?.status === 'approved';
-  const needsReferences = isPartnerOnly; // only partners, not media_partner
-  const currentOnboardingStep = !org ? 1 : (needsReferences && !referenceStepDone) ? 2 : (needsReferences ? 3 : 2);
+  // Step 2: Admin Review — waiting for admin approval
+  const currentOnboardingStep = !org ? 1 : 2;
 
   // Notification badge counts for tabs
   const orgNeedsAction = profile.onboarding_status === 'draft' || !org;
@@ -634,7 +600,7 @@ export function AccountPage() {
         { value: 'webinars', label: 'Webinars', icon: <Radio className="h-4 w-4" /> },
         { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: canRFPs },
         { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: canConsultations },
-        { value: 'references', label: 'References', icon: <FileText className="h-4 w-4" />, show: isPartnerOnly, notifDot: isPartnerOnly && referenceCount === 0 },
+        { value: 'references', label: 'Recommendations', icon: <FileText className="h-4 w-4" />, show: isPartnerOnly },
         { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: canProjects || canRFPs || canConsultations || isPartner },
         { value: 'b2b-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, notifCount: pendingB2B },
         { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
@@ -693,7 +659,7 @@ export function AccountPage() {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-start sm:items-center gap-3 min-w-0">
             <ClipboardList className="h-5 w-5 text-blue-600 shrink-0 mt-0.5 sm:mt-0" />
-            <p className="text-blue-800 text-sm sm:text-base">Your profile is incomplete. Complete your organization details and provide a reference to be validated by our team.</p>
+            <p className="text-blue-800 text-sm sm:text-base">Your profile is incomplete. Complete your organization details to be validated by our team.</p>
           </div>
           <Button size="sm" className="shrink-0 w-full sm:w-auto" onClick={() => navigate('/account?tab=complete-registration', { replace: true })}>Complete my profile</Button>
         </div>
@@ -951,8 +917,7 @@ export function AccountPage() {
                   <h2 className="text-lg font-bold mb-4">Complete Your Registration</h2>
                   <p className="text-sm text-gray-500 mb-6">
                     {currentOnboardingStep === 1 && 'Fill in your organization details to get started.'}
-                    {currentOnboardingStep === 2 && needsReferences && 'Provide professional references or request a bypass.'}
-                    {currentOnboardingStep === (needsReferences ? 3 : 2) && 'Your profile is submitted for review.'}
+                    {currentOnboardingStep === 2 && 'Your profile is submitted for review.'}
                   </p>
                   <div className="flex items-center gap-3 mb-2">
                     {/* Step 1: Organization */}
@@ -967,31 +932,15 @@ export function AccountPage() {
                       }`}>Organization</span>
                     </div>
                     <div className={`h-px flex-1 ${currentOnboardingStep > 1 ? 'bg-green-300' : 'bg-gray-200'}`} />
-                    {/* Step 2: Reference (partners only, not media) */}
-                    {needsReferences && (
-                      <>
-                        <div className="flex items-center gap-2">
-                          <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                            currentOnboardingStep > 2 ? 'bg-green-100 text-green-700' : currentOnboardingStep === 2 ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'
-                          }`}>
-                            {currentOnboardingStep > 2 ? <Check className="h-4 w-4" /> : '2'}
-                          </div>
-                          <span className={`text-sm font-medium ${
-                            currentOnboardingStep > 2 ? 'text-green-700' : currentOnboardingStep === 2 ? 'text-primary' : 'text-gray-400'
-                          }`}>Reference</span>
-                        </div>
-                        <div className={`h-px flex-1 ${currentOnboardingStep > 2 ? 'bg-green-300' : 'bg-gray-200'}`} />
-                      </>
-                    )}
-                    {/* Step 3 (or 2): Admin Review */}
+                    {/* Step 2: Admin Review */}
                     <div className="flex items-center gap-2">
                       <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        currentOnboardingStep === (needsReferences ? 3 : 2) ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'
+                        currentOnboardingStep === 2 ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'
                       }`}>
-                        {needsReferences ? '3' : '2'}
+                        2
                       </div>
                       <span className={`text-sm font-medium ${
-                        currentOnboardingStep === (needsReferences ? 3 : 2) ? 'text-primary' : 'text-gray-400'
+                        currentOnboardingStep === 2 ? 'text-primary' : 'text-gray-400'
                       }`}>Admin Review</span>
                     </div>
                   </div>
@@ -1003,28 +952,8 @@ export function AccountPage() {
                 <OrganizationTab />
               )}
 
-              {/* ── Step 2: References (partners only, not media) ── */}
-              {currentOnboardingStep === 2 && needsReferences && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5" />
-                      Professional References
-                      {referenceCount === 0 && !bypassRequest && <Badge variant="destructive" className="text-xs">Required</Badge>}
-                      {referenceCount > 0 && <Badge variant="outline" className="text-xs text-green-600 border-green-200">{referenceCount} submitted</Badge>}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <ReferenceRequestForm
-                      onBypassSubmitted={refreshOnboardingState}
-                      onReferenceSubmitted={refreshOnboardingState}
-                    />
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* ── Step 3 (or 2 for non-partners): Admin Review ── */}
-              {currentOnboardingStep === (needsReferences ? 3 : 2) && (
+              {/* ── Step 2: Admin Review ── */}
+              {currentOnboardingStep === 2 && (
                 <Card className="border-primary/20">
                   <CardContent className="pt-8 pb-8">
                     <div className="text-center space-y-4">
@@ -1682,19 +1611,10 @@ export function AccountPage() {
 
         {/* S3 Pre-Audit archived — will be deployed later */}
 
-        {/* ── REFERENCES (Partner only, not media) ── */}
+        {/* ── RECOMMENDATIONS (Partner only, not media) — optional feature ── */}
         {isPartnerOnly && (
           <TabsContent value="references">
-            {referenceCount === 0 && (
-              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-amber-900 font-medium">Reference Required for Approval</p>
-                  <p className="text-amber-700 text-sm">To complete your registration and be approved, please provide at least one professional reference below.</p>
-                </div>
-              </div>
-            )}
-            <ReferenceRequestForm />
+            <ReferenceRequestForm onReferenceSubmitted={refreshOnboardingState} />
           </TabsContent>
         )}
 

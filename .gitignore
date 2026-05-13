@@ -12,6 +12,9 @@ dist/
 # Vite temp files
 vite.config.ts.timestamp-*
 
+# Editor / Dropbox sync swap files
+*.tmp.*
+
 # IDE
 .vscode/
 .idea/

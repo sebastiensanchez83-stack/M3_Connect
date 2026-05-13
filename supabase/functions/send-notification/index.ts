@@ -51,8 +51,6 @@ type NotificationType =
   | "partner_request_rejected"
   | "reference_confirmed"
   | "reference_rejected"
-  | "bypass_approved"
-  | "bypass_rejected"
   | "event_registration_confirmed"
   | "admin_new_submission"
   | "payment_confirmed"
@@ -290,46 +288,26 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         footer: "Don't worry, there are many other opportunities on Smart Marina Connect!",
       };
 
-    // ── Reference / bypass notifications ──
+    // ── Marina recommendation notifications (optional feature) ──
     case "reference_confirmed":
       return {
-        subject: "A reference has been confirmed for your organization!",
+        subject: "A marina has recommended your organization!",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
-        title: "Reference Confirmed",
-        body: `Great news! A marina has confirmed a reference for your organization.${d.confirmed_count ? ` You now have ${d.confirmed_count} confirmed reference(s).` : ""}${d.required ? ` (${d.required} required for approval.)` : ""}`,
-        buttonText: "View References",
+        title: "Recommendation Confirmed",
+        body: `Great news! A marina has confirmed a recommendation for your organization.${d.confirmed_count ? ` You now have ${d.confirmed_count} confirmed recommendation(s).` : ""}\n\nIt will appear on your public profile in the "Recommended by" section.`,
+        buttonText: "View Recommendations",
         buttonUrl: `${accountUrl}?tab=references`,
-        footer: "Keep going! References help build trust in the marina community.",
+        footer: "Recommendations help build trust in the marina community.",
       };
     case "reference_rejected":
       return {
-        subject: "Reference update — Smart Marina Connect",
+        subject: "Recommendation update — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
-        title: "Reference Not Confirmed",
-        body: `A marina contact has declined to confirm a reference for your organization. You may submit additional references to meet the requirement.`,
-        buttonText: "Manage References",
+        title: "Recommendation Not Confirmed",
+        body: `A marina contact has declined to confirm a recommendation for your organization. This won't affect your account status — recommendations are an optional feature.`,
+        buttonText: "Manage Recommendations",
         buttonUrl: `${accountUrl}?tab=references`,
         footer: "If you believe this is an error, please contact our support team.",
-      };
-    case "bypass_approved":
-      return {
-        subject: "Reference bypass approved — Smart Marina Connect",
-        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
-        title: "Reference Bypass Approved",
-        body: `Your request to bypass the reference requirement has been approved. Your account can now proceed to full verification.${d.admin_notes ? `\n\nAdmin notes: ${d.admin_notes}` : ""}`,
-        buttonText: "Go to My Account",
-        buttonUrl: `${accountUrl}?tab=dashboard`,
-        footer: "Welcome to Smart Marina Connect!",
-      };
-    case "bypass_rejected":
-      return {
-        subject: "Reference bypass request update — Smart Marina Connect",
-        greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
-        title: "Bypass Request Declined",
-        body: `Your request to bypass the reference requirement has been declined.${d.admin_notes ? `\n\nFeedback: ${d.admin_notes}` : ""}\n\nPlease submit marina references to proceed with your application.`,
-        buttonText: "Submit References",
-        buttonUrl: `${accountUrl}?tab=references`,
-        footer: "If you have questions, please contact our support team.",
       };
 
     // ── Event registration ──
@@ -526,7 +504,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         subject: "Welcome to Smart Marina Connect — Get started in 3 steps",
         greeting: d.first_name ? `Hi ${d.first_name},` : "Hi there,",
         title: "Welcome to Smart Marina Connect",
-        body: `Smart Marina Connect is the B2B platform connecting marinas with trusted industry partners.\n\nHere's how to get your company onboarded in 3 quick steps:\n\n<strong>1. Create your account</strong>\nSign up at smartmarinaconnect.com and fill in your company information (name, website, country, sectors you serve, and a short description). This takes about 5 minutes.\n\n<strong>2. Add marina references (can be done later)</strong>\nFrom your account → References tab, enter 2 to 3 marinas you've worked with. We'll contact them directly to confirm the reference — you don't need to chase anyone.\n\n<strong>3. Get verified</strong>\nOnce your references are confirmed, our team verifies your profile and you gain full access: the B2B marketplace, RFPs from marinas, event registrations, and more.\n\n<strong>Good to know:</strong>\n• Your progress is saved automatically — come back anytime\n• You can invite teammates once your account is active\n• Need help? Just reply to this email, we're happy to guide you`,
+        body: `Smart Marina Connect is the B2B platform connecting marinas with trusted industry partners.\n\nHere's how to get your company onboarded in 3 quick steps:\n\n<strong>1. Create your account</strong>\nSign up at smartmarinaconnect.com and fill in your company information (name, website, country, sectors you serve, and a short description). This takes about 5 minutes.\n\n<strong>2. Get verified</strong>\nOnce your profile is complete, our team reviews and verifies it — usually within one business day. You'll get an email as soon as you're approved.\n\n<strong>3. Strengthen your profile (optional)</strong>\nFrom your account → Recommendations tab, invite marinas you've worked with to publicly endorse your work. Confirmed recommendations appear on your public profile and help marinas trust your services — but they're entirely optional.\n\n<strong>Once verified, you get full access:</strong> the B2B marketplace, RFPs from marinas, event registrations, and more.\n\n<strong>Good to know:</strong>\n• Your progress is saved automatically — come back anytime\n• You can invite teammates once your account is active\n• Need help? Just reply to this email, we're happy to guide you`,
         buttonText: "Get Started",
         buttonUrl: `${SITE_URL}/?signup=true${d.email ? `&email=${encodeURIComponent(d.email)}` : ""}`,
         footer: "Looking forward to having you on the platform.",

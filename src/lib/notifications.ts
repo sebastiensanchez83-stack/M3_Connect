@@ -31,8 +31,6 @@ export type NotificationType =
   | 'partner_request_rejected'
   | 'reference_confirmed'
   | 'reference_rejected'
-  | 'bypass_approved'
-  | 'bypass_rejected'
   | 'event_registration_confirmed'
   | 'admin_new_submission'
   | 'payment_confirmed'

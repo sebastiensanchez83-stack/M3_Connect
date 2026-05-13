@@ -70,7 +70,11 @@ type NotificationType =
   | "user_account_approved"
   | "user_account_rejected"
   | "org_claim_code"
-  | "partner_onboarding_welcome";
+  | "partner_onboarding_welcome"
+  | "profile_reminder_signup_stalled"
+  | "profile_reminder_onboarding_incomplete"
+  | "profile_reminder_pending_review_followup"
+  | "profile_reminder_verified_but_thin";
 
 interface NotificationRequest {
   type: NotificationType;
@@ -150,6 +154,12 @@ const TYPE_TO_CATEGORY: Record<NotificationType, NotificationCategory> = {
   user_account_rejected: "account",
   org_claim_code: "account",
   partner_onboarding_welcome: "marketing",
+
+  // Profile completion reminders (drip)
+  profile_reminder_signup_stalled: "marketing",
+  profile_reminder_onboarding_incomplete: "marketing",
+  profile_reminder_pending_review_followup: "marketing",
+  profile_reminder_verified_but_thin: "marketing",
 
   // Admin-internal
   admin_new_submission: "admin",
@@ -601,6 +611,51 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         footer: "If you weren't expecting this invitation, you can safely ignore this email.",
       };
     }
+
+    // ── Profile-completion reminders ──
+    case "profile_reminder_signup_stalled":
+      return {
+        subject: "Pick up where you left off — Smart Marina Connect",
+        greeting: d.first_name ? `Hi ${d.first_name},` : "Hi there,",
+        title: "You're 5 minutes from finishing your profile",
+        body: `You signed up a few days ago but haven't completed your organization setup yet. Marinas and partners can't find you in the network until your profile is ready.\n\nIt takes about 5 minutes to fill in your organization details. We'll review and verify it within one business day.`,
+        buttonText: "Finish my profile",
+        buttonUrl: `${SITE_URL}/onboarding`,
+        footer: "Need help? Reply to this email — we're happy to guide you.",
+      };
+
+    case "profile_reminder_onboarding_incomplete":
+      return {
+        subject: "Almost there — finish your Smart Marina Connect profile",
+        greeting: d.first_name ? `Hi ${d.first_name},` : "Hi there,",
+        title: `${d.org_name || "Your organization"} is almost ready`,
+        body: `You started setting up your organization on Smart Marina Connect but haven't submitted it for review yet. Once you submit, our team verifies your profile and you gain full access to the platform: B2B marketplace, RFPs, events, and resources.\n\nA quick check of your draft will tell you what's still missing.`,
+        buttonText: "Complete and submit",
+        buttonUrl: `${SITE_URL}/account?tab=organization`,
+        footer: "If you have any questions, just reply to this email.",
+      };
+
+    case "profile_reminder_pending_review_followup":
+      return {
+        subject: "Your Smart Marina Connect application — quick update",
+        greeting: d.first_name ? `Hi ${d.first_name},` : "Hi there,",
+        title: "We're still reviewing your profile",
+        body: `Your organization profile has been pending review for a few days. Our team reviews each application manually to keep the network high-quality.\n\nIf you'd like to add more documentation, a logo, or extra context, you can edit your profile at any time and it'll help us verify you faster.`,
+        buttonText: "View my profile",
+        buttonUrl: `${SITE_URL}/account?tab=organization`,
+        footer: "Reply to this email if you have questions about your application.",
+      };
+
+    case "profile_reminder_verified_but_thin":
+      return {
+        subject: "Make your profile work for you on Smart Marina Connect",
+        greeting: d.first_name ? `Hi ${d.first_name},` : "Hi there,",
+        title: "Your profile is ready — let's make it shine",
+        body: `You're verified on Smart Marina Connect, but your public profile is a bit thin. The platform recommends adding:\n\n• A company logo and cover photo\n• A clear description of what you do\n• Your sectors of interest or service\n• At least one teammate\n\nA complete profile shows up more often in search and gets 3× more connection requests on average.`,
+        buttonText: "Polish my profile",
+        buttonUrl: `${SITE_URL}/account?tab=organization`,
+        footer: "You can manage email reminders at any time in your account settings.",
+      };
 
     // ── Generic admin alert ──
     case "admin_new_submission":

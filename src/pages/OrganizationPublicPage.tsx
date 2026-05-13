@@ -25,6 +25,7 @@ import {
 import { Organization, OrganizationMember, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 
 export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -324,22 +325,30 @@ export function OrganizationPublicPage() {
                   <span>{members.length} {members.length === 1 ? t('org.member', 'member').toLowerCase() : t('org.members', 'members').toLowerCase()}</span>
                 </div>
               </div>
-              {/* Connect button */}
-              {canConnect && (
-                <Button
-                  className="mt-4 bg-white text-primary hover:bg-white/90"
-                  onClick={() => setConnectOpen(true)}
-                >
-                  <Link2 className="h-4 w-4 mr-2" />
-                  Request to Connect
-                </Button>
-              )}
-              {hasExistingRequest && (
-                <Badge className="mt-4 bg-white/20 text-white border-white/30">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Connection Request Sent
-                </Badge>
-              )}
+              {/* Actions */}
+              <div className="flex flex-wrap items-center gap-3 mt-4">
+                {canConnect && (
+                  <Button
+                    className="bg-white text-primary hover:bg-white/90"
+                    onClick={() => setConnectOpen(true)}
+                  >
+                    <Link2 className="h-4 w-4 mr-2" />
+                    Request to Connect
+                  </Button>
+                )}
+                {hasExistingRequest && (
+                  <Badge className="bg-white/20 text-white border-white/30">
+                    <CheckCircle className="h-3 w-3 mr-1" />
+                    Connection Request Sent
+                  </Badge>
+                )}
+                <BookmarkButton
+                  organizationId={org.id}
+                  organizationName={org.name}
+                  variant="full"
+                  className="bg-white/10 border-white/30 text-white hover:bg-white/20"
+                />
+              </div>
             </div>
           </div>
         </div>

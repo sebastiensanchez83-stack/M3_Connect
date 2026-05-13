@@ -8,6 +8,7 @@ import { Search, Building2, MapPin } from 'lucide-react';
 import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 
 interface OrgCard {
   id: string;
@@ -140,7 +141,10 @@ export function PartnersPage() {
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {filteredPartners.map(partner => (
-            <Link key={partner.id} to={`/organizations/${partner.slug}`}>
+            <Link key={partner.id} to={`/organizations/${partner.slug}`} className="relative">
+              <div className="absolute top-2 right-2 z-10">
+                <BookmarkButton organizationId={partner.id} organizationName={partner.name} />
+              </div>
               <Card className="card-hover cursor-pointer h-full">
                 <CardContent className="p-6 text-center">
                   {partner.logo_url ? (

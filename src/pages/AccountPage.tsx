@@ -571,6 +571,11 @@ export function AccountPage() {
   const isPartner = isPartnerOnly || isMediaPartner; // either partner type (for shared UI like B2B tabs)
   const org = organization;
 
+  // The Recommendations feature is org-driven, not persona-driven:
+  // admins/moderators/owners of a partner org all need access. Only
+  // gate by the org's type, not by the caller's profile persona.
+  const isPartnerOrg = organization?.organization_type === 'partner';
+
   // Entitlement-aware feature access: native persona access OR admin-granted.
   // Developers get the same submission features as marinas. Investors are
   // read-only by default but can have features granted via entitlement.
@@ -618,7 +623,7 @@ export function AccountPage() {
         { value: 'webinars', label: 'Webinars', icon: <Radio className="h-4 w-4" /> },
         { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: canRFPs },
         { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: canConsultations },
-        { value: 'references', label: 'Recommendations', icon: <FileText className="h-4 w-4" />, show: isPartnerOnly },
+        { value: 'references', label: 'Recommendations', icon: <FileText className="h-4 w-4" />, show: isPartnerOrg },
         { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: canProjects || canRFPs || canConsultations || isPartner },
         { value: 'inbox', label: 'Inbox', icon: <Inbox className="h-4 w-4" />, notifCount: pendingB2B },
         { value: 'shortlist', label: 'Shortlist', icon: <Star className="h-4 w-4" />, show: isMarinaLike || isInvestor },
@@ -1631,8 +1636,9 @@ export function AccountPage() {
 
         {/* S3 Pre-Audit archived — will be deployed later */}
 
-        {/* ── RECOMMENDATIONS (Partner only, not media) — optional feature ── */}
-        {isPartnerOnly && (
+        {/* ── RECOMMENDATIONS (gated on org type, not user persona, so
+            admin/moderator/owner of a partner org all have access) ── */}
+        {isPartnerOrg && (
           <TabsContent value="references">
             <ReferenceRequestForm onReferenceSubmitted={refreshOnboardingState} />
           </TabsContent>

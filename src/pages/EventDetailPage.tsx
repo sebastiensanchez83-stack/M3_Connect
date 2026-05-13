@@ -60,6 +60,7 @@ interface EventDetail {
   published: boolean;
   speakers: { name: string; title: string; profile_id?: string }[];
   replay_url: string | null;
+  meeting_url: string | null;
   pdf_url: string | null;
   brochure_url: string | null;
   event_website_url: string | null;
@@ -662,6 +663,14 @@ export function EventDetailPage() {
                           <p className="text-xs text-green-600 mt-0.5">See all your registrations in your account.</p>
                         </div>
                       </div>
+                      {event.event_type === 'webinar' && event.meeting_url && (
+                        <Button asChild className="w-full bg-violet-600 hover:bg-violet-700">
+                          <a href={event.meeting_url} target="_blank" rel="noopener noreferrer">
+                            <Video className="h-4 w-4 mr-2" />
+                            {t('events.joinWebinar', 'Join the webinar')}
+                          </a>
+                        </Button>
+                      )}
                       <Button variant="outline" className="w-full" onClick={() => navigate('/account?tab=registrations')}>
                         View My Registrations
                       </Button>

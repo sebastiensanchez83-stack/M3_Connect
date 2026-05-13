@@ -66,6 +66,7 @@ export interface Event {
   access_level: string;
   speakers: { name: string; title: string }[];
   replay_url: string | null;
+  meeting_url: string | null;
   event_type: string;
 }
 

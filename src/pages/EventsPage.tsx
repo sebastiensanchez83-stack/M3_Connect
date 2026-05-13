@@ -28,6 +28,7 @@ interface Event {
   published: boolean;
   speakers: { name: string; title: string }[];
   replay_url: string | null;
+  meeting_url: string | null;
 }
 
 interface SectorTag {
@@ -282,6 +283,15 @@ export function EventsPage() {
                     <Button size="sm" variant="outline" disabled={!hasAccess}>
                       <Lock className="h-4 w-4 mr-2" />
                       Request Invitation
+                    </Button>
+                  ) : isRegistered && event.event_type === 'webinar' && event.meeting_url ? (
+                    <Button
+                      size="sm"
+                      className="bg-violet-600 hover:bg-violet-700"
+                      onClick={() => window.open(event.meeting_url!, '_blank')}
+                    >
+                      <Video className="h-4 w-4 mr-2" />
+                      {t('events.joinWebinar', 'Join webinar')}
                     </Button>
                   ) : (
                     <Button

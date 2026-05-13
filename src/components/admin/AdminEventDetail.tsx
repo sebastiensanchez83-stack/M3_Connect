@@ -66,7 +66,7 @@ export function AdminEventDetail() {
   // Form
   const [form, setForm] = useState({
     title: '', description: '', date_time: '', end_date_time: '', location: '',
-    language: 'EN', access_level: 'public', event_type: 'webinar', replay_url: '',
+    language: 'EN', access_level: 'public', event_type: 'webinar', replay_url: '', meeting_url: '',
     invitation_only: false, is_full_day: false, published: true,
   });
   const [speakers, setSpeakers] = useState<{ name: string; title: string }[]>([]);
@@ -123,6 +123,7 @@ export function AdminEventDetail() {
       location: evt.location || '', language: evt.language || 'EN',
       access_level: evt.access_level || 'public',
       event_type: evt.event_type || 'webinar', replay_url: evt.replay_url || '',
+      meeting_url: evt.meeting_url || '',
       invitation_only: evt.invitation_only || false,
       is_full_day: evt.is_full_day || false,
       published: evt.published !== false,
@@ -214,6 +215,7 @@ export function AdminEventDetail() {
       location: isOnSite ? (form.location || null) : null,
       language: form.language, access_level: form.access_level,
       speakers, replay_url: isWebinar ? (form.replay_url || null) : null,
+      meeting_url: isWebinar ? (form.meeting_url || null) : null,
       event_type: form.event_type,
       invitation_only: form.invitation_only,
       is_full_day: form.is_full_day,
@@ -517,12 +519,24 @@ export function AdminEventDetail() {
             </div>
           </div>
 
-          {/* Replay URL (webinar only) */}
+          {/* Webinar URLs (webinar only) */}
           {isWebinar && (
-            <div className="space-y-2">
-              <Label className="flex items-center gap-1.5"><Film className="h-3.5 w-3.5 text-gray-400" /> Replay URL</Label>
-              <Input value={form.replay_url} onChange={e => setForm({ ...form, replay_url: e.target.value })} placeholder="https://..." />
-            </div>
+            <>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5"><Radio className="h-3.5 w-3.5 text-violet-500" /> Live Meeting URL</Label>
+                <Input
+                  value={form.meeting_url}
+                  onChange={e => setForm({ ...form, meeting_url: e.target.value })}
+                  placeholder="https://zoom.us/j/… or Google Meet / Teams link"
+                />
+                <p className="text-xs text-gray-400">Shown to registered attendees so they can join the live session.</p>
+              </div>
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5"><Film className="h-3.5 w-3.5 text-gray-400" /> Replay URL</Label>
+                <Input value={form.replay_url} onChange={e => setForm({ ...form, replay_url: e.target.value })} placeholder="https://..." />
+                <p className="text-xs text-gray-400">Recording link, posted after the event.</p>
+              </div>
+            </>
           )}
 
           {/* Invitation Only (applies to both on-site events and webinars) */}

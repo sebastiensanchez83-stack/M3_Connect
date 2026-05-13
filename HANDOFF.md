@@ -1,6 +1,6 @@
 # Smart Marina Connect — Developer Handoff
 
-> Last updated: 2026-05-06 — for handoff to a new development machine.
+> Last updated: 2026-05-13.
 > Read this **plus `CLAUDE.md`** to get full context. CLAUDE.md has the platform overview; this file has session state, recent work, and open items.
 
 ---
@@ -65,7 +65,56 @@ npx supabase login
 
 ## 3. What Was Built in Recent Sessions (Reverse-Chronological)
 
-### Session of 2026-05-06 (today)
+### Session of 2026-05-13
+
+Shipped as 7 commits to `main`:
+
+1. ✅ **Marina recommendations are now optional** (commit `ee48316`)
+   - Removed the 2-reference gate that blocked partner approval
+   - Removed the post-signup "References" step from the Account onboarding checklist
+   - References tab → renamed "Recommendations"; no more Required badge / amber banner / bypass flow
+   - Confirmed recommendations still display publicly on `/organizations/:slug` ("Recommended by" section)
+   - Admin can approve any partner regardless of reference count
+
+2. ✅ **Cleanup of leftover bypass machinery** (commit `b11c379`)
+   - `send-notification` edge function v18: drop `bypass_approved` / `bypass_rejected` templates and type union entries; rewrite `partner_onboarding_welcome` body to stop telling new partners they need marina references; refresh `reference_confirmed` / `reference_rejected` copy to match the new "optional feature" framing
+   - Pruned dead notification types from `lib/notifications.ts`
+   - Dropped `reference_bypass*` columns from `organizations` and the `reference_bypass_requests` table (migration `drop_reference_bypass_schema`)
+
+3. ✅ **Sector matching tightened to a strict gate** (commit `9332187`)
+   - Old behavior failed open when either side had no sectors → 83 of 84 marinas had zero sectors, so the gate was disabled for 99% of attempts
+   - New rules: (a) the target org must have ≥1 team member; (b) for cross-type connections (interest-side ↔ service-side), both sides must have sectors configured and at least one must overlap
+   - Toast title now says "Connection blocked" with a specific reason
+
+4. ✅ **Fix: entitlements `ON CONFLICT` bug** (migration only — no code commit)
+   - Admin UI upserts entitlements with `onConflict: 'organization_id,feature_key'` but the table only had a unique on `(user_id, feature_key)` → Postgres raised "no unique or exclusion constraint matching" every time
+   - Migration `fix_entitlements_unique_constraint`: drop the wrong constraint, add `uq_entitlement_org` on `(organization_id, feature_key)`
+   - Toggling feature access (e.g. "Propose Webinars") now succeeds
+
+5. ✅ **Resource image fit standardized to 16:9 / 3:1** (commit `d4afa5c`)
+   - `ImageUpload`: resize defaults to 1600×900 (16:9 source) instead of 1200×800; preview is `aspect-video`; guidance text says "Recommended: 1600×900 px (16:9)"
+   - `ResourceDetailPage` hero banner: switched from full-width fixed heights (`h-64 sm:h-80 lg:h-96`) to a `max-w-7xl 3:1` panorama — less stretched on desktop, with a `min-h-14rem` mobile floor
+   - Same uploaded image now crops predictably in the 16:10 thumbnail cards and the 3:1 hero banner
+
+6. ✅ **Organization cover banner photo** (commit `c3d4160`)
+   - New `banner_url` column on `organizations` (migration `add_organization_banner_url`)
+   - Upload UI inside the Organization tab — hover overlay ("Upload cover photo" / "Change cover photo") + remove button. Owners only.
+   - Renders as a 3:1 panorama above the dark hero on `/organizations/:slug` with a gradient overlay
+   - Uses the existing `org-logos` storage bucket (no new policy needed)
+
+7. ✅ **Developer + Investor personas** (commit `615848b`)
+   - DB migration `add_developer_investor_org_types`: widen the `organization_type` CHECK constraint
+   - `PersonaType` union extended with `developer` and `investor`; helper sets `MARINA_LIKE_PERSONAS`, `INTEREST_SECTOR_PERSONAS`, `SERVICE_SECTOR_PERSONAS` exported from `types/database.ts`
+   - **Developer = clone of marina** — same submission features (Projects/RFPs/Consultations), unlimited team seats, marina-level resource access. Uses interest sectors.
+   - **Investor = read-heavy network member** — browse Marketplace/Resources/Events, send sector-gated B2B requests, no submissions. Uses interest sectors ("Investment Focus Sectors" on the public profile).
+   - 5 persona cards on signup (added HardHat / TrendingUp icons), partner-shaped onboarding form for developer + investor with conditional labels, admin persona dropdowns extended, `sector-matching.ts` generalized to interest-side vs service-side
+
+8. ✅ **Webinar meeting URL field** (this commit)
+   - New `meeting_url TEXT` column on `events` (migration `add_events_meeting_url`)
+   - Admin event form now has a "Live Meeting URL" field for webinars, alongside the existing "Replay URL" (with clarifying helper text on both)
+   - On the EventsPage card and the EventDetailPage sidebar, registered users of an upcoming webinar see a violet "Join the webinar" button that opens the meeting URL in a new tab
+
+### Session of 2026-05-06
 1. ✅ **Admin → Sectors page** (`/admin/sectors`)
    - Manage the 17+ industry sectors users pick during onboarding
    - Add / rename / re-slug / toggle active / delete (with usage check)
@@ -161,6 +210,22 @@ npx supabase login
 | 1 | Console error: `400 djjbgzasuomhyfvtlidi…%2Caccepted%29` on some pages | Non-critical PostgREST `.in('status', ['pending','accepted'])` race condition; UI works fine; investigated thoroughly, no user-facing impact |
 | 2 | `OnboardingPage.tsx` line ~1 has an orphaned snippet at the top of the file | Cosmetic only; works correctly |
 
+### 🟦 Planned features — scope locked, awaiting build
+
+Order is the recommended build sequence; each becomes its own commit. Notification preferences ships first since the other email-driven features depend on it.
+
+| # | Feature | Personas | Locked scope notes |
+|---|---|---|---|
+| 1 | **Notification preferences** | All | Per-category toggle in account settings (B2B / RFPs / recommendations / system / marketing). `send-notification` consults prefs before sending. Default = all on. Foundational for everything else email-driven. |
+| 2 | **Vendor shortlist + private notes** | Marina + Developer | Star button on every partner card → new "Shortlist" tab on the Account page. Each entry has a private note field. New `org_bookmarks(user_id, organization_id, note)` table. Optional PDF export of the shortlist. |
+| 3 | **"Seeking capital" toggle** | Marina, Developer, **Partner** (incl. innovation vendors looking for investment) | New `seeking_capital` boolean + free-text fields (capital type, range, stage, use of funds) on `organizations`. Toggle in OrganizationTab. **Visible to verified Investor accounts only** — not public on the org profile. Media partners excluded. |
+| 4 | **Investment thesis profile** | Investor | Structured fields on the investor org: focus sectors (already captured), geographies, deal size range, hold period, free-text thesis. New section in OrganizationTab. Public on the investor's `/organizations/:slug` so marinas/devs can self-assess fit. |
+| 5 | **Deal flow board** | Investor | New `/investments` page listing every org with `seeking_capital = true`, filtered by overlap with the investor's investment-focus sectors + country. Cards show org, location, capital range, sectors. "Pin to watchlist" + "Express interest" actions. |
+| 6 | **Project pipeline view** | Developer | New `developer_projects` table with phase enum (feasibility → permitting → financing → construction → operations). Kanban-style view in the Account tab. Each project can attach RFPs/partners scoped to a phase. Phase visible on the public org profile, optional. |
+| 7 | **Unified Inbox** | All | **Hard replace** of the scattered tabs (B2B Requests, References, Join Requests, Team Invitations). New `/account?tab=inbox` becomes canonical; old URLs redirect with a pre-applied filter (so email links don't break). Inline accept/reject buttons per item. Filter categories map 1:1 to notification preferences. |
+| 8 | **Industry Pulse dashboard** | **Admin only** (`/admin/pulse`) | Strategic dashboard for the M3 team — not user-facing. Sections: weekly snapshot, signup→verified funnel, sector heat-map with supply gaps, geographic distribution, top movers, deal-flow visibility (capital-seeking orgs), sector × geography targeting matrix. Nightly aggregation job into `pulse_snapshots`. No anonymization (admin can see real names). |
+| 9 | **Incomplete-profile reminder runner** | All (driven by state) | Nightly `pg_cron` + edge function `send-profile-reminders`. Four reminder types: signup-stalled (3d + 10d), onboarding-incomplete (5d + 14d), pending-review-followup (7d), verified-but-thin (14d). Respects notification preferences + a new `notification_sends` log table for dedupe. |
+
 ### 🟢 Nice-to-have / next ideas (not promised, just brainstorms)
 
 - Auto-archive expired reference requests (>30 days unresponded)
@@ -170,6 +235,8 @@ npx supabase login
 - Soft-delete sectors (archive rather than hard-delete) to preserve historical data
 - Admin can re-send the partner onboarding email to existing pending users in bulk
 - Make `connectMessage` mandatory on partner→marina connections (currently optional)
+- "Webinar starting in 1h" reminder email with the meeting URL (now that `events.meeting_url` exists)
+- Calendar export (.ics) for events — one-click "add to calendar" on registration confirmation
 
 ### ⛔️ Explicitly **out of scope** — do NOT propose
 
@@ -189,7 +256,12 @@ These are things the user (Sebastien) explicitly asked for or rejected — keep 
 | Onboarding "Save" buttons | NOT needed — flow is all-or-nothing submit + references handled separately on Account page |
 | Domain restrictions on signup | None — anyone can sign up with any email; multiple orgs can share a domain |
 | References on profile | Show on partner profiles **only**, not media_partners; show marina name + country + project, **not** signer name/title |
-| Sector matching for connections | Required between marina interest sectors and partner service sectors; same-type connections are unrestricted; empty sectors fail open |
+| Sector matching for connections | Strict: target org must have ≥1 member; cross-type (interest-side ↔ service-side) requires both sides have sectors and ≥1 overlap. Updated 2026-05-13 from fail-open to fail-closed. |
+| Marina recommendations | Optional feature, not a gate. Partners are approvable without any references; confirmed recommendations only appear on the public profile. Tab renamed "Recommendations". |
+| Persona model | 5 personas: marina, developer, investor, partner, media_partner. Developer = clone of marina (interest sectors, all submissions). Investor = read-heavy network member (interest sectors, no submissions). |
+| "Seeking capital" toggle scope | Available to marina + developer + **partner** (innovation vendors looking for investment too). Media partners excluded. Visible to verified Investor accounts only — not public. |
+| Industry Pulse dashboard | **Admin-only** intelligence dashboard at `/admin/pulse`. Not a user-facing surface. |
+| Unified Inbox rollout | Hard replace of B2B Requests / References / Join Requests tabs. Old URLs redirect to `?tab=inbox` with a pre-applied filter so email links still work. |
 | Admin notifications | Should reach all admins (sebastien + victor), not just `contact@` |
 | Cross-persona features | Admin can grant any user access to any feature regardless of persona |
 | Push workflow | User commits straight to `main` (no feature branches, no PRs) — Netlify deploys on push |

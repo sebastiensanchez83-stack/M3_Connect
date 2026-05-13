@@ -261,6 +261,14 @@ export function OrganizationPublicPage() {
         <meta property="og:description" content={org.description || ''} />
       </Helmet>
 
+      {/* Cover banner (if uploaded) */}
+      {org.banner_url && (
+        <div className="relative aspect-[3/1] min-h-[12rem] w-full overflow-hidden bg-slate-200">
+          <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/60 to-transparent" />
+        </div>
+      )}
+
       {/* Hero Header */}
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-12 lg:py-16">

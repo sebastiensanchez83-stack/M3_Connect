@@ -52,6 +52,7 @@ export interface Organization {
   created_by_user_id: string;
   owner_user_id: string;
   logo_url: string | null;
+  banner_url: string | null;
   description: string | null;
   website: string | null;
   country: string | null;

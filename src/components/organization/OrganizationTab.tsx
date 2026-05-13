@@ -124,6 +124,8 @@ export function OrganizationTab() {
   // Logo upload
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const bannerInputRef = useRef<HTMLInputElement>(null);
 
   // Organization documents
   const [orgDocs, setOrgDocs] = useState<OrgDocument[]>([]);
@@ -209,6 +211,47 @@ export function OrganizationTab() {
       if (error) throw error;
       setOrg({ ...org, logo_url: null });
       toast({ title: 'Logo removed' });
+    } catch (err: unknown) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+  };
+
+  // ── Cover banner upload handler ──
+  const handleBannerUpload = async (file: File) => {
+    if (!org || !user) return;
+    if (!file.type.startsWith('image/')) {
+      toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP)', variant: 'destructive' });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 10 MB', variant: 'destructive' });
+      return;
+    }
+    setUploadingBanner(true);
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const fileName = `${org.id}/banner-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from('org-logos').getPublicUrl(fileName);
+      const bannerUrl = urlData.publicUrl;
+      const { error: dbErr } = await supabase.from('organizations').update({ banner_url: bannerUrl }).eq('id', org.id);
+      if (dbErr) throw dbErr;
+      setOrg({ ...org, banner_url: bannerUrl });
+      toast({ title: 'Cover photo updated' });
+    } catch (err: unknown) {
+      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+    setUploadingBanner(false);
+  };
+
+  const handleRemoveBanner = async () => {
+    if (!org) return;
+    try {
+      const { error } = await supabase.from('organizations').update({ banner_url: null }).eq('id', org.id);
+      if (error) throw error;
+      setOrg({ ...org, banner_url: null });
+      toast({ title: 'Cover photo removed' });
     } catch (err: unknown) {
       toast({ title: 'Error', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -1018,7 +1061,53 @@ export function OrganizationTab() {
       {/* Payment banner removed — member tier is free */}
 
       {/* Organization Info Card */}
-      <Card>
+      <Card className="overflow-hidden">
+        {/* Cover banner (3:1, with upload overlay for owners) */}
+        <div className="relative aspect-[3/1] min-h-[10rem] bg-gradient-to-br from-slate-100 to-slate-200 group">
+          {org.banner_url ? (
+            <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-slate-400">
+              <Camera className="h-10 w-10 opacity-40" />
+            </div>
+          )}
+          {isOwner && (
+            <>
+              <button
+                type="button"
+                onClick={() => bannerInputRef.current?.click()}
+                className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                title={org.banner_url ? 'Change cover photo' : 'Upload cover photo'}
+              >
+                {uploadingBanner ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-white" />
+                ) : (
+                  <span className="flex items-center gap-2 text-white text-sm font-medium">
+                    <Camera className="h-5 w-5" />
+                    {org.banner_url ? 'Change cover photo' : 'Upload cover photo'}
+                  </span>
+                )}
+              </button>
+              {org.banner_url && (
+                <button
+                  type="button"
+                  onClick={handleRemoveBanner}
+                  className="absolute top-3 right-3 p-1.5 bg-red-500/90 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Remove cover photo"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+              <input
+                ref={bannerInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleBannerUpload(f); if (bannerInputRef.current) bannerInputRef.current.value = ''; }}
+              />
+            </>
+          )}
+        </div>
         <CardHeader className="flex flex-row items-start justify-between">
           <div className="flex items-center gap-3">
             {/* Logo with upload overlay for owners */}

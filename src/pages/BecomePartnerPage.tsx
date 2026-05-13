@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase';
 import {
   Anchor, Building2, Newspaper, CheckCircle, ArrowRight,
   Globe, Users, Award, Shield, UserPlus, FileText, ShieldCheck, Unlock,
+  HardHat, TrendingUp,
 } from 'lucide-react';
 
 export function BecomePartnerPage() {
@@ -92,6 +93,34 @@ export function BecomePartnerPage() {
       ],
       cta: t('join.mediaPartner.cta'),
     },
+    {
+      id: 'developer',
+      icon: <HardHat className="h-8 w-8 text-amber-600" />,
+      iconBg: 'bg-amber-50',
+      title: t('join.developer.title', 'Developer'),
+      desc: t('join.developer.desc', 'Marina developer, real-estate group, or builder shaping the next generation of marinas.'),
+      benefits: [
+        t('join.developer.benefits.0', 'Submit RFPs, projects and consultations to source the right partners'),
+        t('join.developer.benefits.1', 'Track marina-industry sectors and connect with verified vendors'),
+        t('join.developer.benefits.2', 'Unlimited team seats to manage your projects collaboratively'),
+        t('join.developer.benefits.3', 'Access expert resources and on-site industry events'),
+      ],
+      cta: t('join.developer.cta', 'Join as a developer'),
+    },
+    {
+      id: 'investor',
+      icon: <TrendingUp className="h-8 w-8 text-emerald-600" />,
+      iconBg: 'bg-emerald-50',
+      title: t('join.investor.title', 'Investor'),
+      desc: t('join.investor.desc', 'Fund, family office or strategic investor sourcing deal flow in the marina industry.'),
+      benefits: [
+        t('join.investor.benefits.0', 'Browse marinas, developers and innovation partners seeking capital'),
+        t('join.investor.benefits.1', 'Filter deal flow by your investment-focus sectors and geographies'),
+        t('join.investor.benefits.2', 'Connect directly with marina operators and developers'),
+        t('join.investor.benefits.3', 'Stay current with industry resources, events, and trends'),
+      ],
+      cta: t('join.investor.cta', 'Join as an investor'),
+    },
   ];
 
   const platformBenefits = [
@@ -153,7 +182,7 @@ export function BecomePartnerPage() {
     <div>
       <Helmet>
         <title>Become a Member — Smart Marina Connect</title>
-        <meta name="description" content="Join Smart Marina Connect as a marina operator, service provider or media partner. Discover the membership process and start connecting with the marina industry." />
+        <meta name="description" content="Join Smart Marina Connect as a marina operator, service provider, media partner, developer, or investor. Discover the membership process and start connecting with the marina industry." />
         <meta property="og:title" content="Become a Member — Smart Marina Connect" />
         <meta property="og:description" content="Join the B2B platform connecting marina professionals worldwide." />
       </Helmet>

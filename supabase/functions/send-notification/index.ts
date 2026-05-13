@@ -79,6 +79,82 @@ interface NotificationRequest {
   data?: Record<string, string>;
 }
 
+// ──────────────────────────────────────────────
+// Notification category mapping
+// Each user can opt-out of categories via profiles.notification_prefs.
+// Notifications sent to anonymous emails (no user_id) skip the check —
+// the recipient has no profile yet to express a preference.
+// ──────────────────────────────────────────────
+
+type NotificationCategory =
+  | "b2b"
+  | "submissions"
+  | "recommendations"
+  | "events"
+  | "payments"
+  | "team"
+  | "account"
+  | "marketing"
+  | "admin";
+
+const TYPE_TO_CATEGORY: Record<NotificationType, NotificationCategory> = {
+  // B2B partner connections
+  partner_request_received: "b2b",
+  partner_request_accepted: "b2b",
+  partner_request_rejected: "b2b",
+
+  // Marina/Developer submissions — admin updates on the user's own posts
+  rfp_submitted: "admin",
+  rfp_approved: "submissions",
+  rfp_rejected: "submissions",
+  rfp_closed: "submissions",
+  consultation_submitted: "admin",
+  consultation_approved: "submissions",
+  consultation_rejected: "submissions",
+  consultation_closed: "submissions",
+  project_rejected: "submissions",
+  project_status_updated: "submissions",
+  webinar_accepted: "submissions",
+  webinar_rejected: "submissions",
+  webinar_moderator_approved: "admin",
+
+  // Marina recommendations (optional feature)
+  reference_confirmed: "recommendations",
+  reference_rejected: "recommendations",
+
+  // Events & expositions
+  event_registration_confirmed: "events",
+  exposition_approved: "events",
+  exposition_rejected: "events",
+  exposition_invoice_sent: "payments",
+  exposition_paid: "payments",
+
+  // Sponsorship & generic payments
+  sponsorship_invoice_sent: "payments",
+  sponsorship_paid: "payments",
+  sponsorship_approved: "payments",
+  sponsorship_rejected: "payments",
+  payment_confirmed: "payments",
+  payment_failed: "payments",
+  membership_payment_received: "admin",
+
+  // Team & invitations
+  team_invitation: "team",
+  team_invitation_reminder: "team",
+  join_request_received: "team",
+  join_request_approved: "team",
+  join_request_rejected: "team",
+
+  // Account lifecycle
+  user_account_approved: "account",
+  user_account_rejected: "account",
+  org_claim_code: "account",
+  partner_onboarding_welcome: "marketing",
+
+  // Admin-internal
+  admin_new_submission: "admin",
+};
+
 interface EmailContent {
   subject: string;
   greeting: string;
@@ -572,21 +648,23 @@ Deno.serve(async (req: Request) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Resolve recipient email
+    // Resolve recipient email + notification preferences
     let recipientEmail = directEmail || "";
     let firstName = notifData?.first_name || "";
+    let userPrefs: Record<string, boolean> | null = null;
 
-    if (!recipientEmail && user_id) {
+    if (user_id) {
       const { data: profile } = await supabase
         .from("profiles")
-        .select("first_name, last_name, email")
+        .select("first_name, last_name, email, notification_prefs")
         .eq("user_id", user_id)
         .maybeSingle();
 
       if (profile?.email) {
-        recipientEmail = profile.email;
+        if (!recipientEmail) recipientEmail = profile.email;
         firstName = firstName || profile.first_name || "";
-      } else {
+        userPrefs = (profile.notification_prefs as Record<string, boolean> | null) || null;
+      } else if (!recipientEmail) {
         const { data: { user } } = await supabase.auth.admin.getUserById(user_id);
         if (user?.email) {
           recipientEmail = user.email;
@@ -597,6 +675,19 @@ Deno.serve(async (req: Request) => {
 
     if (!recipientEmail) {
       return new Response(JSON.stringify({ error: "Could not resolve recipient email" }), { status: 400, headers });
+    }
+
+    // Per-user opt-out check.
+    // Only applies when the recipient has a profile (user_id provided).
+    // Anonymous sends (team invitations to non-users, claim codes, etc.) bypass
+    // the check — they have no profile to express a preference yet.
+    const category = TYPE_TO_CATEGORY[type];
+    if (userPrefs && category && userPrefs[category] === false) {
+      console.log(`Notification [${type}] (${category}) skipped — user ${user_id} opted out`);
+      return new Response(
+        JSON.stringify({ success: true, skipped: true, reason: "user_opted_out", category }),
+        { status: 200, headers },
+      );
     }
 
     // Merge firstName into data for template
@@ -708,7 +799,7 @@ function buildEmail(content: EmailContent): string {
 <tr><td style="padding:24px 40px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
 <p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} Smart Marina Connect</p>
 <p style="margin:4px 0 0;color:#9ca3af;font-size:12px;">The B2B platform for the marina industry</p>
-<p style="margin:12px 0 0;color:#9ca3af;font-size:11px;">You received this email because you have an account on Smart Marina Connect.<br><a href="${SITE_URL}/account" style="color:#6b7280;text-decoration:underline;">Manage preferences</a> &nbsp;&middot;&nbsp; <a href="${SITE_URL}/unsubscribe" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a> &nbsp;&middot;&nbsp; <a href="${SITE_URL}/contact" style="color:#6b7280;text-decoration:underline;">Contact</a></p>
+<p style="margin:12px 0 0;color:#9ca3af;font-size:11px;">You received this email because you have an account on Smart Marina Connect.<br><a href="${SITE_URL}/account?tab=notifications" style="color:#6b7280;text-decoration:underline;">Manage preferences</a> &nbsp;&middot;&nbsp; <a href="${SITE_URL}/unsubscribe" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a> &nbsp;&middot;&nbsp; <a href="${SITE_URL}/contact" style="color:#6b7280;text-decoration:underline;">Contact</a></p>
 </td></tr>
 </table>
 </td></tr></table>

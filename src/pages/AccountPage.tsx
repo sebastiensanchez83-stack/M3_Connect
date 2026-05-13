@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Bell } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link } from 'react-router-dom';
@@ -20,6 +20,7 @@ import { OrganizationTab } from '@/components/organization/OrganizationTab';
 // import { PreAuditTab } from '@/components/preaudit/PreAuditTab';
 import { ReferenceRequestForm } from '@/components/references/ReferenceRequestForm';
 import { TiersPage } from '@/pages/TiersPage';
+import { NotificationPreferencesTab } from '@/components/notifications/NotificationPreferencesTab';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -612,6 +613,7 @@ export function AccountPage() {
         { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: canProjects || canRFPs || canConsultations || isPartner },
         { value: 'b2b-requests', label: 'B2B Requests', icon: <Link2 className="h-4 w-4" />, notifCount: pendingB2B },
         { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
+        { value: 'notifications', label: 'Notifications', icon: <Bell className="h-4 w-4" /> },
       ].filter(item => item.show !== false);
 
   return (
@@ -1922,6 +1924,11 @@ export function AccountPage() {
         {/* ── PRICING ── */}
         <TabsContent value="pricing">
           <TiersPage embedded />
+        </TabsContent>
+
+        {/* ── NOTIFICATIONS ── */}
+        <TabsContent value="notifications">
+          <NotificationPreferencesTab />
         </TabsContent>
 
       </Tabs>

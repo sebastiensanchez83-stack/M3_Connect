@@ -43,9 +43,22 @@ export interface Profile {
   rejection_reason: string | null;
   avatar_url: string | null;
   job_title: string | null;
+  notification_prefs: Record<string, boolean>;
   created_at: string;
   updated_at: string;
 }
+
+/** Notification categories the user can toggle in /account?tab=notifications. */
+export type NotificationCategory =
+  | 'b2b'
+  | 'submissions'
+  | 'recommendations'
+  | 'events'
+  | 'payments'
+  | 'team'
+  | 'account'
+  | 'marketing'
+  | 'admin';
 
 export interface Sector {
   id: string;

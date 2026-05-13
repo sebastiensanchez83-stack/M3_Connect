@@ -269,9 +269,9 @@ export function OrganizationPublicPage() {
         <meta property="og:description" content={org.description || ''} />
       </Helmet>
 
-      {/* Cover banner (if uploaded) */}
+      {/* Cover banner (if uploaded) — header strip, not a hero */}
       {org.banner_url && (
-        <div className="relative aspect-[3/1] min-h-[12rem] w-full overflow-hidden bg-slate-200">
+        <div className="relative h-32 sm:h-40 md:h-48 lg:h-56 w-full overflow-hidden bg-slate-200">
           <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/60 to-transparent" />
         </div>

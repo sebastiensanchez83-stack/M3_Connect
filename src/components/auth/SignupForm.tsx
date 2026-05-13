@@ -8,7 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { PersonaType } from '@/types/database';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Anchor, Building2, Newspaper, Loader2, ChevronLeft, Eye, EyeOff, Info } from 'lucide-react';
+import { Anchor, Building2, Newspaper, Loader2, ChevronLeft, Eye, EyeOff, Info, HardHat, TrendingUp } from 'lucide-react';
 
 interface SignupFormProps {
   onSuccess?: () => void;
@@ -91,6 +91,8 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     { value: 'marina' as PersonaType, icon: <Anchor className="h-6 w-6" />, title: t('auth.personaMarina'), desc: t('auth.personaMarinaDesc') },
     { value: 'partner' as PersonaType, icon: <Building2 className="h-6 w-6" />, title: t('auth.personaPartner'), desc: t('auth.personaPartnerDesc') },
     { value: 'media_partner' as PersonaType, icon: <Newspaper className="h-6 w-6" />, title: t('auth.personaMedia'), desc: t('auth.personaMediaDesc') },
+    { value: 'developer' as PersonaType, icon: <HardHat className="h-6 w-6" />, title: t('auth.personaDeveloper', 'Developer'), desc: t('auth.personaDeveloperDesc', 'Marina developer, real-estate group, or builder. Access marketplace, submit RFPs and projects.') },
+    { value: 'investor' as PersonaType, icon: <TrendingUp className="h-6 w-6" />, title: t('auth.personaInvestor', 'Investor'), desc: t('auth.personaInvestorDesc', 'Fund, family office, or strategic investor. Browse marinas, partners, deal flow, and connect.') },
   ];
 
   const handlePersonaSelect = (persona: PersonaType) => {

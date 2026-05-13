@@ -33,7 +33,7 @@ export function SubmitConsultationPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) { navigate('/'); return; }
-    if (profile?.persona === 'marina' && isVerified && organization?.access_status === 'verified') {
+    if ((profile?.persona === 'marina' || profile?.persona === 'developer') && isVerified && organization?.access_status === 'verified') {
       supabase.from('sectors').select('*').eq('is_active', true).order('label')
         .then(({ data }) => { if (data) setSectors(data as Sector[]); });
     }
@@ -136,15 +136,16 @@ export function SubmitConsultationPage() {
     );
   }
 
-  // Access guard: only verified marina users with verified org
-  if (!user || profile?.persona !== 'marina' || !isVerified || organization?.access_status !== 'verified') {
+  // Access guard: only verified marina (or developer) users with verified org
+  const canSubmitHere = profile?.persona === 'marina' || profile?.persona === 'developer';
+  if (!user || !canSubmitHere || !isVerified || organization?.access_status !== 'verified') {
     return (
       <div className="container mx-auto px-4 py-16 max-w-lg text-center">
         <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('submitConsultation.restrictedTitle')}</h1>
         <p className="text-gray-500 mb-6">
           {!user
             ? t('submitConsultation.restrictedNoUser')
-            : profile?.persona !== 'marina'
+            : !canSubmitHere
               ? t('submitConsultation.restrictedNotMarina')
               : t('submitConsultation.restrictedNotVerified')}
         </p>
@@ -154,7 +155,7 @@ export function SubmitConsultationPage() {
         {user && !isVerified && (
           <Button onClick={() => navigate('/account')}>{t('common.viewAccountStatus')}</Button>
         )}
-        {user && isVerified && profile?.persona !== 'marina' && (
+        {user && isVerified && !canSubmitHere && (
           <Button onClick={() => navigate('/account')}>{t('common.backToAccount')}</Button>
         )}
       </div>

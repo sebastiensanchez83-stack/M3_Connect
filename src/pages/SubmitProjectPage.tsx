@@ -73,7 +73,7 @@ export function SubmitProjectPage() {
       });
   }, [id, user, navigate]);
 
-  const isVerifiedMarina = profile?.persona === 'marina' && isVerified && organization?.access_status === 'verified';
+  const isVerifiedMarina = (profile?.persona === 'marina' || profile?.persona === 'developer') && isVerified && organization?.access_status === 'verified';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,6 +1,36 @@
-export type PersonaType = 'marina' | 'partner' | 'media_partner' | 'moderator' | 'admin';
+export type PersonaType = 'marina' | 'partner' | 'media_partner' | 'developer' | 'investor' | 'moderator' | 'admin';
 export type AccessStatus = 'pending' | 'verified' | 'rejected' | 'suspended';
 export type OnboardingStatus = 'draft' | 'submitted' | 'under_review' | 'completed';
+
+/**
+ * Personas with marina-like submission capabilities (Projects / RFPs /
+ * Consultations). Developer is a clone of marina for feature access.
+ */
+export const MARINA_LIKE_PERSONAS = ['marina', 'developer'] as const;
+
+/**
+ * Personas that store **interest** sectors (sectors they care about /
+ * want to procure / invest in). Used by sector-matching.ts for the
+ * cross-type connection gate.
+ */
+export const INTEREST_SECTOR_PERSONAS = ['marina', 'developer', 'investor'] as const;
+
+/**
+ * Personas that store **service** sectors (sectors they provide).
+ */
+export const SERVICE_SECTOR_PERSONAS = ['partner', 'media_partner'] as const;
+
+export function isMarinaLikePersona(p: string | null | undefined): boolean {
+  return p === 'marina' || p === 'developer';
+}
+
+export function usesInterestSectors(p: string | null | undefined): boolean {
+  return p === 'marina' || p === 'developer' || p === 'investor';
+}
+
+export function usesServiceSectors(p: string | null | undefined): boolean {
+  return p === 'partner' || p === 'media_partner';
+}
 
 export interface Profile {
   user_id: string;

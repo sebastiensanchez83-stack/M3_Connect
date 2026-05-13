@@ -60,9 +60,9 @@ export function HomePage() {
   useEffect(() => {
     if (!user || !profile) return;
     const fetchPersonal = async () => {
-      const orgSectorTable = profile.persona === 'marina'
+      const orgSectorTable = (profile.persona === 'marina' || profile.persona === 'developer' || profile.persona === 'investor')
         ? 'organization_interest_sectors'
-        : profile.persona === 'partner'
+        : (profile.persona === 'partner' || profile.persona === 'media_partner')
         ? 'organization_service_sectors'
         : null;
 

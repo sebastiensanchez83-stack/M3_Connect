@@ -60,7 +60,12 @@ export function EventRegistrationFlow({
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [orgRegistrationCount, setOrgRegistrationCount] = useState(0);
 
-  const isMarina = organization?.organization_type === 'marina';
+  // Marina-like personas (marina, developer, investor) get the same event
+  // registration treatment as marina — they're interest-side attendees,
+  // not exhibitors.
+  const isMarina = organization?.organization_type === 'marina'
+    || organization?.organization_type === 'developer'
+    || organization?.organization_type === 'investor';
   const isPartner = organization?.organization_type === 'partner' || organization?.organization_type === 'media_partner';
   const orgTier = (organization?.tier || 'member') as OrgTier;
   const isSponsor = isSponsorTier(orgTier);

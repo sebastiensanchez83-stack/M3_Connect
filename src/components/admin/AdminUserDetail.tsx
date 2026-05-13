@@ -134,7 +134,11 @@ export function AdminUserDetail() {
       const [{ data: orgDetail }, { data: sectorData }] = await Promise.all([
         supabase.from('organizations').select('*').eq('id', orgId).maybeSingle(),
         supabase
-          .from(merged.persona === 'marina' || merged.persona === 'media_partner' ? 'organization_interest_sectors' : 'organization_service_sectors')
+          .from(
+            merged.persona === 'marina' || merged.persona === 'media_partner' || merged.persona === 'developer' || merged.persona === 'investor'
+              ? 'organization_interest_sectors'
+              : 'organization_service_sectors'
+          )
           .select('sectors(label)')
           .eq('organization_id', orgId),
       ]);
@@ -702,6 +706,8 @@ export function AdminUserDetail() {
                     <SelectItem value="marina">Marina</SelectItem>
                     <SelectItem value="partner">Partner</SelectItem>
                     <SelectItem value="media_partner">Media Partner</SelectItem>
+                    <SelectItem value="developer">Developer</SelectItem>
+                    <SelectItem value="investor">Investor</SelectItem>
                     <SelectItem value="moderator">Moderator</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
                     <SelectItem value="individual">Individual</SelectItem>

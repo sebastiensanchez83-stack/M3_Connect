@@ -81,7 +81,8 @@ export function ResourcesPage() {
   // Pre-select sectors based on user's organization (like marketplace)
   useEffect(() => {
     if (!user || !organization) return;
-    const table = organization.organization_type === 'marina'
+    const ot = organization.organization_type;
+    const table = (ot === 'marina' || ot === 'developer' || ot === 'investor')
       ? 'organization_interest_sectors'
       : 'organization_service_sectors';
     supabase
@@ -139,7 +140,10 @@ export function ResourcesPage() {
     if (level === 'public') return true;
     if (!user) return false;
     if (level === 'members') return isVerified;
-    if (level === 'marina') return (profile?.persona === 'marina' && isVerified) || isModerator;
+    if (level === 'marina') {
+      const isInterestSide = profile?.persona === 'marina' || profile?.persona === 'developer' || profile?.persona === 'investor';
+      return (isInterestSide && isVerified) || isModerator;
+    }
     return false;
   };
 

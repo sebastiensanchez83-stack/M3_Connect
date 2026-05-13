@@ -6,18 +6,24 @@
  *      A pre-seeded marina with no claimed owner can't actually receive
  *      a connection request, so we block at the source and ask the
  *      sender to find an active org instead.
- *   2. For cross-type connections (marina ↔ partner / media_partner):
+ *   2. For cross-type connections (interest-side ↔ service-side):
  *      a. Both organizations must have sectors configured.
  *         The sender is asked to add their sectors of interest before
  *         sending. The target is reported as not yet configured.
  *      b. Sectors must overlap by at least one entry.
- *   3. Same-type connections (marina↔marina, partner↔partner) skip the
- *      sector check (no meaningful overlap to compute), but still
+ *   3. Same-side connections (interest-side ↔ interest-side, or
+ *      service-side ↔ service-side) skip the sector check, but still
  *      require the target to have members.
+ *
+ * Interest-side personas: marina, developer, investor
+ * Service-side personas: partner, media_partner
  */
 import { supabase } from '@/lib/supabase';
 
-export type OrgType = 'marina' | 'partner' | 'media_partner' | string | null;
+export type OrgType = 'marina' | 'partner' | 'media_partner' | 'developer' | 'investor' | string | null;
+
+const INTEREST_SIDE_TYPES = new Set(['marina', 'developer', 'investor']);
+const SERVICE_SIDE_TYPES = new Set(['partner', 'media_partner']);
 
 interface OrgInfo {
   organizationType: OrgType;
@@ -38,9 +44,9 @@ async function getOrgInfo(orgId: string): Promise<OrgInfo | null> {
   const orgType = (org as { organization_type: OrgType }).organization_type;
   const orgName = (org as { name: string | null }).name || 'this organization';
 
-  const sectorTable = orgType === 'marina'
+  const sectorTable = orgType && INTEREST_SIDE_TYPES.has(orgType)
     ? 'organization_interest_sectors'
-    : (orgType === 'partner' || orgType === 'media_partner')
+    : orgType && SERVICE_SIDE_TYPES.has(orgType)
     ? 'organization_service_sectors'
     : null;
 
@@ -101,12 +107,15 @@ export async function checkSectorMatch(
     };
   }
 
-  const isCrossType =
-    (from.organizationType === 'marina' && (to.organizationType === 'partner' || to.organizationType === 'media_partner')) ||
-    ((from.organizationType === 'partner' || from.organizationType === 'media_partner') && to.organizationType === 'marina');
+  const fromIsInterest = !!from.organizationType && INTEREST_SIDE_TYPES.has(from.organizationType);
+  const fromIsService = !!from.organizationType && SERVICE_SIDE_TYPES.has(from.organizationType);
+  const toIsInterest = !!to.organizationType && INTEREST_SIDE_TYPES.has(to.organizationType);
+  const toIsService = !!to.organizationType && SERVICE_SIDE_TYPES.has(to.organizationType);
 
-  // Same-type connections aren't sector-gated (overlap isn't meaningful between
-  // two marinas' interest lists, or between two partners' service lists).
+  const isCrossType = (fromIsInterest && toIsService) || (fromIsService && toIsInterest);
+
+  // Same-side connections aren't sector-gated (overlap isn't meaningful between
+  // two interest lists, or between two service lists).
   if (!isCrossType) {
     return { allowed: true, overlapCount: 0 };
   }

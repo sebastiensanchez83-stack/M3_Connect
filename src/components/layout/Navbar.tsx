@@ -97,10 +97,10 @@ export function Navbar() {
   ];
 
   const orgVerified = organization?.access_status === 'verified';
-  const isMarina = profile?.persona === 'marina';
-  const canSubmitProject = (isMarina || isFeatureEnabled('submit_project')) && isVerified && orgVerified;
-  const canSubmitRFP = (isMarina || isFeatureEnabled('submit_rfp')) && isVerified && orgVerified;
-  const canSubmitConsultation = (isMarina || isFeatureEnabled('submit_consultation')) && isVerified && orgVerified;
+  const isMarinaLike = profile?.persona === 'marina' || profile?.persona === 'developer';
+  const canSubmitProject = (isMarinaLike || isFeatureEnabled('submit_project')) && isVerified && orgVerified;
+  const canSubmitRFP = (isMarinaLike || isFeatureEnabled('submit_rfp')) && isVerified && orgVerified;
+  const canSubmitConsultation = (isMarinaLike || isFeatureEnabled('submit_consultation')) && isVerified && orgVerified;
   const canRequestWebinar = (isVerified && orgVerified) && (true || isFeatureEnabled('request_webinar'));
   const hasActions = canSubmitProject || canSubmitRFP || canSubmitConsultation || canRequestWebinar;
 

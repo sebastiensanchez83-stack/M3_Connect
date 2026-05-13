@@ -20,7 +20,7 @@ import {
   Building2, Globe, MapPin, Users, Mail, ChevronLeft,
   Loader2, ExternalLink, Anchor, Newspaper, Ship, Droplets,
   CheckCircle, GraduationCap, Wrench, UtensilsCrossed, Sparkles, Link2,
-  Award,
+  Award, HardHat, TrendingUp,
 } from 'lucide-react';
 import { Organization, OrganizationMember, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
@@ -91,10 +91,11 @@ export function OrganizationPublicPage() {
           if (marinaData) setMarinaDetails(marinaData as OrganizationMarinaDetails);
         }
 
-        // Fetch sectors (interest for marinas, service for partners/media)
-        const sectorTable = o.organization_type === 'marina'
+        // Fetch sectors (interest for marina/developer/investor, service for partners/media)
+        const ot = o.organization_type;
+        const sectorTable = (ot === 'marina' || ot === 'developer' || ot === 'investor')
           ? 'organization_interest_sectors'
-          : (o.organization_type === 'partner' || o.organization_type === 'media_partner')
+          : (ot === 'partner' || ot === 'media_partner')
           ? 'organization_service_sectors'
           : null;
 
@@ -217,6 +218,8 @@ export function OrganizationPublicPage() {
       case 'marina': return <Anchor className="h-4 w-4" />;
       case 'partner': return <Building2 className="h-4 w-4" />;
       case 'media_partner': return <Newspaper className="h-4 w-4" />;
+      case 'developer': return <HardHat className="h-4 w-4" />;
+      case 'investor': return <TrendingUp className="h-4 w-4" />;
       default: return <Users className="h-4 w-4" />;
     }
   };
@@ -226,6 +229,8 @@ export function OrganizationPublicPage() {
       case 'marina': return 'Marina / Port';
       case 'partner': return t('auth.personaPartner');
       case 'media_partner': return t('auth.personaMedia');
+      case 'developer': return t('auth.personaDeveloper', 'Developer');
+      case 'investor': return t('auth.personaInvestor', 'Investor');
       default: return '';
     }
   };
@@ -380,7 +385,13 @@ export function OrganizationPublicPage() {
                 <Card>
                   <CardContent className="pt-6">
                     <h2 className="text-lg font-semibold text-gray-900 mb-3">
-                      {org.organization_type === 'marina' ? 'Sectors of Interest' : org.organization_type === 'media_partner' ? 'Coverage Areas' : 'Service Sectors'}
+                      {org.organization_type === 'media_partner'
+                        ? 'Coverage Areas'
+                        : (org.organization_type === 'partner')
+                        ? 'Service Sectors'
+                        : org.organization_type === 'investor'
+                        ? 'Investment Focus Sectors'
+                        : 'Sectors of Interest'}
                     </h2>
                     <div className="flex flex-wrap gap-2">
                       {sectors.map((s) => (

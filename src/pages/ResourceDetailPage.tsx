@@ -110,7 +110,10 @@ export function ResourceDetailPage() {
     if (level === 'public') return true;
     if (!user) return false;
     if (level === 'members') return true;
-    if (level === 'marina') return profile?.persona === 'marina' && isVerified;
+    if (level === 'marina') {
+      const isInterestSide = profile?.persona === 'marina' || profile?.persona === 'developer' || profile?.persona === 'investor';
+      return isInterestSide && isVerified;
+    }
     return false;
   };
 

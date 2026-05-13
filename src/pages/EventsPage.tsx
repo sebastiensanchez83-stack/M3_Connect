@@ -118,7 +118,10 @@ export function EventsPage() {
     if (level === 'public') return true;
     if (!user) return false;
     if (level === 'members') return isVerified;
-    if (level === 'marina') return (profile?.persona === 'marina' && isVerified) || isModerator;
+    if (level === 'marina') {
+      const isInterestSide = profile?.persona === 'marina' || profile?.persona === 'developer' || profile?.persona === 'investor';
+      return (isInterestSide && isVerified) || isModerator;
+    }
     return false;
   };
 

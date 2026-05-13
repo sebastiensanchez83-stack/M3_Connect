@@ -150,8 +150,11 @@ export function MarketplacePage() {
   const [interestTarget, setInterestTarget] = useState<{ type: 'rfp' | 'consultation'; id: string; title: string; marina_user_id: string; marina_organization_id: string | null; sector_id: string | null } | null>(null);
   const [existingInterests, setExistingInterests] = useState<Set<string>>(new Set());
 
-  const isMarina = profile?.persona === 'marina';
+  const isMarina = profile?.persona === 'marina' || profile?.persona === 'developer';
   const isPartner = profile?.persona === 'partner' && isVerified;
+  // Investor is interest-side but read-heavy: include in marina-bucket for filters/sectors
+  const isInvestor = profile?.persona === 'investor';
+  void isInvestor;
 
   /* ---- fetch existing partner interests (for disabling "already expressed" buttons) ---- */
   useEffect(() => {
@@ -258,7 +261,10 @@ export function MarketplacePage() {
   /* ---- pre-select sectors for logged-in users ---- */
   useEffect(() => {
     if (!user || !organization || sectors.length === 0) return;
-    const table = organization.organization_type === 'marina'
+    // Interest-side personas (marina, developer, investor) populate interest sectors;
+    // service-side personas (partner, media_partner) populate service sectors.
+    const orgType = organization.organization_type;
+    const table = (orgType === 'marina' || orgType === 'developer' || orgType === 'investor')
       ? 'organization_interest_sectors'
       : 'organization_service_sectors';
     supabase

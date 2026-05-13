@@ -292,7 +292,7 @@ export function AccountPage() {
           .order('created_at', { ascending: false });
         if (regs) setRegistrations(regs as unknown as EventRegistration[]);
 
-        if (profile?.persona === 'marina' || isFeatureEnabled('submit_project')) {
+        if (profile?.persona === 'marina' || profile?.persona === 'developer' || isFeatureEnabled('submit_project')) {
           const { data: proj } = await supabase
             .from('marina_projects')
             .select('id, project_type, budget_range, timeline, status, created_at')
@@ -308,8 +308,8 @@ export function AccountPage() {
           .order('created_at', { ascending: false });
         if (webinars) setWebinarRequests(webinars as WebinarRequest[]);
 
-        // Fetch RFPs (marina or entitlement-granted)
-        if (profile?.persona === 'marina' || isFeatureEnabled('submit_rfp')) {
+        // Fetch RFPs (marina/developer or entitlement-granted)
+        if (profile?.persona === 'marina' || profile?.persona === 'developer' || isFeatureEnabled('submit_rfp')) {
           const { data: rfpData } = await supabase
             .from('rfps')
             .select('id, title, scope, sector_id, deadline_date, is_open, status, rejection_reason, created_at')
@@ -318,7 +318,7 @@ export function AccountPage() {
           if (rfpData) setRfps(rfpData as RFPItem[]);
         }
 
-        if (profile?.persona === 'marina' || isFeatureEnabled('submit_consultation')) {
+        if (profile?.persona === 'marina' || profile?.persona === 'developer' || isFeatureEnabled('submit_consultation')) {
           const { data: consultData } = await supabase
             .from('consultations')
             .select('id, title, description, sector_id, is_open, status, rejection_reason, created_at')
@@ -357,10 +357,12 @@ export function AccountPage() {
         setConnectionRequestCount(allRequests.length);
         setPendingRequestCount(allRequests.filter((r) => r.status === 'pending').length);
 
-        // Personalized feed: get user's sectors from org-level tables
-        const orgSectorTable = profile.persona === 'marina'
+        // Personalized feed: get user's sectors from org-level tables.
+        // Interest-side personas (marina, developer, investor) use interest sectors.
+        // Service-side personas (partner, media_partner) use service sectors.
+        const orgSectorTable = (profile.persona === 'marina' || profile.persona === 'developer' || profile.persona === 'investor')
           ? 'organization_interest_sectors'
-          : profile.persona === 'partner'
+          : (profile.persona === 'partner' || profile.persona === 'media_partner')
           ? 'organization_service_sectors'
           : null;
 
@@ -550,15 +552,21 @@ export function AccountPage() {
   }
 
   const isMarina = profile.persona === 'marina';
+  const isDeveloper = profile.persona === 'developer';
+  const isInvestor = profile.persona === 'investor';
+  const isMarinaLike = isMarina || isDeveloper;
   const isPartnerOnly = profile.persona === 'partner';
   const isMediaPartner = profile.persona === 'media_partner';
   const isPartner = isPartnerOnly || isMediaPartner; // either partner type (for shared UI like B2B tabs)
   const org = organization;
 
-  // Entitlement-aware feature access: native persona access OR admin-granted
-  const canProjects = isMarina || isFeatureEnabled('submit_project');
-  const canRFPs = isMarina || isFeatureEnabled('submit_rfp');
-  const canConsultations = isMarina || isFeatureEnabled('submit_consultation');
+  // Entitlement-aware feature access: native persona access OR admin-granted.
+  // Developers get the same submission features as marinas. Investors are
+  // read-only by default but can have features granted via entitlement.
+  const canProjects = isMarinaLike || isFeatureEnabled('submit_project');
+  const canRFPs = isMarinaLike || isFeatureEnabled('submit_rfp');
+  const canConsultations = isMarinaLike || isFeatureEnabled('submit_consultation');
+  void isInvestor;
   const canWebinars = true; // always visible, gated inside
   const canB2B = true; // always visible
 

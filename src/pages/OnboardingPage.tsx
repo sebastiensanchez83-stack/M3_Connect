@@ -316,7 +316,8 @@ export function OnboardingPage() {
         const metaCompanyWebsite = user.user_metadata?.company_website || '';
         if (profile.persona === 'marina') {
           setMarina(prev => ({ ...prev, marina_name: metaCompanyName, website: metaCompanyWebsite }));
-        } else if (profile.persona === 'partner') {
+        } else if (profile.persona === 'partner' || profile.persona === 'developer' || profile.persona === 'investor') {
+          // Developer and Investor reuse the partner form shape (basic org info + sectors)
           setPartner(prev => ({ ...prev, company_name: metaCompanyName, website: metaCompanyWebsite }));
         } else if (profile.persona === 'media_partner') {
           setMedia(prev => ({ ...prev, media_name: metaCompanyName, website: metaCompanyWebsite }));
@@ -657,7 +658,14 @@ export function OnboardingPage() {
           );
         }
 
-      } else if (profile.persona === 'partner') {
+      } else if (profile.persona === 'partner' || profile.persona === 'developer' || profile.persona === 'investor') {
+        // Partner, Developer, and Investor all use the same lightweight form
+        // shape (basic org info + sectors). They differ in:
+        //   - organization_type stored on the org row
+        //   - sector table they populate: service vs interest
+        const usesInterest = profile.persona === 'developer' || profile.persona === 'investor';
+        const sectorTable = usesInterest ? 'organization_interest_sectors' : 'organization_service_sectors';
+
         if (!partner.company_name || !partner.website || !partner.description) {
           toast({ title: 'Required fields', description: 'Name, website and description are mandatory.', variant: 'destructive' });
           setLoading(false); return;
@@ -666,7 +674,7 @@ export function OnboardingPage() {
         if (!createdOrgId) {
           const { data: orgResult, error: orgErr } = await supabase.rpc('create_organization', {
             p_name: partner.company_name,
-            p_organization_type: 'partner',
+            p_organization_type: profile.persona,
             p_primary_domain: primaryDomain,
             p_website: partner.website || null,
             p_description: partner.description || null,
@@ -684,10 +692,10 @@ export function OnboardingPage() {
           headquarters_country: partner.headquarters_country || null,
         }).eq('id', createdOrgId);
 
-        // Save service sectors
-        await supabase.from('organization_service_sectors').delete().eq('organization_id', createdOrgId);
+        // Save sectors (interest for developer/investor, service for partner)
+        await supabase.from(sectorTable).delete().eq('organization_id', createdOrgId);
         if (selectedSectors.length > 0) {
-          await supabase.from('organization_service_sectors').insert(
+          await supabase.from(sectorTable).insert(
             selectedSectors.map(s => ({ organization_id: createdOrgId!, sector_id: s }))
           );
         }
@@ -1229,11 +1237,19 @@ export function OnboardingPage() {
         {/* ════════════════════════════════════════════════════════
             ██  PARTNER ORGANIZATION FORM
             ════════════════════════════════════════════════════════ */}
-        {profile.persona === 'partner' && (
+        {(profile.persona === 'partner' || profile.persona === 'developer' || profile.persona === 'investor') && (
           <Card>
             <CardHeader>
-              <CardTitle>{t('onboarding.partnerForm.title')}</CardTitle>
-              <CardDescription>{t('onboarding.partnerForm.subtitle')}</CardDescription>
+              <CardTitle>
+                {profile.persona === 'developer' && t('onboarding.developerForm.title', 'Developer details')}
+                {profile.persona === 'investor' && t('onboarding.investorForm.title', 'Investor details')}
+                {profile.persona === 'partner' && t('onboarding.partnerForm.title')}
+              </CardTitle>
+              <CardDescription>
+                {profile.persona === 'developer' && t('onboarding.developerForm.subtitle', 'Tell us about your company and the marina sectors you focus on.')}
+                {profile.persona === 'investor' && t('onboarding.investorForm.subtitle', 'Tell us about your fund or family office and the sectors you invest in.')}
+                {profile.persona === 'partner' && t('onboarding.partnerForm.subtitle')}
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2">
@@ -1284,8 +1300,16 @@ export function OnboardingPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>{t('onboarding.partnerForm.serviceSectors')}</Label>
-                <p className="text-xs text-gray-500">{t('onboarding.partnerForm.serviceSectorsHint')}</p>
+                <Label>
+                  {profile.persona === 'developer' && t('onboarding.developerForm.interestSectors', 'Sectors of interest')}
+                  {profile.persona === 'investor' && t('onboarding.investorForm.interestSectors', 'Investment focus sectors')}
+                  {profile.persona === 'partner' && t('onboarding.partnerForm.serviceSectors')}
+                </Label>
+                <p className="text-xs text-gray-500">
+                  {profile.persona === 'developer' && t('onboarding.developerForm.interestSectorsHint', 'Pick the marina-industry sectors most relevant to your projects.')}
+                  {profile.persona === 'investor' && t('onboarding.investorForm.interestSectorsHint', 'Pick the sectors you invest in or look at for deal flow.')}
+                  {profile.persona === 'partner' && t('onboarding.partnerForm.serviceSectorsHint')}
+                </p>
                 <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
                   {sectors.map(s => (
                     <div key={s.id} className="flex items-center space-x-2">

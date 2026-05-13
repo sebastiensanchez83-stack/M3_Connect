@@ -531,6 +531,8 @@ export function AdminUsers() {
             <SelectItem value="marina">Marina</SelectItem>
             <SelectItem value="partner">Partner</SelectItem>
             <SelectItem value="media_partner">Media</SelectItem>
+            <SelectItem value="developer">Developer</SelectItem>
+            <SelectItem value="investor">Investor</SelectItem>
             <SelectItem value="moderator">Moderator</SelectItem>
             <SelectItem value="admin">Admin</SelectItem>
           </SelectContent>
@@ -567,6 +569,8 @@ export function AdminUsers() {
                   <SelectItem value="marina">Marina</SelectItem>
                   <SelectItem value="partner">Partner</SelectItem>
                   <SelectItem value="media_partner">Media Partner</SelectItem>
+                  <SelectItem value="developer">Developer</SelectItem>
+                  <SelectItem value="investor">Investor</SelectItem>
                   <SelectItem value="moderator">Moderator</SelectItem>
                   <SelectItem value="admin">Admin</SelectItem>
                 </SelectContent>

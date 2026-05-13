@@ -644,8 +644,8 @@ export function OrganizationTab() {
   const handleInvite = async () => {
     if (!org || !inviteForm.email.trim()) return;
 
-    // Capacity check — block invite if at max_seats (marinas have unlimited seats)
-    const isMarinaOrg = org.organization_type === 'marina';
+    // Capacity check — block invite if at max_seats (marinas/developers have unlimited seats)
+    const isMarinaOrg = org.organization_type === 'marina' || org.organization_type === 'developer';
     const totalOccupied = members.length + invitations.length;
     if (!isMarinaOrg && org.max_seats && totalOccupied >= org.max_seats) {
       const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];

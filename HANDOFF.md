@@ -17,7 +17,8 @@
 | **Email provider** | Resend (via `send-notification` edge function) |
 | **Stack** | React 18 + TS + Vite + Supabase + Tailwind + Radix UI |
 | **i18n** | English + French (i18next) |
-| **Local path** | Varies by machine. Pattern: `C:\Users\<WindowsUser>\<DropboxOwner> Dropbox\MONACO MARINA MANAGEMENT\9 M3 Connect\Dev plateform\M3_Connect`. To find it, in Git Bash: `find /c/Users/$USER -maxdepth 6 -type d -name "M3_Connect" 2>/dev/null` |
+| **Local path (new Windows machine)** | `C:\Users\Victor\M3 Dropbox\Victor Meyer\MONACO MARINA MANAGEMENT\9 M3 Connect\Dev plateform\M3_Connect` |
+| **Git Bash path** | `/c/Users/Victor/M3 Dropbox/Victor Meyer/MONACO MARINA MANAGEMENT/9 M3 Connect/Dev plateform/M3_Connect` |
 
 ### Admin accounts
 - `sebastien@m3monaco.com` (admin)
@@ -35,12 +36,8 @@
 ```bash
 # 1. Make sure Dropbox finishes syncing the project folder (green checkmark on tray icon)
 
-# 2. Find the project (Dropbox account name varies per machine — folder is shared)
-find /c/Users/$USER -maxdepth 6 -type d -name "M3_Connect" 2>/dev/null
-#    Example output: /c/Users/victor/Victor Meyer Dropbox/MONACO MARINA MANAGEMENT/9 M3 Connect/Dev plateform/M3_Connect
-
-# 3. cd into it — wrap full path in double quotes due to spaces
-cd "/c/Users/victor/Victor Meyer Dropbox/MONACO MARINA MANAGEMENT/9 M3 Connect/Dev plateform/M3_Connect"
+# 2. cd into the project root (Victor's machine path — wrap in double quotes due to spaces)
+cd "/c/Users/Victor/M3 Dropbox/Victor Meyer/MONACO MARINA MANAGEMENT/9 M3 Connect/Dev plateform/M3_Connect"
 
 # 4. Install dependencies (Dropbox is empty of node_modules by design)
 npm install

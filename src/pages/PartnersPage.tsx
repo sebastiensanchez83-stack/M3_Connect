@@ -9,6 +9,8 @@ import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
+import { SPONSOR_TIERS, type OrgTier } from '@/types/database';
+import { SponsorBadge } from '@/components/ui/SponsorBadge';
 
 interface OrgCard {
   id: string;
@@ -20,6 +22,7 @@ interface OrgCard {
   country: string | null;
   headquarters_country: string | null;
   logo_url: string | null;
+  tier: OrgTier;
   sectors: { id: string; label: string }[];
 }
 
@@ -33,12 +36,14 @@ export function PartnersPage() {
     const fetchPartners = async () => {
       setLoading(true);
       try {
-        // Get verified partner organizations
+        // Get verified partner organizations on a paying tier (innovation_partner
+        // and up). Free Member-tier orgs are excluded from the public directory.
         const { data: orgRows, error } = await supabase
           .from('organizations')
-          .select('id, slug, name, organization_type, website, country, headquarters_country, description, logo_url, access_status')
+          .select('id, slug, name, organization_type, website, country, headquarters_country, description, logo_url, access_status, tier')
           .eq('access_status', 'verified')
-          .eq('organization_type', 'partner');
+          .eq('organization_type', 'partner')
+          .in('tier', SPONSOR_TIERS);
 
         if (error) throw error;
         if (!orgRows || orgRows.length === 0) {
@@ -74,6 +79,7 @@ export function PartnersPage() {
           headquarters_country: o.headquarters_country,
           description: o.description,
           logo_url: o.logo_url,
+          tier: o.tier as OrgTier,
           sectors: sectorMap[o.id] || [],
         }));
 
@@ -154,7 +160,10 @@ export function PartnersPage() {
                       {getInitials(partner.name)}
                     </div>
                   )}
-                  <h3 className="font-semibold mb-2">{partner.name}</h3>
+                  <h3 className="font-semibold mb-1">{partner.name}</h3>
+                  <div className="flex justify-center mb-2">
+                    <SponsorBadge tier={partner.tier} size="sm" />
+                  </div>
                   {partner.sectors.length > 0 && (
                     <div className="flex flex-wrap gap-1 justify-center mb-2">
                       {partner.sectors.slice(0, 2).map((s) => (

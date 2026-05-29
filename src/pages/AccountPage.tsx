@@ -1287,7 +1287,9 @@ export function AccountPage() {
                         </Link>
                         <div className="flex items-center gap-2 shrink-0">
                           {/* Event payment button removed — payment integration deferred */}
-                          {!isPaid && (
+                          {/* Allow self-cancel for everything except registrations that
+                              were actually paid for (those need a refund flow). */}
+                          {reg.payment_status !== 'paid' && (
                             <Button
                               variant="ghost"
                               size="sm"

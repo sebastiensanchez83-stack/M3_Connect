@@ -4,12 +4,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { Loader2, CheckCircle, Clock, AlertCircle, Ship, Eye, Users, Lock, Package } from 'lucide-react';
+import { Loader2, CheckCircle, Clock, AlertCircle, Ship, Eye, Users, Lock, Package, Video } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import { OrgTier, isSponsorTier, TIER_LABELS } from '@/types/database';
+import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
+import type { CalendarEventInput } from '@/lib/utils';
 
 interface EventPackage {
   id: string;
@@ -26,6 +28,13 @@ interface EventRegistrationFlowProps {
   invitationOnly?: boolean;
   packages?: EventPackage[];
   onRegistrationChange?: (isRegistered: boolean, count: number) => void;
+  // Event details used to build "add to calendar" links + the success popup.
+  eventTitle?: string;
+  eventDescription?: string | null;
+  eventDateTime?: string | null;
+  eventEndDateTime?: string | null;
+  eventLocation?: string | null;
+  eventMeetingUrl?: string | null;
 }
 
 type RegistrationStatus = 'none' | 'registered' | 'invitation_requested' | 'expo_pending' | 'expo_approved' | 'expo_invoice_sent' | 'expo_paid' | 'expo_rejected';
@@ -48,6 +57,12 @@ export function EventRegistrationFlow({
   invitationOnly = false,
   packages = [],
   onRegistrationChange,
+  eventTitle,
+  eventDescription,
+  eventDateTime,
+  eventEndDateTime,
+  eventLocation,
+  eventMeetingUrl,
 }: EventRegistrationFlowProps) {
   const { user, profile, organization, isVerified } = useAuth();
 
@@ -59,6 +74,24 @@ export function EventRegistrationFlow({
   const [packageSelectOpen, setPackageSelectOpen] = useState(false);
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [orgRegistrationCount, setOrgRegistrationCount] = useState(0);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // Event payload used for the "add to calendar" buttons and the success popup.
+  const calendarEvent: CalendarEventInput = {
+    title: eventTitle || 'Smart Marina Connect Event',
+    description: eventDescription ?? null,
+    date_time: eventDateTime || '',
+    end_date_time: eventEndDateTime ?? null,
+    location: eventLocation ?? null,
+    url: eventMeetingUrl ?? null,
+  };
+  const hasSchedule = !!calendarEvent.date_time;
+
+  const formatEventWhen = (iso: string) =>
+    new Date(iso).toLocaleString(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
 
   // Marina-like personas (marina, developer, investor) get the same event
   // registration treatment as marina — they're interest-side attendees,
@@ -180,22 +213,30 @@ export function EventRegistrationFlow({
         if (isFree) {
           sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventId } });
         }
-        setStatus(invitationOnly && !isFree ? 'invitation_requested' : 'registered');
+        const resolvedStatus: RegistrationStatus = invitationOnly && !isFree ? 'invitation_requested' : 'registered';
+        setStatus(resolvedStatus);
         setRegistrationCount(c => c + 1);
         setOrgRegistrationCount(c => c + 1);
         onRegistrationChange?.(true, registrationCount + 1);
-        toast({
-          title: invitationOnly
-            ? 'Invitation requested'
-            : isFree
-              ? 'Registered (included in your sponsorship)'
-              : 'Registration submitted',
-          description: invitationOnly
-            ? 'Your invitation request has been sent. You will be notified once approved.'
-            : !isFree
-              ? 'Your registration has been submitted. You will be notified when payment is due.'
-              : undefined,
-        });
+
+        if (resolvedStatus === 'registered' && hasSchedule) {
+          // Confirmed registration with a known date — show the success popup
+          // with calendar buttons instead of a transient toast.
+          setConfirmOpen(true);
+        } else {
+          toast({
+            title: invitationOnly
+              ? 'Invitation requested'
+              : isFree
+                ? 'Registered (included in your sponsorship)'
+                : 'Registration submitted',
+            description: invitationOnly
+              ? 'Your invitation request has been sent. You will be notified once approved.'
+              : !isFree
+                ? 'Your registration has been submitted. You will be notified when payment is due.'
+                : undefined,
+          });
+        }
       }
     } catch (err) {
       toast({ title: 'Registration failed', description: 'An unexpected error occurred.', variant: 'destructive' });
@@ -276,10 +317,70 @@ export function EventRegistrationFlow({
           <CheckCircle className="h-5 w-5" />
           <span className="font-medium">You are registered for this event</span>
         </div>
+
+        {eventType === 'webinar' && eventMeetingUrl && (
+          <Button asChild className="w-full bg-violet-600 hover:bg-violet-700 rounded-lg">
+            <a href={eventMeetingUrl} target="_blank" rel="noopener noreferrer">
+              <Video className="h-4 w-4 mr-2" />
+              Join the webinar
+            </a>
+          </Button>
+        )}
+
+        {hasSchedule && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Add to calendar</p>
+            <AddToCalendarButtons event={calendarEvent} />
+          </div>
+        )}
+
         <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg" onClick={handleCancel} disabled={registering}>
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
           Cancel Registration
         </Button>
+
+        {/* Success popup shown immediately after registering */}
+        <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <DialogContent className="max-w-md rounded-2xl">
+            <DialogHeader>
+              <div className="mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+                <CheckCircle className="h-7 w-7 text-green-600" />
+              </div>
+              <DialogTitle className="text-center">You're registered!</DialogTitle>
+              <DialogDescription className="text-center">
+                {eventTitle
+                  ? <>You're confirmed for <span className="font-medium text-gray-700">{eventTitle}</span>.</>
+                  : 'Your registration is confirmed.'}
+                {' '}Add it to your calendar so you don't miss it.
+              </DialogDescription>
+            </DialogHeader>
+
+            {hasSchedule && (
+              <div className="flex items-center justify-center gap-2 text-sm text-gray-600">
+                <Clock className="h-4 w-4 text-primary" />
+                <span>{formatEventWhen(calendarEvent.date_time)}</span>
+              </div>
+            )}
+
+            {eventType === 'webinar' && eventMeetingUrl && (
+              <Button asChild className="w-full bg-violet-600 hover:bg-violet-700 rounded-xl">
+                <a href={eventMeetingUrl} target="_blank" rel="noopener noreferrer">
+                  <Video className="h-4 w-4 mr-2" />
+                  Join the webinar
+                </a>
+              </Button>
+            )}
+
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide text-center">Add to calendar</p>
+              <AddToCalendarButtons event={calendarEvent} />
+            </div>
+
+            <Button variant="ghost" className="w-full" onClick={() => setConfirmOpen(false)}>
+              Done
+            </Button>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

@@ -14,7 +14,7 @@ import {
   ChevronLeft, Calendar, Clock, MapPin, Users, Play,
   Download, DollarSign, UserCheck, AlertCircle, Loader2,
   Video, Building2, ExternalLink, FileDown, Globe, Users as UsersIcon, Lock,
-  Tag, Package,
+  Tag, Package, X,
 } from 'lucide-react';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
@@ -22,6 +22,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow';
 import { LightweightWebinarSignup } from '@/components/events/LightweightWebinarSignup';
+import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 
 type EventType = 'webinar' | 'on_site';
 
@@ -95,6 +96,7 @@ export function EventDetailPage() {
   const [packages, setPackages] = useState<EventPackage[]>([]);
   const [sectors, setSectors] = useState<EventSector[]>([]);
   const [isUserRegistered, setIsUserRegistered] = useState(false);
+  const [unregistering, setUnregistering] = useState(false);
 
   const profileComplete = profile?.access_status === 'verified' && profile?.onboarding_status === 'completed';
 
@@ -262,6 +264,34 @@ export function EventDetailPage() {
   const formatPrice = (cents: number) => {
     if (cents === 0) return 'Free';
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+  };
+
+  const handleUnregister = async () => {
+    if (!id || !user) return;
+    if (!window.confirm('Are you sure you want to cancel your registration for this event?')) return;
+    setUnregistering(true);
+    try {
+      const email = user.email?.toLowerCase();
+      // Remove the row owned by this user, or a guest row matching their email
+      // (covers guest signups that were later upgraded to an account). RLS will
+      // silently skip any row the user isn't allowed to delete.
+      let query = supabase.from('event_registrations').delete().eq('event_id', id);
+      query = email
+        ? query.or(`user_id.eq.${user.id},guest_email.eq.${email}`)
+        : query.eq('user_id', user.id);
+      const { error } = await query;
+      if (error) {
+        toast({ title: 'Failed to cancel registration', description: error.message, variant: 'destructive' });
+      } else {
+        setIsUserRegistered(false);
+        setRegistrationCount(c => Math.max(0, c - 1));
+        toast({ title: 'Registration cancelled' });
+      }
+    } catch (err) {
+      toast({ title: 'Failed to cancel registration', description: 'An unexpected error occurred.', variant: 'destructive' });
+    } finally {
+      setUnregistering(false);
+    }
   };
 
   if (loading) return <LoadingSkeleton variant="page" />;
@@ -671,8 +701,35 @@ export function EventDetailPage() {
                           </a>
                         </Button>
                       )}
+                      {event.date_time && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                            {t('events.addToCalendar', 'Add to calendar')}
+                          </p>
+                          <AddToCalendarButtons
+                            event={{
+                              title: event.title,
+                              description: event.description,
+                              date_time: event.date_time,
+                              end_date_time: event.end_date_time,
+                              location: event.location,
+                              url: event.meeting_url,
+                            }}
+                          />
+                        </div>
+                      )}
                       <Button variant="outline" className="w-full" onClick={() => navigate('/account?tab=registrations')}>
                         View My Registrations
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full text-red-600 hover:text-red-700 hover:bg-red-50"
+                        onClick={handleUnregister}
+                        disabled={unregistering}
+                      >
+                        {unregistering ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <X className="h-4 w-4 mr-2" />}
+                        Cancel my registration
                       </Button>
                     </div>
                   ) : user && !profileComplete ? (
@@ -691,6 +748,12 @@ export function EventDetailPage() {
                       eventType={event.event_type}
                       invitationOnly={event.invitation_only}
                       packages={packages}
+                      eventTitle={event.title}
+                      eventDescription={event.description}
+                      eventDateTime={event.date_time}
+                      eventEndDateTime={event.end_date_time}
+                      eventLocation={event.location}
+                      eventMeetingUrl={event.meeting_url}
                       onRegistrationChange={(_reg, count) => {
                         setRegistrationCount(count);
                       }}

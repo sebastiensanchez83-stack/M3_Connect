@@ -193,7 +193,17 @@ export function EventRegistrationFlow({
 
     setRegistering(true);
     try {
-      const isFree = type === 'sponsor_included';
+      // Work out whether this registration actually costs anything. Free
+      // registrations (sponsor-included, free webinars, free on-site events)
+      // are confirmed immediately rather than left "pending approval", which
+      // only makes sense for paid events that an admin still has to invoice.
+      const pkg = packageId ? packages.find(p => p.id === packageId) : undefined;
+      const costCents = type === 'sponsor_included'
+        ? 0
+        : pkg
+          ? pkg.price_cents
+          : (pricing?.price_cents ?? 0);
+      const isFree = costCents === 0;
       const insertData: Record<string, any> = {
         event_id: eventId,
         user_id: user.id,
@@ -211,7 +221,7 @@ export function EventRegistrationFlow({
         toast({ title: 'Registration failed', description: error.message, variant: 'destructive' });
       } else {
         if (isFree) {
-          sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventId } });
+          sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventTitle || eventId } });
         }
         const resolvedStatus: RegistrationStatus = invitationOnly && !isFree ? 'invitation_requested' : 'registered';
         setStatus(resolvedStatus);
@@ -627,8 +637,12 @@ export function EventRegistrationFlow({
     );
   }
 
-  // Member with discount
-  if (isPartner && orgTier === 'member') {
+  // Member with discount — only for events that actually have a cost.
+  // Free events (most webinars, and free on-site events) fall through to the
+  // plain "Register for this Event" button below, so we never show misleading
+  // "member rate / payment to follow" wording when there is nothing to pay.
+  const isPaidEvent = (pricing?.price_cents ?? 0) > 0;
+  if (isPartner && orgTier === 'member' && isPaidEvent) {
     const discount = pricing?.discount_pct || 10;
     return (
       <div className="space-y-2">

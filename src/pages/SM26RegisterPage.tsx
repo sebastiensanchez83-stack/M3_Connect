@@ -13,6 +13,7 @@ import {
   Newspaper, Scale, TrendingUp, Building2, Mic, Star,
 } from 'lucide-react';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
+import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
 
 // SM26 public intake — guest-first registration.
 // The registrant picks ONE way to participate; M3 can add further roles
@@ -55,6 +56,7 @@ export function SM26RegisterPage() {
   });
   const [role, setRole] = useState<string>('');
   const [startup, setStartup] = useState<StartupData>(EMPTY_STARTUP);
+  const [arch, setArch] = useState<ArchitectureData>(EMPTY_ARCHITECTURE);
   const [imageConsent, setImageConsent] = useState(false);
   const [terms, setTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -178,6 +180,28 @@ export function SM26RegisterPage() {
         }
       }
 
+      if (role === 'architect_pro' || role === 'architect_student') {
+        const teamMembers = arch.team_members.split('\n').map(s => s.trim()).filter(Boolean);
+        const { error: arErr } = await supabase.from('sm_architecture_entry').insert({
+          role_assignment_id: ra.id,
+          event_id: eventId,
+          category: role === 'architect_pro' ? 'professional' : 'student',
+          company_description: arch.company_description || null,
+          sustainability_statement: arch.sustainability_statement || null,
+          domain: arch.domain || null,
+          references_text: arch.references_text || null,
+          proof_of_enrolment_url: arch.proof_of_enrolment_url || null,
+          is_team: arch.is_team,
+          team_size: arch.team_size ? parseInt(arch.team_size, 10) : null,
+          team_members: teamMembers,
+          portfolio_link: arch.portfolio_link || null,
+          onsite_attendance: arch.onsite_attendance,
+        });
+        if (arErr) {
+          toast({ title: 'Registration saved — but the architecture details could not be saved', description: `${arErr.message}. You can add them later.`, variant: 'destructive' });
+        }
+      }
+
       setDone(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
@@ -270,6 +294,9 @@ export function SM26RegisterPage() {
           </Card>
 
           {role === 'startup' && <StartupFields value={startup} onChange={setStartup} />}
+          {(role === 'architect_pro' || role === 'architect_student') && (
+            <ArchitectureFields variant={role === 'architect_pro' ? 'professional' : 'student'} value={arch} onChange={setArch} />
+          )}
 
           <Card>
             <CardContent className="pt-6 space-y-3">

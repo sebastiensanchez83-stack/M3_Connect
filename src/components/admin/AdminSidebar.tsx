@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Users, FileText, Calendar, Anchor, RefreshCw,
   Radio, Link2, ClipboardList, MessageSquare,
-  ArrowUpCircle, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp,
+  ArrowUpCircle, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -21,6 +21,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     { to: '/admin/organizations', label: 'Organizations', icon: <Building2 className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/resources', label: isAdmin ? t('admin.resources') : 'Propose Resources', icon: <FileText className="h-4 w-4" /> },
     { to: '/admin/events', label: t('admin.events'), icon: <Calendar className="h-4 w-4" />, adminOnly: true },
+    { to: '/admin/sm26', label: 'SM26 Event', icon: <Ship className="h-4 w-4" />, adminOnly: true },
     // Partners merged into Users tab
     { to: '/admin/sponsorships', label: 'Sponsorships', icon: <ArrowUpCircle className="h-4 w-4" />, adminOnly: true },
     { to: '/admin/expositions', label: 'Expositions', icon: <Anchor className="h-4 w-4" />, adminOnly: true },

@@ -48,6 +48,8 @@ const TermsPage = lazyWithRetry(() => import('@/pages/TermsPage').then(m => ({ d
 const MentionsLegalesPage = lazyWithRetry(() => import('@/pages/MentionsLegalesPage').then(m => ({ default: m.MentionsLegalesPage })));
 const ConditionsCommercialesPage = lazyWithRetry(() => import('@/pages/ConditionsCommercialesPage').then(m => ({ default: m.ConditionsCommercialesPage })));
 const CookiePolicyPage = lazyWithRetry(() => import('@/pages/CookiePolicyPage').then(m => ({ default: m.CookiePolicyPage })));
+// SM26 event module (sm26 branch only — gated before any production merge)
+const SM26RegisterPage = lazyWithRetry(() => import('@/pages/SM26RegisterPage').then(m => ({ default: m.SM26RegisterPage })));
 
 function LazyFallback() {
   return (
@@ -77,6 +79,7 @@ function App() {
               <Route path="/resources/:id" element={<ResourceDetailPage />} />
               <Route path="/events" element={<EventsPage />} />
               <Route path="/events/:id" element={<EventDetailPage />} />
+              <Route path="/sm26/register" element={<SM26RegisterPage />} />
               <Route path="/partners" element={<PartnersPage />} />
               <Route path="/become-partner" element={<BecomePartnerPage />} />
               <Route path="/tiers" element={<TiersPage />} />

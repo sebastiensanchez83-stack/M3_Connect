@@ -1,8 +1,12 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import os from 'node:os'
 
 export default defineConfig({
+  // Keep Vite's dependency-optimization cache OUT of the Dropbox-synced
+  // node_modules/.vite folder to avoid EBUSY file-lock errors during dev.
+  cacheDir: path.join(os.tmpdir(), 'vite-m3connect'),
   plugins: [react()],
   resolve: {
     alias: {

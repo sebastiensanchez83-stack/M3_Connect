@@ -97,8 +97,16 @@ export function EventDetailPage() {
   const [sectors, setSectors] = useState<EventSector[]>([]);
   const [isUserRegistered, setIsUserRegistered] = useState(false);
   const [unregistering, setUnregistering] = useState(false);
+  const [smRegisterPath, setSmRegisterPath] = useState<string | null>(null);
 
   const profileComplete = profile?.access_status === 'verified' && profile?.onboarding_status === 'completed';
+
+  // If this event is managed by an SM module edition, route registration there.
+  useEffect(() => {
+    if (!id) { setSmRegisterPath(null); return; }
+    supabase.from('sm_event').select('slug').eq('legacy_event_id', id).maybeSingle()
+      .then(({ data }) => setSmRegisterPath(data ? `/${data.slug}/register` : null));
+  }, [id]);
 
   // Check if the logged-in user already has a registration for this event
   // (covers both direct registrations and guest → account upgrades via email match)
@@ -679,7 +687,11 @@ export function EventDetailPage() {
                   </div>
 
                   {/* Registration Flow */}
-                  {isFull && !isUserRegistered ? (
+                  {smRegisterPath ? (
+                    <Button className="w-full" onClick={() => navigate(smRegisterPath)}>
+                      {t('events.register', 'Register')}
+                    </Button>
+                  ) : isFull && !isUserRegistered ? (
                     <div className="flex items-center gap-2 text-amber-600 bg-amber-50 p-3 rounded-lg">
                       <AlertCircle className="h-5 w-5" />
                       <span className="font-medium">{t('events.eventFull', 'This event is full')}</span>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -44,11 +44,26 @@ export function EventsPage() {
   const [registeredEvents, setRegisteredEvents] = useState<string[]>([]);
   const [sectorTags, setSectorTags] = useState<SectorTag[]>([]);
   const [filterSector, setFilterSector] = useState<string | null>(null);
+  const [smPaths, setSmPaths] = useState<Record<string, string>>({});
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetchEvents();
     if (user) fetchRegisteredEvents();
   }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // SM-managed events (e.g. SM26) route registration to their own intake page.
+  useEffect(() => {
+    supabase.from('sm_event').select('legacy_event_id, slug').not('legacy_event_id', 'is', null)
+      .then(({ data }) => {
+        if (!data) return;
+        const m: Record<string, string> = {};
+        for (const row of data as { legacy_event_id: string | null; slug: string }[]) {
+          if (row.legacy_event_id) m[row.legacy_event_id] = `/${row.slug}/register`;
+        }
+        setSmPaths(m);
+      });
+  }, []);
 
   const fetchEvents = async () => {
     setLoading(true);
@@ -296,11 +311,15 @@ export function EventsPage() {
                   ) : (
                     <Button
                       size="sm"
-                      disabled={!hasAccess || isRegistered}
-                      onClick={() => handleRegister(event.id)}
-                      variant={isRegistered ? 'secondary' : 'default'}
+                      disabled={!hasAccess || (isRegistered && !smPaths[event.id])}
+                      onClick={(e) => {
+                        const p = smPaths[event.id];
+                        if (p) { e.preventDefault(); e.stopPropagation(); navigate(p); return; }
+                        handleRegister(event.id);
+                      }}
+                      variant={isRegistered && !smPaths[event.id] ? 'secondary' : 'default'}
                     >
-                      {isRegistered ? t('events.registered') : t('events.register')}
+                      {isRegistered && !smPaths[event.id] ? t('events.registered') : t('events.register')}
                     </Button>
                   )}
                   {!isPast && event.date_time && (

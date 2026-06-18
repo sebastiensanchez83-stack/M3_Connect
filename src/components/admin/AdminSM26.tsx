@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock } from 'lucide-react';
+import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -118,10 +119,13 @@ export function AdminSM26() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Ship className="h-6 w-6 text-primary" /> SM26 Registrations ({rows.length})
         </h1>
+        <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/jury')}>
+          <Scale className="h-4 w-4" /> Jury &amp; evaluation
+        </Button>
       </div>
 
       {/* Status summary chips */}

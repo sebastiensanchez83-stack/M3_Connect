@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Upload, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
+  BookOpen, CreditCard, MessageSquare,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,21 @@ interface Registration {
   first_name: string | null; company_name: string | null;
   roles: RoleAssignment[];
 }
+interface EcatPage {
+  id: string; kind: string; status: string;
+  designed_file_path: string | null; published_file_path: string | null;
+}
+
+const ECAT_LABEL: Record<string, string> = {
+  awaiting_export: 'Being prepared', exported: 'With our designer', in_design: 'In design',
+  uploaded: 'Ready for your review', changes_requested: 'Changes sent to designer',
+  approved: 'Approved', published: 'Published',
+};
+const ecatClass = (s: string) =>
+  s === 'published' || s === 'approved' ? 'bg-green-50 text-green-700 border-green-200'
+  : s === 'uploaded' ? 'bg-blue-50 text-blue-700 border-blue-200'
+  : s === 'changes_requested' ? 'bg-amber-50 text-amber-700 border-amber-200'
+  : 'bg-gray-50 text-gray-600 border-gray-200';
 
 export function SM26MyRegistrationPage() {
   const { user, loading: authLoading } = useAuth();
@@ -41,6 +57,10 @@ export function SM26MyRegistrationPage() {
   const [savingRole, setSavingRole] = useState<string | null>(null);
   const [uploading, setUploading] = useState<string | null>(null); // `${roleId}:${field}`
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [ecat, setEcat] = useState<EcatPage[]>([]);
+  const [payStatus, setPayStatus] = useState<string>('unpaid');
+  const [ecatBusy, setEcatBusy] = useState<string | null>(null);
+  const [changeNote, setChangeNote] = useState<Record<string, string>>({});
 
   useEffect(() => { if (user) load(); }, [user]);
 
@@ -69,10 +89,28 @@ export function SM26MyRegistrationPage() {
         }
       }
       setDrafts(d);
+      const [{ data: ecatRows }, { data: pay }] = await Promise.all([
+        supabase.from('sm_ecat_page').select('id,kind,status,designed_file_path,published_file_path').eq('registration_id', r.id),
+        supabase.from('sm_payment').select('status').eq('registration_id', r.id).maybeSingle(),
+      ]);
+      setEcat((ecatRows || []) as EcatPage[]);
+      setPayStatus((pay as { status?: string } | null)?.status || 'unpaid');
     }
     const { data: reqs } = await supabase.from('sm_role_requirement').select('*').eq('event_id', eventId);
     setRequirements((reqs || []) as Requirement[]);
     setLoading(false);
+  };
+
+  const respondEcat = async (page: EcatPage, action: 'approve' | 'request_changes') => {
+    setEcatBusy(page.id);
+    const { error } = await supabase.rpc('sm_ecat_respond', {
+      p_page_id: page.id, p_action: action, p_comment: action === 'request_changes' ? (changeNote[page.id] || '') : null,
+    });
+    setEcatBusy(null);
+    if (error) { toast({ title: 'Could not submit', description: error.message, variant: 'destructive' }); return; }
+    setEcat(prev => prev.map(p => p.id === page.id ? { ...p, status: action === 'approve' ? 'approved' : 'changes_requested' } : p));
+    setChangeNote(prev => ({ ...prev, [page.id]: '' }));
+    toast({ title: action === 'approve' ? 'Page approved' : 'Change request sent' });
   };
 
   const reqsForRole = (role: string) =>
@@ -172,6 +210,55 @@ export function SM26MyRegistrationPage() {
             </div>
           </CardContent>
         </Card>
+
+        {ecat.length > 0 && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <CardTitle className="flex items-center gap-2"><BookOpen className="h-5 w-5 text-primary" /> Your e-catalogue page</CardTitle>
+                <Badge className={`text-[11px] ${payStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                  <CreditCard className="h-3 w-3 mr-1" /> {payStatus === 'paid' ? 'Paid' : payStatus === 'invoiced' ? 'Invoiced' : 'Payment pending'}
+                </Badge>
+              </div>
+              <CardDescription>We design a catalogue page from your profile. Review it here when it's ready — it goes live once you approve it and payment is received.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {ecat.map(page => (
+                <div key={page.id} className="rounded-lg border border-gray-200 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-sm font-medium capitalize">{page.kind} page</span>
+                    <Badge className={`text-[10px] ${ecatClass(page.status)}`}>{ECAT_LABEL[page.status] || page.status}</Badge>
+                  </div>
+
+                  {(page.status === 'uploaded' || page.status === 'approved' || page.status === 'changes_requested' || page.status === 'published') && (page.published_file_path || page.designed_file_path) && (
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => viewFile((page.published_file_path || page.designed_file_path)!)}>
+                      <ExternalLink className="h-3.5 w-3.5" /> View {page.status === 'published' ? 'published page' : 'designed page'}
+                    </Button>
+                  )}
+
+                  {page.status === 'uploaded' && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-gray-600">Please review the designed page and either approve it or request changes.</p>
+                      <Textarea rows={2} placeholder="Optional: what would you like changed?" value={changeNote[page.id] || ''} onChange={e => setChangeNote(prev => ({ ...prev, [page.id]: e.target.value }))} />
+                      <div className="flex gap-2">
+                        <Button size="sm" className="gap-1.5" disabled={ecatBusy === page.id} onClick={() => respondEcat(page, 'approve')}>
+                          {ecatBusy === page.id && <Loader2 className="h-4 w-4 animate-spin" />}<Check className="h-4 w-4" /> Approve
+                        </Button>
+                        <Button size="sm" variant="outline" className="gap-1.5" disabled={ecatBusy === page.id} onClick={() => respondEcat(page, 'request_changes')}>
+                          <MessageSquare className="h-4 w-4" /> Request changes
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  {page.status === 'changes_requested' && <p className="text-sm text-amber-700">Your change request was sent to the designer — we'll share a revised version to review.</p>}
+                  {page.status === 'approved' && <p className="text-sm text-green-700">Approved. {payStatus === 'paid' ? 'It will be published shortly.' : 'It will be published once payment is received.'}</p>}
+                  {page.status === 'published' && <p className="text-sm text-green-700">Your page is live in the e-catalogue.</p>}
+                  {(page.status === 'awaiting_export' || page.status === 'exported' || page.status === 'in_design') && <p className="text-sm text-gray-500">Your page is being prepared — we'll let you know when it's ready to review.</p>}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {rolesWithReqs.length === 0 ? (
           <Card>

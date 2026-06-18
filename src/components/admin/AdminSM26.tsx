@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen } from 'lucide-react';
+import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen, CalendarDays } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -124,6 +124,9 @@ export function AdminSM26() {
           <Ship className="h-6 w-6 text-primary" /> SM26 Registrations ({rows.length})
         </h1>
         <div className="flex items-center gap-2">
+          <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/agenda')}>
+            <CalendarDays className="h-4 w-4" /> Agenda
+          </Button>
           <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/ecat')}>
             <BookOpen className="h-4 w-4" /> E-catalogue
           </Button>

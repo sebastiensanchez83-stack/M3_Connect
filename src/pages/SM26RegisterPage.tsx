@@ -65,6 +65,9 @@ export function SM26RegisterPage() {
   const [terms, setTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const [honeypot, setHoneypot] = useState(''); // bot trap — must stay empty
+  const [existingAccount, setExistingAccount] = useState(false);
+  const wasGuest = !user; // captured for the success screen wording
 
   // Load the event id + fee config
   useEffect(() => {
@@ -110,6 +113,71 @@ export function SM26RegisterPage() {
   const roleFeeLabel = (r: RoleDef) =>
     r.feeKey ? (fmtFee(fees[r.feeKey]) ?? r.freeNote ?? null) : (r.freeNote ?? null);
 
+  // Guest (no account): a public edge function provisions an account + writes
+  // the registration server-side, then emails a magic-link to access it.
+  const submitGuest = async () => {
+    const def = ROLES.find(r => r.key === role)!;
+    setSubmitting(true);
+    setExistingAccount(false);
+    try {
+      const { data, error } = await supabase.functions.invoke('sm26-register', {
+        body: {
+          honeypot,
+          origin: window.location.origin,
+          registration: {
+            first_name: form.first_name.trim(),
+            last_name: form.last_name.trim(),
+            email: form.email.trim(),
+            phone: form.phone.trim(),
+            company_name: form.company_name.trim(),
+            website: form.website.trim(),
+            country: form.country.trim(),
+            job_title: form.job_title.trim(),
+            image_consent: imageConsent,
+            terms_accepted: terms,
+          },
+          role,
+          scope: def.scope,
+          light,
+          startup: role === 'startup' ? startup : undefined,
+          arch: role === 'architect_pro' || role === 'architect_student' ? arch : undefined,
+          marina: role === 'marina' ? marina : undefined,
+        },
+      });
+
+      if (error) {
+        let msg = 'Please try again in a moment.';
+        try {
+          const body = await (error as { context?: Response }).context?.json();
+          if (body?.error) msg = body.error;
+        } catch { /* keep generic message */ }
+        toast({ title: 'Registration failed', description: msg, variant: 'destructive' });
+        return;
+      }
+
+      const status = (data as { status?: string })?.status;
+      if (status === 'exists') {
+        setExistingAccount(true);
+        toast({
+          title: 'You already have an account',
+          description: 'Please sign in (top-right) to finish registering — your details will be pre-filled.',
+        });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      if (status === 'created') {
+        setDone(true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
+      toast({ title: 'Registration failed', description: 'Unexpected response. Please try again.', variant: 'destructive' });
+    } catch {
+      toast({ title: 'Registration failed', description: 'An unexpected error occurred.', variant: 'destructive' });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!form.first_name.trim() || !form.last_name.trim() || !form.email.trim()) {
@@ -117,10 +185,7 @@ export function SM26RegisterPage() {
     }
     if (!role) { toast({ title: 'Select how you want to participate', variant: 'destructive' }); return; }
     if (!terms) { toast({ title: 'Please accept the terms & conditions', variant: 'destructive' }); return; }
-    if (!user) {
-      toast({ title: 'Please sign in to complete your registration', description: 'One-click registration without an account is coming next.', variant: 'destructive' });
-      return;
-    }
+    if (!user) { await submitGuest(); return; }
     if (!eventId) { toast({ title: 'Event not available yet', variant: 'destructive' }); return; }
 
     setSubmitting(true);
@@ -253,6 +318,12 @@ export function SM26RegisterPage() {
           Thanks, {form.first_name}. Your registration for the Smart &amp; Sustainable Marina Rendezvous 2026
           is in. M3 will review it — you'll get full access (and any invoice) once it's confirmed.
         </p>
+        {wasGuest && (
+          <p className="text-gray-600 mt-3">
+            We've emailed <strong>{form.email}</strong> a link to access your workspace and complete your registration.
+            Please check your inbox (and spam folder).
+          </p>
+        )}
       </div>
     );
   }
@@ -331,6 +402,18 @@ export function SM26RegisterPage() {
           {role === 'marina' && <MarinaFields value={marina} onChange={setMarina} />}
           <LightRoleFields role={role} value={light} onChange={setLight} />
 
+          {/* Honeypot — hidden from real users; bots that fill it are silently dropped */}
+          <input
+            type="text"
+            name="company_url"
+            tabIndex={-1}
+            autoComplete="off"
+            aria-hidden="true"
+            value={honeypot}
+            onChange={e => setHoneypot(e.target.value)}
+            style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }}
+          />
+
           <Card>
             <CardContent className="pt-6 space-y-3">
               <div className="flex items-start gap-2">
@@ -342,11 +425,16 @@ export function SM26RegisterPage() {
                 <Label htmlFor="terms" className="font-normal text-sm">I accept the terms &amp; conditions and the privacy policy. *</Label>
               </div>
 
-              {!user && (
-                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  You're not signed in. For now, please sign in to complete your registration — one-click registration without an account is coming next.
+              {existingAccount ? (
+                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  An account already exists for <strong>{form.email}</strong>. Please sign in using the button at the top-right —
+                  your details will be pre-filled and you can finish registering.
                 </p>
-              )}
+              ) : !user ? (
+                <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  No account needed — we'll create your workspace and email you a link to access and complete your registration.
+                </p>
+              ) : null}
 
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

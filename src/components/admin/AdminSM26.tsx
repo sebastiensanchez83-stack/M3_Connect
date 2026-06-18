@@ -40,6 +40,24 @@ export function regStatusBadgeClass(status: string): string {
 
 export const prettyStatus = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
+// Per-role assignment status (distinct from the overall registration status)
+export const ROLE_STATUSES = ['self_submitted', 'admin_added', 'needs_info', 'confirmed', 'declined'] as const;
+
+export function roleStatusBadgeClass(status: string): string {
+  switch (status) {
+    case 'confirmed': return 'bg-green-50 text-green-700 border-green-200';
+    case 'needs_info': return 'bg-amber-50 text-amber-700 border-amber-200';
+    case 'declined': return 'bg-red-50 text-red-700 border-red-200';
+    case 'admin_added': return 'bg-violet-50 text-violet-700 border-violet-200';
+    default: return 'bg-gray-50 text-gray-600 border-gray-200'; // self_submitted
+  }
+}
+
+// Roles that take an 'org' scope (vs an individual 'user' scope)
+export const ORG_SCOPE_ROLES = new Set(['marina', 'startup', 'sponsor']);
+// Roles with a dedicated module table (others store extra fields in module_data)
+export const MODULE_TABLE_ROLES = new Set(['startup', 'marina', 'architect_pro', 'architect_student']);
+
 interface RoleRow { role: string; status: string; scope: string; }
 interface RegRow {
   id: string;

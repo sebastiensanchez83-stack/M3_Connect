@@ -12,6 +12,7 @@ import {
   CheckCircle, Loader2, Eye, Ship, Lightbulb, Compass, GraduationCap,
   Newspaper, Scale, TrendingUp, Building2, Mic, Star,
 } from 'lucide-react';
+import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 
 // SM26 public intake — guest-first registration.
 // The registrant picks ONE way to participate; M3 can add further roles
@@ -53,6 +54,7 @@ export function SM26RegisterPage() {
     first_name: '', last_name: '', email: '', phone: '', company_name: '', website: '', country: '', job_title: '',
   });
   const [role, setRole] = useState<string>('');
+  const [startup, setStartup] = useState<StartupData>(EMPTY_STARTUP);
   const [imageConsent, setImageConsent] = useState(false);
   const [terms, setTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -133,7 +135,7 @@ export function SM26RegisterPage() {
       }
 
       const def = ROLES.find(r => r.key === role)!;
-      const { error: raErr } = await supabase.from('sm_role_assignment').insert({
+      const { data: ra, error: raErr } = await supabase.from('sm_role_assignment').insert({
         registration_id: reg.id,
         event_id: eventId,
         organization_id: def.scope === 'org' ? (organization?.id ?? null) : null,
@@ -142,10 +144,38 @@ export function SM26RegisterPage() {
         depth: 'full',
         source: 'self',
         status: 'self_submitted',
-      });
-      if (raErr) {
-        toast({ title: 'Could not save your selected role', description: raErr.message, variant: 'destructive' });
+      }).select('id').single();
+      if (raErr || !ra) {
+        toast({ title: 'Could not save your selected role', description: raErr?.message, variant: 'destructive' });
         setSubmitting(false); return;
+      }
+
+      // Role-specific module details (more roles to follow).
+      if (role === 'startup') {
+        const { error: spErr } = await supabase.from('sm_startup_profile').insert({
+          role_assignment_id: ra.id,
+          event_id: eventId,
+          startup_or_scaleup: startup.startup_or_scaleup || null,
+          stage: startup.stage || null,
+          categories: startup.categories,
+          organization_activity: startup.organization_activity || null,
+          problem: startup.problem || null,
+          solution: startup.solution || null,
+          differentiation: startup.differentiation || null,
+          usp: startup.usp || null,
+          target_markets: startup.target_markets || null,
+          business_model: startup.business_model || null,
+          competitive_positioning: startup.competitive_positioning || null,
+          collaboration_expected: startup.collaboration_expected || null,
+          investment_seeking: startup.investment_seeking,
+          investment_stage: startup.investment_stage || null,
+          investment_type: startup.investment_type || null,
+          funds_needed: startup.funds_needed || null,
+          references_text: startup.references_text || null,
+        });
+        if (spErr) {
+          toast({ title: 'Registration saved — but the innovation details could not be saved', description: `${spErr.message}. You can add them later.`, variant: 'destructive' });
+        }
       }
 
       setDone(true);
@@ -238,6 +268,8 @@ export function SM26RegisterPage() {
               })}
             </CardContent>
           </Card>
+
+          {role === 'startup' && <StartupFields value={startup} onChange={setStartup} />}
 
           <Card>
             <CardContent className="pt-6 space-y-3">

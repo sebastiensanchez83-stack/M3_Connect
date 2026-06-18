@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen, CalendarDays, QrCode } from 'lucide-react';
+import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen, CalendarDays, QrCode, Trophy } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -135,6 +135,9 @@ export function AdminSM26() {
           </Button>
           <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/jury')}>
             <Scale className="h-4 w-4" /> Jury &amp; evaluation
+          </Button>
+          <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/awards')}>
+            <Trophy className="h-4 w-4" /> Awards
           </Button>
         </div>
       </div>

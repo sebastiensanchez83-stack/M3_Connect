@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
+import { MarinaFields, EMPTY_MARINA, type MarinaData } from '@/components/sm26/MarinaFields';
 
 // SM26 public intake — guest-first registration.
 // The registrant picks ONE way to participate; M3 can add further roles
@@ -57,6 +58,7 @@ export function SM26RegisterPage() {
   const [role, setRole] = useState<string>('');
   const [startup, setStartup] = useState<StartupData>(EMPTY_STARTUP);
   const [arch, setArch] = useState<ArchitectureData>(EMPTY_ARCHITECTURE);
+  const [marina, setMarina] = useState<MarinaData>(EMPTY_MARINA);
   const [imageConsent, setImageConsent] = useState(false);
   const [terms, setTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -202,6 +204,25 @@ export function SM26RegisterPage() {
         }
       }
 
+      if (role === 'marina') {
+        const { error: meErr } = await supabase.from('sm_marina_extra').insert({
+          role_assignment_id: ra.id,
+          event_id: eventId,
+          organization_id: organization?.id ?? null,
+          architectural_quality: marina.architectural_quality || null,
+          biodiversity: marina.biodiversity || null,
+          water: marina.water || null,
+          energy: marina.energy || null,
+          waste: marina.waste || null,
+          innovation: marina.innovation || null,
+          security: marina.security || null,
+          further_info: marina.further_info || null,
+        });
+        if (meErr) {
+          toast({ title: 'Registration saved — but the marina details could not be saved', description: `${meErr.message}. You can add them later.`, variant: 'destructive' });
+        }
+      }
+
       setDone(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
@@ -297,6 +318,7 @@ export function SM26RegisterPage() {
           {(role === 'architect_pro' || role === 'architect_student') && (
             <ArchitectureFields variant={role === 'architect_pro' ? 'professional' : 'student'} value={arch} onChange={setArch} />
           )}
+          {role === 'marina' && <MarinaFields value={marina} onChange={setMarina} />}
 
           <Card>
             <CardContent className="pt-6 space-y-3">

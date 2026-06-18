@@ -15,6 +15,7 @@ import {
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
 import { MarinaFields, EMPTY_MARINA, type MarinaData } from '@/components/sm26/MarinaFields';
+import { LightRoleFields, type LightData } from '@/components/sm26/LightRoleFields';
 
 // SM26 public intake — guest-first registration.
 // The registrant picks ONE way to participate; M3 can add further roles
@@ -59,6 +60,7 @@ export function SM26RegisterPage() {
   const [startup, setStartup] = useState<StartupData>(EMPTY_STARTUP);
   const [arch, setArch] = useState<ArchitectureData>(EMPTY_ARCHITECTURE);
   const [marina, setMarina] = useState<MarinaData>(EMPTY_MARINA);
+  const [light, setLight] = useState<LightData>({});
   const [imageConsent, setImageConsent] = useState(false);
   const [terms, setTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -93,7 +95,14 @@ export function SM26RegisterPage() {
   }, [user, profile, organization]);
 
   const setField = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
-  const selectRole = (k: string) => setRole(prev => (prev === k ? '' : k));
+  const selectRole = (k: string) => {
+    setRole(prev => (prev === k ? '' : k));
+    // changing role clears any details entered for the previous one
+    setStartup(EMPTY_STARTUP);
+    setArch(EMPTY_ARCHITECTURE);
+    setMarina(EMPTY_MARINA);
+    setLight({});
+  };
 
   const fmtFee = (cents?: number) =>
     cents == null ? null : (cents === 0 ? 'Free' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(cents / 100));
@@ -148,6 +157,7 @@ export function SM26RegisterPage() {
         depth: 'full',
         source: 'self',
         status: 'self_submitted',
+        module_data: light,
       }).select('id').single();
       if (raErr || !ra) {
         toast({ title: 'Could not save your selected role', description: raErr?.message, variant: 'destructive' });
@@ -319,6 +329,7 @@ export function SM26RegisterPage() {
             <ArchitectureFields variant={role === 'architect_pro' ? 'professional' : 'student'} value={arch} onChange={setArch} />
           )}
           {role === 'marina' && <MarinaFields value={marina} onChange={setMarina} />}
+          <LightRoleFields role={role} value={light} onChange={setLight} />
 
           <Card>
             <CardContent className="pt-6 space-y-3">

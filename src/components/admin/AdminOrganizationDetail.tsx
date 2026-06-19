@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
 import {
   ArrowLeft, Save, Loader2, Building2, Globe, MapPin, Users,
   ExternalLink, RefreshCw, Anchor, Copy, CheckCircle, Shield,
@@ -242,6 +243,9 @@ export function AdminOrganizationDetail() {
           Save Changes
         </Button>
       </div>
+
+      {/* SM26 event participation linked to this organization (single source: sm_registration) */}
+      {id && <SM26ParticipationCard organizationId={id} companyName={org.name} variant="admin" hideWhenEmpty={false} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left column: Details */}

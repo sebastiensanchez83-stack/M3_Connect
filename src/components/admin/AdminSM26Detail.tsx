@@ -15,6 +15,7 @@ import {
   prettyStatus, ORG_SCOPE_ROLES, MODULE_TABLE_ROLES,
 } from './AdminSM26';
 import { SponsorPackageEditor } from './SM26SponsorPackage';
+import { SM26PaymentPanel } from './SM26PaymentPanel';
 
 // SM26 registration detail — full contact + per-role module data, with the
 // registration status pipeline AND role management: add roles (auto-filling
@@ -326,6 +327,9 @@ export function AdminSM26Detail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Payment */}
+      <SM26PaymentPanel registrationId={reg.id} eventId={reg.event_id} />
 
       {/* Roles & participation */}
       <div className="flex items-center justify-between">

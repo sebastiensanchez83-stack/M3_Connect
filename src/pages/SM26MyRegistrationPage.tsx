@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26_ROLE_LABELS, roleStatusBadgeClass, prettyStatus } from '@/components/admin/AdminSM26';
+import { SM26Notifications } from '@/components/sm26/SM26Notifications';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
 // SM26 roles. Linked from the "information needed" notification (/sm26/me).
@@ -197,6 +198,8 @@ export function SM26MyRegistrationPage() {
       </section>
 
       <div className="container mx-auto px-4 py-8 max-w-2xl space-y-6">
+        <SM26Notifications />
+
         <Card>
           <CardContent className="pt-6 flex items-center justify-between gap-3 flex-wrap">
             <div>

@@ -103,6 +103,7 @@ export function SM26RequestInfo({ roleAssignmentId, roleLabel, items, moduleData
           <X className="h-3.5 w-3.5" />
         </Button>
       </div>
+      <p className="text-xs text-gray-500 -mt-1 mb-2">Tick exactly what's missing — the participant sees only these highlighted on their page.</p>
 
       {items.length > 0 ? (
         <div className="space-y-1.5">

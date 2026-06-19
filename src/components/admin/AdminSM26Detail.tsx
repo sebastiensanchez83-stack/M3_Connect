@@ -99,6 +99,17 @@ function splitObjective(s: string): string[] {
   return s.split(/[;,\n]|·|•/).map(x => x.trim()).filter(Boolean);
 }
 
+// Pretty-print a funding figure: a bare number like "8500000" → "€8.5M";
+// anything already formatted (or non-numeric) is shown as-is.
+function formatFunds(v: string): string {
+  if (!/^[\s€$£0-9.,]+$/.test(v)) return v;
+  const n = Number(v.replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(n) || n < 1000) return v;
+  const out = n >= 1e6 ? `${(n / 1e6).toFixed(n % 1e6 ? 1 : 0).replace(/\.0$/, '')}M`
+    : `${Math.round(n / 1e3)}k`;
+  return `€${out}`;
+}
+
 // Happy-path status timeline (Submitted → Under review → Confirmed → Paid).
 // Off-path statuses (waitlist / declined / cancelled) show a clear notice
 // instead, because they aren't a step on the line.
@@ -124,11 +135,11 @@ function StatusTimeline({ status, paid }: { status: string; paid: boolean }) {
           return (
             <div key={label} className="flex items-start flex-1 last:flex-none min-w-0">
               <div className="flex flex-col items-center gap-1 w-14 shrink-0">
-                <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold border-2 transition-colors
+                <div className={`h-7 w-7 rounded-full flex items-center justify-center border-2 transition-colors
                   ${done ? 'bg-primary border-primary text-white'
-                    : isCurrent ? 'border-primary text-primary bg-primary/5'
-                    : 'border-gray-200 text-gray-300'}`}>
-                  {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                    : isCurrent ? 'bg-primary border-primary text-white ring-4 ring-primary/15'
+                    : 'bg-white border-gray-200'}`}>
+                  {done ? <Check className="h-3.5 w-3.5" /> : isCurrent ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
                 </div>
                 <span className={`text-[10px] text-center leading-tight ${isCurrent ? 'font-semibold text-gray-800' : done ? 'text-gray-600' : 'text-gray-300'}`}>{label}</span>
               </div>
@@ -229,9 +240,10 @@ export function AdminSM26Detail() {
       const { data: reqs } = await supabase.from('sm_role_requirement').select('*').eq('event_id', r.event_id);
       setRequirements((reqs || []) as Requirement[]);
     }
-    // Payment drives the final timeline stage.
+    // Payment drives the final timeline stage. Waived counts the same as paid.
     const { data: pay } = await supabase.from('sm_payment').select('status').eq('registration_id', regId).maybeSingle();
-    setPaid((pay as { status?: string } | null)?.status === 'paid');
+    const ps = (pay as { status?: string } | null)?.status;
+    setPaid(ps === 'paid' || ps === 'waived');
     setLoading(false);
   };
 
@@ -246,6 +258,19 @@ export function AdminSM26Detail() {
     if (error) { toast({ title: 'Could not update status', description: error.message, variant: 'destructive' }); return; }
     setReg({ ...reg, status: newStatus });
     toast({ title: `Status set to "${prettyStatus(newStatus)}"` });
+  };
+
+  // Settling payment (paid OR waived) completes the registration: light up the
+  // Paid stage and, if still earlier in the pipeline, confirm it.
+  const handlePaymentSaved = async (payStatus: string) => {
+    if (!reg) return;
+    const settled = payStatus === 'paid' || payStatus === 'waived';
+    setPaid(settled);
+    if (settled && (reg.status === 'submitted' || reg.status === 'under_review')) {
+      await supabase.from('sm_registration').update({ status: 'confirmed' }).eq('id', reg.id);
+      setReg({ ...reg, status: 'confirmed' });
+      toast({ title: 'Registration completed', description: 'Payment settled — status set to Confirmed.' });
+    }
   };
 
   const notify = async (userId: string, title: string, body: string) => {
@@ -331,6 +356,11 @@ export function AdminSM26Detail() {
   );
 
   const name = `${reg.first_name || ''} ${reg.last_name || ''}`.trim() || '(no name)';
+  // Headline subtitle (Company · Country · Seeking €X) — the funding figure comes
+  // from a startup role's profile when present.
+  const startupProfile = reg.roles.map(r => firstOf(r.startup)).find(Boolean);
+  const seeking = startupProfile?.funds_needed as string | undefined;
+  const headlineParts = [reg.company_name, reg.country, seeking ? `Seeking ${formatFunds(seeking)}` : null].filter(Boolean) as string[];
   const contact: { icon: typeof Mail; value: string | null }[] = [
     { icon: Mail, value: reg.email },
     { icon: Phone, value: reg.phone },
@@ -356,7 +386,10 @@ export function AdminSM26Detail() {
               </div>
               <div>
                 <h1 className="text-xl font-bold text-gray-900">{name}</h1>
-                <div className="flex items-center gap-2 text-xs text-gray-500 mt-0.5">
+                {headlineParts.length > 0 && (
+                  <div className="text-sm text-gray-500 mt-0.5">{headlineParts.join(' · ')}</div>
+                )}
+                <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
                   <Calendar className="h-3 w-3" /> Registered {new Date(reg.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                   {!reg.user_id && <Badge className="text-[10px] bg-gray-100 text-gray-500 border-gray-200">No account</Badge>}
                 </div>
@@ -402,7 +435,7 @@ export function AdminSM26Detail() {
             <div className="mt-3 space-y-2">
               {reg.objective && (
                 <div className="text-sm">
-                  <span className="text-[11px] uppercase tracking-wide text-gray-400 flex items-center gap-1"><Target className="h-3 w-3" /> Objectives</span>
+                  <span className="text-[11px] uppercase tracking-wide text-gray-400 flex items-center gap-1"><Target className="h-3 w-3" /> Objectives for attending</span>
                   <div className="mt-1"><Chips values={splitObjective(reg.objective)} /></div>
                 </div>
               )}
@@ -435,7 +468,7 @@ export function AdminSM26Detail() {
       <SM26CompanyLink registrationId={reg.id} organizationId={reg.organization_id} companyName={reg.company_name} onChange={() => load(reg.id)} />
 
       {/* Payment */}
-      <SM26PaymentPanel registrationId={reg.id} eventId={reg.event_id} />
+      <SM26PaymentPanel registrationId={reg.id} eventId={reg.event_id} onSaved={handlePaymentSaved} />
 
       {/* Roles & participation */}
       <div className="flex items-center justify-between">
@@ -460,6 +493,7 @@ export function AdminSM26Detail() {
           const startup = firstOf(role.startup);
           const architecture = firstOf(role.architecture);
           const marina = firstOf(role.marina);
+          const roleChip = (startup?.stage as string) || (architecture?.category as string) || '';
           const hasLight = role.module_data && Object.keys(role.module_data).length > 0;
           const reqs = reqsForRole(role.role);
           const hasModuleDetails = !!(startup || architecture || marina || hasLight);
@@ -472,8 +506,7 @@ export function AdminSM26Detail() {
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <CardTitle className="text-base flex items-center gap-2">
                     {SM26_ROLE_LABELS[role.role] || role.role}
-                    <Badge variant="outline" className="text-[10px] font-normal">{role.scope}</Badge>
-                    <Badge variant="secondary" className="text-[10px]">via {role.source}</Badge>
+                    {roleChip && <Badge variant="secondary" className="text-[10px] font-normal capitalize">{roleChip}</Badge>}
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     <Badge className={`text-[10px] ${roleStatusBadgeClass(role.status)}`}>{prettyStatus(role.status)}</Badge>

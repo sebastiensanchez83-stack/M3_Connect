@@ -20,7 +20,7 @@ const statusClass = (s: string) =>
   : s === 'invoiced' ? 'bg-amber-50 text-amber-700 border-amber-200'
   : 'bg-gray-50 text-gray-600 border-gray-200';
 
-export function SM26PaymentPanel({ registrationId, eventId }: { registrationId: string; eventId: string }) {
+export function SM26PaymentPanel({ registrationId, eventId, onSaved }: { registrationId: string; eventId: string; onSaved?: (status: string) => void }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState('unpaid');
@@ -54,8 +54,9 @@ export function SM26PaymentPanel({ registrationId, eventId }: { registrationId: 
   const save = async () => {
     setSaving(true);
     const now = new Date().toISOString();
+    const settled = status === 'paid' || status === 'waived';
     const nextInvoicedAt = (status === 'invoiced' || status === 'paid') ? (invoicedAt || now) : invoicedAt;
-    const nextPaidAt = status === 'paid' ? (paidAt || now) : null;
+    const nextPaidAt = settled ? (paidAt || now) : null;
     const cents = amount.trim() ? Math.round(parseFloat(amount) * 100) : null;
     const { error } = await supabase.from('sm_payment').upsert({
       registration_id: registrationId,
@@ -74,6 +75,7 @@ export function SM26PaymentPanel({ registrationId, eventId }: { registrationId: 
     setInvoicedAt(nextInvoicedAt);
     setPaidAt(nextPaidAt);
     toast({ title: 'Payment saved' });
+    onSaved?.(status);
   };
 
   return (

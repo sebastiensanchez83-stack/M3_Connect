@@ -14,6 +14,7 @@ import {
   SM26_ROLE_LABELS, REG_STATUSES, ROLE_STATUSES, regStatusBadgeClass, roleStatusBadgeClass,
   prettyStatus, ORG_SCOPE_ROLES, MODULE_TABLE_ROLES,
 } from './AdminSM26';
+import { SponsorPackageEditor } from './SM26SponsorPackage';
 
 // SM26 registration detail — full contact + per-role module data, with the
 // registration status pipeline AND role management: add roles (auto-filling
@@ -384,6 +385,10 @@ export function AdminSM26Detail() {
                 {marina && <ModuleFields data={marina} />}
                 {hasLight && <ModuleFields data={role.module_data} />}
                 {!hasModuleDetails && <p className="text-xs text-gray-400">No details captured for this role yet.</p>}
+
+                {role.role === 'sponsor' && reg && (
+                  <SponsorPackageEditor roleAssignmentId={role.id} eventId={reg.event_id} />
+                )}
 
                 {reqs.length > 0 && (
                   <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-3">

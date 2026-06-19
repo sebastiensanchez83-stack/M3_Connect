@@ -64,14 +64,22 @@ Deno.serve(async (req: Request) => {
 
   const rows = parseCSV(body.csv);
   const data = rows.slice(1).filter(r => E(r[3]) || E(r[1]));
-  const seen = new Set<string>();
-  const used = new Set<string>();
-  const result = { total: data.length, imported: 0, skipped: 0, linked: 0, codes: [] as { email: string; code: string }[], errors: [] as { email: string; error: string }[] };
-
+  // Some people submitted the form more than once — keep only the LATEST
+  // submission per email (by Submission Date, column 0).
+  const latest = new Map<string, { t: number; r: string[] }>();
   for (const r of data) {
     const email = E(r[3]).toLowerCase();
-    if (!email || seen.has(email)) { result.skipped++; continue; }
-    seen.add(email);
+    if (!email) continue;
+    const d = new Date(E(r[0])); const t = isNaN(d.getTime()) ? 0 : d.getTime();
+    const cur = latest.get(email);
+    if (!cur || t >= cur.t) latest.set(email, { t, r });
+  }
+  const deduped = [...latest.values()].map(x => x.r);
+  const used = new Set<string>();
+  const result = { total: data.length, deduped: deduped.length, imported: 0, skipped: 0, linked: 0, codes: [] as { email: string; code: string }[], errors: [] as { email: string; error: string }[] };
+
+  for (const r of deduped) {
+    const email = E(r[3]).toLowerCase();
     try {
       const { data: existing } = await admin.from("sm_registration").select("id").eq("source", "jotform_import").ilike("email", email).maybeSingle();
       if (existing) { result.skipped++; continue; }

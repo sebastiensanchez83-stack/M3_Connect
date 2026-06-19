@@ -72,10 +72,11 @@ export function AdminSM26Ecat() {
     await supabase.rpc('sm_ecat_ensure_pages', { p_event_id: eid }); // backfill missing pages
     const { data } = await supabase
       .from('sm_ecat_page')
-      .select('*, registration:sm_registration(id,company_name,first_name,last_name,user_id, payment:sm_payment(status,amount_cents,paid_at,invoice_ref))')
+      .select('*, registration:sm_registration(id,company_name,first_name,last_name,user_id,status, payment:sm_payment(status,amount_cents,paid_at,invoice_ref))')
       .eq('event_id', eid)
       .order('created_at', { ascending: true });
-    const pgs = (data || []) as Page[];
+    // Declined registrations never appear in the catalogue.
+    const pgs = ((data || []) as Page[]).filter(p => (p.registration as { status?: string })?.status !== 'declined');
     setPages(pgs);
     if (pgs.length) {
       const { data: cms } = await supabase.from('sm_ecat_comment').select('*').in('ecat_page_id', pgs.map(p => p.id)).order('created_at', { ascending: true });

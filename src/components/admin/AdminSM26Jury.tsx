@@ -50,8 +50,8 @@ export function AdminSM26Jury() {
 
     const [{ data: ents }, { data: jur }, { data: asg }] = await Promise.all([
       supabase.from('sm_role_assignment')
-        .select('id, role, registration:sm_registration(company_name,first_name,last_name), startup:sm_startup_profile(stage), arch:sm_architecture_entry(category,anon_code)')
-        .eq('event_id', eid).in('role', ['startup', 'architect_pro', 'architect_student']),
+        .select('id, role, status, registration:sm_registration(company_name,first_name,last_name,status), startup:sm_startup_profile(stage), arch:sm_architecture_entry(category,anon_code)')
+        .eq('event_id', eid).in('role', ['startup', 'architect_pro', 'architect_student']).neq('status', 'declined'),
       supabase.from('sm_role_assignment')
         .select('registration:sm_registration(user_id,first_name,last_name,email)')
         .eq('event_id', eid).eq('role', 'jury').eq('status', 'confirmed'),
@@ -72,7 +72,9 @@ export function AdminSM26Jury() {
         subtitle: isInnovation ? (startup.stage || '') : (arch.category || ''),
       };
     };
-    setEntries(((ents || []) as Record<string, unknown>[]).map(mapEntry));
+    setEntries(((ents || []) as Record<string, unknown>[])
+      .filter(r => ((r.registration || {}) as { status?: string }).status !== 'declined')
+      .map(mapEntry));
 
     const jmap = new Map<string, Juror>();
     for (const row of (jur || []) as { registration?: { user_id?: string; first_name?: string; last_name?: string; email?: string } }[]) {

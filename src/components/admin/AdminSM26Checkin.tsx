@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X } from 'lucide-react';
+import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -19,12 +19,73 @@ interface Win { key: string; label: string; sort: number; }
 interface Attendee {
   id: string; first_name: string | null; last_name: string | null; email: string | null; company_name: string | null;
   badge?: { checkin_token: string } | { checkin_token: string }[];
-  roles: { role: string }[];
+  roles: { role: string; status?: string }[];
   checkins: { window_key: string }[];
 }
 interface ScanResult { ok: boolean; error?: string; name?: string; company?: string | null; roles?: string[]; already?: boolean; }
 
 const tokenOf = (a: Attendee) => (Array.isArray(a.badge) ? a.badge[0]?.checkin_token : a.badge?.checkin_token) || '';
+
+// A badge QR encodes the check-in URL (…/checkin?token=XYZ). Pull the token out
+// whether we scanned a full URL or a bare token.
+const parseToken = (raw: string) => { try { return new URL(raw).searchParams.get('token') || raw; } catch { return raw.trim(); } };
+
+// Live camera QR scanner using the browser's native BarcodeDetector (no extra
+// dependency). Falls back to a clear message where it isn't supported (mainly
+// Safari/Firefox) — the emailed QR link and name search still work there.
+function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onClose: () => void }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const supported = typeof window !== 'undefined' && 'BarcodeDetector' in window;
+
+  useEffect(() => {
+    if (!supported) { setErr('This browser has no built-in QR scanner. Use Chrome/Edge on the check-in device, or scan the badge with the phone camera (the QR opens this page).'); return; }
+    let stream: MediaStream | null = null;
+    let raf = 0; let stopped = false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        if (stopped) return;
+        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+        const tick = async () => {
+          if (stopped) return;
+          try {
+            const codes = videoRef.current ? await detector.detect(videoRef.current) : [];
+            if (codes && codes.length && codes[0].rawValue) { onToken(parseToken(codes[0].rawValue)); return; }
+          } catch { /* keep scanning */ }
+          raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+      } catch {
+        setErr('Camera access was blocked. Allow camera permission, or check people in by name below.');
+      }
+    })();
+    return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="text-sm font-semibold text-gray-800 flex items-center gap-2"><Camera className="h-4 w-4 text-primary" /> Scan a badge QR</div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
+        </div>
+        {err ? (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">{err}</p>
+        ) : (
+          <div className="relative mx-auto max-w-xs aspect-square rounded-xl overflow-hidden bg-black">
+            <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+            <div className="absolute inset-6 border-2 border-white/80 rounded-lg pointer-events-none" />
+          </div>
+        )}
+        <p className="text-xs text-gray-400 mt-2 text-center">Point the camera at the attendee's badge QR — they'll be checked into the selected window.</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 export function AdminSM26Checkin() {
   const navigate = useNavigate();
@@ -36,6 +97,7 @@ export function AdminSM26Checkin() {
   const [loading, setLoading] = useState(true);
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -49,8 +111,8 @@ export function AdminSM26Checkin() {
     const [{ data: wins }, { data: regs }] = await Promise.all([
       supabase.from('sm_attendance_window').select('key,label,sort').eq('event_id', eid).order('sort'),
       supabase.from('sm_registration')
-        .select('id,first_name,last_name,email,company_name, badge:sm_badge(checkin_token), roles:sm_role_assignment(role), checkins:sm_checkin(window_key)')
-        .eq('event_id', eid).order('created_at', { ascending: true }),
+        .select('id,first_name,last_name,email,company_name, badge:sm_badge(checkin_token), roles:sm_role_assignment(role,status), checkins:sm_checkin(window_key)')
+        .eq('event_id', eid).neq('status', 'declined').order('created_at', { ascending: true }),
     ]);
     const ws = (wins || []) as Win[];
     setWindows(ws);
@@ -94,6 +156,19 @@ export function AdminSM26Checkin() {
     toast({ title: res.already ? 'Already checked in for this window' : 'Checked in' });
   };
 
+  // Undo a check-in clicked by mistake (current window).
+  const undoCheckin = async (a: Attendee) => {
+    if (!activeWindow) return;
+    setBusy(a.id);
+    const { error } = await supabase.rpc('sm_uncheckin_registration', { p_registration_id: a.id, p_window: activeWindow });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not undo', description: error.message, variant: 'destructive' }); return; }
+    setAttendees(prev => prev.map(x => x.id === a.id
+      ? { ...x, checkins: x.checkins.filter(c => c.window_key !== activeWindow) }
+      : x));
+    toast({ title: 'Check-in removed' });
+  };
+
   const exportCsv = () => {
     const origin = window.location.origin;
     const head = ['First name', 'Last name', 'Email', 'Company', 'Roles', 'Checkin token', 'Checkin URL', 'Profile URL'];
@@ -127,8 +202,18 @@ export function AdminSM26Checkin() {
       <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><QrCode className="h-6 w-6 text-primary" /> Check-in</h1>
-        <Button variant="outline" className="gap-1.5" onClick={exportCsv}><Download className="h-4 w-4" /> Export participants (CSV)</Button>
+        <div className="flex items-center gap-2">
+          <Button className="gap-1.5" onClick={() => setScanning(s => !s)}><Camera className="h-4 w-4" /> {scanning ? 'Close scanner' : 'Scan QR'}</Button>
+          <Button variant="outline" className="gap-1.5" onClick={exportCsv}><Download className="h-4 w-4" /> Export participants (CSV)</Button>
+        </div>
       </div>
+
+      {scanning && (
+        <QrScanner
+          onClose={() => setScanning(false)}
+          onToken={(token) => { setScanning(false); if (activeWindow) processToken(token, activeWindow, attendees); }}
+        />
+      )}
 
       {/* Scan result */}
       {scan && (
@@ -184,7 +269,7 @@ export function AdminSM26Checkin() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-gray-900">{name}</span>
-                    {a.roles.map((r, i) => <Badge key={i} variant="secondary" className="text-[10px]">{SM26_ROLE_LABELS[r.role] || r.role}</Badge>)}
+                    {a.roles.filter(r => r.status !== 'declined').map((r, i) => <Badge key={i} variant="secondary" className="text-[10px]">{SM26_ROLE_LABELS[r.role] || r.role}</Badge>)}
                   </div>
                   <div className="text-xs text-gray-500">{a.company_name}</div>
                   {a.checkins.length > 0 && (
@@ -196,7 +281,12 @@ export function AdminSM26Checkin() {
                   )}
                 </div>
                 {here ? (
-                  <Badge className="bg-green-50 text-green-700 border-green-200"><Check className="h-3 w-3 mr-1" /> In</Badge>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge className="bg-green-50 text-green-700 border-green-200"><Check className="h-3 w-3 mr-1" /> In</Badge>
+                    <Button size="icon" variant="ghost" className="h-8 w-8 text-gray-400 hover:text-red-600" disabled={busy === a.id} onClick={() => undoCheckin(a)} title="Undo check-in for this window">
+                      <Undo2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 ) : (
                   <Button size="sm" disabled={busy === a.id} onClick={() => manualCheckin(a)}>Check in</Button>
                 )}

@@ -16,6 +16,7 @@ import {
 } from './AdminSM26';
 import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
+import { SM26CompanyLink } from './SM26CompanyLink';
 
 // SM26 registration detail — full contact + per-role module data, with the
 // registration status pipeline AND role management: add roles (auto-filling
@@ -348,6 +349,9 @@ export function AdminSM26Detail() {
           </CardContent>
         </Card>
       )}
+
+      {/* Company link — attach the registration to a real SMC organization (link-when-exists) */}
+      <SM26CompanyLink registrationId={reg.id} organizationId={reg.organization_id} companyName={reg.company_name} onChange={() => load(reg.id)} />
 
       {/* Payment */}
       <SM26PaymentPanel registrationId={reg.id} eventId={reg.event_id} />

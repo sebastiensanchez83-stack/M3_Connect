@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
-  Check, X, Calendar, Plus, Trash2, BellRing, Paperclip, FileText,
+  Check, X, Calendar, Plus, Trash2, BellRing, Paperclip, FileText, Copy, KeyRound,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -100,6 +100,8 @@ interface Registration {
   created_at: string;
   user_id: string | null;
   organization_id: string | null;
+  claim_code: string | null;
+  source: string | null;
   roles: RoleAssignment[];
 }
 
@@ -327,6 +329,25 @@ export function AdminSM26Detail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Account claim (imported registrations not yet linked to an account) */}
+      {reg.claim_code && (
+        <Card className="border-0 shadow-sm border-l-4 border-l-amber-400">
+          <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-gray-400 flex items-center gap-1.5"><KeyRound className="h-3.5 w-3.5" /> Account claim · not yet claimed</div>
+              <div className="font-mono text-sm font-semibold text-gray-900 mt-0.5">{reg.claim_code}</div>
+            </div>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
+              const link = `${window.location.origin}/sm26/claim?code=${reg.claim_code}`;
+              navigator.clipboard?.writeText(link).catch(() => {});
+              toast({ title: 'Claim link copied', description: link });
+            }}>
+              <Copy className="h-4 w-4" /> Copy claim link
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Payment */}
       <SM26PaymentPanel registrationId={reg.id} eventId={reg.event_id} />

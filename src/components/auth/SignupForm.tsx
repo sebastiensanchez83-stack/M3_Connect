@@ -253,17 +253,8 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         <Label htmlFor="email">{t('auth.emailPro')} *</Label>
         <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
       </div>
-      {/* Domain detection banner - organization found */}
-      {detectedOrg && (
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm">
-          <Info className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-          <span className="text-blue-800">
-            {t('auth.orgDetected', { orgName: detectedOrg.name })}
-            {' — '}
-            {t('auth.orgDetectedJoin', 'Your registration will be sent to the organization owner for approval.')}
-          </span>
-        </div>
-      )}
+      {/* Domain auto-join was removed; the "company already exists" check now runs at
+          onboarding (create-company step) as a name match, so no misleading promise here. */}
       <div className="space-y-2">
         <Label htmlFor="companyName">{t('auth.companyName')} *</Label>
         <Input id="companyName" value={formData.companyName} onChange={(e) => setFormData({ ...formData, companyName: e.target.value })} required placeholder={t('auth.companyNamePlaceholder')} />

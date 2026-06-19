@@ -64,15 +64,18 @@ Deno.serve(async (req: Request) => {
 
   const rows = parseCSV(body.csv);
   const data = rows.slice(1).filter(r => E(r[3]) || E(r[1]));
-  // Some people submitted the form more than once — keep only the LATEST
-  // submission per email (by Submission Date, column 0).
+  // One registration per COMPANY — keep only the LATEST submission (by date).
+  // A company that submitted multiple times (even via different people) is
+  // registered once. Falls back to email when no meaningful company is given.
+  const NOVAL = new Set(["", "n/a", "na", "n.a.", "none", "-", "/", "."]);
+  const keyOf = (r: string[]) => { const co = E(r[5]).toLowerCase().replace(/\s+/g, " "); return co && !NOVAL.has(co) ? "co:" + co : "em:" + E(r[3]).toLowerCase(); };
   const latest = new Map<string, { t: number; r: string[] }>();
   for (const r of data) {
-    const email = E(r[3]).toLowerCase();
-    if (!email) continue;
+    const k = keyOf(r);
+    if (k === "co:" || k === "em:") continue;
     const d = new Date(E(r[0])); const t = isNaN(d.getTime()) ? 0 : d.getTime();
-    const cur = latest.get(email);
-    if (!cur || t >= cur.t) latest.set(email, { t, r });
+    const cur = latest.get(k);
+    if (!cur || t >= cur.t) latest.set(k, { t, r });
   }
   const deduped = [...latest.values()].map(x => x.r);
   const used = new Set<string>();

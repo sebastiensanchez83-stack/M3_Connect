@@ -278,6 +278,10 @@ export function SM26MyRegistrationPage() {
             const requiredItems = reqs.filter(r => r.required);
             const doneCount = requiredItems.filter(r => !!md[r.field_key]).length;
             const complete = doneCount === requiredItems.length;
+            // Items M3 specifically asked for (still outstanding) + any note.
+            const requested = new Set((md._requested_info as string[] | undefined) || []);
+            const requestNote = md._request_note as string | undefined;
+            const outstanding = reqs.filter(r => requested.has(r.field_key) && !md[r.field_key]);
             return (
               <Card key={role.id}>
                 <CardHeader>
@@ -293,7 +297,19 @@ export function SM26MyRegistrationPage() {
                   <CardDescription>Provide the items below. Your answers are saved to your registration.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {(outstanding.length > 0 || requestNote) && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                      <p className="font-medium text-amber-800">M3 has asked you for{outstanding.length > 0 ? ':' : ' a few details.'}</p>
+                      {outstanding.length > 0 && (
+                        <ul className="mt-1 list-disc list-inside text-amber-700">
+                          {outstanding.map(r => <li key={r.id}>{r.label || r.field_key}</li>)}
+                        </ul>
+                      )}
+                      {requestNote && <p className="mt-1.5 text-amber-700 italic">“{requestNote}”</p>}
+                    </div>
+                  )}
                   {reqs.map(req => {
+                    const isRequested = requested.has(req.field_key) && !md[req.field_key];
                     const current = (drafts[role.id]?.[req.field_key] ?? (md[req.field_key] as string) ?? '');
                     const hasValue = !!(md[req.field_key]);
                     if (req.is_asset) {
@@ -303,6 +319,7 @@ export function SM26MyRegistrationPage() {
                           <Label className="flex items-center gap-1.5">
                             <Paperclip className="h-3.5 w-3.5 text-gray-400" /> {req.label || req.field_key}
                             {!req.required && <span className="text-[10px] text-gray-400">(optional)</span>}
+                            {isRequested && <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Requested by M3</span>}
                             {hasValue && <Check className="h-3.5 w-3.5 text-green-600" />}
                           </Label>
                           <div className="flex items-center gap-2">
@@ -332,6 +349,7 @@ export function SM26MyRegistrationPage() {
                         <Label className="flex items-center gap-1.5">
                           <FileText className="h-3.5 w-3.5 text-gray-400" /> {req.label || req.field_key}
                           {!req.required && <span className="text-[10px] text-gray-400">(optional)</span>}
+                          {isRequested && <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Requested by M3</span>}
                           {hasValue && <Check className="h-3.5 w-3.5 text-green-600" />}
                         </Label>
                         <Textarea rows={2} value={current} onChange={e => setDraft(role.id, req.field_key, e.target.value)} />

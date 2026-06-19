@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
-  Check, X, Calendar, Plus, Trash2, BellRing, Paperclip, FileText, Copy, KeyRound,
+  Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,18 +13,51 @@ import { toast } from '@/hooks/use-toast';
 import {
   SM26_ROLE_LABELS, REG_STATUSES, ROLE_STATUSES, regStatusBadgeClass, roleStatusBadgeClass,
   prettyStatus, ORG_SCOPE_ROLES, MODULE_TABLE_ROLES,
+  REG_STATUS_META, REG_STAGES, ROLE_STATUS_DESC,
 } from './AdminSM26';
 import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
 import { SM26CompanyLink } from './SM26CompanyLink';
+import { SM26RequestInfo } from './SM26RequestInfo';
 
 // SM26 registration detail — full contact + per-role module data, with the
 // registration status pipeline AND role management: add roles (auto-filling
 // what we know), flag "info required", and notify the participant.
 
 const HIDDEN_KEYS = new Set(['id', 'role_assignment_id', 'event_id', 'organization_id', 'created_at', 'updated_at', 'anon_code']);
+// Meta keys we stash on module_data (request-info bookkeeping) — never displayed.
+const isMetaKey = (k: string) => k.startsWith('_');
 
 const prettyKey = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+// Soft, distinguishable chip palette — colour is derived from the value so the
+// same category always reads the same colour across registrations.
+const CHIP_COLORS = [
+  'bg-blue-50 text-blue-700 border-blue-200',
+  'bg-emerald-50 text-emerald-700 border-emerald-200',
+  'bg-violet-50 text-violet-700 border-violet-200',
+  'bg-amber-50 text-amber-700 border-amber-200',
+  'bg-rose-50 text-rose-700 border-rose-200',
+  'bg-cyan-50 text-cyan-700 border-cyan-200',
+  'bg-indigo-50 text-indigo-700 border-indigo-200',
+];
+const chipColor = (s: string) => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return CHIP_COLORS[h % CHIP_COLORS.length];
+};
+
+function Chips({ values }: { values: (string | number)[] }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {values.map((v, i) => (
+        <span key={i} className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${chipColor(String(v))}`}>
+          {String(v)}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function fmtVal(v: unknown): string {
   if (Array.isArray(v)) return v.join(', ');
@@ -43,7 +76,7 @@ function firstOf(x: unknown): Record<string, unknown> | undefined {
 
 function ModuleFields({ data }: { data: Record<string, unknown> }) {
   const entries = Object.entries(data).filter(([k, v]) =>
-    !HIDDEN_KEYS.has(k) && v !== null && v !== '' && v !== false && !(Array.isArray(v) && v.length === 0) && !isEmptyObject(v)
+    !HIDDEN_KEYS.has(k) && !isMetaKey(k) && v !== null && v !== '' && v !== false && !(Array.isArray(v) && v.length === 0) && !isEmptyObject(v)
   );
   if (entries.length === 0) return null;
   return (
@@ -51,9 +84,65 @@ function ModuleFields({ data }: { data: Record<string, unknown> }) {
       {entries.map(([k, v]) => (
         <div key={k} className="text-sm">
           <div className="text-[11px] uppercase tracking-wide text-gray-400">{prettyKey(k)}</div>
-          <div className="text-gray-800 whitespace-pre-wrap break-words">{fmtVal(v)}</div>
+          {Array.isArray(v) && v.length > 1
+            ? <div className="mt-0.5"><Chips values={v as (string | number)[]} /></div>
+            : <div className="text-gray-800 whitespace-pre-wrap break-words">{fmtVal(v)}</div>}
         </div>
       ))}
+    </div>
+  );
+}
+
+// Render a free-text "objective" field as colour chips when it reads like a
+// multi-select (comma / semicolon / newline separated), else as plain text.
+function splitObjective(s: string): string[] {
+  return s.split(/[;,\n]|·|•/).map(x => x.trim()).filter(Boolean);
+}
+
+// Happy-path status timeline (Submitted → Under review → Confirmed → Paid).
+// Off-path statuses (waitlist / declined / cancelled) show a clear notice
+// instead, because they aren't a step on the line.
+function StatusTimeline({ status, paid }: { status: string; paid: boolean }) {
+  const meta = REG_STATUS_META[status] || { label: prettyStatus(status), desc: '', stage: null };
+  if (meta.stage === null) {
+    return (
+      <div className="mt-3">
+        <div className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${regStatusBadgeClass(status)}`}>
+          <span className="font-semibold">{meta.label}</span>
+        </div>
+        {meta.desc && <p className="text-xs text-gray-500 mt-1.5">{meta.desc}</p>}
+      </div>
+    );
+  }
+  const current = paid ? 3 : meta.stage;
+  return (
+    <div className="mt-3">
+      <div className="flex items-start overflow-x-auto">
+        {REG_STAGES.map((label, i) => {
+          const done = i < current;
+          const isCurrent = i === current;
+          return (
+            <div key={label} className="flex items-start flex-1 last:flex-none min-w-0">
+              <div className="flex flex-col items-center gap-1 w-14 shrink-0">
+                <div className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-semibold border-2 transition-colors
+                  ${done ? 'bg-primary border-primary text-white'
+                    : isCurrent ? 'border-primary text-primary bg-primary/5'
+                    : 'border-gray-200 text-gray-300'}`}>
+                  {done ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                </div>
+                <span className={`text-[10px] text-center leading-tight ${isCurrent ? 'font-semibold text-gray-800' : done ? 'text-gray-600' : 'text-gray-300'}`}>{label}</span>
+              </div>
+              {i < REG_STAGES.length - 1 && (
+                <div className={`h-0.5 flex-1 mt-3.5 mx-0.5 rounded ${i < current ? 'bg-primary' : 'bg-gray-200'}`} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-gray-500 mt-2">
+        <span className="font-medium text-gray-700">{meta.label}</span> — {meta.desc}
+        {paid && <span className="text-emerald-600"> · Payment received.</span>}
+      </p>
     </div>
   );
 }
@@ -111,6 +200,7 @@ export function AdminSM26Detail() {
   const navigate = useNavigate();
   const [reg, setReg] = useState<Registration | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
+  const [paid, setPaid] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [roleSaving, setRoleSaving] = useState(false);
@@ -139,6 +229,9 @@ export function AdminSM26Detail() {
       const { data: reqs } = await supabase.from('sm_role_requirement').select('*').eq('event_id', r.event_id);
       setRequirements((reqs || []) as Requirement[]);
     }
+    // Payment drives the final timeline stage.
+    const { data: pay } = await supabase.from('sm_payment').select('status').eq('registration_id', regId).maybeSingle();
+    setPaid((pay as { status?: string } | null)?.status === 'paid');
     setLoading(false);
   };
 
@@ -204,21 +297,6 @@ export function AdminSM26Detail() {
     setAddRoleValue('');
     setRoleSaving(false);
     toast({ title: `Added role: ${SM26_ROLE_LABELS[role] || role}`, description: needsInfo && reg.user_id ? 'Participant notified that info is required.' : undefined });
-    await load(reg.id);
-  };
-
-  const requestInfo = async (ra: RoleAssignment) => {
-    if (!reg) return;
-    setRoleSaving(true);
-    const { error } = await supabase.from('sm_role_assignment').update({ status: 'needs_info' }).eq('id', ra.id);
-    if (!error && reg.user_id) {
-      const labels = reqsForRole(ra.role).filter(r => r.required).map(r => r.label).join(', ');
-      await notify(reg.user_id, 'Information needed for SM26',
-        `Please provide the required details for your ${SM26_ROLE_LABELS[ra.role] || ra.role} participation${labels ? `: ${labels}` : ''}.`);
-    }
-    setRoleSaving(false);
-    if (error) { toast({ title: 'Failed', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: reg.user_id ? 'Participant notified — info requested' : 'Marked as needs-info (no account to notify)' });
     await load(reg.id);
   };
 
@@ -294,9 +372,7 @@ export function AdminSM26Detail() {
               </Select>
             </div>
           </div>
-          <p className="text-xs text-gray-400 mt-3">
-            "Confirmed" signals full access once payment/eligibility is settled. Payment tracking is handled separately.
-          </p>
+          <StatusTimeline status={reg.status} paid={paid} />
         </CardContent>
       </Card>
 
@@ -324,7 +400,12 @@ export function AdminSM26Detail() {
           </div>
           {(reg.objective || reg.how_heard) && (
             <div className="mt-3 space-y-2">
-              {reg.objective && <div className="text-sm"><span className="text-[11px] uppercase tracking-wide text-gray-400">Objective</span><div className="text-gray-800">{reg.objective}</div></div>}
+              {reg.objective && (
+                <div className="text-sm">
+                  <span className="text-[11px] uppercase tracking-wide text-gray-400 flex items-center gap-1"><Target className="h-3 w-3" /> Objectives</span>
+                  <div className="mt-1"><Chips values={splitObjective(reg.objective)} /></div>
+                </div>
+              )}
               {reg.how_heard && <div className="text-sm"><span className="text-[11px] uppercase tracking-wide text-gray-400">How heard</span><div className="text-gray-800">{reg.how_heard}</div></div>}
             </div>
           )}
@@ -382,6 +463,9 @@ export function AdminSM26Detail() {
           const hasLight = role.module_data && Object.keys(role.module_data).length > 0;
           const reqs = reqsForRole(role.role);
           const hasModuleDetails = !!(startup || architecture || marina || hasLight);
+          const md = (role.module_data || {}) as Record<string, unknown>;
+          const requestedInfo = new Set((md._requested_info as string[] | undefined) || []);
+          const requestNote = md._request_note as string | undefined;
           return (
             <Card key={role.id} className="border-0 shadow-sm">
               <CardHeader className="pb-2">
@@ -396,17 +480,24 @@ export function AdminSM26Detail() {
                     <Select value={role.status} onValueChange={v => setRoleStatus(role, v)} disabled={roleSaving}>
                       <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {ROLE_STATUSES.map(s => <SelectItem key={s} value={s}>{prettyStatus(s)}</SelectItem>)}
+                        {ROLE_STATUSES.map(s => (
+                          <SelectItem key={s} value={s}>
+                            <span className="flex flex-col">
+                              <span>{prettyStatus(s)}</span>
+                              <span className="text-[10px] text-gray-400">{ROLE_STATUS_DESC[s]}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
-                    <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => requestInfo(role)} disabled={roleSaving} title="Mark as needs-info and notify the participant">
-                      <BellRing className="h-3.5 w-3.5" /> Request info
-                    </Button>
                     <Button size="icon" variant="ghost" className="h-8 w-8 text-gray-400 hover:text-red-600" onClick={() => removeRole(role)} disabled={roleSaving} title="Remove role">
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
+                {ROLE_STATUS_DESC[role.status] && (
+                  <p className="text-xs text-gray-400 mt-1">{ROLE_STATUS_DESC[role.status]}</p>
+                )}
               </CardHeader>
               <CardContent className="space-y-4">
                 {startup && <ModuleFields data={startup} />}
@@ -425,6 +516,7 @@ export function AdminSM26Detail() {
                     <div className="space-y-1.5">
                       {reqs.map(req => {
                         const satisfied = !!(role.module_data && (role.module_data as Record<string, unknown>)[req.field_key]);
+                        const requested = requestedInfo.has(req.field_key);
                         return (
                           <div key={req.id} className="flex items-center gap-2 text-sm">
                             {satisfied
@@ -435,12 +527,32 @@ export function AdminSM26Detail() {
                               ? <Paperclip className="h-3 w-3 text-gray-300" />
                               : <FileText className="h-3 w-3 text-gray-300" />}
                             {!req.required && <span className="text-[10px] text-gray-400">(optional)</span>}
+                            {requested && !satisfied && <span className="text-[10px] text-amber-600 font-medium">· requested</span>}
                           </div>
                         );
                       })}
                     </div>
                   </div>
                 )}
+
+                {(requestedInfo.size > 0 || requestNote) && (
+                  <div className="text-xs text-amber-700 bg-amber-50/60 border border-amber-100 rounded-lg px-3 py-2">
+                    <span className="font-medium">Last request to participant:</span>{' '}
+                    {requestedInfo.size > 0
+                      ? reqs.filter(r => requestedInfo.has(r.field_key)).map(r => r.label || r.field_key).join(', ')
+                      : 'note only'}
+                    {requestNote && <span className="block mt-0.5 italic">“{requestNote}”</span>}
+                  </div>
+                )}
+
+                <SM26RequestInfo
+                  roleAssignmentId={role.id}
+                  roleLabel={SM26_ROLE_LABELS[role.role] || role.role}
+                  items={reqs.map(r => ({ field_key: r.field_key, label: r.label, required: r.required, is_asset: r.is_asset }))}
+                  moduleData={role.module_data}
+                  userId={reg.user_id}
+                  onSent={() => load(reg.id)}
+                />
               </CardContent>
             </Card>
           );

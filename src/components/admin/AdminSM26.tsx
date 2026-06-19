@@ -41,6 +41,28 @@ export function regStatusBadgeClass(status: string): string {
 
 export const prettyStatus = (s: string) => s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
+// Plain-English meaning of each registration status + its position on the
+// happy-path timeline (Submitted → Under review → Confirmed → Paid). Off-path
+// statuses (waitlist/declined/cancelled) have stage = null.
+export const REG_STATUS_META: Record<string, { label: string; desc: string; stage: number | null }> = {
+  submitted: { label: 'Submitted', desc: 'Just registered — awaiting M3 review.', stage: 0 },
+  under_review: { label: 'Under review', desc: 'M3 is checking eligibility and category.', stage: 1 },
+  confirmed: { label: 'Confirmed', desc: 'Approved — full access once payment is settled.', stage: 2 },
+  waitlist: { label: 'Waitlist', desc: 'On the waiting list for a place.', stage: null },
+  declined: { label: 'Declined', desc: 'Not accepted for this edition — hidden from all public pages.', stage: null },
+  cancelled: { label: 'Cancelled', desc: 'Registration withdrawn.', stage: null },
+};
+export const REG_STAGES = ['Submitted', 'Under review', 'Confirmed', 'Paid'] as const;
+
+export const ROLE_STATUS_DESC: Record<string, string> = {
+  self_submitted: 'Chosen by the participant at registration.',
+  admin_added: 'Added by M3 — no extra info required yet.',
+  needs_info: 'Waiting on the participant to provide requested info.',
+  info_provided: 'Participant supplied the info — awaiting M3 review.',
+  confirmed: 'Validated by M3.',
+  declined: 'Not accepted — hidden from public pages.',
+};
+
 // Per-role assignment status (distinct from the overall registration status)
 export const ROLE_STATUSES = ['self_submitted', 'admin_added', 'needs_info', 'info_provided', 'confirmed', 'declined'] as const;
 

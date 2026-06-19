@@ -13,6 +13,8 @@ interface AuthContextType {
   profile: Profile | null
   organization: Organization | null
   orgRole: OrgMemberRole | null
+  organizations: { organization: Organization; role: OrgMemberRole }[]
+  setActiveOrganization: (orgId: string) => void
   hasOrganization: boolean
   isVerified: boolean
   isAdmin: boolean
@@ -27,12 +29,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+// A user can belong to multiple companies (admin-managed). We keep ONE active
+// company in `organization`/`orgRole` (so all existing org-scoped code is
+// unchanged) and expose the full list + a setter for the switcher.
+type Membership = { organization: Organization; role: OrgMemberRole }
+const ACTIVE_ORG_KEY = 'm3_active_org'
+
+function pickActiveMembership(memberships: Membership[]): Membership | null {
+  if (memberships.length === 0) return null
+  let storedId: string | null = null
+  try { storedId = localStorage.getItem(ACTIVE_ORG_KEY) } catch { /* ignore */ }
+  return memberships.find(m => m.organization.id === storedId)
+    || memberships.find(m => m.role === 'owner')
+    || memberships[0]
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [organization, setOrganization] = useState<Organization | null>(null)
   const [orgRole, setOrgRole] = useState<OrgMemberRole | null>(null)
+  const [organizations, setOrganizations] = useState<Membership[]>([])
   const [loading, setLoading] = useState(true)
   const [profileTimedOut, setProfileTimedOut] = useState(false)
 
@@ -48,42 +66,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── Data fetching ────────────────────────────────────────────────
   const fetchUserData = useCallback(async (userId: string) => {
-    // Fetch profile + membership in parallel for faster load
-    const [{ data: profileData, error }, { data: membership }] = await Promise.all([
+    // Fetch profile + ALL memberships in parallel for faster load
+    const [{ data: profileData, error }, { data: memberRows }] = await Promise.all([
       supabase.from('profiles').select('*').eq('user_id', userId).maybeSingle(),
-      supabase.from('organization_members').select('organization_id, role').eq('user_id', userId).maybeSingle(),
+      supabase.from('organization_members').select('organization_id, role').eq('user_id', userId),
     ])
 
-    if (error || !profileData) return { profile: null as Profile | null, org: null as Organization | null, role: null as OrgMemberRole | null }
+    if (error || !profileData) return { profile: null as Profile | null, memberships: [] as Membership[] }
 
     const p = profileData as Profile
+    const rows = (memberRows || []) as { organization_id: string; role: OrgMemberRole }[]
 
-    let org: Organization | null = null
-    let role: OrgMemberRole | null = null
-    if (membership) {
-      const { data: orgData } = await supabase
+    let memberships: Membership[] = []
+    if (rows.length > 0) {
+      const { data: orgs } = await supabase
         .from('organizations')
         .select('*')
-        .eq('id', membership.organization_id)
-        .single()
-      org = (orgData as Organization) ?? null
-      role = membership.role as OrgMemberRole
+        .in('id', rows.map(r => r.organization_id))
+      const orgMap = new Map(((orgs as Organization[] | null) || []).map(o => [o.id, o]))
+      memberships = rows
+        .map(r => { const o = orgMap.get(r.organization_id); return o ? { organization: o, role: r.role } : null })
+        .filter((m): m is Membership => m !== null)
     }
 
-    return { profile: p, org, role }
+    return { profile: p, memberships }
+  }, [])
+
+  // Set the membership list and resolve the active company (persisted choice,
+  // else the owned org, else the first). Keeps organization/orgRole = active.
+  const applyMemberships = useCallback((memberships: Membership[]) => {
+    setOrganizations(memberships)
+    const active = pickActiveMembership(memberships)
+    setOrganization(active?.organization ?? null)
+    setOrgRole(active?.role ?? null)
   }, [])
 
   const refreshProfile = useCallback(async () => {
     if (!user) return
-    const { profile: p, org, role } = await fetchUserData(user.id)
+    const { profile: p, memberships } = await fetchUserData(user.id)
     setProfile(p)
-    setOrganization(org)
-    setOrgRole(role)
+    applyMemberships(memberships)
     if (p) {
       profileLoadedRef.current = true
       setProfileTimedOut(false)
     }
-  }, [user, fetchUserData])
+  }, [user, fetchUserData, applyMemberships])
+
+  const setActiveOrganization = useCallback((orgId: string) => {
+    const m = organizations.find(x => x.organization.id === orgId)
+    if (!m) return
+    setOrganization(m.organization)
+    setOrgRole(m.role)
+    try { localStorage.setItem(ACTIVE_ORG_KEY, orgId) } catch { /* ignore */ }
+  }, [organizations])
 
   // ─── Refs for deduplication ───────────────────────────────────────
   const initializedRef = useRef(false)
@@ -136,6 +171,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null)
         setOrganization(null)
         setOrgRole(null)
+        setOrganizations([])
         currentUserIdRef.current = null
         isFetchingRef.current = false
         profileLoadedRef.current = false
@@ -171,8 +207,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const result = await fetchUserData(sess.user.id)
         if (!mountedRef.current) return
         setProfile(result.profile)
-        setOrganization(result.org)
-        setOrgRole(result.role)
+        setOrganizations(result.memberships)
+        const active = pickActiveMembership(result.memberships)
+        setOrganization(active?.organization ?? null)
+        setOrgRole(active?.role ?? null)
         if (result.profile) {
           profileLoadedRef.current = true
           setProfileTimedOut(false)
@@ -246,6 +284,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(null)
           setOrganization(null)
           setOrgRole(null)
+          setOrganizations([])
           currentUserIdRef.current = null
           profileLoadedRef.current = false
           setProfileTimedOut(false)
@@ -360,6 +399,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null)
     setOrganization(null)
     setOrgRole(null)
+    setOrganizations([])
     try {
       await supabase.auth.signOut({ scope: 'local' })
     } catch (e) {
@@ -369,7 +409,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, session, loading, profileTimedOut, profile, organization, orgRole, hasOrganization,
+      user, session, loading, profileTimedOut, profile, organization, orgRole, organizations, setActiveOrganization, hasOrganization,
       isVerified, isAdmin, isModerator, isPending, isSponsor, signUp, signIn, signOut, refreshProfile
     }}>
       {children}

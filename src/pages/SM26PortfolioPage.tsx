@@ -43,7 +43,7 @@ interface Entry {
 type Access = 'loading' | 'staff' | 'investor' | 'pending' | 'none';
 
 export function SM26PortfolioPage() {
-  const { user, isModerator, loading: authLoading } = useAuth();
+  const { user, isModerator, profile, isVerified, loading: authLoading } = useAuth();
   const [access, setAccess] = useState<Access>('loading');
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +64,8 @@ export function SM26PortfolioPage() {
     let acc: Access = 'none';
     if (isModerator) {
       acc = 'staff';
+    } else if (profile?.persona === 'investor' && isVerified) {
+      acc = 'investor'; // unified accreditation: platform investor also sees the SM26 portfolio
     } else {
       const { data: reg } = await supabase
         .from('sm_registration')

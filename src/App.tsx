@@ -108,7 +108,7 @@ function App() {
               <Route path="/submit-consultation/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
               <Route path="/network" element={<MarketplacePage />} />
               <Route path="/marketplace" element={<Navigate to="/network" replace />} />
-              <Route path="/investments" element={<ProtectedRoute requireVerified requirePersona={['investor']} showLocked lockedMessage="Deal flow is reserved for verified investor accounts."><DealFlowPage /></ProtectedRoute>} />
+              <Route path="/investments" element={<ProtectedRoute><DealFlowPage /></ProtectedRoute>} />
               <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
               <Route path="/users/:id" element={<UserProfilePage />} />
               <Route path="/admin/*" element={<ProtectedRoute requireModerator><AdminPage /></ProtectedRoute>} />

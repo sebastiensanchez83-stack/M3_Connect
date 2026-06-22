@@ -8,6 +8,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CookieBanner } from '@/components/layout/CookieBanner';
 import { captureInviteFromUrl } from '@/lib/invite-store';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
+import { SM26_ENABLED } from '@/lib/featureFlags';
 import { RefreshCw } from 'lucide-react';
 
 // Capture ?invite= param on initial page load (before React renders)
@@ -87,15 +88,22 @@ function App() {
               <Route path="/resources/:id" element={<ResourceDetailPage />} />
               <Route path="/events" element={<EventsPage />} />
               <Route path="/events/:id" element={<EventDetailPage />} />
-              <Route path="/sm26/register" element={<SM26RegisterPage />} />
-              <Route path="/sm26/me" element={<ProtectedRoute><SM26MyRegistrationPage /></ProtectedRoute>} />
-              <Route path="/sm26/jury" element={<ProtectedRoute><SM26JuryPage /></ProtectedRoute>} />
-              <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
-              <Route path="/sm26/vote" element={<ProtectedRoute><SM26VotePage /></ProtectedRoute>} />
-              <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
-              <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
-              <Route path="/sm26/claim" element={<SM26ClaimPage />} />
-              <Route path="/sm26/partner" element={<ProtectedRoute><SM26PartnerPage /></ProtectedRoute>} />
+              {/* Public SM26 participant routes — gated by feature flag so the
+                  module can merge to main but stay hidden on production until
+                  launch (admin /admin/sm26/* stays available to staff). */}
+              {SM26_ENABLED && (
+                <>
+                  <Route path="/sm26/register" element={<SM26RegisterPage />} />
+                  <Route path="/sm26/me" element={<ProtectedRoute><SM26MyRegistrationPage /></ProtectedRoute>} />
+                  <Route path="/sm26/jury" element={<ProtectedRoute><SM26JuryPage /></ProtectedRoute>} />
+                  <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
+                  <Route path="/sm26/vote" element={<ProtectedRoute><SM26VotePage /></ProtectedRoute>} />
+                  <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
+                  <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
+                  <Route path="/sm26/claim" element={<SM26ClaimPage />} />
+                  <Route path="/sm26/partner" element={<ProtectedRoute><SM26PartnerPage /></ProtectedRoute>} />
+                </>
+              )}
               <Route path="/partners" element={<PartnersPage />} />
               <Route path="/become-partner" element={<BecomePartnerPage />} />
               <Route path="/tiers" element={<TiersPage />} />

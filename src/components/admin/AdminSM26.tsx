@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen, CalendarDays, QrCode, Trophy, MessageSquare } from 'lucide-react';
+import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen, CalendarDays, QrCode, Trophy, MessageSquare, Check, BellRing, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
+import { toast } from '@/hooks/use-toast';
 
 // SM26 admin console — list of registrations for the Smart & Sustainable
 // Marina Rendezvous 2026, with role/status filters and a click-through detail.
@@ -117,6 +119,8 @@ export function AdminSM26() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -146,6 +150,44 @@ export function AdminSM26() {
   // Summary counts by registration status
   const counts: Record<string, number> = {};
   for (const r of rows) counts[r.status] = (counts[r.status] || 0) + 1;
+
+  // ── Bulk selection ──
+  const toggleSel = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSel = () => setSelected(new Set());
+  const allVisibleSelected = filtered.length > 0 && filtered.every(r => selected.has(r.id));
+  const toggleAllVisible = () => setSelected(prev => {
+    if (filtered.every(r => prev.has(r.id))) { const n = new Set(prev); filtered.forEach(r => n.delete(r.id)); return n; }
+    const n = new Set(prev); filtered.forEach(r => n.add(r.id)); return n;
+  });
+
+  const bulkStatus = async (status: string) => {
+    if (selected.size === 0) return;
+    setBulkBusy(true);
+    const ids = [...selected];
+    const { error } = await supabase.from('sm_registration').update({ status }).in('id', ids);
+    setBulkBusy(false);
+    if (error) { toast({ title: 'Bulk update failed', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: `${ids.length} registration${ids.length > 1 ? 's' : ''} set to ${prettyStatus(status)}` });
+    clearSel();
+    load();
+  };
+
+  const bulkAskDetails = async () => {
+    const targets = rows.filter(r => selected.has(r.id) && r.user_id);
+    if (targets.length === 0) { toast({ title: 'None of the selected have an account to notify' }); return; }
+    setBulkBusy(true);
+    const notes = targets.map(r => ({
+      user_id: r.user_id, type: 'sm26_info_required',
+      title: 'Please complete your SM26 details',
+      body: 'M3 asks you to review and complete your registration details for the Smart & Sustainable Marina Rendezvous 2026.',
+      link: '/sm26/me',
+    }));
+    const { error } = await supabase.from('sm_notification').insert(notes);
+    setBulkBusy(false);
+    if (error) { toast({ title: 'Could not notify', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: `Asked ${targets.length} participant${targets.length > 1 ? 's' : ''} to complete their details` });
+    clearSel();
+  };
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -216,6 +258,24 @@ export function AdminSM26() {
         </Select>
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 ? (
+        <div className="flex items-center gap-2 flex-wrap rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+          <span className="text-sm font-medium text-gray-700">{selected.size} selected</span>
+          <Button size="sm" className="h-8 gap-1.5" disabled={bulkBusy} onClick={() => bulkStatus('confirmed')}><Check className="h-3.5 w-3.5" /> Confirm</Button>
+          <Select value="" onValueChange={v => bulkStatus(v)} disabled={bulkBusy}>
+            <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="Set status…" /></SelectTrigger>
+            <SelectContent>{REG_STATUSES.map(s => <SelectItem key={s} value={s}>{prettyStatus(s)}</SelectItem>)}</SelectContent>
+          </Select>
+          <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={bulkBusy} onClick={bulkAskDetails}><BellRing className="h-3.5 w-3.5" /> Ask to complete details</Button>
+          <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-gray-500 ml-auto" onClick={clearSel}><X className="h-3.5 w-3.5" /> Clear</Button>
+        </div>
+      ) : filtered.length > 0 && (
+        <label className="flex items-center gap-2 text-xs text-gray-500 px-1 cursor-pointer w-fit">
+          <Checkbox checked={allVisibleSelected} onCheckedChange={toggleAllVisible} /> Select all {filtered.length} shown
+        </label>
+      )}
+
       <div className="space-y-2">
         {filtered.length === 0 ? (
           <Card className="border-0 shadow-sm">
@@ -230,6 +290,9 @@ export function AdminSM26() {
                 onClick={() => navigate(`/admin/sm26/${r.id}`)}>
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
+                    <div onClick={e => e.stopPropagation()} className="shrink-0 flex items-center">
+                      <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggleSel(r.id)} aria-label="Select registration" />
+                    </div>
                     <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 font-semibold uppercase">
                       {(r.first_name?.[0] || r.email?.[0] || '?')}
                     </div>

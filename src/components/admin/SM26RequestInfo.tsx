@@ -43,9 +43,10 @@ export function SM26RequestInfo({ roleAssignmentId, roleLabel, items, moduleData
     // tolerate field_key vs stored column (logo ↔ logo_url, deck ↔ pitch_deck…)
     return Object.keys(sd).some(key => has(sd[key]) && key.includes(k));
   };
-  // Default selection: everything the participant hasn't provided yet.
+  // Default selection: the REQUIRED items still missing (optional/extra fields
+  // are there to tick, but not pre-checked).
   const [open, setOpen] = useState(false);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(items.filter(i => !satisfied(i.field_key)).map(i => i.field_key)));
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(items.filter(i => i.required && !satisfied(i.field_key)).map(i => i.field_key)));
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
 

@@ -50,6 +50,8 @@ const ecatClass = (s: string) =>
   : s === 'changes_requested' ? 'bg-amber-50 text-amber-700 border-amber-200'
   : 'bg-gray-50 text-gray-600 border-gray-200';
 
+const prettyFieldKey = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
 export function SM26MyRegistrationPage() {
   const { user, loading: authLoading } = useAuth();
   const [reg, setReg] = useState<Registration | null>(null);
@@ -289,6 +291,9 @@ export function SM26MyRegistrationPage() {
             const requested = new Set((md._requested_info as string[] | undefined) || []);
             const requestNote = md._request_note as string | undefined;
             const outstanding = reqs.filter(r => requested.has(r.field_key) && !md[r.field_key]);
+            // Fields M3 requested that aren't part of the fixed requirement list
+            // (e.g. a missing text field like "domain") — render a box for each.
+            const extraRequested = [...requested].filter(k => !reqs.some(r => r.field_key === k));
             return (
               <Card key={role.id}>
                 <CardHeader>
@@ -360,6 +365,20 @@ export function SM26MyRegistrationPage() {
                           {hasValue && <Check className="h-3.5 w-3.5 text-green-600" />}
                         </Label>
                         <Textarea rows={2} value={current} onChange={e => setDraft(role.id, req.field_key, e.target.value)} />
+                      </div>
+                    );
+                  })}
+
+                  {extraRequested.map(key => {
+                    const hasValue = !!(md[key]);
+                    return (
+                      <div key={key} className="space-y-1.5">
+                        <Label className="flex items-center gap-1.5">
+                          <FileText className="h-3.5 w-3.5 text-gray-400" /> {prettyFieldKey(key)}
+                          <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Requested by M3</span>
+                          {hasValue && <Check className="h-3.5 w-3.5 text-green-600" />}
+                        </Label>
+                        <Textarea rows={2} value={drafts[role.id]?.[key] ?? (md[key] as string) ?? ''} onChange={e => setDraft(role.id, key, e.target.value)} />
                       </div>
                     );
                   })}

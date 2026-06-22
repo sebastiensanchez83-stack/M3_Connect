@@ -599,6 +599,13 @@ export function AdminSM26Detail() {
           const roleData = { ...md, ...(startup || {}), ...(architecture || {}), ...(marina || {}) } as Record<string, unknown>;
           const fieldHas = (v: unknown) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
           const fieldSatisfied = (k: string) => fieldHas(roleData[k]) || Object.keys(roleData).some(key => fieldHas(roleData[key]) && key.includes(k));
+          // Empty TEXT fields the participant could still fill — offered as extra
+          // tickable items in the request-info picker (beyond the fixed requirements).
+          const STRUCT_KEYS = new Set(['id', 'role_assignment_id', 'event_id', 'organization_id', 'created_at', 'updated_at', 'anon_code', 'visibility_level', 'social_links', 'references_text']);
+          const reqKeys = new Set(reqs.map(r => r.field_key));
+          const missingTextFields = Object.keys(roleData)
+            .filter(k => !STRUCT_KEYS.has(k) && !isMetaKey(k) && !FILE_KEY.test(k) && !reqKeys.has(k) && (roleData[k] === null || roleData[k] === ''))
+            .map(k => ({ field_key: k, label: prettyKey(k), required: false, is_asset: false }));
           return (
             <Card key={role.id} className="border-0 shadow-sm">
               <CardHeader className="pb-2">
@@ -680,7 +687,7 @@ export function AdminSM26Detail() {
                 <SM26RequestInfo
                   roleAssignmentId={role.id}
                   roleLabel={SM26_ROLE_LABELS[role.role] || role.role}
-                  items={reqs.map(r => ({ field_key: r.field_key, label: r.label, required: r.required, is_asset: r.is_asset }))}
+                  items={[...reqs.map(r => ({ field_key: r.field_key, label: r.label, required: r.required, is_asset: r.is_asset })), ...missingTextFields]}
                   moduleData={role.module_data}
                   satisfiedData={roleData}
                   userId={reg.user_id}

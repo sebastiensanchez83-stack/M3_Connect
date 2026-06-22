@@ -1,4 +1,5 @@
 import { useState, useEffect, type ElementType, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,7 @@ const ROLE_ICON: Record<string, ElementType> = {
 
 export function SM26RegisterPage() {
   const { user, profile, organization } = useAuth();
+  const navigate = useNavigate();
   const [eventId, setEventId] = useState<string | null>(null);
   const [fees, setFees] = useState<Record<string, number>>({});
   const [form, setForm] = useState({
@@ -96,6 +98,24 @@ export function SM26RegisterPage() {
       country: prev.country || organization?.country || '',
     }));
   }, [user, profile, organization]);
+
+  // A logged-in visitor who already has a registration for this event (incl. a
+  // Jotform import under their email) shouldn't be able to register a second
+  // time — link any imported one by email, then send them to their hub.
+  useEffect(() => {
+    if (!user || !eventId) return;
+    let active = true;
+    (async () => {
+      try { await supabase.rpc('sm_autoclaim_by_email'); } catch { /* best-effort */ }
+      const { data } = await supabase.from('sm_registration')
+        .select('id').eq('event_id', eventId).eq('user_id', user.id).maybeSingle();
+      if (active && data) {
+        toast({ title: "You're already registered", description: 'Taking you to your registration.' });
+        navigate('/sm26/me');
+      }
+    })();
+    return () => { active = false; };
+  }, [user, eventId, navigate]);
 
   const setField = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
   const selectRole = (k: string) => {

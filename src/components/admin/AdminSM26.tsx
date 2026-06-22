@@ -63,6 +63,20 @@ export const ROLE_STATUS_DESC: Record<string, string> = {
   declined: 'Not accepted — hidden from public pages.',
 };
 
+// Base registration fields a participant can complete/edit themselves and that
+// admins can request. Shared so the participant card and the request picker use
+// identical keys + labels. `multi` renders as chips / a longer text box.
+export const SM26_BASE_FIELDS: { key: string; label: string; multi?: boolean }[] = [
+  { key: 'first_name', label: 'First name' },
+  { key: 'last_name', label: 'Last name' },
+  { key: 'phone', label: 'Phone' },
+  { key: 'company_name', label: 'Company' },
+  { key: 'job_title', label: 'Job title' },
+  { key: 'website', label: 'Website' },
+  { key: 'country', label: 'Country' },
+  { key: 'objective', label: 'Objectives for attending', multi: true },
+];
+
 // Per-role assignment status (distinct from the overall registration status)
 export const ROLE_STATUSES = ['self_submitted', 'admin_added', 'needs_info', 'info_provided', 'confirmed', 'declined'] as const;
 

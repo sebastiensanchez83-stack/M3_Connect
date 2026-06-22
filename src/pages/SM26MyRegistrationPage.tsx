@@ -15,6 +15,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26_ROLE_LABELS, roleStatusBadgeClass, prettyStatus } from '@/components/admin/AdminSM26';
 import { SM26Notifications } from '@/components/sm26/SM26Notifications';
+import { SM26EditDetails } from '@/components/sm26/SM26EditDetails';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
 // SM26 roles. Linked from the "information needed" notification (/sm26/me).
@@ -213,6 +214,8 @@ export function SM26MyRegistrationPage() {
             </div>
           </CardContent>
         </Card>
+
+        <SM26EditDetails registrationId={reg.id} onSaved={load} />
 
         {ecat.length > 0 && (
           <Card>

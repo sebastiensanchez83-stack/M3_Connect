@@ -13,12 +13,13 @@ import { toast } from '@/hooks/use-toast';
 import {
   SM26_ROLE_LABELS, REG_STATUSES, ROLE_STATUSES, regStatusBadgeClass, roleStatusBadgeClass,
   prettyStatus, ORG_SCOPE_ROLES, MODULE_TABLE_ROLES,
-  REG_STATUS_META, REG_STAGES, ROLE_STATUS_DESC,
+  REG_STATUS_META, REG_STAGES, ROLE_STATUS_DESC, SM26_BASE_FIELDS,
 } from './AdminSM26';
 import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
 import { SM26CompanyLink } from './SM26CompanyLink';
 import { SM26RequestInfo } from './SM26RequestInfo';
+import { SM26RequestFields } from './SM26RequestFields';
 
 // SM26 registration detail — full contact + per-role module data, with the
 // registration status pipeline AND role management: add roles (auto-filling
@@ -203,6 +204,8 @@ interface Registration {
   organization_id: string | null;
   claim_code: string | null;
   source: string | null;
+  requested_fields: string[] | null;
+  info_request_note: string | null;
   roles: RoleAssignment[];
 }
 
@@ -442,6 +445,23 @@ export function AdminSM26Detail() {
               {reg.how_heard && <div className="text-sm"><span className="text-[11px] uppercase tracking-wide text-gray-400">How heard</span><div className="text-gray-800">{reg.how_heard}</div></div>}
             </div>
           )}
+
+          <div className="mt-4 pt-3 border-t border-gray-100 space-y-2">
+            {reg.requested_fields && reg.requested_fields.length > 0 && (
+              <div className="text-xs text-amber-700 bg-amber-50/60 border border-amber-100 rounded-lg px-3 py-2">
+                <span className="font-medium">Awaiting from participant:</span>{' '}
+                {SM26_BASE_FIELDS.filter(f => reg.requested_fields!.includes(f.key)).map(f => f.label).join(', ')}
+                {reg.info_request_note && <span className="block mt-0.5 italic">“{reg.info_request_note}”</span>}
+              </div>
+            )}
+            <SM26RequestFields
+              registrationId={reg.id}
+              userId={reg.user_id}
+              current={reg as unknown as Record<string, unknown>}
+              alreadyRequested={reg.requested_fields || []}
+              onSent={() => load(reg.id)}
+            />
+          </div>
         </CardContent>
       </Card>
 

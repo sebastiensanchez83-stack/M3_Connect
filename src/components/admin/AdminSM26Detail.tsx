@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
   Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target, Download,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -94,47 +95,79 @@ function classify(k: string, v: unknown): 'file' | 'long' | 'array' | 'short' {
   return 'short';
 }
 
-// One file/image. Images show a thumbnail that opens a preview popup with a
-// download; other files show a download button. Resolves storage paths to a
-// signed URL; passes http(s) links through.
-function AssetField({ value }: { value: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+// One labelled field's file(s). Resolves each storage path to a signed URL;
+// images render as thumbnails that open a shared preview lightbox with ‹ ›
+// navigation across all images in the field; other files are download buttons.
+function AssetGroup({ label, values }: { label: string; values: string[] }) {
+  const [urls, setUrls] = useState<Record<number, string | null>>({});
   useEffect(() => {
     let active = true;
-    (async () => {
-      if (/^https?:\/\//.test(value)) { if (active) setUrl(value); return; }
-      const { data } = await supabase.storage.from('event-media').createSignedUrl(value, 3600);
-      if (active) setUrl(data?.signedUrl || null);
-    })();
+    setUrls({});
+    values.forEach(async (v, i) => {
+      if (/^https?:\/\//.test(v)) { if (active) setUrls(u => ({ ...u, [i]: v })); return; }
+      const { data } = await supabase.storage.from('event-media').createSignedUrl(v, 3600);
+      if (active) setUrls(u => ({ ...u, [i]: data?.signedUrl || null }));
+    });
     return () => { active = false; };
-  }, [value]);
-  const name = decodeURIComponent(value.split('/').pop() || 'file');
-  const isImg = IMG_EXT.test(value) || (!!url && IMG_EXT.test(url));
-  if (isImg) {
-    return (
-      <>
-        <button type="button" onClick={() => url && setOpen(true)} disabled={!url} title="Preview" className="block shrink-0">
-          {url
-            ? <img src={url} alt={name} className="h-20 w-20 rounded-lg object-cover border border-gray-200 bg-white hover:ring-2 hover:ring-primary/30 transition" />
-            : <div className="h-20 w-20 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-gray-300"><RefreshCw className="h-4 w-4 animate-spin" /></div>}
-        </button>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent className="max-w-3xl">
-            <DialogTitle className="sr-only">{name}</DialogTitle>
-            {url && <img src={url} alt={name} className="max-h-[68vh] w-auto mx-auto rounded-lg" />}
-            <div className="flex items-center justify-center gap-2 pt-2">
-              <Button asChild size="sm" variant="outline" className="gap-1.5"><a href={url || '#'} download={name} target="_blank" rel="noreferrer"><Download className="h-3.5 w-3.5" /> Download</a></Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </>
-    );
-  }
+  }, [values]);
+
+  const nameOf = (v: string) => decodeURIComponent(v.split('/').pop() || 'file');
+  const isImg = (v: string, i: number) => IMG_EXT.test(v) || (!!urls[i] && IMG_EXT.test(urls[i]!));
+  const imgIdx = values.map((_, i) => i).filter(i => isImg(values[i], i)); // indices that are images
+  const [openPos, setOpenPos] = useState<number | null>(null); // position within imgIdx
+  const cur = openPos != null ? imgIdx[openPos] : null;
+  const go = (d: number) => setOpenPos(p => (p == null ? p : (p + d + imgIdx.length) % imgIdx.length));
+
+  useEffect(() => {
+    if (openPos == null) return;
+    const h = (e: KeyboardEvent) => { if (e.key === 'ArrowLeft') go(-1); if (e.key === 'ArrowRight') go(1); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPos, imgIdx.length]);
+
   return (
-    <Button size="sm" variant="outline" className="h-9 gap-1.5 max-w-[14rem]" disabled={!url} onClick={() => url && window.open(url, '_blank')}>
-      <Download className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{url ? name : 'Loading…'}</span>
-    </Button>
+    <div className="text-sm">
+      <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">{label}{values.length > 1 ? ` (${values.length})` : ''}</div>
+      <div className="flex flex-wrap gap-2">
+        {values.map((v, i) => {
+          const url = urls[i] ?? null;
+          if (isImg(v, i)) {
+            return (
+              <button key={i} type="button" onClick={() => url && setOpenPos(imgIdx.indexOf(i))} disabled={!url} title="Preview" className="block shrink-0">
+                {url
+                  ? <img src={url} alt={nameOf(v)} className="h-20 w-20 rounded-lg object-cover border border-gray-200 bg-white hover:ring-2 hover:ring-primary/30 transition" />
+                  : <div className="h-20 w-20 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-gray-300"><RefreshCw className="h-4 w-4 animate-spin" /></div>}
+              </button>
+            );
+          }
+          return (
+            <Button key={i} size="sm" variant="outline" className="h-9 gap-1.5 max-w-[14rem]" disabled={!url} onClick={() => url && window.open(url, '_blank')}>
+              <Download className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{url ? nameOf(v) : 'Loading…'}</span>
+            </Button>
+          );
+        })}
+      </div>
+
+      <Dialog open={openPos != null} onOpenChange={o => !o && setOpenPos(null)}>
+        <DialogContent className="max-w-4xl">
+          <DialogTitle className="sr-only">{cur != null ? nameOf(values[cur]) : 'Image'}</DialogTitle>
+          <div className="relative">
+            {cur != null && urls[cur] && <img src={urls[cur]!} alt={nameOf(values[cur])} className="max-h-[68vh] w-auto mx-auto rounded-lg" />}
+            {imgIdx.length > 1 && (
+              <>
+                <button type="button" onClick={() => go(-1)} aria-label="Previous" className="absolute left-1 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white"><ChevronLeft className="h-5 w-5" /></button>
+                <button type="button" onClick={() => go(1)} aria-label="Next" className="absolute right-1 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-white/90 shadow flex items-center justify-center hover:bg-white"><ChevronRight className="h-5 w-5" /></button>
+              </>
+            )}
+          </div>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            {imgIdx.length > 1 && <span className="text-xs text-gray-400 tabular-nums">{(openPos ?? 0) + 1} / {imgIdx.length}</span>}
+            <Button asChild size="sm" variant="outline" className="gap-1.5"><a href={(cur != null && urls[cur]) || '#'} download={cur != null ? nameOf(values[cur]) : undefined} target="_blank" rel="noreferrer"><Download className="h-3.5 w-3.5" /> Download</a></Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
   );
 }
 
@@ -174,17 +207,11 @@ function ModuleFields({ data }: { data: Record<string, unknown> }) {
           <div className="text-gray-800 whitespace-pre-wrap break-words mt-0.5">{fmtVal(v)}</div>
         </div>
       ))}
-      {/* files & images — each field labelled, with one or more assets */}
+      {/* files & images — each field labelled, with one or more assets;
+          multiple images share a lightbox you can page through with ‹ › */}
       {files.map(([k, v]) => {
         const vals = Array.isArray(v) ? (v as unknown[]).map(String) : [String(v)];
-        return (
-          <div key={k} className="text-sm">
-            <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">{prettyKey(k)}{vals.length > 1 ? ` (${vals.length})` : ''}</div>
-            <div className="flex flex-wrap gap-2">
-              {vals.map((val, i) => <AssetField key={i} value={val} />)}
-            </div>
-          </div>
-        );
+        return <AssetGroup key={k} label={prettyKey(k)} values={vals} />;
       })}
     </div>
   );

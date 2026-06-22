@@ -50,6 +50,8 @@ export function AdminSM26Agenda() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [speakers, setSpeakers] = useState<string[]>([]);
+  const [dayTab, setDayTab] = useState<string>('all');
 
   useEffect(() => { load(); }, []);
 
@@ -70,6 +72,13 @@ export function AdminSM26Agenda() {
       for (const b of (bk || []) as { session_id: string }[]) c[b.session_id] = (c[b.session_id] || 0) + 1;
       setCounts(c);
     }
+    // Registered speakers — offered as quick-picks in the session form.
+    const { data: spk } = await supabase.from('sm_role_assignment')
+      .select('registration:sm_registration(first_name,last_name)')
+      .eq('event_id', eid).eq('role', 'speaker').neq('status', 'declined');
+    const names = ((spk || []) as { registration?: { first_name?: string; last_name?: string } }[])
+      .map(r => `${r.registration?.first_name || ''} ${r.registration?.last_name || ''}`.trim()).filter(Boolean);
+    setSpeakers([...new Set(names)]);
     setLoading(false);
   };
 
@@ -130,16 +139,39 @@ export function AdminSM26Agenda() {
     if (!d) { d = { key: k, items: [] }; days.push(d); }
     d.items.push(s);
   }
+  const publishedCount = sessions.filter(s => s.published).length;
+  const workshopCount = sessions.filter(s => s.type === 'workshop').length;
 
   return (
     <div className="space-y-4">
       <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><CalendarDays className="h-6 w-6 text-primary" /> Agenda ({sessions.length})</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><CalendarDays className="h-6 w-6 text-primary" /> Programme</h1>
+          <p className="text-sm text-gray-500 mt-0.5">{sessions.length} session{sessions.length !== 1 ? 's' : ''} · {publishedCount} published · {workshopCount} workshop{workshopCount !== 1 ? 's' : ''}</p>
+        </div>
         <Button className="gap-1.5" onClick={openNew}><Plus className="h-4 w-4" /> New session</Button>
       </div>
 
-      {days.map(day => (
+      {sessions.length === 0 ? (
+        <Card className="border-0 shadow-sm"><CardContent className="py-12 text-center">
+          <CalendarDays className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-600 font-medium">No sessions yet</p>
+          <p className="text-gray-400 text-sm mt-1 mb-4">Build the two-day programme — talks, panels, startup pitches, workshops and the awards ceremony.</p>
+          <Button className="gap-1.5" onClick={openNew}><Plus className="h-4 w-4" /> Add the first session</Button>
+        </CardContent></Card>
+      ) : (
+      <>
+      {days.length > 1 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => setDayTab('all')} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${dayTab === 'all' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>All days</button>
+          {days.map(d => (
+            <button key={d.key} onClick={() => setDayTab(d.key)} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${dayTab === d.key ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>{d.key} · {d.items.length}</button>
+          ))}
+        </div>
+      )}
+
+      {(dayTab === 'all' ? days : days.filter(d => d.key === dayTab)).map(day => (
         <div key={day.key}>
           <h2 className="text-sm font-semibold text-gray-700 mb-2">{day.key}</h2>
           <div className="space-y-2">
@@ -172,6 +204,8 @@ export function AdminSM26Agenda() {
           </div>
         </div>
       ))}
+      </>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -193,7 +227,16 @@ export function AdminSM26Agenda() {
               <div className="space-y-1"><Label>Start</Label><Input type="time" value={form.start} onChange={e => setForm({ ...form, start: e.target.value })} /></div>
               <div className="space-y-1"><Label>End</Label><Input type="time" value={form.end} onChange={e => setForm({ ...form, end: e.target.value })} /></div>
             </div>
-            <div className="space-y-1"><Label>Speakers</Label><Input value={form.speakers} onChange={e => setForm({ ...form, speakers: e.target.value })} /></div>
+            <div className="space-y-1">
+              <Label>Speakers</Label>
+              <Input value={form.speakers} onChange={e => setForm({ ...form, speakers: e.target.value })} placeholder="Comma-separated names" />
+              {speakers.length > 0 && (
+                <Select value="" onValueChange={name => setForm(f => ({ ...f, speakers: f.speakers.trim() ? `${f.speakers.replace(/,\s*$/, '')}, ${name}` : name }))}>
+                  <SelectTrigger className="h-8 text-xs text-gray-500"><SelectValue placeholder="+ Add a registered speaker" /></SelectTrigger>
+                  <SelectContent>{speakers.map(n => <SelectItem key={n} value={n}>{n}</SelectItem>)}</SelectContent>
+                </Select>
+              )}
+            </div>
             <div className="space-y-1"><Label>Description</Label><Textarea rows={2} value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
             {form.type === 'workshop' && (
               <div className="space-y-1 max-w-[10rem]"><Label>Capacity</Label><Input type="number" min={1} value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} placeholder="10" /></div>

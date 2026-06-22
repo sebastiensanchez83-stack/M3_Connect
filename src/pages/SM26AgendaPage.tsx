@@ -37,6 +37,7 @@ export function SM26AgendaPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [dayTab, setDayTab] = useState('all');
 
   useEffect(() => { load(); }, [user]);
 
@@ -95,10 +96,18 @@ export function SM26AgendaPage() {
         </div>
       </section>
 
-      <div className="container mx-auto px-4 py-8 max-w-3xl space-y-8">
+      <div className="container mx-auto px-4 py-8 max-w-3xl space-y-6">
+        {days.length > 1 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => setDayTab('all')} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${dayTab === 'all' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>Both days</button>
+            {days.map(d => (
+              <button key={d.key} onClick={() => setDayTab(d.key)} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${dayTab === d.key ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>{d.key}</button>
+            ))}
+          </div>
+        )}
         {days.length === 0 ? (
           <Card><CardContent className="py-12 text-center text-gray-400">The programme will be published soon.</CardContent></Card>
-        ) : days.map(day => (
+        ) : (dayTab === 'all' ? days : days.filter(d => d.key === dayTab)).map(day => (
           <div key={day.key}>
             <h2 className="text-lg font-bold text-gray-900 mb-3">{day.key}</h2>
             <div className="space-y-2">

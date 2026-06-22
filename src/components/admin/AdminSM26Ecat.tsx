@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  RefreshCw, ArrowLeft, BookOpen, Upload, FileText, ExternalLink, CheckCircle, Loader2, Send, CreditCard, MessageSquare,
+  RefreshCw, ArrowLeft, BookOpen, Upload, FileText, ExternalLink, CheckCircle, Loader2, Send,
+  CreditCard, MessageSquare, Eye, EyeOff, LayoutGrid, ListChecks, Palette,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,15 +12,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 
-// Admin e-catalogue console — drives the round-trip: export dossier -> design ->
-// upload designed page -> participant approves/requests changes -> publish
-// (gated on payment). YCM-side steps are performed here by M3.
+// Admin e-catalogue console. Each marina & startup gets a catalogue page; this
+// drives it through: prepare → send to designer → design → participant review →
+// publish (gated on payment). The board view shows where every page sits; the
+// "Browse published" view shows the catalogue as attendees will see it.
 
 export const ECAT_STATUS_LABEL: Record<string, string> = {
-  awaiting_export: 'Awaiting export',
-  exported: 'Exported',
-  in_design: 'In design',
-  uploaded: 'Uploaded for approval',
+  awaiting_export: 'To prepare',
+  exported: 'Sent to designer',
+  in_design: 'Designing',
+  uploaded: 'Awaiting review',
   changes_requested: 'Changes requested',
   approved: 'Approved',
   published: 'Published',
@@ -40,6 +42,17 @@ const payClass = (s?: string) =>
   : s === 'invoiced' ? 'bg-amber-50 text-amber-700 border-amber-200'
   : 'bg-gray-100 text-gray-500 border-gray-200';
 
+// The pipeline, in order. changes_requested folds back into "Designing".
+const PIPELINE = [
+  { key: 'awaiting_export', short: 'Prepare', statuses: ['awaiting_export'] },
+  { key: 'exported', short: 'To designer', statuses: ['exported'] },
+  { key: 'in_design', short: 'Designing', statuses: ['in_design', 'changes_requested'] },
+  { key: 'uploaded', short: 'Review', statuses: ['uploaded'] },
+  { key: 'approved', short: 'Approved', statuses: ['approved'] },
+  { key: 'published', short: 'Published', statuses: ['published'] },
+];
+const stageIndexOf = (status: string) => Math.max(0, PIPELINE.findIndex(s => s.statuses.includes(status)));
+
 interface Payment { status: string; amount_cents: number | null; paid_at: string | null; invoice_ref: string | null; }
 interface Reg { id: string; company_name: string | null; first_name: string | null; last_name: string | null; user_id: string | null; payment?: Payment | Payment[]; }
 interface Page {
@@ -51,6 +64,27 @@ interface Comment { id: string; ecat_page_id: string; author_role: string | null
 
 const firstOf = <T,>(x: T | T[] | undefined): T | undefined => Array.isArray(x) ? x[0] : x;
 
+// Compact horizontal stage indicator for one page.
+function MiniPipeline({ status }: { status: string }) {
+  const current = stageIndexOf(status);
+  const changes = status === 'changes_requested';
+  return (
+    <div className="flex items-center gap-1">
+      {PIPELINE.map((s, i) => {
+        const done = i < current;
+        const isCurrent = i === current;
+        return (
+          <div key={s.key} className="flex items-center gap-1">
+            <div className={`h-1.5 w-1.5 rounded-full ${done ? 'bg-primary' : isCurrent ? (changes ? 'bg-red-500' : 'bg-primary ring-2 ring-primary/20') : 'bg-gray-200'}`} />
+            {i < PIPELINE.length - 1 && <div className={`h-px w-4 ${i < current ? 'bg-primary' : 'bg-gray-200'}`} />}
+          </div>
+        );
+      })}
+      <span className="text-[11px] text-gray-400 ml-1">{PIPELINE[current].short}</span>
+    </div>
+  );
+}
+
 export function AdminSM26Ecat() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -59,6 +93,10 @@ export function AdminSM26Ecat() {
   const [comments, setComments] = useState<Record<string, Comment[]>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string>('all');
+  const [view, setView] = useState<'board' | 'browse'>('board');
+  const [preview, setPreview] = useState<{ id: string; url: string } | null>(null);
+  const [browseUrls, setBrowseUrls] = useState<Record<string, string>>({});
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => { load(); }, []);
@@ -132,99 +170,200 @@ export function AdminSM26Ecat() {
     setPages(prev => prev.map(x => x.id === p.id ? { ...x, registration: { ...x.registration, payment: { status, amount_cents: null, paid_at: null, invoice_ref: null } } } : x));
   };
 
+  const signedUrl = async (path: string) => {
+    const { data } = await supabase.storage.from('event-media').createSignedUrl(path, 600);
+    return data?.signedUrl || null;
+  };
+
   const viewFile = async (path: string) => {
-    const { data, error } = await supabase.storage.from('event-media').createSignedUrl(path, 300);
-    if (error || !data) { toast({ title: 'Could not open file', variant: 'destructive' }); return; }
-    window.open(data.signedUrl, '_blank');
+    const url = await signedUrl(path);
+    if (!url) { toast({ title: 'Could not open file', variant: 'destructive' }); return; }
+    window.open(url, '_blank');
+  };
+
+  const togglePreview = async (p: Page) => {
+    const path = p.designed_file_path || p.published_file_path;
+    if (!path) return;
+    if (preview?.id === p.id) { setPreview(null); return; }
+    const url = await signedUrl(path);
+    if (url) setPreview({ id: p.id, url });
+  };
+
+  // Load signed URLs for all published pages when entering Browse view.
+  const enterBrowse = async () => {
+    setView('browse');
+    const pub = pages.filter(p => p.status === 'published' && (p.published_file_path || p.designed_file_path));
+    const entries = await Promise.all(pub.map(async p => [p.id, await signedUrl((p.published_file_path || p.designed_file_path)!)] as const));
+    setBrowseUrls(Object.fromEntries(entries.filter(([, u]) => u) as [string, string][]));
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
+  // Pipeline summary counts
+  const counts = (statuses: string[]) => pages.filter(p => statuses.includes(p.status)).length;
+  const publishedCount = counts(['published']);
+  const filtered = filter === 'all' ? pages : pages.filter(p => (PIPELINE.find(s => s.key === filter)?.statuses || []).includes(p.status));
+
   return (
     <div className="space-y-4">
       <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>
-      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><BookOpen className="h-6 w-6 text-primary" /> E-catalogue ({pages.length})</h1>
+
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><BookOpen className="h-6 w-6 text-primary" /> E-catalogue ({pages.length})</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Each marina &amp; startup gets a designed catalogue page. Move it through prepare → design → the participant's review → publish (after payment).</p>
+        </div>
+        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+          <button onClick={() => setView('board')} className={`px-3 h-9 text-sm flex items-center gap-1.5 ${view === 'board' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}><ListChecks className="h-4 w-4" /> Board</button>
+          <button onClick={enterBrowse} className={`px-3 h-9 text-sm flex items-center gap-1.5 ${view === 'browse' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}><LayoutGrid className="h-4 w-4" /> Browse published ({publishedCount})</button>
+        </div>
+      </div>
 
       {pages.length === 0 ? (
         <Card className="border-0 shadow-sm"><CardContent className="py-12 text-center text-gray-400">No marina or startup entries yet — e-catalogue pages are created automatically for them.</CardContent></Card>
-      ) : (
-        <div className="space-y-2">
-          {pages.map(p => {
-            const pay = firstOf(p.registration.payment);
-            const paid = pay?.status === 'paid';
-            const isBusy = busy === p.id;
-            const pageComments = comments[p.id] || [];
-            return (
-              <Card key={p.id} className="border-0 shadow-sm">
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-gray-900">{title(p)}</span>
-                      <Badge variant="outline" className="text-[10px] capitalize">{p.kind}</Badge>
-                      <Badge className={`text-[10px] ${ecatStatusClass(p.status)}`}>{ECAT_STATUS_LABEL[p.status] || p.status}</Badge>
-                      <Badge className={`text-[10px] ${payClass(pay?.status)}`}><CreditCard className="h-3 w-3 mr-1" />{pay?.status || 'unpaid'}</Badge>
-                    </div>
-                    {/* Payment control */}
-                    <Select value={pay?.status || 'unpaid'} onValueChange={v => setPayment(p, v)} disabled={isBusy}>
-                      <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="unpaid">Unpaid</SelectItem>
-                        <SelectItem value="invoiced">Invoiced</SelectItem>
-                        <SelectItem value="paid">Paid</SelectItem>
-                      </SelectContent>
-                    </Select>
+      ) : view === 'browse' ? (
+        /* ---- Browse published catalogue ---- */
+        publishedCount === 0 ? (
+          <Card className="border-0 shadow-sm"><CardContent className="py-12 text-center text-gray-400">Nothing published yet. Publish approved pages from the Board.</CardContent></Card>
+        ) : (
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {pages.filter(p => p.status === 'published').map(p => (
+              <Card key={p.id} className="border-0 shadow-sm overflow-hidden">
+                <div className="aspect-[3/4] bg-gray-50 border-b border-gray-100">
+                  {browseUrls[p.id]
+                    ? <iframe title={title(p)} src={browseUrls[p.id]} className="w-full h-full" />
+                    : <div className="w-full h-full flex items-center justify-center text-gray-300"><Loader2 className="h-5 w-5 animate-spin" /></div>}
+                </div>
+                <CardContent className="p-3 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-gray-900 truncate">{title(p)}</div>
+                    <Badge variant="outline" className="text-[10px] capitalize mt-0.5">{p.kind}</Badge>
                   </div>
-
-                  {/* Change-request comments */}
-                  {p.status === 'changes_requested' && pageComments.length > 0 && (
-                    <div className="rounded-lg bg-red-50/60 border border-red-100 p-3 space-y-1.5">
-                      {pageComments.filter(c => c.author_role === 'participant').slice(-3).map(c => (
-                        <div key={c.id} className="text-sm text-gray-700 flex gap-2"><MessageSquare className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" /> {c.body}</div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Contextual actions */}
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <input ref={el => { fileRefs.current[p.id] = el; }} type="file" className="hidden"
-                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadDesigned(p, f); e.target.value = ''; }} />
-
-                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate(`/admin/sm26/ecat/${p.id}/dossier`)}>
-                      <FileText className="h-3.5 w-3.5" /> Dossier
-                    </Button>
-
-                    {p.status === 'awaiting_export' && (
-                      <Button size="sm" className="gap-1.5" onClick={() => patch(p, { status: 'exported' })} disabled={isBusy}>
-                        <Send className="h-3.5 w-3.5" /> Mark exported
-                      </Button>
-                    )}
-                    {p.status === 'exported' && (
-                      <Button variant="outline" size="sm" onClick={() => patch(p, { status: 'in_design' })} disabled={isBusy}>Start design</Button>
-                    )}
-                    {(p.status === 'exported' || p.status === 'in_design' || p.status === 'changes_requested' || p.status === 'uploaded') && (
-                      <Button size="sm" className="gap-1.5" onClick={() => fileRefs.current[p.id]?.click()} disabled={isBusy}>
-                        {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                        {p.designed_file_path ? 'Re-upload designed page' : 'Upload designed page'}
-                      </Button>
-                    )}
-                    {p.designed_file_path && (
-                      <Button variant="ghost" size="sm" className="gap-1.5 text-primary" onClick={() => viewFile(p.designed_file_path!)}>
-                        <ExternalLink className="h-3.5 w-3.5" /> View page
-                      </Button>
-                    )}
-                    {p.status === 'uploaded' && <span className="text-xs text-blue-600">Awaiting participant approval</span>}
-                    {p.status === 'approved' && (
-                      <Button size="sm" className="gap-1.5" onClick={() => publish(p, paid)} disabled={isBusy || !paid} title={paid ? 'Publish' : 'Awaiting payment'}>
-                        <CheckCircle className="h-3.5 w-3.5" /> {paid ? 'Publish' : 'Publish (awaiting payment)'}
-                      </Button>
-                    )}
-                    {p.status === 'published' && <span className="text-xs text-green-600 inline-flex items-center gap-1"><CheckCircle className="h-3.5 w-3.5" /> Live in the e-catalogue</span>}
-                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-primary shrink-0" onClick={() => viewFile((p.published_file_path || p.designed_file_path)!)} title="Open full page"><ExternalLink className="h-4 w-4" /></Button>
                 </CardContent>
               </Card>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )
+      ) : (
+        /* ---- Board ---- */
+        <>
+          {/* Pipeline summary — click to filter */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={() => setFilter('all')} className={`text-xs px-2.5 py-1 rounded-full border transition-all ${filter === 'all' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>
+              All · {pages.length}
+            </button>
+            {PIPELINE.map(s => {
+              const n = counts(s.statuses);
+              return (
+                <button key={s.key} onClick={() => setFilter(filter === s.key ? 'all' : s.key)} disabled={n === 0}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-all disabled:opacity-40 ${filter === s.key ? 'ring-2 ring-primary/30' : ''} ${ecatStatusClass(s.statuses[0])}`}>
+                  {s.short} · {n}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="space-y-2">
+            {filtered.map(p => {
+              const pay = firstOf(p.registration.payment);
+              const paid = pay?.status === 'paid';
+              const isBusy = busy === p.id;
+              const pageComments = comments[p.id] || [];
+              const canUpload = ['exported', 'in_design', 'changes_requested', 'uploaded'].includes(p.status);
+              return (
+                <Card key={p.id} className="border-0 shadow-sm">
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-gray-900">{title(p)}</span>
+                          <Badge variant="outline" className="text-[10px] capitalize">{p.kind}</Badge>
+                          <Badge className={`text-[10px] ${ecatStatusClass(p.status)}`}>{ECAT_STATUS_LABEL[p.status] || p.status}</Badge>
+                        </div>
+                        <MiniPipeline status={p.status} />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge className={`text-[10px] ${payClass(pay?.status)}`}><CreditCard className="h-3 w-3 mr-1" />{pay?.status || 'unpaid'}</Badge>
+                        <Select value={pay?.status || 'unpaid'} onValueChange={v => setPayment(p, v)} disabled={isBusy}>
+                          <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unpaid">Unpaid</SelectItem>
+                            <SelectItem value="invoiced">Invoiced</SelectItem>
+                            <SelectItem value="paid">Paid</SelectItem>
+                            <SelectItem value="waived">Waived</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    {/* Change-request comments from the participant */}
+                    {p.status === 'changes_requested' && pageComments.length > 0 && (
+                      <div className="rounded-lg bg-red-50/60 border border-red-100 p-3 space-y-1.5">
+                        <div className="text-[11px] uppercase tracking-wide text-red-400">Participant asked for changes</div>
+                        {pageComments.filter(c => c.author_role === 'participant').slice(-3).map(c => (
+                          <div key={c.id} className="text-sm text-gray-700 flex gap-2"><MessageSquare className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" /> {c.body}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Inline preview */}
+                    {preview?.id === p.id && (
+                      <div className="rounded-lg border border-gray-200 overflow-hidden bg-gray-50">
+                        <iframe title={`Preview ${title(p)}`} src={preview.url} className="w-full h-[28rem]" />
+                      </div>
+                    )}
+
+                    {/* Actions: one clear primary per stage + utilities */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input ref={el => { fileRefs.current[p.id] = el; }} type="file" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadDesigned(p, f); e.target.value = ''; }} />
+
+                      {p.status === 'awaiting_export' && (
+                        <Button size="sm" className="gap-1.5" onClick={() => patch(p, { status: 'exported' })} disabled={isBusy}>
+                          <Send className="h-3.5 w-3.5" /> Send to designer
+                        </Button>
+                      )}
+                      {p.status === 'exported' && (
+                        <Button size="sm" className="gap-1.5" onClick={() => patch(p, { status: 'in_design' })} disabled={isBusy}><Palette className="h-3.5 w-3.5" /> Start design</Button>
+                      )}
+                      {(p.status === 'in_design' || p.status === 'changes_requested') && (
+                        <Button size="sm" className="gap-1.5" onClick={() => fileRefs.current[p.id]?.click()} disabled={isBusy}>
+                          {isBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                          {p.status === 'changes_requested' ? 'Upload revised page' : 'Upload designed page'}
+                        </Button>
+                      )}
+                      {p.status === 'uploaded' && <span className="text-xs text-blue-600 inline-flex items-center gap-1"><Loader2 className="h-3 w-3" /> Awaiting participant approval</span>}
+                      {p.status === 'approved' && (
+                        <Button size="sm" className="gap-1.5" onClick={() => publish(p, paid)} disabled={isBusy || !paid} title={paid ? 'Publish' : 'Awaiting payment'}>
+                          <CheckCircle className="h-3.5 w-3.5" /> {paid ? 'Publish' : 'Publish (needs payment)'}
+                        </Button>
+                      )}
+                      {p.status === 'published' && <span className="text-xs text-green-600 inline-flex items-center gap-1"><CheckCircle className="h-3.5 w-3.5" /> Live in the e-catalogue</span>}
+
+                      {/* utilities */}
+                      <div className="flex items-center gap-1 ml-auto">
+                        <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500" onClick={() => navigate(`/admin/sm26/ecat/${p.id}/dossier`)} title="The participant's profile data used to design the page">
+                          <FileText className="h-3.5 w-3.5" /> Dossier
+                        </Button>
+                        {(p.designed_file_path || p.published_file_path) && (
+                          <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500" onClick={() => togglePreview(p)}>
+                            {preview?.id === p.id ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />} Preview
+                          </Button>
+                        )}
+                        {canUpload && p.designed_file_path && (
+                          <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500" onClick={() => fileRefs.current[p.id]?.click()} disabled={isBusy} title="Replace the designed page">
+                            <Upload className="h-3.5 w-3.5" /> Re-upload
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

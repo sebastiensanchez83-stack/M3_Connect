@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 
 // Public single-track agenda. Workshops are the only attendee choice:
 // 1 per day, capacity-enforced via an atomic RPC, with a waitlist.
@@ -90,6 +91,7 @@ export function SM26AgendaPage() {
       <Helmet><title>Agenda — Smart &amp; Sustainable Marina Rendezvous 2026</title></Helmet>
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-12">
+          <div className="mb-3"><SM26BackLink light /></div>
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · 20–21 September 2026 · Yacht Club de Monaco</p>
           <h1 className="text-3xl lg:text-4xl font-bold">Programme</h1>
           <p className="text-white/80 mt-2 max-w-2xl">A single-track programme. Choose one workshop per day — seats are limited.</p>

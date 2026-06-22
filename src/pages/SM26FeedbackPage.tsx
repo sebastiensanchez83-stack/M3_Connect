@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 
 // Post-event feedback form. Questions are data-driven from sm_feedback_question
 // (M3 edits the template); answers are stored per attendee in
@@ -92,6 +93,7 @@ export function SM26FeedbackPage() {
       <Helmet><title>Your feedback — SM26</title></Helmet>
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-10">
+          <div className="mb-3"><SM26BackLink light /></div>
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · Smart &amp; Sustainable Marina Rendezvous 2026</p>
           <h1 className="text-2xl lg:text-3xl font-bold">Share your feedback</h1>
           <p className="text-white/80 mt-2">A few minutes of your time helps us improve next year's event.</p>

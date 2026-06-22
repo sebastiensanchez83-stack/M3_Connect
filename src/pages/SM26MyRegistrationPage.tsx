@@ -16,6 +16,7 @@ import { toast } from '@/hooks/use-toast';
 import { SM26_ROLE_LABELS, roleStatusBadgeClass, prettyStatus } from '@/components/admin/AdminSM26';
 import { SM26Notifications } from '@/components/sm26/SM26Notifications';
 import { SM26EditDetails } from '@/components/sm26/SM26EditDetails';
+import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
 // SM26 roles. Linked from the "information needed" notification (/sm26/me).
@@ -194,6 +195,7 @@ export function SM26MyRegistrationPage() {
 
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-10">
+          <div className="mb-3"><SM26BackLink light /></div>
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · 20–21 September 2026 · Yacht Club de Monaco</p>
           <h1 className="text-2xl lg:text-3xl font-bold">Your participation</h1>
           <p className="text-white/80 mt-2">Complete the details M3 needs for each of your roles.</p>

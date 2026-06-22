@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { SM_CATEGORIES } from '@/components/sm26/StartupFields';
 
 // SM26 innovation portfolio / deal-flow — visible to VALIDATED investors and
@@ -124,6 +125,7 @@ export function SM26PortfolioPage() {
 
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-10">
+          <div className="mb-3"><SM26BackLink light /></div>
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2 flex items-center gap-2">
             <TrendingUp className="h-4 w-4" /> SM26 · Deal-flow {access === 'staff' && '· staff view'}
           </p>

@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { SM26_ROLE_LABELS, regStatusBadgeClass, prettyStatus } from './AdminSM26';
+import { AdminEventPartners } from './AdminEventPartners';
 
 // At-a-glance event vitals (registrations, payments, check-in, e-catalogue,
 // jury, votes, feedback) from a single sm_event_health RPC.
@@ -44,6 +45,7 @@ const Bar = ({ label, n, total, color = 'bg-primary' }: { label: string; n: numb
 export function AdminSM26Health() {
   const navigate = useNavigate();
   const [h, setH] = useState<Health | null>(null);
+  const [eventId, setEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { load(); }, []);
@@ -51,7 +53,9 @@ export function AdminSM26Health() {
     setLoading(true);
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setLoading(false); return; }
-    const { data } = await supabase.rpc('sm_event_health', { p_event_id: (ev as { id: string }).id });
+    const eid = (ev as { id: string }).id;
+    setEventId(eid);
+    const { data } = await supabase.rpc('sm_event_health', { p_event_id: eid });
     setH((data || null) as Health | null);
     setLoading(false);
   };
@@ -111,6 +115,8 @@ export function AdminSM26Health() {
           </CardContent>
         </Card>
       </div>
+
+      {eventId && <AdminEventPartners eventId={eventId} />}
     </div>
   );
 }

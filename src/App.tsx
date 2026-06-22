@@ -57,6 +57,7 @@ const SM26VotePage = lazyWithRetry(() => import('@/pages/SM26VotePage').then(m =
 const SM26PortfolioPage = lazyWithRetry(() => import('@/pages/SM26PortfolioPage').then(m => ({ default: m.SM26PortfolioPage })));
 const SM26FeedbackPage = lazyWithRetry(() => import('@/pages/SM26FeedbackPage').then(m => ({ default: m.SM26FeedbackPage })));
 const SM26ClaimPage = lazyWithRetry(() => import('@/pages/SM26ClaimPage').then(m => ({ default: m.SM26ClaimPage })));
+const SM26PartnerPage = lazyWithRetry(() => import('@/pages/SM26PartnerPage').then(m => ({ default: m.SM26PartnerPage })));
 
 function LazyFallback() {
   return (
@@ -94,6 +95,7 @@ function App() {
               <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
               <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
               <Route path="/sm26/claim" element={<SM26ClaimPage />} />
+              <Route path="/sm26/partner" element={<ProtectedRoute><SM26PartnerPage /></ProtectedRoute>} />
               <Route path="/partners" element={<PartnersPage />} />
               <Route path="/become-partner" element={<BecomePartnerPage />} />
               <Route path="/tiers" element={<TiersPage />} />

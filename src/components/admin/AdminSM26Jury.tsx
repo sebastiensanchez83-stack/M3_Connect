@@ -11,9 +11,10 @@ import { toast } from '@/hooks/use-toast';
 // Admin jury management: assign jurors to entries + see official rankings.
 // Awards Score (mandatory, non-COI, submitted) is computed in sm_admin_rankings.
 
+type Comp = 'innovation' | 'architecture_pro' | 'architecture_student';
 interface Juror { user_id: string; name: string; }
 interface JuryRole { id: string; status: string; user_id: string | null; name: string; email: string | null; }
-interface Entry { id: string; competition: 'innovation' | 'architecture'; title: string; subtitle: string; }
+interface Entry { id: string; competition: Comp; title: string; subtitle: string; }
 interface Assignment { id: string; juror_user_id: string; entry_role_assignment_id: string; mandatory: boolean; }
 interface Ranking {
   entry_id: string; title: string; subtitle: string; reviews: number;
@@ -21,9 +22,10 @@ interface Ranking {
   avg_confidence: number | null; coi_count: number; assigned: number; submitted: number;
 }
 
-const COMPETITIONS: { key: 'innovation' | 'architecture'; label: string }[] = [
+const COMPETITIONS: { key: Comp; label: string }[] = [
   { key: 'innovation', label: 'Innovation' },
-  { key: 'architecture', label: 'Architecture' },
+  { key: 'architecture_pro', label: 'Architecture · Pro' },
+  { key: 'architecture_student', label: 'Architecture · Student' },
 ];
 
 export function AdminSM26Jury() {
@@ -31,7 +33,7 @@ export function AdminSM26Jury() {
   const [eventId, setEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'assign' | 'rankings'>('assign');
-  const [competition, setCompetition] = useState<'innovation' | 'architecture'>('innovation');
+  const [competition, setCompetition] = useState<Comp>('innovation');
 
   const [jurors, setJurors] = useState<Juror[]>([]);
   const [juryRoles, setJuryRoles] = useState<JuryRole[]>([]);
@@ -65,9 +67,10 @@ export function AdminSM26Jury() {
       const startup = (r.startup || {}) as { stage?: string };
       const arch = (r.arch || {}) as { category?: string; anon_code?: string };
       const isInnovation = r.role === 'startup';
+      const comp: Comp = isInnovation ? 'innovation' : r.role === 'architect_pro' ? 'architecture_pro' : 'architecture_student';
       return {
         id: r.id as string,
-        competition: isInnovation ? 'innovation' : 'architecture',
+        competition: comp,
         title: isInnovation
           ? (reg.company_name || `${reg.first_name || ''} ${reg.last_name || ''}`.trim() || 'Entry')
           : `Entry ${arch.anon_code || (r.id as string).slice(0, 8)}`,
@@ -161,7 +164,7 @@ export function AdminSM26Jury() {
             <button onClick={() => setTab('assign')} className={`px-3 h-9 text-sm ${tab === 'assign' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}>Assignments</button>
             <button onClick={() => setTab('rankings')} className={`px-3 h-9 text-sm ${tab === 'rankings' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}>Rankings</button>
           </div>
-          <Select value={competition} onValueChange={v => setCompetition(v as 'innovation' | 'architecture')}>
+          <Select value={competition} onValueChange={v => setCompetition(v as Comp)}>
             <SelectTrigger className="w-40 h-9"><SelectValue /></SelectTrigger>
             <SelectContent>{COMPETITIONS.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}</SelectContent>
           </Select>

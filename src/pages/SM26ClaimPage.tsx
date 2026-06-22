@@ -28,8 +28,10 @@ export function SM26ClaimPage() {
 
   const claim = async (c: string) => {
     setStatus('claiming');
-    const { error } = await supabase.rpc('sm_claim_registration', { p_code: c.trim() });
-    if (error) { setStatus('error'); setMsg(error.message || 'Could not claim this code.'); return; }
+    const { data, error } = await supabase.rpc('sm_claim_registration', { p_code: c.trim() });
+    // The RPC raises (error) only for throttle/auth; an invalid code returns null.
+    if (error) { setStatus('error'); attempted.current = false; setMsg(error.message || 'Could not claim this code.'); return; }
+    if (!data) { setStatus('error'); attempted.current = false; setMsg('Invalid or already-claimed code. Check the code and try again.'); return; }
     localStorage.removeItem('sm26_claim_code');
     setStatus('done');
     setTimeout(() => navigate('/sm26/me'), 1600);

@@ -187,21 +187,32 @@ Deno.serve(async (req: Request) => {
     },
   });
 
+  let userId: string;
   if (createErr) {
     const msg = (createErr.message || "").toLowerCase();
     const code = (createErr as { code?: string }).code;
-    if (
+    const emailExists =
       code === "email_exists" ||
       msg.includes("already been registered") ||
       msg.includes("already registered") ||
-      msg.includes("already exists")
-    ) {
-      return json(req, { status: "exists" });
+      msg.includes("already exists");
+    if (!emailExists) {
+      console.error("createUser failed", createErr);
+      return json(req, { error: "Registration could not be completed. Please try again." }, 400);
     }
-    console.error("createUser failed", createErr);
-    return json(req, { error: createErr.message }, 400);
+    // Existing account: link the registration to it. Never reveal that the email
+    // already exists — respond exactly as for a brand-new signup (anti-enumeration).
+    const { data: prof } = await admin.from("profiles").select("user_id").ilike("email", email).maybeSingle();
+    if (!(prof as { user_id?: string } | null)?.user_id) return json(req, { status: "ok" });
+    userId = (prof as { user_id: string }).user_id;
+  } else {
+    userId = created.user!.id;
   }
-  const userId = created.user!.id;
+
+  // Idempotent: if this person already registered for the event, succeed quietly.
+  const { data: dupReg } = await admin
+    .from("sm_registration").select("id").eq("event_id", eventId).eq("user_id", userId).maybeSingle();
+  if (dupReg) return json(req, { status: "ok" });
 
   const { data: reg, error: regErr } = await admin
     .from("sm_registration")
@@ -224,8 +235,9 @@ Deno.serve(async (req: Request) => {
     .select("id")
     .single();
   if (regErr || !reg) {
+    if ((regErr as { code?: string } | null)?.code === "23505") return json(req, { status: "ok" }); // already registered (race)
     console.error("registration insert failed", regErr);
-    return json(req, { error: regErr?.message || "Registration failed" }, 500);
+    return json(req, { error: "Registration could not be completed. Please try again." }, 500);
   }
 
   const { data: ra, error: raErr } = await admin
@@ -245,7 +257,7 @@ Deno.serve(async (req: Request) => {
     .single();
   if (raErr || !ra) {
     console.error("role insert failed", raErr);
-    return json(req, { error: raErr?.message || "Could not save your role" }, 500);
+    return json(req, { error: "Could not complete your registration. Please try again." }, 500);
   }
   const raId = (ra as { id: string }).id;
 
@@ -284,5 +296,5 @@ Deno.serve(async (req: Request) => {
     console.error("access email failed", e);
   }
 
-  return json(req, { status: "created" });
+  return json(req, { status: "ok" });
 });

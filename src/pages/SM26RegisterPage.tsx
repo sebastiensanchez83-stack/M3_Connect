@@ -156,16 +156,9 @@ export function SM26RegisterPage() {
       }
 
       const status = (data as { status?: string })?.status;
-      if (status === 'exists') {
-        setExistingAccount(true);
-        toast({
-          title: 'You already have an account',
-          description: 'Please sign in (top-right) to finish registering — your details will be pre-filled.',
-        });
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        return;
-      }
-      if (status === 'created') {
+      // The endpoint returns an identical 'ok' whether the account was created or
+      // already existed (anti-enumeration); either way we email an access link.
+      if (status === 'ok' || status === 'created') {
         setDone(true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return;

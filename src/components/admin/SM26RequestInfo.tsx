@@ -27,15 +27,21 @@ interface Props {
   roleLabel: string;
   items: ReqItem[];
   moduleData: Record<string, unknown> | null;
+  // Combined data to judge "already provided" against (module_data + the profile
+  // row). Defaults to moduleData. We only ever WRITE meta keys to moduleData.
+  satisfiedData?: Record<string, unknown> | null;
   userId: string | null;
   onSent: () => void;
 }
 
-export function SM26RequestInfo({ roleAssignmentId, roleLabel, items, moduleData, userId, onSent }: Props) {
+export function SM26RequestInfo({ roleAssignmentId, roleLabel, items, moduleData, satisfiedData, userId, onSent }: Props) {
   const md = moduleData || {};
+  const sd = (satisfiedData || moduleData || {}) as Record<string, unknown>;
+  const has = (v: unknown) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
   const satisfied = (k: string) => {
-    const v = (md as Record<string, unknown>)[k];
-    return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
+    if (has(sd[k])) return true;
+    // tolerate field_key vs stored column (logo ↔ logo_url, deck ↔ pitch_deck…)
+    return Object.keys(sd).some(key => has(sd[key]) && key.includes(k));
   };
   // Default selection: everything the participant hasn't provided yet.
   const [open, setOpen] = useState(false);

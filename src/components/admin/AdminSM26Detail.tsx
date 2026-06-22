@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
-  Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target,
+  Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target, Download,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -75,21 +75,92 @@ function firstOf(x: unknown): Record<string, unknown> | undefined {
   return (x as Record<string, unknown> | null) || undefined;
 }
 
+// Classify a field so the layout can be compact for short scalars, full-width
+// for long text, chips for lists, and a thumbnail/download for files.
+const FILE_KEY = /(_url$|logo|image|photo|deck|slides|brochure|attachment|proof|portfolio|document|pitch|file)/i;
+const LONG_KEY = /(bio|description|problem|solution|statement|usp|differentiation|positioning|expected|abstract|summary|motivation|objective|background|why|message)/i;
+const IMG_EXT = /\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i;
+const isHttp = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//.test(v);
+const isStoragePath = (v: unknown): v is string => typeof v === 'string' && v.includes('/') && !/^https?:\/\//.test(v) && !/\s/.test(v);
+function classify(k: string, v: unknown): 'file' | 'long' | 'array' | 'short' {
+  if (Array.isArray(v)) return 'array';
+  if (isStoragePath(v) || (isHttp(v) && FILE_KEY.test(k))) return 'file';
+  if (typeof v === 'string' && (LONG_KEY.test(k) || v.length > 80)) return 'long';
+  return 'short';
+}
+
+// A file/image value: thumbnail for images, a download button otherwise.
+// Resolves storage paths to a signed URL; passes through http(s) links.
+function AssetField({ label, value }: { label: string; value: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (/^https?:\/\//.test(value)) { if (active) setUrl(value); return; }
+      const { data } = await supabase.storage.from('event-media').createSignedUrl(value, 600);
+      if (active) setUrl(data?.signedUrl || null);
+    })();
+    return () => { active = false; };
+  }, [value]);
+  const isImg = IMG_EXT.test(value) || (!!url && IMG_EXT.test(url));
+  return (
+    <div className="text-sm">
+      <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</div>
+      {isImg && url ? (
+        <a href={url} target="_blank" rel="noreferrer" title={`Open ${label}`}>
+          <img src={url} alt={label} className="h-16 w-16 rounded-lg object-contain border border-gray-200 bg-white" />
+        </a>
+      ) : (
+        <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={!url} onClick={() => url && window.open(url, '_blank')}>
+          <Download className="h-3.5 w-3.5" /> {url ? 'Download' : 'Loading…'}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function ModuleFields({ data }: { data: Record<string, unknown> }) {
   const entries = Object.entries(data).filter(([k, v]) =>
     !HIDDEN_KEYS.has(k) && !isMetaKey(k) && v !== null && v !== '' && v !== false && !(Array.isArray(v) && v.length === 0) && !isEmptyObject(v)
   );
   if (entries.length === 0) return null;
+  const shorts = entries.filter(([k, v]) => classify(k, v) === 'short');
+  const arrays = entries.filter(([k, v]) => classify(k, v) === 'array');
+  const longs = entries.filter(([k, v]) => classify(k, v) === 'long');
+  const files = entries.filter(([k, v]) => classify(k, v) === 'file');
   return (
-    <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3">
-      {entries.map(([k, v]) => (
+    <div className="space-y-3">
+      {/* short scalars — compact, several per row */}
+      {shorts.length > 0 && (
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+          {shorts.map(([k, v]) => (
+            <div key={k} className="text-sm leading-tight">
+              <span className="text-[10px] uppercase tracking-wide text-gray-400 mr-1.5">{prettyKey(k)}</span>
+              <span className="text-gray-800 font-medium">{fmtVal(v)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* lists as chips */}
+      {arrays.map(([k, v]) => (
         <div key={k} className="text-sm">
-          <div className="text-[11px] uppercase tracking-wide text-gray-400">{prettyKey(k)}</div>
-          {Array.isArray(v) && v.length > 1
-            ? <div className="mt-0.5"><Chips values={v as (string | number)[]} /></div>
-            : <div className="text-gray-800 whitespace-pre-wrap break-words">{fmtVal(v)}</div>}
+          <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{prettyKey(k)}</div>
+          <Chips values={v as (string | number)[]} />
         </div>
       ))}
+      {/* long text — full width */}
+      {longs.map(([k, v]) => (
+        <div key={k} className="text-sm">
+          <div className="text-[11px] uppercase tracking-wide text-gray-400">{prettyKey(k)}</div>
+          <div className="text-gray-800 whitespace-pre-wrap break-words mt-0.5">{fmtVal(v)}</div>
+        </div>
+      ))}
+      {/* files & images */}
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-4 pt-1">
+          {files.map(([k, v]) => <AssetField key={k} label={prettyKey(k)} value={String(v)} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -523,6 +594,11 @@ export function AdminSM26Detail() {
           const md = (role.module_data || {}) as Record<string, unknown>;
           const requestedInfo = new Set((md._requested_info as string[] | undefined) || []);
           const requestNote = md._request_note as string | undefined;
+          // Combined data (module_data + the profile row) to judge what's provided,
+          // tolerating field_key vs column differences (logo ↔ logo_url, deck ↔ pitch_deck…).
+          const roleData = { ...md, ...(startup || {}), ...(architecture || {}), ...(marina || {}) } as Record<string, unknown>;
+          const fieldHas = (v: unknown) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
+          const fieldSatisfied = (k: string) => fieldHas(roleData[k]) || Object.keys(roleData).some(key => fieldHas(roleData[key]) && key.includes(k));
           return (
             <Card key={role.id} className="border-0 shadow-sm">
               <CardHeader className="pb-2">
@@ -571,7 +647,7 @@ export function AdminSM26Detail() {
                     <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Required from participant</div>
                     <div className="space-y-1.5">
                       {reqs.map(req => {
-                        const satisfied = !!(role.module_data && (role.module_data as Record<string, unknown>)[req.field_key]);
+                        const satisfied = fieldSatisfied(req.field_key);
                         const requested = requestedInfo.has(req.field_key);
                         return (
                           <div key={req.id} className="flex items-center gap-2 text-sm">
@@ -606,6 +682,7 @@ export function AdminSM26Detail() {
                   roleLabel={SM26_ROLE_LABELS[role.role] || role.role}
                   items={reqs.map(r => ({ field_key: r.field_key, label: r.label, required: r.required, is_asset: r.is_asset }))}
                   moduleData={role.module_data}
+                  satisfiedData={roleData}
                   userId={reg.user_id}
                   onSent={() => load(reg.id)}
                 />

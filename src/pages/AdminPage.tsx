@@ -52,6 +52,7 @@ const AdminSM26Agenda = lazyWithRetry(() => import('@/components/admin/AdminSM26
 const AdminSM26Checkin = lazyWithRetry(() => import('@/components/admin/AdminSM26Checkin').then(m => ({ default: m.AdminSM26Checkin })));
 const AdminSM26Awards = lazyWithRetry(() => import('@/components/admin/AdminSM26Awards').then(m => ({ default: m.AdminSM26Awards })));
 const AdminSM26Feedback = lazyWithRetry(() => import('@/components/admin/AdminSM26Feedback').then(m => ({ default: m.AdminSM26Feedback })));
+const AdminSM26Health = lazyWithRetry(() => import('@/components/admin/AdminSM26Health').then(m => ({ default: m.AdminSM26Health })));
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -121,6 +122,7 @@ export function AdminPage() {
             <Route path="/sm26/jury" element={<AdminOnlyGuard><AdminSM26Jury /></AdminOnlyGuard>} />
             <Route path="/sm26/agenda" element={<AdminOnlyGuard><AdminSM26Agenda /></AdminOnlyGuard>} />
             <Route path="/sm26/checkin" element={<AdminOnlyGuard><AdminSM26Checkin /></AdminOnlyGuard>} />
+            <Route path="/sm26/health" element={<AdminOnlyGuard><AdminSM26Health /></AdminOnlyGuard>} />
             <Route path="/sm26/awards" element={<AdminOnlyGuard><AdminSM26Awards /></AdminOnlyGuard>} />
             <Route path="/sm26/feedback" element={<AdminOnlyGuard><AdminSM26Feedback /></AdminOnlyGuard>} />
             <Route path="/sm26/ecat" element={<AdminOnlyGuard><AdminSM26Ecat /></AdminOnlyGuard>} />

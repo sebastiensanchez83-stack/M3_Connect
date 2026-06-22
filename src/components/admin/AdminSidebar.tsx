@@ -5,7 +5,7 @@ import {
   Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
   ArrowUpCircle, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
   ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen,
-  Scale, Trophy,
+  Scale, Trophy, Activity,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -31,6 +31,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
 
   // ---- Smart 26 sub-tabs (real routes) ----
   const sm26Children: NavItem[] = [
+    { to: '/admin/sm26/health', label: 'Overview', icon: <Activity className="h-4 w-4" /> },
     { to: '/admin/sm26', label: 'Registrations', icon: <ClipboardList className="h-4 w-4" />, exact: true },
     { to: '/admin/sm26/checkin', label: 'Check-in', icon: <QrCode className="h-4 w-4" /> },
     { to: '/admin/sm26/agenda', label: 'Programme', icon: <CalendarDays className="h-4 w-4" /> },

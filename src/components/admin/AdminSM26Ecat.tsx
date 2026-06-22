@@ -154,7 +154,10 @@ export function AdminSM26Ecat() {
   const publish = async (p: Page, paid: boolean) => {
     if (!paid) { toast({ title: 'Awaiting payment', description: 'This entry must be marked paid before publishing.', variant: 'destructive' }); return; }
     const ok = await patch(p, { status: 'published', published_file_path: p.designed_file_path, published_at: new Date().toISOString() });
-    if (ok) toast({ title: 'E-catalogue page published' });
+    if (ok) {
+      toast({ title: 'E-catalogue page published' });
+      void supabase.functions.invoke('sm26-email', { body: { registration_id: p.registration_id, kind: 'ecat_published' } }).catch(() => {});
+    }
   };
 
   const setPayment = async (p: Page, status: string) => {

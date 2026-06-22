@@ -261,6 +261,7 @@ export function AdminSM26Detail() {
     if (error) { toast({ title: 'Could not update status', description: error.message, variant: 'destructive' }); return; }
     setReg({ ...reg, status: newStatus });
     toast({ title: `Status set to "${prettyStatus(newStatus)}"` });
+    if (newStatus === 'confirmed') void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'confirmed' } }).catch(() => {});
   };
 
   // Settling payment (paid OR waived) completes the registration: light up the
@@ -273,7 +274,9 @@ export function AdminSM26Detail() {
       await supabase.from('sm_registration').update({ status: 'confirmed' }).eq('id', reg.id);
       setReg({ ...reg, status: 'confirmed' });
       toast({ title: 'Registration completed', description: 'Payment settled — status set to Confirmed.' });
+      void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'confirmed' } }).catch(() => {});
     }
+    if (settled) void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'paid' } }).catch(() => {});
   };
 
   const notify = async (userId: string, title: string, body: string) => {

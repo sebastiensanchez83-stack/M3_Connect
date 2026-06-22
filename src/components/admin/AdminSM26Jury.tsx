@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, Scale, X, Trophy, AlertTriangle, Users } from 'lucide-react';
+import { RefreshCw, ArrowLeft, Scale, X, Trophy, AlertTriangle, Users, Check } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import { toast } from '@/hooks/use-toast';
 // Awards Score (mandatory, non-COI, submitted) is computed in sm_admin_rankings.
 
 interface Juror { user_id: string; name: string; }
+interface JuryRole { id: string; status: string; user_id: string | null; name: string; email: string | null; }
 interface Entry { id: string; competition: 'innovation' | 'architecture'; title: string; subtitle: string; }
 interface Assignment { id: string; juror_user_id: string; entry_role_assignment_id: string; mandatory: boolean; }
 interface Ranking {
@@ -33,6 +34,7 @@ export function AdminSM26Jury() {
   const [competition, setCompetition] = useState<'innovation' | 'architecture'>('innovation');
 
   const [jurors, setJurors] = useState<Juror[]>([]);
+  const [juryRoles, setJuryRoles] = useState<JuryRole[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [rankings, setRankings] = useState<Ranking[]>([]);
@@ -53,8 +55,8 @@ export function AdminSM26Jury() {
         .select('id, role, status, registration:sm_registration(company_name,first_name,last_name,status), startup:sm_startup_profile(stage), arch:sm_architecture_entry(category,anon_code)')
         .eq('event_id', eid).in('role', ['startup', 'architect_pro', 'architect_student']).neq('status', 'declined'),
       supabase.from('sm_role_assignment')
-        .select('registration:sm_registration(user_id,first_name,last_name,email)')
-        .eq('event_id', eid).eq('role', 'jury').eq('status', 'confirmed'),
+        .select('id, status, registration:sm_registration(user_id,first_name,last_name,email)')
+        .eq('event_id', eid).eq('role', 'jury').neq('status', 'declined'),
       supabase.from('sm_jury_assignment').select('id, juror_user_id, entry_role_assignment_id, mandatory').eq('event_id', eid),
     ]);
 
@@ -76,14 +78,42 @@ export function AdminSM26Jury() {
       .filter(r => ((r.registration || {}) as { status?: string }).status !== 'declined')
       .map(mapEntry));
 
+    const jr: JuryRole[] = ((jur || []) as Record<string, unknown>[]).map(row => {
+      const reg = (row.registration || {}) as { user_id?: string; first_name?: string; last_name?: string; email?: string };
+      return {
+        id: row.id as string,
+        status: row.status as string,
+        user_id: reg.user_id || null,
+        name: `${reg.first_name || ''} ${reg.last_name || ''}`.trim() || reg.email || 'Juror',
+        email: reg.email || null,
+      };
+    });
+    setJuryRoles(jr);
+    // Only confirmed jurors WITH an account can be assigned (they log in to score).
     const jmap = new Map<string, Juror>();
-    for (const row of (jur || []) as { registration?: { user_id?: string; first_name?: string; last_name?: string; email?: string } }[]) {
-      const reg = row.registration;
-      if (reg?.user_id) jmap.set(reg.user_id, { user_id: reg.user_id, name: `${reg.first_name || ''} ${reg.last_name || ''}`.trim() || reg.email || 'Juror' });
-    }
+    for (const j of jr) if (j.status === 'confirmed' && j.user_id) jmap.set(j.user_id, { user_id: j.user_id, name: j.name });
     setJurors([...jmap.values()]);
     setAssignments((asg || []) as Assignment[]);
     setLoading(false);
+  };
+
+  const setJuryStatus = async (id: string, status: string) => {
+    setBusy(true);
+    const { error } = await supabase.from('sm_role_assignment').update({ status }).eq('id', id);
+    setBusy(false);
+    if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
+    await load();
+  };
+
+  const confirmAllPending = async () => {
+    const pending = juryRoles.filter(j => j.status !== 'confirmed');
+    if (!pending.length) return;
+    setBusy(true);
+    const { error } = await supabase.from('sm_role_assignment').update({ status: 'confirmed' }).in('id', pending.map(j => j.id));
+    setBusy(false);
+    if (error) { toast({ title: 'Could not confirm', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: `Confirmed ${pending.length} juror${pending.length > 1 ? 's' : ''}` });
+    await load();
   };
 
   const loadRankings = async () => {
@@ -118,6 +148,7 @@ export function AdminSM26Jury() {
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   const compEntries = entries.filter(e => e.competition === competition);
+  const pendingCount = juryRoles.filter(j => j.status !== 'confirmed').length;
 
   return (
     <div className="space-y-4">
@@ -137,11 +168,42 @@ export function AdminSM26Jury() {
         </div>
       </div>
 
-      {jurors.length === 0 && (
-        <Card className="border-0 shadow-sm"><CardContent className="py-4 text-sm text-amber-700 bg-amber-50 rounded-lg flex items-center gap-2">
-          <Users className="h-4 w-4" /> No confirmed jurors yet. Add a "Jury" role to a participant and set it to "Confirmed" first.
-        </CardContent></Card>
-      )}
+      {/* Jurors panel — confirm jurors so they enter the assignment pool */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+            <div className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              <Users className="h-4 w-4 text-primary" /> Jurors
+              <span className="text-xs font-normal text-gray-400">{jurors.length} ready · {pendingCount} pending</span>
+            </div>
+            {pendingCount > 0 && <Button size="sm" onClick={confirmAllPending} disabled={busy} className="gap-1.5"><Check className="h-4 w-4" /> Confirm all pending</Button>}
+          </div>
+          <p className="text-xs text-gray-400 mb-3">A juror joins the scoring pool once <b>confirmed</b> and they have an account. "Pending" jurors registered but aren't validated yet.</p>
+          {juryRoles.length === 0 ? (
+            <p className="text-sm text-gray-400">No jury-role participants yet. Add a "Jury" role to a registration first.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {juryRoles.map(j => {
+                const confirmed = j.status === 'confirmed';
+                return (
+                  <div key={j.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-800 truncate">{j.name}</div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <Badge className={`text-[10px] ${confirmed ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>{confirmed ? 'Confirmed' : 'Pending'}</Badge>
+                        {!j.user_id && <span className="text-[10px] text-gray-400">no account yet — can't score until they claim their registration</span>}
+                      </div>
+                    </div>
+                    {confirmed
+                      ? <Button size="sm" variant="ghost" className="h-8 text-gray-400 hover:text-amber-700" disabled={busy} onClick={() => setJuryStatus(j.id, 'self_submitted')}>Unconfirm</Button>
+                      : <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy} onClick={() => setJuryStatus(j.id, 'confirmed')}><Check className="h-3.5 w-3.5" /> Confirm</Button>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {tab === 'assign' ? (
         compEntries.length === 0 ? (

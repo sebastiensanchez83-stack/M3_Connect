@@ -213,9 +213,12 @@ export function AdminSM26Ecat() {
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><BookOpen className="h-6 w-6 text-primary" /> E-catalogue ({pages.length})</h1>
           <p className="text-sm text-gray-500 mt-0.5">Each marina &amp; startup gets a designed catalogue page. Move it through prepare → design → the participant's review → publish (after payment).</p>
         </div>
-        <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-          <button onClick={() => setView('board')} className={`px-3 h-9 text-sm flex items-center gap-1.5 ${view === 'board' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}><ListChecks className="h-4 w-4" /> Board</button>
-          <button onClick={enterBrowse} className={`px-3 h-9 text-sm flex items-center gap-1.5 ${view === 'browse' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}><LayoutGrid className="h-4 w-4" /> Browse published ({publishedCount})</button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => load()} title="Refresh"><RefreshCw className="h-4 w-4" /></Button>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            <button onClick={() => setView('board')} className={`px-3 h-9 text-sm flex items-center gap-1.5 ${view === 'board' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}><ListChecks className="h-4 w-4" /> Board</button>
+            <button onClick={enterBrowse} className={`px-3 h-9 text-sm flex items-center gap-1.5 ${view === 'browse' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}><LayoutGrid className="h-4 w-4" /> Browse published ({publishedCount})</button>
+          </div>
         </div>
       </div>
 

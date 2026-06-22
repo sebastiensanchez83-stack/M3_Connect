@@ -107,11 +107,14 @@ export function AdminSM26Awards() {
   return (
     <div className="space-y-4">
       <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Trophy className="h-6 w-6 text-primary" /> Awards &amp; voting</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {confirmedCount} of {awards.length} winners confirmed · confirmed winners appear publicly on the <Link to="/sm26/vote" className="text-primary hover:underline">vote &amp; results page</Link>.
-        </p>
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Trophy className="h-6 w-6 text-primary" /> Awards &amp; voting</h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {confirmedCount} of {awards.length} winners confirmed · confirmed winners appear publicly on the <Link to="/sm26/vote" className="text-primary hover:underline">vote &amp; results page</Link>.
+          </p>
+        </div>
+        <Button variant="outline" size="icon" className="h-9 w-9" onClick={load} title="Refresh live tallies"><RefreshCw className="h-4 w-4" /></Button>
       </div>
 
       {/* Vote control + live tallies */}

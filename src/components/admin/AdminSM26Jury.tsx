@@ -160,6 +160,7 @@ export function AdminSM26Jury() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Scale className="h-6 w-6 text-primary" /> Jury &amp; evaluation</h1>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => { load(); if (tab === 'rankings') loadRankings(); }} title="Refresh"><RefreshCw className="h-4 w-4" /></Button>
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
             <button onClick={() => setTab('assign')} className={`px-3 h-9 text-sm ${tab === 'assign' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}>Assignments</button>
             <button onClick={() => setTab('rankings')} className={`px-3 h-9 text-sm ${tab === 'rankings' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}>Rankings</button>

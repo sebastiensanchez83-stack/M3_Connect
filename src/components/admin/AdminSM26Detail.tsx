@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import {
@@ -83,39 +84,57 @@ const IMG_EXT = /\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i;
 const isHttp = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//.test(v);
 const isStoragePath = (v: unknown): v is string => typeof v === 'string' && v.includes('/') && !/^https?:\/\//.test(v) && !/\s/.test(v);
 function classify(k: string, v: unknown): 'file' | 'long' | 'array' | 'short' {
-  if (Array.isArray(v)) return 'array';
+  if (Array.isArray(v)) {
+    // An array of storage paths / urls (e.g. product_images) renders as files.
+    if (v.length > 0 && v.every(x => isStoragePath(x) || isHttp(x))) return 'file';
+    return 'array';
+  }
   if (isStoragePath(v) || (isHttp(v) && FILE_KEY.test(k))) return 'file';
   if (typeof v === 'string' && (LONG_KEY.test(k) || v.length > 80)) return 'long';
   return 'short';
 }
 
-// A file/image value: thumbnail for images, a download button otherwise.
-// Resolves storage paths to a signed URL; passes through http(s) links.
-function AssetField({ label, value }: { label: string; value: string }) {
+// One file/image. Images show a thumbnail that opens a preview popup with a
+// download; other files show a download button. Resolves storage paths to a
+// signed URL; passes http(s) links through.
+function AssetField({ value }: { value: string }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
     let active = true;
     (async () => {
       if (/^https?:\/\//.test(value)) { if (active) setUrl(value); return; }
-      const { data } = await supabase.storage.from('event-media').createSignedUrl(value, 600);
+      const { data } = await supabase.storage.from('event-media').createSignedUrl(value, 3600);
       if (active) setUrl(data?.signedUrl || null);
     })();
     return () => { active = false; };
   }, [value]);
+  const name = decodeURIComponent(value.split('/').pop() || 'file');
   const isImg = IMG_EXT.test(value) || (!!url && IMG_EXT.test(url));
+  if (isImg) {
+    return (
+      <>
+        <button type="button" onClick={() => url && setOpen(true)} disabled={!url} title="Preview" className="block shrink-0">
+          {url
+            ? <img src={url} alt={name} className="h-20 w-20 rounded-lg object-cover border border-gray-200 bg-white hover:ring-2 hover:ring-primary/30 transition" />
+            : <div className="h-20 w-20 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-gray-300"><RefreshCw className="h-4 w-4 animate-spin" /></div>}
+        </button>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogTitle className="sr-only">{name}</DialogTitle>
+            {url && <img src={url} alt={name} className="max-h-[68vh] w-auto mx-auto rounded-lg" />}
+            <div className="flex items-center justify-center gap-2 pt-2">
+              <Button asChild size="sm" variant="outline" className="gap-1.5"><a href={url || '#'} download={name} target="_blank" rel="noreferrer"><Download className="h-3.5 w-3.5" /> Download</a></Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </>
+    );
+  }
   return (
-    <div className="text-sm">
-      <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{label}</div>
-      {isImg && url ? (
-        <a href={url} target="_blank" rel="noreferrer" title={`Open ${label}`}>
-          <img src={url} alt={label} className="h-16 w-16 rounded-lg object-contain border border-gray-200 bg-white" />
-        </a>
-      ) : (
-        <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={!url} onClick={() => url && window.open(url, '_blank')}>
-          <Download className="h-3.5 w-3.5" /> {url ? 'Download' : 'Loading…'}
-        </Button>
-      )}
-    </div>
+    <Button size="sm" variant="outline" className="h-9 gap-1.5 max-w-[14rem]" disabled={!url} onClick={() => url && window.open(url, '_blank')}>
+      <Download className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{url ? name : 'Loading…'}</span>
+    </Button>
   );
 }
 
@@ -155,12 +174,18 @@ function ModuleFields({ data }: { data: Record<string, unknown> }) {
           <div className="text-gray-800 whitespace-pre-wrap break-words mt-0.5">{fmtVal(v)}</div>
         </div>
       ))}
-      {/* files & images */}
-      {files.length > 0 && (
-        <div className="flex flex-wrap gap-4 pt-1">
-          {files.map(([k, v]) => <AssetField key={k} label={prettyKey(k)} value={String(v)} />)}
-        </div>
-      )}
+      {/* files & images — each field labelled, with one or more assets */}
+      {files.map(([k, v]) => {
+        const vals = Array.isArray(v) ? (v as unknown[]).map(String) : [String(v)];
+        return (
+          <div key={k} className="text-sm">
+            <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">{prettyKey(k)}{vals.length > 1 ? ` (${vals.length})` : ''}</div>
+            <div className="flex flex-wrap gap-2">
+              {vals.map((val, i) => <AssetField key={i} value={val} />)}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

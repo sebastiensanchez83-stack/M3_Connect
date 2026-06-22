@@ -56,6 +56,8 @@ export function AdminSM26Feedback() {
   const saveTemplate = async () => {
     if (!eventId) return;
     const valid = questions.filter(q => q.label.trim());
+    if (removed.length > 0 && !window.confirm(
+      `Save will permanently delete ${removed.length} question(s) and any answers already submitted for them. Continue?`)) return;
     setSaving(true);
     if (removed.length > 0) {
       await supabase.from('sm_feedback_question').delete().eq('event_id', eventId).in('key', removed);

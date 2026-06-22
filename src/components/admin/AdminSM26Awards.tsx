@@ -61,8 +61,11 @@ export function AdminSM26Awards() {
 
   const toggleVote = async (comp: string) => {
     if (!eventId) return;
-    setBusy(true);
     const next = !configs[comp];
+    if (!window.confirm(next
+      ? 'Open public voting for this competition? Checked-in attendees will be able to cast votes.'
+      : 'Close public voting for this competition? No further votes will be accepted.')) return;
+    setBusy(true);
     const { error } = await supabase.from('sm_vote_config').upsert({ event_id: eventId, competition: comp, is_open: next }, { onConflict: 'event_id,competition' });
     setBusy(false);
     if (error) { toast({ title: 'Failed', description: error.message, variant: 'destructive' }); return; }
@@ -77,6 +80,9 @@ export function AdminSM26Awards() {
     setAwards(prev => prev.map(a => a.id === award.id ? { ...a, winner_role_assignment_id: entryId || null } : a));
   };
   const toggleConfirm = async (award: Award) => {
+    if (!window.confirm(award.confirmed
+      ? 'Unconfirm this winner? It will be removed from the public winners showcase.'
+      : 'Confirm this winner? It will be published on the public winners showcase.')) return;
     setBusy(true);
     const { error } = await supabase.from('sm_award').update({ confirmed: !award.confirmed }).eq('id', award.id);
     setBusy(false);

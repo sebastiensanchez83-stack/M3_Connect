@@ -175,6 +175,7 @@ export function AdminSM26() {
 
   const bulkStatus = async (status: string) => {
     if (selected.size === 0) return;
+    if (!window.confirm(`Set ${selected.size} selected registration${selected.size > 1 ? 's' : ''} to "${prettyStatus(status)}"?`)) return;
     setBulkBusy(true);
     const ids = [...selected];
     const { error } = await supabase.from('sm_registration').update({ status }).in('id', ids);

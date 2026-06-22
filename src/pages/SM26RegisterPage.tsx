@@ -16,6 +16,7 @@ import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm2
 import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
 import { MarinaFields, EMPTY_MARINA, type MarinaData } from '@/components/sm26/MarinaFields';
 import { LightRoleFields, type LightData } from '@/components/sm26/LightRoleFields';
+import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 
 // SM26 public intake — guest-first registration.
 // The registrant picks ONE way to participate; M3 can add further roles
@@ -66,7 +67,6 @@ export function SM26RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [honeypot, setHoneypot] = useState(''); // bot trap — must stay empty
-  const [existingAccount, setExistingAccount] = useState(false);
   const wasGuest = !user; // captured for the success screen wording
 
   // Load the event id + fee config
@@ -118,7 +118,6 @@ export function SM26RegisterPage() {
   const submitGuest = async () => {
     const def = ROLES.find(r => r.key === role)!;
     setSubmitting(true);
-    setExistingAccount(false);
     try {
       const { data, error } = await supabase.functions.invoke('sm26-register', {
         body: {
@@ -327,6 +326,7 @@ export function SM26RegisterPage() {
 
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-12">
+          <div className="mb-4"><SM26BackLink to="/events" label="Back to events" light /></div>
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · 20–21 September 2026 · Yacht Club de Monaco</p>
           <h1 className="text-3xl lg:text-4xl font-bold">Register for the Rendezvous</h1>
           <p className="text-white/80 mt-2 max-w-2xl">Tell us who you are and how you'd like to take part.</p>
@@ -418,16 +418,12 @@ export function SM26RegisterPage() {
                 <Label htmlFor="terms" className="font-normal text-sm">I accept the terms &amp; conditions and the privacy policy. *</Label>
               </div>
 
-              {existingAccount ? (
-                <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  An account already exists for <strong>{form.email}</strong>. Please sign in using the button at the top-right —
-                  your details will be pre-filled and you can finish registering.
-                </p>
-              ) : !user ? (
+              {!user && (
                 <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                   No account needed — we'll create your workspace and email you a link to access and complete your registration.
+                  Already have a Smart Marina Connect account? Use <strong>Log in</strong> (top-right) first, so this registration links to your account.
                 </p>
-              ) : null}
+              )}
 
               <Button type="submit" className="w-full" disabled={submitting}>
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

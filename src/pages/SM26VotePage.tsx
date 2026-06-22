@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Vote, Check, Lock, QrCode, Loader2 } from 'lucide-react';
+import { RefreshCw, Vote, Check, Lock, QrCode, Loader2, Trophy } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -13,6 +13,7 @@ import { toast } from '@/hooks/use-toast';
 
 interface Entry { id: string; title: string; subtitle: string; }
 interface Ballot { open: boolean; eligible: boolean; my_vote: string | null; entries: Entry[]; }
+interface Winner { award_key: string; award_label: string; competition: string; type: string; winner_title: string; winner_subtitle: string; }
 
 const COMPS = [
   { key: 'innovation', label: 'Innovation — Audience Choice' },
@@ -24,6 +25,7 @@ export function SM26VotePage() {
   const { user, loading: authLoading } = useAuth();
   const [eventId, setEventId] = useState<string | null>(null);
   const [ballots, setBallots] = useState<Record<string, Ballot>>({});
+  const [winners, setWinners] = useState<Winner[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -35,10 +37,14 @@ export function SM26VotePage() {
     if (!ev) { setLoading(false); return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
-    const results = await Promise.all(COMPS.map(c => supabase.rpc('sm_vote_ballot', { p_event_id: eid, p_competition: c.key })));
+    const [{ data: win }, ...results] = await Promise.all([
+      supabase.rpc('sm_award_results', { p_event_id: eid }),
+      ...COMPS.map(c => supabase.rpc('sm_vote_ballot', { p_event_id: eid, p_competition: c.key })),
+    ]);
     const map: Record<string, Ballot> = {};
     results.forEach((r, i) => { map[COMPS[i].key] = (r.data || { open: false, eligible: false, my_vote: null, entries: [] }) as Ballot; });
     setBallots(map);
+    setWinners((win || []) as Winner[]);
     setLoading(false);
   };
 
@@ -69,6 +75,23 @@ export function SM26VotePage() {
       </section>
 
       <div className="container mx-auto px-4 py-8 max-w-2xl space-y-6">
+        {winners.length > 0 && (
+          <Card className="border border-amber-100 shadow-sm bg-gradient-to-br from-amber-50 to-white">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-amber-800"><Trophy className="h-5 w-5" /> Award winners</CardTitle>
+              <CardDescription>Congratulations to the Smart &amp; Sustainable Marina Rendezvous 2026 winners.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid sm:grid-cols-2 gap-3">
+              {winners.map(w => (
+                <div key={w.award_key} className="rounded-xl border border-amber-100 bg-white p-3">
+                  <div className="text-[11px] uppercase tracking-wide text-amber-600">{w.award_label}</div>
+                  <div className="font-semibold text-gray-900 mt-0.5">{w.winner_title}</div>
+                  {w.winner_subtitle && <div className="text-xs text-gray-500">{w.winner_subtitle}</div>}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
         {!user ? (
           <Card><CardContent className="py-10 text-center text-gray-500">Please sign in to vote.</CardContent></Card>
         ) : !anyEligible ? (

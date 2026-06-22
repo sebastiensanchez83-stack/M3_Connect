@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, Trophy, Vote, Lock, Unlock, Check } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import { RefreshCw, ArrowLeft, Trophy, Vote, Lock, Unlock, Check, Wand2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -84,17 +84,25 @@ export function AdminSM26Awards() {
 
   const entriesFor = (comp: string) => tallies[comp] || [];
   const titleOf = (comp: string, id: string | null) => id ? (entriesFor(comp).find(e => e.entry_id === id)?.title || '—') : null;
+  const confirmedCount = awards.filter(a => a.confirmed).length;
+  const voteLeader = (comp: string) => { const r = entriesFor(comp); return r.length && r[0].votes > 0 ? r[0] : null; };
 
   return (
     <div className="space-y-4">
       <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>
-      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Trophy className="h-6 w-6 text-primary" /> Awards &amp; voting</h1>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Trophy className="h-6 w-6 text-primary" /> Awards &amp; voting</h1>
+        <p className="text-sm text-gray-500 mt-0.5">
+          {confirmedCount} of {awards.length} winners confirmed · confirmed winners appear publicly on the <Link to="/sm26/vote" className="text-primary hover:underline">vote &amp; results page</Link>.
+        </p>
+      </div>
 
       {/* Vote control + live tallies */}
       <div className="grid md:grid-cols-3 gap-3">
         {VOTE_COMPS.map(c => {
           const open = configs[c.key];
           const rows = entriesFor(c.key);
+          const totalVotes = rows.reduce((s, r) => s + r.votes, 0);
           return (
             <Card key={c.key} className="border-0 shadow-sm">
               <CardHeader className="pb-2">
@@ -104,6 +112,7 @@ export function AdminSM26Awards() {
                     {open ? <><Unlock className="h-3.5 w-3.5" /> Open</> : <><Lock className="h-3.5 w-3.5" /> Closed</>}
                   </Button>
                 </div>
+                <div className="text-[11px] text-gray-400">{totalVotes} vote{totalVotes !== 1 ? 's' : ''} cast{open ? ' · live' : ''}</div>
               </CardHeader>
               <CardContent>
                 {rows.length === 0 ? <p className="text-xs text-gray-400">No entries.</p> : (
@@ -140,6 +149,11 @@ export function AdminSM26Awards() {
                 {a.winner_role_assignment_id && <div className="text-xs text-gray-500 mt-0.5">Winner: {titleOf(a.competition, a.winner_role_assignment_id)}</div>}
               </div>
               <div className="flex items-center gap-2">
+                {a.type === 'public' && voteLeader(a.competition) && a.winner_role_assignment_id !== voteLeader(a.competition)!.entry_id && (
+                  <Button size="sm" variant="outline" className="h-9 gap-1.5" disabled={busy} onClick={() => setWinner(a, voteLeader(a.competition)!.entry_id)} title={`Set vote leader (${voteLeader(a.competition)!.title}) as winner`}>
+                    <Wand2 className="h-3.5 w-3.5" /> Use leader
+                  </Button>
+                )}
                 <Select value={a.winner_role_assignment_id || ''} onValueChange={v => setWinner(a, v)} disabled={busy}>
                   <SelectTrigger className="w-52 h-9"><SelectValue placeholder="Select winner…" /></SelectTrigger>
                   <SelectContent>

@@ -37,6 +37,9 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const supported = typeof window !== 'undefined' && 'BarcodeDetector' in window;
+  // Keep the latest handler so the long-running scan loop never goes stale.
+  const onTokenRef = useRef(onToken);
+  onTokenRef.current = onToken;
 
   useEffect(() => {
     if (!supported) { setErr('This browser has no built-in QR scanner. Use Chrome/Edge on the check-in device, or scan the badge with the phone camera (the QR opens this page).'); return; }
@@ -49,11 +52,21 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         if (stopped) return;
         if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+        // Stay open and keep scanning; debounce so the same badge isn't
+        // re-read repeatedly while it sits in front of the camera.
+        let lastVal = ''; let lastTime = 0;
         const tick = async () => {
           if (stopped) return;
           try {
             const codes = videoRef.current ? await detector.detect(videoRef.current) : [];
-            if (codes && codes.length && codes[0].rawValue) { onToken(parseToken(codes[0].rawValue)); return; }
+            const raw = codes && codes.length ? codes[0].rawValue : '';
+            if (raw) {
+              const now = performance.now();
+              if (raw !== lastVal || now - lastTime > 3000) {
+                lastVal = raw; lastTime = now;
+                onTokenRef.current(parseToken(raw));
+              }
+            }
           } catch { /* keep scanning */ }
           raf = requestAnimationFrame(tick);
         };
@@ -81,7 +94,7 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
             <div className="absolute inset-6 border-2 border-white/80 rounded-lg pointer-events-none" />
           </div>
         )}
-        <p className="text-xs text-gray-400 mt-2 text-center">Point the camera at the attendee's badge QR — they'll be checked into the selected window.</p>
+        <p className="text-xs text-gray-400 mt-2 text-center">Point the camera at each badge QR — the scanner stays open, so you can check people in one after another. Each is added to the selected window.</p>
       </CardContent>
     </Card>
   );
@@ -211,7 +224,7 @@ export function AdminSM26Checkin() {
       {scanning && (
         <QrScanner
           onClose={() => setScanning(false)}
-          onToken={(token) => { setScanning(false); if (activeWindow) processToken(token, activeWindow, attendees); }}
+          onToken={(token) => { if (activeWindow) processToken(token, activeWindow, attendees); }}
         />
       )}
 

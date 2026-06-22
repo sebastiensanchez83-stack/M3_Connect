@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, Trophy, Vote, Lock, Unlock, Check, Wand2 } from 'lucide-react';
+import { RefreshCw, ArrowLeft, Trophy, Vote, Lock, Unlock, Check, Wand2, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 
@@ -16,6 +16,7 @@ interface Award {
   winner_role_assignment_id: string | null; confirmed: boolean; sort: number;
 }
 interface TallyRow { entry_id: string; title: string; subtitle: string; votes: number; }
+interface Candidate { entry_id: string; title: string; subtitle: string; description: string; votes: number; }
 
 const VOTE_COMPS = [
   { key: 'innovation', label: 'Innovation' },
@@ -31,6 +32,9 @@ export function AdminSM26Awards() {
   const [tallies, setTallies] = useState<Record<string, TallyRow[]>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [pickerAward, setPickerAward] = useState<Award | null>(null);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [loadingCands, setLoadingCands] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -78,6 +82,19 @@ export function AdminSM26Awards() {
     setBusy(false);
     if (error) { toast({ title: 'Failed', description: error.message, variant: 'destructive' }); return; }
     setAwards(prev => prev.map(a => a.id === award.id ? { ...a, confirmed: !a.confirmed } : a));
+  };
+
+  const openPicker = async (a: Award) => {
+    if (!eventId) return;
+    setPickerAward(a); setCandidates([]); setLoadingCands(true);
+    const { data } = await supabase.rpc('sm_award_candidates', { p_event_id: eventId, p_competition: a.competition });
+    setCandidates((data || []) as Candidate[]);
+    setLoadingCands(false);
+  };
+  const pickWinner = async (entryId: string) => {
+    if (!pickerAward) return;
+    await setWinner(pickerAward, entryId);
+    setPickerAward(null);
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -150,18 +167,13 @@ export function AdminSM26Awards() {
               </div>
               <div className="flex items-center gap-2">
                 {a.type === 'public' && voteLeader(a.competition) && a.winner_role_assignment_id !== voteLeader(a.competition)!.entry_id && (
-                  <Button size="sm" variant="outline" className="h-9 gap-1.5" disabled={busy} onClick={() => setWinner(a, voteLeader(a.competition)!.entry_id)} title={`Set vote leader (${voteLeader(a.competition)!.title}) as winner`}>
+                  <Button size="sm" variant="ghost" className="h-9 gap-1.5 text-gray-500" disabled={busy} onClick={() => setWinner(a, voteLeader(a.competition)!.entry_id)} title={`Set vote leader (${voteLeader(a.competition)!.title}) as winner`}>
                     <Wand2 className="h-3.5 w-3.5" /> Use leader
                   </Button>
                 )}
-                <Select value={a.winner_role_assignment_id || ''} onValueChange={v => setWinner(a, v)} disabled={busy}>
-                  <SelectTrigger className="w-52 h-9"><SelectValue placeholder="Select winner…" /></SelectTrigger>
-                  <SelectContent>
-                    {entriesFor(a.competition).map(e => (
-                      <SelectItem key={e.entry_id} value={e.entry_id}>{e.title}{a.type === 'public' ? ` · ${e.votes} votes` : ''}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Button size="sm" variant="outline" className="h-9" disabled={busy} onClick={() => openPicker(a)}>
+                  {a.winner_role_assignment_id ? 'Change winner' : 'Choose winner'}
+                </Button>
                 <Button size="sm" variant={a.confirmed ? 'outline' : 'default'} disabled={busy || !a.winner_role_assignment_id} onClick={() => toggleConfirm(a)}>
                   {a.confirmed ? 'Unconfirm' : 'Confirm'}
                 </Button>
@@ -170,6 +182,36 @@ export function AdminSM26Awards() {
           </Card>
         ))}
       </div>
+
+      {/* Winner picker — click a company card */}
+      <Dialog open={!!pickerAward} onOpenChange={o => !o && setPickerAward(null)}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{pickerAward?.label} — choose the winner</DialogTitle></DialogHeader>
+          {loadingCands ? (
+            <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-gray-300" /></div>
+          ) : candidates.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-400">No eligible entries for this competition yet.</p>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-2">
+              {candidates.map(c => {
+                const selected = pickerAward?.winner_role_assignment_id === c.entry_id;
+                return (
+                  <button key={c.entry_id} type="button" onClick={() => pickWinner(c.entry_id)}
+                    className={`text-left rounded-xl border p-3 transition-all ${selected ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'border-gray-200 hover:border-primary/40 hover:bg-gray-50'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-gray-900 text-sm truncate">{c.title}</span>
+                      {selected ? <Check className="h-4 w-4 text-primary shrink-0" />
+                        : pickerAward?.type === 'public' && <Badge variant="secondary" className="text-[10px] shrink-0">{c.votes} vote{c.votes !== 1 ? 's' : ''}</Badge>}
+                    </div>
+                    {c.subtitle && <div className="text-[11px] uppercase tracking-wide text-gray-400 mt-0.5">{c.subtitle}</div>}
+                    {c.description && <p className="text-xs text-gray-600 mt-1 line-clamp-3">{c.description}</p>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

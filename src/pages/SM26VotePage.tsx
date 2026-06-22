@@ -94,7 +94,7 @@ export function SM26VotePage() {
         )}
         {!user ? (
           <Card><CardContent className="py-10 text-center text-gray-500">Please sign in to vote.</CardContent></Card>
-        ) : !anyEligible ? (
+        ) : (!anyEligible && winners.length === 0) ? (
           <Card>
             <CardContent className="py-10 text-center">
               <QrCode className="h-10 w-10 text-gray-300 mx-auto mb-3" />
@@ -112,7 +112,8 @@ export function SM26VotePage() {
                 <CardHeader>
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <CardTitle className="flex items-center gap-2"><Vote className="h-5 w-5 text-primary" /> {c.label}</CardTitle>
-                    {!b.open && <span className="text-xs text-gray-500 inline-flex items-center gap-1"><Lock className="h-3 w-3" /> Voting closed</span>}
+                    {!b.open ? <span className="text-xs text-gray-500 inline-flex items-center gap-1"><Lock className="h-3 w-3" /> Voting closed</span>
+                      : !b.eligible ? <span className="text-xs text-amber-600 inline-flex items-center gap-1"><QrCode className="h-3 w-3" /> Check in to vote</span> : null}
                   </div>
                   <CardDescription>{b.my_vote ? 'Your vote is recorded — tap another entry to change it.' : 'Tap an entry to vote.'}</CardDescription>
                 </CardHeader>
@@ -120,7 +121,7 @@ export function SM26VotePage() {
                   {b.entries.map(e => {
                     const selected = b.my_vote === e.id;
                     return (
-                      <button key={e.id} type="button" disabled={!b.open || busy === c.key + e.id}
+                      <button key={e.id} type="button" disabled={!b.open || !b.eligible || busy === c.key + e.id}
                         onClick={() => vote(c.key, e.id)}
                         className={`text-left rounded-xl border p-3 transition-all ${selected ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'border-gray-200 hover:border-primary/40'} ${!b.open ? 'opacity-60 cursor-not-allowed' : ''}`}>
                         <div className="flex items-center justify-between gap-2">

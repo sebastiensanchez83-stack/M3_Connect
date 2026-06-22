@@ -16,7 +16,7 @@ import { SM26_BASE_FIELDS } from '@/components/admin/AdminSM26';
 
 type Row = Record<string, unknown> & { requested_fields?: string[]; info_request_note?: string | null };
 
-export function SM26EditDetails({ registrationId, onSaved }: { registrationId: string; onSaved?: () => void }) {
+export function SM26EditDetails({ registrationId, regStatus, onSaved }: { registrationId: string; regStatus?: string; onSaved?: () => void }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
@@ -46,6 +46,10 @@ export function SM26EditDetails({ registrationId, onSaved }: { registrationId: s
   const set = (k: string, val: string) => setValues(prev => ({ ...prev, [k]: val }));
 
   const save = async () => {
+    if (!values.first_name?.trim() || !values.last_name?.trim()) {
+      toast({ title: 'Name required', description: 'First and last name can’t be empty.', variant: 'destructive' });
+      return;
+    }
     setSaving(true);
     const patch: Record<string, string | null> = {};
     for (const f of SM26_BASE_FIELDS) patch[f.key] = values[f.key]?.trim() || null;
@@ -64,7 +68,8 @@ export function SM26EditDetails({ registrationId, onSaved }: { registrationId: s
 
   if (loading) return null;
 
-  const hasRequests = requested.size > 0;
+  // Don't nag for details on a declined/cancelled registration.
+  const hasRequests = requested.size > 0 && regStatus !== 'declined' && regStatus !== 'cancelled';
 
   return (
     <Card className={hasRequests ? 'border-amber-200' : undefined}>

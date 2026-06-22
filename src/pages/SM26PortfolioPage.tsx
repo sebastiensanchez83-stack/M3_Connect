@@ -67,11 +67,13 @@ export function SM26PortfolioPage() {
     } else if (profile?.persona === 'investor' && isVerified) {
       acc = 'investor'; // unified accreditation: platform investor also sees the SM26 portfolio
     } else {
-      const { data: reg } = await supabase
+      const { data: regs } = await supabase
         .from('sm_registration')
         .select('roles:sm_role_assignment(role,status)')
-        .eq('event_id', eventId).eq('user_id', user!.id).maybeSingle();
-      const investor = (reg as { roles?: { role: string; status: string }[] } | null)?.roles?.find(r => r.role === 'investor');
+        .eq('event_id', eventId).eq('user_id', user!.id)
+        .order('created_at', { ascending: false }).limit(1);
+      const reg = ((regs || []) as { roles?: { role: string; status: string }[] }[])[0];
+      const investor = reg?.roles?.find(r => r.role === 'investor');
       acc = investor ? (investor.status === 'confirmed' ? 'investor' : 'pending') : 'none';
     }
     setAccess(acc);

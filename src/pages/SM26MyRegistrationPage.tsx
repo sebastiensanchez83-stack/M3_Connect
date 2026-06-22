@@ -184,7 +184,9 @@ export function SM26MyRegistrationPage() {
     </div>
   );
 
-  const rolesWithReqs = reg.roles.filter(r => reqsForRole(r.role).length > 0);
+  // Declined roles are hidden from the participant (admin-only), matching SM26ParticipationCard.
+  const visibleRoles = reg.roles.filter(r => r.status !== 'declined');
+  const rolesWithReqs = visibleRoles.filter(r => reqsForRole(r.role).length > 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -208,14 +210,14 @@ export function SM26MyRegistrationPage() {
               <Badge className={`mt-1 ${roleStatusBadgeClass(reg.status)}`}>{prettyStatus(reg.status)}</Badge>
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {reg.roles.map(r => (
+              {visibleRoles.map(r => (
                 <Badge key={r.id} variant="secondary" className="text-[11px]">{SM26_ROLE_LABELS[r.role] || r.role}</Badge>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        <SM26EditDetails registrationId={reg.id} onSaved={load} />
+        <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
 
         {ecat.length > 0 && (
           <Card>

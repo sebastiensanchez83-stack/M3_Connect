@@ -289,6 +289,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           profileLoadedRef.current = false
           setProfileTimedOut(false)
           setLoading(false)
+          // Don't leave per-user selections for the next account on a shared browser.
+          try { localStorage.removeItem(ACTIVE_ORG_KEY); localStorage.removeItem('m3_pending_invite'); localStorage.removeItem('sm26_claim_code') } catch { /* ignore */ }
           return
         }
 
@@ -390,8 +392,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── signOut ────────────────────────────────────────────────────────
   const signOut = async () => {
-    // Clear any pending invite token from localStorage
-    try { localStorage.removeItem('m3_pending_invite') } catch (_) { /* ignore */ }
+    // Clear per-user selections so nothing carries to the next account.
+    try { localStorage.removeItem('m3_pending_invite'); localStorage.removeItem(ACTIVE_ORG_KEY); localStorage.removeItem('sm26_claim_code') } catch (_) { /* ignore */ }
     profileLoadedRef.current = false
     setProfileTimedOut(false)
     setUser(null)

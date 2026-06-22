@@ -69,6 +69,9 @@ export function SM26MyRegistrationPage() {
 
   const load = async () => {
     setLoading(true);
+    // Link any registration imported under this user's email but never claimed
+    // via the code link, so it appears here even if they signed up normally.
+    try { await supabase.rpc('sm_autoclaim_by_email'); } catch { /* best-effort */ }
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setReg(null); setLoading(false); return; }
     const eventId = (ev as { id: string }).id;

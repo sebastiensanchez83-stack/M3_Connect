@@ -53,6 +53,9 @@ export function SM26ParticipationCard({ userId, organizationId, companyName, var
 
   const load = async () => {
     setLoading(true);
+    // On the user's own account, first link any registration imported under
+    // their email but never claimed via the code link, so it shows up here.
+    if (variant === 'self') { try { await supabase.rpc('sm_autoclaim_by_email'); } catch { /* best-effort */ } }
     const sel = 'id,first_name,last_name,company_name,status,created_at,organization_id, roles:sm_role_assignment(role,status), payment:sm_payment(status)';
     const byKey = new Map<string, Reg>();
     const run = async (col: 'user_id' | 'organization_id', val: string) => {

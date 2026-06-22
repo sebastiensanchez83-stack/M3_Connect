@@ -55,6 +55,30 @@ export const SM_CATEGORIES = [
 const STAGES = ['Idea', 'Prototype', 'Pilot', 'Pre-revenue', 'Early revenue', 'Scaling revenue', 'Scale-up / Established'];
 const INVEST_TYPES = ['Equity', 'Grant', 'Debt', 'Convertible', 'Strategic / Corporate', 'Other'];
 
+// Per-field character limits (matching the Smart Marina pitch form). Generous so
+// they never truncate already-submitted text; the live counter shows usage.
+export const STARTUP_LIMITS: Record<string, number> = {
+  organization_activity: 1500, problem: 1500, solution: 2500, differentiation: 1000,
+  usp: 800, target_markets: 300, business_model: 1500, competitive_positioning: 1500,
+  collaboration_expected: 1500, references_text: 1500,
+};
+
+// Label + counter wrapper enforcing a max length.
+function Limited({ label, value, onChange, max, rows }: { label: string; value: string; onChange: (v: string) => void; max: number; rows?: number }) {
+  const near = value.length > max * 0.9;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between gap-2">
+        <Label>{label}</Label>
+        <span className={`text-[10px] tabular-nums ${value.length >= max ? 'text-red-500' : near ? 'text-amber-600' : 'text-gray-400'}`}>{value.length}/{max}</span>
+      </div>
+      {rows
+        ? <Textarea rows={rows} maxLength={max} value={value} onChange={e => onChange(e.target.value)} />
+        : <Input maxLength={max} value={value} onChange={e => onChange(e.target.value)} />}
+    </div>
+  );
+}
+
 interface Props {
   value: StartupData;
   onChange: (v: StartupData) => void;
@@ -112,16 +136,16 @@ export function StartupFields({ value, onChange }: Props) {
           </div>
         </div>
 
-        <div className="space-y-1"><Label>What does your company do?</Label><Textarea rows={2} value={value.organization_activity} onChange={e => set({ organization_activity: e.target.value })} /></div>
-        <div className="space-y-1"><Label>Problem you solve</Label><Textarea rows={2} value={value.problem} onChange={e => set({ problem: e.target.value })} /></div>
-        <div className="space-y-1"><Label>Your solution</Label><Textarea rows={3} value={value.solution} onChange={e => set({ solution: e.target.value })} /></div>
-        <div className="space-y-1"><Label>What makes it different?</Label><Textarea rows={2} value={value.differentiation} onChange={e => set({ differentiation: e.target.value })} /></div>
-        <div className="space-y-1"><Label>Unique selling proposition</Label><Textarea rows={2} value={value.usp} onChange={e => set({ usp: e.target.value })} /></div>
-        <div className="space-y-1"><Label>Target markets</Label><Input value={value.target_markets} onChange={e => set({ target_markets: e.target.value })} /></div>
-        <div className="space-y-1"><Label>Business model</Label><Textarea rows={2} value={value.business_model} onChange={e => set({ business_model: e.target.value })} /></div>
-        <div className="space-y-1"><Label>Competitive positioning</Label><Textarea rows={2} value={value.competitive_positioning} onChange={e => set({ competitive_positioning: e.target.value })} /></div>
-        <div className="space-y-1"><Label>What collaboration do you expect, and why?</Label><Textarea rows={2} value={value.collaboration_expected} onChange={e => set({ collaboration_expected: e.target.value })} /></div>
-        <div className="space-y-1"><Label>References (pilots, clients, awards…)</Label><Textarea rows={2} value={value.references_text} onChange={e => set({ references_text: e.target.value })} /></div>
+        <Limited label="What does your company do?" rows={2} max={STARTUP_LIMITS.organization_activity} value={value.organization_activity} onChange={v => set({ organization_activity: v })} />
+        <Limited label="Problem you solve" rows={2} max={STARTUP_LIMITS.problem} value={value.problem} onChange={v => set({ problem: v })} />
+        <Limited label="Your solution" rows={3} max={STARTUP_LIMITS.solution} value={value.solution} onChange={v => set({ solution: v })} />
+        <Limited label="What makes it different?" rows={2} max={STARTUP_LIMITS.differentiation} value={value.differentiation} onChange={v => set({ differentiation: v })} />
+        <Limited label="Unique selling proposition (USP)" rows={2} max={STARTUP_LIMITS.usp} value={value.usp} onChange={v => set({ usp: v })} />
+        <Limited label="Target markets" max={STARTUP_LIMITS.target_markets} value={value.target_markets} onChange={v => set({ target_markets: v })} />
+        <Limited label="Business model" rows={2} max={STARTUP_LIMITS.business_model} value={value.business_model} onChange={v => set({ business_model: v })} />
+        <Limited label="Competitive positioning" rows={2} max={STARTUP_LIMITS.competitive_positioning} value={value.competitive_positioning} onChange={v => set({ competitive_positioning: v })} />
+        <Limited label="What collaboration do you expect, and why?" rows={2} max={STARTUP_LIMITS.collaboration_expected} value={value.collaboration_expected} onChange={v => set({ collaboration_expected: v })} />
+        <Limited label="References (pilots, clients, awards…)" rows={2} max={STARTUP_LIMITS.references_text} value={value.references_text} onChange={v => set({ references_text: v })} />
 
         <div className="rounded-lg border border-gray-200 p-4 space-y-3">
           <div className="flex items-start gap-2">

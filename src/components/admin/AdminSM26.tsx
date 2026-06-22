@@ -79,6 +79,19 @@ export const SM26_BASE_FIELDS: { key: string; label: string; multi?: boolean }[]
   { key: 'objective', label: 'Objectives for attending', multi: true },
 ];
 
+// Friendly labels for the startup/role profile fields (used when listing them
+// as tickable request-info items, so "usp" reads "USP" not "Usp").
+export const SM26_FIELD_LABELS: Record<string, string> = {
+  usp: 'USP (unique selling point)', problem: 'Problem you solve', solution: 'Your solution',
+  differentiation: 'Differentiation', organization_activity: 'What the company does',
+  target_markets: 'Target markets', business_model: 'Business model',
+  competitive_positioning: 'Competitive positioning', collaboration_expected: 'Collaboration expected',
+  references_text: 'References', investment_stage: 'Investment stage', investment_type: 'Investment type',
+  funds_needed: 'Funds needed', stage: 'Stage', startup_or_scaleup: 'Startup or scale-up',
+  domain: 'Domain', bio: 'Short bio', talk_topic: 'Talk title / topic', outlet: 'Outlet / publication',
+};
+export const sm26FieldLabel = (k: string) => SM26_FIELD_LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
 // Per-role assignment status (distinct from the overall registration status)
 export const ROLE_STATUSES = ['self_submitted', 'admin_added', 'needs_info', 'info_provided', 'confirmed', 'declined'] as const;
 

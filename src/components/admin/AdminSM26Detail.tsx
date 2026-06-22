@@ -13,7 +13,7 @@ import { toast } from '@/hooks/use-toast';
 import {
   SM26_ROLE_LABELS, REG_STATUSES, ROLE_STATUSES, regStatusBadgeClass, roleStatusBadgeClass,
   prettyStatus, ORG_SCOPE_ROLES, MODULE_TABLE_ROLES,
-  REG_STATUS_META, REG_STAGES, ROLE_STATUS_DESC, SM26_BASE_FIELDS,
+  REG_STATUS_META, REG_STAGES, ROLE_STATUS_DESC, SM26_BASE_FIELDS, sm26FieldLabel,
 } from './AdminSM26';
 import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
@@ -605,7 +605,7 @@ export function AdminSM26Detail() {
           const reqKeys = new Set(reqs.map(r => r.field_key));
           const missingTextFields = Object.keys(roleData)
             .filter(k => !STRUCT_KEYS.has(k) && !isMetaKey(k) && !FILE_KEY.test(k) && !reqKeys.has(k) && (roleData[k] === null || roleData[k] === ''))
-            .map(k => ({ field_key: k, label: prettyKey(k), required: false, is_asset: false }));
+            .map(k => ({ field_key: k, label: sm26FieldLabel(k), required: false, is_asset: false }));
           return (
             <Card key={role.id} className="border-0 shadow-sm">
               <CardHeader className="pb-2">

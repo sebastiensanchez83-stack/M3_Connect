@@ -13,7 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { SM26_ROLE_LABELS, roleStatusBadgeClass, prettyStatus } from '@/components/admin/AdminSM26';
+import { SM26_ROLE_LABELS, roleStatusBadgeClass, prettyStatus, sm26FieldLabel } from '@/components/admin/AdminSM26';
 import { SM26Notifications } from '@/components/sm26/SM26Notifications';
 import { SM26EditDetails } from '@/components/sm26/SM26EditDetails';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
@@ -49,8 +49,6 @@ const ecatClass = (s: string) =>
   : s === 'uploaded' ? 'bg-blue-50 text-blue-700 border-blue-200'
   : s === 'changes_requested' ? 'bg-amber-50 text-amber-700 border-amber-200'
   : 'bg-gray-50 text-gray-600 border-gray-200';
-
-const prettyFieldKey = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 export function SM26MyRegistrationPage() {
   const { user, loading: authLoading } = useAuth();
@@ -374,7 +372,7 @@ export function SM26MyRegistrationPage() {
                     return (
                       <div key={key} className="space-y-1.5">
                         <Label className="flex items-center gap-1.5">
-                          <FileText className="h-3.5 w-3.5 text-gray-400" /> {prettyFieldKey(key)}
+                          <FileText className="h-3.5 w-3.5 text-gray-400" /> {sm26FieldLabel(key)}
                           <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Requested by M3</span>
                           {hasValue && <Check className="h-3.5 w-3.5 text-green-600" />}
                         </Label>

@@ -1,4 +1,4 @@
-import { useState, useEffect, type ElementType, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type ElementType, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -51,6 +51,16 @@ const ROLE_ICON: Record<string, ElementType> = {
   media: Newspaper, jury: Scale, investor: TrendingUp, sponsor: Building2, speaker: Mic, vip: Star,
 };
 
+const DRAFT_KEY = 'sm26-register-draft';
+interface DraftShape {
+  form?: Record<string, string>;
+  role?: string;
+  startup?: StartupData;
+  arch?: ArchitectureData;
+  marina?: MarinaData;
+  light?: LightData;
+}
+
 export function SM26RegisterPage() {
   const { user, profile, organization } = useAuth();
   const navigate = useNavigate();
@@ -69,6 +79,7 @@ export function SM26RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [honeypot, setHoneypot] = useState(''); // bot trap — must stay empty
+  const [savingDraft, setSavingDraft] = useState(false);
   const wasGuest = !user; // captured for the success screen wording
 
   // Load the event id + fee config
@@ -116,6 +127,65 @@ export function SM26RegisterPage() {
     })();
     return () => { active = false; };
   }, [user, eventId, navigate]);
+
+  // ─── Save & resume ────────────────────────────────────────────────
+  const firstSaveRef = useRef(true);
+  const snapshot = (): DraftShape => ({ form, role, startup, arch, marina, light });
+  const applyDraft = (d: DraftShape) => {
+    if (d.form) setForm(prev => ({ ...prev, ...d.form }));
+    if (d.role) setRole(d.role);
+    if (d.startup) setStartup(d.startup);
+    if (d.arch) setArch(d.arch);
+    if (d.marina) setMarina(d.marina);
+    if (d.light) setLight(d.light);
+  };
+
+  // Resume from an emailed link (?draft=token) — cross-device.
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('draft');
+    if (!token) return;
+    (async () => {
+      try {
+        const { data } = await supabase.functions.invoke('sm26-draft', { body: { action: 'load', token } });
+        const d = (data as { data?: DraftShape } | null)?.data;
+        if (d) { applyDraft(d); toast({ title: 'Welcome back', description: "We've restored your saved registration." }); }
+      } catch { /* ignore */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Restore the browser-local draft on first mount (unless using a ?draft link).
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('draft')) return;
+    try { const saved = localStorage.getItem(DRAFT_KEY); if (saved) applyDraft(JSON.parse(saved)); } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-save to the browser on change (skipping the initial empty render).
+  useEffect(() => {
+    if (firstSaveRef.current) { firstSaveRef.current = false; return; }
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot())); } catch { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, role, startup, arch, marina, light]);
+
+  const saveDraft = async () => {
+    if (!form.email.trim()) {
+      toast({ title: 'Enter your email first', description: 'We use it to send you a link to continue.', variant: 'destructive' });
+      return;
+    }
+    setSavingDraft(true);
+    try {
+      const { error } = await supabase.functions.invoke('sm26-draft', {
+        body: { action: 'save', email: form.email.trim(), data: snapshot(), origin: window.location.origin },
+      });
+      if (error) throw error;
+      toast({ title: 'Saved', description: `We've emailed ${form.email.trim()} a link to continue on any device.` });
+    } catch {
+      toast({ title: "Couldn't save", description: 'Please try again in a moment.', variant: 'destructive' });
+    } finally {
+      setSavingDraft(false);
+    }
+  };
 
   const setField = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
   const selectRole = (k: string) => {
@@ -178,6 +248,7 @@ export function SM26RegisterPage() {
       // The endpoint returns an identical 'ok' whether the account was created or
       // already existed (anti-enumeration); either way we email an access link.
       if (status === 'ok' || status === 'created') {
+        try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
         setDone(true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
         return;
@@ -310,6 +381,7 @@ export function SM26RegisterPage() {
         }
       }
 
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       setDone(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch {
@@ -449,6 +521,15 @@ export function SM26RegisterPage() {
                 {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Submit registration
               </Button>
+              {!user && (
+                <>
+                  <Button type="button" variant="ghost" className="w-full" onClick={saveDraft} disabled={savingDraft}>
+                    {savingDraft && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                    Save &amp; continue later
+                  </Button>
+                  <p className="text-[11px] text-center text-gray-400">Your progress is saved on this device automatically. Use “save &amp; continue later” to finish on another.</p>
+                </>
+              )}
             </CardContent>
           </Card>
         </form>

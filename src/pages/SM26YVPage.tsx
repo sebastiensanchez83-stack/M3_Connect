@@ -3,8 +3,10 @@ import { Helmet } from 'react-helmet-async';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
-import { RefreshCw, Lightbulb, Scale, Lock } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { RefreshCw, Lightbulb, Scale, Lock, Video, Plus, X, Calendar } from 'lucide-react';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
+import { toast } from '@/hooks/use-toast';
 
 // Yachting Ventures (Gabriella) console: the innovation pipeline + innovation
 // jury, with registration / confirmation / payment status for follow-ups.
@@ -12,12 +14,16 @@ import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 // a kind='yachting_ventures' event partner); this page just reflects it.
 
 interface Innovation {
-  registration_id: string; company: string; contact: string | null; email: string;
+  registration_id: string; role_assignment_id: string; company: string; contact: string | null; email: string;
   reg_status: string; role_status: string; payment_status: string; stage: string | null; categories: string[] | null;
 }
 interface Juror {
   registration_id: string; name: string | null; email: string; company: string | null;
   role_status: string; innovation_assignments: number;
+}
+interface JurySession {
+  id: string; title: string; entry_role_assignment_id: string | null; entry_company: string | null;
+  scheduled_at: string; duration_minutes: number; status: string; zoom_join_url: string | null;
 }
 
 const regBadge = (s: string) => {
@@ -39,22 +45,58 @@ export function SM26YVPage() {
   const [jurors, setJurors] = useState<Juror[]>([]);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
+  const [sessions, setSessions] = useState<JurySession[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [sTitle, setSTitle] = useState('');
+  const [sEntry, setSEntry] = useState('');
+  const [sWhen, setSWhen] = useState('');
+  const [sDur, setSDur] = useState('30');
+  const [busy, setBusy] = useState(false);
 
   const load = async () => {
     setLoading(true);
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setLoading(false); return; }
-    const eventId = (ev as { id: string }).id;
-    const [inn, jur] = await Promise.all([
-      supabase.rpc('sm_yv_innovations', { p_event_id: eventId }),
-      supabase.rpc('sm_yv_jurors', { p_event_id: eventId }),
+    const evId = (ev as { id: string }).id;
+    const [inn, jur, ses] = await Promise.all([
+      supabase.rpc('sm_yv_innovations', { p_event_id: evId }),
+      supabase.rpc('sm_yv_jurors', { p_event_id: evId }),
+      supabase.rpc('sm_jury_sessions_list', { p_event_id: evId }),
     ]);
     if (inn.error || jur.error) { setDenied(true); setLoading(false); return; }
     setInnovations((inn.data || []) as Innovation[]);
     setJurors((jur.data || []) as Juror[]);
+    setSessions((ses.data || []) as JurySession[]);
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const createSession = async () => {
+    if (!sWhen) { toast({ title: 'Pick a date & time', variant: 'destructive' }); return; }
+    setBusy(true);
+    const { data, error } = await supabase.functions.invoke('sm26-jury-session', {
+      body: {
+        action: 'create', title: sTitle.trim() || undefined,
+        entry_role_assignment_id: sEntry || undefined,
+        scheduled_at: new Date(sWhen).toISOString(), duration_minutes: Number(sDur) || 30,
+      },
+    });
+    setBusy(false);
+    const err = error || (data as { error?: string })?.error;
+    if (err) { toast({ title: 'Could not schedule', description: typeof err === 'string' ? err : 'Please try again.', variant: 'destructive' }); return; }
+    toast({ title: 'Session scheduled', description: `Zoom created · invitations sent to ${(data as { invited?: number })?.invited ?? 0} people.` });
+    setShowCreate(false); setSTitle(''); setSEntry(''); setSWhen(''); setSDur('30');
+    load();
+  };
+  const cancelSession = async (s: JurySession) => {
+    if (!confirm(`Cancel "${s.title}"? The Zoom meeting will be deleted and attendees notified.`)) return;
+    setBusy(true);
+    const { error } = await supabase.functions.invoke('sm26-jury-session', { body: { action: 'cancel', session_id: s.id } });
+    setBusy(false);
+    if (error) { toast({ title: 'Could not cancel', variant: 'destructive' }); return; }
+    toast({ title: 'Session cancelled' });
+    load();
+  };
 
   if (loading) return (
     <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-6 w-6 animate-spin text-gray-300" /></div>
@@ -98,6 +140,52 @@ export function SM26YVPage() {
           </div>
           <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={load}><RefreshCw className="h-3.5 w-3.5" /> Refresh</Button>
         </div>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-base"><Video className="h-4 w-4 text-primary" /> Jury sessions ({sessions.filter(s => s.status !== 'cancelled').length})</CardTitle>
+              <Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => setShowCreate(o => !o)}><Plus className="h-4 w-4" /> Schedule</Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {showCreate && (
+              <div className="rounded-lg border border-gray-200 p-3 space-y-2 bg-gray-50">
+                <Input value={sTitle} onChange={e => setSTitle(e.target.value)} placeholder="Title (default: Innovation jury session)" className="h-9 bg-white" />
+                <div className="grid sm:grid-cols-2 gap-2">
+                  <select value={sEntry} onChange={e => setSEntry(e.target.value)} className="h-9 rounded-md border border-gray-200 px-2 text-sm bg-white">
+                    <option value="">All innovation jurors (no specific entry)</option>
+                    {innovations.map(i => <option key={i.role_assignment_id} value={i.role_assignment_id}>{i.company}</option>)}
+                  </select>
+                  <div className="flex gap-2">
+                    <Input type="datetime-local" value={sWhen} onChange={e => setSWhen(e.target.value)} className="h-9 bg-white" />
+                    <Input type="number" min={10} max={240} value={sDur} onChange={e => setSDur(e.target.value)} className="h-9 w-20 bg-white" title="Minutes" />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
+                  <Button size="sm" onClick={createSession} disabled={busy || !sWhen}>{busy ? 'Scheduling…' : 'Create Zoom + send invites'}</Button>
+                </div>
+                <p className="text-[11px] text-gray-400">Creates a Zoom meeting and emails an .ics calendar invite to the entry, its jurors, Yachting Ventures and Victor.</p>
+              </div>
+            )}
+            {sessions.length === 0 && !showCreate && <p className="text-sm text-gray-400">No sessions scheduled yet.</p>}
+            {sessions.map(s => (
+              <div key={s.id} className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${s.status === 'cancelled' ? 'border-gray-100 opacity-50' : 'border-gray-200'}`}>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium flex items-center gap-2">{s.title}{s.status === 'cancelled' && <span className="text-xs text-red-500">cancelled</span>}</div>
+                  <div className="text-xs text-gray-400 flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+                    <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> {new Date(s.scheduled_at).toLocaleString()}</span>
+                    {s.entry_company && <span>· {s.entry_company}</span>}
+                    <span>· {s.duration_minutes} min</span>
+                    {s.zoom_join_url && s.status !== 'cancelled' && <a href={s.zoom_join_url} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-0.5"><Video className="h-3 w-3" /> Zoom</a>}
+                  </div>
+                </div>
+                {s.status !== 'cancelled' && <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-red-600 shrink-0" onClick={() => cancelSession(s)} disabled={busy}><X className="h-4 w-4" /></Button>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Lightbulb className="h-4 w-4 text-primary" /> Innovation entries ({innovations.length})</CardTitle></CardHeader>

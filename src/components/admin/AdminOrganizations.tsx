@@ -204,9 +204,9 @@ export function AdminOrganizations() {
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     {/* Logo */}
-                    <div className="h-12 w-12 rounded-xl shrink-0 overflow-hidden bg-gray-100 flex items-center justify-center">
+                    <div className="h-12 w-12 rounded-xl shrink-0 overflow-hidden bg-white border border-gray-100 flex items-center justify-center">
                       {o.logo_url ? (
-                        <img src={o.logo_url} alt={o.name} className="h-full w-full object-cover" />
+                        <img src={o.logo_url} alt={o.name} className="h-full w-full object-contain p-0.5" />
                       ) : (
                         <Building2 className="h-6 w-6 text-gray-400" />
                       )}

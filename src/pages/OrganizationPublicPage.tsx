@@ -272,7 +272,9 @@ export function OrganizationPublicPage() {
       {/* Cover banner (if uploaded) — header strip, not a hero */}
       {org.banner_url && (
         <div className="relative h-32 sm:h-40 md:h-48 lg:h-56 w-full overflow-hidden bg-slate-200">
-          <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
+          {/* blurred copy fills the frame so the full cover can sit on top, uncropped */}
+          <img src={org.banner_url} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-70" />
+          <img src={org.banner_url} alt={`${org.name} cover`} className="relative w-full h-full object-contain object-center" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/60 to-transparent" />
         </div>
       )}
@@ -286,11 +288,11 @@ export function OrganizationPublicPage() {
           </Link>
           <div className="flex items-start gap-6">
             {/* Org Avatar */}
-            <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center shrink-0 shadow-lg">
+            <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl bg-white flex items-center justify-center shrink-0 shadow-lg overflow-hidden">
               {org.logo_url ? (
-                <img src={org.logo_url} alt={org.name} className="w-full h-full rounded-2xl object-cover" />
+                <img src={org.logo_url} alt={org.name} className="w-full h-full rounded-2xl object-contain p-1.5" />
               ) : (
-                <Building2 className="h-10 w-10 lg:h-12 lg:w-12 text-white/70" />
+                <Building2 className="h-10 w-10 lg:h-12 lg:w-12 text-gray-300" />
               )}
             </div>
             <div>

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { SM26_ROLE_LABELS, regStatusBadgeClass, prettyStatus } from './AdminSM26';
 import { AdminEventPartners } from './AdminEventPartners';
+import { AdminYVPartners } from './AdminYVPartners';
 
 // At-a-glance event vitals (registrations, payments, check-in, e-catalogue,
 // jury, votes, feedback) from a single sm_event_health RPC.
@@ -116,7 +117,12 @@ export function AdminSM26Health() {
         </Card>
       </div>
 
-      {eventId && <AdminEventPartners eventId={eventId} />}
+      {eventId && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <AdminEventPartners eventId={eventId} />
+          <AdminYVPartners eventId={eventId} />
+        </div>
+      )}
     </div>
   );
 }

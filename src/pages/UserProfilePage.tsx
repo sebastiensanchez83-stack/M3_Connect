@@ -263,9 +263,9 @@ export function UserProfilePage() {
               <CardContent className="pt-6">
                 <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Organization</h3>
                 <Link to={`/organizations/${userOrg.slug || userOrg.id}`} className="flex items-center gap-4 hover:bg-gray-50 p-3 -m-3 rounded-lg transition-colors">
-                  <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                  <div className="w-12 h-12 rounded-lg bg-white border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
                     {userOrg.logo_url ? (
-                      <img src={userOrg.logo_url} alt={userOrg.name} className="w-full h-full rounded-lg object-cover" />
+                      <img src={userOrg.logo_url} alt={userOrg.name} className="w-full h-full rounded-lg object-contain p-0.5" />
                     ) : (
                       <Building2 className="h-6 w-6 text-primary" />
                     )}

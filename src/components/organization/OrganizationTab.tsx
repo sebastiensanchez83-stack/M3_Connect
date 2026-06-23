@@ -31,6 +31,19 @@ import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { isSponsorTier } from '@/types/database';
 import { CapitalIntentSection } from '@/components/capital/CapitalIntentSection';
 import { InvestmentThesisSection } from '@/components/capital/InvestmentThesisSection';
+
+// "1200×400 px · 245 KB" for upload feedback; just the weight for non-images.
+async function fileMeta(file: File): Promise<string> {
+  const weight = file.size < 1024 * 1024 ? `${Math.round(file.size / 1024)} KB` : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+  if (!file.type.startsWith('image/')) return weight;
+  return await new Promise<string>((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { resolve(`${img.naturalWidth}×${img.naturalHeight} px · ${weight}`); URL.revokeObjectURL(url); };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(weight); };
+    img.src = url;
+  });
+}
 // PaymentForm removed — member tier is free, payment integration deferred
 
 interface OrgDocument {
@@ -127,6 +140,8 @@ export function OrganizationTab() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [logoMeta, setLogoMeta] = useState('');
+  const [bannerMeta, setBannerMeta] = useState('');
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
   // Organization documents
@@ -199,7 +214,9 @@ export function OrganizationTab() {
       const { error: dbErr } = await supabase.from('organizations').update({ logo_url: logoUrl }).eq('id', org.id);
       if (dbErr) throw dbErr;
       setOrg({ ...org, logo_url: logoUrl });
-      toast({ title: 'Logo updated' });
+      const meta = await fileMeta(file);
+      setLogoMeta(meta);
+      toast({ title: 'Logo updated', description: meta });
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -240,7 +257,9 @@ export function OrganizationTab() {
       const { error: dbErr } = await supabase.from('organizations').update({ banner_url: bannerUrl }).eq('id', org.id);
       if (dbErr) throw dbErr;
       setOrg({ ...org, banner_url: bannerUrl });
-      toast({ title: 'Cover photo updated' });
+      const meta = await fileMeta(file);
+      setBannerMeta(meta);
+      toast({ title: 'Cover photo updated', description: meta });
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -1067,7 +1086,12 @@ export function OrganizationTab() {
         {/* Cover banner (3:1, with upload overlay for owners) */}
         <div className="relative aspect-[3/1] min-h-[10rem] bg-gradient-to-br from-slate-100 to-slate-200 group">
           {org.banner_url ? (
-            <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
+            <>
+              {/* blurred copy fills the frame so the full cover shows uncropped on top */}
+              <img src={org.banner_url} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-70" />
+              <img src={org.banner_url} alt={`${org.name} cover`} className="relative w-full h-full object-contain object-center" />
+              {bannerMeta && <span className="absolute bottom-2 left-2 text-[10px] font-medium text-white bg-black/50 rounded px-1.5 py-0.5">{bannerMeta}</span>}
+            </>
           ) : (
             <div className="w-full h-full flex items-center justify-center text-slate-400">
               <Camera className="h-10 w-10 opacity-40" />
@@ -1115,7 +1139,7 @@ export function OrganizationTab() {
             {/* Logo with upload overlay for owners */}
             <div className="relative group">
               {org.logo_url ? (
-                <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-lg object-cover border" />
+                <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-lg object-contain border bg-white p-1" />
               ) : (
                 <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
                   <Building2 className="h-7 w-7 text-primary" />

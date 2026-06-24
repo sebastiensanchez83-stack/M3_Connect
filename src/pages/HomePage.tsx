@@ -186,12 +186,13 @@ export function HomePage() {
           .gte('date_time', new Date().toISOString())
           .order('date_time', { ascending: true })
           .limit(3),
-        // Partner previews (verified orgs, up to 6)
+        // Partner previews — only orgs an admin has explicitly featured on the
+        // home page (not every free member). Curated via the org admin page.
         supabase
           .from('organizations')
           .select('id, slug, name, logo_url')
           .eq('access_status', 'verified')
-          .eq('organization_type', 'partner')
+          .eq('featured_partner', true)
           .limit(6),
       ]);
 

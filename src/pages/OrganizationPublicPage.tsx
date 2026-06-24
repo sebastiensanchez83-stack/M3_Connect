@@ -272,9 +272,7 @@ export function OrganizationPublicPage() {
       {/* Cover banner (if uploaded) — header strip, not a hero */}
       {org.banner_url && (
         <div className="relative h-32 sm:h-40 md:h-48 lg:h-56 w-full overflow-hidden bg-slate-200">
-          {/* blurred copy fills the frame so the full cover can sit on top, uncropped */}
-          <img src={org.banner_url} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover blur-xl scale-110 opacity-70" />
-          <img src={org.banner_url} alt={`${org.name} cover`} className="relative w-full h-full object-contain object-center" />
+          <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/60 to-transparent" />
         </div>
       )}

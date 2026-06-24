@@ -24,6 +24,7 @@ export interface ReqItem {
 
 interface Props {
   roleAssignmentId: string;
+  registrationId: string;
   roleLabel: string;
   items: ReqItem[];
   moduleData: Record<string, unknown> | null;
@@ -34,7 +35,7 @@ interface Props {
   onSent: () => void;
 }
 
-export function SM26RequestInfo({ roleAssignmentId, roleLabel, items, moduleData, satisfiedData, userId, onSent }: Props) {
+export function SM26RequestInfo({ roleAssignmentId, registrationId, roleLabel, items, moduleData, satisfiedData, userId, onSent }: Props) {
   const md = moduleData || {};
   const sd = (satisfiedData || moduleData || {}) as Record<string, unknown>;
   const has = (v: unknown) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
@@ -83,6 +84,8 @@ export function SM26RequestInfo({ roleAssignmentId, roleLabel, items, moduleData
         body: `Please complete your ${roleLabel} details for the Smart & Sustainable Marina Rendezvous 2026.${list}${note.trim() ? `\n\nNote from M3: ${note.trim()}` : ''}`,
         link: '/sm26/me',
       });
+      // Email the participant in addition to the in-app notification.
+      void supabase.functions.invoke('sm26-email', { body: { registration_id: registrationId, kind: 'info_requested' } }).catch(() => {});
     }
     setSending(false);
     if (error) { toast({ title: 'Could not send request', description: error.message, variant: 'destructive' }); return; }

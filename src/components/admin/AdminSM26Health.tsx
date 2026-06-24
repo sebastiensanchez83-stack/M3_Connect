@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  RefreshCw, ArrowLeft, Activity, Users, CreditCard, QrCode, BookOpen, Scale, Trophy, MessageSquare,
+  RefreshCw, ArrowLeft, Activity, Users, CreditCard, QrCode, BookOpen, Scale, Trophy, MessageSquare, Mail, Send, Loader2,
 } from 'lucide-react';
+import { toast } from '@/hooks/use-toast';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
@@ -48,6 +49,8 @@ export function AdminSM26Health() {
   const [h, setH] = useState<Health | null>(null);
   const [eventId, setEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [remindBusy, setRemindBusy] = useState<string | null>(null);
+  const [remindMsg, setRemindMsg] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -59,6 +62,31 @@ export function AdminSM26Health() {
     const { data } = await supabase.rpc('sm_event_health', { p_event_id: eid });
     setH((data || null) as Health | null);
     setLoading(false);
+  };
+
+  // Pre-event reminder: a test to myself, or a one-off send to all confirmed
+  // (the cron handles the scheduled 7-day / 1-day sends automatically).
+  const sendTestReminder = async () => {
+    setRemindBusy('test'); setRemindMsg(null);
+    const { data: u } = await supabase.auth.getUser();
+    const email = u?.user?.email;
+    if (!email) { setRemindBusy(null); setRemindMsg('Could not determine your email.'); return; }
+    const { error } = await supabase.functions.invoke('sm26-reminders', { body: { test_email: email, kind: 'manual' } });
+    setRemindBusy(null);
+    if (error) { setRemindMsg(`Test failed: ${error.message}`); return; }
+    setRemindMsg(`Test reminder sent to ${email}.`);
+    toast({ title: 'Test reminder sent', description: email });
+  };
+
+  const sendAllReminders = async () => {
+    if (!window.confirm('Send the pre-event reminder now to ALL confirmed participants? Each is emailed once — anyone already reminded is skipped.')) return;
+    setRemindBusy('all'); setRemindMsg(null);
+    const { data, error } = await supabase.functions.invoke('sm26-reminders', { body: { kind: 'manual_all' } });
+    setRemindBusy(null);
+    if (error) { setRemindMsg(`Send failed: ${error.message}`); return; }
+    const n = (data as { sent?: number } | null)?.sent ?? 0;
+    setRemindMsg(`Reminder sent to ${n} participant(s).`);
+    toast({ title: `Reminder sent to ${n} participant(s)` });
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -116,6 +144,22 @@ export function AdminSM26Health() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Mail className="h-4 w-4 text-gray-400" /> Pre-event reminder</div>
+          <p className="text-xs text-gray-500">An automated reminder emails <strong>confirmed</strong> participants 7 days and 1 day before the event. Preview it or send it now — each person is emailed only once per reminder.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={sendTestReminder} disabled={!!remindBusy}>
+              {remindBusy === 'test' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send test to me
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={sendAllReminders} disabled={!!remindBusy}>
+              {remindBusy === 'all' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to all confirmed now
+            </Button>
+          </div>
+          {remindMsg && <p className="text-xs text-gray-500">{remindMsg}</p>}
+        </CardContent>
+      </Card>
 
       {eventId && (
         <div className="grid md:grid-cols-2 gap-4">

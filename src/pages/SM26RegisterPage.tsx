@@ -385,6 +385,9 @@ export function SM26RegisterPage() {
         }
       }
 
+      // Acknowledge the registrant + alert M3 (fire-and-forget).
+      void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'registration_received' } }).catch(() => {});
+      void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'admin_new_registration' } }).catch(() => {});
       try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       setDone(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });

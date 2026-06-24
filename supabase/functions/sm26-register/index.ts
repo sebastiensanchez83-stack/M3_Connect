@@ -16,6 +16,8 @@ const ALLOWED_ORIGINS = [
   "http://localhost:5173",
   "http://localhost:3000",
 ];
+const ADMIN_EMAIL = Deno.env.get("SM26_ADMIN_EMAIL") || "events@m3monaco.com";
+const SITE_URL = Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com";
 
 function corsOrigin(req: Request): string {
   const o = req.headers.get("origin") || "";
@@ -135,6 +137,33 @@ async function sendAccessEmail(email: string, firstName: string, link: string) {
     }),
   });
   if (!res.ok) console.error("Resend error", res.status, await res.text());
+}
+
+// Notify M3 that a new registration came in (guest path).
+async function sendAdminAlert(d: { first: string; last: string; email: string; company: string | null; role: string }) {
+  const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+  const SENDER_EMAIL =
+    Deno.env.get("SENDER_EMAIL") || "Smart Marina Connect <noreply@smartmarinaconnect.com>";
+  if (!RESEND_API_KEY) return;
+  const name = `${d.first} ${d.last}`.trim();
+  const html =
+    `<p>A new registration came in for the <strong>Smart &amp; Sustainable Marina Rendezvous 2026</strong>:</p>` +
+    `<p><strong>${name}</strong>${d.company ? ` — ${d.company}` : ""}<br>Role: ${d.role}<br>${d.email}</p>` +
+    `<p><a href="${SITE_URL}/admin/sm26" style="background:#0b2653;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Open the registrations console</a></p>`;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: SENDER_EMAIL,
+        to: [ADMIN_EMAIL],
+        subject: `New registration — ${name}${d.company ? ` (${d.company})` : ""}`,
+        html,
+      }),
+    });
+  } catch (e) {
+    console.error("admin alert failed", e);
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -280,6 +309,9 @@ Deno.serve(async (req: Request) => {
       .insert({ role_assignment_id: raId, event_id: eventId, organization_id: null, ...mapMarina(payload.marina as Record<string, unknown>) });
     if (error) console.error("marina insert failed", error);
   }
+
+  // Alert M3 of the new registration (the participant gets their own email below).
+  await sendAdminAlert({ first: first || "", last: last || "", email, company: s(r.company_name), role: role || "" });
 
   // Email the guest a magic-link to access their new workspace.
   try {

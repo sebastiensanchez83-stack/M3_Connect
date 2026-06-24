@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, CreditCard, Save } from 'lucide-react';
+import { Loader2, CreditCard, Save, Mail } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +29,7 @@ export function SM26PaymentPanel({ registrationId, eventId, onSaved }: { registr
   const [note, setNote] = useState('');
   const [invoicedAt, setInvoicedAt] = useState<string | null>(null);
   const [paidAt, setPaidAt] = useState<string | null>(null);
+  const [emailing, setEmailing] = useState(false);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [registrationId]);
 
@@ -51,7 +52,7 @@ export function SM26PaymentPanel({ registrationId, eventId, onSaved }: { registr
     setLoading(false);
   };
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     setSaving(true);
     const now = new Date().toISOString();
     const settled = status === 'paid' || status === 'waived';
@@ -71,11 +72,25 @@ export function SM26PaymentPanel({ registrationId, eventId, onSaved }: { registr
       updated_at: now,
     }, { onConflict: 'registration_id' });
     setSaving(false);
-    if (error) { toast({ title: 'Could not save payment', description: error.message, variant: 'destructive' }); return; }
+    if (error) { toast({ title: 'Could not save payment', description: error.message, variant: 'destructive' }); return false; }
     setInvoicedAt(nextInvoicedAt);
     setPaidAt(nextPaidAt);
     toast({ title: 'Payment saved' });
     onSaved?.(status);
+    return true;
+  };
+
+  // Save first (so the email reads the latest figures), then notify the
+  // participant. The email function re-reads sm_payment server-side.
+  const saveAndEmailInvoice = async () => {
+    setEmailing(true);
+    const ok = await save();
+    if (ok) {
+      const { error } = await supabase.functions.invoke('sm26-email', { body: { registration_id: registrationId, kind: 'invoice_request' } });
+      if (error) toast({ title: 'Saved — but the invoice email failed', description: error.message, variant: 'destructive' });
+      else toast({ title: 'Invoice emailed to the participant' });
+    }
+    setEmailing(false);
   };
 
   return (
@@ -117,9 +132,16 @@ export function SM26PaymentPanel({ registrationId, eventId, onSaved }: { registr
                 {invoicedAt && <span>Invoiced {new Date(invoicedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
                 {paidAt && <span className="text-green-600">Paid {new Date(paidAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>}
               </div>
-              <Button size="sm" className="gap-1.5" onClick={save} disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save payment
-              </Button>
+              <div className="flex items-center gap-2">
+                {status === 'invoiced' && (
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={saveAndEmailInvoice} disabled={saving || emailing} title="Save, then email the invoice notification to the participant">
+                    {emailing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Save &amp; email invoice
+                  </Button>
+                )}
+                <Button size="sm" className="gap-1.5" onClick={save} disabled={saving || emailing}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save payment
+                </Button>
+              </div>
             </div>
           </div>
         )}

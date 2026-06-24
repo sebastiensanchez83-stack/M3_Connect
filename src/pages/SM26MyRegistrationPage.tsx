@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Upload, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
-  BookOpen, CreditCard, MessageSquare,
+  BookOpen, CreditCard, MessageSquare, Calendar,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,7 @@ import { SM26Notifications } from '@/components/sm26/SM26Notifications';
 import { SM26EditDetails } from '@/components/sm26/SM26EditDetails';
 import { SM26EditModule } from '@/components/sm26/SM26EditModule';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
+import { SM26Agenda } from '@/components/sm26/SM26Agenda';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
 // SM26 roles. Linked from the "information needed" notification (/sm26/me).
@@ -269,6 +270,14 @@ export function SM26MyRegistrationPage() {
         <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
 
         {visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> My programme</div>
+            <p className="text-xs text-gray-500 mb-3">The workshops you've booked. <Link to="/sm26/agenda" className="text-primary hover:underline">View the full programme</Link> to add or change.</p>
+            <SM26Agenda mineOnly />
+          </CardContent>
+        </Card>
 
         {ecat.length > 0 && (
           <Card>

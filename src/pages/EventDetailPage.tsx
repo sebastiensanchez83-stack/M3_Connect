@@ -24,6 +24,7 @@ import { SM26_ENABLED } from '@/lib/featureFlags';
 import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow';
 import { LightweightWebinarSignup } from '@/components/events/LightweightWebinarSignup';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
+import { SM26Agenda } from '@/components/sm26/SM26Agenda';
 
 type EventType = 'webinar' | 'on_site';
 
@@ -99,14 +100,18 @@ export function EventDetailPage() {
   const [isUserRegistered, setIsUserRegistered] = useState(false);
   const [unregistering, setUnregistering] = useState(false);
   const [smRegisterPath, setSmRegisterPath] = useState<string | null>(null);
+  const [smEventId, setSmEventId] = useState<string | null>(null);
 
   const profileComplete = profile?.access_status === 'verified' && profile?.onboarding_status === 'completed';
 
   // If this event is managed by an SM module edition, route registration there.
   useEffect(() => {
-    if (!id || !SM26_ENABLED) { setSmRegisterPath(null); return; }
-    supabase.from('sm_event').select('slug').eq('legacy_event_id', id).maybeSingle()
-      .then(({ data }) => setSmRegisterPath(data ? `/${data.slug}/register` : null));
+    if (!id || !SM26_ENABLED) { setSmRegisterPath(null); setSmEventId(null); return; }
+    supabase.from('sm_event').select('id, slug').eq('legacy_event_id', id).maybeSingle()
+      .then(({ data }) => {
+        setSmRegisterPath(data ? `/${(data as { slug: string }).slug}/register` : null);
+        setSmEventId((data as { id: string } | null)?.id ?? null);
+      });
   }, [id]);
 
   // Check if the logged-in user already has a registration for this event
@@ -435,6 +440,14 @@ export function EventDetailPage() {
                 <div className="prose prose-gray max-w-none text-gray-600 leading-relaxed whitespace-pre-wrap">
                   {event.description}
                 </div>
+              </div>
+            )}
+
+            {/* SM26 programme — shown for the Smart Marina event */}
+            {smEventId && (
+              <div className="bg-white rounded-xl shadow-sm border p-6 lg:p-8">
+                <h2 className="text-xl font-semibold text-gray-900 mb-4 flex items-center gap-2"><Calendar className="h-5 w-5 text-primary" /> Programme</h2>
+                <SM26Agenda eventId={smEventId} />
               </div>
             )}
 

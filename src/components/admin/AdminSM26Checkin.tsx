@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import jsQR from 'jsqr';
 import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,12 +32,10 @@ const tokenOf = (a: Attendee) => (Array.isArray(a.badge) ? a.badge[0]?.checkin_t
 const parseToken = (raw: string) => { try { return new URL(raw).searchParams.get('token') || raw; } catch { return raw.trim(); } };
 
 // Live camera QR scanner that works on ANY browser. Uses the native
-// BarcodeDetector when present (Chrome/Edge — fast, no network); otherwise
-// loads the tiny jsQR decoder on demand (iOS Safari / Firefox) and decodes
-// camera frames off a canvas. Same camera + debounce for both paths, so the
-// scanner stays open and the operator checks people in one after another.
-const JSQR_ESM = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/+esm';
-
+// BarcodeDetector when present (Chrome/Edge — fast), otherwise the bundled jsQR
+// decoder (iOS Safari / Firefox) on canvas frames. The camera is opened FIRST,
+// before any await, because iOS Safari only grants getUserMedia within the
+// user-gesture window. Debounce keeps the scanner open for back-to-back scans.
 function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -51,63 +50,49 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-    // Build a frame decoder → returns the raw QR string, or '' if none.
-    const buildDetector = async (): Promise<((v: HTMLVideoElement) => Promise<string>) | null> => {
-      if ('BarcodeDetector' in window) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const det = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
-        return async (v) => { const c = await det.detect(v); return c && c.length ? c[0].rawValue : ''; };
-      }
-      // No native support → pull jsQR from the CDN (cached after first load).
-      try {
-        // Non-literal specifier so TS/Vite leave it as a runtime import.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const mod: any = await import(/* @vite-ignore */ JSQR_ESM);
-        const jsQR = mod.default || mod;
-        return async (v) => {
-          const w = v.videoWidth, h = v.videoHeight;
-          if (!w || !h || !ctx) return '';
-          canvas.width = w; canvas.height = h;
-          ctx.drawImage(v, 0, 0, w, h);
-          const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
-          return code ? code.data : '';
-        };
-      } catch {
-        setErr('Could not load the QR scanner (no connection?). Use Chrome/Edge, or check people in by name below.');
-        return null;
-      }
+    // Native detector if present (fast); else the bundled jsQR. Built synchronously
+    // so there's no async work before getUserMedia (which iOS ties to the tap).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const native = 'BarcodeDetector' in window ? new (window as any).BarcodeDetector({ formats: ['qr_code'] }) : null;
+    const detect = async (v: HTMLVideoElement): Promise<string> => {
+      if (native) { const c = await native.detect(v); return c && c.length ? c[0].rawValue : ''; }
+      const w = v.videoWidth, h = v.videoHeight;
+      if (!w || !h || !ctx) return '';
+      canvas.width = w; canvas.height = h;
+      ctx.drawImage(v, 0, 0, w, h);
+      const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
+      return code ? code.data : '';
     };
 
     (async () => {
-      const detect = await buildDetector();
-      if (!detect || stopped) return;
+      // Open the camera first, while still inside the user-gesture window.
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        if (stopped) return;
-        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
-        setStarting(false);
-        // Debounce so the same badge isn't re-read while it sits in frame;
-        // throttle decoding to spare the phone CPU.
-        let lastVal = ''; let lastTime = 0; let lastScan = 0;
-        const tick = async () => {
-          if (stopped) return;
-          const now = performance.now();
-          if (now - lastScan > 160) {
-            lastScan = now;
-            try {
-              const raw = videoRef.current ? await detect(videoRef.current) : '';
-              if (raw && (raw !== lastVal || now - lastTime > 3000)) {
-                lastVal = raw; lastTime = now;
-                onTokenRef.current(parseToken(raw));
-              }
-            } catch { /* keep scanning */ }
-          }
-          raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
       } catch {
-        setErr('Camera access was blocked. Allow camera permission in your browser settings, or check people in by name below.');
+        setErr('Camera access was blocked. Allow camera permission in your browser settings (or use the name search below).');
+        return;
       }
+      if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
+      if (videoRef.current) { videoRef.current.srcObject = stream; try { await videoRef.current.play(); } catch { /* ignore */ } }
+      setStarting(false);
+      // Debounce so a badge sitting in frame isn't re-read; throttle to spare CPU.
+      let lastVal = ''; let lastTime = 0; let lastScan = 0;
+      const tick = async () => {
+        if (stopped) return;
+        const now = performance.now();
+        if (now - lastScan > 160) {
+          lastScan = now;
+          try {
+            const raw = videoRef.current ? await detect(videoRef.current) : '';
+            if (raw && (raw !== lastVal || now - lastTime > 3000)) {
+              lastVal = raw; lastTime = now;
+              onTokenRef.current(parseToken(raw));
+            }
+          } catch { /* keep scanning */ }
+        }
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
     })();
     return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); };
     // eslint-disable-next-line react-hooks/exhaustive-deps

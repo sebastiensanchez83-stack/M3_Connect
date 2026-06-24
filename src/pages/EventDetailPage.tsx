@@ -20,6 +20,7 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
+import { SM26_ENABLED } from '@/lib/featureFlags';
 import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow';
 import { LightweightWebinarSignup } from '@/components/events/LightweightWebinarSignup';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
@@ -103,7 +104,7 @@ export function EventDetailPage() {
 
   // If this event is managed by an SM module edition, route registration there.
   useEffect(() => {
-    if (!id) { setSmRegisterPath(null); return; }
+    if (!id || !SM26_ENABLED) { setSmRegisterPath(null); return; }
     supabase.from('sm_event').select('slug').eq('legacy_event_id', id).maybeSingle()
       .then(({ data }) => setSmRegisterPath(data ? `/${data.slug}/register` : null));
   }, [id]);

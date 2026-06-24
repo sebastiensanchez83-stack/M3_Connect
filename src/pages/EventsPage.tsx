@@ -12,6 +12,7 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
+import { SM26_ENABLED } from '@/lib/featureFlags';
 
 interface Event {
   id: string;
@@ -54,6 +55,7 @@ export function EventsPage() {
 
   // SM-managed events (e.g. SM26) route registration to their own intake page.
   useEffect(() => {
+    if (!SM26_ENABLED) return;
     supabase.from('sm_event').select('legacy_event_id, slug').not('legacy_event_id', 'is', null)
       .then(({ data }) => {
         if (!data) return;

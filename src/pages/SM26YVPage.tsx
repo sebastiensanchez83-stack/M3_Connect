@@ -3,6 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
 import { RefreshCw, Lightbulb, Scale, Lock, Video, Plus, X, Calendar } from 'lucide-react';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
@@ -41,6 +42,7 @@ const Pill = ({ s, cls }: { s: string; cls: string }) => (
 );
 
 export function SM26YVPage() {
+  const { user } = useAuth();
   const [innovations, setInnovations] = useState<Innovation[]>([]);
   const [jurors, setJurors] = useState<Juror[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,6 +53,7 @@ export function SM26YVPage() {
   const [sEntry, setSEntry] = useState('');
   const [sWhen, setSWhen] = useState('');
   const [sDur, setSDur] = useState('30');
+  const [sTest, setSTest] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -73,19 +76,27 @@ export function SM26YVPage() {
 
   const createSession = async () => {
     if (!sWhen) { toast({ title: 'Pick a date & time', variant: 'destructive' }); return; }
+    if (sTest && !user?.email) { toast({ title: 'No email on your account for the test run', variant: 'destructive' }); return; }
     setBusy(true);
     const { data, error } = await supabase.functions.invoke('sm26-jury-session', {
       body: {
         action: 'create', title: sTitle.trim() || undefined,
         entry_role_assignment_id: sEntry || undefined,
         scheduled_at: new Date(sWhen).toISOString(), duration_minutes: Number(sDur) || 30,
+        test_email: sTest ? user?.email : undefined,
       },
     });
     setBusy(false);
     const err = error || (data as { error?: string })?.error;
     if (err) { toast({ title: 'Could not schedule', description: typeof err === 'string' ? err : 'Please try again.', variant: 'destructive' }); return; }
-    toast({ title: 'Session scheduled', description: `Zoom created · invitations sent to ${(data as { invited?: number })?.invited ?? 0} people.` });
-    setShowCreate(false); setSTitle(''); setSEntry(''); setSWhen(''); setSDur('30');
+    const r = data as { invited?: number; test?: boolean };
+    toast({
+      title: r?.test ? 'Test session created' : 'Session scheduled',
+      description: r?.test
+        ? `Real Zoom created · invite sent only to you (${user?.email}). No emails to jurors or startups.`
+        : `Zoom created · invitations sent to ${r?.invited ?? 0} people.`,
+    });
+    setShowCreate(false); setSTitle(''); setSEntry(''); setSWhen(''); setSDur('30'); setSTest(false);
     load();
   };
   const cancelSession = async (s: JurySession) => {
@@ -162,11 +173,17 @@ export function SM26YVPage() {
                     <Input type="number" min={10} max={240} value={sDur} onChange={e => setSDur(e.target.value)} className="h-9 w-20 bg-white" title="Minutes" />
                   </div>
                 </div>
+                <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                  <input type="checkbox" checked={sTest} onChange={e => setSTest(e.target.checked)} className="rounded border-gray-300" />
+                  <span>Test run — send only to me{user?.email ? ` (${user.email})` : ''}, no emails to jurors or startups</span>
+                </label>
                 <div className="flex justify-end gap-2">
                   <Button size="sm" variant="ghost" onClick={() => setShowCreate(false)}>Cancel</Button>
-                  <Button size="sm" onClick={createSession} disabled={busy || !sWhen}>{busy ? 'Scheduling…' : 'Create Zoom + send invites'}</Button>
+                  <Button size="sm" onClick={createSession} disabled={busy || !sWhen}>{busy ? 'Scheduling…' : sTest ? 'Create test (only me)' : 'Create Zoom + send invites'}</Button>
                 </div>
-                <p className="text-[11px] text-gray-400">Creates a Zoom meeting and emails an .ics calendar invite to the entry, its jurors, Yachting Ventures and Victor.</p>
+                <p className="text-[11px] text-gray-400">{sTest
+                  ? 'Creates a real Zoom meeting and sends the calendar invite only to you — nothing to jurors or startups. Cancel it afterwards to delete the test meeting.'
+                  : 'Creates a Zoom meeting and emails an .ics calendar invite to the entry, its jurors, Yachting Ventures and Victor.'}</p>
               </div>
             )}
             {sessions.length === 0 && !showCreate && <p className="text-sm text-gray-400">No sessions scheduled yet.</p>}

@@ -150,7 +150,11 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "create") {
-      const title = (typeof body.title === "string" && body.title.trim()) || "Innovation jury session";
+      const rawTitle = (typeof body.title === "string" && body.title.trim()) || "Innovation jury session";
+      // Dry-run: when test_email is given, invite ONLY that address — never the real
+      // startup / jurors / Yachting Ventures / Victor. A real Zoom is still created.
+      const testEmail = typeof body.test_email === "string" && body.test_email.includes("@") ? body.test_email.trim().toLowerCase() : null;
+      const title = testEmail ? `[TEST] ${rawTitle}` : rawTitle;
       const entryRaId = typeof body.entry_role_assignment_id === "string" ? body.entry_role_assignment_id : null;
       const startISO = typeof body.scheduled_at === "string" ? body.scheduled_at : "";
       const duration = Math.max(10, Math.min(240, Number(body.duration_minutes) || 30));
@@ -166,18 +170,18 @@ Deno.serve(async (req: Request) => {
         event_id: eventId, competition: "innovation", entry_role_assignment_id: entryRaId,
         title, scheduled_at: start.toISOString(), duration_minutes: duration,
         zoom_meeting_id: meeting.id, zoom_join_url: meeting.join_url, zoom_start_url: meeting.start_url,
-        created_by: uid,
+        created_by: uid, is_test: !!testEmail,
       }).select("id, ics_uid, ics_sequence").single();
       if (insErr || !ins) { console.error("session insert failed", insErr); return json(req, { error: "Could not save session" }, 500); }
       const s = ins as { id: string; ics_uid: string; ics_sequence: number };
 
-      const attendees = await attendeesFor(entryRaId);
+      const attendees = testEmail ? [{ email: testEmail }] : await attendeesFor(entryRaId);
       const ics = buildIcs({ uid: s.ics_uid, seq: s.ics_sequence, method: "REQUEST", start, duration, title, joinUrl: meeting.join_url, attendees });
       const when = start.toUTCString();
       const html = `<p>You're invited to an innovation jury session for the <strong>Smart &amp; Sustainable Marina Rendezvous 2026</strong>.</p><p><strong>${title}</strong><br>${when} (UTC) · ${duration} min</p><p><a href="${meeting.join_url}">Join the Zoom meeting</a></p><p>Accept the attached calendar invitation to add it to your calendar.</p>`;
       for (const a of attendees) { try { await sendInvite(a.email, `Invitation: ${title}`, html, ics); } catch (e) { console.error("invite send failed", a.email, e); } }
 
-      return json(req, { ok: true, id: s.id, join_url: meeting.join_url, invited: attendees.length });
+      return json(req, { ok: true, id: s.id, join_url: meeting.join_url, invited: attendees.length, test: !!testEmail });
     }
 
     if (action === "cancel") {
@@ -189,6 +193,8 @@ Deno.serve(async (req: Request) => {
       if (s.zoom_meeting_id) { try { const t = await zoomToken(); await zoomDelete(t, String(s.zoom_meeting_id)); } catch (e) { console.error("zoom delete", e); } }
       const newSeq = (Number(s.ics_sequence) || 0) + 1;
       await admin.from("sm_jury_session").update({ status: "cancelled", ics_sequence: newSeq, updated_at: new Date().toISOString() }).eq("id", sessionId);
+      // Test sessions only ever emailed the tester (address not stored) -> no cancel mail.
+      if (s.is_test) return json(req, { ok: true });
       const attendees = await attendeesFor((s.entry_role_assignment_id as string) || null);
       const ics = buildIcs({ uid: String(s.ics_uid), seq: newSeq, method: "CANCEL", start: new Date(String(s.scheduled_at)), duration: Number(s.duration_minutes) || 30, title: String(s.title), joinUrl: String(s.zoom_join_url || ""), attendees });
       const html = `<p>The innovation jury session <strong>${String(s.title)}</strong> has been <strong>cancelled</strong>. The calendar entry will be removed.</p>`;

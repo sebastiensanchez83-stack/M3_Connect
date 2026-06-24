@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, BookOpen, Upload, FileText, ExternalLink, CheckCircle, Loader2, Send,
-  CreditCard, MessageSquare, Eye, EyeOff, LayoutGrid, ListChecks, Palette,
+  CreditCard, MessageSquare, Eye, EyeOff, LayoutGrid, ListChecks, Palette, Plus, Trash2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,7 @@ interface Page {
   registration: Reg;
 }
 interface Comment { id: string; ecat_page_id: string; author_role: string | null; body: string; created_at: string; }
+interface Addable { role_assignment_id: string; role: string; name: string; }
 
 const firstOf = <T,>(x: T | T[] | undefined): T | undefined => Array.isArray(x) ? x[0] : x;
 
@@ -97,6 +98,8 @@ export function AdminSM26Ecat() {
   const [view, setView] = useState<'board' | 'browse'>('board');
   const [preview, setPreview] = useState<{ id: string; url: string } | null>(null);
   const [browseUrls, setBrowseUrls] = useState<Record<string, string>>({});
+  const [addable, setAddable] = useState<Addable[]>([]);
+  const [addSel, setAddSel] = useState('');
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => { load(); }, []);
@@ -122,6 +125,8 @@ export function AdminSM26Ecat() {
       for (const c of (cms || []) as Comment[]) (byPage[c.ecat_page_id] ||= []).push(c);
       setComments(byPage);
     }
+    const { data: add } = await supabase.rpc('sm_ecat_addable', { p_event_id: eid });
+    setAddable((add || []) as Addable[]);
     setLoading(false);
   };
 
@@ -171,6 +176,27 @@ export function AdminSM26Ecat() {
     setBusy(null);
     if (error) { toast({ title: 'Could not update payment', description: error.message, variant: 'destructive' }); return; }
     setPages(prev => prev.map(x => x.id === p.id ? { ...x, registration: { ...x.registration, payment: { status, amount_cents: null, paid_at: null, invoice_ref: null } } } : x));
+  };
+
+  const addPage = async () => {
+    if (!addSel) return;
+    setBusy('add');
+    const { error } = await supabase.rpc('sm_ecat_add_page', { p_role_assignment_id: addSel });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not add', description: error.message, variant: 'destructive' }); return; }
+    setAddSel('');
+    toast({ title: 'Added to the e-catalogue' });
+    load();
+  };
+
+  const removePage = async (p: Page) => {
+    if (!confirm(`Remove ${title(p)} from the e-catalogue?`)) return;
+    setBusy(p.id);
+    const { error } = await supabase.rpc('sm_ecat_remove_page', { p_page_id: p.id });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not remove', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Removed from the e-catalogue' });
+    load();
   };
 
   const signedUrl = async (path: string) => {
@@ -224,6 +250,19 @@ export function AdminSM26Ecat() {
           </div>
         </div>
       </div>
+
+      {addable.length > 0 && (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-3 flex items-center gap-2 flex-wrap">
+            <span className="text-sm text-gray-600 inline-flex items-center gap-1.5"><Plus className="h-4 w-4 text-primary" /> Add a sponsor or speaker to the e-catalogue</span>
+            <Select value={addSel} onValueChange={setAddSel}>
+              <SelectTrigger className="w-64 h-8 text-xs"><SelectValue placeholder="Choose an entry…" /></SelectTrigger>
+              <SelectContent>{addable.map(a => <SelectItem key={a.role_assignment_id} value={a.role_assignment_id}>{a.name} · {a.role}</SelectItem>)}</SelectContent>
+            </Select>
+            <Button size="sm" disabled={!addSel || busy === 'add'} onClick={addPage}>{busy === 'add' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add page'}</Button>
+          </CardContent>
+        </Card>
+      )}
 
       {pages.length === 0 ? (
         <Card className="border-0 shadow-sm"><CardContent className="py-12 text-center text-gray-400">No marina or startup entries yet — e-catalogue pages are created automatically for them.</CardContent></Card>
@@ -349,6 +388,11 @@ export function AdminSM26Ecat() {
 
                       {/* utilities */}
                       <div className="flex items-center gap-1 ml-auto">
+                        {!['startup', 'marina'].includes(p.kind) && p.status !== 'published' && (
+                          <Button variant="ghost" size="sm" className="gap-1.5 text-gray-400 hover:text-red-600" onClick={() => removePage(p)} disabled={isBusy} title="Remove from the e-catalogue">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500" onClick={() => navigate(`/admin/sm26/ecat/${p.id}/dossier`)} title="The participant's profile data used to design the page">
                           <FileText className="h-3.5 w-3.5" /> Dossier
                         </Button>

@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
 import {
   RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
   Lightbulb, Scale, Image as ImageIcon, ChevronRight, Download, AlertTriangle, CheckCircle2,
+  Upload, Loader2, MessageSquare, Eye,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +24,7 @@ interface Entry {
   role_assignment_id: string; reg_id: string; role: string;
   name: string | null; company: string | null; job_title: string | null; country: string | null; thumb: string | null;
 }
-interface EcatRow { id: string; kind: string; status: string; title: string }
+interface EcatRow { id: string; kind: string; status: string; title: string; designed_file_path: string | null; changes_note: string | null }
 interface Session { id: string; title: string; type: string; starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null }
 interface Requirement { field_key: string; label: string; required: boolean; is_asset: boolean }
 interface DossierRow {
@@ -119,6 +120,7 @@ export function SM26PartnerPage() {
   const [ecat, setEcat] = useState<EcatRow[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // dossier modal
   const [openId, setOpenId] = useState<string | null>(null);
@@ -180,6 +182,25 @@ export function SM26PartnerPage() {
     if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
     setEcat(prev => prev.map(p => p.id === id ? { ...p, status } : p));
     toast({ title: 'E-catalogue status updated' });
+  };
+
+  const uploadDesigned = async (p: EcatRow, file: File) => {
+    if (!user) return;
+    setBusy(p.id);
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${user.id}/ecat/${p.id}/${safe}`;
+    const { error: upErr } = await supabase.storage.from('event-media').upload(path, file, { upsert: true });
+    if (upErr) { setBusy(null); toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' }); return; }
+    const { error } = await supabase.rpc('sm_partner_ecat_upload', { p_page_id: p.id, p_path: path });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
+    setEcat(prev => prev.map(x => x.id === p.id ? { ...x, designed_file_path: path, status: 'uploaded' } : x));
+    toast({ title: 'Designed page sent for review', description: 'The participant will be asked to approve it or request changes.' });
+  };
+
+  const previewEcat = async (path: string) => {
+    const { data } = await supabase.storage.from('event-media').createSignedUrl(path, 600);
+    if (data) window.open(data.signedUrl, '_blank'); else toast({ title: 'Could not open file', variant: 'destructive' });
   };
 
   if (authLoading || access === 'loading') return <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -286,26 +307,56 @@ export function SM26PartnerPage() {
           </CardContent>
         </Card>
 
-        {/* E-catalogue status (editable) */}
+        {/* E-catalogue — design + upload for participant review */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2"><BookOpen className="h-5 w-5 text-primary" /> E-catalogue status</CardTitle>
-            <CardDescription>You can update the status of each catalogue page.</CardDescription>
+            <CardTitle className="flex items-center gap-2"><BookOpen className="h-5 w-5 text-primary" /> E-catalogue pages ({ecat.length})</CardTitle>
+            <CardDescription>Set a page to “Designing”, then upload the designed PDF — the participant is asked to approve it or request changes.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            {ecat.length === 0 ? <p className="text-sm text-gray-400">No catalogue pages yet.</p> : ecat.map(p => (
-              <div key={p.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2 flex-wrap">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-sm font-medium text-gray-800 truncate">{p.title}</span>
-                  <Badge variant="outline" className="text-[10px] capitalize">{p.kind}</Badge>
-                  <Badge className={`text-[10px] ${ecatStatusClass(p.status)}`}>{ECAT_STATUS_LABEL[p.status] || p.status}</Badge>
+            {ecat.length === 0 ? <p className="text-sm text-gray-400">No catalogue pages yet.</p> : ecat.map(p => {
+              const busyRow = busy === p.id;
+              return (
+                <div key={p.id} className="rounded-lg border border-gray-100 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm font-medium text-gray-800 truncate">{p.title}</span>
+                      <Badge variant="outline" className="text-[10px] capitalize">{p.kind}</Badge>
+                      <Badge className={`text-[10px] ${ecatStatusClass(p.status)}`}>{ECAT_STATUS_LABEL[p.status] || p.status}</Badge>
+                    </div>
+                    <Select value={p.status} onValueChange={v => setEcatStatus(p.id, v)} disabled={busyRow}>
+                      <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{ECAT_STATUSES.map(s => <SelectItem key={s} value={s}>{ECAT_STATUS_LABEL[s] || s}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+
+                  {p.status === 'changes_requested' && p.changes_note && (
+                    <div className="rounded-md bg-red-50 border border-red-100 px-2.5 py-1.5 text-xs text-red-700 flex items-start gap-1.5">
+                      <MessageSquare className="h-3.5 w-3.5 mt-0.5 shrink-0" /> <span><span className="font-medium">Changes requested:</span> {p.changes_note}</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input ref={el => { fileRefs.current[p.id] = el; }} type="file" accept="application/pdf,image/*" className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) uploadDesigned(p, f); e.target.value = ''; }} />
+                    <button type="button" onClick={() => fileRefs.current[p.id]?.click()} disabled={busyRow}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium border border-gray-200 rounded-md px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-60">
+                      {busyRow ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                      {p.designed_file_path ? 'Replace designed page' : 'Upload designed page'}
+                    </button>
+                    {p.designed_file_path && (
+                      <button type="button" onClick={() => previewEcat(p.designed_file_path!)}
+                        className="inline-flex items-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-md px-2.5 py-1.5 hover:bg-gray-50">
+                        <Eye className="h-3.5 w-3.5" /> Preview
+                      </button>
+                    )}
+                    {p.status === 'uploaded' && <span className="text-xs text-blue-600 inline-flex items-center gap-1">Awaiting participant approval</span>}
+                    {p.status === 'approved' && <span className="text-xs text-emerald-600 inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Approved by participant</span>}
+                    {p.status === 'published' && <span className="text-xs text-green-600 inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Published</span>}
+                  </div>
                 </div>
-                <Select value={p.status} onValueChange={v => setEcatStatus(p.id, v)} disabled={busy === p.id}>
-                  <SelectTrigger className="w-44 h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>{ECAT_STATUSES.map(s => <SelectItem key={s} value={s}>{ECAT_STATUS_LABEL[s] || s}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            ))}
+              );
+            })}
           </CardContent>
         </Card>
 

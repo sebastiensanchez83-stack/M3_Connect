@@ -295,6 +295,9 @@ export function SM26RegisterPage() {
         setSubmitting(false); return;
       }
 
+      // If the member already has a logo on their SMC organisation, reuse it so
+      // they don't have to upload it again (it feeds the e-catalogue).
+      const orgLogo = organization?.logo_url || null;
       const def = ROLES.find(r => r.key === role)!;
       const { data: ra, error: raErr } = await supabase.from('sm_role_assignment').insert({
         registration_id: reg.id,
@@ -305,7 +308,7 @@ export function SM26RegisterPage() {
         depth: 'full',
         source: 'self',
         status: 'self_submitted',
-        module_data: light,
+        module_data: orgLogo ? { ...light, logo_url: orgLogo } : light,
       }).select('id').single();
       if (raErr || !ra) {
         toast({ title: 'Could not save your selected role', description: raErr?.message, variant: 'destructive' });
@@ -317,6 +320,7 @@ export function SM26RegisterPage() {
         const { error: spErr } = await supabase.from('sm_startup_profile').insert({
           role_assignment_id: ra.id,
           event_id: eventId,
+          logo_url: orgLogo,
           startup_or_scaleup: startup.startup_or_scaleup || null,
           stage: startup.stage || null,
           categories: startup.categories,
@@ -486,6 +490,13 @@ export function SM26RegisterPage() {
           )}
           {role === 'marina' && <MarinaFields value={marina} onChange={setMarina} />}
           <LightRoleFields role={role} value={light} onChange={setLight} />
+
+          {user && organization?.logo_url && role && (
+            <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+              <img src={organization.logo_url} alt="" className="w-9 h-9 rounded object-contain bg-white border border-gray-100 p-0.5 shrink-0" />
+              <p className="text-xs text-gray-600">We'll reuse your company logo from your Smart Marina Connect profile for the e-catalogue — no need to upload it again. You can change it later from your registration.</p>
+            </div>
+          )}
 
           {/* Honeypot — hidden from real users; bots that fill it are silently dropped */}
           <input

@@ -64,6 +64,7 @@ export function SM26MyRegistrationPage() {
   const [payStatus, setPayStatus] = useState<string>('unpaid');
   const [ecatBusy, setEcatBusy] = useState<string | null>(null);
   const [changeNote, setChangeNote] = useState<Record<string, string>>({});
+  const [statusBusy, setStatusBusy] = useState(false);
 
   useEffect(() => { if (user) load(); }, [user]);
 
@@ -175,6 +176,20 @@ export function SM26MyRegistrationPage() {
     window.open(data.signedUrl, '_blank');
   };
 
+  // Self-service unregister / re-register. The reg-status guard allows the owner
+  // to move their own registration to 'cancelled' or back to 'submitted'; M3 sees
+  // the "Cancelled" status in the admin registrations console.
+  const setRegStatus = async (status: 'cancelled' | 'submitted') => {
+    if (!reg) return;
+    if (status === 'cancelled' && !window.confirm('Unregister from the Smart & Sustainable Marina Rendezvous 2026? M3 will see that you have withdrawn. You can re-register later.')) return;
+    setStatusBusy(true);
+    const { error } = await supabase.from('sm_registration').update({ status }).eq('id', reg.id);
+    setStatusBusy(false);
+    if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
+    setReg(prev => prev ? { ...prev, status } : prev);
+    toast({ title: status === 'cancelled' ? 'You have unregistered' : "You're registered again" });
+  };
+
   if (authLoading || loading) return (
     <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>
   );
@@ -185,6 +200,30 @@ export function SM26MyRegistrationPage() {
       <h1 className="text-2xl font-bold mb-2">No SM26 registration yet</h1>
       <p className="text-gray-600 mb-6">You haven't registered for the Smart &amp; Sustainable Marina Rendezvous 2026.</p>
       <Button asChild><Link to="/sm26/register">Register now</Link></Button>
+    </div>
+  );
+
+  if (reg.status === 'cancelled') return (
+    <div className="min-h-screen bg-gray-50">
+      <Helmet><title>My SM26 participation — Smart Marina Connect</title></Helmet>
+      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
+        <div className="container mx-auto px-4 py-10">
+          <div className="mb-3"><SM26BackLink light /></div>
+          <h1 className="text-2xl lg:text-3xl font-bold">Your participation</h1>
+        </div>
+      </section>
+      <div className="container mx-auto px-4 py-8 max-w-xl">
+        <Card>
+          <CardContent className="py-10 text-center">
+            <Ship className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+            <h2 className="text-lg font-semibold text-gray-900">You've unregistered</h2>
+            <p className="text-gray-500 text-sm mt-1 mb-5">You've withdrawn from the Smart &amp; Sustainable Marina Rendezvous 2026. Changed your mind?</p>
+            <Button onClick={() => setRegStatus('submitted')} disabled={statusBusy} className="gap-1.5">
+              {statusBusy && <Loader2 className="h-4 w-4 animate-spin" />} Re-register
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 
@@ -394,6 +433,15 @@ export function SM26MyRegistrationPage() {
               </Card>
             );
           })
+        )}
+
+        {reg.status !== 'declined' && (
+          <div className="text-center pt-2">
+            <button type="button" onClick={() => setRegStatus('cancelled')} disabled={statusBusy}
+              className="text-xs text-gray-400 hover:text-red-600 underline underline-offset-2 disabled:opacity-50">
+              Unregister from the event
+            </button>
+          </div>
         )}
       </div>
     </div>

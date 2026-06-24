@@ -1,5 +1,5 @@
 // SM26 transactional emails. Each "kind" has its own access rule:
-//  - staff kinds (confirmed/paid/ecat_published/info_requested/declined/invoice_request): admin/moderator only
+//  - staff kinds (confirmed/paid/ecat_published/info_requested/declined/payment_reminder): admin/moderator only
 //  - owner kinds (registration_received/admin_new_registration/admin_info_completed): the registrant (or staff)
 //  - partner-or-staff (ecat_review): a yacht_club event partner or staff (the designer)
 // Fire-and-forget from the UI; failures never block the action.
@@ -33,7 +33,7 @@ const json = (req: Request, body: unknown, status = 200) =>
 const EVENT = "Smart & Sustainable Marina Rendezvous 2026";
 const WHEN = "20–21 September 2026, Yacht Club de Monaco";
 
-const STAFF_KINDS = new Set(["confirmed", "paid", "ecat_published", "info_requested", "declined", "invoice_request"]);
+const STAFF_KINDS = new Set(["confirmed", "paid", "ecat_published", "info_requested", "declined", "payment_reminder"]);
 const OWNER_KINDS = new Set(["registration_received", "admin_new_registration", "admin_info_completed"]);
 const PARTNER_KINDS = new Set(["ecat_review"]);
 
@@ -70,13 +70,15 @@ function content(kind: string, r: Reg, pay?: Pay | null): { subject: string; htm
     case "ecat_published":
       return { to, subject: `Your e-catalogue page is live — ${EVENT}`,
         html: `${hi}<p>Your catalogue page for the <strong>${EVENT}</strong> is now published.</p>${btn(me, "View your page")}${foot}` };
-    case "invoice_request": {
+    case "payment_reminder": {
       const cur = pay?.currency || "EUR";
-      const amount = pay?.amount_cents != null ? `${(pay.amount_cents / 100).toFixed(2)} ${cur}` : "to be confirmed";
-      const ref = pay?.invoice_ref ? `<br>Reference: <strong>${pay.invoice_ref}</strong>` : "";
+      const amount = pay?.amount_cents != null ? `${(pay.amount_cents / 100).toFixed(2)} ${cur}` : null;
+      const detail = amount
+        ? `<p>Amount outstanding: <strong>${amount}</strong> (VAT excl.)${pay?.invoice_ref ? `<br>Invoice reference: <strong>${pay.invoice_ref}</strong>` : ""}</p>`
+        : "";
       const note = pay?.note ? `<p>${pay.note}</p>` : "";
-      return { to, subject: `Invoice for your ${EVENT} participation`,
-        html: `${hi}<p>An invoice has been issued for your participation in the <strong>${EVENT}</strong> (${WHEN}).</p><p>Amount: <strong>${amount}</strong> (VAT excl.)${ref}</p>${note}<p>Please proceed with payment as set out in the invoice. For any question, contact <a href="mailto:${ADMIN_EMAIL}">${ADMIN_EMAIL}</a>.</p>${btn(me, "View your participation")}${foot}` };
+      return { to, subject: `Payment reminder — ${EVENT}`,
+        html: `${hi}<p>This is a friendly reminder that we're still awaiting payment for your participation in the <strong>${EVENT}</strong> (${WHEN}).</p>${detail}${note}<p>Please arrange payment at your earliest convenience. If you've already paid, thank you — please disregard this message. For any question, contact <a href="mailto:${ADMIN_EMAIL}">${ADMIN_EMAIL}</a>.</p>${btn(me, "View your participation")}${foot}` };
     }
     case "admin_new_registration":
       return { to: ADMIN_EMAIL, subject: `New registration — ${name || r.email || "participant"}${r.company_name ? ` (${r.company_name})` : ""}`,
@@ -132,9 +134,9 @@ Deno.serve(async (req) => {
       reg.role = (ra as { role?: string } | null)?.role;
     }
 
-    // For invoice_request, read the saved payment so the figures are authoritative.
+    // For payment_reminder, read the saved payment so the figures are authoritative.
     let pay: Pay | null = null;
-    if (kind === "invoice_request") {
+    if (kind === "payment_reminder") {
       const { data } = await admin.from("sm_payment").select("amount_cents, currency, invoice_ref, note").eq("registration_id", registration_id).maybeSingle();
       pay = data as Pay | null;
     }

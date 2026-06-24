@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Separator } from '@/components/ui/separator';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -42,6 +43,7 @@ interface OrgDetail {
   rejection_reason: string | null;
   auto_approve_domain_joins: boolean;
   claim_code: string | null;
+  featured_partner: boolean;
   created_at: string;
   updated_at: string;
   owner_user_id: string | null;
@@ -101,6 +103,7 @@ export function AdminOrganizationDetail() {
   const [maxSeats, setMaxSeats] = useState(5);
   const [rejectionReason, setRejectionReason] = useState('');
   const [claimCode, setClaimCode] = useState('');
+  const [featured, setFeatured] = useState(false);
 
   useEffect(() => { if (id) loadOrg(); }, [id]);
 
@@ -141,6 +144,7 @@ export function AdminOrganizationDetail() {
     setMaxSeats(orgData.max_seats);
     setRejectionReason(orgData.rejection_reason || '');
     setClaimCode(orgData.claim_code || '');
+    setFeatured(orgData.featured_partner || false);
     setLoading(false);
   };
 
@@ -153,6 +157,7 @@ export function AdminOrganizationDetail() {
       max_seats: maxSeats,
       rejection_reason: status === 'rejected' ? rejectionReason : null,
       claim_code: claimCode.trim() || null,
+      featured_partner: featured,
       updated_at: new Date().toISOString(),
     };
 
@@ -457,6 +462,13 @@ export function AdminOrganizationDetail() {
                 <Label className="text-xs">Max Seats</Label>
                 <Input type="number" value={maxSeats} onChange={e => setMaxSeats(parseInt(e.target.value) || 1)} min={1} className="h-9 w-24" />
               </div>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox checked={featured} onCheckedChange={v => setFeatured(!!v)} className="mt-0.5" />
+                <span>
+                  <span className="text-sm font-medium text-gray-800">Feature on home page</span>
+                  <span className="block text-xs text-gray-500">Show this organisation in the "Our Partners" showcase on the public home page.</span>
+                </span>
+              </label>
               <Separator />
               <div className="text-xs text-gray-400 space-y-1">
                 <p>Auto-approve domain joins: <span className="font-medium text-gray-600">{org.auto_approve_domain_joins ? 'Yes' : 'No'}</span></p>

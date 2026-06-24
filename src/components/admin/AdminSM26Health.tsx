@@ -51,6 +51,8 @@ export function AdminSM26Health() {
   const [loading, setLoading] = useState(true);
   const [remindBusy, setRemindBusy] = useState<string | null>(null);
   const [remindMsg, setRemindMsg] = useState<string | null>(null);
+  const [payBusy, setPayBusy] = useState(false);
+  const [payMsg, setPayMsg] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -87,6 +89,34 @@ export function AdminSM26Health() {
     const n = (data as { sent?: number } | null)?.sent ?? 0;
     setRemindMsg(`Reminder sent to ${n} participant(s).`);
     toast({ title: `Reminder sent to ${n} participant(s)` });
+  };
+
+  // Payment reminder to everyone invoiced-but-unpaid (status='invoiced'), one
+  // sm26-email call per participant — reuses the per-participant reminder.
+  const remindUnpaid = async () => {
+    if (!eventId) return;
+    setPayBusy(true); setPayMsg(null);
+    const { data, error } = await supabase
+      .from('sm_payment')
+      .select('registration_id, registration:sm_registration!inner(status,email)')
+      .eq('event_id', eventId)
+      .eq('status', 'invoiced');
+    if (error) { setPayBusy(false); setPayMsg(`Could not load: ${error.message}`); return; }
+    const rows = (data || []) as Array<{ registration_id: string; registration: { status?: string; email?: string } | { status?: string; email?: string }[] }>;
+    const targets = rows.filter((r) => {
+      const reg = Array.isArray(r.registration) ? r.registration[0] : r.registration;
+      return reg && !['declined', 'cancelled'].includes(reg.status || '') && !!reg.email;
+    });
+    if (targets.length === 0) { setPayBusy(false); setPayMsg('No invoiced-but-unpaid participants to remind.'); return; }
+    if (!window.confirm(`Send a payment reminder to ${targets.length} invoiced-but-unpaid participant(s)?`)) { setPayBusy(false); return; }
+    let n = 0;
+    await Promise.all(targets.map(async (t) => {
+      const { error: e } = await supabase.functions.invoke('sm26-email', { body: { registration_id: t.registration_id, kind: 'payment_reminder' } });
+      if (!e) n++;
+    }));
+    setPayBusy(false);
+    setPayMsg(`Payment reminder sent to ${n} participant(s).`);
+    toast({ title: `Payment reminders sent to ${n}` });
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -158,6 +188,17 @@ export function AdminSM26Health() {
             </Button>
           </div>
           {remindMsg && <p className="text-xs text-gray-500">{remindMsg}</p>}
+        </CardContent>
+      </Card>
+
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><CreditCard className="h-4 w-4 text-gray-400" /> Payment reminders</div>
+          <p className="text-xs text-gray-500">Email a "still awaiting payment" reminder to everyone whose payment status is <strong>Invoiced</strong> (not yet paid). Repeatable — send whenever you want to chase. You can also remind one person at a time from their Payment panel.</p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={remindUnpaid} disabled={payBusy}>
+            {payBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Remind all invoiced-but-unpaid
+          </Button>
+          {payMsg && <p className="text-xs text-gray-500">{payMsg}</p>}
         </CardContent>
       </Card>
 

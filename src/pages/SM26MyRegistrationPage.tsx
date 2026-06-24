@@ -141,6 +141,10 @@ export function SM26MyRegistrationPage() {
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return false; }
     // update local state
     setReg(prev => prev ? { ...prev, roles: prev.roles.map(r => r.id === role.id ? { ...r, module_data: moduleData, status: nextStatus } : r) } : prev);
+    // Alert M3 when the participant has just completed a requested-info checklist.
+    if (reg && nextStatus === 'info_provided' && role.status !== 'info_provided') {
+      void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'admin_info_completed' } }).catch(() => {});
+    }
     return true;
   };
 

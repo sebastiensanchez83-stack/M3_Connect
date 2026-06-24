@@ -1,6 +1,6 @@
 // SM26 transactional emails. Each "kind" has its own access rule:
-//  - staff kinds (confirmed/paid/ecat_published/info_requested/declined): admin/moderator only
-//  - owner kinds (registration_received/admin_new_registration): the registrant (or staff)
+//  - staff kinds (confirmed/paid/ecat_published/info_requested/declined/invoice_request): admin/moderator only
+//  - owner kinds (registration_received/admin_new_registration/admin_info_completed): the registrant (or staff)
 //  - partner-or-staff (ecat_review): a yacht_club event partner or staff (the designer)
 // Fire-and-forget from the UI; failures never block the action.
 
@@ -33,13 +33,14 @@ const json = (req: Request, body: unknown, status = 200) =>
 const EVENT = "Smart & Sustainable Marina Rendezvous 2026";
 const WHEN = "20–21 September 2026, Yacht Club de Monaco";
 
-const STAFF_KINDS = new Set(["confirmed", "paid", "ecat_published", "info_requested", "declined"]);
-const OWNER_KINDS = new Set(["registration_received", "admin_new_registration"]);
+const STAFF_KINDS = new Set(["confirmed", "paid", "ecat_published", "info_requested", "declined", "invoice_request"]);
+const OWNER_KINDS = new Set(["registration_received", "admin_new_registration", "admin_info_completed"]);
 const PARTNER_KINDS = new Set(["ecat_review"]);
 
 interface Reg { email?: string; first_name?: string; last_name?: string; company_name?: string; user_id?: string; role?: string }
+interface Pay { amount_cents?: number | null; currency?: string | null; invoice_ref?: string | null; note?: string | null }
 
-function content(kind: string, r: Reg): { subject: string; html: string; to: string } | null {
+function content(kind: string, r: Reg, pay?: Pay | null): { subject: string; html: string; to: string } | null {
   const name = `${r.first_name || ""} ${r.last_name || ""}`.trim();
   const hi = `<p>Dear ${r.first_name || "participant"},</p>`;
   const foot = `<p style="color:#64748b;font-size:13px">Smart Marina Connect · Monaco Marina Management</p>`;
@@ -69,9 +70,20 @@ function content(kind: string, r: Reg): { subject: string; html: string; to: str
     case "ecat_published":
       return { to, subject: `Your e-catalogue page is live — ${EVENT}`,
         html: `${hi}<p>Your catalogue page for the <strong>${EVENT}</strong> is now published.</p>${btn(me, "View your page")}${foot}` };
+    case "invoice_request": {
+      const cur = pay?.currency || "EUR";
+      const amount = pay?.amount_cents != null ? `${(pay.amount_cents / 100).toFixed(2)} ${cur}` : "to be confirmed";
+      const ref = pay?.invoice_ref ? `<br>Reference: <strong>${pay.invoice_ref}</strong>` : "";
+      const note = pay?.note ? `<p>${pay.note}</p>` : "";
+      return { to, subject: `Invoice for your ${EVENT} participation`,
+        html: `${hi}<p>An invoice has been issued for your participation in the <strong>${EVENT}</strong> (${WHEN}).</p><p>Amount: <strong>${amount}</strong> (VAT excl.)${ref}</p>${note}<p>Please proceed with payment as set out in the invoice. For any question, contact <a href="mailto:${ADMIN_EMAIL}">${ADMIN_EMAIL}</a>.</p>${btn(me, "View your participation")}${foot}` };
+    }
     case "admin_new_registration":
       return { to: ADMIN_EMAIL, subject: `New registration — ${name || r.email || "participant"}${r.company_name ? ` (${r.company_name})` : ""}`,
         html: `<p>A new registration came in for the <strong>${EVENT}</strong>:</p><p><strong>${name || "—"}</strong>${r.company_name ? ` — ${r.company_name}` : ""}${r.role ? `<br>Role: ${r.role}` : ""}<br>${r.email || ""}</p>${btn(`${SITE_URL}/admin/sm26`, "Open the registrations console")}${foot}` };
+    case "admin_info_completed":
+      return { to: ADMIN_EMAIL, subject: `Details updated — ${name || r.email || "participant"}${r.company_name ? ` (${r.company_name})` : ""}`,
+        html: `<p><strong>${name || "A participant"}</strong>${r.company_name ? ` — ${r.company_name}` : ""} has updated their registration for the <strong>${EVENT}</strong> in response to an information request. Please review.</p>${btn(`${SITE_URL}/admin/sm26`, "Open the registrations console")}${foot}` };
     default:
       return null;
   }
@@ -120,7 +132,14 @@ Deno.serve(async (req) => {
       reg.role = (ra as { role?: string } | null)?.role;
     }
 
-    const c = content(kind, reg);
+    // For invoice_request, read the saved payment so the figures are authoritative.
+    let pay: Pay | null = null;
+    if (kind === "invoice_request") {
+      const { data } = await admin.from("sm_payment").select("amount_cents, currency, invoice_ref, note").eq("registration_id", registration_id).maybeSingle();
+      pay = data as Pay | null;
+    }
+
+    const c = content(kind, reg, pay);
     if (!c) return json(req, { error: "Unknown kind" }, 400);
     if (!c.to) return json(req, { ok: true, skipped: "no recipient" });
     if (!RESEND_API_KEY) return json(req, { ok: true, skipped: "no RESEND_API_KEY" });

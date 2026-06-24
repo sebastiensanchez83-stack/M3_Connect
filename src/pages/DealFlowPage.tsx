@@ -80,9 +80,26 @@ export function DealFlowPage() {
   const [interestMessage, setInterestMessage] = useState('');
   const [sendingInterest, setSendingInterest] = useState(false);
 
-  // Access guard — only verified investors land here.
-  // (Route is also gated in App.tsx but we guard the page itself too.)
-  const accessOK = !!user && profile?.persona === 'investor' && isVerified;
+  // Access guard — unified investor accreditation: a verified platform investor
+  // (persona) OR someone with a confirmed SM26 investor role can see the deal-flow.
+  const personaInvestor = !!user && profile?.persona === 'investor' && isVerified;
+  const [smInvestor, setSmInvestor] = useState<boolean | null>(null); // null = still checking
+  useEffect(() => {
+    if (!user || personaInvestor) { setSmInvestor(false); return; }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('sm_registration')
+        .select('id, roles:sm_role_assignment(role,status)')
+        .eq('user_id', user.id);
+      const has = (data || []).some(r =>
+        ((r as { roles?: { role: string; status: string }[] }).roles || []).some(x => x.role === 'investor' && x.status === 'confirmed'));
+      if (!cancelled) setSmInvestor(has);
+    })();
+    return () => { cancelled = true; };
+  }, [user, personaInvestor]);
+  const accessOK = personaInvestor || smInvestor === true;
+  const checkingAccess = !!user && !personaInvestor && smInvestor === null;
 
   const loadData = async (showSpinner = true) => {
     if (!user || !accessOK) return;
@@ -291,6 +308,10 @@ export function DealFlowPage() {
   if (authLoading) return <LoadingSkeleton variant="page" />;
 
   if (!user) return <Navigate to="/" replace />;
+
+  if (checkingAccess) {
+    return <div className="container mx-auto px-4 py-16 text-center text-gray-400">Checking access…</div>;
+  }
 
   if (!accessOK) {
     return (

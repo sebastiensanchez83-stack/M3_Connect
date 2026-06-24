@@ -43,6 +43,16 @@ const AdminBannerDetail = lazyWithRetry(() => import('@/components/admin/AdminBa
 const AdminPlatformSettings = lazyWithRetry(() => import('@/components/admin/AdminPlatformSettings').then(m => ({ default: m.AdminPlatformSettings })));
 const AdminSectors = lazyWithRetry(() => import('@/components/admin/AdminSectors').then(m => ({ default: m.AdminSectors })));
 const AdminPulse = lazyWithRetry(() => import('@/components/admin/AdminPulse').then(m => ({ default: m.AdminPulse })));
+const AdminSM26 = lazyWithRetry(() => import('@/components/admin/AdminSM26').then(m => ({ default: m.AdminSM26 })));
+const AdminSM26Detail = lazyWithRetry(() => import('@/components/admin/AdminSM26Detail').then(m => ({ default: m.AdminSM26Detail })));
+const AdminSM26Jury = lazyWithRetry(() => import('@/components/admin/AdminSM26Jury').then(m => ({ default: m.AdminSM26Jury })));
+const AdminSM26Ecat = lazyWithRetry(() => import('@/components/admin/AdminSM26Ecat').then(m => ({ default: m.AdminSM26Ecat })));
+const AdminSM26EcatDossier = lazyWithRetry(() => import('@/components/admin/AdminSM26EcatDossier').then(m => ({ default: m.AdminSM26EcatDossier })));
+const AdminSM26Agenda = lazyWithRetry(() => import('@/components/admin/AdminSM26Agenda').then(m => ({ default: m.AdminSM26Agenda })));
+const AdminSM26Checkin = lazyWithRetry(() => import('@/components/admin/AdminSM26Checkin').then(m => ({ default: m.AdminSM26Checkin })));
+const AdminSM26Awards = lazyWithRetry(() => import('@/components/admin/AdminSM26Awards').then(m => ({ default: m.AdminSM26Awards })));
+const AdminSM26Feedback = lazyWithRetry(() => import('@/components/admin/AdminSM26Feedback').then(m => ({ default: m.AdminSM26Feedback })));
+const AdminSM26Health = lazyWithRetry(() => import('@/components/admin/AdminSM26Health').then(m => ({ default: m.AdminSM26Health })));
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -108,6 +118,16 @@ export function AdminPage() {
             <Route path="/resources/:id" element={<AdminResourceDetail />} />
             <Route path="/events" element={<AdminOnlyGuard><AdminEvents /></AdminOnlyGuard>} />
             <Route path="/events/:id" element={<AdminOnlyGuard><AdminEventDetail /></AdminOnlyGuard>} />
+            <Route path="/sm26" element={<AdminOnlyGuard><AdminSM26 /></AdminOnlyGuard>} />
+            <Route path="/sm26/jury" element={<AdminOnlyGuard><AdminSM26Jury /></AdminOnlyGuard>} />
+            <Route path="/sm26/agenda" element={<AdminOnlyGuard><AdminSM26Agenda /></AdminOnlyGuard>} />
+            <Route path="/sm26/checkin" element={<AdminOnlyGuard><AdminSM26Checkin /></AdminOnlyGuard>} />
+            <Route path="/sm26/health" element={<AdminOnlyGuard><AdminSM26Health /></AdminOnlyGuard>} />
+            <Route path="/sm26/awards" element={<AdminOnlyGuard><AdminSM26Awards /></AdminOnlyGuard>} />
+            <Route path="/sm26/feedback" element={<AdminOnlyGuard><AdminSM26Feedback /></AdminOnlyGuard>} />
+            <Route path="/sm26/ecat" element={<AdminOnlyGuard><AdminSM26Ecat /></AdminOnlyGuard>} />
+            <Route path="/sm26/ecat/:pageId/dossier" element={<AdminOnlyGuard><AdminSM26EcatDossier /></AdminOnlyGuard>} />
+            <Route path="/sm26/:id" element={<AdminOnlyGuard><AdminSM26Detail /></AdminOnlyGuard>} />
             {/* Partners merged into Users tab */}
             <Route path="/sponsorships" element={<AdminOnlyGuard><AdminSponsorships /></AdminOnlyGuard>} />
             <Route path="/sponsorships/:id" element={<AdminOnlyGuard><AdminSponsorshipDetail /></AdminOnlyGuard>} />

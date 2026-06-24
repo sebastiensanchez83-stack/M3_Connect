@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper, Building2, Users, Clock, Send, KeyRound } from 'lucide-react';
+import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper, Building2, Users, Clock, Send, KeyRound, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
@@ -143,6 +143,21 @@ export function OnboardingPage() {
 
   // Media org form
   const [media, setMedia] = useState({ media_name: '', website: '', audience_description: '', social_media_links: { linkedin: '', twitter: '', instagram: '', facebook: '' } });
+
+  // Duplicate-company guard: if the typed company name already exists as an org,
+  // surface it so the user joins (via the owner / events@m3monaco.com) instead of
+  // creating a duplicate. Authenticated normalized-exact match (no enumeration).
+  const [nameMatch, setNameMatch] = useState<{ org_id: string; org_name: string; owner_name: string | null } | null>(null);
+  useEffect(() => {
+    const name = (marina.marina_name || partner.company_name || media.media_name || '').trim();
+    if (name.length < 3) { setNameMatch(null); return; }
+    const tmr = setTimeout(async () => {
+      const { data } = await supabase.rpc('sm_org_name_match', { p_name: name });
+      const m = Array.isArray(data) ? data[0] : data;
+      setNameMatch((m as { org_id: string; org_name: string; owner_name: string | null }) || null);
+    }, 500);
+    return () => clearTimeout(tmr);
+  }, [marina.marina_name, partner.company_name, media.media_name]);
 
   const needsPersonaSetup = !authLoading && !!user && !profile;
 
@@ -986,6 +1001,25 @@ export function OnboardingPage() {
           </span>{' '}{t('onboarding.orgProfileDescSuffix')}
         </p>
       </div>
+
+      {nameMatch && (
+        <Card className="mb-8 border-amber-200 bg-amber-50">
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-amber-900 space-y-1">
+                <p className="font-semibold">&ldquo;{nameMatch.org_name}&rdquo; is already on Smart Marina Connect.</p>
+                <p>
+                  If this is your company you don&rsquo;t need to create it again
+                  {nameMatch.owner_name ? <> — ask <strong>{nameMatch.owner_name}</strong>, who owns it, to invite you</> : null}, or email{' '}
+                  <a href="mailto:events@m3monaco.com" className="underline font-medium">events@m3monaco.com</a> and we&rsquo;ll connect you.
+                  If it&rsquo;s a different company that happens to share the name, just continue below.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Claim Code Banner ── */}
       <Card className="mb-8 border-primary/20 bg-primary/[0.02]">

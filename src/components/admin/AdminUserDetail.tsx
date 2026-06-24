@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
+import { AdminUserOrgs } from './AdminUserOrgs';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, Save, Loader2, User, Building2,
@@ -423,6 +425,12 @@ export function AdminUserDetail() {
           {getStatusBadge(user.access_status)}
         </div>
       </div>
+
+      {/* SM26 event participation — single source (sm_registration) */}
+      {id && <SM26ParticipationCard userId={id} variant="admin" hideWhenEmpty={false} />}
+
+      {/* Company memberships (admin-managed multi-company) */}
+      {id && <AdminUserOrgs userId={id} />}
 
       {/* Profile Details */}
       <Card className="border-0 shadow-sm">

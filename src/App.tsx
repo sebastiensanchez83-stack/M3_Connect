@@ -8,6 +8,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { CookieBanner } from '@/components/layout/CookieBanner';
 import { captureInviteFromUrl } from '@/lib/invite-store';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
+import { SM26_ENABLED } from '@/lib/featureFlags';
 import { RefreshCw } from 'lucide-react';
 
 // Capture ?invite= param on initial page load (before React renders)
@@ -48,6 +49,17 @@ const TermsPage = lazyWithRetry(() => import('@/pages/TermsPage').then(m => ({ d
 const MentionsLegalesPage = lazyWithRetry(() => import('@/pages/MentionsLegalesPage').then(m => ({ default: m.MentionsLegalesPage })));
 const ConditionsCommercialesPage = lazyWithRetry(() => import('@/pages/ConditionsCommercialesPage').then(m => ({ default: m.ConditionsCommercialesPage })));
 const CookiePolicyPage = lazyWithRetry(() => import('@/pages/CookiePolicyPage').then(m => ({ default: m.CookiePolicyPage })));
+// SM26 event module (sm26 branch only — gated before any production merge)
+const SM26RegisterPage = lazyWithRetry(() => import('@/pages/SM26RegisterPage').then(m => ({ default: m.SM26RegisterPage })));
+const SM26MyRegistrationPage = lazyWithRetry(() => import('@/pages/SM26MyRegistrationPage').then(m => ({ default: m.SM26MyRegistrationPage })));
+const SM26JuryPage = lazyWithRetry(() => import('@/pages/SM26JuryPage').then(m => ({ default: m.SM26JuryPage })));
+const SM26AgendaPage = lazyWithRetry(() => import('@/pages/SM26AgendaPage').then(m => ({ default: m.SM26AgendaPage })));
+const SM26VotePage = lazyWithRetry(() => import('@/pages/SM26VotePage').then(m => ({ default: m.SM26VotePage })));
+const SM26PortfolioPage = lazyWithRetry(() => import('@/pages/SM26PortfolioPage').then(m => ({ default: m.SM26PortfolioPage })));
+const SM26FeedbackPage = lazyWithRetry(() => import('@/pages/SM26FeedbackPage').then(m => ({ default: m.SM26FeedbackPage })));
+const SM26ClaimPage = lazyWithRetry(() => import('@/pages/SM26ClaimPage').then(m => ({ default: m.SM26ClaimPage })));
+const SM26PartnerPage = lazyWithRetry(() => import('@/pages/SM26PartnerPage').then(m => ({ default: m.SM26PartnerPage })));
+const SM26YVPage = lazyWithRetry(() => import('@/pages/SM26YVPage').then(m => ({ default: m.SM26YVPage })));
 
 function LazyFallback() {
   return (
@@ -77,6 +89,23 @@ function App() {
               <Route path="/resources/:id" element={<ResourceDetailPage />} />
               <Route path="/events" element={<EventsPage />} />
               <Route path="/events/:id" element={<EventDetailPage />} />
+              {/* Public SM26 participant routes — gated by feature flag so the
+                  module can merge to main but stay hidden on production until
+                  launch (admin /admin/sm26/* stays available to staff). */}
+              {SM26_ENABLED && (
+                <>
+                  <Route path="/sm26/register" element={<SM26RegisterPage />} />
+                  <Route path="/sm26/me" element={<ProtectedRoute><SM26MyRegistrationPage /></ProtectedRoute>} />
+                  <Route path="/sm26/jury" element={<ProtectedRoute><SM26JuryPage /></ProtectedRoute>} />
+                  <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
+                  <Route path="/sm26/vote" element={<ProtectedRoute><SM26VotePage /></ProtectedRoute>} />
+                  <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
+                  <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
+                  <Route path="/sm26/claim" element={<SM26ClaimPage />} />
+                  <Route path="/sm26/partner" element={<ProtectedRoute><SM26PartnerPage /></ProtectedRoute>} />
+                  <Route path="/sm26/yv" element={<ProtectedRoute><SM26YVPage /></ProtectedRoute>} />
+                </>
+              )}
               <Route path="/partners" element={<PartnersPage />} />
               <Route path="/become-partner" element={<BecomePartnerPage />} />
               <Route path="/tiers" element={<TiersPage />} />
@@ -91,7 +120,7 @@ function App() {
               <Route path="/submit-consultation/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
               <Route path="/network" element={<MarketplacePage />} />
               <Route path="/marketplace" element={<Navigate to="/network" replace />} />
-              <Route path="/investments" element={<ProtectedRoute requireVerified requirePersona={['investor']} showLocked lockedMessage="Deal flow is reserved for verified investor accounts."><DealFlowPage /></ProtectedRoute>} />
+              <Route path="/investments" element={<ProtectedRoute><DealFlowPage /></ProtectedRoute>} />
               <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
               <Route path="/users/:id" element={<UserProfilePage />} />
               <Route path="/admin/*" element={<ProtectedRoute requireModerator><AdminPage /></ProtectedRoute>} />

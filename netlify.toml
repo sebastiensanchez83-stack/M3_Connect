@@ -11,6 +11,19 @@
 [context.branch-deploy]
   command = "npm run build"
 
+# SM26 event module: enable its public /sm26/* routes on every NON-production
+# context (PR deploy previews, branch deploys, staging) so it can be tested,
+# while production stays hidden until launch. To go live, set
+# VITE_SM26_ENABLED=true on the production context (Netlify UI) and redeploy.
+[context.deploy-preview.environment]
+  VITE_SM26_ENABLED = "true"
+
+[context.branch-deploy.environment]
+  VITE_SM26_ENABLED = "true"
+
+[context.staging.environment]
+  VITE_SM26_ENABLED = "true"
+
 [[headers]]
   for = "/index.html"
   [headers.values]

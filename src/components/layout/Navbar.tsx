@@ -25,14 +25,14 @@ import {
   Menu, X, User, Globe, ChevronDown,
   CalendarDays, BookOpen, Building2, Users,
   UserPlus, LogOut, Settings, FileText, Mic2,
-  Ship, MessageSquare, Shield, LayoutDashboard, Ticket, TrendingUp,
+  Ship, MessageSquare, Shield, LayoutDashboard, Ticket, TrendingUp, Check,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
 
 export function Navbar() {
   const { t, i18n } = useTranslation();
-  const { user, profile, signOut, isVerified, isAdmin, isModerator, organization } = useAuth();
+  const { user, profile, signOut, isVerified, isAdmin, isModerator, organization, organizations, setActiveOrganization } = useAuth();
   const { isFeatureEnabled } = useEntitlements();
   const navigate = useNavigate();
   const location = useLocation();
@@ -198,6 +198,24 @@ export function Navbar() {
                     <p className="text-xs text-gray-500 truncate">{user.email}</p>
                   </div>
                   <DropdownMenuSeparator />
+
+                  {/* Active-company switcher — only when the user belongs to more than one */}
+                  {organizations.length > 1 && (
+                    <>
+                      <DropdownMenuLabel className="text-xs text-gray-400 font-normal uppercase tracking-wider px-3 flex items-center gap-1.5">
+                        <Building2 className="h-3 w-3" /> Company
+                      </DropdownMenuLabel>
+                      <DropdownMenuGroup>
+                        {organizations.map(m => (
+                          <DropdownMenuItem key={m.organization.id} onClick={() => setActiveOrganization(m.organization.id)} className="rounded-lg cursor-pointer">
+                            <Check className={`h-4 w-4 mr-2 shrink-0 ${organization?.id === m.organization.id ? 'opacity-100 text-primary' : 'opacity-0'}`} />
+                            <span className="truncate">{m.organization.name}</span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
 
                   <DropdownMenuGroup>
                     <DropdownMenuItem asChild className="rounded-lg cursor-pointer">

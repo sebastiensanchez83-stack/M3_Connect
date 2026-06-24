@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
@@ -741,6 +742,9 @@ export function AccountPage() {
           <div className="space-y-6">
             {/* Payment banners removed — member tier is free */}
 
+            {/* SM26 event participation — single source (sm_registration), so any status change shows here automatically */}
+            {user && <SM26ParticipationCard userId={user.id} variant="self" />}
+
             {/* Analytics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Link to="/account?tab=inbox" className="block">
@@ -1247,7 +1251,8 @@ export function AccountPage() {
 
         {/* ── REGISTRATIONS ── */}
         <TabsContent value="registrations">
-          <Card>
+          {user && <SM26ParticipationCard userId={user.id} variant="self" />}
+          <Card className="mt-6">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle>My Event Registrations</CardTitle>
               <Link to="/events">

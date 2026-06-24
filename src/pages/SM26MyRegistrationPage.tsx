@@ -16,6 +16,7 @@ import { toast } from '@/hooks/use-toast';
 import { SM26_ROLE_LABELS, roleStatusBadgeClass, prettyStatus, sm26FieldLabel } from '@/components/admin/AdminSM26';
 import { SM26Notifications } from '@/components/sm26/SM26Notifications';
 import { SM26EditDetails } from '@/components/sm26/SM26EditDetails';
+import { SM26EditModule } from '@/components/sm26/SM26EditModule';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
@@ -262,6 +263,8 @@ export function SM26MyRegistrationPage() {
         </Card>
 
         <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
+
+        {visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
 
         {ecat.length > 0 && (
           <Card>

@@ -26,6 +26,8 @@ interface JurySession {
   id: string; title: string; entry_role_assignment_id: string | null; entry_company: string | null;
   scheduled_at: string; duration_minutes: number; status: string; zoom_join_url: string | null;
 }
+interface AssignableJuror { user_id: string; name: string | null }
+interface JuryAssignment { id: string; entry_role_assignment_id: string; juror_user_id: string; juror_name: string }
 
 const regBadge = (s: string) => {
   if (s === 'confirmed') return 'bg-green-50 text-green-700 border-green-200';
@@ -55,21 +57,29 @@ export function SM26YVPage() {
   const [sDur, setSDur] = useState('30');
   const [sTest, setSTest] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [eventId, setEventId] = useState<string | null>(null);
+  const [assignable, setAssignable] = useState<AssignableJuror[]>([]);
+  const [assignments, setAssignments] = useState<JuryAssignment[]>([]);
 
   const load = async () => {
     setLoading(true);
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setLoading(false); return; }
     const evId = (ev as { id: string }).id;
-    const [inn, jur, ses] = await Promise.all([
+    setEventId(evId);
+    const [inn, jur, ses, asg, asn] = await Promise.all([
       supabase.rpc('sm_yv_innovations', { p_event_id: evId }),
       supabase.rpc('sm_yv_jurors', { p_event_id: evId }),
       supabase.rpc('sm_jury_sessions_list', { p_event_id: evId }),
+      supabase.rpc('sm_yv_assignable_jurors', { p_event_id: evId }),
+      supabase.rpc('sm_yv_assignments', { p_event_id: evId }),
     ]);
     if (inn.error || jur.error) { setDenied(true); setLoading(false); return; }
     setInnovations((inn.data || []) as Innovation[]);
     setJurors((jur.data || []) as Juror[]);
     setSessions((ses.data || []) as JurySession[]);
+    setAssignable((asg.data || []) as AssignableJuror[]);
+    setAssignments((asn.data || []) as JuryAssignment[]);
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
@@ -107,6 +117,27 @@ export function SM26YVPage() {
     if (error) { toast({ title: 'Could not cancel', variant: 'destructive' }); return; }
     toast({ title: 'Session cancelled' });
     load();
+  };
+
+  const reloadAssignments = async () => {
+    if (!eventId) return;
+    const { data } = await supabase.rpc('sm_yv_assignments', { p_event_id: eventId });
+    setAssignments((data || []) as JuryAssignment[]);
+  };
+  const assignJuror = async (entryRaId: string, jurorUserId: string) => {
+    if (!jurorUserId) return;
+    setBusy(true);
+    const { error } = await supabase.rpc('sm_yv_assign', { p_entry: entryRaId, p_juror: jurorUserId });
+    setBusy(false);
+    if (error) { toast({ title: 'Could not assign', description: error.message, variant: 'destructive' }); return; }
+    reloadAssignments();
+  };
+  const unassignJuror = async (id: string) => {
+    setBusy(true);
+    const { error } = await supabase.rpc('sm_yv_unassign', { p_id: id });
+    setBusy(false);
+    if (error) { toast({ title: 'Could not remove', description: error.message, variant: 'destructive' }); return; }
+    reloadAssignments();
   };
 
   if (loading) return (
@@ -201,6 +232,48 @@ export function SM26YVPage() {
                 {s.status !== 'cancelled' && <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-red-600 shrink-0" onClick={() => cancelSession(s)} disabled={busy}><X className="h-4 w-4" /></Button>}
               </div>
             ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Scale className="h-4 w-4 text-primary" /> Jury assignments</CardTitle>
+            <p className="text-xs text-gray-500 mt-1">Allocate jurors to each innovation. A juror appears in the list once they've signed up and been confirmed.</p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {innovations.length === 0 ? (
+              <p className="text-sm text-gray-400">No innovation entries yet.</p>
+            ) : innovations.map(i => {
+              const mine = assignments.filter(a => a.entry_role_assignment_id === i.role_assignment_id);
+              const assignedIds = new Set(mine.map(a => a.juror_user_id));
+              const available = assignable.filter(j => !assignedIds.has(j.user_id));
+              return (
+                <div key={i.role_assignment_id} className="rounded-lg border border-gray-200 p-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="text-sm font-medium">{i.company}</div>
+                    <select value="" disabled={busy || available.length === 0}
+                      onChange={e => { const v = e.target.value; e.target.value = ''; if (v) assignJuror(i.role_assignment_id, v); }}
+                      className="h-8 rounded-md border border-gray-200 px-2 text-sm bg-white disabled:opacity-50">
+                      <option value="">{available.length ? 'Assign juror…' : (assignable.length ? 'All assigned' : 'No jurors available')}</option>
+                      {available.map(j => <option key={j.user_id} value={j.user_id}>{j.name || 'Juror'}</option>)}
+                    </select>
+                  </div>
+                  {mine.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {mine.map(a => (
+                        <span key={a.id} className="inline-flex items-center gap-1 text-xs bg-primary/5 text-primary border border-primary/20 rounded-full pl-2.5 pr-1 py-0.5">
+                          {a.juror_name}
+                          <button onClick={() => unassignJuror(a.id)} disabled={busy} className="hover:bg-primary/10 rounded-full p-0.5" title="Remove"><X className="h-3 w-3" /></button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {assignable.length === 0 && innovations.length > 0 && (
+              <p className="text-xs text-amber-600">No jurors are assignable yet — a juror becomes available here once they create their account and are confirmed.</p>
+            )}
           </CardContent>
         </Card>
 

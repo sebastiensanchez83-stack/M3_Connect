@@ -1,45 +1,129 @@
 import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import {
-  RefreshCw, Download, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
+  RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
+  Lightbulb, Scale, Image as ImageIcon, ChevronRight, Download, AlertTriangle, CheckCircle2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { ECAT_STATUS_LABEL, ecatStatusClass } from '@/components/admin/AdminSM26Ecat';
 
-// Yacht Club / event-partner scoped view. Read sponsor & speaker dossiers (with
-// documents), see the programme read-only, and change e-catalogue page status.
-// No attendee list, no edits to registrations or the programme.
+// Yacht Club / event-partner scoped view, geared to building the e-catalogue.
+// Drill into any entry to see its content + uploaded assets and what's still
+// missing. Contact details are shown ONLY for innovations (never sponsors,
+// speakers or jury — server-enforced in sm_partner_entry_dossier).
 
-interface DossierRow {
-  reg_id: string; role: string; name: string | null; company: string | null;
-  email: string | null; phone: string | null; country: string | null;
-  status: string; module_data: Record<string, unknown> | null;
+interface Entry {
+  role_assignment_id: string; reg_id: string; role: string;
+  name: string | null; company: string | null; job_title: string | null; country: string | null; thumb: string | null;
 }
 interface EcatRow { id: string; kind: string; status: string; title: string }
 interface Session { id: string; title: string; type: string; starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null }
+interface Requirement { field_key: string; label: string; required: boolean; is_asset: boolean }
+interface DossierRow {
+  role: string; company: string | null; name: string | null; job_title: string | null;
+  website: string | null; country: string | null; email: string | null;
+  module_data: Record<string, unknown> | null; startup: Record<string, unknown> | null; requirements: Requirement[] | null;
+}
 
 const TZ = 'Europe/Monaco';
 const fmtTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: TZ }) : '';
 const dayKey = (s: string | null) => s ? new Date(s).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ }) : 'TBD';
-const isPath = (v: unknown): v is string => typeof v === 'string' && v.includes('/') && !v.startsWith('http');
-const prettyKey = (k: string) => k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 const ECAT_STATUSES = ['awaiting_export', 'exported', 'in_design', 'uploaded', 'changes_requested', 'approved', 'published'];
+
+const ASSET_KEYS = new Set(['logo', 'logo_url', 'photo', 'photo_url', 'banner', 'deck', 'deck_url', 'slides', 'hero_image', 'press_card', 'proof_of_enrolment', 'panels', 'notice', 'pitch_media', 'pitch_media_url', 'product_images']);
+const STARTUP_SKIP = new Set(['id', 'role_assignment_id', 'event_id', 'created_at', 'updated_at', 'visibility_level', 'pitch_optin', 'social_links', 'logo_url', 'deck_url', 'product_images', 'pitch_media_url']);
+const isHttp = (s: string) => /^https?:\/\//i.test(s);
+const isImg = (s: string) => /\.(png|jpe?g|webp|gif|svg)$/i.test(s.split('?')[0]);
+const prettyKey = (k: string) => k.replace(/_url$/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+interface BuiltAsset { label: string; value: string }
+interface Built { text: { label: string; value: string }[]; assets: BuiltAsset[]; missing: string[] }
+
+function isProvided(rq: Requirement, d: DossierRow): boolean {
+  const k = rq.field_key;
+  if (k === '__job_title') return !!d.job_title;
+  if (k === 'website') return !!d.website;
+  const md = d.module_data || {};
+  const v = md[k];
+  if (v != null && v !== '' && !(Array.isArray(v) && v.length === 0)) return true;
+  const sp = d.startup;
+  if (sp) {
+    if (k === 'logo') return !!sp.logo_url;
+    if (k === 'deck') return !!sp.deck_url;
+    if (k === 'product_images') return Array.isArray(sp.product_images) && sp.product_images.length > 0;
+  }
+  return false;
+}
+
+function buildDossier(d: DossierRow): Built {
+  const text: { label: string; value: string }[] = [];
+  const assets: BuiltAsset[] = [];
+  const md = d.module_data || {};
+  for (const [k, v] of Object.entries(md)) {
+    if (v == null || v === '') continue;
+    if (ASSET_KEYS.has(k)) {
+      if (typeof v === 'string') assets.push({ label: prettyKey(k), value: v });
+      else if (Array.isArray(v)) v.forEach((p, i) => typeof p === 'string' && assets.push({ label: `${prettyKey(k)} ${i + 1}`, value: p }));
+    } else if (typeof v === 'string') {
+      text.push({ label: prettyKey(k), value: v });
+    } else if (Array.isArray(v) && v.length) {
+      text.push({ label: prettyKey(k), value: v.join(', ') });
+    }
+  }
+  const sp = d.startup;
+  if (sp) {
+    for (const [k, v] of Object.entries(sp)) {
+      if (STARTUP_SKIP.has(k)) continue;
+      if (typeof v === 'string' && v.trim()) text.push({ label: prettyKey(k), value: v });
+      else if (Array.isArray(v) && v.length) text.push({ label: prettyKey(k), value: v.join(', ') });
+      else if (typeof v === 'boolean') text.push({ label: prettyKey(k), value: v ? 'Yes' : 'No' });
+    }
+    if (typeof sp.logo_url === 'string' && sp.logo_url) assets.push({ label: 'Logo', value: sp.logo_url });
+    if (typeof sp.deck_url === 'string' && sp.deck_url) assets.push({ label: 'Pitch deck', value: sp.deck_url });
+    if (typeof sp.pitch_media_url === 'string' && sp.pitch_media_url) assets.push({ label: 'Pitch media', value: sp.pitch_media_url });
+    if (Array.isArray(sp.product_images)) sp.product_images.forEach((p, i) => typeof p === 'string' && p && assets.push({ label: `Product image ${i + 1}`, value: p }));
+  }
+  let reqs: Requirement[] = d.requirements || [];
+  if (d.role === 'jury' && reqs.length === 0) {
+    reqs = [
+      { field_key: 'logo_url', label: 'Company logo', required: true, is_asset: true },
+      { field_key: 'photo_url', label: 'Photo / headshot', required: true, is_asset: true },
+      { field_key: 'bio', label: 'Bio', required: true, is_asset: false },
+      { field_key: '__job_title', label: 'Job title', required: true, is_asset: false },
+    ];
+  }
+  const missing = reqs.filter(rq => rq.required && !isProvided(rq, d)).map(rq => rq.label);
+  return { text, assets, missing };
+}
+
+const ROLE_META: Record<string, { label: string; icon: typeof Building2; singular: string }> = {
+  startup: { label: 'Innovations', icon: Lightbulb, singular: 'innovation' },
+  jury: { label: 'Jury', icon: Scale, singular: 'juror' },
+  sponsor: { label: 'Sponsors', icon: Building2, singular: 'sponsor' },
+  speaker: { label: 'Speakers', icon: Mic, singular: 'speaker' },
+};
 
 export function SM26PartnerPage() {
   const { user, loading: authLoading } = useAuth();
   const [eventId, setEventId] = useState<string | null>(null);
   const [access, setAccess] = useState<'loading' | 'ok' | 'denied'>('loading');
-  const [dossier, setDossier] = useState<DossierRow[]>([]);
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [ecat, setEcat] = useState<EcatRow[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // dossier modal
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [dossier, setDossier] = useState<(DossierRow & Built & { signed: Record<string, string> }) | null>(null);
+  const [dossierLoading, setDossierLoading] = useState(false);
 
   useEffect(() => { if (!authLoading) load(); /* eslint-disable-next-line */ }, [authLoading, user]);
 
@@ -48,22 +132,45 @@ export function SM26PartnerPage() {
     if (!ev) { setAccess('denied'); return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
-    const { data: dos, error } = await supabase.rpc('sm_partner_dossier', { p_event_id: eid });
+    const { data: ent, error } = await supabase.rpc('sm_partner_entries', { p_event_id: eid });
     if (error) { setAccess('denied'); return; }
     setAccess('ok');
-    setDossier((dos || []) as DossierRow[]);
+    const rows = (ent || []) as Entry[];
+    setEntries(rows);
     const [{ data: ec }, { data: ag }] = await Promise.all([
       supabase.rpc('sm_partner_ecat', { p_event_id: eid }),
       supabase.rpc('sm_agenda', { p_event_id: eid }),
     ]);
     setEcat((ec || []) as EcatRow[]);
     setSessions((ag || []) as Session[]);
+    // sign storage-path thumbnails (http thumbs render directly)
+    const signed: Record<string, string> = {};
+    await Promise.all(rows.filter(r => r.thumb && !isHttp(r.thumb)).map(async r => {
+      const { data: s } = await supabase.storage.from('event-media').createSignedUrl(r.thumb as string, 1800);
+      if (s) signed[r.thumb as string] = s.signedUrl;
+    }));
+    setThumbs(signed);
   };
 
-  const viewDoc = async (path: string) => {
-    const { data, error } = await supabase.storage.from('event-media').createSignedUrl(path, 300);
-    if (error || !data) { toast({ title: 'Could not open document', variant: 'destructive' }); return; }
-    window.open(data.signedUrl, '_blank');
+  const openEntry = async (ra: string) => {
+    setOpenId(ra); setDossier(null); setDossierLoading(true);
+    const { data, error } = await supabase.rpc('sm_partner_entry_dossier', { p_ra: ra });
+    const row = (data && (data as DossierRow[])[0]) || null;
+    if (error || !row) { toast({ title: 'Could not open dossier', variant: 'destructive' }); setDossierLoading(false); setOpenId(null); return; }
+    const built = buildDossier(row);
+    const signed: Record<string, string> = {};
+    await Promise.all(built.assets.filter(a => isImg(a.value) && !isHttp(a.value)).map(async a => {
+      const { data: s } = await supabase.storage.from('event-media').createSignedUrl(a.value, 600);
+      if (s) signed[a.value] = s.signedUrl;
+    }));
+    setDossier({ ...row, ...built, signed });
+    setDossierLoading(false);
+  };
+
+  const openAsset = async (value: string) => {
+    if (isHttp(value)) { window.open(value, '_blank'); return; }
+    const { data } = await supabase.storage.from('event-media').createSignedUrl(value, 300);
+    if (data) window.open(data.signedUrl, '_blank');
   };
 
   const setEcatStatus = async (id: string, status: string) => {
@@ -75,17 +182,6 @@ export function SM26PartnerPage() {
     toast({ title: 'E-catalogue status updated' });
   };
 
-  const exportCsv = (role: string) => {
-    const rows = dossier.filter(d => d.role === role);
-    const head = ['Name', 'Company', 'Email', 'Phone', 'Country', 'Status'];
-    const body = rows.map(r => [r.name || '', r.company || '', r.email || '', r.phone || '', r.country || '', r.status]);
-    const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
-    const csv = [head, ...body].map(r => r.map(esc).join(',')).join('\r\n');
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    const a = document.createElement('a'); a.href = url; a.download = `sm26-${role}s.csv`; a.click();
-    URL.revokeObjectURL(url);
-  };
-
   if (authLoading || access === 'loading') return <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
   if (access === 'denied') return (
     <div className="container mx-auto px-4 py-16 max-w-md text-center">
@@ -95,35 +191,50 @@ export function SM26PartnerPage() {
     </div>
   );
 
-  const sponsors = dossier.filter(d => d.role === 'sponsor');
-  const speakers = dossier.filter(d => d.role === 'speaker');
+  const byRole = (role: string) => entries.filter(e => e.role === role);
   const days: { key: string; items: Session[] }[] = [];
   for (const s of sessions) { const k = dayKey(s.starts_at); let d = days.find(x => x.key === k); if (!d) { d = { key: k, items: [] }; days.push(d); } d.items.push(s); }
 
-  const PersonCard = ({ d }: { d: DossierRow }) => {
-    const docs = Object.entries(d.module_data || {}).filter(([k, v]) => isPath(v) && !k.startsWith('_'));
+  const thumbSrc = (t: string | null) => !t ? null : isHttp(t) ? t : (thumbs[t] || null);
+
+  const Section = ({ role }: { role: string }) => {
+    const meta = ROLE_META[role];
+    const list = byRole(role);
+    const Icon = meta.icon;
     return (
-      <div className="rounded-lg border border-gray-100 p-3">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-gray-900">{d.company || d.name || 'Entry'}</div>
-            <div className="text-xs text-gray-500">{d.name}{d.country ? ` · ${d.country}` : ''}</div>
-          </div>
-          <div className="flex items-center gap-3 text-xs text-gray-500">
-            {d.email && <a href={`mailto:${d.email}`} className="hover:text-primary">{d.email}</a>}
-            {d.phone && <span>{d.phone}</span>}
-          </div>
-        </div>
-        {docs.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {docs.map(([k, v]) => (
-              <Button key={k} size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => viewDoc(v as string)}>
-                <FileText className="h-3.5 w-3.5" /> {prettyKey(k)}
-              </Button>
-            ))}
-          </div>
-        )}
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Icon className="h-5 w-5 text-primary" /> {meta.label} ({list.length})</CardTitle>
+          {role === 'startup' && <CardDescription>Full profile, contact and uploaded images for the catalogue.</CardDescription>}
+          {role === 'jury' && <CardDescription>Logo, photo, job title &amp; bio for the catalogue — no contact details.</CardDescription>}
+        </CardHeader>
+        <CardContent>
+          {list.length === 0 ? (
+            <p className="text-sm text-gray-400">No {meta.label.toLowerCase()} yet.</p>
+          ) : (
+            <div className="grid sm:grid-cols-2 gap-2">
+              {list.map(e => {
+                const title = e.company || e.name || 'Entry';
+                const sub = [e.company ? e.name : null, e.job_title].filter(Boolean).join(' · ');
+                const src = thumbSrc(e.thumb);
+                return (
+                  <button key={e.role_assignment_id} onClick={() => openEntry(e.role_assignment_id)}
+                    className="flex items-center gap-3 text-left rounded-lg border border-gray-100 hover:border-primary/40 hover:bg-gray-50 p-2.5 transition-colors">
+                    <div className="w-10 h-10 rounded-lg bg-white border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+                      {src ? <img src={src} alt="" className="w-full h-full object-contain p-0.5" /> : <Icon className="h-5 w-5 text-gray-300" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-gray-900 truncate">{title}</div>
+                      {sub && <div className="text-xs text-gray-500 truncate">{sub}</div>}
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     );
   };
 
@@ -135,36 +246,15 @@ export function SM26PartnerPage() {
           <div className="mb-3"><SM26BackLink light /></div>
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · Partner area</p>
           <h1 className="text-2xl lg:text-3xl font-bold">Yacht Club &amp; partners</h1>
-          <p className="text-white/80 mt-2 max-w-2xl">Sponsor &amp; speaker dossiers, the programme, and e-catalogue status.</p>
+          <p className="text-white/80 mt-2 max-w-2xl">Open any entry to see its content and uploaded assets for the e-catalogue, and what's still missing.</p>
         </div>
       </section>
 
       <div className="container mx-auto px-4 py-8 max-w-3xl space-y-6">
-        {/* Sponsors */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <CardTitle className="flex items-center gap-2"><Building2 className="h-5 w-5 text-primary" /> Sponsors ({sponsors.length})</CardTitle>
-              {sponsors.length > 0 && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => exportCsv('sponsor')}><Download className="h-4 w-4" /> Download CSV</Button>}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {sponsors.length === 0 ? <p className="text-sm text-gray-400">No sponsors yet.</p> : sponsors.map(d => <PersonCard key={d.reg_id} d={d} />)}
-          </CardContent>
-        </Card>
-
-        {/* Speakers */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <CardTitle className="flex items-center gap-2"><Mic className="h-5 w-5 text-primary" /> Speakers ({speakers.length})</CardTitle>
-              {speakers.length > 0 && <Button size="sm" variant="outline" className="gap-1.5" onClick={() => exportCsv('speaker')}><Download className="h-4 w-4" /> Download CSV</Button>}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {speakers.length === 0 ? <p className="text-sm text-gray-400">No speakers yet.</p> : speakers.map(d => <PersonCard key={d.reg_id} d={d} />)}
-          </CardContent>
-        </Card>
+        <Section role="startup" />
+        <Section role="jury" />
+        <Section role="sponsor" />
+        <Section role="speaker" />
 
         {/* Programme (read-only) */}
         <Card>
@@ -223,6 +313,84 @@ export function SM26PartnerPage() {
           <ExternalLink className="h-3 w-3 inline mr-1" /> The full attendee list isn't shown here. For anything else, contact events@m3monaco.com.
         </p>
       </div>
+
+      {/* Entry dossier */}
+      <Dialog open={!!openId} onOpenChange={(o) => { if (!o) { setOpenId(null); setDossier(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
+          {dossierLoading || !dossier ? (
+            <div className="flex items-center justify-center h-40"><RefreshCw className="h-6 w-6 animate-spin text-gray-300" /></div>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl">{dossier.company || dossier.name || 'Entry'}</DialogTitle>
+                <div className="text-sm text-gray-500 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {dossier.company && dossier.name && <span>{dossier.name}</span>}
+                  {dossier.job_title && <span>{dossier.job_title}</span>}
+                  {dossier.country && <span>{dossier.country}</span>}
+                  {dossier.website && <a href={dossier.website} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-1">{dossier.website.replace(/^https?:\/\//, '')} <ExternalLink className="h-3 w-3" /></a>}
+                  {dossier.email && <a href={`mailto:${dossier.email}`} className="text-primary">{dossier.email}</a>}
+                </div>
+              </DialogHeader>
+
+              {dossier.missing.length > 0 ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span><span className="font-medium">Missing for the catalogue:</span> {dossier.missing.join(', ')}.</span>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-800 flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" /> All required catalogue info provided.
+                </div>
+              )}
+
+              {dossier.assets.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Images &amp; files</h3>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {dossier.assets.map((a, i) => {
+                      const src = isHttp(a.value) ? (isImg(a.value) ? a.value : null) : dossier.signed[a.value];
+                      const filename = a.value.split('/').pop()?.split('?')[0] || 'file';
+                      return (
+                        <div key={i} className="border border-gray-100 rounded-lg p-2">
+                          <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5 truncate" title={a.label}>{a.label}</div>
+                          {isImg(a.value) && src ? (
+                            <button onClick={() => openAsset(a.value)} className="block w-full">
+                              <img src={src} alt={a.label} className="w-full h-24 object-contain rounded-md bg-gray-50" />
+                            </button>
+                          ) : (
+                            <button onClick={() => openAsset(a.value)} className="flex items-center gap-1.5 text-xs text-primary py-3">
+                              {isImg(a.value) ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />} <span className="truncate">{filename}</span>
+                            </button>
+                          )}
+                          <button onClick={() => openAsset(a.value)} className="mt-1.5 w-full inline-flex items-center justify-center gap-1 text-[11px] text-gray-600 border border-gray-200 rounded-md py-1 hover:bg-gray-50">
+                            <Download className="h-3 w-3" /> Download
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {dossier.text.length > 0 && (
+                <div className="space-y-3 mt-1">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Details</h3>
+                  {dossier.text.map((t, i) => (
+                    <div key={i}>
+                      <div className="text-[11px] uppercase tracking-wide text-gray-400">{t.label}</div>
+                      <div className="text-sm text-gray-800 whitespace-pre-wrap">{t.value}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {dossier.assets.length === 0 && dossier.text.length === 0 && (
+                <p className="text-sm text-gray-400">No profile content captured yet.</p>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

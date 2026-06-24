@@ -80,15 +80,16 @@ export function SM26PaymentPanel({ registrationId, eventId, onSaved }: { registr
     return true;
   };
 
-  // Save first (so the email reads the latest figures), then notify the
-  // participant. The email function re-reads sm_payment server-side.
-  const saveAndEmailInvoice = async () => {
+  // Save first (so the reminder reads the latest figures), then email the
+  // participant a "still awaiting payment" reminder. Repeatable — send as many
+  // as needed. The email function re-reads sm_payment server-side.
+  const sendPaymentReminder = async () => {
     setEmailing(true);
     const ok = await save();
     if (ok) {
-      const { error } = await supabase.functions.invoke('sm26-email', { body: { registration_id: registrationId, kind: 'invoice_request' } });
-      if (error) toast({ title: 'Saved — but the invoice email failed', description: error.message, variant: 'destructive' });
-      else toast({ title: 'Invoice emailed to the participant' });
+      const { error } = await supabase.functions.invoke('sm26-email', { body: { registration_id: registrationId, kind: 'payment_reminder' } });
+      if (error) toast({ title: 'Saved — but the reminder could not be sent', description: error.message, variant: 'destructive' });
+      else toast({ title: 'Payment reminder sent' });
     }
     setEmailing(false);
   };
@@ -134,8 +135,8 @@ export function SM26PaymentPanel({ registrationId, eventId, onSaved }: { registr
               </div>
               <div className="flex items-center gap-2">
                 {status === 'invoiced' && (
-                  <Button size="sm" variant="outline" className="gap-1.5" onClick={saveAndEmailInvoice} disabled={saving || emailing} title="Save, then email the invoice notification to the participant">
-                    {emailing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Save &amp; email invoice
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={sendPaymentReminder} disabled={saving || emailing} title="Email the participant a reminder that payment is still outstanding">
+                    {emailing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Email payment reminder
                   </Button>
                 )}
                 <Button size="sm" className="gap-1.5" onClick={save} disabled={saving || emailing}>

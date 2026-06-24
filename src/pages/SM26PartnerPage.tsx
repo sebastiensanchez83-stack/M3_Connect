@@ -24,7 +24,7 @@ interface Entry {
   role_assignment_id: string; reg_id: string; role: string;
   name: string | null; company: string | null; job_title: string | null; country: string | null; thumb: string | null;
 }
-interface EcatRow { id: string; kind: string; status: string; title: string; designed_file_path: string | null; changes_note: string | null }
+interface EcatRow { id: string; registration_id: string; kind: string; status: string; title: string; designed_file_path: string | null; changes_note: string | null }
 interface Session { id: string; title: string; type: string; starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null }
 interface Requirement { field_key: string; label: string; required: boolean; is_asset: boolean }
 interface DossierRow {
@@ -195,6 +195,7 @@ export function SM26PartnerPage() {
     setBusy(null);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
     setEcat(prev => prev.map(x => x.id === p.id ? { ...x, designed_file_path: path, status: 'uploaded' } : x));
+    void supabase.functions.invoke('sm26-email', { body: { registration_id: p.registration_id, kind: 'ecat_review' } }).catch(() => {});
     toast({ title: 'Designed page sent for review', description: 'The participant will be asked to approve it or request changes.' });
   };
 

@@ -385,6 +385,7 @@ export function AdminSM26Detail() {
     setReg({ ...reg, status: newStatus });
     toast({ title: `Status set to "${prettyStatus(newStatus)}"` });
     if (newStatus === 'confirmed') void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'confirmed' } }).catch(() => {});
+    if (newStatus === 'declined') void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'declined' } }).catch(() => {});
   };
 
   // Settling payment (paid OR waived) completes the registration: light up the
@@ -738,6 +739,7 @@ export function AdminSM26Detail() {
 
                 <SM26RequestInfo
                   roleAssignmentId={role.id}
+                  registrationId={reg.id}
                   roleLabel={SM26_ROLE_LABELS[role.role] || role.role}
                   items={[...reqs.map(r => ({ field_key: r.field_key, label: r.label, required: r.required, is_asset: r.is_asset })), ...missingTextFields]}
                   moduleData={role.module_data}

@@ -153,6 +153,7 @@ export function AdminSM26Ecat() {
     if (error) { setBusy(null); toast({ title: 'Upload failed', description: error.message, variant: 'destructive' }); return; }
     setBusy(null);
     await patch(p, { designed_file_path: path, status: 'uploaded' });
+    void supabase.functions.invoke('sm26-email', { body: { registration_id: p.registration_id, kind: 'ecat_review' } }).catch(() => {});
     toast({ title: 'Designed page uploaded — participant can now review' });
   };
 

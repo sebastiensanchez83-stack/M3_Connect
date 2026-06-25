@@ -102,10 +102,13 @@ function App() {
                   <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
                   <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
                   <Route path="/sm26/claim" element={<SM26ClaimPage />} />
-                  <Route path="/sm26/partner" element={<ProtectedRoute><SM26PartnerPage /></ProtectedRoute>} />
-                  <Route path="/sm26/yv" element={<ProtectedRoute><SM26YVPage /></ProtectedRoute>} />
                 </>
               )}
+              {/* Partner consoles (Yacht Club + Yachting Ventures) stay reachable
+                  pre-launch like /admin/sm26 — access is enforced server-side by
+                  sm_is_event_partner / sm_is_yv, so non-partners just see "no access". */}
+              <Route path="/sm26/partner" element={<ProtectedRoute><SM26PartnerPage /></ProtectedRoute>} />
+              <Route path="/sm26/yv" element={<ProtectedRoute><SM26YVPage /></ProtectedRoute>} />
               <Route path="/partners" element={<PartnersPage />} />
               <Route path="/become-partner" element={<BecomePartnerPage />} />
               <Route path="/tiers" element={<TiersPage />} />

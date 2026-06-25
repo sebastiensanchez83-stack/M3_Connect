@@ -23,6 +23,7 @@ import { ECAT_STATUS_LABEL, ecatStatusClass } from '@/components/admin/AdminSM26
 interface Entry {
   role_assignment_id: string; reg_id: string; role: string;
   name: string | null; company: string | null; job_title: string | null; country: string | null; thumb: string | null;
+  payment_status: string | null;
 }
 interface EcatRow { id: string; registration_id: string; kind: string; status: string; title: string; designed_file_path: string | null; changes_note: string | null }
 interface Session { id: string; title: string; type: string; starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null }
@@ -126,6 +127,8 @@ export function SM26PartnerPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [dossier, setDossier] = useState<(DossierRow & Built & { signed: Record<string, string> }) | null>(null);
   const [dossierLoading, setDossierLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [sendingMsg, setSendingMsg] = useState(false);
 
   useEffect(() => { if (!authLoading) load(); /* eslint-disable-next-line */ }, [authLoading, user]);
 
@@ -204,6 +207,17 @@ export function SM26PartnerPage() {
     if (data) window.open(data.signedUrl, '_blank'); else toast({ title: 'Could not open file', variant: 'destructive' });
   };
 
+  // Yacht Club asks a participant to update / provide something for the catalogue.
+  const sendPartnerMessage = async (ra: string) => {
+    if (!msg.trim()) return;
+    setSendingMsg(true);
+    const { error } = await supabase.rpc('sm_partner_message', { p_ra: ra, p_message: msg.trim() });
+    setSendingMsg(false);
+    if (error) { toast({ title: 'Could not send', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Request sent to the participant' });
+    setMsg('');
+  };
+
   if (authLoading || access === 'loading') return <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
   if (access === 'denied') return (
     <div className="container mx-auto px-4 py-16 max-w-md text-center">
@@ -248,6 +262,11 @@ export function SM26PartnerPage() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-gray-900 truncate">{title}</div>
                       {sub && <div className="text-xs text-gray-500 truncate">{sub}</div>}
+                      {e.role === 'startup' && e.payment_status && (
+                        <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${e.payment_status === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                          {e.payment_status === 'paid' ? 'Paid' : 'Awaiting payment'}
+                        </span>
+                      )}
                     </div>
                     <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
                   </button>
@@ -367,7 +386,7 @@ export function SM26PartnerPage() {
       </div>
 
       {/* Entry dossier */}
-      <Dialog open={!!openId} onOpenChange={(o) => { if (!o) { setOpenId(null); setDossier(null); } }}>
+      <Dialog open={!!openId} onOpenChange={(o) => { if (!o) { setOpenId(null); setDossier(null); setMsg(''); } }}>
         <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
           {dossierLoading || !dossier ? (
             <div className="flex items-center justify-center h-40"><RefreshCw className="h-6 w-6 animate-spin text-gray-300" /></div>
@@ -439,6 +458,21 @@ export function SM26PartnerPage() {
               {dossier.assets.length === 0 && dossier.text.length === 0 && (
                 <p className="text-sm text-gray-400">No profile content captured yet.</p>
               )}
+
+              {/* Request a change / ask the participant for info */}
+              <div className="border-t pt-3 mt-1">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5 flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> Request a change / ask for info</h3>
+                <textarea value={msg} onChange={e => setMsg(e.target.value)} rows={2}
+                  placeholder="e.g. Please send a higher-resolution logo (min 1000 px) for the catalogue."
+                  className="w-full text-sm border border-gray-200 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary" />
+                <div className="flex justify-end mt-2">
+                  <button type="button" disabled={sendingMsg || !msg.trim()} onClick={() => openId && sendPartnerMessage(openId)}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium bg-primary text-white rounded-md px-3 py-1.5 hover:bg-primary/90 disabled:opacity-60">
+                    {sendingMsg ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageSquare className="h-3.5 w-3.5" />} Send to participant
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">The participant is notified in their account to update their entry.</p>
+              </div>
             </>
           )}
         </DialogContent>

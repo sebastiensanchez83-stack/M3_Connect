@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Loader2, Save, Pencil, Lightbulb } from 'lucide-react';
+import { Loader2, Save, Pencil, Lightbulb, Lock } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
+import { useSm26EditLock } from '@/components/sm26/useSm26EditLock';
 
 // Participant self-service editing of their ROLE-MODULE content (the innovation
 // pitch text etc.) — separate from base details (SM26EditDetails) and from the
@@ -19,6 +20,7 @@ export function SM26EditModule({ roleAssignmentId, role }: { roleAssignmentId: s
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [startup, setStartup] = useState<StartupData>(EMPTY_STARTUP);
+  const { locked, prettyDate } = useSm26EditLock();
 
   if (role !== 'startup') return null;
 
@@ -48,6 +50,7 @@ export function SM26EditModule({ roleAssignmentId, role }: { roleAssignmentId: s
   const openEdit = async () => { if (!loaded) await load(); setOpen(true); };
 
   const save = async () => {
+    if (locked) return;
     setSaving(true);
     const patch: Record<string, unknown> = {
       startup_or_scaleup: startup.startup_or_scaleup || null, stage: startup.stage || null,
@@ -74,9 +77,11 @@ export function SM26EditModule({ roleAssignmentId, role }: { roleAssignmentId: s
             <div className="text-sm font-medium flex items-center gap-2"><Lightbulb className="h-4 w-4 text-primary" /> Innovation details</div>
             <div className="text-xs text-gray-500 mt-0.5">Complete or refine your pitch — the jury and the e-catalogue use this.</div>
           </div>
-          <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={openEdit} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />} Edit
-          </Button>
+          {locked
+            ? <span className="text-xs text-gray-400 inline-flex items-center gap-1.5 shrink-0"><Lock className="h-3.5 w-3.5" /> Editing closed{prettyDate ? ` · ${prettyDate}` : ''}</span>
+            : <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={openEdit} disabled={loading}>
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-3.5 w-3.5" />} Edit
+              </Button>}
         </CardContent>
       </Card>
     );

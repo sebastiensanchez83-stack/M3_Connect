@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  RefreshCw, ArrowLeft, Activity, Users, CreditCard, QrCode, BookOpen, Scale, Trophy, MessageSquare, Mail, Send, Loader2,
+  RefreshCw, ArrowLeft, Activity, Users, CreditCard, QrCode, BookOpen, Scale, Trophy, MessageSquare, Mail, Send, Loader2, Lock, Save,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { Card, CardContent } from '@/components/ui/card';
@@ -55,17 +55,30 @@ export function AdminSM26Health() {
   const [payMsg, setPayMsg] = useState<string | null>(null);
   const [onboardBusy, setOnboardBusy] = useState<string | null>(null);
   const [onboardMsg, setOnboardMsg] = useState<string | null>(null);
+  const [editDeadline, setEditDeadline] = useState('');
+  const [savingDeadline, setSavingDeadline] = useState(false);
 
   useEffect(() => { load(); }, []);
   const load = async () => {
     setLoading(true);
-    const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
+    const { data: ev } = await supabase.from('sm_event').select('id, settings').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setLoading(false); return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
+    setEditDeadline(((ev as { settings?: { edit_locks_at?: string } }).settings?.edit_locks_at) || '');
     const { data } = await supabase.rpc('sm_event_health', { p_event_id: eid });
     setH((data || null) as Health | null);
     setLoading(false);
+  };
+
+  // Date after which participants can no longer edit their registration/details.
+  const saveDeadline = async () => {
+    if (!eventId) return;
+    setSavingDeadline(true);
+    const { error } = await supabase.rpc('sm_set_edit_deadline', { p_event_id: eventId, p_date: editDeadline || null });
+    setSavingDeadline(false);
+    if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: editDeadline ? `Editing closes after ${editDeadline}` : 'Editing deadline cleared' });
   };
 
   // Pre-event reminder: a test to myself, or a one-off send to all confirmed
@@ -243,6 +256,19 @@ export function AdminSM26Health() {
             {payBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Remind all invoiced-but-unpaid
           </Button>
           {payMsg && <p className="text-xs text-gray-500">{payMsg}</p>}
+        </CardContent>
+      </Card>
+
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Lock className="h-4 w-4 text-gray-400" /> Participant editing deadline</div>
+          <p className="text-xs text-gray-500">After this date, participants can no longer edit their registration or details (editing stays open through the day itself). Clear the date for no deadline.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="date" value={editDeadline} onChange={e => setEditDeadline(e.target.value)} className="h-9 text-sm border border-gray-200 rounded-md px-2.5" />
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={saveDeadline} disabled={savingDeadline}>
+              {savingDeadline ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
+            </Button>
+          </div>
         </CardContent>
       </Card>
 

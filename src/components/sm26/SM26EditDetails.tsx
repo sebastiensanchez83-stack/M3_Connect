@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Save, Pencil, AlertCircle } from 'lucide-react';
+import { Loader2, Save, Pencil, AlertCircle, Lock } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26_BASE_FIELDS } from '@/components/admin/AdminSM26';
+import { useSm26EditLock } from './useSm26EditLock';
 
 // Participant self-service editing of their own registration details. Solves the
 // dead-end where a field skipped at signup could never be fixed. Fields M3 has
@@ -23,6 +24,7 @@ export function SM26EditDetails({ registrationId, regStatus, onSaved }: { regist
   const [values, setValues] = useState<Record<string, string>>({});
   const [requested, setRequested] = useState<Set<string>>(new Set());
   const [note, setNote] = useState<string | null>(null);
+  const { locked, prettyDate } = useSm26EditLock();
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [registrationId]);
 
@@ -46,6 +48,7 @@ export function SM26EditDetails({ registrationId, regStatus, onSaved }: { regist
   const set = (k: string, val: string) => setValues(prev => ({ ...prev, [k]: val }));
 
   const save = async () => {
+    if (locked) return;
     if (!values.first_name?.trim() || !values.last_name?.trim()) {
       toast({ title: 'Name required', description: 'First and last name can’t be empty.', variant: 'destructive' });
       return;
@@ -76,7 +79,9 @@ export function SM26EditDetails({ registrationId, regStatus, onSaved }: { regist
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base"><Pencil className="h-4 w-4 text-primary" /> Your details</CardTitle>
-          <Button size="sm" variant={open ? 'ghost' : 'outline'} onClick={() => setOpen(o => !o)}>{open ? 'Close' : 'Edit'}</Button>
+          {locked
+            ? <span className="text-xs text-gray-400 inline-flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" /> Editing closed{prettyDate ? ` · ${prettyDate}` : ''}</span>
+            : <Button size="sm" variant={open ? 'ghost' : 'outline'} onClick={() => setOpen(o => !o)}>{open ? 'Close' : 'Edit'}</Button>}
         </div>
         <CardDescription>Keep your registration up to date — you can complete or correct anything here.</CardDescription>
       </CardHeader>
@@ -93,7 +98,7 @@ export function SM26EditDetails({ registrationId, regStatus, onSaved }: { regist
         </CardContent>
       )}
 
-      {open && (
+      {open && !locked && (
         <CardContent className="space-y-3">
           <div className="grid sm:grid-cols-2 gap-3">
             {SM26_BASE_FIELDS.map(f => (

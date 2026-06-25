@@ -908,7 +908,7 @@ export function MarketplacePage() {
                           <CardContent className="p-5 flex flex-col flex-1">
                             <div className="flex items-center gap-3 mb-3">
                               {orgCard.logo_url ? (
-                                <img src={orgCard.logo_url} alt={orgCard.name} className="w-14 h-14 rounded-xl object-cover border" />
+                                <img src={orgCard.logo_url} alt={orgCard.name} className="w-14 h-14 rounded-xl object-contain border bg-white p-1 shrink-0" />
                               ) : (
                                 <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg shrink-0">
                                   {getInitials(orgCard.name)}

@@ -154,7 +154,7 @@ export function PartnersPage() {
               <Card className="card-hover cursor-pointer h-full">
                 <CardContent className="p-6 text-center">
                   {partner.logo_url ? (
-                    <img src={partner.logo_url} alt={partner.name} className="w-20 h-20 rounded-full object-cover mx-auto mb-4" />
+                    <img src={partner.logo_url} alt={partner.name} className="w-20 h-20 rounded-full object-contain bg-white border border-gray-100 p-2 mx-auto mb-4" />
                   ) : (
                     <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center text-primary font-bold text-2xl mx-auto mb-4">
                       {getInitials(partner.name)}

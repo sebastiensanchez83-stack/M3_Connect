@@ -31,6 +31,8 @@ import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { isSponsorTier } from '@/types/database';
 import { CapitalIntentSection } from '@/components/capital/CapitalIntentSection';
 import { InvestmentThesisSection } from '@/components/capital/InvestmentThesisSection';
+import { resizeImage, fileMeta } from '@/lib/image';
+
 // PaymentForm removed — member tier is free, payment integration deferred
 
 interface OrgDocument {
@@ -127,6 +129,8 @@ export function OrganizationTab() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [logoMeta, setLogoMeta] = useState('');
+  const [bannerMeta, setBannerMeta] = useState('');
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
   // Organization documents
@@ -184,22 +188,26 @@ export function OrganizationTab() {
       toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP, GIF, SVG)', variant: 'destructive' });
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Maximum 5 MB', variant: 'destructive' });
+    if (file.size > 25 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 25 MB', variant: 'destructive' });
       return;
     }
     setUploadingLogo(true);
     try {
-      const ext = file.name.split('.').pop() || 'png';
+      const meta = await fileMeta(file);
+      const blob = await resizeImage(file, 600, 600); // shrink big files; keep PNG/SVG transparency
+      const ctype = (blob as Blob).type || file.type;
+      const ext = ctype === 'image/svg+xml' ? 'svg' : ctype === 'image/png' ? 'png' : 'jpg';
       const fileName = `${org.id}/logo-${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+      const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, blob, { cacheControl: '3600', upsert: true, contentType: ctype });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from('org-logos').getPublicUrl(fileName);
       const logoUrl = urlData.publicUrl;
       const { error: dbErr } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'logo', p_url: logoUrl });
       if (dbErr) throw dbErr;
       setOrg({ ...org, logo_url: logoUrl });
-      toast({ title: 'Logo updated' });
+      setLogoMeta(meta);
+      toast({ title: 'Logo updated', description: meta });
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -225,22 +233,26 @@ export function OrganizationTab() {
       toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP)', variant: 'destructive' });
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Maximum 10 MB', variant: 'destructive' });
+    if (file.size > 25 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 25 MB', variant: 'destructive' });
       return;
     }
     setUploadingBanner(true);
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
+      const meta = await fileMeta(file);
+      const blob = await resizeImage(file, 2000, 700); // wide cover; shrinks big files
+      const ctype = (blob as Blob).type || file.type;
+      const ext = ctype === 'image/svg+xml' ? 'svg' : ctype === 'image/png' ? 'png' : 'jpg';
       const fileName = `${org.id}/banner-${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, file, { cacheControl: '3600', upsert: true });
+      const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, blob, { cacheControl: '3600', upsert: true, contentType: ctype });
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from('org-logos').getPublicUrl(fileName);
       const bannerUrl = urlData.publicUrl;
       const { error: dbErr } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'banner', p_url: bannerUrl });
       if (dbErr) throw dbErr;
       setOrg({ ...org, banner_url: bannerUrl });
-      toast({ title: 'Cover photo updated' });
+      setBannerMeta(meta);
+      toast({ title: 'Cover photo updated', description: meta });
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -1067,37 +1079,41 @@ export function OrganizationTab() {
 
       {/* Organization Info Card */}
       <Card className="overflow-hidden">
-        {/* Cover banner (3:1, with upload overlay for owners) */}
-        <div className="relative aspect-[3/1] min-h-[10rem] bg-gradient-to-br from-slate-100 to-slate-200 group">
+        {/* Cover banner (3:1) — full-bleed, with an always-visible upload button for owners */}
+        <div className="relative aspect-[3/1] min-h-[10rem] bg-gradient-to-br from-slate-100 to-slate-200">
           {org.banner_url ? (
-            <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
+            <>
+              <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
+              {bannerMeta && <span className="absolute bottom-2 left-2 text-[10px] font-medium text-white bg-black/50 rounded px-1.5 py-0.5">{bannerMeta}</span>}
+            </>
           ) : (
-            <div className="w-full h-full flex items-center justify-center text-slate-400">
-              <Camera className="h-10 w-10 opacity-40" />
-            </div>
+            <button
+              type="button"
+              onClick={() => canEditBranding && bannerInputRef.current?.click()}
+              disabled={!canEditBranding}
+              className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-slate-400 hover:text-slate-500 transition-colors disabled:cursor-default"
+            >
+              <Camera className="h-9 w-9 opacity-40" />
+              {canEditBranding && <span className="text-xs font-medium">Add a cover photo</span>}
+            </button>
           )}
           {canEditBranding && (
             <>
+              {/* always visible so users don't have to hover to discover it */}
               <button
                 type="button"
                 onClick={() => bannerInputRef.current?.click()}
-                className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                title={org.banner_url ? 'Change cover photo' : 'Upload cover photo'}
+                disabled={uploadingBanner}
+                className="absolute top-3 right-3 flex items-center gap-1.5 bg-white/90 hover:bg-white text-slate-700 text-xs font-medium rounded-full px-3 py-1.5 shadow-sm disabled:opacity-60"
               >
-                {uploadingBanner ? (
-                  <Loader2 className="h-6 w-6 animate-spin text-white" />
-                ) : (
-                  <span className="flex items-center gap-2 text-white text-sm font-medium">
-                    <Camera className="h-5 w-5" />
-                    {org.banner_url ? 'Change cover photo' : 'Upload cover photo'}
-                  </span>
-                )}
+                {uploadingBanner ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                {org.banner_url ? 'Change cover' : 'Upload cover'}
               </button>
               {org.banner_url && (
                 <button
                   type="button"
                   onClick={handleRemoveBanner}
-                  className="absolute top-3 right-3 p-1.5 bg-red-500/90 hover:bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  className="absolute top-3 left-3 p-1.5 bg-red-500/90 hover:bg-red-500 text-white rounded-full shadow-sm"
                   title="Remove cover photo"
                 >
                   <X className="h-4 w-4" />
@@ -1113,48 +1129,55 @@ export function OrganizationTab() {
             </>
           )}
         </div>
+        {canEditBranding && (
+          <p className="px-6 pt-2 text-[11px] leading-snug text-slate-400">
+            Cover photo — wide image, recommended 1600×400&nbsp;px (JPG, PNG or WebP). Up to 25&nbsp;MB; large photos are optimised automatically on upload.
+          </p>
+        )}
         <CardHeader className="flex flex-row items-start justify-between">
           <div className="flex items-center gap-3">
-            {/* Logo with upload overlay for owners */}
-            <div className="relative group">
-              {org.logo_url ? (
-                <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-lg object-cover border" />
-              ) : (
-                <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Building2 className="h-7 w-7 text-primary" />
-                </div>
-              )}
+            {/* Logo + always-visible upload button for owners */}
+            <div className="flex flex-col items-center gap-1.5 shrink-0">
+              <div className="relative group">
+                {org.logo_url ? (
+                  <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-lg object-contain border bg-white p-1" />
+                ) : (
+                  <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
+                    <Building2 className="h-7 w-7 text-primary" />
+                  </div>
+                )}
+                {canEditBranding && org.logo_url && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveLogo}
+                    className="absolute -top-1.5 -right-1.5 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Remove logo"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f); if (logoInputRef.current) logoInputRef.current.value = ''; }}
+                />
+              </div>
               {canEditBranding && (
-                <button
-                  type="button"
-                  onClick={() => logoInputRef.current?.click()}
-                  className="absolute inset-0 rounded-lg bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-                  title="Change logo"
-                >
-                  {uploadingLogo ? (
-                    <Loader2 className="h-5 w-5 animate-spin text-white" />
-                  ) : (
-                    <Camera className="h-5 w-5 text-white" />
-                  )}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => logoInputRef.current?.click()}
+                    disabled={uploadingLogo}
+                    className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline disabled:opacity-60"
+                  >
+                    {uploadingLogo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
+                    {org.logo_url ? 'Change logo' : 'Add logo'}
+                  </button>
+                  <span className="text-[10px] text-slate-400 whitespace-nowrap">Square · max 25 MB</span>
+                </>
               )}
-              {canEditBranding && org.logo_url && (
-                <button
-                  type="button"
-                  onClick={handleRemoveLogo}
-                  className="absolute -top-1.5 -right-1.5 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Remove logo"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLogoUpload(f); if (logoInputRef.current) logoInputRef.current.value = ''; }}
-              />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -2001,7 +2024,7 @@ export function OrganizationTab() {
                   if (docInputRef.current) docInputRef.current.value = '';
                 }}
               />
-              <div className="mb-4">
+              <div className="mb-1">
                 <Input
                   value={docDescription}
                   onChange={(e) => setDocDescription(e.target.value)}
@@ -2009,6 +2032,7 @@ export function OrganizationTab() {
                   className="text-sm"
                 />
               </div>
+              <p className="mb-4 text-[11px] text-slate-400">PDF, Word or Excel — up to 20&nbsp;MB per file.</p>
             </>
           )}
 
@@ -2177,7 +2201,7 @@ export function OrganizationTab() {
             {/* Invoice Upload */}
             <div className="space-y-2">
               <Label>Upload Invoice (optional)</Label>
-              <p className="text-xs text-gray-500">If you have already received an invoice from M3, upload it here.</p>
+              <p className="text-xs text-gray-500">If you have already received an invoice from M3, upload it here. PDF, JPG or PNG — up to 10&nbsp;MB.</p>
               <input
                 ref={invoiceInputRef}
                 type="file"

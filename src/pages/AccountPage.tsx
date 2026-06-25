@@ -26,6 +26,7 @@ import { ShortlistTab } from '@/components/shortlist/ShortlistTab';
 import { InboxTab } from '@/components/inbox/InboxTab';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { resizeImage, fileMeta } from '@/lib/image';
 
 interface EventRegistration {
   id: string;
@@ -203,30 +204,33 @@ export function AccountPage() {
       toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP)', variant: 'destructive' });
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Maximum 5MB', variant: 'destructive' });
+    if (file.size > 25 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 25 MB', variant: 'destructive' });
       return;
     }
     const setter = type === 'avatar' ? setUploadingAvatar : setUploadingLogo;
     setter(true);
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
+      const meta = await fileMeta(file);
+      const blob = await resizeImage(file, 600, 600); // shrink big files; keep PNG/SVG transparency
+      const ctype = (blob as Blob).type || file.type;
+      const ext = ctype === 'image/svg+xml' ? 'svg' : ctype === 'image/png' ? 'png' : 'jpg';
       const prefix = type === 'avatar' ? 'avatars' : 'logos';
       const fileName = `${prefix}/${user!.id}-${Date.now()}.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from('profile-images').upload(fileName, file, { cacheControl: '3600', upsert: true });
+      const { error: uploadErr } = await supabase.storage.from('profile-images').upload(fileName, blob, { cacheControl: '3600', upsert: true, contentType: ctype });
       if (uploadErr) throw uploadErr;
       const { data: urlData } = supabase.storage.from('profile-images').getPublicUrl(fileName);
       const publicUrl = urlData.publicUrl;
 
       if (type === 'avatar') {
         await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('user_id', user!.id);
-        toast({ title: 'Profile image updated' });
+        toast({ title: 'Profile image updated', description: meta });
       } else {
         // Update logo on organization
         if (organization) {
           await supabase.from('organizations').update({ logo_url: publicUrl }).eq('id', organization.id);
         }
-        toast({ title: 'Company logo updated' });
+        toast({ title: 'Company logo updated', description: meta });
       }
       await refreshProfile();
     } catch (err: unknown) {
@@ -1045,10 +1049,15 @@ export function AccountPage() {
                     <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'avatar'); }} disabled={uploadingAvatar} />
                   </label>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="font-semibold text-gray-900">{profile.first_name} {profile.last_name}</div>
                   <div className="text-sm text-gray-500">{user.email}</div>
-                  <div className="text-xs text-gray-400 mt-1">Hover photo to change</div>
+                  <label className="mt-2 inline-flex items-center gap-1.5 cursor-pointer rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                    {uploadingAvatar ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    {profile.avatar_url ? 'Change photo' : 'Upload photo'}
+                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'avatar'); }} disabled={uploadingAvatar} />
+                  </label>
+                  <div className="text-[11px] text-gray-400 mt-1">Square JPG, PNG or WebP · up to 25&nbsp;MB. Large photos are optimised automatically.</div>
                 </div>
               </div>
 
@@ -1903,7 +1912,7 @@ export function AccountPage() {
                 {/* Logo + Org Name */}
                 <div className="flex items-center gap-3">
                   {org.logo_url ? (
-                    <img src={org.logo_url} alt="Logo" className="w-12 h-12 rounded-lg object-cover border" />
+                    <img src={org.logo_url} alt="Logo" className="w-12 h-12 rounded-lg object-contain border bg-white p-0.5" />
                   ) : (
                     <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center border">
                       {isMarina ? <Anchor className="h-5 w-5 text-gray-300" /> : profile.persona === 'partner' ? <Building2 className="h-5 w-5 text-gray-300" /> : <Newspaper className="h-5 w-5 text-gray-300" />}

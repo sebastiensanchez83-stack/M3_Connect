@@ -286,11 +286,11 @@ export function OrganizationPublicPage() {
           </Link>
           <div className="flex items-start gap-6">
             {/* Org Avatar */}
-            <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl bg-white/10 backdrop-blur-sm flex items-center justify-center shrink-0 shadow-lg">
+            <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-2xl bg-white flex items-center justify-center shrink-0 shadow-lg overflow-hidden">
               {org.logo_url ? (
-                <img src={org.logo_url} alt={org.name} className="w-full h-full rounded-2xl object-cover" />
+                <img src={org.logo_url} alt={org.name} className="w-full h-full rounded-2xl object-contain p-1.5" />
               ) : (
-                <Building2 className="h-10 w-10 lg:h-12 lg:w-12 text-white/70" />
+                <Building2 className="h-10 w-10 lg:h-12 lg:w-12 text-gray-300" />
               )}
             </div>
             <div>

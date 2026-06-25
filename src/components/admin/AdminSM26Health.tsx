@@ -53,6 +53,8 @@ export function AdminSM26Health() {
   const [remindMsg, setRemindMsg] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
   const [payMsg, setPayMsg] = useState<string | null>(null);
+  const [onboardBusy, setOnboardBusy] = useState<string | null>(null);
+  const [onboardMsg, setOnboardMsg] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -119,6 +121,32 @@ export function AdminSM26Health() {
     toast({ title: `Payment reminders sent to ${n}` });
   };
 
+  // Onboarding invites: email everyone who has a registration but no account yet
+  // a link to create their account + claim it. Repeatable (re-targets only those
+  // still not on the platform).
+  const sendTestOnboarding = async () => {
+    setOnboardBusy('test'); setOnboardMsg(null);
+    const { data: u } = await supabase.auth.getUser();
+    const email = u?.user?.email;
+    if (!email) { setOnboardBusy(null); setOnboardMsg('Could not determine your email.'); return; }
+    const { error } = await supabase.functions.invoke('sm26-onboarding', { body: { test_email: email } });
+    setOnboardBusy(null);
+    if (error) { setOnboardMsg(`Test failed: ${error.message}`); return; }
+    setOnboardMsg(`Test onboarding email sent to ${email}.`);
+    toast({ title: 'Test onboarding email sent', description: email });
+  };
+
+  const sendAllOnboarding = async () => {
+    if (!window.confirm('Email everyone who has a registration but no account yet, inviting them to create their account and claim it? Only people not yet on the platform are emailed.')) return;
+    setOnboardBusy('all'); setOnboardMsg(null);
+    const { data, error } = await supabase.functions.invoke('sm26-onboarding', { body: {} });
+    setOnboardBusy(null);
+    if (error) { setOnboardMsg(`Send failed: ${error.message}`); return; }
+    const n = (data as { sent?: number } | null)?.sent ?? 0;
+    setOnboardMsg(`Onboarding invite sent to ${n} participant(s).`);
+    toast({ title: `Onboarding sent to ${n} participant(s)` });
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
   if (!h) return <div className="py-12 text-center text-gray-400">No event data.</div>;
 
@@ -174,6 +202,22 @@ export function AdminSM26Health() {
           </CardContent>
         </Card>
       </div>
+
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Send className="h-4 w-4 text-gray-400" /> Onboarding invites</div>
+          <p className="text-xs text-gray-500">Email everyone who has a registration but <strong>hasn't created an account yet</strong> a link to set up their account and claim it. Repeatable — only people still not on the platform are emailed. <span className="text-amber-600">Send this at launch, once the public SM26 pages are live.</span></p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={sendTestOnboarding} disabled={!!onboardBusy}>
+              {onboardBusy === 'test' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send test to me
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={sendAllOnboarding} disabled={!!onboardBusy}>
+              {onboardBusy === 'all' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to everyone not yet on the platform
+            </Button>
+          </div>
+          {onboardMsg && <p className="text-xs text-gray-500">{onboardMsg}</p>}
+        </CardContent>
+      </Card>
 
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4 space-y-3">

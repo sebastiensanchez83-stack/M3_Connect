@@ -196,7 +196,7 @@ export function OrganizationTab() {
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from('org-logos').getPublicUrl(fileName);
       const logoUrl = urlData.publicUrl;
-      const { error: dbErr } = await supabase.from('organizations').update({ logo_url: logoUrl }).eq('id', org.id);
+      const { error: dbErr } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'logo', p_url: logoUrl });
       if (dbErr) throw dbErr;
       setOrg({ ...org, logo_url: logoUrl });
       toast({ title: 'Logo updated' });
@@ -209,7 +209,7 @@ export function OrganizationTab() {
   const handleRemoveLogo = async () => {
     if (!org) return;
     try {
-      const { error } = await supabase.from('organizations').update({ logo_url: null }).eq('id', org.id);
+      const { error } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'logo', p_url: null });
       if (error) throw error;
       setOrg({ ...org, logo_url: null });
       toast({ title: 'Logo removed' });
@@ -237,7 +237,7 @@ export function OrganizationTab() {
       if (upErr) throw upErr;
       const { data: urlData } = supabase.storage.from('org-logos').getPublicUrl(fileName);
       const bannerUrl = urlData.publicUrl;
-      const { error: dbErr } = await supabase.from('organizations').update({ banner_url: bannerUrl }).eq('id', org.id);
+      const { error: dbErr } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'banner', p_url: bannerUrl });
       if (dbErr) throw dbErr;
       setOrg({ ...org, banner_url: bannerUrl });
       toast({ title: 'Cover photo updated' });
@@ -250,7 +250,7 @@ export function OrganizationTab() {
   const handleRemoveBanner = async () => {
     if (!org) return;
     try {
-      const { error } = await supabase.from('organizations').update({ banner_url: null }).eq('id', org.id);
+      const { error } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'banner', p_url: null });
       if (error) throw error;
       setOrg({ ...org, banner_url: null });
       toast({ title: 'Cover photo removed' });
@@ -1057,6 +1057,9 @@ export function OrganizationTab() {
 
   // ── HAS ORG: Show org details ──
   const canInvite = isOwner;
+  // Any member of the org (owner or collaborator) can update branding (logo /
+  // cover). The update_org_branding RPC enforces membership server-side.
+  const canEditBranding = true;
 
   return (
     <div className="space-y-6">
@@ -1073,7 +1076,7 @@ export function OrganizationTab() {
               <Camera className="h-10 w-10 opacity-40" />
             </div>
           )}
-          {isOwner && (
+          {canEditBranding && (
             <>
               <button
                 type="button"
@@ -1121,7 +1124,7 @@ export function OrganizationTab() {
                   <Building2 className="h-7 w-7 text-primary" />
                 </div>
               )}
-              {isOwner && (
+              {canEditBranding && (
                 <button
                   type="button"
                   onClick={() => logoInputRef.current?.click()}
@@ -1135,7 +1138,7 @@ export function OrganizationTab() {
                   )}
                 </button>
               )}
-              {isOwner && org.logo_url && (
+              {canEditBranding && org.logo_url && (
                 <button
                   type="button"
                   onClick={handleRemoveLogo}

@@ -1072,6 +1072,11 @@ export function OrganizationTab() {
   // Any member of the org (owner or collaborator) can update branding (logo /
   // cover). The update_org_branding RPC enforces membership server-side.
   const canEditBranding = true;
+  // Any member can also edit the org's profile details (name, description,
+  // location, marina facts, sectors). Sensitive fields (tier, verification,
+  // claim code, ownership, domain settings) stay owner/admin-only — enforced by
+  // RLS + the guard_org_sensitive_columns trigger.
+  const canEditOrg = true;
 
   return (
     <div className="space-y-6">
@@ -1211,7 +1216,7 @@ export function OrganizationTab() {
                 {t('org.viewPublicPage')}
               </Link>
             </Button>
-            {isOwner && (
+            {canEditOrg && (
               <Button variant="outline" size="sm" onClick={() => setEditing(!editing)}>
                 {t('org.editOrg')}
               </Button>
@@ -1447,7 +1452,7 @@ export function OrganizationTab() {
           )}
 
           {/* Edit form */}
-          {editing && isOwner && (
+          {editing && canEditOrg && (
             <div className="border-t pt-4 space-y-4">
               {/* Base fields */}
               <div className="grid grid-cols-2 gap-3">

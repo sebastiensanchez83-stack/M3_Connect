@@ -215,8 +215,10 @@ export function AccountPage() {
       const blob = await resizeImage(file, 600, 600); // shrink big files; keep PNG/SVG transparency
       const ctype = (blob as Blob).type || file.type;
       const ext = ctype === 'image/svg+xml' ? 'svg' : ctype === 'image/png' ? 'png' : 'jpg';
-      const prefix = type === 'avatar' ? 'avatars' : 'logos';
-      const fileName = `${prefix}/${user!.id}-${Date.now()}.${ext}`;
+      const prefix = type === 'avatar' ? 'avatar' : 'logo';
+      // The storage RLS policy requires the first path segment to be the user's
+      // id (…/foldername[1] = auth.uid()). Keep the uid as the folder.
+      const fileName = `${user!.id}/${prefix}-${Date.now()}.${ext}`;
       const { error: uploadErr } = await supabase.storage.from('profile-images').upload(fileName, blob, { cacheControl: '3600', upsert: true, contentType: ctype });
       if (uploadErr) throw uploadErr;
       const { data: urlData } = supabase.storage.from('profile-images').getPublicUrl(fileName);
@@ -228,7 +230,7 @@ export function AccountPage() {
       } else {
         // Update logo on organization
         if (organization) {
-          await supabase.from('organizations').update({ logo_url: publicUrl }).eq('id', organization.id);
+          await supabase.rpc('update_org_branding', { p_org_id: organization.id, p_field: 'logo', p_url: publicUrl });
         }
         toast({ title: 'Company logo updated', description: meta });
       }

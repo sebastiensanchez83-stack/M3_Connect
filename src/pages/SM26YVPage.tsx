@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
-import { RefreshCw, Lightbulb, Scale, Lock, Video, Plus, X, Calendar, CheckCircle2, Clock } from 'lucide-react';
+import { RefreshCw, Lightbulb, Scale, Lock, Video, Plus, X, Calendar, CheckCircle2, Clock, Mail } from 'lucide-react';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { toast } from '@/hooks/use-toast';
 
@@ -25,6 +25,7 @@ interface Juror {
 interface JurySession {
   id: string; title: string; entry_role_assignment_id: string | null; entry_company: string | null;
   scheduled_at: string; duration_minutes: number; status: string; zoom_join_url: string | null;
+  entries: { id: string; company: string }[];
 }
 interface AssignableJuror { user_id: string; name: string | null }
 interface JuryAssignment { id: string; entry_role_assignment_id: string; juror_user_id: string; juror_name: string; submitted: boolean }
@@ -52,7 +53,7 @@ export function SM26YVPage() {
   const [sessions, setSessions] = useState<JurySession[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [sTitle, setSTitle] = useState('');
-  const [sEntry, setSEntry] = useState('');
+  const [sEntries, setSEntries] = useState<string[]>([]);
   const [sWhen, setSWhen] = useState('');
   const [sDur, setSDur] = useState('30');
   const [sTest, setSTest] = useState(false);
@@ -91,7 +92,7 @@ export function SM26YVPage() {
     const { data, error } = await supabase.functions.invoke('sm26-jury-session', {
       body: {
         action: 'create', title: sTitle.trim() || undefined,
-        entry_role_assignment_id: sEntry || undefined,
+        entry_role_assignment_ids: sEntries,
         scheduled_at: new Date(sWhen).toISOString(), duration_minutes: Number(sDur) || 30,
         test_email: sTest ? user?.email : undefined,
       },
@@ -106,8 +107,19 @@ export function SM26YVPage() {
         ? `Real Zoom created · invite sent only to you (${user?.email}). No emails to jurors or startups.`
         : `Zoom created · invitations sent to ${r?.invited ?? 0} people.`,
     });
-    setShowCreate(false); setSTitle(''); setSEntry(''); setSWhen(''); setSDur('30'); setSTest(false);
+    setShowCreate(false); setSTitle(''); setSEntries([]); setSWhen(''); setSDur('30'); setSTest(false);
     load();
+  };
+  // (b) Post-session: email each juror a link to score the innovations they reviewed.
+  const notifyEvaluate = async (s: JurySession) => {
+    if (!confirm("Email every juror assigned to this session's innovations a link to submit their evaluation?")) return;
+    setBusy(true);
+    const { data, error } = await supabase.functions.invoke('sm26-jury-session', { body: { action: 'notify_evaluate', session_id: s.id } });
+    setBusy(false);
+    const err = error || (data as { error?: string })?.error;
+    if (err) { toast({ title: 'Could not send', description: typeof err === 'string' ? err : 'Please try again.', variant: 'destructive' }); return; }
+    const r = data as { sent?: number };
+    toast({ title: 'Evaluation reminder sent', description: `Emailed ${r?.sent ?? 0} juror${r?.sent === 1 ? '' : 's'} a link to score their innovations.` });
   };
   const cancelSession = async (s: JurySession) => {
     if (!confirm(`Cancel "${s.title}"? The Zoom meeting will be deleted and attendees notified.`)) return;
@@ -196,15 +208,26 @@ export function SM26YVPage() {
             {showCreate && (
               <div className="rounded-lg border border-gray-200 p-3 space-y-2 bg-gray-50">
                 <Input value={sTitle} onChange={e => setSTitle(e.target.value)} placeholder="Title (default: Innovation jury session)" className="h-9 bg-white" />
-                <div className="grid sm:grid-cols-2 gap-2">
-                  <select value={sEntry} onChange={e => setSEntry(e.target.value)} className="h-9 rounded-md border border-gray-200 px-2 text-sm bg-white">
-                    <option value="">All innovation jurors (no specific entry)</option>
-                    {innovations.map(i => <option key={i.role_assignment_id} value={i.role_assignment_id}>{i.company}</option>)}
-                  </select>
-                  <div className="flex gap-2">
-                    <Input type="datetime-local" value={sWhen} onChange={e => setSWhen(e.target.value)} className="h-9 bg-white" />
-                    <Input type="number" min={10} max={240} value={sDur} onChange={e => setSDur(e.target.value)} className="h-9 w-20 bg-white" title="Minutes" />
+                <div>
+                  <div className="text-xs text-gray-500 mb-1">Innovations in this session{sEntries.length > 0 ? ` (${sEntries.length})` : ''}</div>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto rounded-md border border-gray-200 bg-white p-2">
+                    {innovations.length === 0 && <span className="text-xs text-gray-400">No innovations yet.</span>}
+                    {innovations.map(i => {
+                      const on = sEntries.includes(i.role_assignment_id);
+                      return (
+                        <button type="button" key={i.role_assignment_id}
+                          onClick={() => setSEntries(prev => on ? prev.filter(x => x !== i.role_assignment_id) : [...prev, i.role_assignment_id])}
+                          className={`text-xs rounded-full border px-2.5 py-1 transition-colors ${on ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>
+                          {i.company}
+                        </button>
+                      );
+                    })}
                   </div>
+                  <p className="text-[11px] text-gray-400 mt-1">Pick the innovations reviewed in this session — their assigned jurors and the startups are invited. Leave empty to invite all innovation jurors.</p>
+                </div>
+                <div className="flex gap-2">
+                  <Input type="datetime-local" value={sWhen} onChange={e => setSWhen(e.target.value)} className="h-9 bg-white" />
+                  <Input type="number" min={10} max={240} value={sDur} onChange={e => setSDur(e.target.value)} className="h-9 w-20 bg-white" title="Minutes" />
                 </div>
                 <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
                   <input type="checkbox" checked={sTest} onChange={e => setSTest(e.target.checked)} className="rounded border-gray-300" />
@@ -220,20 +243,36 @@ export function SM26YVPage() {
               </div>
             )}
             {sessions.length === 0 && !showCreate && <p className="text-sm text-gray-400">No sessions scheduled yet.</p>}
-            {sessions.map(s => (
-              <div key={s.id} className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-2 ${s.status === 'cancelled' ? 'border-gray-100 opacity-50' : 'border-gray-200'}`}>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium flex items-center gap-2">{s.title}{s.status === 'cancelled' && <span className="text-xs text-red-500">cancelled</span>}</div>
-                  <div className="text-xs text-gray-400 flex items-center gap-x-2 gap-y-0.5 flex-wrap">
-                    <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> {new Date(s.scheduled_at).toLocaleString()}</span>
-                    {s.entry_company && <span>· {s.entry_company}</span>}
-                    <span>· {s.duration_minutes} min</span>
-                    {s.zoom_join_url && s.status !== 'cancelled' && <a href={s.zoom_join_url} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-0.5"><Video className="h-3 w-3" /> Zoom</a>}
+            {sessions.map(s => {
+              const groupNames = s.entries && s.entries.length ? s.entries.map(e => e.company) : (s.entry_company ? [s.entry_company] : []);
+              return (
+              <div key={s.id} className={`rounded-lg border px-3 py-2 ${s.status === 'cancelled' ? 'border-gray-100 opacity-50' : 'border-gray-200'}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium flex items-center gap-2">{s.title}{s.status === 'cancelled' && <span className="text-xs text-red-500">cancelled</span>}</div>
+                    <div className="text-xs text-gray-400 flex items-center gap-x-2 gap-y-0.5 flex-wrap">
+                      <span className="inline-flex items-center gap-1"><Calendar className="h-3 w-3" /> {new Date(s.scheduled_at).toLocaleString()}</span>
+                      <span>· {s.duration_minutes} min</span>
+                      {groupNames.length === 0 && <span>· all innovation jurors</span>}
+                      {s.zoom_join_url && s.status !== 'cancelled' && <a href={s.zoom_join_url} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-0.5"><Video className="h-3 w-3" /> Zoom</a>}
+                    </div>
                   </div>
+                  {s.status !== 'cancelled' && <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-red-600 shrink-0" onClick={() => cancelSession(s)} disabled={busy}><X className="h-4 w-4" /></Button>}
                 </div>
-                {s.status !== 'cancelled' && <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-red-600 shrink-0" onClick={() => cancelSession(s)} disabled={busy}><X className="h-4 w-4" /></Button>}
+                {groupNames.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {groupNames.map((n, idx) => <span key={idx} className="text-[11px] bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">{n}</span>)}
+                  </div>
+                )}
+                {s.status !== 'cancelled' && groupNames.length > 0 && (
+                  <div className="mt-2">
+                    <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => notifyEvaluate(s)} disabled={busy}>
+                      <Mail className="h-3.5 w-3.5" /> Email jurors to evaluate
+                    </Button>
+                  </div>
+                )}
               </div>
-            ))}
+            );})}
           </CardContent>
         </Card>
 

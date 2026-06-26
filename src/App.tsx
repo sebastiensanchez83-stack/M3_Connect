@@ -60,6 +60,7 @@ const SM26FeedbackPage = lazyWithRetry(() => import('@/pages/SM26FeedbackPage').
 const SM26ClaimPage = lazyWithRetry(() => import('@/pages/SM26ClaimPage').then(m => ({ default: m.SM26ClaimPage })));
 const SM26PartnerPage = lazyWithRetry(() => import('@/pages/SM26PartnerPage').then(m => ({ default: m.SM26PartnerPage })));
 const SM26YVPage = lazyWithRetry(() => import('@/pages/SM26YVPage').then(m => ({ default: m.SM26YVPage })));
+const SM26ConnectPage = lazyWithRetry(() => import('@/pages/SM26ConnectPage').then(m => ({ default: m.SM26ConnectPage })));
 
 function LazyFallback() {
   return (
@@ -102,6 +103,7 @@ function App() {
                   <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
                   <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
                   <Route path="/sm26/claim" element={<SM26ClaimPage />} />
+                  <Route path="/sm26/connect" element={<SM26ConnectPage />} />
                 </>
               )}
               {/* Partner consoles (Yacht Club + Yachting Ventures) stay reachable

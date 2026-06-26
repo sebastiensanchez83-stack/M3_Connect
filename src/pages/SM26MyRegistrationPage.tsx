@@ -19,6 +19,7 @@ import { SM26EditDetails } from '@/components/sm26/SM26EditDetails';
 import { SM26EditModule } from '@/components/sm26/SM26EditModule';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { SM26Agenda } from '@/components/sm26/SM26Agenda';
+import { SM26MyConnections } from '@/components/sm26/SM26MyConnections';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
 // SM26 roles. Linked from the "information needed" notification (/sm26/me).
@@ -278,6 +279,8 @@ export function SM26MyRegistrationPage() {
             <SM26Agenda mineOnly />
           </CardContent>
         </Card>
+
+        {reg && <SM26MyConnections eventId={reg.event_id} />}
 
         {ecat.length > 0 && (
           <Card>

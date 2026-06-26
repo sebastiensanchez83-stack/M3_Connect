@@ -36,6 +36,7 @@
     "i18next": "^23.7.6",
     "jsqr": "1.4.0",
     "lucide-react": "^0.294.0",
+    "qrcode": "^1.5.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-helmet-async": "^3.0.0",
@@ -48,6 +49,7 @@
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
     "@types/node": "^20.10.0",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@typescript-eslint/eslint-plugin": "^6.10.0",

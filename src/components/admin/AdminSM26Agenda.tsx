@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, CalendarDays, Plus, Pencil, Trash2, Eye, EyeOff, Users } from 'lucide-react';
+import { RefreshCw, ArrowLeft, CalendarDays, Plus, Pencil, Trash2, Eye, EyeOff, Users, Paperclip } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +28,7 @@ interface Session {
   id: string; title: string; description: string | null; type: string;
   starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null;
   capacity: number | null; presentation_enabled: boolean; share_with_audience: boolean;
-  published: boolean; display_order: number;
+  published: boolean; display_order: number; deck_path: string | null;
 }
 type FormState = {
   title: string; type: string; date: string; start: string; end: string;
@@ -50,6 +50,9 @@ export function AdminSM26Agenda() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [deckFile, setDeckFile] = useState<File | null>(null);
+  const [existingDeck, setExistingDeck] = useState<string | null>(null);
+  const [removeDeck, setRemoveDeck] = useState(false);
   const [speakers, setSpeakers] = useState<string[]>([]);
   const [dayTab, setDayTab] = useState<string>('all');
 
@@ -82,7 +85,7 @@ export function AdminSM26Agenda() {
     setLoading(false);
   };
 
-  const openNew = () => { setEditId(null); setForm(EMPTY); setOpen(true); };
+  const openNew = () => { setEditId(null); setForm(EMPTY); setDeckFile(null); setExistingDeck(null); setRemoveDeck(false); setOpen(true); };
   const openEdit = (s: Session) => {
     setEditId(s.id);
     setForm({
@@ -90,6 +93,7 @@ export function AdminSM26Agenda() {
       room: s.room || '', speakers: s.speakers || '', description: s.description || '', capacity: s.capacity?.toString() || '',
       published: s.published, presentation_enabled: s.presentation_enabled, share_with_audience: s.share_with_audience,
     });
+    setDeckFile(null); setExistingDeck(s.deck_path); setRemoveDeck(false);
     setOpen(true);
   };
 
@@ -107,11 +111,28 @@ export function AdminSM26Agenda() {
       published: form.published, presentation_enabled: form.presentation_enabled,
       share_with_audience: form.share_with_audience, updated_at: new Date().toISOString(),
     };
-    const { error } = editId
-      ? await supabase.from('sm_session').update(payload).eq('id', editId)
-      : await supabase.from('sm_session').insert(payload);
+    let sessionId = editId;
+    let saveErr;
+    if (editId) {
+      const { error } = await supabase.from('sm_session').update(payload).eq('id', editId);
+      saveErr = error;
+    } else {
+      const { data, error } = await supabase.from('sm_session').insert(payload).select('id').single();
+      saveErr = error;
+      sessionId = (data as { id: string } | null)?.id ?? null;
+    }
+    if (saveErr || !sessionId) { setSaving(false); toast({ title: 'Could not save', description: saveErr?.message, variant: 'destructive' }); return; }
+    // Slides: upload a new file (auto-enables the presentation), or clear the attached one.
+    if (deckFile) {
+      const safe = deckFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `session-decks/${sessionId}/${safe}`;
+      const { error: upErr } = await supabase.storage.from('event-media').upload(path, deckFile, { upsert: true });
+      if (upErr) { setSaving(false); toast({ title: 'Slides upload failed', description: upErr.message, variant: 'destructive' }); return; }
+      await supabase.from('sm_session').update({ deck_path: path, presentation_enabled: true }).eq('id', sessionId);
+    } else if (removeDeck && editId) {
+      await supabase.from('sm_session').update({ deck_path: null }).eq('id', editId);
+    }
     setSaving(false);
-    if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
     setOpen(false);
     toast({ title: editId ? 'Session updated' : 'Session added' });
     load();
@@ -190,6 +211,7 @@ export function AdminSM26Agenda() {
                       {s.type === 'workshop' && s.capacity != null && (
                         <span className="text-[11px] text-gray-500 inline-flex items-center gap-1"><Users className="h-3 w-3" /> {counts[s.id] || 0}/{s.capacity}</span>
                       )}
+                      {s.deck_path && <span title={s.share_with_audience ? 'Slides attached & shared' : 'Slides attached (not shared)'} className={s.share_with_audience ? 'text-primary' : 'text-gray-300'}><Paperclip className="h-3 w-3" /></span>}
                     </div>
                     {s.room && <span className="text-xs text-gray-500">{s.room}</span>}
                   </div>
@@ -245,6 +267,19 @@ export function AdminSM26Agenda() {
               <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.published} onCheckedChange={c => setForm({ ...form, published: c as boolean })} /> Published</label>
               <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.presentation_enabled} onCheckedChange={c => setForm({ ...form, presentation_enabled: c as boolean })} /> Presentation</label>
               <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.share_with_audience} onCheckedChange={c => setForm({ ...form, share_with_audience: c as boolean })} /> Share slides</label>
+            </div>
+            <div className="space-y-1.5 rounded-lg border border-gray-100 p-3">
+              <Label className="text-xs text-gray-600 flex items-center gap-1.5"><Paperclip className="h-3.5 w-3.5" /> Slides / presentation file</Label>
+              {existingDeck && !removeDeck && !deckFile && (
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-gray-600 truncate">{existingDeck.split('/').pop()}</span>
+                  <button type="button" className="text-red-500 hover:underline shrink-0" onClick={() => setRemoveDeck(true)}>Remove</button>
+                </div>
+              )}
+              {removeDeck && <div className="text-xs text-amber-600">Slides will be removed on save. <button type="button" className="underline" onClick={() => setRemoveDeck(false)}>Undo</button></div>}
+              <Input type="file" accept=".pdf,.ppt,.pptx,image/*" className="text-xs" onChange={e => { setDeckFile(e.target.files?.[0] || null); setRemoveDeck(false); }} />
+              {deckFile && <div className="text-xs text-gray-500">New: {deckFile.name}</div>}
+              <p className="text-[11px] text-gray-400">Uploading enables the presentation. Tick “Share slides” to let attendees download it from the programme.</p>
             </div>
           </div>
           <DialogFooter>

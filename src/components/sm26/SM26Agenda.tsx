@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Users, Check, Clock3, Download, Loader2, RefreshCw } from 'lucide-react';
+import { MapPin, Users, Check, Clock3, Download, Loader2, RefreshCw, CalendarPlus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -31,6 +31,41 @@ const TYPE_CLASS: Record<string, string> = {
 const TZ = 'Europe/Monaco';
 const fmtTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: TZ }) : '';
 const dayKey = (s: string | null) => s ? new Date(s).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ }) : 'TBD';
+
+// ── iCalendar (.ics) export — lets attendees drop sessions into Apple/Google/Outlook ──
+const icsStamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+const icsEsc = (s: string) => s.replace(/\\/g, '\\\\').replace(/[;,]/g, m => '\\' + m).replace(/\r?\n/g, '\\n');
+const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'session';
+
+function buildIcs(items: Session[]): string {
+  const stamp = icsStamp(new Date());
+  const out = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Smart Marina Connect//SM26//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+  for (const s of items) {
+    if (!s.starts_at) continue;
+    const start = new Date(s.starts_at);
+    const end = s.ends_at ? new Date(s.ends_at) : new Date(start.getTime() + 3600_000);
+    const desc = [s.description, s.speakers ? `Speakers: ${s.speakers}` : ''].filter(Boolean).join('\n');
+    out.push('BEGIN:VEVENT', `UID:sm26-${s.id}@smartmarinaconnect.com`, `DTSTAMP:${stamp}`, `DTSTART:${icsStamp(start)}`, `DTEND:${icsStamp(end)}`, `SUMMARY:${icsEsc(s.title)}`);
+    if (desc) out.push(`DESCRIPTION:${icsEsc(desc)}`);
+    if (s.room) out.push(`LOCATION:${icsEsc(s.room)}`);
+    out.push('END:VEVENT');
+  }
+  out.push('END:VCALENDAR');
+  return out.join('\r\n');
+}
+
+function downloadIcs(filename: string, ics: string) {
+  const blob = new Blob([ics], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// A participant's personal calendar = the common programme (everything that isn't
+// an optional workshop or a meal break) plus the workshops they actually chose.
+const personalSet = (sessions: Session[]) =>
+  sessions.filter(s => s.type !== 'meal' && (s.type !== 'workshop' || s.my_status === 'booked' || s.my_status === 'waitlisted'));
 
 export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId?: string; mineOnly?: boolean }) {
   const { user } = useAuth();
@@ -75,18 +110,19 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
     const { data } = await supabase.storage.from('event-media').createSignedUrl(path, 300);
     if (data) window.open(data.signedUrl, '_blank');
   };
+  const addOne = (s: Session) => downloadIcs(`sm26-${slugify(s.title)}.ics`, buildIcs([s]));
+  const addMyCalendar = () => {
+    const mine = personalSet(sessions);
+    if (mine.length === 0) { toast({ title: 'Nothing to add yet', description: 'Book a workshop and your schedule will fill in.' }); return; }
+    downloadIcs('sm26-my-schedule.ics', buildIcs(mine));
+  };
 
   if (loading) return <div className="flex items-center justify-center py-10"><RefreshCw className="h-6 w-6 animate-spin text-gray-300" /></div>;
 
-  const shown = mineOnly ? sessions.filter(s => s.my_status === 'booked' || s.my_status === 'waitlisted') : sessions;
-
-  if (mineOnly && shown.length === 0) {
-    return (
-      <p className="text-sm text-gray-500">
-        You haven't booked any workshops yet. <Link to="/sm26/agenda" className="text-primary hover:underline">Browse the programme</Link> to choose one per day.
-      </p>
-    );
-  }
+  const shown = mineOnly ? personalSet(sessions) : sessions;
+  const myWorkshopCount = mineOnly
+    ? sessions.filter(s => s.type === 'workshop' && (s.my_status === 'booked' || s.my_status === 'waitlisted')).length
+    : 0;
 
   // group by day, preserving order
   const days: { key: string; items: Session[] }[] = [];
@@ -104,6 +140,20 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
 
   return (
     <div className="space-y-6">
+      {mineOnly && (
+        <div className="space-y-3">
+          {myWorkshopCount === 0 && (
+            <p className="text-sm text-gray-500">
+              You haven't booked a workshop yet. <Link to="/sm26/agenda" className="text-primary hover:underline">Browse the programme</Link> to choose one per day — it will appear here.
+            </p>
+          )}
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={addMyCalendar}>
+              <CalendarPlus className="h-4 w-4" /> Add my schedule to calendar
+            </Button>
+          </div>
+        </div>
+      )}
       {!mineOnly && days.length > 1 && (
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => setDayTab('all')} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${dayTab === 'all' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>Both days</button>
@@ -142,11 +192,18 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
                           )}
                         </div>
 
-                        {s.presentation_enabled && s.deck_path && s.share_with_audience && (
-                          <Button variant="ghost" size="sm" className="gap-1.5 text-primary mt-1 px-0 h-7" onClick={() => downloadDeck(s.deck_path!)}>
-                            <Download className="h-3.5 w-3.5" /> Download slides
-                          </Button>
-                        )}
+                        <div className="flex items-center gap-3 flex-wrap mt-1">
+                          {s.presentation_enabled && s.deck_path && s.share_with_audience && (
+                            <Button variant="ghost" size="sm" className="gap-1.5 text-primary px-0 h-7" onClick={() => downloadDeck(s.deck_path!)}>
+                              <Download className="h-3.5 w-3.5" /> Download slides
+                            </Button>
+                          )}
+                          {s.starts_at && s.type !== 'meal' && (
+                            <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500 px-0 h-7" onClick={() => addOne(s)}>
+                              <CalendarPlus className="h-3.5 w-3.5" /> Add to calendar
+                            </Button>
+                          )}
+                        </div>
 
                         {isWorkshop && (
                           <div className="mt-2">

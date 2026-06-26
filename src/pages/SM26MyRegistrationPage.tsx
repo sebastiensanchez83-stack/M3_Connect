@@ -274,7 +274,7 @@ export function SM26MyRegistrationPage() {
         <Card>
           <CardContent className="pt-6">
             <div className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> My programme</div>
-            <p className="text-xs text-gray-500 mb-3">The workshops you've booked. <Link to="/sm26/agenda" className="text-primary hover:underline">View the full programme</Link> to add or change.</p>
+            <p className="text-xs text-gray-500 mb-3">Your personal schedule — the main programme plus the workshops you've chosen. <Link to="/sm26/agenda" className="text-primary hover:underline">View the full programme</Link> to add or change.</p>
             <SM26Agenda mineOnly />
           </CardContent>
         </Card>

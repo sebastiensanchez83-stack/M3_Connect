@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Input } from '@/components/ui/input';
-import { RefreshCw, Lightbulb, Scale, Lock, Video, Plus, X, Calendar } from 'lucide-react';
+import { RefreshCw, Lightbulb, Scale, Lock, Video, Plus, X, Calendar, CheckCircle2, Clock } from 'lucide-react';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { toast } from '@/hooks/use-toast';
 
@@ -20,14 +20,14 @@ interface Innovation {
 }
 interface Juror {
   registration_id: string; name: string | null; email: string; company: string | null;
-  role_status: string; innovation_assignments: number;
+  role_status: string; innovation_assignments: number; evaluated: number;
 }
 interface JurySession {
   id: string; title: string; entry_role_assignment_id: string | null; entry_company: string | null;
   scheduled_at: string; duration_minutes: number; status: string; zoom_join_url: string | null;
 }
 interface AssignableJuror { user_id: string; name: string | null }
-interface JuryAssignment { id: string; entry_role_assignment_id: string; juror_user_id: string; juror_name: string }
+interface JuryAssignment { id: string; entry_role_assignment_id: string; juror_user_id: string; juror_name: string; submitted: boolean }
 
 const regBadge = (s: string) => {
   if (s === 'confirmed') return 'bg-green-50 text-green-700 border-green-200';
@@ -153,6 +153,8 @@ export function SM26YVPage() {
 
   const paid = innovations.filter(i => i.payment_status === 'paid' || i.payment_status === 'waived').length;
   const confirmed = innovations.filter(i => i.reg_status === 'confirmed').length;
+  const anyAssigned = jurors.some(j => j.innovation_assignments > 0);
+  const incompleteJurors = jurors.filter(j => j.innovation_assignments > 0 && j.evaluated < j.innovation_assignments).length;
   const stats: [string, number][] = [
     ['Innovations', innovations.length], ['Confirmed', confirmed], ['Paid', paid], ['Jurors', jurors.length],
   ];
@@ -238,7 +240,7 @@ export function SM26YVPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base"><Scale className="h-4 w-4 text-primary" /> Jury assignments</CardTitle>
-            <p className="text-xs text-gray-500 mt-1">Allocate jurors to each innovation. A juror appears in the list once they've signed up and been confirmed.</p>
+            <p className="text-xs text-gray-500 mt-1">Allocate jurors to each innovation. A juror appears in the list once they've signed up and been confirmed. A pill turns <span className="text-green-700 font-medium">green</span> once that juror submits their evaluation; <span className="text-amber-700 font-medium">amber</span> means still pending.</p>
           </CardHeader>
           <CardContent className="space-y-2">
             {innovations.length === 0 ? (
@@ -261,9 +263,11 @@ export function SM26YVPage() {
                   {mine.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {mine.map(a => (
-                        <span key={a.id} className="inline-flex items-center gap-1 text-xs bg-primary/5 text-primary border border-primary/20 rounded-full pl-2.5 pr-1 py-0.5">
+                        <span key={a.id} title={a.submitted ? 'Evaluation submitted' : 'Not evaluated yet'}
+                          className={`inline-flex items-center gap-1 text-xs rounded-full pl-2 pr-1 py-0.5 border ${a.submitted ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                          {a.submitted ? <CheckCircle2 className="h-3 w-3 shrink-0" /> : <Clock className="h-3 w-3 shrink-0" />}
                           {a.juror_name}
-                          <button onClick={() => unassignJuror(a.id)} disabled={busy} className="hover:bg-primary/10 rounded-full p-0.5" title="Remove"><X className="h-3 w-3" /></button>
+                          <button onClick={() => unassignJuror(a.id)} disabled={busy} className="hover:bg-black/10 rounded-full p-0.5" title="Remove"><X className="h-3 w-3" /></button>
                         </span>
                       ))}
                     </div>
@@ -303,19 +307,34 @@ export function SM26YVPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Scale className="h-4 w-4 text-primary" /> Innovation jury ({jurors.length})</CardTitle></CardHeader>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <CardTitle className="flex items-center gap-2 text-base"><Scale className="h-4 w-4 text-primary" /> Innovation jury ({jurors.length})</CardTitle>
+              {anyAssigned && (incompleteJurors > 0
+                ? <Pill s={`${incompleteJurors} with evaluations outstanding`} cls="bg-amber-50 text-amber-700 border-amber-200" />
+                : <Pill s="All assigned evaluations are in" cls="bg-green-50 text-green-700 border-green-200" />)}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">“Evaluations” shows how many of each juror’s assigned innovations they’ve scored. Per-innovation status is on the assignment pills above.</p>
+          </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                  <th className="px-4 py-2">Juror</th><th className="px-4 py-2">Status</th><th className="px-4 py-2">Innovation assignments</th>
+                  <th className="px-4 py-2">Juror</th><th className="px-4 py-2">Status</th><th className="px-4 py-2">Evaluations</th>
                 </tr></thead>
                 <tbody>
                   {jurors.map(j => (
                     <tr key={j.registration_id} className="border-b border-gray-50">
                       <td className="px-4 py-2.5"><div className="font-medium">{j.name || '—'}</div><div className="text-xs text-gray-400">{j.email}{j.company ? ` · ${j.company}` : ''}</div></td>
                       <td className="px-4 py-2.5"><Pill s={j.role_status} cls={regBadge(j.role_status === 'confirmed' ? 'confirmed' : j.role_status === 'declined' ? 'declined' : 'submitted')} /></td>
-                      <td className="px-4 py-2.5 text-gray-500">{j.innovation_assignments}</td>
+                      <td className="px-4 py-2.5">
+                        {j.innovation_assignments === 0
+                          ? <span className="text-gray-400 text-xs">Not assigned</span>
+                          : <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border whitespace-nowrap ${j.evaluated >= j.innovation_assignments ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                              {j.evaluated >= j.innovation_assignments ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                              {j.evaluated}/{j.innovation_assignments} evaluated
+                            </span>}
+                      </td>
                     </tr>
                   ))}
                   {jurors.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-400">No jurors yet.</td></tr>}

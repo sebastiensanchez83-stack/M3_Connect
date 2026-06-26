@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import {
-  RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ExternalLink,
+  RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ExternalLink, Lightbulb,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,10 @@ interface Entry {
 interface Criterion { id: string; label: string; description: string | null; weight: number; critical: boolean; display_order: number; }
 interface Template { id: string; competition: string; key: string; name: string; scale_max: number; criteria: Criterion[]; }
 type Draft = Record<string, { score: number | null; comment: string }>;
+interface AllInnovation {
+  entry_id: string; company: string | null; website: string | null; stage: string | null;
+  categories: string[] | null; fields: Record<string, string>; assigned: boolean; review_status: string | null;
+}
 
 const CONFIDENCE = [{ v: 1, label: 'Low' }, { v: 2, label: 'Medium' }, { v: 3, label: 'High' }];
 
@@ -34,6 +38,8 @@ export function SM26JuryPage() {
   const [eventId, setEventId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [allInnovations, setAllInnovations] = useState<AllInnovation[]>([]);
+  const [browseId, setBrowseId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [selected, setSelected] = useState<Entry | null>(null);
@@ -53,11 +59,13 @@ export function SM26JuryPage() {
     if (!ev) { setLoading(false); return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
-    const [{ data: ents }, { data: tpls }] = await Promise.all([
+    const [{ data: ents }, { data: tpls }, { data: allInn }] = await Promise.all([
       supabase.rpc('sm_jury_my_entries', { p_event_id: eid }),
       supabase.from('sm_scorecard_template').select('*, criteria:sm_criterion(*)').eq('event_id', eid).eq('is_active', true),
+      supabase.rpc('sm_jury_all_innovations', { p_event_id: eid }),
     ]);
     setEntries((ents || []) as Entry[]);
+    setAllInnovations((allInn || []) as AllInnovation[]);
     const t = ((tpls || []) as Template[]).map(x => ({ ...x, criteria: [...x.criteria].sort((a, b) => a.display_order - b.display_order) }));
     setTemplates(t);
     setLoading(false);
@@ -319,8 +327,9 @@ export function SM26JuryPage() {
 
       <div className="container mx-auto px-4 py-8 max-w-2xl space-y-6">
         {entries.length === 0 ? (
-          <Card><CardContent className="py-12 text-center text-gray-400">
-            You have no entries assigned yet. M3 assigns jurors to entries — you'll be notified when yours are ready.
+          <Card><CardContent className="py-10 text-center text-gray-400">
+            No entries are assigned to you for scoring yet — M3 assigns jurors to entries and you'll be notified.
+            {allInnovations.length > 0 && <span className="block mt-1">You can already read every innovation below.</span>}
           </CardContent></Card>
         ) : (
           <>
@@ -335,6 +344,51 @@ export function SM26JuryPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* (d) Read-only browse of every innovation — for context/fairness. Scoring stays limited to assigned entries above. */}
+        {allInnovations.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold text-gray-700">All innovations · read-only ({allInnovations.length})</h2>
+            <p className="text-xs text-gray-500 -mt-1">Open any entry to read it. You can only score the ones assigned to you above.</p>
+            {allInnovations.map(a => {
+              const open = browseId === a.entry_id;
+              const fieldEntries = Object.entries(a.fields || {});
+              return (
+                <Card key={a.entry_id} className="border-0 shadow-sm">
+                  <button onClick={() => setBrowseId(open ? null : a.entry_id)} className="w-full text-left">
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="h-9 w-9 rounded-lg bg-gray-100 text-gray-400 flex items-center justify-center shrink-0"><Lightbulb className="h-4 w-4" /></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-gray-900 truncate">{a.company || 'Innovation'}</span>
+                          {a.stage && <Badge variant="secondary" className="text-[10px]">{a.stage}</Badge>}
+                          {a.assigned && <Badge className="text-[10px] bg-primary/10 text-primary border-primary/20">Assigned to you</Badge>}
+                          {a.assigned && a.review_status === 'submitted' && <Badge className="text-[10px] bg-green-50 text-green-700 border-green-200">scored</Badge>}
+                        </div>
+                      </div>
+                      <ChevronRight className={`h-5 w-5 text-gray-300 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+                    </CardContent>
+                  </button>
+                  {open && (
+                    <CardContent className="px-4 pb-4 pt-0 space-y-2">
+                      {a.website && <a href={a.website} target="_blank" rel="noreferrer" className="text-primary text-sm inline-flex items-center gap-1">{a.website.replace(/^https?:\/\//, '')} <ExternalLink className="h-3 w-3" /></a>}
+                      {fieldEntries.map(([k, v]) => (
+                        <div key={k}>
+                          <div className="text-[11px] uppercase tracking-wide text-gray-400">{k}</div>
+                          <div className="text-sm text-gray-800 whitespace-pre-wrap">{v}</div>
+                        </div>
+                      ))}
+                      {Array.isArray(a.categories) && a.categories.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">{a.categories.map(c => <Badge key={c} variant="secondary" className="text-[10px]">{c}</Badge>)}</div>
+                      )}
+                      {fieldEntries.length === 0 && <p className="text-sm text-gray-400">No written details provided yet.</p>}
+                    </CardContent>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

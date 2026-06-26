@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Users, Check, Clock3, Download, Loader2, RefreshCw, CalendarPlus } from 'lucide-react';
+import { MapPin, Users, Check, Clock3, Download, Loader2, RefreshCw, CalendarPlus, MessageSquare } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { SM26SessionQA } from '@/components/sm26/SM26SessionQA';
 
 // Shared SM26 programme renderer. Used full (public agenda + the event page) and
 // in "mine" mode (the participant's personalised schedule on /sm26/me). Workshops
@@ -16,7 +17,7 @@ interface Session {
   id: string; title: string; description: string | null; type: string;
   starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null;
   capacity: number | null; presentation_enabled: boolean; deck_path: string | null;
-  share_with_audience: boolean; booked_count: number; my_status: string | null;
+  share_with_audience: boolean; qa_enabled: boolean; booked_count: number; my_status: string | null;
 }
 
 const TYPE_CLASS: Record<string, string> = {
@@ -73,6 +74,8 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [dayTab, setDayTab] = useState('all');
+  const [qaOpen, setQaOpen] = useState<Set<string>>(new Set());
+  const toggleQa = (id: string) => setQaOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user, eventIdProp]);
 
@@ -203,6 +206,11 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
                               <CalendarPlus className="h-3.5 w-3.5" /> Add to calendar
                             </Button>
                           )}
+                          {s.qa_enabled && (
+                            <Button variant="ghost" size="sm" className={`gap-1.5 px-0 h-7 ${qaOpen.has(s.id) ? 'text-primary' : 'text-gray-500'}`} onClick={() => toggleQa(s.id)}>
+                              <MessageSquare className="h-3.5 w-3.5" /> Q&amp;A
+                            </Button>
+                          )}
                         </div>
 
                         {isWorkshop && (
@@ -224,6 +232,10 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
                               </Button>
                             )}
                           </div>
+                        )}
+
+                        {s.qa_enabled && qaOpen.has(s.id) && (
+                          <div className="mt-3 border-t border-gray-100 pt-2.5"><SM26SessionQA sessionId={s.id} /></div>
                         )}
                       </div>
                     </div>

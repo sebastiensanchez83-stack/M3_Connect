@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, CalendarDays, Plus, Pencil, Trash2, Eye, EyeOff, Users, Paperclip } from 'lucide-react';
+import { RefreshCw, ArrowLeft, CalendarDays, Plus, Pencil, Trash2, Eye, EyeOff, Users, Paperclip, MessageSquare } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { SM26SessionQA } from '@/components/sm26/SM26SessionQA';
 
 // Admin agenda management — CRUD over sm_session (single-track timeline +
 // workshops). Times are stored at the Monaco (+02:00) offset for the event.
@@ -28,16 +29,16 @@ interface Session {
   id: string; title: string; description: string | null; type: string;
   starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null;
   capacity: number | null; presentation_enabled: boolean; share_with_audience: boolean;
-  published: boolean; display_order: number; deck_path: string | null;
+  published: boolean; display_order: number; deck_path: string | null; qa_enabled: boolean;
 }
 type FormState = {
   title: string; type: string; date: string; start: string; end: string;
   room: string; speakers: string; description: string; capacity: string;
-  published: boolean; presentation_enabled: boolean; share_with_audience: boolean;
+  published: boolean; presentation_enabled: boolean; share_with_audience: boolean; qa_enabled: boolean;
 };
 const EMPTY: FormState = {
   title: '', type: 'talk', date: '2026-09-20', start: '', end: '', room: '', speakers: '',
-  description: '', capacity: '', published: true, presentation_enabled: false, share_with_audience: false,
+  description: '', capacity: '', published: true, presentation_enabled: false, share_with_audience: false, qa_enabled: false,
 };
 
 export function AdminSM26Agenda() {
@@ -53,6 +54,7 @@ export function AdminSM26Agenda() {
   const [deckFile, setDeckFile] = useState<File | null>(null);
   const [existingDeck, setExistingDeck] = useState<string | null>(null);
   const [removeDeck, setRemoveDeck] = useState(false);
+  const [qaSession, setQaSession] = useState<Session | null>(null);
   const [speakers, setSpeakers] = useState<string[]>([]);
   const [dayTab, setDayTab] = useState<string>('all');
 
@@ -91,7 +93,7 @@ export function AdminSM26Agenda() {
     setForm({
       title: s.title, type: s.type, date: datePart(s.starts_at), start: timePart(s.starts_at), end: timePart(s.ends_at),
       room: s.room || '', speakers: s.speakers || '', description: s.description || '', capacity: s.capacity?.toString() || '',
-      published: s.published, presentation_enabled: s.presentation_enabled, share_with_audience: s.share_with_audience,
+      published: s.published, presentation_enabled: s.presentation_enabled, share_with_audience: s.share_with_audience, qa_enabled: s.qa_enabled,
     });
     setDeckFile(null); setExistingDeck(s.deck_path); setRemoveDeck(false);
     setOpen(true);
@@ -109,7 +111,7 @@ export function AdminSM26Agenda() {
       description: form.description.trim() || null,
       capacity: form.type === 'workshop' && form.capacity ? parseInt(form.capacity, 10) : null,
       published: form.published, presentation_enabled: form.presentation_enabled,
-      share_with_audience: form.share_with_audience, updated_at: new Date().toISOString(),
+      share_with_audience: form.share_with_audience, qa_enabled: form.qa_enabled, updated_at: new Date().toISOString(),
     };
     let sessionId = editId;
     let saveErr;
@@ -218,6 +220,7 @@ export function AdminSM26Agenda() {
                   <button onClick={() => togglePublish(s)} title={s.published ? 'Unpublish' : 'Publish'} className="text-gray-400 hover:text-primary p-1.5">
                     {s.published ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                   </button>
+                  {s.qa_enabled && <button onClick={() => setQaSession(s)} title="Moderate Q&amp;A" className="text-gray-400 hover:text-primary p-1.5"><MessageSquare className="h-4 w-4" /></button>}
                   <button onClick={() => openEdit(s)} className="text-gray-400 hover:text-primary p-1.5"><Pencil className="h-4 w-4" /></button>
                   <button onClick={() => remove(s)} className="text-gray-400 hover:text-red-600 p-1.5"><Trash2 className="h-4 w-4" /></button>
                 </CardContent>
@@ -267,6 +270,7 @@ export function AdminSM26Agenda() {
               <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.published} onCheckedChange={c => setForm({ ...form, published: c as boolean })} /> Published</label>
               <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.presentation_enabled} onCheckedChange={c => setForm({ ...form, presentation_enabled: c as boolean })} /> Presentation</label>
               <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.share_with_audience} onCheckedChange={c => setForm({ ...form, share_with_audience: c as boolean })} /> Share slides</label>
+              <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.qa_enabled} onCheckedChange={c => setForm({ ...form, qa_enabled: c as boolean })} /> Live Q&amp;A</label>
             </div>
             <div className="space-y-1.5 rounded-lg border border-gray-100 p-3">
               <Label className="text-xs text-gray-600 flex items-center gap-1.5"><Paperclip className="h-3.5 w-3.5" /> Slides / presentation file</Label>
@@ -286,6 +290,13 @@ export function AdminSM26Agenda() {
             <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
             <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : (editId ? 'Save' : 'Add session')}</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!qaSession} onOpenChange={o => { if (!o) setQaSession(null); }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><MessageSquare className="h-4 w-4 text-primary" /> Q&amp;A · {qaSession?.title}</DialogTitle></DialogHeader>
+          {qaSession && <SM26SessionQA sessionId={qaSession.id} canModerate />}
         </DialogContent>
       </Dialog>
     </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import {
-  RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ExternalLink, Lightbulb,
+  RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ExternalLink, Lightbulb, Download,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -157,6 +157,11 @@ export function SM26JuryPage() {
     setEntries(prev => prev.map(e => e.entry_id === selected.entry_id ? { ...e, review_status: submit ? 'submitted' : 'draft', review_total: total, confidence, coi_flag: coi } : e));
   };
 
+  const openArchFile = async (path: string) => {
+    const { data } = await supabase.storage.from('event-media').createSignedUrl(path, 300);
+    if (data) window.open(data.signedUrl, '_blank'); else toast({ title: 'Could not open file', variant: 'destructive' });
+  };
+
   if (authLoading || loading) return (
     <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>
   );
@@ -203,6 +208,19 @@ export function SM26JuryPage() {
                       <div className="text-sm text-gray-800 whitespace-pre-wrap">{v}</div>
                     </div>
                   ))}
+                  {Array.isArray(payload?.files) && (payload!.files as unknown[]).length > 0 && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">Project files</div>
+                      <div className="space-y-1.5">
+                        {(payload!.files as { id: string; filename: string | null; path: string }[]).map(f => (
+                          <button key={f.id} onClick={() => openArchFile(f.path)} className="flex items-center gap-2 w-full text-left rounded-lg border border-gray-100 hover:border-primary/40 px-3 py-2">
+                            <Download className="h-4 w-4 text-primary shrink-0" />
+                            <span className="text-sm text-gray-800 truncate">{f.filename || 'File'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {Array.isArray(payload?.categories) && (payload!.categories as string[]).length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
                       {(payload!.categories as string[]).map(c => <Badge key={c} variant="secondary" className="text-[10px]">{c}</Badge>)}

@@ -36,6 +36,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     { to: '/admin/sm26/checkin', label: 'Check-in', icon: <QrCode className="h-4 w-4" /> },
     { to: '/admin/sm26/agenda', label: 'Programme', icon: <CalendarDays className="h-4 w-4" /> },
     { to: '/admin/sm26/jury', label: 'Jury & evaluation', icon: <Scale className="h-4 w-4" /> },
+    { to: '/admin/sm26/architecture', label: 'Architecture', icon: <Building2 className="h-4 w-4" /> },
     { to: '/admin/sm26/awards', label: 'Awards & voting', icon: <Trophy className="h-4 w-4" /> },
     { to: '/admin/sm26/ecat', label: 'E-catalogue', icon: <BookOpen className="h-4 w-4" /> },
     { to: '/admin/sm26/networking', label: 'Networking', icon: <UsersRound className="h-4 w-4" /> },

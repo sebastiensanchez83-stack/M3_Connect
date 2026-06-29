@@ -208,19 +208,31 @@ export function SM26JuryPage() {
                       <div className="text-sm text-gray-800 whitespace-pre-wrap">{v}</div>
                     </div>
                   ))}
-                  {Array.isArray(payload?.files) && (payload!.files as unknown[]).length > 0 && (
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">Project files</div>
-                      <div className="space-y-1.5">
-                        {(payload!.files as { id: string; filename: string | null; path: string }[]).map(f => (
-                          <button key={f.id} onClick={() => openArchFile(f.path)} className="flex items-center gap-2 w-full text-left rounded-lg border border-gray-100 hover:border-primary/40 px-3 py-2">
-                            <Download className="h-4 w-4 text-primary shrink-0" />
-                            <span className="text-sm text-gray-800 truncate">{f.filename || 'File'}</span>
-                          </button>
-                        ))}
+                  {Array.isArray(payload?.files) && (payload!.files as unknown[]).length > 0 && (() => {
+                    // Label by panel/order — never the filename (it carries the architect's name).
+                    const list = payload!.files as { id: string; kind: string; path: string }[];
+                    const ps = list.filter(f => f.kind === 'panel');
+                    const nt = list.find(f => f.kind === 'notice');
+                    const an = list.find(f => f.kind === 'animation');
+                    const ordered = [
+                      ...ps.map((f, i) => ({ id: f.id, path: f.path, label: `Panel ${i + 1} (A2)` })),
+                      ...(nt ? [{ id: nt.id, path: nt.path, label: 'Descriptive notice (A3)' }] : []),
+                      ...(an ? [{ id: an.id, path: an.path, label: '3D animation' }] : []),
+                    ];
+                    return (
+                      <div>
+                        <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">Project files</div>
+                        <div className="space-y-1.5">
+                          {ordered.map(f => (
+                            <button key={f.id} onClick={() => openArchFile(f.path)} className="flex items-center gap-2 w-full text-left rounded-lg border border-gray-100 hover:border-primary/40 px-3 py-2">
+                              <Download className="h-4 w-4 text-primary shrink-0" />
+                              <span className="text-sm text-gray-800 truncate">{f.label}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   {Array.isArray(payload?.categories) && (payload!.categories as string[]).length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
                       {(payload!.categories as string[]).map(c => <Badge key={c} variant="secondary" className="text-[10px]">{c}</Badge>)}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Upload, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
   BookOpen, CreditCard, MessageSquare, Calendar,
@@ -183,6 +183,22 @@ export function SM26MyRegistrationPage() {
     window.open(data.signedUrl, '_blank');
   };
 
+  const navigate = useNavigate();
+
+  // "Start over" — discard the (cancelled) registration entirely and go to the form
+  // fresh, so the participant can choose a different way to take part. The cascade
+  // (verified CASCADE/SET NULL) cleans up role + role-specific data; the register
+  // form then treats them as a new registrant (no existing row to redirect on).
+  const restartRegistration = async () => {
+    if (!reg) return;
+    if (!window.confirm('Start a new registration? This permanently replaces your current registration — including any details you entered — so you can choose how to take part again.')) return;
+    setStatusBusy(true);
+    const { error } = await supabase.rpc('sm_restart_registration', { p_event_id: reg.event_id });
+    setStatusBusy(false);
+    if (error) { toast({ title: 'Could not restart', description: error.message, variant: 'destructive' }); return; }
+    navigate('/sm26/register');
+  };
+
   // Self-service unregister / re-register. The reg-status guard allows the owner
   // to move their own registration to 'cancelled' or back to 'submitted'; M3 sees
   // the "Cancelled" status in the admin registrations console.
@@ -225,9 +241,17 @@ export function SM26MyRegistrationPage() {
             <Ship className="h-10 w-10 text-gray-300 mx-auto mb-3" />
             <h2 className="text-lg font-semibold text-gray-900">You've unregistered</h2>
             <p className="text-gray-500 text-sm mt-1 mb-5">You've withdrawn from the Smart &amp; Sustainable Marina Rendezvous 2026. Changed your mind?</p>
-            <Button onClick={() => setRegStatus('submitted')} disabled={statusBusy} className="gap-1.5">
-              {statusBusy && <Loader2 className="h-4 w-4 animate-spin" />} Re-register
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2 justify-center">
+              <Button onClick={() => setRegStatus('submitted')} disabled={statusBusy} className="gap-1.5">
+                {statusBusy && <Loader2 className="h-4 w-4 animate-spin" />} Bring back my registration
+              </Button>
+              <Button variant="outline" onClick={restartRegistration} disabled={statusBusy}>
+                Start a new registration
+              </Button>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-3 max-w-sm mx-auto">
+              <strong>Bring back</strong> restores your previous details exactly as they were. <strong>Start new</strong> lets you choose a different way to take part — it replaces your current registration.
+            </p>
           </CardContent>
         </Card>
       </div>

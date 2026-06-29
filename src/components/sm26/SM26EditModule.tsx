@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Save, Pencil, Lightbulb, Lock, FileText, Building2, Ship, type LucideIcon } from 'lucide-react';
+import { Loader2, Save, Pencil, Lightbulb, Lock, FileText, Ship, type LucideIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -9,6 +9,7 @@ import { toast } from '@/hooks/use-toast';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { useSm26EditLock } from '@/components/sm26/useSm26EditLock';
 import { sm26FieldLabel } from '@/components/admin/AdminSM26';
+import { SM26ArchitectureEntry } from '@/components/sm26/SM26ArchitectureEntry';
 
 // Participant self-service editing of their ROLE-MODULE content (the text they
 // submitted in their form) — separate from base details (SM26EditDetails) and the
@@ -34,14 +35,8 @@ const SKIP_KEYS = new Set(['ecat_consent', 'social_consent', 'onsite_attendance'
 const isEditableText = (k: string, v: unknown) =>
   typeof v === 'string' && !k.startsWith('_') && !k.endsWith('_consent') && !ASSET_KEYS.has(k) && !BASE_KEYS.has(k) && !SKIP_KEYS.has(k);
 
-// Architecture & marina prose fields (category / anon_code / assets / flags excluded).
-const ARCH_FIELDS: { key: string; label: string }[] = [
-  { key: 'company_description', label: 'Company description' },
-  { key: 'sustainability_statement', label: 'Sustainability statement' },
-  { key: 'domain', label: 'Domain / area of expertise' },
-  { key: 'references_text', label: 'References' },
-  { key: 'portfolio_link', label: 'Portfolio link' },
-];
+// Marina prose fields (category / assets / flags excluded). Architecture has its
+// own full competition-entry component (SM26ArchitectureEntry) instead.
 const MARINA_FIELDS: { key: string; label: string }[] = [
   { key: 'architectural_quality', label: 'Architectural quality' },
   { key: 'biodiversity', label: 'Biodiversity' },
@@ -57,7 +52,7 @@ export function SM26EditModule({ roleAssignmentId, role }: { roleAssignmentId: s
   const { locked, prettyDate } = useSm26EditLock();
   if (role === 'startup') return <StartupEditor roleAssignmentId={roleAssignmentId} locked={locked} prettyDate={prettyDate} />;
   if (role === 'architect_pro' || role === 'architect_student')
-    return <TableTextEditor roleAssignmentId={roleAssignmentId} table="sm_architecture_entry" fields={ARCH_FIELDS} title="Entry details" subtitle="Complete or refine your competition entry text." icon={Building2} locked={locked} prettyDate={prettyDate} />;
+    return <SM26ArchitectureEntry roleAssignmentId={roleAssignmentId} />;
   if (role === 'marina')
     return <TableTextEditor roleAssignmentId={roleAssignmentId} table="sm_marina_extra" fields={MARINA_FIELDS} title="Marina submission" subtitle="Your sustainability narrative for the catalogue and jury." icon={Ship} locked={locked} prettyDate={prettyDate} />;
   return <ModuleTextEditor roleAssignmentId={roleAssignmentId} locked={locked} prettyDate={prettyDate} />;

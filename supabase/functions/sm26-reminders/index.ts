@@ -60,7 +60,7 @@ async function sendReminder(email: string, firstName: string, whenText: string, 
     `<li>Review the latest programme and your participation details online.</li></ul>` +
     btn(`${SITE_URL}/sm26/me`, "View my participation") +
     `<p style="font-size:14px"><a href="${SITE_URL}/sm26/agenda">See the programme</a></p>` +
-    `<p style="color:#64748b;font-size:13px">We look forward to welcoming you in Monaco.<br>Smart Marina Connect · Monaco Marina Management</p>`;
+    `<p style="color:#64748b;font-size:13px">We look forward to welcoming you in Monaco.<br>Smart Marina Connect · M3 Monaco</p>`;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },

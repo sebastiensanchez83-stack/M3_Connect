@@ -88,7 +88,7 @@ function buildReminderEmail(firstName: string, event: EventRow): { subject: stri
 </td></tr></table>
 </td></tr>
 <tr><td style="padding:24px 40px;background-color:#f9fafb;border-top:1px solid #e5e7eb;text-align:center;">
-<p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} Monaco Marina Management — Smart Marina Connect</p>
+<p style="margin:0;color:#9ca3af;font-size:12px;">&copy; ${new Date().getFullYear()} M3 Monaco — Smart Marina Connect</p>
 </td></tr>
 </table></td></tr></table></body></html>`;
   return { subject, html };

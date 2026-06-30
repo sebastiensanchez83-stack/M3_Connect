@@ -43,7 +43,7 @@ interface Pay { amount_cents?: number | null; currency?: string | null; invoice_
 function content(kind: string, r: Reg, pay?: Pay | null): { subject: string; html: string; to: string } | null {
   const name = `${r.first_name || ""} ${r.last_name || ""}`.trim();
   const hi = `<p>Dear ${r.first_name || "participant"},</p>`;
-  const foot = `<p style="color:#64748b;font-size:13px">Smart Marina Connect · Monaco Marina Management</p>`;
+  const foot = `<p style="color:#64748b;font-size:13px">Smart Marina Connect · M3 Monaco</p>`;
   const btn = (href: string, label: string) =>
     `<p><a href="${href}" style="background:#0b2653;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">${label}</a></p>`;
   const me = `${SITE_URL}/sm26/me`;

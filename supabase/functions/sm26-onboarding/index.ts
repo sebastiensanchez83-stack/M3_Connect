@@ -42,7 +42,7 @@ async function sendOnboarding(email: string, firstName: string, code: string): P
     `<p>Create your Smart Marina Connect account to access your space — complete your details, follow the programme, book workshops, and more.</p>` +
     btn +
     `<p style="font-size:13px;color:#64748b;line-height:1.5">Signing up links your registration automatically. If you're asked for it, your claim code is <strong>${code}</strong>.</p>` +
-    `<p style="color:#64748b;font-size:12px">Smart Marina Connect · Monaco Marina Management</p>`;
+    `<p style="color:#64748b;font-size:12px">Smart Marina Connect · M3 Monaco</p>`;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },

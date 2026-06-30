@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  CheckCircle, Loader2, Upload, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
+  CheckCircle, Loader2, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
   BookOpen, CreditCard, MessageSquare, Calendar,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,6 +20,7 @@ import { SM26EditModule } from '@/components/sm26/SM26EditModule';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { SM26Agenda } from '@/components/sm26/SM26Agenda';
 import { SM26MyConnections } from '@/components/sm26/SM26MyConnections';
+import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
 // SM26 roles. Linked from the "information needed" notification (/sm26/me).
@@ -61,8 +62,6 @@ export function SM26MyRegistrationPage() {
   // draft text values + busy flags, keyed by role assignment id
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
   const [savingRole, setSavingRole] = useState<string | null>(null);
-  const [uploading, setUploading] = useState<string | null>(null); // `${roleId}:${field}`
-  const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const [ecat, setEcat] = useState<EcatPage[]>([]);
   const [payStatus, setPayStatus] = useState<string>('unpaid');
   const [ecatBusy, setEcatBusy] = useState<string | null>(null);
@@ -158,23 +157,13 @@ export function SM26MyRegistrationPage() {
     if (ok) toast({ title: 'Saved' });
   };
 
-  const onUpload = async (role: RoleAssignment, field: string, file: File) => {
-    if (!user) return;
-    setUploading(`${role.id}:${field}`);
-    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `${user.id}/${role.id}/${field}/${safe}`;
-    const { error } = await supabase.storage.from('event-media').upload(path, file, { upsert: true });
-    if (error) {
-      setUploading(null);
-      toast({ title: 'Upload failed', description: error.message, variant: 'destructive' });
-      return;
-    }
-    // persist the new path into module_data immediately (avoid orphaned files)
-    const merged = { ...(role.module_data || {}), ...(drafts[role.id] || {}), [field]: path };
-    const ok = await persist(role, merged);
-    setDraft(role.id, field, path);
-    setUploading(null);
-    if (ok) toast({ title: 'File uploaded' });
+  // Persist a new asset path-list for a field (uploads handled by SM26AssetUpload).
+  // Stored as an array; null when empty so required-completeness checks stay truthy-only.
+  const onAssetChange = async (role: RoleAssignment, field: string, paths: string[]) => {
+    const merged = { ...(role.module_data || {}), ...(drafts[role.id] || {}), [field]: paths.length ? paths : null };
+    // drop any stale single-string draft for this field so a later text Save can't clobber the list
+    setDrafts(prev => { const d = { ...(prev[role.id] || {}) }; delete d[field]; return { ...prev, [role.id]: d }; });
+    await persist(role, merged);
   };
 
   const viewFile = async (path: string) => {
@@ -406,9 +395,9 @@ export function SM26MyRegistrationPage() {
                   {reqs.map(req => {
                     const isRequested = requested.has(req.field_key) && !md[req.field_key];
                     const current = (drafts[role.id]?.[req.field_key] ?? (md[req.field_key] as string) ?? '');
-                    const hasValue = !!(md[req.field_key]);
+                    const hv = md[req.field_key];
+                    const hasValue = Array.isArray(hv) ? hv.length > 0 : !!hv;
                     if (req.is_asset) {
-                      const busy = uploading === `${role.id}:${req.field_key}`;
                       return (
                         <div key={req.id} className="space-y-1.5">
                           <Label className="flex items-center gap-1.5">
@@ -417,25 +406,11 @@ export function SM26MyRegistrationPage() {
                             {isRequested && <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Requested by M3</span>}
                             {hasValue && <Check className="h-3.5 w-3.5 text-green-600" />}
                           </Label>
-                          <div className="flex items-center gap-2">
-                            <input
-                              ref={el => { fileInputs.current[`${role.id}:${req.field_key}`] = el; }}
-                              type="file"
-                              className="hidden"
-                              onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(role, req.field_key, f); e.target.value = ''; }}
-                            />
-                            <Button type="button" variant="outline" size="sm" className="gap-1.5" disabled={busy}
-                              onClick={() => fileInputs.current[`${role.id}:${req.field_key}`]?.click()}>
-                              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                              {hasValue ? 'Replace file' : 'Upload file'}
-                            </Button>
-                            {hasValue && (
-                              <Button type="button" variant="ghost" size="sm" className="gap-1.5 text-primary"
-                                onClick={() => viewFile(md[req.field_key] as string)}>
-                                <ExternalLink className="h-3.5 w-3.5" /> View
-                              </Button>
-                            )}
-                          </div>
+                          <SM26AssetUpload
+                            value={md[req.field_key] as string | string[] | null}
+                            basePath={`${user!.id}/${role.id}/${req.field_key}`}
+                            onChange={paths => onAssetChange(role, req.field_key, paths)}
+                          />
                         </div>
                       );
                     }

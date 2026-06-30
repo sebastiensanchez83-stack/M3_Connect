@@ -55,8 +55,10 @@ export function AdminSM26EcatDossier() {
     }
     // assets live in role_assignment.module_data as storage paths
     const assets: { field: string; path: string }[] = [];
+    const pushAsset = (k: string, p: unknown) => { if (typeof p === 'string' && p.includes('/')) assets.push({ field: k, path: p }); };
     for (const [k, v] of Object.entries(moduleData)) {
-      if (typeof v === 'string' && v.includes('/')) assets.push({ field: k, path: v });
+      if (Array.isArray(v)) v.forEach(p => pushAsset(k, p)); // multi-file assets are stored as a list
+      else pushAsset(k, v);
     }
 
     setDetail({

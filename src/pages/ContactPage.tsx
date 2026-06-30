@@ -322,7 +322,7 @@ export function ContactPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-gray-600">Monaco Marina Management</p>
+              <p className="text-gray-600">M3 Monaco</p>
               <p className="text-gray-600">Principality of Monaco</p>
             </CardContent>
           </Card>

@@ -178,13 +178,13 @@ export function AboutPage() {
           <div className="flex items-center gap-3 mb-6">
             <Building2 className="h-8 w-8 text-primary" />
             <h2 className="text-3xl font-bold text-gray-900">
-              {t('about.companyTitle', 'Monaco Marina Management')}
+              {t('about.companyTitle', 'M3 Monaco')}
             </h2>
           </div>
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl">
             {t(
               'about.companyDesc',
-              'Smart Marina Connect is operated by Monaco Marina Management (M3), based in the Principality of Monaco. With deep expertise in the marina industry, M3 is committed to advancing the sector through professional networking and business development.'
+              'Smart Marina Connect is operated by M3 Monaco, based in the Principality of Monaco. With deep expertise in the marina industry, M3 is committed to advancing the sector through professional networking and business development.'
             )}
           </p>
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl mt-4">

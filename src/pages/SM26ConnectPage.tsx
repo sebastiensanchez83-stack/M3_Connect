@@ -29,6 +29,7 @@ export function SM26ConnectPage() {
   const { user, loading: authLoading } = useAuth();
   const [view, setView] = useState<View>({ kind: 'loading' });
   const [name, setName] = useState('');
+  const [company, setCompany] = useState('');
   const [email, setEmail] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -50,9 +51,9 @@ export function SM26ConnectPage() {
   }, [authLoading, token]);
 
   const submitLead = async () => {
-    if (!name.trim() || !email.trim() || !email.includes('@')) { toast({ title: 'Please add your name and a valid email', variant: 'destructive' }); return; }
+    if (!name.trim() || !company.trim() || !email.trim() || !email.includes('@')) { toast({ title: 'Please add your name, company and a valid email', variant: 'destructive' }); return; }
     setSubmitting(true);
-    const { data, error } = await supabase.rpc('sm_connect_scan', { p_token: token, p_note: note.trim() || null, p_name: name.trim(), p_email: email.trim() });
+    const { data, error } = await supabase.rpc('sm_connect_scan', { p_token: token, p_note: note.trim() || null, p_name: name.trim(), p_email: email.trim(), p_company: company.trim() || null });
     setSubmitting(false);
     const r = (data || {}) as { ok?: boolean; to_company?: string };
     if (error || !r.ok) { toast({ title: 'Could not save', description: 'Please try again.', variant: 'destructive' }); return; }
@@ -110,6 +111,7 @@ export function SM26ConnectPage() {
               <p className="text-gray-600 mt-1.5 text-sm text-center">Leave your details and the organizers will introduce you both by email after the event.</p>
               <div className="space-y-3 mt-5">
                 <div><Label className="text-xs">Your name</Label><Input value={name} onChange={e => setName(e.target.value)} className="mt-1 h-10" placeholder="Full name" /></div>
+                <div><Label className="text-xs">Your company</Label><Input value={company} onChange={e => setCompany(e.target.value)} className="mt-1 h-10" placeholder="Company name" /></div>
                 <div><Label className="text-xs">Your email</Label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} className="mt-1 h-10" placeholder="you@company.com" /></div>
                 <div><Label className="text-xs">Note (optional)</Label><Textarea rows={2} value={note} onChange={e => setNote(e.target.value)} className="mt-1" placeholder="What would you like to talk about?" /></div>
                 <Button className="w-full h-11" onClick={submitLead} disabled={submitting}>
@@ -117,6 +119,9 @@ export function SM26ConnectPage() {
                 </Button>
                 <p className="text-[11px] text-gray-400 text-center">We'll only use your email to make this introduction for the event.</p>
               </div>
+              <p className="text-xs text-gray-500 text-center mt-4 border-t pt-3">
+                Have a Smart Marina Connect account? <Link to="/become-partner" className="text-primary hover:underline">Sign in</Link>, then re-open this badge link to connect as yourself.
+              </p>
             </div>
           )}
 

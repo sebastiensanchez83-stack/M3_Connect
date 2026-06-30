@@ -69,7 +69,7 @@ Deno.serve(async (req: Request) => {
     let from: Side;
     if (c.from_registration_id) from = await resolveReg(c.from_registration_id as string);
     else if (c.from_user_id) from = await resolveProfile(c.from_user_id as string);
-    else from = { email: (c.from_email as string) || null, name: (c.from_name as string) || (c.from_email as string) || "Guest", company: null };
+    else from = { email: (c.from_email as string) || null, name: (c.from_name as string) || (c.from_email as string) || "Guest", company: (c.from_company as string) || null };
 
     if (!to.email || !from.email) return json(req, { error: "One side has no email on file, so the introduction can't be sent." }, 400);
 

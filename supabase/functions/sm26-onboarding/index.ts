@@ -56,7 +56,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
   if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
 
-  const body = await req.json().catch(() => ({})) as { test_email?: string };
+  const body = await req.json().catch(() => ({})) as { test_email?: string; registration_id?: string };
   const testEmail = typeof body.test_email === "string" ? body.test_email.trim() : "";
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE);
@@ -80,6 +80,21 @@ Deno.serve(async (req) => {
   if (testEmail) {
     const ok = await sendOnboarding(testEmail, "there", "SM26-TESTCODE");
     return json(req, { ok, test: true });
+  }
+
+  // Single targeted invite, triggered from one registration's profile in admin.
+  const regId = typeof body.registration_id === "string" ? body.registration_id.trim() : "";
+  if (regId) {
+    const { data: one } = await admin.from("sm_registration")
+      .select("email, first_name, claim_code, status, user_id")
+      .eq("id", regId).eq("event_id", eventId).maybeSingle();
+    const r = one as { email?: string | null; first_name?: string | null; claim_code?: string | null; status?: string; user_id?: string | null } | null;
+    if (!r) return json(req, { error: "Registration not found" }, 404);
+    if (r.user_id) return json(req, { error: "This person already has an account." }, 400);
+    if (["declined", "cancelled"].includes(r.status || "")) return json(req, { error: "This registration is declined or cancelled." }, 400);
+    if (!r.email || !r.claim_code) return json(req, { error: "No email or claim code on file." }, 400);
+    const ok = await sendOnboarding(r.email, r.first_name || "there", r.claim_code);
+    return json(req, { ok, sent: ok ? 1 : 0 });
   }
 
   // Registrations with no account yet — the people not on the platform.

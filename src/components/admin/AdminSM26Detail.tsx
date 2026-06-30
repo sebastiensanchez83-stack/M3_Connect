@@ -342,6 +342,23 @@ export function AdminSM26Detail() {
   const [saving, setSaving] = useState(false);
   const [roleSaving, setRoleSaving] = useState(false);
   const [addRoleValue, setAddRoleValue] = useState('');
+  const [inviting, setInviting] = useState(false);
+
+  // Send THIS person their onboarding invite (create-account + claim link). Only
+  // meaningful for a registration with no account yet; the function guards too.
+  const sendOnboardingInvite = async () => {
+    if (!reg) return;
+    setInviting(true);
+    let res = await supabase.functions.invoke('sm26-onboarding', { body: { registration_id: reg.id } });
+    if (res.error && (res.error as { name?: string }).name === 'FunctionsFetchError') {
+      await new Promise(r => setTimeout(r, 900)); // retry one transient cold-start blip
+      res = await supabase.functions.invoke('sm26-onboarding', { body: { registration_id: reg.id } });
+    }
+    setInviting(false);
+    const ok = !res.error && (res.data as { ok?: boolean } | null)?.ok;
+    if (!ok) { toast({ title: 'Could not send invite', description: res.error?.message || 'Please try again.', variant: 'destructive' }); return; }
+    toast({ title: 'Onboarding invite sent', description: reg.email || undefined });
+  };
 
   useEffect(() => { if (id) load(id); }, [id]);
 
@@ -600,13 +617,20 @@ export function AdminSM26Detail() {
               <div className="text-[11px] uppercase tracking-wide text-gray-400 flex items-center gap-1.5"><KeyRound className="h-3.5 w-3.5" /> Account claim · not yet claimed</div>
               <div className="font-mono text-sm font-semibold text-gray-900 mt-0.5">{reg.claim_code}</div>
             </div>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
-              const link = `${window.location.origin}/sm26/claim?code=${reg.claim_code}`;
-              navigator.clipboard?.writeText(link).catch(() => {});
-              toast({ title: 'Claim link copied', description: link });
-            }}>
-              <Copy className="h-4 w-4" /> Copy claim link
-            </Button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {!reg.user_id && (
+                <Button size="sm" className="gap-1.5" onClick={sendOnboardingInvite} disabled={inviting}>
+                  {inviting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send onboarding invite
+                </Button>
+              )}
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
+                const link = `${window.location.origin}/sm26/claim?code=${reg.claim_code}`;
+                navigator.clipboard?.writeText(link).catch(() => {});
+                toast({ title: 'Claim link copied', description: link });
+              }}>
+                <Copy className="h-4 w-4" /> Copy claim link
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}

@@ -24,6 +24,22 @@ interface Health {
 
 const sum = (c: Counts) => Object.values(c || {}).reduce((a, b) => a + b, 0);
 
+// supabase.functions.invoke can throw a transient FunctionsFetchError when the
+// request hits a cold function before it boots (surfaces as "Failed to send a
+// request to the Edge Function"). These are launch-critical blast buttons, so we
+// retry a transient NETWORK failure once. A real HTTP error (the function ran and
+// returned 4xx/5xx) is returned immediately, never retried.
+async function invokeWithRetry(name: string, body: Record<string, unknown>) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await supabase.functions.invoke(name, { body });
+    if (res.error && (res.error as { name?: string }).name === 'FunctionsFetchError' && attempt < 1) {
+      await new Promise(r => setTimeout(r, 900));
+      continue;
+    }
+    return res;
+  }
+}
+
 function Stat({ icon: Icon, label, value, sub }: { icon: typeof Users; label: string; value: React.ReactNode; sub?: React.ReactNode }) {
   return (
     <Card className="border-0 shadow-sm">
@@ -88,7 +104,7 @@ export function AdminSM26Health() {
     const { data: u } = await supabase.auth.getUser();
     const email = u?.user?.email;
     if (!email) { setRemindBusy(null); setRemindMsg('Could not determine your email.'); return; }
-    const { error } = await supabase.functions.invoke('sm26-reminders', { body: { test_email: email, kind: 'manual' } });
+    const { error } = await invokeWithRetry('sm26-reminders', { test_email: email, kind: 'manual' });
     setRemindBusy(null);
     if (error) { setRemindMsg(`Test failed: ${error.message}`); return; }
     setRemindMsg(`Test reminder sent to ${email}.`);
@@ -98,7 +114,7 @@ export function AdminSM26Health() {
   const sendAllReminders = async () => {
     if (!window.confirm('Send the pre-event reminder now to ALL confirmed participants? Each is emailed once — anyone already reminded is skipped.')) return;
     setRemindBusy('all'); setRemindMsg(null);
-    const { data, error } = await supabase.functions.invoke('sm26-reminders', { body: { kind: 'manual_all' } });
+    const { data, error } = await invokeWithRetry('sm26-reminders', { kind: 'manual_all' });
     setRemindBusy(null);
     if (error) { setRemindMsg(`Send failed: ${error.message}`); return; }
     const n = (data as { sent?: number } | null)?.sent ?? 0;
@@ -126,7 +142,7 @@ export function AdminSM26Health() {
     if (!window.confirm(`Send a payment reminder to ${targets.length} invoiced-but-unpaid participant(s)?`)) { setPayBusy(false); return; }
     let n = 0;
     await Promise.all(targets.map(async (t) => {
-      const { error: e } = await supabase.functions.invoke('sm26-email', { body: { registration_id: t.registration_id, kind: 'payment_reminder' } });
+      const { error: e } = await invokeWithRetry('sm26-email', { registration_id: t.registration_id, kind: 'payment_reminder' });
       if (!e) n++;
     }));
     setPayBusy(false);
@@ -142,7 +158,7 @@ export function AdminSM26Health() {
     const { data: u } = await supabase.auth.getUser();
     const email = u?.user?.email;
     if (!email) { setOnboardBusy(null); setOnboardMsg('Could not determine your email.'); return; }
-    const { error } = await supabase.functions.invoke('sm26-onboarding', { body: { test_email: email } });
+    const { error } = await invokeWithRetry('sm26-onboarding', { test_email: email });
     setOnboardBusy(null);
     if (error) { setOnboardMsg(`Test failed: ${error.message}`); return; }
     setOnboardMsg(`Test onboarding email sent to ${email}.`);
@@ -152,7 +168,7 @@ export function AdminSM26Health() {
   const sendAllOnboarding = async () => {
     if (!window.confirm('Email everyone who has a registration but no account yet, inviting them to create their account and claim it? Only people not yet on the platform are emailed.')) return;
     setOnboardBusy('all'); setOnboardMsg(null);
-    const { data, error } = await supabase.functions.invoke('sm26-onboarding', { body: {} });
+    const { data, error } = await invokeWithRetry('sm26-onboarding', {});
     setOnboardBusy(null);
     if (error) { setOnboardMsg(`Send failed: ${error.message}`); return; }
     const n = (data as { sent?: number } | null)?.sent ?? 0;

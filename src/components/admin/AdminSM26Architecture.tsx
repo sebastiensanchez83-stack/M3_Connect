@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, Ruler, Upload, Trash2, Download, Loader2, Save, FileText, Clock, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, ArrowLeft, Ruler, Upload, Trash2, Download, Loader2, Save, FileText, Folder, Clock, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { toast } from '@/hooks/use-toast';
 // (separate) submission deadline, and a tracker of who has uploaded. Files live in
 // event-media/architecture-pack/* (registered architects can read them).
 
-interface Resource { id: string; label: string; file_path: string; content_type: string | null; size_bytes: number | null; display_order: number }
+interface Resource { id: string; label: string; file_path: string; content_type: string | null; size_bytes: number | null; display_order: number; folder: string | null }
 interface Entry { role_assignment_id: string; anon_code: string | null; company: string; category: string; file_count: number; last_upload: string | null }
 
 const fmtSize = (b: number | null) => b == null ? '' : b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`;
@@ -26,6 +26,7 @@ export function AdminSM26Architecture() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState('');
+  const [folder, setFolder] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const load = async () => {
@@ -62,7 +63,7 @@ export function AdminSM26Architecture() {
     const path = `architecture-pack/${Date.now()}-${safe}`;
     const { error: upErr } = await supabase.storage.from('event-media').upload(path, file, { upsert: false });
     if (upErr) { setBusy(false); toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' }); return; }
-    const { error } = await supabase.rpc('sm_architecture_resource_add', { p_event_id: eventId, p_label: label.trim() || file.name, p_path: path, p_content_type: file.type || null, p_size: file.size });
+    const { error } = await supabase.rpc('sm_architecture_resource_add', { p_event_id: eventId, p_label: label.trim() || file.name, p_path: path, p_content_type: file.type || null, p_size: file.size, p_folder: folder.trim() || null });
     setBusy(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
     setLabel('');
@@ -88,6 +89,12 @@ export function AdminSM26Architecture() {
   if (loading) return <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-7 w-7 animate-spin text-primary" /></div>;
 
   const submitted = entries.filter(e => e.file_count > 0).length;
+  const existingFolders = [...new Set(resources.map(r => r.folder).filter(Boolean))] as string[];
+  const packGroups = (() => {
+    const m = new Map<string, Resource[]>();
+    for (const r of resources) { const k = (r.folder || '').trim(); if (!m.has(k)) m.set(k, []); m.get(k)!.push(r); }
+    return [...m.entries()].sort((a, b) => (a[0] === '' ? -1 : b[0] === '' ? 1 : a[0].localeCompare(b[0])));
+  })();
 
   return (
     <div className="container mx-auto px-4 py-6 max-w-3xl">
@@ -115,21 +122,30 @@ export function AdminSM26Architecture() {
       <Card className="mb-4">
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2"><FileText className="h-4 w-4 text-primary" /> Competition files ({resources.length})</CardTitle>
-          <CardDescription>The shared pack every registered architect downloads — brief, site files, board template, rules.</CardDescription>
+          <CardDescription>The shared pack every registered architect downloads. Add a folder name when uploading (e.g. Brief, Site files, Templates) to group the files; leave it blank for ungrouped.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {resources.length === 0 ? <p className="text-sm text-gray-400">No files yet.</p> : resources.map(r => (
-            <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2">
-              <button onClick={() => download(r.file_path)} className="flex items-center gap-2 min-w-0 text-left">
-                <Download className="h-4 w-4 text-primary shrink-0" />
-                <span className="text-sm text-gray-800 truncate">{r.label}</span>
-                {r.size_bytes != null && <span className="text-xs text-gray-400 shrink-0">{fmtSize(r.size_bytes)}</span>}
-              </button>
-              <button onClick={() => removeResource(r)} disabled={busy} className="text-gray-400 hover:text-red-600 p-1 shrink-0"><Trash2 className="h-4 w-4" /></button>
+          {resources.length === 0 ? <p className="text-sm text-gray-400">No files yet.</p> : packGroups.map(([fname, items]) => (
+            <div key={fname || '_root'} className="space-y-1.5">
+              {fname
+                ? <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500 flex items-center gap-1.5"><Folder className="h-3.5 w-3.5 text-gray-400" /> {fname}</div>
+                : (packGroups.length > 1 && <div className="text-[11px] font-medium uppercase tracking-wide text-gray-400">Ungrouped</div>)}
+              {items.map(r => (
+                <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2">
+                  <button onClick={() => download(r.file_path)} className="flex items-center gap-2 min-w-0 text-left">
+                    <Download className="h-4 w-4 text-primary shrink-0" />
+                    <span className="text-sm text-gray-800 truncate">{r.label}</span>
+                    {r.size_bytes != null && <span className="text-xs text-gray-400 shrink-0">{fmtSize(r.size_bytes)}</span>}
+                  </button>
+                  <button onClick={() => removeResource(r)} disabled={busy} className="text-gray-400 hover:text-red-600 p-1 shrink-0"><Trash2 className="h-4 w-4" /></button>
+                </div>
+              ))}
             </div>
           ))}
-          <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-            <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (optional — defaults to the file name)" className="h-9" />
+          <div className="flex items-center gap-2 pt-2 border-t border-gray-100 flex-wrap">
+            <Input value={folder} onChange={e => setFolder(e.target.value)} placeholder="Folder (optional)" className="h-9 w-40" list="arch-folders" />
+            <datalist id="arch-folders">{existingFolders.map(f => <option key={f} value={f} />)}</datalist>
+            <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (optional)" className="h-9 flex-1 min-w-[140px]" />
             <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }} />
             <Button size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy} onClick={() => fileRef.current?.click()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Add file

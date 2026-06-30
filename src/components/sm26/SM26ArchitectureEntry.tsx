@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, Save, Download, Upload, Trash2, FileText, Lock, AlertTriangle, CheckCircle2, Film, ChevronDown, ChevronRight } from 'lucide-react';
+import { Loader2, Save, Download, Upload, Trash2, FileText, Folder, Lock, AlertTriangle, CheckCircle2, Film, ChevronDown, ChevronRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -37,7 +37,7 @@ const PANEL_GUIDE = [
 const MAX_BYTES = 10 * 1024 * 1024;
 const fmtSize = (b: number | null) => b == null ? '' : b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`;
 
-interface Resource { id: string; label: string; file_path: string; size_bytes: number | null }
+interface Resource { id: string; label: string; file_path: string; size_bytes: number | null; folder: string | null }
 interface Sub { id: string; file_path: string; filename: string | null; size_bytes: number | null; kind: string; created_at: string }
 
 export function SM26ArchitectureEntry({ roleAssignmentId }: { roleAssignmentId: string }) {
@@ -146,6 +146,13 @@ export function SM26ArchitectureEntry({ roleAssignmentId }: { roleAssignmentId: 
     </div>
   );
 
+  // Group the download pack by folder (ungrouped first).
+  const packGroups = (() => {
+    const m = new Map<string, Resource[]>();
+    for (const r of resources) { const k = (r.folder || '').trim(); if (!m.has(k)) m.set(k, []); m.get(k)!.push(r); }
+    return [...m.entries()].sort((a, b) => (a[0] === '' ? -1 : b[0] === '' ? 1 : a[0].localeCompare(b[0])));
+  })();
+
   return (
     <div className="space-y-3">
       {/* Download pack */}
@@ -154,12 +161,17 @@ export function SM26ArchitectureEntry({ roleAssignmentId }: { roleAssignmentId: 
           <div className="text-sm font-medium flex items-center gap-2 mb-2"><Download className="h-4 w-4 text-primary" /> Competition files</div>
           {resources.length === 0
             ? <p className="text-xs text-gray-500">The competition pack will appear here once the organizers publish it.</p>
-            : <div className="space-y-1.5">{resources.map(r => (
-                <button key={r.id} onClick={() => openSigned(r.file_path)} className="flex items-center gap-2 w-full text-left rounded-lg border border-gray-100 hover:border-primary/40 px-3 py-2">
-                  <Download className="h-4 w-4 text-primary shrink-0" />
-                  <span className="text-sm text-gray-800 truncate flex-1">{r.label}</span>
-                  {r.size_bytes != null && <span className="text-xs text-gray-400">{fmtSize(r.size_bytes)}</span>}
-                </button>
+            : <div className="space-y-2.5">{packGroups.map(([fname, items]) => (
+                <div key={fname || '_root'} className="space-y-1.5">
+                  {fname && <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500 flex items-center gap-1.5"><Folder className="h-3.5 w-3.5 text-gray-400" /> {fname}</div>}
+                  {items.map(r => (
+                    <button key={r.id} onClick={() => openSigned(r.file_path)} className="flex items-center gap-2 w-full text-left rounded-lg border border-gray-100 hover:border-primary/40 px-3 py-2">
+                      <Download className="h-4 w-4 text-primary shrink-0" />
+                      <span className="text-sm text-gray-800 truncate flex-1">{r.label}</span>
+                      {r.size_bytes != null && <span className="text-xs text-gray-400">{fmtSize(r.size_bytes)}</span>}
+                    </button>
+                  ))}
+                </div>
               ))}</div>}
         </CardContent>
       </Card>

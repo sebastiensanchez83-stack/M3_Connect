@@ -692,12 +692,6 @@ export function EventDetailPage() {
                         <span>{event.fees}</span>
                       </div>
                     )}
-                    {event.max_attendance && (
-                      <div className="flex items-center gap-2 text-gray-600">
-                        <UserCheck className="h-4 w-4 text-primary" />
-                        <span>{registrationCount} / {event.max_attendance} {t('events.spots', 'spots')}</span>
-                      </div>
-                    )}
                   </div>
 
                   {/* Registration Flow */}

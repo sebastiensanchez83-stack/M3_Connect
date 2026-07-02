@@ -295,19 +295,26 @@ export function AdminDashboard() {
       // Event performance (registrations per upcoming event) — parallel fetch
       if (upcomingEventsData && upcomingEventsData.length > 0) {
         const evtIds = upcomingEventsData.map((e: { id: string }) => e.id);
-        const [{ data: allRegs }, { data: allPricing }] = await Promise.all([
+        const [{ data: allRegs }, { data: allPricing }, { data: smLinked }] = await Promise.all([
           supabase.from('event_registrations').select('event_id').in('event_id', evtIds),
           supabase.from('event_pricing').select('event_id, max_included_seats').in('event_id', evtIds),
+          supabase.from('sm_event').select('legacy_event_id').in('legacy_event_id', evtIds),
         ]);
+        // SM26 on-site events use a separate registration system (sm_registration) and
+        // have their own Smart 26 -> Event Health dashboard, so exclude them from this
+        // fill-rate card where event_registrations would show a misleading ~0%.
+        const smEventIds = new Set(((smLinked || []) as { legacy_event_id: string | null }[]).map(s => s.legacy_event_id).filter(Boolean) as string[]);
         const regCounts: Record<string, number> = {};
         (allRegs || []).forEach((r: { event_id: string }) => { regCounts[r.event_id] = (regCounts[r.event_id] || 0) + 1; });
         const capCounts: Record<string, number> = {};
         (allPricing || []).forEach((p: { event_id: string; max_included_seats: number }) => { capCounts[p.event_id] = (capCounts[p.event_id] || 0) + (p.max_included_seats || 0); });
-        const evtPerfs: EventPerf[] = upcomingEventsData.map((evt: { id: string; title: string; date_time: string }) => {
-          const regs = regCounts[evt.id] || 0;
-          const capacity = capCounts[evt.id] || 50;
-          return { id: evt.id, title: evt.title, date_time: evt.date_time, registrations: regs, capacity, fillRate: capacity > 0 ? Math.round((regs / capacity) * 100) : 0 };
-        });
+        const evtPerfs: EventPerf[] = upcomingEventsData
+          .filter((evt: { id: string }) => !smEventIds.has(evt.id))
+          .map((evt: { id: string; title: string; date_time: string }) => {
+            const regs = regCounts[evt.id] || 0;
+            const capacity = capCounts[evt.id] || 50;
+            return { id: evt.id, title: evt.title, date_time: evt.date_time, registrations: regs, capacity, fillRate: capacity > 0 ? Math.round((regs / capacity) * 100) : 0 };
+          });
         setEventPerf(evtPerfs);
       }
 

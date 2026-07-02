@@ -67,6 +67,7 @@ export function SM26MyRegistrationPage() {
   const [ecatBusy, setEcatBusy] = useState<string | null>(null);
   const [changeNote, setChangeNote] = useState<Record<string, string>>({});
   const [statusBusy, setStatusBusy] = useState(false);
+  const [onsiteBusy, setOnsiteBusy] = useState<string | null>(null);
 
   useEffect(() => { if (user) load(); }, [user]);
 
@@ -155,6 +156,16 @@ export function SM26MyRegistrationPage() {
     const ok = await persist(role, merged);
     setSavingRole(null);
     if (ok) toast({ title: 'Saved' });
+  };
+
+  // Jury on-site opt-in: adds/removes the entry badge (the on-site check-in list).
+  const setOnsite = async (role: RoleAssignment, attending: boolean) => {
+    setOnsiteBusy(role.id);
+    const { error } = await supabase.rpc('sm_set_onsite_attendance', { p_role_assignment_id: role.id, p_attending: attending });
+    setOnsiteBusy(null);
+    if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
+    setReg(prev => prev ? { ...prev, roles: prev.roles.map(r => r.id === role.id ? { ...r, module_data: { ...(r.module_data || {}), onsite_attendance: attending ? 'yes' : 'no' } } : r) } : prev);
+    toast({ title: attending ? "You're on the on-site check-in list" : 'Marked as evaluating online only' });
   };
 
   // Persist a new asset path-list for a field (uploads handled by SM26AssetUpload).
@@ -381,6 +392,19 @@ export function SM26MyRegistrationPage() {
                   <CardDescription>Provide the items below. Your answers are saved to your registration.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {role.role === 'jury' && (
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-center justify-between gap-3 flex-wrap">
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-gray-800">Attending on-site in Monaco?</div>
+                        <p className="text-xs text-gray-500 mt-0.5">Jurors evaluate online. Turn this on only if you're coming to the event in person — it adds you to the on-site check-in list and issues your entry pass.</p>
+                      </div>
+                      <Button size="sm" variant={md.onsite_attendance === 'yes' ? 'default' : 'outline'} disabled={onsiteBusy === role.id}
+                        onClick={() => setOnsite(role, md.onsite_attendance !== 'yes')} className="gap-1.5 shrink-0">
+                        {onsiteBusy === role.id ? <Loader2 className="h-4 w-4 animate-spin" /> : md.onsite_attendance === 'yes' ? <Check className="h-4 w-4" /> : null}
+                        {md.onsite_attendance === 'yes' ? 'Attending on-site' : 'Attend on-site'}
+                      </Button>
+                    </div>
+                  )}
                   {(outstanding.length > 0 || requestNote) && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
                       <p className="font-medium text-amber-800">M3 has asked you for{outstanding.length > 0 ? ':' : ' a few details.'}</p>

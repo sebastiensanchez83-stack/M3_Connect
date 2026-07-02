@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
   const eventId = (ev as { id: string }).id;
 
   const { data: regs } = await admin.from("sm_registration")
-    .select("id, user_id, organization_id, status, roles:sm_role_assignment(role, module_data, startup:sm_startup_profile(logo_url, product_images))")
+    .select("id, user_id, organization_id, status, roles:sm_role_assignment(role, module_data, startup:sm_startup_profile(logo_url, product_images), arch:sm_architecture_entry(logo_url, company_image_url, project_renders))")
     .eq("event_id", eventId);
   // deno-lint-ignore no-explicit-any
   const list = (regs || []) as any[];
@@ -84,7 +84,7 @@ Deno.serve(async (req) => {
         // Org logo — only if none set.
         if (!org.logo_url) {
           let logo: string | null = null;
-          for (const ra of roles) { const sp = Array.isArray(ra.startup) ? ra.startup[0] : ra.startup; const md = ra.module_data || {}; const c = sp?.logo_url ?? md.logo ?? md.logo_url; if (isPath(c)) { logo = c; break; } }
+          for (const ra of roles) { const sp = Array.isArray(ra.startup) ? ra.startup[0] : ra.startup; const ar = Array.isArray(ra.arch) ? ra.arch[0] : ra.arch; const md = ra.module_data || {}; const c = sp?.logo_url ?? ar?.logo_url ?? md.logo ?? md.logo_url; if (isPath(c)) { logo = c; break; } }
           if (logo) {
             const url = await copyToPublic(admin, logo, "org-logos", `${r.organization_id}/logo-sm26.${extOf(logo)}`);
             if (url) { await admin.from("organizations").update({ logo_url: url }).eq("id", r.organization_id); logos++; }
@@ -93,7 +93,13 @@ Deno.serve(async (req) => {
         // Org gallery from product images — only if empty.
         if (!org.gallery || (Array.isArray(org.gallery) && org.gallery.length === 0)) {
           let imgs: string[] = [];
-          for (const ra of roles) { const sp = Array.isArray(ra.startup) ? ra.startup[0] : ra.startup; if (sp?.product_images?.length) { imgs = sp.product_images; break; } }
+          for (const ra of roles) {
+            const sp = Array.isArray(ra.startup) ? ra.startup[0] : ra.startup;
+            const ar = Array.isArray(ra.arch) ? ra.arch[0] : ra.arch;
+            if (sp?.product_images?.length) { imgs = sp.product_images; break; }
+            if (ar && (ar.company_image_url || ar.project_renders?.length)) { imgs = [ar.company_image_url, ...(ar.project_renders || [])].filter(Boolean); break; }
+          }
+          imgs = imgs.slice(0, 12);
           const urls: string[] = [];
           for (let i = 0; i < imgs.length; i++) { const src = imgs[i]; if (!isPath(src)) continue; const url = await copyToPublic(admin, src, "org-logos", `${r.organization_id}/gallery-sm26-${i}.${extOf(src)}`); if (url) urls.push(url); }
           if (urls.length) { await admin.from("organizations").update({ gallery: urls }).eq("id", r.organization_id); galleries++; }

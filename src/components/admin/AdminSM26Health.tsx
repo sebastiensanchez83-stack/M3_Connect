@@ -153,6 +153,18 @@ export function AdminSM26Health() {
   // Onboarding invites: email everyone who has a registration but no account yet
   // a link to create their account + claim it. Repeatable (re-targets only those
   // still not on the platform).
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const syncMedia = async () => {
+    setSyncBusy(true); setSyncMsg(null);
+    const { data, error } = await invokeWithRetry('sm26-sync-media', {});
+    setSyncBusy(false);
+    if (error) { setSyncMsg(`Sync failed: ${error.message}`); return; }
+    const d = data as { avatars?: number; logos?: number; galleries?: number } | null;
+    setSyncMsg(`Set ${d?.avatars ?? 0} avatar(s), ${d?.logos ?? 0} org logo(s) and ${d?.galleries ?? 0} gallery(ies).`);
+    toast({ title: 'SM26 media synced to profiles' });
+  };
+
   const sendTestOnboarding = async () => {
     setOnboardBusy('test'); setOnboardMsg(null);
     const { data: u } = await supabase.auth.getUser();
@@ -245,6 +257,19 @@ export function AdminSM26Health() {
             </Button>
           </div>
           {onboardMsg && <p className="text-xs text-gray-500">{onboardMsg}</p>}
+        </CardContent>
+      </Card>
+
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><RefreshCw className="h-4 w-4 text-gray-400" /> Sync photos &amp; logos to profiles</div>
+          <p className="text-xs text-gray-500">Copies each participant's registration headshot to their <strong>account avatar</strong>, company logo to their <strong>organization logo</strong>, and product images to their <strong>org gallery</strong>. Only fills empty ones (never overwrites) — safe to re-run after importing new people.</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={syncMedia} disabled={syncBusy}>
+              {syncBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Run media sync
+            </Button>
+          </div>
+          {syncMsg && <p className="text-xs text-gray-500">{syncMsg}</p>}
         </CardContent>
       </Card>
 

@@ -381,6 +381,22 @@ export function OrganizationPublicPage() {
                 </Card>
               )}
 
+              {/* Product images gallery (public) */}
+              {org.gallery && org.gallery.length > 0 && (
+                <Card>
+                  <CardContent className="pt-6">
+                    <h2 className="text-lg font-semibold text-gray-900 mb-3">Product images</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      {org.gallery.map((url) => (
+                        <a key={url} href={url} target="_blank" rel="noreferrer" className="block aspect-square rounded-lg overflow-hidden border border-gray-100 bg-gray-50">
+                          <img src={url} alt="" className="w-full h-full object-cover hover:scale-105 transition-transform" />
+                        </a>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Audience description for media orgs */}
               {org.audience_description && (
                 <Card>

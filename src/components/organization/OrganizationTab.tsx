@@ -127,6 +127,7 @@ export function OrganizationTab() {
 
   // Logo upload
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [galleryBusy, setGalleryBusy] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [logoMeta, setLogoMeta] = useState('');
@@ -179,6 +180,44 @@ export function OrganizationTab() {
       setUpgradeSubmitting(false);
       setUploadingInvoice(false);
     }
+  };
+
+  // ── Product-image gallery (any member; shown on the public profile) ──
+  const handleGalleryUpload = async (files: FileList) => {
+    if (!org || !user || !files.length) return;
+    setGalleryBusy(true);
+    try {
+      const added: string[] = [];
+      for (const file of Array.from(files).slice(0, 12)) {
+        if (!file.type.startsWith('image/')) continue;
+        if (file.size > 25 * 1024 * 1024) { toast({ title: `${file.name} is too large`, description: 'Max 25 MB', variant: 'destructive' }); continue; }
+        const blob = await resizeImage(file, 1400, 1400);
+        const ctype = (blob as Blob).type || file.type;
+        const ext = ctype === 'image/png' ? 'png' : ctype === 'image/webp' ? 'webp' : 'jpg';
+        const fileName = `${org.id}/gallery-${Date.now()}-${Math.floor(Math.random() * 100000)}.${ext}`;
+        const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, blob, { cacheControl: '3600', upsert: false, contentType: ctype });
+        if (upErr) { toast({ title: `Couldn't upload ${file.name}`, description: upErr.message, variant: 'destructive' }); continue; }
+        added.push(supabase.storage.from('org-logos').getPublicUrl(fileName).data.publicUrl);
+      }
+      if (added.length) {
+        const next = [...(org.gallery || []), ...added];
+        const { error } = await supabase.rpc('update_org_gallery', { p_org_id: org.id, p_urls: next });
+        if (error) throw error;
+        setOrg({ ...org, gallery: next });
+        toast({ title: `Added ${added.length} image${added.length > 1 ? 's' : ''}` });
+      }
+    } catch (err: unknown) {
+      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+    setGalleryBusy(false);
+  };
+
+  const removeGalleryImage = async (url: string) => {
+    if (!org) return;
+    const next = (org.gallery || []).filter(u => u !== url);
+    const { error } = await supabase.rpc('update_org_gallery', { p_org_id: org.id, p_urls: next });
+    if (error) { toast({ title: 'Could not remove', description: error.message, variant: 'destructive' }); return; }
+    setOrg({ ...org, gallery: next });
   };
 
   // ── Logo upload handler ──
@@ -1268,6 +1307,38 @@ export function OrganizationTab() {
           {org.description && (
             <p className="text-gray-600 text-sm">{org.description}</p>
           )}
+
+          {/* Product images — any member manages; shown on the public profile */}
+          <div className="border-t pt-4">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Product images</h4>
+              {canEditOrg && (
+                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary cursor-pointer hover:underline">
+                  <input type="file" accept="image/*" multiple className="hidden" disabled={galleryBusy}
+                    onChange={e => { if (e.target.files) handleGalleryUpload(e.target.files); e.target.value = ''; }} />
+                  {galleryBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Add images
+                </label>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 mb-2">Shown on your public organization profile. Any team member can add or remove them.</p>
+            {(org.gallery || []).length === 0 ? (
+              <p className="text-sm text-gray-400">No product images yet.</p>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {(org.gallery || []).map((url) => (
+                  <div key={url} className="relative group aspect-square rounded-lg border border-gray-100 overflow-hidden bg-gray-50">
+                    <img src={url} alt="" className="w-full h-full object-cover" />
+                    {canEditOrg && (
+                      <button type="button" onClick={() => removeGalleryImage(url)}
+                        className="absolute top-1 right-1 bg-white/90 rounded-full p-1 text-gray-500 hover:text-red-600 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Remove image">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           {/* Detailed Organization Info (read-only) */}
           {!editing && (

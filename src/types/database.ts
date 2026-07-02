@@ -139,6 +139,7 @@ export interface Organization {
   owner_user_id: string;
   logo_url: string | null;
   banner_url: string | null;
+  gallery?: string[] | null;
   investment_geographies: string[] | null;
   investment_size_min: number | null;
   investment_size_max: number | null;

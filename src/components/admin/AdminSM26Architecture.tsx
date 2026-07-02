@@ -61,7 +61,7 @@ export function AdminSM26Architecture() {
     setBusy(true);
     const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
     const path = `architecture-pack/${Date.now()}-${safe}`;
-    const { error: upErr } = await supabase.storage.from('event-media').upload(path, file, { upsert: false });
+    const { error: upErr } = await supabase.storage.from('event-media').upload(path, file, { upsert: false, contentType: file.type || 'application/octet-stream' });
     if (upErr) { setBusy(false); toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' }); return; }
     const { error } = await supabase.rpc('sm_architecture_resource_add', { p_event_id: eventId, p_label: label.trim() || file.name, p_path: path, p_content_type: file.type || null, p_size: file.size, p_folder: folder.trim() || null });
     setBusy(false);

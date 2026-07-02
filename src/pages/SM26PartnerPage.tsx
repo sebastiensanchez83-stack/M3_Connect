@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import {
   RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
   Lightbulb, Scale, Image as ImageIcon, ChevronRight, Download, AlertTriangle, CheckCircle2,
-  Upload, Loader2, MessageSquare, Eye,
+  Upload, Loader2, MessageSquare, Eye, Ruler,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -23,7 +23,7 @@ import { ECAT_STATUS_LABEL, ecatStatusClass } from '@/components/admin/AdminSM26
 interface Entry {
   role_assignment_id: string; reg_id: string; role: string;
   name: string | null; company: string | null; job_title: string | null; country: string | null; thumb: string | null;
-  payment_status: string | null;
+  payment_status: string | null; jury_scope: string | null;
 }
 interface EcatRow { id: string; registration_id: string; kind: string; status: string; title: string; designed_file_path: string | null; changes_note: string | null }
 interface Session { id: string; title: string; type: string; starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null }
@@ -107,6 +107,9 @@ function buildDossier(d: DossierRow): Built {
 
 const ROLE_META: Record<string, { label: string; icon: typeof Building2; singular: string }> = {
   startup: { label: 'Innovations', icon: Lightbulb, singular: 'innovation' },
+  marina: { label: 'Marinas', icon: MapPin, singular: 'marina' },
+  architect_pro: { label: 'Architecture · Pro', icon: Ruler, singular: 'architecture entry' },
+  architect_student: { label: 'Architecture · Student', icon: Ruler, singular: 'architecture entry' },
   jury: { label: 'Jury', icon: Scale, singular: 'juror' },
   sponsor: { label: 'Sponsors', icon: Building2, singular: 'sponsor' },
   speaker: { label: 'Speakers', icon: Mic, singular: 'speaker' },
@@ -307,7 +310,9 @@ ${d.missing.length ? `<h2>Still missing for the catalogue</h2><p>${esc(d.missing
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Icon className="h-5 w-5 text-primary" /> {meta.label} ({list.length})</CardTitle>
           {role === 'startup' && <CardDescription>Full profile, contact and uploaded images for the catalogue.</CardDescription>}
-          {role === 'jury' && <CardDescription>Logo, photo, job title &amp; bio for the catalogue — no contact details.</CardDescription>}
+          {role === 'jury' && <CardDescription>Logo, photo, job title &amp; bio for the catalogue — no contact details. Each juror's competition is shown on their card.</CardDescription>}
+          {role === 'marina' && <CardDescription>Marina profile &amp; images for the catalogue.</CardDescription>}
+          {role.startsWith('architect') && <CardDescription>The firm's catalogue details for the e-catalogue — never the anonymous competition boards.</CardDescription>}
         </CardHeader>
         <CardContent>
           {list.length === 0 ? (
@@ -330,6 +335,11 @@ ${d.missing.length ? `<h2>Still missing for the catalogue</h2><p>${esc(d.missing
                       {e.role === 'startup' && e.payment_status && (
                         <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${e.payment_status === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
                           {e.payment_status === 'paid' ? 'Paid' : 'Awaiting payment'}
+                        </span>
+                      )}
+                      {e.role === 'jury' && e.jury_scope && (
+                        <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border bg-primary/5 text-primary border-primary/20">
+                          {e.jury_scope === 'both' ? 'Innovation + Architecture' : e.jury_scope === 'architecture' ? 'Architecture' : 'Innovation'}
                         </span>
                       )}
                     </div>
@@ -358,6 +368,9 @@ ${d.missing.length ? `<h2>Still missing for the catalogue</h2><p>${esc(d.missing
 
       <div className="container mx-auto px-4 py-8 max-w-3xl space-y-6">
         <Section role="startup" />
+        <Section role="marina" />
+        <Section role="architect_pro" />
+        <Section role="architect_student" />
         <Section role="jury" />
         <Section role="sponsor" />
         <Section role="speaker" />

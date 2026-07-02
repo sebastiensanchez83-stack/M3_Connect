@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -35,6 +35,7 @@ interface RoleAssignment {
 }
 interface Registration {
   id: string; event_id: string; status: string;
+  user_id: string | null; organization_id: string | null;
   first_name: string | null; company_name: string | null;
   roles: RoleAssignment[];
 }
@@ -57,6 +58,8 @@ const ecatClass = (s: string) =>
 export function SM26MyRegistrationPage() {
   const { user, loading: authLoading } = useAuth();
   const [reg, setReg] = useState<Registration | null>(null);
+  const [regs, setRegs] = useState<Registration[]>([]);
+  const selectedIdRef = useRef<string | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [loading, setLoading] = useState(true);
   // draft text values + busy flags, keyed by role assignment id
@@ -71,6 +74,26 @@ export function SM26MyRegistrationPage() {
 
   useEffect(() => { if (user) load(); }, [user]);
 
+  // Load the per-registration details (drafts, e-catalogue, payment) for one reg.
+  const selectReg = async (r: Registration) => {
+    setReg(r);
+    selectedIdRef.current = r.id;
+    const d: Record<string, Record<string, string>> = {};
+    for (const role of r.roles) {
+      d[role.id] = {};
+      for (const [k, v] of Object.entries(role.module_data || {})) {
+        if (typeof v === 'string') d[role.id][k] = v;
+      }
+    }
+    setDrafts(d);
+    const [{ data: ecatRows }, { data: pay }] = await Promise.all([
+      supabase.from('sm_ecat_page').select('id,kind,status,designed_file_path,published_file_path').eq('registration_id', r.id),
+      supabase.from('sm_payment').select('status').eq('registration_id', r.id).maybeSingle(),
+    ]);
+    setEcat((ecatRows || []) as EcatPage[]);
+    setPayStatus((pay as { status?: string } | null)?.status || 'unpaid');
+  };
+
   const load = async () => {
     setLoading(true);
     // Link any registration imported under this user's email but never claimed
@@ -79,35 +102,23 @@ export function SM26MyRegistrationPage() {
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setReg(null); setLoading(false); return; }
     const eventId = (ev as { id: string }).id;
+    // Every registration the signed-in user may access: their own, plus any that
+    // belong to an organization they're a member of (RLS enforces the scoping).
+    // Lets teammates — e.g. an org owner — view and manage the company's entry.
     const { data } = await supabase
       .from('sm_registration')
-      .select('id,event_id,status,first_name,company_name, roles:sm_role_assignment(id,role,status,module_data)')
+      .select('id,event_id,status,user_id,organization_id,first_name,company_name, roles:sm_role_assignment(id,role,status,module_data)')
       .eq('event_id', eventId)
-      .eq('user_id', user!.id)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const r = data as Registration | null;
-    setReg(r);
-    // seed drafts from existing module_data
-    if (r) {
-      const d: Record<string, Record<string, string>> = {};
-      for (const role of r.roles) {
-        d[role.id] = {};
-        for (const [k, v] of Object.entries(role.module_data || {})) {
-          if (typeof v === 'string') d[role.id][k] = v;
-        }
-      }
-      setDrafts(d);
-      const [{ data: ecatRows }, { data: pay }] = await Promise.all([
-        supabase.from('sm_ecat_page').select('id,kind,status,designed_file_path,published_file_path').eq('registration_id', r.id),
-        supabase.from('sm_payment').select('status').eq('registration_id', r.id).maybeSingle(),
-      ]);
-      setEcat((ecatRows || []) as EcatPage[]);
-      setPayStatus((pay as { status?: string } | null)?.status || 'unpaid');
-    }
+      .order('created_at', { ascending: false });
+    const list = (data || []) as Registration[];
+    setRegs(list);
     const { data: reqs } = await supabase.from('sm_role_requirement').select('*').eq('event_id', eventId);
     setRequirements((reqs || []) as Requirement[]);
+    // Keep the current selection across reloads; else prefer the user's own
+    // registration, falling back to the first one they can access.
+    const chosen = list.find(r => r.id === selectedIdRef.current)
+      || list.find(r => r.user_id === user!.id) || list[0] || null;
+    if (chosen) await selectReg(chosen); else { setReg(null); selectedIdRef.current = null; }
     setLoading(false);
   };
 
@@ -245,9 +256,11 @@ export function SM26MyRegistrationPage() {
               <Button onClick={() => setRegStatus('submitted')} disabled={statusBusy} className="gap-1.5">
                 {statusBusy && <Loader2 className="h-4 w-4 animate-spin" />} Bring back my registration
               </Button>
-              <Button variant="outline" onClick={restartRegistration} disabled={statusBusy}>
-                Start a new registration
-              </Button>
+              {reg.user_id === user?.id && (
+                <Button variant="outline" onClick={restartRegistration} disabled={statusBusy}>
+                  Start a new registration
+                </Button>
+              )}
             </div>
             <p className="text-[11px] text-gray-400 mt-3 max-w-sm mx-auto">
               <strong>Bring back</strong> restores your previous details exactly as they were. <strong>Start new</strong> lets you choose a different way to take part — it replaces your current registration.
@@ -277,6 +290,33 @@ export function SM26MyRegistrationPage() {
 
       <div className="container mx-auto px-4 py-8 max-w-2xl space-y-6">
         <SM26Notifications />
+
+        {regs.length > 1 && (
+          <Card>
+            <CardContent className="pt-4 pb-4">
+              <div className="text-xs font-medium text-gray-500 mb-2">You can access more than one registration</div>
+              <div className="flex flex-wrap gap-2">
+                {regs.map(r => {
+                  const active = r.id === reg.id;
+                  const mine = r.user_id === user?.id;
+                  return (
+                    <button key={r.id} type="button" onClick={() => selectReg(r)}
+                      className={`px-3 py-1.5 rounded-lg border text-sm transition-colors ${active ? 'border-primary bg-primary/5 text-primary font-medium' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                      {r.company_name || r.first_name || 'Registration'}{mine ? <span className="ml-1 text-[10px] text-gray-400">(you)</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {reg.user_id !== user?.id && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 flex items-start gap-2">
+            <Ship className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
+            <span>You're viewing your organisation's registration{reg.first_name ? <> — submitted by <strong>{reg.first_name}</strong></> : null}. As a team member you can view and update it; changes apply to the company's entry.</span>
+          </div>
+        )}
 
         <Card>
           <CardContent className="pt-6 flex items-center justify-between gap-3 flex-wrap">

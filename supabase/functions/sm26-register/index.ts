@@ -96,6 +96,38 @@ function mapMarina(d: Record<string, unknown>) {
   };
 }
 
+// Store the guest's base64 assets under their new account's storage folder.
+// deno-lint-ignore no-explicit-any
+async function uploadAssets(admin: any, userId: string, assetsIn: Record<string, { name?: string; type?: string; data?: string }[]>): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {};
+  const extOf = (n: string, t: string) => {
+    const e = (n.split(".").pop() || "").toLowerCase();
+    if (e && e.length <= 5 && /^[a-z0-9]+$/.test(e)) return e;
+    if (t.includes("png")) return "png";
+    if (t.includes("pdf")) return "pdf";
+    if (t.includes("jpeg") || t.includes("jpg")) return "jpg";
+    return "bin";
+  };
+  for (const [key, items] of Object.entries(assetsIn || {})) {
+    if (!Array.isArray(items)) continue;
+    const paths: string[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it?.data) continue;
+      try {
+        const bin = atob(it.data);
+        const bytes = new Uint8Array(bin.length);
+        for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+        const path = `${userId}/sm26/${key}/${Date.now()}-${i}.${extOf(it.name || "", it.type || "")}`;
+        const { error } = await admin.storage.from("event-media").upload(path, bytes, { contentType: it.type || "application/octet-stream", upsert: true });
+        if (!error) paths.push(path);
+      } catch { /* skip an undecodable file */ }
+    }
+    if (paths.length) out[key] = paths;
+  }
+  return out;
+}
+
 async function sendAccessEmail(email: string, firstName: string, link: string) {
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
   const SENDER_EMAIL =
@@ -183,6 +215,8 @@ Deno.serve(async (req: Request) => {
   const role = s(payload.role);
   const scope = payload.scope === "org" ? "org" : "user";
   const light = (payload.light ?? {}) as Record<string, unknown>;
+  const extras = (payload.extras ?? {}) as Record<string, unknown>;
+  const assetsIn = (payload.assets ?? {}) as Record<string, { name?: string; type?: string; data?: string }[]>;
 
   // Silently accept bots (honeypot field should always be empty)
   if (honeypot) return json(req, { status: "created" });
@@ -269,6 +303,7 @@ Deno.serve(async (req: Request) => {
     return json(req, { error: "Registration could not be completed. Please try again." }, 500);
   }
 
+  const ap = await uploadAssets(admin, userId, assetsIn);
   const { data: ra, error: raErr } = await admin
     .from("sm_role_assignment")
     .insert({
@@ -280,7 +315,7 @@ Deno.serve(async (req: Request) => {
       depth: "full",
       source: "self",
       status: "self_submitted",
-      module_data: light,
+      module_data: { ...light, ...extras, ...ap },
     })
     .select("id")
     .single();
@@ -293,13 +328,16 @@ Deno.serve(async (req: Request) => {
   if (role === "startup" && payload.startup) {
     const { error } = await admin
       .from("sm_startup_profile")
-      .insert({ role_assignment_id: raId, event_id: eventId, ...mapStartup(payload.startup as Record<string, unknown>) });
+      .insert({ role_assignment_id: raId, event_id: eventId, logo_url: ap.logo_url?.[0] ?? null, deck_url: ap.deck?.[0] ?? null, product_images: ap.product_images ?? [], pitch_media_url: ap.pitch_media?.[0] ?? null, ...mapStartup(payload.startup as Record<string, unknown>) });
     if (error) console.error("startup insert failed", error);
   } else if ((role === "architect_pro" || role === "architect_student") && payload.arch) {
     const { error } = await admin.from("sm_architecture_entry").insert({
       role_assignment_id: raId,
       event_id: eventId,
       category: role === "architect_pro" ? "professional" : "student",
+      logo_url: ap.logo_url?.[0] ?? null,
+      company_image_url: ap.hero_image?.[0] ?? null,
+      project_renders: ap.renders ?? [],
       ...mapArch(payload.arch as Record<string, unknown>),
     });
     if (error) console.error("architecture insert failed", error);

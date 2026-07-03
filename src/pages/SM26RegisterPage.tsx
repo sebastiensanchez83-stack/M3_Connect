@@ -17,6 +17,7 @@ import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm2
 import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
 import { MarinaFields, EMPTY_MARINA, type MarinaData } from '@/components/sm26/MarinaFields';
 import { LightRoleFields, type LightData } from '@/components/sm26/LightRoleFields';
+import { SM26RegUpload } from '@/components/sm26/SM26RegUpload';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 
 // SM26 public intake — guest-first registration.
@@ -51,6 +52,39 @@ const ROLE_ICON: Record<string, ElementType> = {
   media: Newspaper, jury: Scale, investor: TrendingUp, sponsor: Building2, speaker: Mic, vip: Star,
 };
 
+// Uploadable assets collected at registration. `key` is the module_data key the
+// rest of the platform already reads (catalogue thumbnail, dossier, checklist).
+interface AssetDef { key: string; label: string; hint?: string; accept?: string; multiple?: boolean; required?: boolean }
+const A: Record<string, AssetDef> = {
+  photo:    { key: 'photo_url',   label: 'Profile photo / headshot', accept: 'image/*' },
+  logo:     { key: 'logo_url',    label: 'Company / firm logo', accept: 'image/*' },
+  hero:     { key: 'hero_image',  label: 'Company / project image (for the e-catalogue)', accept: 'image/*' },
+  banner:   { key: 'banner',      label: 'Event banner artwork', accept: 'image/*' },
+  slides:   { key: 'slides',      label: 'Session slides (optional)', accept: '.pdf,application/pdf' },
+  press:    { key: 'press_card',  label: 'Press card / accreditation', accept: 'image/*,application/pdf,.pdf' },
+  proof:    { key: 'proof_of_enrolment', label: 'Proof of enrolment', accept: 'image/*,application/pdf,.pdf' },
+  deck:     { key: 'deck',        label: 'Pitch deck (PDF)', accept: '.pdf,application/pdf' },
+  pitch:    { key: 'pitch_media', label: 'Pitch video or doc (optional)', accept: '.pdf,application/pdf,video/*' },
+  products: { key: 'product_images', label: 'Product / solution images', accept: 'image/*', multiple: true },
+  renders:  { key: 'renders',     label: 'Project images / renders', accept: 'image/*', multiple: true },
+};
+// Which assets each role uploads, in order.
+const ROLE_ASSETS: Record<string, AssetDef[]> = {
+  visitor: [A.photo],
+  vip: [A.photo],
+  jury: [A.photo, A.logo],
+  investor: [A.photo, A.logo],
+  media: [A.photo, A.press],
+  speaker: [A.photo, A.slides],
+  sponsor: [A.logo, A.photo, A.banner],
+  marina: [A.logo, A.hero, A.photo],
+  startup: [A.logo, A.photo, A.products, A.deck, A.pitch],
+  architect_pro: [A.logo, A.photo, A.hero, A.renders],
+  architect_student: [A.logo, A.photo, A.hero, A.renders, A.proof],
+};
+// Roles that appear in the e-catalogue / on social channels → ask for consents.
+const CATALOGUE_ROLES = new Set(['jury', 'startup', 'architect_pro', 'architect_student', 'marina', 'sponsor', 'speaker', 'media']);
+
 const DRAFT_KEY = 'sm26-register-draft';
 interface DraftShape {
   form?: Record<string, string>;
@@ -74,6 +108,11 @@ export function SM26RegisterPage() {
   const [arch, setArch] = useState<ArchitectureData>(EMPTY_ARCHITECTURE);
   const [marina, setMarina] = useState<MarinaData>(EMPTY_MARINA);
   const [light, setLight] = useState<LightData>({});
+  const [assets, setAssets] = useState<Record<string, File[]>>({});
+  const [socials, setSocials] = useState({ linkedin: '', instagram: '', facebook: '', twitter: '' });
+  const [ecatConsent, setEcatConsent] = useState(true);
+  const [socialConsent, setSocialConsent] = useState(true);
+  const [onsite, setOnsite] = useState(false);
   const [imageConsent, setImageConsent] = useState(false);
   const [terms, setTerms] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -195,6 +234,7 @@ export function SM26RegisterPage() {
     setArch(EMPTY_ARCHITECTURE);
     setMarina(EMPTY_MARINA);
     setLight({});
+    setAssets({});
   };
 
   const fmtFee = (cents?: number) =>
@@ -203,16 +243,66 @@ export function SM26RegisterPage() {
   const roleFeeLabel = (r: RoleDef) =>
     r.feeKey ? (fmtFee(fees[r.feeKey]) ?? r.freeNote ?? null) : (r.freeNote ?? null);
 
+  const setAsset = (key: string, files: File[]) => setAssets(prev => ({ ...prev, [key]: files }));
+
+  // module_data captured for every role: socials, on-site, consents, and the
+  // jury competition→scope mapping the rest of the platform reads.
+  const moduleExtras = (): Record<string, unknown> => {
+    const sl = Object.fromEntries(Object.entries(socials).filter(([, v]) => v.trim()));
+    const on = role.startsWith('architect') ? arch.onsite_attendance : onsite;
+    const e: Record<string, unknown> = { onsite_attendance: on ? 'yes' : 'no' };
+    if (Object.keys(sl).length) e.social_links = sl;
+    if (CATALOGUE_ROLES.has(role)) { e.ecat_consent = ecatConsent ? 'Yes' : 'No'; e.social_consent = socialConsent ? 'Yes' : 'No'; }
+    if (role === 'jury' && light.competition) e.jury_scope = String(light.competition).toLowerCase();
+    return e;
+  };
+
+  const fileToB64 = (f: File) => new Promise<{ name: string; type: string; data: string }>((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res({ name: f.name, type: f.type, data: String(fr.result).split(',')[1] || '' });
+    fr.onerror = rej;
+    fr.readAsDataURL(f);
+  });
+  // Guest: base64 every chosen asset so sm26-register can store them server-side.
+  const assetsToB64 = async () => {
+    const out: Record<string, { name: string; type: string; data: string }[]> = {};
+    for (const def of ROLE_ASSETS[role] || []) {
+      const files = assets[def.key] || [];
+      if (files.length) out[def.key] = await Promise.all(files.map(fileToB64));
+    }
+    return out;
+  };
+  // Logged-in: upload the chosen assets to the member's own storage folder.
+  const uploadAssets = async (): Promise<Record<string, string[]>> => {
+    const out: Record<string, string[]> = {};
+    for (const def of ROLE_ASSETS[role] || []) {
+      const files = assets[def.key] || [];
+      if (!files.length) continue;
+      const paths: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const safe = files[i].name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `${user!.id}/sm26/${def.key}/${Date.now()}-${i}-${safe}`;
+        const { error } = await supabase.storage.from('event-media').upload(path, files[i], { upsert: false });
+        if (!error) paths.push(path);
+      }
+      if (paths.length) out[def.key] = paths;
+    }
+    return out;
+  };
+
   // Guest (no account): a public edge function provisions an account + writes
   // the registration server-side, then emails a magic-link to access it.
   const submitGuest = async () => {
     const def = ROLES.find(r => r.key === role)!;
     setSubmitting(true);
     try {
+      const assetsB64 = await assetsToB64();
       const { data, error } = await supabase.functions.invoke('sm26-register', {
         body: {
           honeypot,
           origin: window.location.origin,
+          extras: moduleExtras(),
+          assets: assetsB64,
           registration: {
             first_name: form.first_name.trim(),
             last_name: form.last_name.trim(),
@@ -299,6 +389,11 @@ export function SM26RegisterPage() {
       // they don't have to upload it again (it feeds the e-catalogue).
       const orgLogo = organization?.logo_url || null;
       const def = ROLES.find(r => r.key === role)!;
+      // Upload the chosen assets to the member's storage, then assemble module_data.
+      const ap = await uploadAssets();
+      const moduleData: Record<string, unknown> = { ...light, ...moduleExtras() };
+      for (const [k, paths] of Object.entries(ap)) moduleData[k] = paths;
+      if (!moduleData.logo_url && orgLogo) moduleData.logo_url = [orgLogo]; // reuse SMC org logo
       const { data: ra, error: raErr } = await supabase.from('sm_role_assignment').insert({
         registration_id: reg.id,
         event_id: eventId,
@@ -308,7 +403,7 @@ export function SM26RegisterPage() {
         depth: 'full',
         source: 'self',
         status: 'self_submitted',
-        module_data: orgLogo ? { ...light, logo_url: orgLogo } : light,
+        module_data: moduleData,
       }).select('id').single();
       if (raErr || !ra) {
         toast({ title: 'Could not save your selected role', description: raErr?.message, variant: 'destructive' });
@@ -320,7 +415,10 @@ export function SM26RegisterPage() {
         const { error: spErr } = await supabase.from('sm_startup_profile').insert({
           role_assignment_id: ra.id,
           event_id: eventId,
-          logo_url: orgLogo,
+          logo_url: ap.logo_url?.[0] || orgLogo,
+          deck_url: ap.deck?.[0] || null,
+          product_images: ap.product_images || [],
+          pitch_media_url: ap.pitch_media?.[0] || null,
           startup_or_scaleup: startup.startup_or_scaleup || null,
           stage: startup.stage || null,
           categories: startup.categories,
@@ -350,6 +448,9 @@ export function SM26RegisterPage() {
           role_assignment_id: ra.id,
           event_id: eventId,
           category: role === 'architect_pro' ? 'professional' : 'student',
+          logo_url: ap.logo_url?.[0] || null,
+          company_image_url: ap.hero_image?.[0] || null,
+          project_renders: ap.renders || [],
           company_description: arch.company_description || null,
           sustainability_statement: arch.sustainability_statement || null,
           domain: arch.domain || null,
@@ -493,6 +594,53 @@ export function SM26RegisterPage() {
           )}
           {role === 'marina' && <MarinaFields value={marina} onChange={setMarina} />}
           <LightRoleFields role={role} value={light} onChange={setLight} />
+
+          {role && (ROLE_ASSETS[role] || []).length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Photos &amp; files</CardTitle>
+                <CardDescription>These feed your e-catalogue page and profile. Images are optimised automatically; you can change them later.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {(ROLE_ASSETS[role] || []).map(def => (
+                  <SM26RegUpload key={def.key} label={def.label} accept={def.accept} multiple={def.multiple}
+                    value={assets[def.key] || []} onChange={f => setAsset(def.key, f)} />
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {role && (
+            <Card>
+              <CardHeader><CardTitle>Links &amp; preferences</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="space-y-1"><Label>LinkedIn</Label><Input value={socials.linkedin} onChange={e => setSocials(p => ({ ...p, linkedin: e.target.value }))} placeholder="https://" /></div>
+                  <div className="space-y-1"><Label>Instagram</Label><Input value={socials.instagram} onChange={e => setSocials(p => ({ ...p, instagram: e.target.value }))} placeholder="https://" /></div>
+                  <div className="space-y-1"><Label>Facebook</Label><Input value={socials.facebook} onChange={e => setSocials(p => ({ ...p, facebook: e.target.value }))} placeholder="https://" /></div>
+                  <div className="space-y-1"><Label>X / Twitter</Label><Input value={socials.twitter} onChange={e => setSocials(p => ({ ...p, twitter: e.target.value }))} placeholder="https://" /></div>
+                </div>
+                {!role.startsWith('architect') && (
+                  <div className="flex items-start gap-2 border-t border-gray-100 pt-3">
+                    <Checkbox id="onsite" checked={onsite} onCheckedChange={c => setOnsite(c as boolean)} />
+                    <Label htmlFor="onsite" className="font-normal text-sm">I plan to attend on-site in Monaco (20–21 Sep). <span className="text-gray-500">M3 confirms any applicable fee.</span></Label>
+                  </div>
+                )}
+                {CATALOGUE_ROLES.has(role) && (
+                  <div className="space-y-2 border-t border-gray-100 pt-3">
+                    <div className="flex items-start gap-2">
+                      <Checkbox id="ecat-consent" checked={ecatConsent} onCheckedChange={c => setEcatConsent(c as boolean)} />
+                      <Label htmlFor="ecat-consent" className="font-normal text-sm">I agree to be featured in the event e-catalogue.</Label>
+                    </div>
+                    <div className="flex items-start gap-2">
+                      <Checkbox id="social-consent" checked={socialConsent} onCheckedChange={c => setSocialConsent(c as boolean)} />
+                      <Label htmlFor="social-consent" className="font-normal text-sm">I agree to be featured on the event's social media.</Label>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {user && organization?.logo_url && role && (
             <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">

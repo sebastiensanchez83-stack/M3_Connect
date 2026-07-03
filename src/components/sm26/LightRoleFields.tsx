@@ -48,10 +48,11 @@ const ROLE_FIELDS: Record<string, { title: string; desc: string; fields: FieldDe
   },
   jury: {
     title: 'Jury profile',
-    desc: 'M3 confirms jury invitations.',
+    desc: 'M3 confirms jury invitations. Your logo, photo, bio and job title appear in the e-catalogue.',
     fields: [
       { key: 'competition', label: 'Which competition?', type: 'select', options: ['Innovation', 'Architecture', 'Both'] },
       { key: 'expertise', label: 'Area of expertise', type: 'textarea' },
+      { key: 'bio', label: 'Short bio / quote (for the catalogue)', type: 'textarea' },
     ],
   },
 };

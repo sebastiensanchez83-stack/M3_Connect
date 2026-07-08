@@ -95,6 +95,11 @@ export function OnboardingPage() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const { user, profile, refreshProfile, hasOrganization, loading: authLoading } = useAuth();
+  // M3-vetted accounts (e.g. SM26-provisioned) arrive here already verified +
+  // completed. Submitting the org form must NEVER regress them to 'submitted'
+  // — that strands them as verified+submitted, a state with no admin approve
+  // action, locked out of pages that require onboarding completed.
+  const alreadyVerified = profile?.access_status === 'verified';
   const [loading, setLoading] = useState(false);
   const [creatingProfile, setCreatingProfile] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
@@ -434,7 +439,7 @@ export function OnboardingPage() {
             await supabase.from('profiles')
               .update({ access_status: 'verified', onboarding_status: 'completed' })
               .eq('user_id', user.id);
-          } else {
+          } else if (!alreadyVerified) {
             await supabase.from('profiles')
               .update({ onboarding_status: 'submitted' })
               .eq('user_id', user.id);
@@ -472,8 +477,11 @@ export function OnboardingPage() {
       }
 
       setJoinRequested(true);
-      // Mark onboarding as submitted so user lands on account page with pending status
-      await supabase.from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', user.id);
+      // Mark onboarding as submitted so user lands on account page with pending
+      // status — unless they're already verified (never regress those).
+      if (!alreadyVerified) {
+        await supabase.from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', user.id);
+      }
       await refreshProfile();
       toast({ title: 'Request sent!', description: `Your request to join ${detectedOrg.name} has been sent to the organization owner for approval.` });
     } catch (err: unknown) {
@@ -511,7 +519,7 @@ export function OnboardingPage() {
         await supabase.from('profiles')
           .update({ access_status: 'verified', onboarding_status: 'completed' })
           .eq('user_id', user.id);
-      } else {
+      } else if (!alreadyVerified) {
         await supabase.from('profiles')
           .update({ onboarding_status: 'submitted' })
           .eq('user_id', user.id);
@@ -744,15 +752,19 @@ export function OnboardingPage() {
 
       }
 
-      // Mark org + profile as submitted
+      // Mark org + profile as submitted for review. Already-verified users
+      // (SM26-provisioned) never regress: profile stays completed and their
+      // new org is auto-verified server-side by create_organization.
       if (createdOrgId) {
-        await supabase.from('organizations').update({ onboarding_status: 'submitted' }).eq('id', createdOrgId);
+        await supabase.from('organizations').update({ onboarding_status: alreadyVerified ? 'completed' : 'submitted' }).eq('id', createdOrgId);
       }
-      await supabase.from('profiles').update({ onboarding_status: 'submitted' }).eq('user_id', user.id);
+      await supabase.from('profiles').update({ onboarding_status: alreadyVerified ? 'completed' : 'submitted' }).eq('user_id', user.id);
 
       setSubmitted(true);
       await refreshProfile();
-      toast({ title: 'Organization profile submitted!', description: 'Your application is being reviewed.' });
+      toast(alreadyVerified
+        ? { title: 'Organization created!', description: 'Your company is set up and live on the platform.' }
+        : { title: 'Organization profile submitted!', description: 'Your application is being reviewed.' });
       navigate('/account', { replace: true });
     } catch (error: unknown) {
       toast({ title: 'Error', description: error instanceof Error ? error.message : 'An error occurred.', variant: 'destructive' });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen, CalendarDays, QrCode, Trophy, MessageSquare, Check, BellRing, X } from 'lucide-react';
+import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen, CalendarDays, QrCode, Trophy, MessageSquare, Check, BellRing, X, UserPlus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { suggestProvision, runProvision } from './SM26ProvisionDialog';
 
 // SM26 admin console — list of registrations for the Smart & Sustainable
 // Marina Rendezvous 2026, with role/status filters and a click-through detail.
@@ -111,7 +112,7 @@ export const ORG_SCOPE_ROLES = new Set(['marina', 'startup', 'sponsor']);
 // Roles with a dedicated module table (others store extra fields in module_data)
 export const MODULE_TABLE_ROLES = new Set(['startup', 'marina', 'architect_pro', 'architect_student']);
 
-interface RoleRow { role: string; status: string; scope: string; }
+interface RoleRow { role: string; status: string; scope: string; module_data?: Record<string, unknown> | null }
 interface RegRow {
   id: string;
   first_name: string | null;
@@ -122,6 +123,7 @@ interface RegRow {
   status: string;
   created_at: string;
   user_id: string | null;
+  organization_id: string | null;
   roles: RoleRow[];
 }
 
@@ -143,7 +145,7 @@ export function AdminSM26() {
     if (!ev) { setRows([]); setLoading(false); return; }
     const { data } = await supabase
       .from('sm_registration')
-      .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id, roles:sm_role_assignment(role,status,scope)')
+      .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id, roles:sm_role_assignment(role,status,scope,module_data)')
       .eq('event_id', (ev as { id: string }).id)
       .order('created_at', { ascending: false });
     setRows((data || []) as RegRow[]);
@@ -163,6 +165,35 @@ export function AdminSM26() {
   // Summary counts by registration status
   const counts: Record<string, number> = {};
   for (const r of rows) counts[r.status] = (counts[r.status] || 0) + 1;
+
+  // ── Backfill: confirmed registrations that still have no platform account ──
+  const [provBusy, setProvBusy] = useState<string | null>(null);
+  const pendingProvision = rows.filter(r => r.status === 'confirmed' && !r.user_id);
+
+  const provisionOne = async (r: RegRow): Promise<boolean> => {
+    const s = suggestProvision(r);
+    const res = await runProvision({
+      registration_id: r.id, persona: s.persona, org: s.orgMode,
+      org_name: s.orgMode === 'create' ? s.orgName : undefined, send_email: true,
+    });
+    if (!res.ok) toast({ title: `Failed: ${`${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email}`, description: res.error, variant: 'destructive' });
+    return res.ok;
+  };
+  const provisionRow = async (r: RegRow) => {
+    setProvBusy(r.id);
+    const ok = await provisionOne(r);
+    setProvBusy(null);
+    if (ok) { toast({ title: 'Account provisioned & invite sent', description: r.email || undefined }); load(); }
+  };
+  const provisionAll = async () => {
+    if (!window.confirm(`Provision platform accounts and send welcome invites to all ${pendingProvision.length} confirmed registrants without an account?`)) return;
+    setProvBusy('__all__');
+    let okCount = 0;
+    for (const r of pendingProvision) { if (await provisionOne(r)) okCount++; }
+    setProvBusy(null);
+    toast({ title: `${okCount}/${pendingProvision.length} accounts provisioned & invited` });
+    load();
+  };
 
   // ── Bulk selection ──
   const toggleSel = (id: string) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -249,6 +280,47 @@ export function AdminSM26() {
           </button>
         ))}
       </div>
+
+      {/* Confirmed-but-not-onboarded backfill — provision + welcome invite, admin-triggered */}
+      {pendingProvision.length > 0 && (
+        <Card className="border-0 shadow-sm border-l-4 border-l-amber-400">
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <UserPlus className="h-4 w-4 text-amber-500" /> {pendingProvision.length} confirmed without a platform account
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Provisioning creates their verified account (+ company at member tier, suggested from their roles) and emails the
+                  welcome link — set password → event hub. Open a registration first to adjust persona/company if needed.
+                </p>
+              </div>
+              <Button size="sm" className="gap-1.5 shrink-0" disabled={provBusy !== null} onClick={provisionAll}>
+                {provBusy === '__all__' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Provision &amp; invite all
+              </Button>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {pendingProvision.map(r => {
+                const s = suggestProvision(r);
+                return (
+                  <div key={r.id} className="flex items-center gap-3 py-1.5 text-sm">
+                    <button type="button" className="font-medium text-gray-800 hover:text-primary truncate" onClick={() => navigate(`/admin/sm26/${r.id}`)}>
+                      {`${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email}
+                    </button>
+                    {r.company_name && <span className="text-xs text-gray-400 truncate">{r.company_name}</span>}
+                    <Badge variant="secondary" className="text-[10px] shrink-0">
+                      {s.persona.replace('_', ' ')}{s.orgMode === 'create' ? ' + new org' : ''}
+                    </Badge>
+                    <Button size="sm" variant="outline" className="h-7 text-xs ml-auto shrink-0 gap-1" disabled={provBusy !== null} onClick={() => provisionRow(r)}>
+                      {provBusy === r.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />} Provision &amp; invite
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap">

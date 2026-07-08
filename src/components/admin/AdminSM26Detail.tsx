@@ -20,6 +20,7 @@ import {
 import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
 import { SM26CompanyLink } from './SM26CompanyLink';
+import { SM26ProvisionDialog } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
 import { SM26RequestFields } from './SM26RequestFields';
 
@@ -342,23 +343,8 @@ export function AdminSM26Detail() {
   const [saving, setSaving] = useState(false);
   const [roleSaving, setRoleSaving] = useState(false);
   const [addRoleValue, setAddRoleValue] = useState('');
-  const [inviting, setInviting] = useState(false);
-
-  // Send THIS person their onboarding invite (create-account + claim link). Only
-  // meaningful for a registration with no account yet; the function guards too.
-  const sendOnboardingInvite = async () => {
-    if (!reg) return;
-    setInviting(true);
-    let res = await supabase.functions.invoke('sm26-onboarding', { body: { registration_id: reg.id } });
-    if (res.error && (res.error as { name?: string }).name === 'FunctionsFetchError') {
-      await new Promise(r => setTimeout(r, 900)); // retry one transient cold-start blip
-      res = await supabase.functions.invoke('sm26-onboarding', { body: { registration_id: reg.id } });
-    }
-    setInviting(false);
-    const ok = !res.error && (res.data as { ok?: boolean } | null)?.ok;
-    if (!ok) { toast({ title: 'Could not send invite', description: res.error?.message || 'Please try again.', variant: 'destructive' }); return; }
-    toast({ title: 'Onboarding invite sent', description: reg.email || undefined });
-  };
+  // Platform-identity provisioning (account + persona + org + welcome email).
+  const [provisionOpen, setProvisionOpen] = useState(false);
 
   useEffect(() => { if (id) load(id); }, [id]);
 
@@ -401,6 +387,8 @@ export function AdminSM26Detail() {
     if (error) { toast({ title: 'Could not update status', description: error.message, variant: 'destructive' }); return; }
     setReg({ ...reg, status: newStatus });
     toast({ title: `Status set to "${prettyStatus(newStatus)}"` });
+    // Confirming someone without an account → set up their platform identity now.
+    if (newStatus === 'confirmed' && !reg.user_id) setProvisionOpen(true);
     if (newStatus === 'confirmed') void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'confirmed' } }).catch(() => {});
     if (newStatus === 'declined') void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'declined' } }).catch(() => {});
   };
@@ -543,6 +531,9 @@ export function AdminSM26Detail() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" className="gap-1.5 h-9" onClick={() => setProvisionOpen(true)}>
+                <KeyRound className="h-4 w-4" /> {reg.user_id ? 'Platform identity' : 'Set up account'}
+              </Button>
               <Badge className={`text-xs ${regStatusBadgeClass(reg.status)}`}>{prettyStatus(reg.status)}</Badge>
               <Select value={reg.status} onValueChange={updateStatus} disabled={saving}>
                 <SelectTrigger className="w-44 h-9"><SelectValue /></SelectTrigger>
@@ -619,8 +610,8 @@ export function AdminSM26Detail() {
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {!reg.user_id && (
-                <Button size="sm" className="gap-1.5" onClick={sendOnboardingInvite} disabled={inviting}>
-                  {inviting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send onboarding invite
+                <Button size="sm" className="gap-1.5" onClick={() => setProvisionOpen(true)}>
+                  <Mail className="h-4 w-4" /> Set up account &amp; invite
                 </Button>
               )}
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
@@ -637,6 +628,9 @@ export function AdminSM26Detail() {
 
       {/* Company link — attach the registration to a real SMC organization (link-when-exists) */}
       <SM26CompanyLink registrationId={reg.id} organizationId={reg.organization_id} companyName={reg.company_name} onChange={() => load(reg.id)} />
+
+      {/* Platform-identity provisioning (account + persona + org + welcome email) */}
+      <SM26ProvisionDialog reg={reg} open={provisionOpen} onOpenChange={setProvisionOpen} onDone={() => load(reg.id)} />
 
       {/* Payment */}
       <SM26PaymentPanel registrationId={reg.id} eventId={reg.event_id} onSaved={handlePaymentSaved} />

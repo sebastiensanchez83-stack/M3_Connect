@@ -148,9 +148,9 @@ async function sendAccessEmail(email: string, firstName: string, link: string) {
 <tr><td style="padding:40px;">
 <p style="margin:0 0 8px;color:#374151;font-size:16px;">${greeting}</p>
 <h2 style="margin:0 0 16px;color:#111827;font-size:20px;font-weight:600;">Your registration is received</h2>
-<p style="margin:0 0 28px;color:#4b5563;font-size:15px;line-height:1.6;">Thank you for registering for the Rendezvous. We've created your Smart Marina Connect workspace so you can track and complete your registration. Click below to access it — M3 will confirm your participation (and send any invoice) shortly.</p>
+<p style="margin:0 0 28px;color:#4b5563;font-size:15px;line-height:1.6;">Thank you for registering for the Rendezvous. We've created your Smart Marina Connect workspace — click below to set your password and complete your participation. M3 will confirm your registration (and send any invoice) shortly.</p>
 <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto;"><tr><td style="background:#0b2653;border-radius:8px;">
-<a href="${link}" target="_blank" style="display:inline-block;padding:14px 32px;color:#fff;font-size:15px;font-weight:600;text-decoration:none;">Access my registration</a>
+<a href="${link}" target="_blank" style="display:inline-block;padding:14px 32px;color:#fff;font-size:15px;font-weight:600;text-decoration:none;">Set my password &amp; access my registration</a>
 </td></tr></table>
 <p style="margin:28px 0 0;color:#9ca3af;font-size:13px;line-height:1.5;">If you didn't register for this event, you can safely ignore this email.</p>
 </td></tr>
@@ -247,6 +247,9 @@ Deno.serve(async (req: Request) => {
       last_name: last,
       job_title: s(r.job_title) || "",
       persona: "individual",
+      // Routed to the /welcome step (set a password) on first arrival;
+      // cleared by the welcome page once done.
+      pw_pending: true,
     },
   });
 
@@ -353,7 +356,11 @@ Deno.serve(async (req: Request) => {
 
   // Email the guest a magic-link to access their new workspace.
   try {
-    const redirectTo = ALLOWED_ORIGINS.includes(origin) ? origin : "https://smartmarinaconnect.com";
+    const base = ALLOWED_ORIGINS.includes(origin) ? origin : "https://smartmarinaconnect.com";
+    // Land on the welcome step (set password -> event hub). If the auth
+    // redirect allow-list rejects the path and falls back to the site root,
+    // the pw_pending metadata still routes them to /welcome client-side.
+    const redirectTo = `${base}/welcome`;
     const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
       type: "magiclink",
       email,

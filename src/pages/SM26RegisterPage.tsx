@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type ElementType, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import {
   CheckCircle, Loader2, Eye, Ship, Lightbulb, Compass, GraduationCap,
-  Newspaper, Scale, TrendingUp, Building2, Mic, Star,
+  Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight,
 } from 'lucide-react';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
@@ -510,11 +510,20 @@ export function SM26RegisterPage() {
           Thanks, {form.first_name}. Your registration for the Smart &amp; Sustainable Marina Rendezvous 2026
           is in. M3 will review it — you'll get full access (and any invoice) once it's confirmed.
         </p>
-        {wasGuest && (
+        {wasGuest ? (
           <p className="text-gray-600 mt-3">
-            We've emailed <strong>{form.email}</strong> a link to access your workspace and complete your registration.
-            Please check your inbox (and spam folder).
+            We've emailed <strong>{form.email}</strong> your access link — open it to set your password
+            and complete your participation. Please check your inbox (and spam folder).
           </p>
+        ) : (
+          <div className="mt-6">
+            <Button asChild className="gap-1.5">
+              <Link to="/sm26/me">Complete your participation <ArrowRight className="h-4 w-4" /></Link>
+            </Button>
+            <p className="text-xs text-gray-400 mt-2">
+              Your event hub — finish your details, upload files and follow your status there.
+            </p>
+          </div>
         )}
       </div>
     );

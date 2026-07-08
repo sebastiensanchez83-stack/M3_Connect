@@ -40,6 +40,7 @@ const BecomePartnerPage = lazyWithRetry(() => import('@/pages/BecomePartnerPage'
 const TiersPage = lazyWithRetry(() => import('@/pages/TiersPage').then(m => ({ default: m.TiersPage })));
 const JoinPage = lazyWithRetry(() => import('@/pages/JoinPage').then(m => ({ default: m.JoinPage })));
 const ResetPasswordPage = lazyWithRetry(() => import('@/pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
+const WelcomePage = lazyWithRetry(() => import('@/pages/WelcomePage').then(m => ({ default: m.WelcomePage })));
 const ReferenceConfirmPage = lazyWithRetry(() => import('@/pages/ReferenceConfirmPage').then(m => ({ default: m.ReferenceConfirmPage })));
 const ReferenceRejectPage = lazyWithRetry(() => import('@/pages/ReferenceRejectPage').then(m => ({ default: m.ReferenceRejectPage })));
 const AboutPage = lazyWithRetry(() => import('@/pages/AboutPage').then(m => ({ default: m.AboutPage })));
@@ -132,6 +133,7 @@ function App() {
               <Route path="/join" element={<Navigate to="/become-partner" replace />} />
               <Route path="/join/:inviteId" element={<JoinPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
+              <Route path="/welcome" element={<WelcomePage />} />
               <Route path="/reference/confirm" element={<ReferenceConfirmPage />} />
               <Route path="/reference/reject" element={<ReferenceRejectPage />} />
               <Route path="/about" element={<AboutPage />} />

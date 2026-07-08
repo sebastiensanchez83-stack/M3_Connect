@@ -50,6 +50,19 @@ export function AuthRedirector() {
       return
     }
 
+    // Event-provisioned accounts finish the welcome step (set password) first.
+    // Exempt: the welcome page itself, claim links (auto-claim then hub), and
+    // password-recovery — everything else routes to /welcome until done.
+    if (
+      user.user_metadata?.pw_pending === true &&
+      pathname !== '/welcome' &&
+      pathname !== '/sm26/claim' &&
+      !pathname.startsWith('/reset-password')
+    ) {
+      navigate('/welcome', { replace: true })
+      return
+    }
+
     // Admin: only verified moderators
     if (isAdminRoute && !isModerator) {
       toast({ title: 'Admin access required.', variant: 'destructive' })

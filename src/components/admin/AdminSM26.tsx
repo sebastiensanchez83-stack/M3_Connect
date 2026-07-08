@@ -112,7 +112,7 @@ export const ORG_SCOPE_ROLES = new Set(['marina', 'startup', 'sponsor']);
 // Roles with a dedicated module table (others store extra fields in module_data)
 export const MODULE_TABLE_ROLES = new Set(['startup', 'marina', 'architect_pro', 'architect_student']);
 
-interface RoleRow { role: string; status: string; scope: string; module_data?: Record<string, unknown> | null }
+interface RoleRow { id: string; role: string; status: string; scope: string; module_data?: Record<string, unknown> | null }
 interface RegRow {
   id: string;
   first_name: string | null;
@@ -134,6 +134,10 @@ export function AdminSM26() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [noAccountOnly, setNoAccountOnly] = useState(false);
+  // Per-registration progress: payment settled + architecture entry files.
+  const [paidSet, setPaidSet] = useState<Set<string>>(new Set());
+  const [archProgress, setArchProgress] = useState<Map<string, { panels: number; notice: boolean }>>(new Map());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -143,12 +147,29 @@ export function AdminSM26() {
     setLoading(true);
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setRows([]); setLoading(false); return; }
-    const { data } = await supabase
-      .from('sm_registration')
-      .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id, roles:sm_role_assignment(role,status,scope,module_data)')
-      .eq('event_id', (ev as { id: string }).id)
-      .order('created_at', { ascending: false });
-    setRows((data || []) as RegRow[]);
+    const [regsRes, paysRes, filesRes] = await Promise.all([
+      supabase
+        .from('sm_registration')
+        .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id, roles:sm_role_assignment(id,role,status,scope,module_data)')
+        .eq('event_id', (ev as { id: string }).id)
+        .order('created_at', { ascending: false }),
+      supabase.from('sm_payment').select('registration_id,status'),
+      supabase.from('sm_architecture_file').select('role_assignment_id,kind'),
+    ]);
+    setRows((regsRes.data || []) as RegRow[]);
+    const ps = new Set<string>();
+    for (const p of (paysRes.data || []) as { registration_id: string; status: string }[]) {
+      if (p.status === 'paid' || p.status === 'waived') ps.add(p.registration_id);
+    }
+    setPaidSet(ps);
+    const ap = new Map<string, { panels: number; notice: boolean }>();
+    for (const f of (filesRes.data || []) as { role_assignment_id: string; kind: string }[]) {
+      const cur = ap.get(f.role_assignment_id) || { panels: 0, notice: false };
+      if (f.kind === 'panel') cur.panels++;
+      if (f.kind === 'notice') cur.notice = true;
+      ap.set(f.role_assignment_id, cur);
+    }
+    setArchProgress(ap);
     setLoading(false);
   };
 
@@ -159,6 +180,7 @@ export function AdminSM26() {
     }
     if (roleFilter !== 'all' && !r.roles.some(x => x.role === roleFilter)) return false;
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+    if (noAccountOnly && r.user_id) return false;
     return true;
   });
 
@@ -279,6 +301,14 @@ export function AdminSM26() {
             {prettyStatus(s)} · {counts[s]}
           </button>
         ))}
+        {rows.some(r => !r.user_id) && (
+          <button
+            onClick={() => setNoAccountOnly(v => !v)}
+            className={`text-xs px-2.5 py-1 rounded-full border transition-all bg-amber-50 text-amber-700 border-amber-200 ${noAccountOnly ? 'ring-2 ring-primary/30' : ''}`}
+          >
+            No account · {rows.filter(r => !r.user_id).length}
+          </button>
+        )}
       </div>
 
       {/* Confirmed-but-not-onboarded backfill — provision + welcome invite, admin-triggered */}
@@ -386,7 +416,6 @@ export function AdminSM26() {
                       <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                         <span className="text-sm font-semibold text-gray-900 truncate group-hover:text-primary transition-colors">{name}</span>
                         <Badge className={`shrink-0 text-[10px] ${regStatusBadgeClass(r.status)}`}>{prettyStatus(r.status)}</Badge>
-                        {!r.user_id && <Badge className="shrink-0 text-[10px] bg-gray-100 text-gray-500 border-gray-200">No account</Badge>}
                       </div>
                       <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                         {r.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" /> {r.email}</span>}
@@ -402,6 +431,45 @@ export function AdminSM26() {
                           ))}
                         </div>
                       )}
+                      {/* Progress chips — what's actually DONE, independent of the status badge */}
+                      {(() => {
+                        const info = r.roles.some(x => x.status === 'needs_info')
+                          ? { t: 'Info requested', c: 'amber' }
+                          : r.roles.some(x => x.status === 'info_provided')
+                            ? { t: 'Info to review', c: 'blue' }
+                            : (r.roles.length > 0 && r.roles.every(x => x.status === 'confirmed'))
+                              ? { t: 'Info ✓', c: 'green' }
+                              : { t: 'Info: submitted', c: 'gray' };
+                        const archRoles = r.roles.filter(x => x.role.startsWith('architect'));
+                        let entry: { t: string; c: string } | null = null;
+                        if (archRoles.length > 0) {
+                          let panels = 0; let notice = false;
+                          for (const a of archRoles) {
+                            const x = archProgress.get(a.id);
+                            if (x) { panels += x.panels; notice = notice || x.notice; }
+                          }
+                          entry = { t: `Panels ${panels}/8${notice ? ' + notice' : ''}`, c: panels >= 8 && notice ? 'green' : 'amber' };
+                        }
+                        const chips = [
+                          r.user_id ? { t: 'Account ✓', c: 'green' } : { t: 'No account', c: 'amber' },
+                          info,
+                          ...(entry ? [entry] : []),
+                          paidSet.has(r.id) ? { t: 'Paid ✓', c: 'green' } : { t: 'Not paid', c: 'gray' },
+                        ];
+                        const cls: Record<string, string> = {
+                          green: 'bg-green-50 text-green-700 border-green-200',
+                          amber: 'bg-amber-50 text-amber-700 border-amber-200',
+                          blue: 'bg-blue-50 text-blue-700 border-blue-200',
+                          gray: 'bg-gray-50 text-gray-500 border-gray-200',
+                        };
+                        return (
+                          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                            {chips.map((c, i) => (
+                              <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded-full border ${cls[c.c]}`}>{c.t}</span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-primary transition-colors shrink-0" />
                   </div>

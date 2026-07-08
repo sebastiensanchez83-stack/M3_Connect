@@ -38,7 +38,9 @@ interface OrgOption {
   name: string;
 }
 
-const PLACEMENTS = ['homepage', 'marketplace', 'resources', 'events'] as const;
+// announcement_top = strip above the navbar (homepage) · announcement_popup =
+// site-wide popup. Both are for event/webinar announcements, not sponsor ads.
+const PLACEMENTS = ['homepage', 'marketplace', 'resources', 'events', 'announcement_top', 'announcement_popup'] as const;
 
 export function AdminBannerDetail() {
   const { id } = useParams<{ id: string }>();
@@ -334,7 +336,7 @@ export function AdminBannerDetail() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {PLACEMENTS.map(p => (
-                    <SelectItem key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</SelectItem>
+                    <SelectItem key={p} value={p}>{(p.charAt(0).toUpperCase() + p.slice(1)).replace(/_/g, ' ')}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

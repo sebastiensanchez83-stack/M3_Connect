@@ -125,6 +125,15 @@ export function AdminRFPDetail() {
       });
     }
 
+    // Notify on close (fulfilled) — previously silent
+    if (status === 'closed' && oldStatus !== 'closed') {
+      sendNotification({
+        type: 'rfp_closed',
+        userId: rfp.marina_user_id,
+        data: { title: rfp.title },
+      });
+    }
+
     toast({ title: 'RFP saved!' });
     loadRFP(rfp.id);
     setSaving(false);

@@ -126,6 +126,12 @@ export function AdminConsultationDetail() {
           userId: consultation.marina_user_id,
           data: { title: consultation.title, reason: rejectionReason },
         });
+      } else if (status === 'closed') {
+        sendNotification({
+          type: 'consultation_closed',
+          userId: consultation.marina_user_id,
+          data: { title: consultation.title },
+        });
       }
     }
 

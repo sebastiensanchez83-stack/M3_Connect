@@ -234,6 +234,11 @@ export function AdminSM26() {
     const { error } = await supabase.from('sm_registration').update({ status }).in('id', ids);
     setBulkBusy(false);
     if (error) { toast({ title: 'Bulk update failed', description: error.message, variant: 'destructive' }); return; }
+    // Fire the same transactional email the single-row status change sends, so a
+    // bulk Confirm/Decline isn't a silent transition.
+    if (status === 'confirmed' || status === 'declined') {
+      for (const id of ids) void supabase.functions.invoke('sm26-email', { body: { registration_id: id, kind: status } }).catch(() => {});
+    }
     toast({ title: `${ids.length} registration${ids.length > 1 ? 's' : ''} set to ${prettyStatus(status)}` });
     clearSel();
     load();

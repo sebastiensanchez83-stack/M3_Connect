@@ -194,10 +194,11 @@ export function AdminUsers() {
   const approveUser = async (userId: string) => {
     const { error } = await supabase.from('profiles').update({ access_status: 'verified', onboarding_status: 'completed', rejection_reason: null }).eq('user_id', userId);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    // Also update the user's organization
-    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', userId).maybeSingle();
+    // Cascade to the org ONLY when this user is its owner and it's still pending
+    // — approving a collaborator must not auto-verify an unreviewed organization.
+    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', userId).eq('role', 'owner').maybeSingle();
     if (membership?.organization_id) {
-      await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id);
+      await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id).eq('access_status', 'pending');
     }
     sendStatusNotification(userId, 'verified');
     toast({ title: 'User approved — email notification sent' }); loadUsers();
@@ -207,10 +208,11 @@ export function AdminUsers() {
     if (!rejectingUserId || !rejectReason.trim()) { toast({ title: t('admin.userDetail.reasonRequired'), variant: 'destructive' }); return; }
     const { error } = await supabase.from('profiles').update({ access_status: 'rejected', onboarding_status: 'draft', rejection_reason: rejectReason.trim() }).eq('user_id', rejectingUserId);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); return; }
-    // Also reject the user's organization
-    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', rejectingUserId).maybeSingle();
+    // Cascade to the org ONLY when this user is its owner and it's still pending
+    // — never reject a verified/established org because one collaborator was.
+    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', rejectingUserId).eq('role', 'owner').maybeSingle();
     if (membership?.organization_id) {
-      await supabase.from('organizations').update({ access_status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', membership.organization_id);
+      await supabase.from('organizations').update({ access_status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', membership.organization_id).eq('access_status', 'pending');
     }
     sendStatusNotification(rejectingUserId, 'rejected', rejectReason.trim());
     toast({ title: 'User rejected — email notification sent' }); setRejectingUserId(null); loadUsers();

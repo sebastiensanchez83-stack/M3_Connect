@@ -223,10 +223,10 @@ export function AdminUserDetail() {
     const { error } = await supabase.from('profiles').update({ access_status: 'verified', onboarding_status: 'completed', rejection_reason: null }).eq('user_id', user.user_id);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); setSaving(false); return; }
 
-    // Also update org
-    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.user_id).maybeSingle();
+    // Cascade to the org ONLY when this user is its owner and it's still pending.
+    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.user_id).eq('role', 'owner').maybeSingle();
     if (membership?.organization_id) {
-      await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id);
+      await supabase.from('organizations').update({ access_status: 'verified', onboarding_status: 'completed' }).eq('id', membership.organization_id).eq('access_status', 'pending');
     }
 
     sendNotification({
@@ -251,9 +251,11 @@ export function AdminUserDetail() {
     const { error } = await supabase.from('profiles').update({ access_status: 'rejected', onboarding_status: 'draft', rejection_reason: rejectReason.trim() }).eq('user_id', user.user_id);
     if (error) { toast({ title: 'Error', description: error.message, variant: 'destructive' }); setSaving(false); return; }
 
-    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.user_id).maybeSingle();
+    // Cascade to the org ONLY when this user is its owner and it's still pending
+    // — never reject an established org over one collaborator.
+    const { data: membership } = await supabase.from('organization_members').select('organization_id').eq('user_id', user.user_id).eq('role', 'owner').maybeSingle();
     if (membership?.organization_id) {
-      await supabase.from('organizations').update({ access_status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', membership.organization_id);
+      await supabase.from('organizations').update({ access_status: 'rejected', rejection_reason: rejectReason.trim() }).eq('id', membership.organization_id).eq('access_status', 'pending');
     }
 
     sendNotification({

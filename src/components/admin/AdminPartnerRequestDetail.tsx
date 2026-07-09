@@ -119,25 +119,17 @@ export function AdminPartnerRequestDetail() {
       return;
     }
 
-    // Notify both users
+    // Single intro email that puts BOTH parties on one thread. The edge function
+    // merges recipients (requester + acceptor) only when acceptor_email is set —
+    // so this must be ONE call, not one per party (two calls => two separate
+    // single-recipient emails, no shared thread, Victor CC'd twice).
     sendNotification({
       type: 'partner_request_accepted',
       userId: request.partner_user_id,
       data: {
         marina_name: request.marina_name || 'A marina',
-        marina_email: request.marina_email || '',
-        partner_name: request.partner_name || '',
-        partner_email: request.partner_email || '',
-      },
-    });
-    sendNotification({
-      type: 'partner_request_accepted',
-      userId: request.marina_user_id,
-      data: {
-        marina_name: request.marina_name || 'A marina',
-        marina_email: request.marina_email || '',
-        partner_name: request.partner_name || '',
-        partner_email: request.partner_email || '',
+        acceptor_email: request.marina_email || '',
+        acceptor_name: request.marina_name || '',
       },
     });
 

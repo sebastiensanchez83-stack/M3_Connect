@@ -495,12 +495,13 @@ export function AdminResourceDetail() {
                 onChange={(e) => setReviewComment(e.target.value)}
                 rows={3}
                 placeholder="Add notes or feedback..."
-                disabled={draft.status !== 'pending'}
+                disabled={!['submitted', 'review_1', 'review_2'].includes(draft.status)}
               />
             </div>
 
-            {/* Actions */}
-            {draft.status === 'pending' && (
+            {/* Actions — a partner-submitted draft awaiting review (the enum has
+                no 'pending'; un-reviewed states are submitted/review_1/review_2) */}
+            {['submitted', 'review_1', 'review_2'].includes(draft.status) && (
               <div className="flex gap-3 pt-2 border-t">
                 <Button
                   className="flex-1 bg-green-600 hover:bg-green-700 text-white gap-1.5"
@@ -522,7 +523,7 @@ export function AdminResourceDetail() {
               </div>
             )}
 
-            {draft.status !== 'pending' && (
+            {!['submitted', 'review_1', 'review_2'].includes(draft.status) && (
               <p className="text-sm text-gray-400 text-center pt-1">
                 This draft has already been {draft.status}.
               </p>

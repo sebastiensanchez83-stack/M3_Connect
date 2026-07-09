@@ -73,7 +73,7 @@ export function AdminResources() {
     setLoading(false);
   }, []);
 
-  const pendingDraftsCount = drafts.filter(d => d.status === 'pending').length;
+  const pendingDraftsCount = drafts.filter(d => ['submitted', 'review_1', 'review_2'].includes(d.status)).length;
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 

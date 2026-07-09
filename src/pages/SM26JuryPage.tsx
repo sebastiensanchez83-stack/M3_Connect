@@ -33,7 +33,7 @@ interface AllInnovation {
 
 const CONFIDENCE = [{ v: 1, label: 'Low' }, { v: 2, label: 'Medium' }, { v: 3, label: 'High' }];
 
-export function SM26JuryPage() {
+export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { user, loading: authLoading } = useAuth();
   const [eventId, setEventId] = useState<string | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -173,9 +173,9 @@ export function SM26JuryPage() {
     const locked = reviewStatus === 'locked';
     const fields = (payload?.fields || {}) as Record<string, string>;
     return (
-      <div className="min-h-screen bg-gray-50">
-        <Helmet><title>Score entry — SM26 Jury</title></Helmet>
-        <div className="container mx-auto px-4 py-6 max-w-3xl space-y-4">
+      <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
+        {!embedded && <Helmet><title>Score entry — SM26 Jury</title></Helmet>}
+        <div className={embedded ? 'space-y-4' : 'container mx-auto px-4 py-6 max-w-3xl space-y-4'}>
           <Button variant="ghost" size="sm" onClick={() => setSelected(null)} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to my entries</Button>
 
           {loadingEntry ? (
@@ -345,17 +345,19 @@ export function SM26JuryPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Helmet><title>My jury entries — SM26</title></Helmet>
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-        <div className="container mx-auto px-4 py-10">
-          <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · Jury</p>
-          <h1 className="text-2xl lg:text-3xl font-bold">Entries to evaluate</h1>
-          <p className="text-white/80 mt-2">Score each assigned entry on its scorecard. Scoring is in English and completes before the event.</p>
-        </div>
-      </section>
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
+      {!embedded && <Helmet><title>My jury entries — SM26</title></Helmet>}
+      {!embedded && (
+        <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
+          <div className="container mx-auto px-4 py-10">
+            <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · Jury</p>
+            <h1 className="text-2xl lg:text-3xl font-bold">Entries to evaluate</h1>
+            <p className="text-white/80 mt-2">Score each assigned entry on its scorecard. Scoring is in English and completes before the event.</p>
+          </div>
+        </section>
+      )}
 
-      <div className="container mx-auto px-4 py-8 max-w-2xl space-y-6">
+      <div className={embedded ? 'space-y-6' : 'container mx-auto px-4 py-8 max-w-2xl space-y-6'}>
         {entries.length === 0 ? (
           <Card><CardContent className="py-10 text-center text-gray-400">
             No entries are assigned to you for scoring yet — M3 assigns jurors to entries and you'll be notified.

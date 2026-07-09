@@ -22,7 +22,7 @@ const COMPS = [
   { key: 'architecture_student', label: 'Architecture — Public Prize (Student)' },
 ];
 
-export function SM26VotePage() {
+export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) {
   const { user, loading: authLoading } = useAuth();
   const [eventId, setEventId] = useState<string | null>(null);
   const [ballots, setBallots] = useState<Record<string, Ballot>>({});
@@ -64,19 +64,25 @@ export function SM26VotePage() {
   const anyEligible = Object.values(ballots).some(b => b.eligible);
   const activeComps = COMPS.filter(c => (ballots[c.key]?.entries.length || 0) > 0);
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <Helmet><title>Vote — Smart &amp; Sustainable Marina Rendezvous 2026</title></Helmet>
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-        <div className="container mx-auto px-4 py-12">
-          <div className="mb-3"><SM26BackLink light /></div>
-          <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · Audience vote</p>
-          <h1 className="text-3xl lg:text-4xl font-bold">Cast your vote</h1>
-          <p className="text-white/80 mt-2 max-w-2xl">One vote per competition. You can change it until voting closes.</p>
-        </div>
-      </section>
+  // In the event hub, don't render a "vote" section until there's something to
+  // show (live ballots or published winners) — keeps the hub clean pre-event.
+  if (embedded && winners.length === 0 && activeComps.length === 0) return null;
 
-      <div className="container mx-auto px-4 py-8 max-w-2xl space-y-6">
+  return (
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
+      {!embedded && <Helmet><title>Vote — Smart &amp; Sustainable Marina Rendezvous 2026</title></Helmet>}
+      {!embedded && (
+        <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
+          <div className="container mx-auto px-4 py-12">
+            <div className="mb-3"><SM26BackLink light /></div>
+            <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · Audience vote</p>
+            <h1 className="text-3xl lg:text-4xl font-bold">Cast your vote</h1>
+            <p className="text-white/80 mt-2 max-w-2xl">One vote per competition. You can change it until voting closes.</p>
+          </div>
+        </section>
+      )}
+
+      <div className={embedded ? 'space-y-6' : 'container mx-auto px-4 py-8 max-w-2xl space-y-6'}>
         {winners.length > 0 && (
           <Card className="border border-amber-100 shadow-sm bg-gradient-to-br from-amber-50 to-white">
             <CardHeader>

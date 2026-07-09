@@ -21,6 +21,9 @@ import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { SM26Agenda } from '@/components/sm26/SM26Agenda';
 import { SM26MyConnections } from '@/components/sm26/SM26MyConnections';
 import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
+import { SM26MyJuryPanel } from '@/components/sm26/SM26MyJuryPanel';
+import { SM26JuryPage } from '@/pages/SM26JuryPage';
+import { SM26VotePage } from '@/pages/SM26VotePage';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
 // SM26 roles. Linked from the "information needed" notification (/sm26/me).
@@ -540,6 +543,16 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
             );
           })
         )}
+
+        {/* Role consoles — embedded in the hub, shown by the participant's role(s) */}
+        {visibleRoles.some(r => r.role === 'jury') && (
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-gray-900">Evaluate entries</h2>
+            <SM26JuryPage embedded />
+          </div>
+        )}
+        {visibleRoles.some(r => r.role === 'startup') && <SM26MyJuryPanel eventId={reg.event_id} />}
+        <SM26VotePage embedded />
 
         {reg.status !== 'declined' && (
           <div className="text-center pt-2">

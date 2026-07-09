@@ -102,15 +102,22 @@ export function SM26MyRegistrationPage() {
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setReg(null); setLoading(false); return; }
     const eventId = (ev as { id: string }).id;
-    // Every registration the signed-in user may access: their own, plus any that
-    // belong to an organization they're a member of (RLS enforces the scoping).
-    // Lets teammates — e.g. an org owner — view and manage the company's entry.
-    const { data } = await supabase
-      .from('sm_registration')
-      .select('id,event_id,status,user_id,organization_id,first_name,company_name, roles:sm_role_assignment(id,role,status,module_data)')
-      .eq('event_id', eventId)
-      .order('created_at', { ascending: false });
-    const list = (data || []) as Registration[];
+    // Registrations for this personal hub: the user's OWN, plus any that belong
+    // to an organization they're a member of (lets teammates view/manage the
+    // company's entry). We scope explicitly here rather than lean on row-level
+    // access, because M3 staff (admin/moderator) can read EVERY registration —
+    // they manage those from the admin console, not from their personal hub.
+    const [{ data }, { data: memberships }] = await Promise.all([
+      supabase
+        .from('sm_registration')
+        .select('id,event_id,status,user_id,organization_id,first_name,company_name, roles:sm_role_assignment(id,role,status,module_data)')
+        .eq('event_id', eventId)
+        .order('created_at', { ascending: false }),
+      supabase.from('organization_members').select('organization_id').eq('user_id', user!.id),
+    ]);
+    const myOrgIds = new Set((memberships || []).map((m: { organization_id: string }) => m.organization_id));
+    const list = ((data || []) as Registration[])
+      .filter(r => r.user_id === user!.id || (!!r.organization_id && myOrgIds.has(r.organization_id)));
     setRegs(list);
     const { data: reqs } = await supabase.from('sm_role_requirement').select('*').eq('event_id', eventId);
     setRequirements((reqs || []) as Requirement[]);
@@ -438,11 +445,22 @@ export function SM26MyRegistrationPage() {
                         <div className="text-sm font-medium text-gray-800">Attending on-site in Monaco?</div>
                         <p className="text-xs text-gray-500 mt-0.5">Jurors evaluate online. Turn this on only if you're coming to the event in person — it adds you to the on-site check-in list and issues your entry pass.</p>
                       </div>
-                      <Button size="sm" variant={md.onsite_attendance === 'yes' ? 'default' : 'outline'} disabled={onsiteBusy === role.id}
-                        onClick={() => setOnsite(role, md.onsite_attendance !== 'yes')} className="gap-1.5 shrink-0">
-                        {onsiteBusy === role.id ? <Loader2 className="h-4 w-4 animate-spin" /> : md.onsite_attendance === 'yes' ? <Check className="h-4 w-4" /> : null}
-                        {md.onsite_attendance === 'yes' ? 'Attending on-site' : 'Attend on-site'}
-                      </Button>
+                      {md.onsite_attendance === 'yes' ? (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-green-200 bg-green-50 px-3 py-1 text-sm font-medium text-green-700">
+                            <Check className="h-4 w-4" /> Attending on-site
+                          </span>
+                          <Button size="sm" variant="ghost" className="h-8 text-xs text-gray-500 hover:text-gray-700" disabled={onsiteBusy === role.id}
+                            onClick={() => setOnsite(role, false)}>
+                            {onsiteBusy === role.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Cancel'}
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button size="sm" disabled={onsiteBusy === role.id}
+                          onClick={() => setOnsite(role, true)} className="gap-1.5 shrink-0">
+                          {onsiteBusy === role.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null} Attend on-site
+                        </Button>
+                      )}
                     </div>
                   )}
                   {(outstanding.length > 0 || requestNote) && (

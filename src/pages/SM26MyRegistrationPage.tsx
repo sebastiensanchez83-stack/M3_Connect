@@ -55,7 +55,9 @@ const ecatClass = (s: string) =>
   : s === 'changes_requested' ? 'bg-amber-50 text-amber-700 border-amber-200'
   : 'bg-gray-50 text-gray-600 border-gray-200';
 
-export function SM26MyRegistrationPage() {
+// `embedded` renders the hub without its own page chrome (bg + hero) so it can
+// live inside the /account "Event" tab; standalone /sm26/me keeps the chrome.
+export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { user, loading: authLoading } = useAuth();
   const [reg, setReg] = useState<Registration | null>(null);
   const [regs, setRegs] = useState<Registration[]>([]);
@@ -245,15 +247,17 @@ export function SM26MyRegistrationPage() {
   );
 
   if (reg.status === 'cancelled') return (
-    <div className="min-h-screen bg-gray-50">
-      <Helmet><title>My SM26 participation — Smart Marina Connect</title></Helmet>
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-        <div className="container mx-auto px-4 py-10">
-          <div className="mb-3"><SM26BackLink light /></div>
-          <h1 className="text-2xl lg:text-3xl font-bold">Your participation</h1>
-        </div>
-      </section>
-      <div className="container mx-auto px-4 py-8 max-w-xl">
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
+      {!embedded && <Helmet><title>My SM26 participation — Smart Marina Connect</title></Helmet>}
+      {!embedded && (
+        <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
+          <div className="container mx-auto px-4 py-10">
+            <div className="mb-3"><SM26BackLink light /></div>
+            <h1 className="text-2xl lg:text-3xl font-bold">Your participation</h1>
+          </div>
+        </section>
+      )}
+      <div className={embedded ? 'max-w-xl' : 'container mx-auto px-4 py-8 max-w-xl'}>
         <Card>
           <CardContent className="py-10 text-center">
             <Ship className="h-10 w-10 text-gray-300 mx-auto mb-3" />
@@ -283,19 +287,21 @@ export function SM26MyRegistrationPage() {
   const rolesWithReqs = visibleRoles.filter(r => reqsForRole(r.role).length > 0);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Helmet><title>My SM26 participation — Smart Marina Connect</title></Helmet>
+    <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
+      {!embedded && <Helmet><title>My SM26 participation — Smart Marina Connect</title></Helmet>}
 
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-        <div className="container mx-auto px-4 py-10">
-          <div className="mb-3"><SM26BackLink light /></div>
-          <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · 20–21 September 2026 · Yacht Club de Monaco</p>
-          <h1 className="text-2xl lg:text-3xl font-bold">Your participation</h1>
-          <p className="text-white/80 mt-2">Complete the details M3 needs for each of your roles.</p>
-        </div>
-      </section>
+      {!embedded && (
+        <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
+          <div className="container mx-auto px-4 py-10">
+            <div className="mb-3"><SM26BackLink light /></div>
+            <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · 20–21 September 2026 · Yacht Club de Monaco</p>
+            <h1 className="text-2xl lg:text-3xl font-bold">Your participation</h1>
+            <p className="text-white/80 mt-2">Complete the details M3 needs for each of your roles.</p>
+          </div>
+        </section>
+      )}
 
-      <div className="container mx-auto px-4 py-8 max-w-2xl space-y-6">
+      <div className={embedded ? 'max-w-2xl space-y-6' : 'container mx-auto px-4 py-8 max-w-2xl space-y-6'}>
         <SM26Notifications />
 
         {regs.length > 1 && (

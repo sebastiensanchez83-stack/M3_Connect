@@ -53,7 +53,7 @@ const ConditionsCommercialesPage = lazyWithRetry(() => import('@/pages/Condition
 const CookiePolicyPage = lazyWithRetry(() => import('@/pages/CookiePolicyPage').then(m => ({ default: m.CookiePolicyPage })));
 // SM26 event module (sm26 branch only — gated before any production merge)
 const SM26RegisterPage = lazyWithRetry(() => import('@/pages/SM26RegisterPage').then(m => ({ default: m.SM26RegisterPage })));
-const SM26MyRegistrationPage = lazyWithRetry(() => import('@/pages/SM26MyRegistrationPage').then(m => ({ default: m.SM26MyRegistrationPage })));
+// SM26MyRegistrationPage renders inside the /account "Event" tab now; /sm26/me redirects there.
 const SM26JuryPage = lazyWithRetry(() => import('@/pages/SM26JuryPage').then(m => ({ default: m.SM26JuryPage })));
 const SM26AgendaPage = lazyWithRetry(() => import('@/pages/SM26AgendaPage').then(m => ({ default: m.SM26AgendaPage })));
 const SM26VotePage = lazyWithRetry(() => import('@/pages/SM26VotePage').then(m => ({ default: m.SM26VotePage })));
@@ -100,7 +100,7 @@ function App() {
               {SM26_ENABLED && (
                 <>
                   <Route path="/sm26/register" element={<SM26RegisterPage />} />
-                  <Route path="/sm26/me" element={<ProtectedRoute><SM26MyRegistrationPage /></ProtectedRoute>} />
+                  <Route path="/sm26/me" element={<Navigate to="/account?tab=event" replace />} />
                   <Route path="/sm26/jury" element={<ProtectedRoute><SM26JuryPage /></ProtectedRoute>} />
                   <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
                   <Route path="/sm26/vote" element={<ProtectedRoute><SM26VotePage /></ProtectedRoute>} />

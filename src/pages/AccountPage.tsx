@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
+import { SM26MyRegistrationPage } from '@/pages/SM26MyRegistrationPage';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Bell, Star, Inbox } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Bell, Star, Inbox, Ship } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link } from 'react-router-dom';
@@ -136,12 +137,27 @@ export function AccountPage() {
   const [profileViewCount, setProfileViewCount] = useState(0);
   const [connectionRequestCount, setConnectionRequestCount] = useState(0);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
+  const [hasSM26, setHasSM26] = useState(false);
   const [feedResources, setFeedResources] = useState<{ id: string; title: string; type: string; summary: string }[]>([]);
   const [feedEvents, setFeedEvents] = useState<{ id: string; title: string; date_time: string }[]>([]);
 
   const { isFeatureEnabled } = useEntitlements();
 
   const activeTab = searchParams.get('tab') || 'dashboard';
+
+  // Show the "Event" tab (the SM26 participant hub) if the signed-in user can
+  // access an SM26 registration — their own, or their organisation's.
+  useEffect(() => {
+    if (!user) { setHasSM26(false); return; }
+    let active = true;
+    (async () => {
+      const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
+      if (!ev || !active) return;
+      const { data } = await supabase.from('sm_registration').select('id').eq('event_id', (ev as { id: string }).id).limit(1);
+      if (active) setHasSM26(!!(data && data.length));
+    })();
+    return () => { active = false; };
+  }, [user]);
 
   // Redirect deprecated tab URLs to the new Inbox so old email links / bookmarks
   // still land in a meaningful place.
@@ -581,6 +597,7 @@ export function AccountPage() {
     ? [{ value: 'complete-registration', label: 'Complete Registration', icon: <ClipboardList className="h-4 w-4" />, notifDot: true }]
     : [
         { value: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
+        { value: 'event', label: 'Event hub', icon: <Ship className="h-4 w-4" />, show: hasSM26 },
         { value: 'organization', label: t('org.tabTitle'), icon: <Building2 className="h-4 w-4" />, notifDot: orgNeedsAction },
         { value: 'profile', label: 'Profile', icon: <Users className="h-4 w-4" /> },
         { value: 'registrations', label: 'Registrations', icon: <Calendar className="h-4 w-4" /> },
@@ -1874,6 +1891,10 @@ export function AccountPage() {
         {/* ── NOTIFICATIONS ── */}
         <TabsContent value="notifications">
           <NotificationPreferencesTab />
+        </TabsContent>
+
+        <TabsContent value="event">
+          {hasSM26 && <SM26MyRegistrationPage embedded />}
         </TabsContent>
 
       </Tabs>

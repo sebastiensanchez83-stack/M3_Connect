@@ -34,9 +34,17 @@ export function SM26AssetUpload({ value, basePath, accept, disabled, maxFiles = 
     if (room === 0) { toast({ title: `Up to ${maxFiles} files here`, description: 'Remove one to add another.', variant: 'destructive' }); return; }
     const take = files.slice(0, room);
     if (files.length > room) toast({ title: `Only ${room} more allowed`, description: `Added the first ${room}; ${maxFiles} max.` });
+    // iPhone HEIC/HEIF photos don't render in browsers (→ broken catalogue
+    // thumbnails). Reject with guidance rather than store an undisplayable file.
+    const isHeic = (f: File) => /\.(heic|heif)$/i.test(f.name) || /heic|heif/i.test(f.type);
+    const usable = take.filter(f => !isHeic(f));
+    if (usable.length < take.length) {
+      toast({ title: 'iPhone HEIC photos aren’t supported', description: 'Please upload a JPG or PNG (on iPhone: share/export the photo as JPEG, or Settings → Camera → Formats → Most Compatible).', variant: 'destructive' });
+    }
+    if (usable.length === 0) return;
     setBusy(true);
     const added: string[] = [];
-    for (const file of take) {
+    for (const file of usable) {
       const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
       const path = `${basePath}/${Date.now()}-${Math.floor(Math.random() * 100000)}-${safe}`;
       const { error } = await supabase.storage.from('event-media').upload(path, file, { upsert: false });

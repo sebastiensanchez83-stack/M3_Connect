@@ -923,9 +923,9 @@ export function AdminDashboard() {
               { label: 'B2B Requests', total: stats.pendingB2B, badge: stats.oldB2BRequests > 0 ? `${stats.oldB2BRequests} urgent` : '',
                 color: 'text-rose-600', bg: 'bg-rose-50', icon: Link2, link: '/admin/partner-requests', params: { status: 'pending' } },
               { label: 'Open RFPs', total: stats.openRFPs, badge: '', color: 'text-blue-600', bg: 'bg-blue-50',
-                icon: FileText, link: '/admin/rfps', params: { status: 'open' } },
+                icon: FileText, link: '/admin/rfps', params: {} },
               { label: 'Consultations', total: stats.openConsultations, badge: '', color: 'text-cyan-600', bg: 'bg-cyan-50',
-                icon: MessageSquare, link: '/admin/consultations', params: { status: 'open' } },
+                icon: MessageSquare, link: '/admin/consultations', params: {} },
               { label: 'Expo Requests', total: stats.pendingExpositions, badge: '', color: 'text-pink-600', bg: 'bg-pink-50',
                 icon: Eye, link: '/admin/expositions', params: { status: 'pending' } },
             ].map((item, i) => (

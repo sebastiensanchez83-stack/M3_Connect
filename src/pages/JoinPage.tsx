@@ -79,14 +79,14 @@ export function JoinPage() {
         if (orgData?.name) orgName = orgData.name;
       }
 
-      // Fetch inviter name separately (optional — don't fail if missing)
+      // Fetch inviter name via the safe public-profile RPC (the profiles table
+      // is now readable only for your own row / moderators, so direct reads of
+      // another user's row are blocked; the RPC returns name without email).
       let inviterName = 'A team member';
       if (data.invited_by_user_id) {
-        const { data: inviterData } = await supabase
-          .from('profiles')
-          .select('first_name, last_name')
-          .eq('user_id', data.invited_by_user_id)
-          .maybeSingle();
+        const { data: inviterRows } = await supabase
+          .rpc('get_public_profile', { target_user_id: data.invited_by_user_id });
+        const inviterData = Array.isArray(inviterRows) ? inviterRows[0] : inviterRows;
         if (inviterData) {
           const name = `${inviterData.first_name || ''} ${inviterData.last_name || ''}`.trim();
           if (name) inviterName = name;

@@ -74,6 +74,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [dayTab, setDayTab] = useState('all');
+  const [published, setPublished] = useState(false);
   const [qaOpen, setQaOpen] = useState<Set<string>>(new Set());
   const toggleQa = (id: string) => setQaOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
@@ -82,10 +83,16 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
   const load = async () => {
     setLoading(true);
     let eid = eventIdProp ?? null;
+    let settings: Record<string, unknown> | null = null;
     if (!eid) {
-      const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
+      const { data: ev } = await supabase.from('sm_event').select('id, settings').eq('slug', 'sm26').maybeSingle();
       eid = (ev as { id: string } | null)?.id ?? null;
+      settings = (ev as { settings?: Record<string, unknown> } | null)?.settings ?? null;
+    } else {
+      const { data: ev } = await supabase.from('sm_event').select('settings').eq('id', eid).maybeSingle();
+      settings = (ev as { settings?: Record<string, unknown> } | null)?.settings ?? null;
     }
+    setPublished(!!(settings && settings.programme_published));
     if (!eid) { setSessions([]); setLoading(false); return; }
     const { data } = await supabase.rpc('sm_agenda', { p_event_id: eid });
     setSessions((data || []) as Session[]);
@@ -120,6 +127,35 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
     downloadIcs('sm26-my-schedule.ics', buildIcs(mine));
   };
 
+  // Printable programme (opens a clean print view → "Save as PDF"). Only offered
+  // once M3 flips settings.programme_published.
+  const downloadProgramme = () => {
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const byDay: { key: string; items: Session[] }[] = [];
+    for (const s of sessions) { const k = dayKey(s.starts_at); let d = byDay.find(x => x.key === k); if (!d) { d = { key: k, items: [] }; byDay.push(d); } d.items.push(s); }
+    const body = byDay.map(day => `<h2>${esc(day.key)}</h2><table>${day.items.map(s => `<tr>`
+      + `<td class="t">${esc(fmtTime(s.starts_at))}${s.ends_at ? '–' + esc(fmtTime(s.ends_at)) : ''}</td>`
+      + `<td><div class="ti">${esc(s.title)}</div>`
+      + `${s.speakers ? `<div class="sp">${esc(s.speakers)}</div>` : ''}`
+      + `${s.room ? `<div class="rm">${esc(s.room)}</div>` : ''}`
+      + `${s.description ? `<div class="de">${esc(s.description)}</div>` : ''}</td></tr>`).join('')}</table>`).join('');
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>SM26 Programme</title><style>`
+      + `body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:800px;margin:28px auto;padding:0 22px;color:#16264a}`
+      + `h1{font-size:22px;margin:0 0 2px}.sub{color:#6b7a99;margin:0 0 18px}`
+      + `h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#0b2653;border-bottom:2px solid #0b2653;padding-bottom:4px;margin:22px 0 6px}`
+      + `table{width:100%;border-collapse:collapse}td{padding:6px 6px;vertical-align:top;border-bottom:1px solid #eef0f4}`
+      + `td.t{width:110px;color:#6b7a99;white-space:nowrap;font-variant-numeric:tabular-nums}`
+      + `.ti{font-weight:600}.sp{font-size:12px;color:#6b7a99}.rm{font-size:12px;color:#8b96b0}.de{font-size:12px;color:#4b5563;margin-top:2px}`
+      + `@media print{body{margin:0}}</style></head><body>`
+      + `<h1>Smart &amp; Sustainable Marina Rendezvous 2026</h1><p class="sub">20–21 September 2026 · Yacht Club de Monaco · Programme</p>${body}</body></html>`;
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); setTimeout(() => w.print(), 400); }
+    else {
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' }); const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'sm26-programme.html'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center py-10"><RefreshCw className="h-6 w-6 animate-spin text-gray-300" /></div>;
 
   const shown = mineOnly ? personalSet(sessions) : sessions;
@@ -143,6 +179,14 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
 
   return (
     <div className="space-y-6">
+      {published && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+          <span className="text-sm text-gray-700">The programme is published.</span>
+          <Button variant="outline" size="sm" className="gap-1.5 bg-white" onClick={downloadProgramme}>
+            <Download className="h-4 w-4" /> Download programme
+          </Button>
+        </div>
+      )}
       {mineOnly && (
         <div className="space-y-3">
           {myWorkshopCount === 0 && (

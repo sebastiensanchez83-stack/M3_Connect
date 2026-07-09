@@ -57,15 +57,17 @@ export function AdminSM26Agenda() {
   const [qaSession, setQaSession] = useState<Session | null>(null);
   const [speakers, setSpeakers] = useState<string[]>([]);
   const [dayTab, setDayTab] = useState<string>('all');
+  const [published, setPublished] = useState(false);
 
   useEffect(() => { load(); }, []);
 
   const load = async () => {
     setLoading(true);
-    const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
+    const { data: ev } = await supabase.from('sm_event').select('id, settings').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setLoading(false); return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
+    setPublished(!!((ev as { settings?: Record<string, unknown> }).settings?.programme_published));
     const { data } = await supabase.from('sm_session').select('*').eq('event_id', eid)
       .order('starts_at', { ascending: true, nullsFirst: false }).order('display_order');
     const ss = (data || []) as Session[];
@@ -88,6 +90,19 @@ export function AdminSM26Agenda() {
   };
 
   const openNew = () => { setEditId(null); setForm(EMPTY); setDeckFile(null); setExistingDeck(null); setRemoveDeck(false); setOpen(true); };
+
+  // Publish/unpublish the programme — flips sm_event.settings.programme_published,
+  // which reveals the "Download programme" button in the participant event hub.
+  const togglePublished = async () => {
+    if (!eventId) return;
+    const next = !published;
+    const { data: ev } = await supabase.from('sm_event').select('settings').eq('id', eventId).maybeSingle();
+    const settings = { ...((ev as { settings?: Record<string, unknown> } | null)?.settings || {}), programme_published: next };
+    const { error } = await supabase.from('sm_event').update({ settings }).eq('id', eventId);
+    if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
+    setPublished(next);
+    toast({ title: next ? 'Programme published — participants can download it' : 'Programme unpublished' });
+  };
   const openEdit = (s: Session) => {
     setEditId(s.id);
     setForm({
@@ -173,7 +188,12 @@ export function AdminSM26Agenda() {
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><CalendarDays className="h-6 w-6 text-primary" /> Programme</h1>
           <p className="text-sm text-gray-500 mt-0.5">{sessions.length} session{sessions.length !== 1 ? 's' : ''} · {publishedCount} published · {workshopCount} workshop{workshopCount !== 1 ? 's' : ''}</p>
         </div>
-        <Button className="gap-1.5" onClick={openNew}><Plus className="h-4 w-4" /> New session</Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" className="gap-1.5" onClick={togglePublished}>
+            {published ? <><EyeOff className="h-4 w-4" /> Unpublish programme</> : <><Eye className="h-4 w-4" /> Publish programme</>}
+          </Button>
+          <Button className="gap-1.5" onClick={openNew}><Plus className="h-4 w-4" /> New session</Button>
+        </div>
       </div>
 
       {sessions.length === 0 ? (
@@ -296,7 +316,7 @@ export function AdminSM26Agenda() {
       <Dialog open={!!qaSession} onOpenChange={o => { if (!o) setQaSession(null); }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="flex items-center gap-2"><MessageSquare className="h-4 w-4 text-primary" /> Q&amp;A · {qaSession?.title}</DialogTitle></DialogHeader>
-          {qaSession && <SM26SessionQA sessionId={qaSession.id} canModerate />}
+          {qaSession && <SM26SessionQA sessionId={qaSession.id} canModerate pollMs={8000} />}
         </DialogContent>
       </Dialog>
     </div>

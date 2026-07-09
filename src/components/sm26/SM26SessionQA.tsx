@@ -15,7 +15,7 @@ interface Q {
   created_at: string; upvotes: number; mine_voted: boolean; is_mine: boolean;
 }
 
-export function SM26SessionQA({ sessionId, canModerate = false }: { sessionId: string; canModerate?: boolean }) {
+export function SM26SessionQA({ sessionId, canModerate = false, pollMs }: { sessionId: string; canModerate?: boolean; pollMs?: number }) {
   const { user } = useAuth();
   const [questions, setQuestions] = useState<Q[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -28,6 +28,13 @@ export function SM26SessionQA({ sessionId, canModerate = false }: { sessionId: s
     setLoaded(true);
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [sessionId]);
+  // Live refresh for the moderator view (new questions + upvotes appear without a reload).
+  useEffect(() => {
+    if (!pollMs) return;
+    const t = setInterval(() => { load(); }, pollMs);
+    return () => clearInterval(t);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [sessionId, pollMs]);
 
   const ask = async () => {
     if (!text.trim()) return;

@@ -15,10 +15,12 @@ import { toast } from '@/hooks/use-toast';
 import {
   SM26_ROLE_LABELS, REG_STATUSES, ROLE_STATUSES, regStatusBadgeClass, roleStatusBadgeClass,
   prettyStatus, ORG_SCOPE_ROLES, MODULE_TABLE_ROLES,
-  REG_STATUS_META, REG_STAGES, ROLE_STATUS_DESC, SM26_BASE_FIELDS, sm26FieldLabel,
+  ROLE_STATUS_DESC, SM26_BASE_FIELDS, sm26FieldLabel,
 } from './AdminSM26';
 import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
+import { SM26Invoices } from './SM26Invoices';
+import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
 import { SM26CompanyLink } from './SM26CompanyLink';
 import { SM26ProvisionDialog } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
@@ -235,53 +237,8 @@ function formatFunds(v: string): string {
   return `€${out}`;
 }
 
-// Happy-path status timeline (Submitted → Under review → Confirmed → Paid).
-// Off-path statuses (waitlist / declined / cancelled) show a clear notice
-// instead, because they aren't a step on the line.
-function StatusTimeline({ status, paid }: { status: string; paid: boolean }) {
-  const meta = REG_STATUS_META[status] || { label: prettyStatus(status), desc: '', stage: null };
-  if (meta.stage === null) {
-    return (
-      <div className="mt-3">
-        <div className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${regStatusBadgeClass(status)}`}>
-          <span className="font-semibold">{meta.label}</span>
-        </div>
-        {meta.desc && <p className="text-xs text-gray-500 mt-1.5">{meta.desc}</p>}
-      </div>
-    );
-  }
-  const current = paid ? 3 : meta.stage;
-  return (
-    <div className="mt-3">
-      <div className="flex items-start overflow-x-auto">
-        {REG_STAGES.map((label, i) => {
-          const done = i < current;
-          const isCurrent = i === current;
-          return (
-            <div key={label} className="flex items-start flex-1 last:flex-none min-w-0">
-              <div className="flex flex-col items-center gap-1 w-14 shrink-0">
-                <div className={`h-7 w-7 rounded-full flex items-center justify-center border-2 transition-colors
-                  ${done ? 'bg-primary border-primary text-white'
-                    : isCurrent ? 'bg-primary border-primary text-white ring-4 ring-primary/15'
-                    : 'bg-white border-gray-200'}`}>
-                  {done ? <Check className="h-3.5 w-3.5" /> : isCurrent ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
-                </div>
-                <span className={`text-[10px] text-center leading-tight ${isCurrent ? 'font-semibold text-gray-800' : done ? 'text-gray-600' : 'text-gray-300'}`}>{label}</span>
-              </div>
-              {i < REG_STAGES.length - 1 && (
-                <div className={`h-0.5 flex-1 mt-3.5 mx-0.5 rounded ${i < current ? 'bg-primary' : 'bg-gray-200'}`} />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <p className="text-xs text-gray-500 mt-2">
-        <span className="font-medium text-gray-700">{meta.label}</span> — {meta.desc}
-        {paid && <span className="text-emerald-600"> · Payment received.</span>}
-      </p>
-    </div>
-  );
-}
+// Status timeline (Submitted → Under review → Confirmed → Paid) now lives in
+// the shared SM26StatusTimeline component — also rendered in the participant hub.
 
 interface Requirement {
   id: string;
@@ -339,6 +296,8 @@ export function AdminSM26Detail() {
   const [reg, setReg] = useState<Registration | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [paid, setPaid] = useState(false);
+  const [waived, setWaived] = useState(false);
+  const [payKey, setPayKey] = useState(0); // bump to refetch the payment panel without a full-page reload
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [roleSaving, setRoleSaving] = useState(false);
@@ -373,6 +332,7 @@ export function AdminSM26Detail() {
     const { data: pay } = await supabase.from('sm_payment').select('status').eq('registration_id', regId).maybeSingle();
     const ps = (pay as { status?: string } | null)?.status;
     setPaid(ps === 'paid' || ps === 'waived');
+    setWaived(ps === 'waived');
     setLoading(false);
   };
 
@@ -399,6 +359,7 @@ export function AdminSM26Detail() {
     if (!reg) return;
     const settled = payStatus === 'paid' || payStatus === 'waived';
     setPaid(settled);
+    setWaived(payStatus === 'waived');
     if (settled && (reg.status === 'submitted' || reg.status === 'under_review')) {
       await supabase.from('sm_registration').update({ status: 'confirmed' }).eq('id', reg.id);
       setReg({ ...reg, status: 'confirmed' });
@@ -543,7 +504,7 @@ export function AdminSM26Detail() {
               </Select>
             </div>
           </div>
-          <StatusTimeline status={reg.status} paid={paid} />
+          <SM26StatusTimeline status={reg.status} paid={paid} waived={waived} />
         </CardContent>
       </Card>
 
@@ -633,7 +594,12 @@ export function AdminSM26Detail() {
       <SM26ProvisionDialog reg={reg} open={provisionOpen} onOpenChange={setProvisionOpen} onDone={() => load(reg.id)} />
 
       {/* Payment */}
-      <SM26PaymentPanel registrationId={reg.id} eventId={reg.event_id} onSaved={handlePaymentSaved} />
+      <SM26PaymentPanel key={payKey} registrationId={reg.id} eventId={reg.event_id} onSaved={handlePaymentSaved} />
+
+      {/* Invoice documents — participant sees them in their event hub. Uploading
+          moves unpaid → invoiced, so refetch just the payment panel (no full-page
+          reload — that would flash and drop any in-progress edits elsewhere). */}
+      <SM26Invoices registrationId={reg.id} eventId={reg.event_id} onChange={() => setPayKey(k => k + 1)} />
 
       {/* Roles & participation */}
       <div className="flex items-center justify-between">

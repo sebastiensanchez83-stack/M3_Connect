@@ -52,7 +52,9 @@ export const REG_STATUS_META: Record<string, { label: string; desc: string; stag
   under_review: { label: 'Under review', desc: 'M3 is checking eligibility and category.', stage: 1 },
   confirmed: { label: 'Confirmed', desc: 'Approved — full access once payment is settled.', stage: 2 },
   waitlist: { label: 'Waitlist', desc: 'On the waiting list for a place.', stage: null },
-  declined: { label: 'Declined', desc: 'Not accepted for this edition — hidden from all public pages.', stage: null },
+  // NOTE: desc is participant-facing too (shared SM26StatusTimeline in the event
+  // hub) — keep it neutral; admin-only context lives in the console, not here.
+  declined: { label: 'Declined', desc: 'Not accepted for this edition.', stage: null },
   cancelled: { label: 'Cancelled', desc: 'Registration withdrawn.', stage: null },
 };
 export const REG_STAGES = ['Submitted', 'Under review', 'Confirmed', 'Paid'] as const;

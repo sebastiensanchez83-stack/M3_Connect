@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
   BookOpen, CreditCard, MessageSquare, Calendar, LayoutDashboard, Users, Scale,
-  AlertCircle, ChevronRight,
+  AlertCircle, ChevronRight, Receipt, Download,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import { SM26Agenda } from '@/components/sm26/SM26Agenda';
 import { SM26MyConnections } from '@/components/sm26/SM26MyConnections';
 import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
 import { SM26MyJuryPanel } from '@/components/sm26/SM26MyJuryPanel';
+import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
 import { SM26JuryPage } from '@/pages/SM26JuryPage';
 import { SM26VotePage } from '@/pages/SM26VotePage';
 
@@ -40,12 +41,17 @@ interface RoleAssignment {
 interface Registration {
   id: string; event_id: string; status: string;
   user_id: string | null; organization_id: string | null;
-  first_name: string | null; company_name: string | null;
+  first_name: string | null; last_name: string | null;
+  company_name: string | null; country: string | null; created_at: string | null;
   roles: RoleAssignment[];
 }
 interface EcatPage {
   id: string; kind: string; status: string;
   designed_file_path: string | null; published_file_path: string | null;
+}
+interface Invoice {
+  id: string; file_path: string; label: string | null;
+  amount_cents: number | null; currency: string | null; created_at: string;
 }
 
 const ECAT_LABEL: Record<string, string> = {
@@ -72,6 +78,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
   const [savingRole, setSavingRole] = useState<string | null>(null);
   const [ecat, setEcat] = useState<EcatPage[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [payStatus, setPayStatus] = useState<string>('unpaid');
   const [ecatBusy, setEcatBusy] = useState<string | null>(null);
   const [changeNote, setChangeNote] = useState<Record<string, string>>({});
@@ -85,6 +92,9 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const selectReg = async (r: Registration) => {
     setReg(r);
     selectedIdRef.current = r.id;
+    // Reset per-registration panels immediately so a slow load can't show the
+    // previous registration's billing data under the new identity.
+    setEcat([]); setInvoices([]); setPayStatus('unpaid');
     const d: Record<string, Record<string, string>> = {};
     for (const role of r.roles) {
       d[role.id] = {};
@@ -93,12 +103,15 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
       }
     }
     setDrafts(d);
-    const [{ data: ecatRows }, { data: pay }] = await Promise.all([
+    const [{ data: ecatRows }, { data: pay }, { data: invRows }] = await Promise.all([
       supabase.from('sm_ecat_page').select('id,kind,status,designed_file_path,published_file_path').eq('registration_id', r.id),
       supabase.from('sm_payment').select('status').eq('registration_id', r.id).maybeSingle(),
+      supabase.from('sm_invoice').select('id,file_path,label,amount_cents,currency,created_at').eq('registration_id', r.id).order('created_at', { ascending: false }),
     ]);
+    if (selectedIdRef.current !== r.id) return; // selection moved on mid-flight
     setEcat((ecatRows || []) as EcatPage[]);
     setPayStatus((pay as { status?: string } | null)?.status || 'unpaid');
+    setInvoices((invRows || []) as Invoice[]);
   };
 
   const load = async () => {
@@ -117,7 +130,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     const [{ data }, { data: memberships }] = await Promise.all([
       supabase
         .from('sm_registration')
-        .select('id,event_id,status,user_id,organization_id,first_name,company_name, roles:sm_role_assignment(id,role,status,module_data)')
+        .select('id,event_id,status,user_id,organization_id,first_name,last_name,company_name,country,created_at, roles:sm_role_assignment(id,role,status,module_data)')
         .eq('event_id', eventId)
         .order('created_at', { ascending: false }),
       supabase.from('organization_members').select('organization_id').eq('user_id', user!.id),
@@ -361,10 +374,24 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         {/* ── Dashboard header ── */}
         <Card>
           <CardContent className="pt-6 space-y-4">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <div className="text-sm text-gray-500">Registration status</div>
-                <Badge className={`mt-1 ${roleStatusBadgeClass(reg.status)}`}>{prettyStatus(reg.status)}</Badge>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-lg shrink-0">
+                  {([reg.first_name, reg.company_name].find(Boolean) || '?').charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-gray-900 truncate">
+                    {[reg.first_name, reg.last_name].filter(Boolean).join(' ') || reg.company_name || 'Your registration'}
+                  </div>
+                  {(reg.company_name || reg.country) && (
+                    <div className="text-xs text-gray-500 truncate">{[reg.company_name, reg.country].filter(Boolean).join(' · ')}</div>
+                  )}
+                  {reg.created_at && (
+                    <div className="text-[11px] text-gray-400 flex items-center gap-1 mt-0.5">
+                      <Calendar className="h-3 w-3" /> Registered {new Date(reg.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex flex-wrap gap-1.5 justify-end">
                 {visibleRoles.map(r => (
@@ -372,6 +399,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                 ))}
               </div>
             </div>
+            <SM26StatusTimeline status={reg.status} paid={payStatus === 'paid' || payStatus === 'waived'} waived={payStatus === 'waived'} />
             {reqTotal > 0 && (
               <div>
                 <div className="flex items-center justify-between text-xs mb-1">
@@ -412,6 +440,40 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         {/* ── Overview ── */}
         {subTab === 'overview' && (
           <div className="space-y-4">
+            {invoices.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <CardTitle className="flex items-center gap-2"><Receipt className="h-5 w-5 text-primary" /> Your invoices</CardTitle>
+                    <Badge className={`text-[11px] ${(payStatus === 'paid' || payStatus === 'waived') ? 'bg-green-50 text-green-700 border-green-200' : payStatus === 'invoiced' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                      <CreditCard className="h-3 w-3 mr-1" /> {payStatus === 'paid' ? 'Paid' : payStatus === 'waived' ? 'No payment due' : payStatus === 'invoiced' ? 'Invoiced' : 'Payment pending'}
+                    </Badge>
+                  </div>
+                  <CardDescription>Invoices from M3 for your participation. Download them any time.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {invoices.map(inv => (
+                    <div key={inv.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3">
+                      <div className="min-w-0 flex items-center gap-2.5">
+                        <FileText className="h-4 w-4 text-gray-400 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium text-gray-900 truncate">
+                            {inv.label || (inv.file_path.split('/').pop() || 'Invoice').replace(/^\d{10,}-/, '')}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            {inv.amount_cents != null && <>{(inv.amount_cents / 100).toFixed(2)} {inv.currency || 'EUR'} · </>}
+                            {new Date(inv.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          </div>
+                        </div>
+                      </div>
+                      <Button variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={() => viewFile(inv.file_path)}>
+                        <Download className="h-3.5 w-3.5" /> Download
+                      </Button>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
             {visibleRoles.some(r => r.role === 'startup') && <SM26MyJuryPanel eventId={reg.event_id} />}
             <SM26VotePage embedded />
             <Card>

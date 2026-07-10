@@ -200,4 +200,7 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260709144843  p2_scope_event_partner_media_read
 20260709145010  p1_sm_guard_reg_status_no_downgrade
 20260709150324  p2_guard_self_role_and_reg_attribution
+20260709161711  sm_my_innovation_jury_panel
+20260710082952  sm26_invoices
+20260710084802  p0_scope_public_storage_read
 ```

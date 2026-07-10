@@ -85,15 +85,24 @@ function firstOf(x: unknown): Record<string, unknown> | undefined {
 const FILE_KEY = /(_url$|logo|image|photo|deck|slides|brochure|attachment|proof|portfolio|document|pitch|file)/i;
 const LONG_KEY = /(bio|description|problem|solution|statement|usp|differentiation|positioning|expected|abstract|summary|motivation|objective|background|why|message)/i;
 const IMG_EXT = /\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i;
+// Any uploaded-file extension. Used to recognise a Storage object path even when
+// the original filename contains spaces / parentheses (e.g. "Logo HKD.png",
+// "metpow marina@2x (3).png") — re-hosted Jotform files keep their real names.
+const FILE_EXT = /\.(png|jpe?g|gif|webp|svg|avif|pdf|pptx?|docx?|xlsx?|key|mp4|mov|webm|zip|ai|eps|psd|tiff?)(\?|$)/i;
 const isHttp = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//.test(v);
-const isStoragePath = (v: unknown): v is string => typeof v === 'string' && v.includes('/') && !/^https?:\/\//.test(v) && !/\s/.test(v);
+// A non-URL Storage path. We key off a real file extension (spaces allowed) so
+// a free-text value that merely contains a "/" isn't mistaken for an upload.
+const isStoragePath = (v: unknown): v is string => typeof v === 'string' && v.includes('/') && !/^https?:\/\//.test(v) && FILE_EXT.test(v);
 function classify(k: string, v: unknown): 'file' | 'long' | 'array' | 'short' {
   if (Array.isArray(v)) {
     // An array of storage paths / urls (e.g. product_images) renders as files.
     if (v.length > 0 && v.every(x => isStoragePath(x) || isHttp(x))) return 'file';
     return 'array';
   }
-  if (isStoragePath(v) || (isHttp(v) && FILE_KEY.test(k))) return 'file';
+  // A slashy, non-URL value under an obvious asset key (logo/photo/deck…) is a
+  // Storage path too, even if it has no recognisable extension.
+  const slashyAsset = typeof v === 'string' && v.includes('/') && !/^https?:\/\//.test(v) && FILE_KEY.test(k);
+  if (isStoragePath(v) || slashyAsset || (isHttp(v) && FILE_KEY.test(k))) return 'file';
   if (typeof v === 'string' && (LONG_KEY.test(k) || v.length > 80)) return 'long';
   return 'short';
 }

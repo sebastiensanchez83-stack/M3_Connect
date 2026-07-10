@@ -114,7 +114,12 @@ export const ORG_SCOPE_ROLES = new Set(['marina', 'startup', 'sponsor']);
 // Roles with a dedicated module table (others store extra fields in module_data)
 export const MODULE_TABLE_ROLES = new Set(['startup', 'marina', 'architect_pro', 'architect_student']);
 
-interface RoleRow { id: string; role: string; status: string; scope: string; module_data?: Record<string, unknown> | null }
+interface RoleRow {
+  id: string; role: string; status: string; scope: string; module_data?: Record<string, unknown> | null;
+  // Joined for the list avatar (company logo / project image).
+  startup?: { logo_url: string | null }[] | { logo_url: string | null } | null;
+  architecture?: { logo_url: string | null; company_image_url: string | null }[] | { logo_url: string | null; company_image_url: string | null } | null;
+}
 interface RegRow {
   id: string;
   first_name: string | null;
@@ -129,9 +134,44 @@ interface RegRow {
   roles: RoleRow[];
 }
 
+// ── List-avatar resolution ──────────────────────────────────────────────────
+// Priority: the company logo they gave us (startup / architecture / module_data
+// logo) → their profile photo → first-letter initial (rendered by the caller).
+const AV_IMG = /\.(png|jpe?g|gif|webp|svg|avif)(\?|$)/i;
+const oneOf = <T,>(x: T[] | T | null | undefined): T | undefined => (Array.isArray(x) ? x[0] : x ?? undefined);
+
+// module_data may store an image as a plain path, a real JSON array, or an
+// array serialised to a string ("[\"imported/…\"]") — normalise to one path.
+function mdPath(md: Record<string, unknown> | null | undefined, key: string): string | null {
+  const raw = md?.[key];
+  if (!raw) return null;
+  if (Array.isArray(raw)) return typeof raw[0] === 'string' ? raw[0] : null;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (s.startsWith('[')) { try { const a = JSON.parse(s); return Array.isArray(a) && typeof a[0] === 'string' ? a[0] : null; } catch { return null; } }
+    return s || null;
+  }
+  return null;
+}
+// Keep only values that are actually images (http URL or image-extension path).
+const imgish = (v: string | null | undefined): v is string => !!v && (/^https?:\/\//.test(v) || AV_IMG.test(v));
+function pickAvatarPath(r: RegRow): string | null {
+  const logos: (string | null | undefined)[] = [];
+  const photos: (string | null | undefined)[] = [];
+  for (const role of r.roles || []) {
+    logos.push(oneOf(role.startup)?.logo_url);
+    logos.push(oneOf(role.architecture)?.logo_url);
+    logos.push(mdPath(role.module_data, 'logo_url'));
+    photos.push(mdPath(role.module_data, 'photo_url'));
+    photos.push(oneOf(role.architecture)?.company_image_url);
+  }
+  return [...logos, ...photos].find(imgish) || null;
+}
+
 export function AdminSM26() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<RegRow[]>([]);
+  const [avatarUrls, setAvatarUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -145,6 +185,31 @@ export function AdminSM26() {
 
   useEffect(() => { load(); }, []);
 
+  // Resolve one avatar image per registration (company logo → profile photo).
+  // http values pass through; Storage paths are signed in a single batched call.
+  useEffect(() => {
+    let active = true;
+    const httpByReg: Record<string, string> = {};
+    const pathByReg: Record<string, string> = {};
+    for (const r of rows) {
+      const p = pickAvatarPath(r);
+      if (!p) continue;
+      if (/^https?:\/\//.test(p)) httpByReg[r.id] = p; else pathByReg[r.id] = p;
+    }
+    const paths = [...new Set(Object.values(pathByReg))];
+    (async () => {
+      const map: Record<string, string> = { ...httpByReg };
+      if (paths.length) {
+        const { data } = await supabase.storage.from('event-media').createSignedUrls(paths, 3600);
+        const signed: Record<string, string> = {};
+        for (const d of data || []) { if (d.path && d.signedUrl) signed[d.path] = d.signedUrl; }
+        for (const [regId, p] of Object.entries(pathByReg)) { if (signed[p]) map[regId] = signed[p]; }
+      }
+      if (active) setAvatarUrls(map);
+    })();
+    return () => { active = false; };
+  }, [rows]);
+
   const load = async () => {
     setLoading(true);
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
@@ -152,7 +217,7 @@ export function AdminSM26() {
     const [regsRes, paysRes, filesRes] = await Promise.all([
       supabase
         .from('sm_registration')
-        .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id, roles:sm_role_assignment(id,role,status,scope,module_data)')
+        .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id, roles:sm_role_assignment(id,role,status,scope,module_data, startup:sm_startup_profile(logo_url), architecture:sm_architecture_entry(logo_url,company_image_url))')
         .eq('event_id', (ev as { id: string }).id)
         .order('created_at', { ascending: false }),
       supabase.from('sm_payment').select('registration_id,status'),
@@ -416,9 +481,15 @@ export function AdminSM26() {
                     <div onClick={e => e.stopPropagation()} className="shrink-0 flex items-center">
                       <Checkbox checked={selected.has(r.id)} onCheckedChange={() => toggleSel(r.id)} aria-label="Select registration" />
                     </div>
-                    <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 font-semibold uppercase">
-                      {(r.first_name?.[0] || r.email?.[0] || '?')}
-                    </div>
+                    {avatarUrls[r.id] ? (
+                      <img src={avatarUrls[r.id]} alt=""
+                        className="h-11 w-11 rounded-xl object-cover border border-gray-100 bg-white shrink-0"
+                        onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                    ) : (
+                      <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0 font-semibold uppercase">
+                        {(r.first_name?.[0] || r.email?.[0] || '?')}
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                         <span className="text-sm font-semibold text-gray-900 truncate group-hover:text-primary transition-colors">{name}</span>

@@ -6,10 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
 import { SM26MyRegistrationPage } from '@/pages/SM26MyRegistrationPage';
+import { SponsorPortal } from '@/components/sponsorship/SponsorPortal';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Bell, Star, Inbox, Ship } from 'lucide-react';
+import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Bell, Star, Inbox, Ship, Award } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Link } from 'react-router-dom';
@@ -138,6 +139,7 @@ export function AccountPage() {
   const [connectionRequestCount, setConnectionRequestCount] = useState(0);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [hasSM26, setHasSM26] = useState(false);
+  const [sponsorIds, setSponsorIds] = useState<string[]>([]);
   const [feedResources, setFeedResources] = useState<{ id: string; title: string; type: string; summary: string }[]>([]);
   const [feedEvents, setFeedEvents] = useState<{ id: string; title: string; date_time: string }[]>([]);
 
@@ -155,6 +157,18 @@ export function AccountPage() {
       if (!ev || !active) return;
       const { data } = await supabase.from('sm_registration').select('id').eq('event_id', (ev as { id: string }).id).limit(1);
       if (active) setHasSM26(!!(data && data.length));
+    })();
+    return () => { active = false; };
+  }, [user]);
+
+  // Show the "Sponsorship" tab if this account has been linked to a sponsor
+  // (per-person, via sp_sponsor_user — set by an admin/YCM manager).
+  useEffect(() => {
+    if (!user) { setSponsorIds([]); return; }
+    let active = true;
+    (async () => {
+      const { data } = await supabase.from('sp_sponsor_user').select('sponsor_id').eq('user_id', user.id);
+      if (active) setSponsorIds(((data || []) as { sponsor_id: string }[]).map(x => x.sponsor_id));
     })();
     return () => { active = false; };
   }, [user]);
@@ -598,6 +612,7 @@ export function AccountPage() {
     : [
         { value: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
         { value: 'event', label: 'Event hub', icon: <Ship className="h-4 w-4" />, show: hasSM26 },
+        { value: 'sponsorship', label: 'Sponsorship', icon: <Award className="h-4 w-4" />, show: sponsorIds.length > 0 },
         { value: 'organization', label: t('org.tabTitle'), icon: <Building2 className="h-4 w-4" />, notifDot: orgNeedsAction },
         { value: 'profile', label: 'Profile', icon: <Users className="h-4 w-4" /> },
         { value: 'registrations', label: 'Registrations', icon: <Calendar className="h-4 w-4" /> },
@@ -1895,6 +1910,10 @@ export function AccountPage() {
 
         <TabsContent value="event">
           {hasSM26 && <SM26MyRegistrationPage embedded />}
+        </TabsContent>
+
+        <TabsContent value="sponsorship">
+          {sponsorIds.length > 0 && <SponsorPortal sponsorIds={sponsorIds} />}
         </TabsContent>
 
       </Tabs>

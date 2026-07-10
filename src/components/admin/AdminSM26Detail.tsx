@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
   Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target, Download,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, UserPlus,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -456,6 +456,19 @@ export function AdminSM26Detail() {
     await load(reg.id);
   };
 
+  // Give this registration's contact access to the sponsor portal (a "Sponsorship"
+  // tab on their account). Needs the contact to have an account already.
+  const grantPortalAccess = async () => {
+    if (!reg || !sponsorLink) return;
+    if (!reg.email) { toast({ title: 'No contact email on this registration', variant: 'destructive' }); return; }
+    setSponsorBusy(true);
+    const { data, error } = await supabase.rpc('sp_link_sponsor_user', { p_sponsor_id: sponsorLink.id, p_email: reg.email });
+    setSponsorBusy(false);
+    if (error) { toast({ title: 'Could not grant access', description: error.message, variant: 'destructive' }); return; }
+    if (!data) { toast({ title: 'No account yet for this contact', description: 'Set up their account first (confirm / provision), then grant access.', variant: 'destructive' }); return; }
+    toast({ title: 'Portal access granted', description: 'They now see a Sponsorship tab on their account.' });
+  };
+
   const setRoleStatus = async (ra: RoleAssignment, status: string) => {
     if (!reg) return;
     setRoleSaving(true);
@@ -649,9 +662,16 @@ export function AdminSM26Detail() {
               </p>
             </div>
             {sponsorLink ? (
-              <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => navigate(`/admin/sponsorships/${sponsorLink.id}`)}>
-                Open sponsor <ChevronRight className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2 shrink-0">
+                {reg.user_id && (
+                  <Button size="sm" variant="outline" className="gap-1.5" disabled={sponsorBusy} onClick={grantPortalAccess} title="Give this contact a Sponsorship tab on their account">
+                    <UserPlus className="h-4 w-4" /> Grant access
+                  </Button>
+                )}
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate(`/admin/sponsorships/${sponsorLink.id}`)}>
+                  Open sponsor <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             ) : (
               <Button size="sm" className="gap-1.5 shrink-0" disabled={sponsorBusy} onClick={linkSponsor}>
                 {sponsorBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add to tracker

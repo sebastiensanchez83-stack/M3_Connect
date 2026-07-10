@@ -3,7 +3,8 @@ import { Helmet } from 'react-helmet-async';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
-  BookOpen, CreditCard, MessageSquare, Calendar,
+  BookOpen, CreditCard, MessageSquare, Calendar, LayoutDashboard, Users, Scale,
+  AlertCircle, ChevronRight,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -76,6 +77,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const [changeNote, setChangeNote] = useState<Record<string, string>>({});
   const [statusBusy, setStatusBusy] = useState(false);
   const [onsiteBusy, setOnsiteBusy] = useState<string | null>(null);
+  const [subTab, setSubTab] = useState('overview');
 
   useEffect(() => { if (user) load(); }, [user]);
 
@@ -289,6 +291,28 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const visibleRoles = reg.roles.filter(r => r.status !== 'declined');
   const rolesWithReqs = visibleRoles.filter(r => reqsForRole(r.role).length > 0);
 
+  // Dashboard rollups: required-item completeness + count of items M3 explicitly requested.
+  const isJuror = visibleRoles.some(r => r.role === 'jury');
+  const requiredCells = rolesWithReqs.flatMap(role => {
+    const md = role.module_data || {};
+    return reqsForRole(role.role).filter(r => r.required).map(r => !!md[r.field_key]);
+  });
+  const reqTotal = requiredCells.length;
+  const reqDone = requiredCells.filter(Boolean).length;
+  const outstandingCount = rolesWithReqs.reduce((n, role) => {
+    const md = role.module_data || {};
+    const requested = new Set((md._requested_info as string[] | undefined) || []);
+    return n + reqsForRole(role.role).filter(r => requested.has(r.field_key) && !md[r.field_key]).length;
+  }, 0);
+  const subTabs: { key: string; label: string; icon: typeof FileText; dot?: boolean }[] = [
+    { key: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { key: 'participation', label: 'My details', icon: FileText, dot: outstandingCount > 0 || (reqTotal > 0 && reqDone < reqTotal) },
+    { key: 'programme', label: 'Programme', icon: Calendar },
+    ...(ecat.length > 0 ? [{ key: 'catalogue', label: 'E-catalogue', icon: BookOpen }] : []),
+    { key: 'connections', label: 'Connections', icon: Users },
+    ...(isJuror ? [{ key: 'jury', label: 'Jury', icon: Scale }] : []),
+  ];
+
   return (
     <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
       {!embedded && <Helmet><title>My SM26 participation — Smart Marina Connect</title></Helmet>}
@@ -334,35 +358,102 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           </div>
         )}
 
+        {/* ── Dashboard header ── */}
         <Card>
-          <CardContent className="pt-6 flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div className="text-sm text-gray-500">Registration status</div>
-              <Badge className={`mt-1 ${roleStatusBadgeClass(reg.status)}`}>{prettyStatus(reg.status)}</Badge>
+          <CardContent className="pt-6 space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <div className="text-sm text-gray-500">Registration status</div>
+                <Badge className={`mt-1 ${roleStatusBadgeClass(reg.status)}`}>{prettyStatus(reg.status)}</Badge>
+              </div>
+              <div className="flex flex-wrap gap-1.5 justify-end">
+                {visibleRoles.map(r => (
+                  <Badge key={r.id} variant="secondary" className="text-[11px]">{SM26_ROLE_LABELS[r.role] || r.role}</Badge>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {visibleRoles.map(r => (
-                <Badge key={r.id} variant="secondary" className="text-[11px]">{SM26_ROLE_LABELS[r.role] || r.role}</Badge>
-              ))}
-            </div>
+            {reqTotal > 0 && (
+              <div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span className="text-gray-500">Your details</span>
+                  <span className={reqDone === reqTotal ? 'text-green-600 font-medium' : 'text-amber-600 font-medium'}>{reqDone}/{reqTotal} complete</span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                  <div className={`h-full rounded-full ${reqDone === reqTotal ? 'bg-green-500' : 'bg-primary'}`} style={{ width: `${Math.round((reqDone / reqTotal) * 100)}%` }} />
+                </div>
+              </div>
+            )}
+            {outstandingCount > 0 && (
+              <button type="button" onClick={() => setSubTab('participation')}
+                className="w-full text-left rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-center gap-2 hover:bg-amber-100 transition-colors">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>M3 has requested <strong>{outstandingCount}</strong> {outstandingCount === 1 ? 'item' : 'items'} from you — tap to complete.</span>
+                <ChevronRight className="h-4 w-4 ml-auto shrink-0" />
+              </button>
+            )}
           </CardContent>
         </Card>
 
-        <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
+        {/* ── Sub-navigation ── */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+          {subTabs.map(t => {
+            const Icon = t.icon;
+            const active = subTab === t.key;
+            return (
+              <button key={t.key} type="button" onClick={() => setSubTab(t.key)}
+                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors ${active ? 'border-primary bg-primary text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-primary/40'}`}>
+                <Icon className="h-4 w-4" /> {t.label}
+                {t.dot && !active && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
+              </button>
+            );
+          })}
+        </div>
 
-        {visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
+        {/* ── Overview ── */}
+        {subTab === 'overview' && (
+          <div className="space-y-4">
+            {visibleRoles.some(r => r.role === 'startup') && <SM26MyJuryPanel eventId={reg.event_id} />}
+            <SM26VotePage embedded />
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-sm font-semibold text-gray-900 mb-3">Quick access</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {subTabs.filter(t => t.key !== 'overview').map(t => {
+                    const Icon = t.icon;
+                    return (
+                      <button key={t.key} onClick={() => setSubTab(t.key)}
+                        className="rounded-lg border border-gray-100 p-3 text-left hover:border-primary/40 hover:bg-gray-50 transition-colors">
+                        <Icon className="h-4 w-4 text-primary mb-1" />
+                        <div className="text-sm font-medium text-gray-900 flex items-center gap-1.5">{t.label}{t.dot && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> My programme</div>
-            <p className="text-xs text-gray-500 mb-3">Your personal schedule — the main programme plus the workshops you've chosen. <Link to="/sm26/agenda" className="text-primary hover:underline">View the full programme</Link> to add or change.</p>
-            <SM26Agenda mineOnly />
-          </CardContent>
-        </Card>
+        {subTab === 'participation' && (
+          <>
+            <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
+            {visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
+          </>
+        )}
 
-        {reg && <SM26MyConnections eventId={reg.event_id} />}
+        {subTab === 'programme' && (
+          <Card>
+            <CardContent className="pt-6">
+              <div className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> My programme</div>
+              <p className="text-xs text-gray-500 mb-3">Your personal schedule — the main programme plus the workshops you've chosen. <Link to="/sm26/agenda" className="text-primary hover:underline">View the full programme</Link> to add or change.</p>
+              <SM26Agenda mineOnly />
+            </CardContent>
+          </Card>
+        )}
 
-        {ecat.length > 0 && (
+        {subTab === 'connections' && reg && <SM26MyConnections eventId={reg.event_id} />}
+
+        {subTab === 'catalogue' && ecat.length > 0 && (
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -411,7 +502,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           </Card>
         )}
 
-        {rolesWithReqs.length === 0 ? (
+        {subTab === 'participation' && (rolesWithReqs.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center">
               <CheckCircle className="h-10 w-10 text-green-500 mx-auto mb-3" />
@@ -542,19 +633,12 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
               </Card>
             );
           })
-        )}
+        ))}
 
-        {/* Role consoles — embedded in the hub, shown by the participant's role(s) */}
-        {visibleRoles.some(r => r.role === 'jury') && (
-          <div className="space-y-2">
-            <h2 className="text-lg font-bold text-gray-900">Evaluate entries</h2>
-            <SM26JuryPage embedded />
-          </div>
-        )}
-        {visibleRoles.some(r => r.role === 'startup') && <SM26MyJuryPanel eventId={reg.event_id} />}
-        <SM26VotePage embedded />
+        {/* Jury scoring console — jurors only */}
+        {subTab === 'jury' && isJuror && <SM26JuryPage embedded />}
 
-        {reg.status !== 'declined' && (
+        {subTab === 'participation' && reg.status !== 'declined' && (
           <div className="text-center pt-2">
             <button type="button" onClick={() => setRegStatus('cancelled')} disabled={statusBusy}
               className="text-xs text-gray-400 hover:text-red-600 underline underline-offset-2 disabled:opacity-50">

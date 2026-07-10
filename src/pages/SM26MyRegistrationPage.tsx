@@ -25,6 +25,7 @@ import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
 import { SM26MyJuryPanel } from '@/components/sm26/SM26MyJuryPanel';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
 import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
+import { SM26AssetGallery, SM26Asset } from '@/components/sm26/SM26AssetGallery';
 import { SM26JuryPage } from '@/pages/SM26JuryPage';
 import { SM26VotePage } from '@/pages/SM26VotePage';
 
@@ -86,6 +87,10 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const [statusBusy, setStatusBusy] = useState(false);
   const [onsiteBusy, setOnsiteBusy] = useState<string | null>(null);
   const [subTab, setSubTab] = useState('overview');
+  // Resolved uploaded documents (from the sm26-assets resolver) — used to show
+  // previews AND to recognise assets that live in profile tables under a
+  // different key than the requirement checklist expects (logo vs logo_url).
+  const [hubAssets, setHubAssets] = useState<SM26Asset[]>([]);
 
   useEffect(() => { if (user) load(); }, [user]);
 
@@ -95,7 +100,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     selectedIdRef.current = r.id;
     // Reset per-registration panels immediately so a slow load can't show the
     // previous registration's billing data under the new identity.
-    setEcat([]); setInvoices([]); setPayStatus('unpaid');
+    setEcat([]); setInvoices([]); setPayStatus('unpaid'); setHubAssets([]);
     const d: Record<string, Record<string, string>> = {};
     for (const role of r.roles) {
       d[role.id] = {};
@@ -104,15 +109,17 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
       }
     }
     setDrafts(d);
-    const [{ data: ecatRows }, { data: pay }, { data: invRows }] = await Promise.all([
+    const [{ data: ecatRows }, { data: pay }, { data: invRows }, assetRes] = await Promise.all([
       supabase.from('sm_ecat_page').select('id,kind,status,designed_file_path,published_file_path').eq('registration_id', r.id),
       supabase.from('sm_payment').select('status').eq('registration_id', r.id).maybeSingle(),
       supabase.from('sm_invoice').select('id,file_path,label,amount_cents,currency,created_at').eq('registration_id', r.id).order('created_at', { ascending: false }),
+      supabase.functions.invoke('sm26-assets', { body: { registration_id: r.id } }),
     ]);
     if (selectedIdRef.current !== r.id) return; // selection moved on mid-flight
     setEcat((ecatRows || []) as EcatPage[]);
     setPayStatus((pay as { status?: string } | null)?.status || 'unpaid');
     setInvoices((invRows || []) as Invoice[]);
+    setHubAssets(((assetRes?.data as { assets?: SM26Asset[] } | null)?.assets) || []);
   };
 
   const load = async () => {
@@ -322,11 +329,29 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const visibleRoles = reg.roles.filter(r => r.status !== 'declined');
   const rolesWithReqs = visibleRoles.filter(r => reqsForRole(r.role).length > 0);
 
+  // An asset requirement (logo/deck/photo/…) is satisfied if its value is in
+  // module_data OR if the sm26-assets resolver found a matching asset for this
+  // role (imported startups store logo/deck in profile columns under a different
+  // key, so a plain md[field_key] check wrongly reports them "missing").
+  const reqKeyKind = (k: string) =>
+    /logo/i.test(k) ? 'logo' : /deck|pitch/i.test(k) ? 'deck' : /product/i.test(k) ? 'product'
+      : /photo/i.test(k) ? 'photo' : /render|panel/i.test(k) ? 'render' : /hero/i.test(k) ? 'hero'
+        : /banner/i.test(k) ? 'banner' : /slides/i.test(k) ? 'slides' : /press/i.test(k) ? 'press'
+          : /proof/i.test(k) ? 'proof' : null;
+  const assetPresent = (roleId: string, fieldKey: string) => {
+    const kind = reqKeyKind(fieldKey);
+    return !!kind && hubAssets.some(a => a.role_assignment_id === roleId && a.kind === kind);
+  };
+  const reqSatisfied = (roleId: string, r: { field_key: string; is_asset: boolean }, md: Record<string, unknown>) => {
+    const v = md[r.field_key];
+    return (Array.isArray(v) ? v.length > 0 : !!v) || (r.is_asset && assetPresent(roleId, r.field_key));
+  };
+
   // Dashboard rollups: required-item completeness + count of items M3 explicitly requested.
   const isJuror = visibleRoles.some(r => r.role === 'jury');
   const requiredCells = rolesWithReqs.flatMap(role => {
     const md = role.module_data || {};
-    return reqsForRole(role.role).filter(r => r.required).map(r => !!md[r.field_key]);
+    return reqsForRole(role.role).filter(r => r.required).map(r => reqSatisfied(role.id, r, md));
   });
   const reqTotal = requiredCells.length;
   const reqDone = requiredCells.filter(Boolean).length;
@@ -519,6 +544,12 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           <>
             <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
             {visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2"><Paperclip className="h-4 w-4 text-primary" /> Your documents</div>
+                <SM26AssetGallery provided={hubAssets} title="" emptyText="You haven't uploaded any documents yet — add them below." />
+              </CardContent>
+            </Card>
           </>
         )}
 
@@ -604,12 +635,12 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
             const reqs = reqsForRole(role.role);
             const md = role.module_data || {};
             const requiredItems = reqs.filter(r => r.required);
-            const doneCount = requiredItems.filter(r => !!md[r.field_key]).length;
+            const doneCount = requiredItems.filter(r => reqSatisfied(role.id, r, md)).length;
             const complete = doneCount === requiredItems.length;
             // Items M3 specifically asked for (still outstanding) + any note.
             const requested = new Set((md._requested_info as string[] | undefined) || []);
             const requestNote = md._request_note as string | undefined;
-            const outstanding = reqs.filter(r => requested.has(r.field_key) && !md[r.field_key]);
+            const outstanding = reqs.filter(r => requested.has(r.field_key) && !reqSatisfied(role.id, r, md));
             // Fields M3 requested that aren't part of the fixed requirement list
             // (e.g. a missing text field like "domain") — render a box for each.
             const extraRequested = [...requested].filter(k => !reqs.some(r => r.field_key === k));
@@ -664,10 +695,10 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                     </div>
                   )}
                   {reqs.map(req => {
-                    const isRequested = requested.has(req.field_key) && !md[req.field_key];
+                    const isRequested = requested.has(req.field_key) && !reqSatisfied(role.id, req, md);
                     const current = (drafts[role.id]?.[req.field_key] ?? (md[req.field_key] as string) ?? '');
-                    const hv = md[req.field_key];
-                    const hasValue = Array.isArray(hv) ? hv.length > 0 : !!hv;
+                    const hasValue = reqSatisfied(role.id, req, md);
+                    const importedAsset = req.is_asset && !md[req.field_key] && assetPresent(role.id, req.field_key);
                     if (req.is_asset) {
                       return (
                         <div key={req.id} className="space-y-1.5">
@@ -677,6 +708,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                             {isRequested && <span className="text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Requested by M3</span>}
                             {hasValue && <Check className="h-3.5 w-3.5 text-green-600" />}
                           </Label>
+                          {importedAsset && <p className="text-[11px] text-green-600">Already provided — shown under “Your documents” above. Upload here only to replace it.</p>}
                           <SM26AssetUpload
                             value={md[req.field_key] as string | string[] | null}
                             basePath={`${user!.id}/${role.id}/${req.field_key}`}

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { useFileDrop } from '@/hooks/useFileDrop';
 import { SPONSORSHIP_BUCKET, SpBrandAsset } from '@/lib/sponsorship';
 
 // Per-sponsor brand-asset locker: logo(s) uploaded once (native or link) and
@@ -17,6 +18,7 @@ export function SponsorBrandAssets({ sponsorId, canEdit }: { sponsorId: string; 
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { isDragging, dropHandlers } = useFileDrop(files => { const f = files[0]; if (f) void upload(f); }, uploading || !canEdit);
 
   const load = async () => {
     const { data } = await supabase.from('sp_brand_asset').select('*').eq('sponsor_id', sponsorId).order('created_at', { ascending: true });
@@ -92,7 +94,7 @@ export function SponsorBrandAssets({ sponsorId, canEdit }: { sponsorId: string; 
           </div>
         ))}
         {canEdit && (
-          <div className="rounded-lg border border-dashed border-gray-200 p-2.5 space-y-2">
+          <div {...dropHandlers} className={`rounded-lg border border-dashed p-2.5 space-y-2 transition-colors ${isDragging ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
             <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (e.g. Primary logo)" className="h-8 text-sm" />
             <div className="flex items-center gap-1.5 flex-wrap">
               <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={uploading} onClick={() => fileRef.current?.click()}>

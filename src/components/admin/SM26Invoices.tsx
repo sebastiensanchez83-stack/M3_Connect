@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { useFileDrop } from '@/hooks/useFileDrop';
 
 // Admin invoice documents for one SM26 registration. Uploading an invoice:
 //  1. stores the file in event-media under invoices/<registration_id>/,
@@ -43,6 +44,7 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { isDragging, dropHandlers } = useFileDrop(files => { const f = files[0]; if (f) void upload(f); }, uploading);
 
   const load = async () => {
     const { data } = await supabase
@@ -178,7 +180,7 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
           </div>
         ))}
 
-        <div className="rounded-lg border border-dashed border-gray-200 p-3 space-y-2">
+        <div {...dropHandlers} className={`rounded-lg border border-dashed p-3 space-y-2 transition-colors ${isDragging ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
           <div className="grid sm:grid-cols-2 gap-2">
             <Input placeholder="Label (optional, e.g. Participation fee)" value={label} onChange={e => setLabel(e.target.value)} className="h-9" />
             <Input placeholder="Amount € (optional, e.g. 1500.00)" inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} className="h-9" />
@@ -193,7 +195,7 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
             </Button>
           </div>
           <p className="text-[11px] text-gray-400">
-            The invoice appears in the participant's event hub. Uploading moves payment to <strong>Invoiced</strong> (never downgrades Paid). Uncheck the email box for corrected re-uploads.
+            Drag a file here, or click <strong>Upload invoice</strong>. It appears in the participant's event hub and moves payment to <strong>Invoiced</strong> (never downgrades Paid). Uncheck the email box for corrected re-uploads.
           </p>
           <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); }} />

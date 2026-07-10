@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { useFileDrop } from '@/hooks/useFileDrop';
 import { SPONSORSHIP_BUCKET, SpDeliverableFile } from '@/lib/sponsorship';
 
 // Files a sponsor provides for a deliverable — native Storage upload OR an
@@ -24,6 +25,7 @@ export function DeliverableFiles({ sponsorId, benefitId, isManager, canUpload, o
   const [linkUrl, setLinkUrl] = useState('');
   const [showLink, setShowLink] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const { isDragging, dropHandlers } = useFileDrop(files => { const f = files[0]; if (f) void upload(f); }, uploading || !canUpload);
 
   const load = async () => {
     const { data } = await supabase.from('sp_deliverable_file')
@@ -127,13 +129,14 @@ export function DeliverableFiles({ sponsorId, benefitId, isManager, canUpload, o
       )}
 
       {canUpload && (
-        <div className="flex items-center gap-1.5 pt-0.5">
+        <div {...dropHandlers} className={`flex items-center gap-1.5 pt-0.5 rounded-md transition-colors ${isDragging ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}>
           <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={uploading} onClick={() => fileRef.current?.click()}>
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload
           </Button>
           <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => setShowLink(v => !v)}>
             <Link2 className="h-3.5 w-3.5" /> Link
           </Button>
+          <span className="text-[10px] text-gray-400">or drop a file</span>
           <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
         </div>
       )}

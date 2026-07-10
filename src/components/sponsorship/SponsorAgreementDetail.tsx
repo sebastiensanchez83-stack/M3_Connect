@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   SpSponsor, SpAgreement, SpAgreementBenefit, SpTier, SpProgram, SpValueType,
   PROGRAM_LABELS, PROGRAM_ORDER, FULFILMENT_STATUS_META, FULFILMENT_STATUSES,
@@ -31,6 +32,7 @@ const centsToEuros = (c: number | null | undefined) => (c == null ? '' : String(
 export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
   const { sponsorId } = useParams<{ sponsorId: string }>();
   const navigate = useNavigate();
+  const { isModerator } = useAuth(); // M3 staff see the commercial fee; Yacht Club (YCM) do not
   const [sponsor, setSponsor] = useState<SpSponsor | null>(null);
   const [agreement, setAgreement] = useState<SpAgreement | null>(null);
   const [items, setItems] = useState<SpAgreementBenefit[]>([]);
@@ -261,6 +263,7 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
                 <SelectContent>{(['draft', 'active', 'expired', 'renewed'] as SpAgreementStatus[]).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
               </Select>
             </label>
+            {isModerator && (<>
             <label className="text-xs text-gray-500">Negotiated fee (€)
               <Input type="text" defaultValue={centsToEuros(agreement.negotiated_fee_cents)} placeholder={agreement.tier_key ? centsToEuros(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents) : ''}
                 onBlur={e => { const c = eurosToCents(e.target.value); if (c !== agreement.negotiated_fee_cents) saveAgreement({ negotiated_fee_cents: c }); }} className="mt-1 h-9" />
@@ -269,6 +272,7 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
               <Input type="text" defaultValue={centsToEuros(agreement.negotiated_renewal_fee_cents)}
                 onBlur={e => { const c = eurosToCents(e.target.value); if (c !== agreement.negotiated_renewal_fee_cents) saveAgreement({ negotiated_renewal_fee_cents: c }); }} className="mt-1 h-9" />
             </label>
+            </>)}
             <label className="text-xs text-gray-500">Term start
               <Input type="date" defaultValue={agreement.term_start || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.term_start) saveAgreement({ term_start: v }); }} className="mt-1 h-9" />
             </label>
@@ -278,7 +282,7 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
             <label className="text-xs text-gray-500">Renewal date
               <Input type="date" defaultValue={agreement.renewal_date || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.renewal_date) saveAgreement({ renewal_date: v }); }} className="mt-1 h-9" />
             </label>
-            <div className="text-xs text-gray-400 flex items-end pb-2">Tier list fee: {formatMoney(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents)}</div>
+            {isModerator && <div className="text-xs text-gray-400 flex items-end pb-2">Tier list fee: {formatMoney(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents)}</div>}
           </CardContent>
         </Card>
       )}

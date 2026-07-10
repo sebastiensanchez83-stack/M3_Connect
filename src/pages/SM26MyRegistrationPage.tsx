@@ -230,11 +230,28 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   // form then treats them as a new registrant (no existing row to redirect on).
   const restartRegistration = async () => {
     if (!reg) return;
-    if (!window.confirm('Start a new registration? This permanently replaces your current registration — including any details you entered — so you can choose how to take part again.')) return;
+    const invoiced = payStatus === 'invoiced';
+    const confirmMsg = invoiced
+      ? 'Start a new registration? This permanently replaces your current registration — including the pending invoice on it — so you can choose how to take part again.'
+      : 'Start a new registration? This permanently replaces your current registration — including any details you entered — so you can choose how to take part again.';
+    if (!window.confirm(confirmMsg)) return;
     setStatusBusy(true);
-    const { error } = await supabase.rpc('sm_restart_registration', { p_event_id: reg.event_id });
+    const { data, error } = await supabase.rpc('sm_restart_registration', { p_event_id: reg.event_id });
     setStatusBusy(false);
     if (error) { toast({ title: 'Could not restart', description: error.message, variant: 'destructive' }); return; }
+    const res = (data || {}) as { deleted?: boolean; reason?: string };
+    if (!res.deleted) {
+      toast({
+        title: 'Could not start a new registration',
+        description: res.reason === 'settled'
+          ? 'This registration has already been paid, so it can’t be replaced here. Contact events@m3monaco.com to change it.'
+          : res.reason === 'status'
+            ? 'This registration can no longer be replaced here — contact events@m3monaco.com.'
+            : 'There was nothing to replace.',
+        variant: 'destructive',
+      });
+      return;
+    }
     navigate('/sm26/register');
   };
 

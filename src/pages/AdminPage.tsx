@@ -22,10 +22,13 @@ const AdminResources = lazyWithRetry(() => import('@/components/admin/AdminResou
 const AdminResourceDetail = lazyWithRetry(() => import('@/components/admin/AdminResourceDetail').then(m => ({ default: m.AdminResourceDetail })));
 const AdminEvents = lazyWithRetry(() => import('@/components/admin/AdminEvents').then(m => ({ default: m.AdminEvents })));
 const AdminEventDetail = lazyWithRetry(() => import('@/components/admin/AdminEventDetail').then(m => ({ default: m.AdminEventDetail })));
-const AdminSponsorships = lazyWithRetry(() => import('@/components/admin/AdminSponsorships').then(m => ({ default: m.AdminSponsorships })));
-const AdminSponsorshipDetail = lazyWithRetry(() => import('@/components/admin/AdminSponsorshipDetail').then(m => ({ default: m.AdminSponsorshipDetail })));
-const AdminExpositions = lazyWithRetry(() => import('@/components/admin/AdminExpositions').then(m => ({ default: m.AdminExpositions })));
-const AdminExpositionDetail = lazyWithRetry(() => import('@/components/admin/AdminExpositionDetail').then(m => ({ default: m.AdminExpositionDetail })));
+// Sponsorship panel repurposed into the fulfilment tracker (shared with the
+// top-level /sponsorship route so Yacht Club de Monaco reaches the same hub).
+const SponsorshipHub = lazyWithRetry(() => import('@/components/sponsorship/SponsorshipHub').then(m => ({ default: m.SponsorshipHub })));
+const SponsorAgreementDetail = lazyWithRetry(() => import('@/components/sponsorship/SponsorAgreementDetail').then(m => ({ default: m.SponsorAgreementDetail })));
+// Exposition panel deprecated (empty, unused) — booth/exhibition logistics will
+// live in a future logistics module; the "exhibition space" entitlement now
+// survives as a tracked sponsorship deliverable (sp_benefit 'sme_exhibition_space').
 const AdminProjects = lazyWithRetry(() => import('@/components/admin/AdminProjects').then(m => ({ default: m.AdminProjects })));
 const AdminProjectDetail = lazyWithRetry(() => import('@/components/admin/AdminProjectDetail').then(m => ({ default: m.AdminProjectDetail })));
 const AdminLeads = lazyWithRetry(() => import('@/components/admin/AdminLeads').then(m => ({ default: m.AdminLeads })));
@@ -133,10 +136,9 @@ export function AdminPage() {
             <Route path="/sm26/architecture" element={<AdminOnlyGuard><AdminSM26Architecture /></AdminOnlyGuard>} />
             <Route path="/sm26/:id" element={<AdminOnlyGuard><AdminSM26Detail /></AdminOnlyGuard>} />
             {/* Partners merged into Users tab */}
-            <Route path="/sponsorships" element={<AdminOnlyGuard><AdminSponsorships /></AdminOnlyGuard>} />
-            <Route path="/sponsorships/:id" element={<AdminOnlyGuard><AdminSponsorshipDetail /></AdminOnlyGuard>} />
-            <Route path="/expositions" element={<AdminOnlyGuard><AdminExpositions /></AdminOnlyGuard>} />
-            <Route path="/expositions/:id" element={<AdminOnlyGuard><AdminExpositionDetail /></AdminOnlyGuard>} />
+            <Route path="/sponsorships" element={<AdminOnlyGuard><SponsorshipHub basePath="/admin/sponsorships" /></AdminOnlyGuard>} />
+            <Route path="/sponsorships/:sponsorId" element={<AdminOnlyGuard><SponsorAgreementDetail basePath="/admin/sponsorships" /></AdminOnlyGuard>} />
+            {/* /expositions deprecated — route removed; component files retained but unrouted. */}
             <Route path="/projects" element={<AdminOnlyGuard><AdminProjects /></AdminOnlyGuard>} />
             <Route path="/projects/:id" element={<AdminOnlyGuard><AdminProjectDetail /></AdminOnlyGuard>} />
             <Route path="/leads" element={<AdminOnlyGuard><AdminLeads /></AdminOnlyGuard>} />

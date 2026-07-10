@@ -63,6 +63,7 @@ const SM26ClaimPage = lazyWithRetry(() => import('@/pages/SM26ClaimPage').then(m
 const SM26PartnerPage = lazyWithRetry(() => import('@/pages/SM26PartnerPage').then(m => ({ default: m.SM26PartnerPage })));
 const SM26YVPage = lazyWithRetry(() => import('@/pages/SM26YVPage').then(m => ({ default: m.SM26YVPage })));
 const SM26ConnectPage = lazyWithRetry(() => import('@/pages/SM26ConnectPage').then(m => ({ default: m.SM26ConnectPage })));
+const SponsorshipPage = lazyWithRetry(() => import('@/pages/SponsorshipPage').then(m => ({ default: m.SponsorshipPage })));
 
 function LazyFallback() {
   return (
@@ -115,6 +116,8 @@ function App() {
                   sm_is_event_partner / sm_is_yv, so non-partners just see "no access". */}
               <Route path="/sm26/partner" element={<ProtectedRoute><SM26PartnerPage /></ProtectedRoute>} />
               <Route path="/sm26/yv" element={<ProtectedRoute><SM26YVPage /></ProtectedRoute>} />
+              {/* Sponsorship fulfilment: managers (M3 + Yacht Club) get the hub, sponsors their portal — role resolved inside. */}
+              <Route path="/sponsorship/*" element={<ProtectedRoute><SponsorshipPage /></ProtectedRoute>} />
               <Route path="/partners" element={<PartnersPage />} />
               <Route path="/become-partner" element={<BecomePartnerPage />} />
               <Route path="/tiers" element={<TiersPage />} />

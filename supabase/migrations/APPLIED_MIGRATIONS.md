@@ -203,4 +203,9 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260709161711  sm_my_innovation_jury_panel
 20260710082952  sm26_invoices
 20260710084802  p0_scope_public_storage_read
+20260710095658  sponsorship_tracker_schema
+20260710100057  sponsorship_tracker_seed
+20260710100216  sponsorship_tracker_rpcs
+20260710100600  sponsorship_link_user_and_grants
+20260710123952  sponsorship_storage_policy_uuid_safe
 ```

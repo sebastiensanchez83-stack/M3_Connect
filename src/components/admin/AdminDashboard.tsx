@@ -819,7 +819,7 @@ export function AdminDashboard() {
 
           {/* Orgs */}
           <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-purple-50 to-white"
-                onClick={() => nav('/admin/sponsorships')}>
+                onClick={() => nav('/admin/sponsorship-requests')}>
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-2">
                 <div className="h-9 w-9 rounded-xl bg-purple-100 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -1219,7 +1219,7 @@ export function AdminDashboard() {
       {/* ═══ ROW 6: TIER DISTRIBUTION + INSIGHTS ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Tier Distribution */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => nav('/admin/sponsorships')}>
+        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => nav('/admin/sponsorship-requests')}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -1299,7 +1299,7 @@ export function AdminDashboard() {
           {[
             { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, gradient: 'from-yellow-500 to-amber-500', bg: 'bg-yellow-50', link: '/admin/users', params: { status: 'pending' } },
             { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, gradient: 'from-pink-500 to-rose-500', bg: 'bg-pink-50', link: '/admin/events', params: { view: 'registrations' } },
-            { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, gradient: 'from-purple-500 to-violet-500', bg: 'bg-purple-50', link: '/admin/sponsorships', params: { status: 'pending' } },
+            { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, gradient: 'from-purple-500 to-violet-500', bg: 'bg-purple-50', link: '/admin/sponsorship-requests', params: { status: 'pending' } },
             { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, gradient: 'from-indigo-500 to-blue-500', bg: 'bg-indigo-50', link: '/admin/webinars', params: { status: 'submitted' } },
             { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, gradient: 'from-teal-500 to-cyan-500', bg: 'bg-teal-50', link: '/admin/resources', params: { tab: 'drafts' } },
             { label: 'New Projects', value: stats.newProjects, icon: Anchor, gradient: 'from-orange-500 to-red-500', bg: 'bg-orange-50', link: '/admin/projects', params: { status: 'new' } },

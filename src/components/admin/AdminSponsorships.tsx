@@ -82,7 +82,7 @@ export function AdminSponsorships() {
           const curColors = TIER_COLORS[r.current_tier as OrgTier] || TIER_COLORS.member;
           const reqColors = TIER_COLORS[r.requested_tier as OrgTier] || TIER_COLORS.member;
           return (
-            <tr key={r.id} className="border-b hover:bg-muted/50 cursor-pointer transition-colors group" onClick={() => navigate(`/admin/sponsorships/${r.id}`)}>
+            <tr key={r.id} className="border-b hover:bg-muted/50 cursor-pointer transition-colors group" onClick={() => navigate(`/admin/sponsorship-requests/${r.id}`)}>
               <td className="p-4">
                 <div className="font-medium group-hover:text-primary transition-colors">{r.org_name}</div>
                 <div className="text-xs text-gray-500">{r.requester_email}</div>

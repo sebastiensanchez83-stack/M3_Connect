@@ -35,8 +35,13 @@ export function SponsorPortal({ sponsorIds }: { sponsorIds: string[] }) {
 
   useEffect(() => {
     if (!sponsor) return;
+    let ignore = false;
+    // Clear the previous sponsor's data immediately so a slow load can't render
+    // it under the newly selected sponsor's name.
+    setAgreement(null); setItems([]); setTier(null);
     (async () => {
       const { data: agrs } = await supabase.from('sp_agreement').select('*').eq('sponsor_id', sponsor.id).order('created_at', { ascending: false });
+      if (ignore) return;
       const cur = ((agrs || []) as SpAgreement[]).find(a => a.status === 'active') || ((agrs || []) as SpAgreement[]).find(a => a.status !== 'renewed') || null;
       setAgreement(cur);
       if (cur) {
@@ -44,10 +49,12 @@ export function SponsorPortal({ sponsorIds }: { sponsorIds: string[] }) {
           supabase.from('sp_agreement_benefit').select('*').eq('agreement_id', cur.id).order('display_order'),
           cur.tier_key ? supabase.from('sp_tier').select('*').eq('tier_key', cur.tier_key).maybeSingle() : Promise.resolve({ data: null }),
         ]);
+        if (ignore) return;
         setItems((bens || []) as SpAgreementBenefit[]);
         setTier(t as SpTier | null);
-      } else { setItems([]); setTier(null); }
+      }
     })();
+    return () => { ignore = true; };
   }, [sponsor]);
 
   const reload = async () => {

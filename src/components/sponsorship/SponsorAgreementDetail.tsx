@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Check, Loader2, Plus, Trash2, Pencil, Send, RotateCcw,
-  UserPlus, Building2, Award,
+  UserPlus, Award,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -41,10 +41,11 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
   const [editItem, setEditItem] = useState<SpAgreementBenefit | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [linkEmail, setLinkEmail] = useState('');
+  const [formKey, setFormKey] = useState(0); // remount uncontrolled inputs after renew / failed save
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!sponsorId) return;
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
     const [{ data: sp }, { data: agrs }, { data: tierRows }, { data: su }] = await Promise.all([
       supabase.from('sp_sponsor').select('*').eq('id', sponsorId).maybeSingle(),
       supabase.from('sp_agreement').select('*').eq('sponsor_id', sponsorId).order('created_at', { ascending: false }),
@@ -67,15 +68,17 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
 
   const saveSponsor = async (patch: Partial<SpSponsor>) => {
     if (!sponsor) return;
+    const prev = sponsor;
     setSponsor({ ...sponsor, ...patch });
     const { error } = await supabase.from('sp_sponsor').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', sponsor.id);
-    if (error) toast({ title: 'Could not save', description: error.message, variant: 'destructive' });
+    if (error) { setSponsor(prev); setFormKey(k => k + 1); toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); }
   };
   const saveAgreement = async (patch: Partial<SpAgreement>) => {
     if (!agreement) return;
+    const prev = agreement;
     setAgreement({ ...agreement, ...patch });
     const { error } = await supabase.from('sp_agreement').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', agreement.id);
-    if (error) toast({ title: 'Could not save', description: error.message, variant: 'destructive' });
+    if (error) { setAgreement(prev); setFormKey(k => k + 1); toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); }
     else toast({ title: 'Saved' });
   };
 
@@ -145,7 +148,7 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
       <Link to={basePath} className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-primary"><ArrowLeft className="h-4 w-4" /> All sponsors</Link>
 
       {/* Sponsor header */}
-      <Card>
+      <Card key={`${sponsor.id}-${formKey}`}>
         <CardContent className="pt-6 space-y-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3 min-w-0">
@@ -192,7 +195,7 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
           </div>
         </CardContent></Card>
       ) : (
-        <Card>
+        <Card key={`${agreement.id}-${formKey}`}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <CardTitle className="text-base">Agreement</CardTitle>
@@ -217,20 +220,20 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
             </label>
             <label className="text-xs text-gray-500">Negotiated fee (€)
               <Input type="text" defaultValue={centsToEuros(agreement.negotiated_fee_cents)} placeholder={agreement.tier_key ? centsToEuros(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents) : ''}
-                onBlur={e => saveAgreement({ negotiated_fee_cents: eurosToCents(e.target.value) })} className="mt-1 h-9" />
+                onBlur={e => { const c = eurosToCents(e.target.value); if (c !== agreement.negotiated_fee_cents) saveAgreement({ negotiated_fee_cents: c }); }} className="mt-1 h-9" />
             </label>
             <label className="text-xs text-gray-500">Negotiated renewal fee (€)
               <Input type="text" defaultValue={centsToEuros(agreement.negotiated_renewal_fee_cents)}
-                onBlur={e => saveAgreement({ negotiated_renewal_fee_cents: eurosToCents(e.target.value) })} className="mt-1 h-9" />
+                onBlur={e => { const c = eurosToCents(e.target.value); if (c !== agreement.negotiated_renewal_fee_cents) saveAgreement({ negotiated_renewal_fee_cents: c }); }} className="mt-1 h-9" />
             </label>
             <label className="text-xs text-gray-500">Term start
-              <Input type="date" defaultValue={agreement.term_start || ''} onBlur={e => saveAgreement({ term_start: e.target.value || null })} className="mt-1 h-9" />
+              <Input type="date" defaultValue={agreement.term_start || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.term_start) saveAgreement({ term_start: v }); }} className="mt-1 h-9" />
             </label>
             <label className="text-xs text-gray-500">Term end
-              <Input type="date" defaultValue={agreement.term_end || ''} onBlur={e => saveAgreement({ term_end: e.target.value || null })} className="mt-1 h-9" />
+              <Input type="date" defaultValue={agreement.term_end || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.term_end) saveAgreement({ term_end: v }); }} className="mt-1 h-9" />
             </label>
             <label className="text-xs text-gray-500">Renewal date
-              <Input type="date" defaultValue={agreement.renewal_date || ''} onBlur={e => saveAgreement({ renewal_date: e.target.value || null })} className="mt-1 h-9" />
+              <Input type="date" defaultValue={agreement.renewal_date || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.renewal_date) saveAgreement({ renewal_date: v }); }} className="mt-1 h-9" />
             </label>
             <div className="text-xs text-gray-400 flex items-end pb-2">Tier list fee: {formatMoney(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents)}</div>
           </CardContent>
@@ -283,7 +286,7 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
                         </div>
                         {(i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' || i.requires_file) && (
                           <div className="mt-2 pt-2 border-t border-gray-50">
-                            <DeliverableFiles sponsorId={sponsor.id} benefitId={i.id} isManager canUpload onChanged={load} />
+                            <DeliverableFiles sponsorId={sponsor.id} benefitId={i.id} isManager canUpload onChanged={() => load({ silent: true })} />
                           </div>
                         )}
                       </div>

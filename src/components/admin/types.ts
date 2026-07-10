@@ -228,5 +228,5 @@ export const ADMIN_ONLY_ROUTES = new Set([
   '/admin/users', '/admin/events',
   '/admin/projects', '/admin/leads', '/admin/partner-requests',
   '/admin/rfps', '/admin/consultations',
-  '/admin/sponsorships', '/admin/expositions',
+  '/admin/sponsorships', '/admin/sponsorship-requests', '/admin/expositions',
 ]);

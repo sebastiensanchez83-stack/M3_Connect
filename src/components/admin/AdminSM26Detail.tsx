@@ -304,8 +304,26 @@ export function AdminSM26Detail() {
   const [addRoleValue, setAddRoleValue] = useState('');
   // Platform-identity provisioning (account + persona + org + welcome email).
   const [provisionOpen, setProvisionOpen] = useState(false);
+  const [sponsorLink, setSponsorLink] = useState<{ id: string; company_name: string } | null>(null);
+  const [sponsorBusy, setSponsorBusy] = useState(false);
 
   useEffect(() => { if (id) load(id); }, [id]);
+
+  // Surface the sponsorship-tracker record for this company (by org, else name).
+  useEffect(() => {
+    if (!reg) { setSponsorLink(null); return; }
+    let ignore = false;
+    (async () => {
+      const q = reg.organization_id
+        ? supabase.from('sp_sponsor').select('id,company_name').eq('organization_id', reg.organization_id).limit(1).maybeSingle()
+        : reg.company_name
+        ? supabase.from('sp_sponsor').select('id,company_name').ilike('company_name', reg.company_name).limit(1).maybeSingle()
+        : Promise.resolve({ data: null });
+      const { data } = await q;
+      if (!ignore) setSponsorLink((data as { id: string; company_name: string } | null) || null);
+    })();
+    return () => { ignore = true; };
+  }, [reg]);
 
   const load = async (regId: string) => {
     setLoading(true);
@@ -415,9 +433,26 @@ export function AdminSM26Detail() {
       await notify(reg.user_id, 'Information needed for SM26',
         `You've been added as ${SM26_ROLE_LABELS[role] || role} for the Smart & Sustainable Marina Rendezvous 2026. Please provide: ${labels}.`);
     }
+    // Connect the dots: a sponsor role flows into the sponsorship tracker + partners.
+    if (role === 'sponsor') await supabase.rpc('sp_link_from_sm26', { p_registration_id: reg.id }).then(({ error }) => { if (error) console.error('sp_link_from_sm26', error); });
     setAddRoleValue('');
     setRoleSaving(false);
-    toast({ title: `Added role: ${SM26_ROLE_LABELS[role] || role}`, description: needsInfo && reg.user_id ? 'Participant notified that info is required.' : undefined });
+    toast({
+      title: `Added role: ${SM26_ROLE_LABELS[role] || role}`,
+      description: role === 'sponsor' ? 'Added to the sponsorship tracker & featured as a partner.'
+        : needsInfo && reg.user_id ? 'Participant notified that info is required.' : undefined,
+    });
+    await load(reg.id);
+  };
+
+  // Manual "connect the dots" for a company that already has a sponsor role.
+  const linkSponsor = async () => {
+    if (!reg) return;
+    setSponsorBusy(true);
+    const { error } = await supabase.rpc('sp_link_from_sm26', { p_registration_id: reg.id });
+    setSponsorBusy(false);
+    if (error) { toast({ title: 'Could not link', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Linked to sponsorship tracker', description: 'Added to Sponsors and featured as a partner.' });
     await load(reg.id);
   };
 
@@ -600,6 +635,31 @@ export function AdminSM26Detail() {
           moves unpaid → invoiced, so refetch just the payment panel (no full-page
           reload — that would flash and drop any in-progress edits elsewhere). */}
       <SM26Invoices registrationId={reg.id} eventId={reg.event_id} onChange={() => setPayKey(k => k + 1)} />
+
+      {/* Sponsorship — a sponsor company flows into the fulfilment tracker + partners */}
+      {(reg.roles.some(r => r.role === 'sponsor' && r.status !== 'declined') || sponsorLink) && (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-900 flex items-center gap-2"><Building2 className="h-4 w-4 text-primary" /> Sponsorship</div>
+              <p className="text-xs text-gray-500 mt-0.5 max-w-md">
+                {sponsorLink
+                  ? 'Tracked in the sponsorship fulfilment tracker and featured as a partner — set up and fill their deliverables there.'
+                  : 'This company has a sponsor role. Add them to the fulfilment tracker to set up and track their deliverables (and feature them as a partner).'}
+              </p>
+            </div>
+            {sponsorLink ? (
+              <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => navigate(`/admin/sponsorships/${sponsorLink.id}`)}>
+                Open sponsor <ChevronRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button size="sm" className="gap-1.5 shrink-0" disabled={sponsorBusy} onClick={linkSponsor}>
+                {sponsorBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add to tracker
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Roles & participation */}
       <div className="flex items-center justify-between">

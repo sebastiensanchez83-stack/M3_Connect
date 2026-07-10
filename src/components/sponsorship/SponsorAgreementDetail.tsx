@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Check, Loader2, Plus, Trash2, Pencil, Send, RotateCcw,
   UserPlus, Award,
@@ -17,7 +17,7 @@ import {
   SpSponsor, SpAgreement, SpAgreementBenefit, SpTier, SpProgram, SpValueType,
   PROGRAM_LABELS, PROGRAM_ORDER, FULFILMENT_STATUS_META, FULFILMENT_STATUSES,
   SPONSOR_STATUS_CLS, AGREEMENT_STATUS_CLS, SpSponsorStatus, SpAgreementStatus,
-  formatMoney, formatBenefitValue, isWysPending, deliveredPct,
+  formatMoney, formatBenefitValue, isWysPending, deliveredPct, SPONSORSHIP_BUCKET,
 } from '@/lib/sponsorship';
 import { SponsorBrandAssets } from './SponsorBrandAssets';
 import { DeliverableFiles } from './DeliverableFiles';
@@ -30,6 +30,7 @@ const centsToEuros = (c: number | null | undefined) => (c == null ? '' : String(
 
 export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
   const { sponsorId } = useParams<{ sponsorId: string }>();
+  const navigate = useNavigate();
   const [sponsor, setSponsor] = useState<SpSponsor | null>(null);
   const [agreement, setAgreement] = useState<SpAgreement | null>(null);
   const [items, setItems] = useState<SpAgreementBenefit[]>([]);
@@ -129,6 +130,33 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
     if (!data) { toast({ title: 'No account for that email yet', description: 'They need to sign up first, then link them.', variant: 'destructive' }); return; }
     setLinkEmail(''); toast({ title: 'Account linked to sponsor portal' });
     await load();
+  };
+
+  // Delete the sponsor entirely. The DB cascades agreements → line items →
+  // deliverable-file rows + brand assets; we best-effort purge their storage
+  // folder too (financial docs shouldn't linger). Does NOT un-feature the org
+  // as a partner (they may be a partner for other reasons).
+  const removeSponsor = async () => {
+    if (!sponsor) return;
+    if (!window.confirm(`Remove "${sponsor.company_name}"? This permanently deletes their agreement, line items and uploaded files. This cannot be undone.`)) return;
+    setBusy(true);
+    try {
+      const stack = [sponsor.id]; const toRemove: string[] = [];
+      while (stack.length) {
+        const p = stack.pop()!;
+        const { data } = await supabase.storage.from(SPONSORSHIP_BUCKET).list(p, { limit: 1000 });
+        for (const e of (data || [])) {
+          const full = `${p}/${e.name}`;
+          if ((e as { id: string | null }).id === null) stack.push(full); else toRemove.push(full);
+        }
+      }
+      if (toRemove.length) await supabase.storage.from(SPONSORSHIP_BUCKET).remove(toRemove);
+    } catch { /* best-effort storage cleanup */ }
+    const { error } = await supabase.from('sp_sponsor').delete().eq('id', sponsor.id);
+    setBusy(false);
+    if (error) { toast({ title: 'Could not remove sponsor', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Sponsor removed' });
+    navigate(basePath);
   };
 
   if (loading) return <div className="flex items-center justify-center h-[50vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -300,6 +328,13 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
       )}
 
       <SponsorBrandAssets sponsorId={sponsor.id} canEdit />
+
+      {/* Danger zone */}
+      <div className="pt-2 flex justify-end">
+        <Button variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50 gap-1.5" disabled={busy} onClick={removeSponsor}>
+          <Trash2 className="h-4 w-4" /> Remove sponsor
+        </Button>
+      </div>
 
       {editItem && <EditValueDialog item={editItem} onClose={() => setEditItem(null)} onSave={patch => { patchItem(editItem.id, patch); setEditItem(null); }} />}
       {addOpen && agreement && <AddCustomDialog agreementId={agreement.id} nextOrder={(items[items.length - 1]?.display_order || 0) + 1} onClose={() => setAddOpen(false)} onAdded={() => { setAddOpen(false); load(); }} />}

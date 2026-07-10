@@ -208,4 +208,5 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260710100216  sponsorship_tracker_rpcs
 20260710100600  sponsorship_link_user_and_grants
 20260710123952  sponsorship_storage_policy_uuid_safe
+20260710124905  sponsorship_link_from_sm26
 ```

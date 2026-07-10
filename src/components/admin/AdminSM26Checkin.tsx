@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsQR from 'jsqr';
-import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2 } from 'lucide-react';
+import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,22 +10,28 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26_ROLE_LABELS } from './AdminSM26';
 
-// Admin check-in console (Area 7). The emailed entry QR encodes
-// /admin/sm26/checkin?token=… — a staff phone scanning it lands here and checks
-// the attendee in for the active window. Manual name-lookup is the fallback.
-// Multi-window scans (Sun/Mon AM/PM) give a live headcount. Export feeds the
-// external badge printing.
+// Admin check-in console (Area 7). Check-in is per ATTENDEE — a registration
+// (a company) can bring several named people, each with their own badge QR.
+// The emitted entry QR encodes /admin/sm26/checkin?token=… — a staff phone
+// scanning it lands here and checks that attendee in for the active window.
+// Manual name-lookup is the fallback. Export feeds external badge printing.
 
 interface Win { key: string; label: string; sort: number; }
+interface RegRef { id: string; company_name: string | null; status: string; roles: { role: string; status?: string }[] }
 interface Attendee {
-  id: string; first_name: string | null; last_name: string | null; email: string | null; company_name: string | null;
+  id: string;                          // sm_attendee id
+  first_name: string | null; last_name: string | null; email: string | null;
+  is_primary: boolean; attending: boolean;
+  registration: RegRef | RegRef[] | null;
   badge?: { checkin_token: string } | { checkin_token: string }[];
-  roles: { role: string; status?: string }[];
   checkins: { window_key: string }[];
 }
-interface ScanResult { ok: boolean; error?: string; name?: string; company?: string | null; roles?: string[]; already?: boolean; }
+interface ScanResult { ok: boolean; error?: string; name?: string; company?: string | null; roles?: string[]; already?: boolean; attendee_id?: string; }
 
 const tokenOf = (a: Attendee) => (Array.isArray(a.badge) ? a.badge[0]?.checkin_token : a.badge?.checkin_token) || '';
+const regOf = (a: Attendee): RegRef | null => (Array.isArray(a.registration) ? a.registration[0] : a.registration) || null;
+const rolesOf = (a: Attendee) => regOf(a)?.roles || [];
+const companyOf = (a: Attendee) => regOf(a)?.company_name || '';
 
 // A badge QR encodes the check-in URL (…/checkin?token=XYZ). Pull the token out
 // whether we scanned a full URL or a bare token.
@@ -141,45 +147,45 @@ export function AdminSM26Checkin() {
     const eid = (ev as { id: string }).id;
     setEventId(eid);
     await supabase.rpc('sm_ensure_badges', { p_event_id: eid });
-    const [{ data: wins }, { data: regs }] = await Promise.all([
+    const [{ data: wins }, { data: rows }] = await Promise.all([
       supabase.from('sm_attendance_window').select('key,label,sort').eq('event_id', eid).order('sort'),
-      supabase.from('sm_registration')
-        .select('id,first_name,last_name,email,company_name, badge:sm_badge(checkin_token), roles:sm_role_assignment(role,status), checkins:sm_checkin(window_key)')
-        .eq('event_id', eid).neq('status', 'declined').order('created_at', { ascending: true }),
+      supabase.from('sm_attendee')
+        .select('id,first_name,last_name,email,is_primary,attending, registration:sm_registration!inner(id,company_name,status, roles:sm_role_assignment(role,status)), badge:sm_badge(checkin_token), checkins:sm_checkin(window_key)')
+        .eq('event_id', eid).eq('attending', true).order('created_at', { ascending: true }),
     ]);
     const ws = (wins || []) as Win[];
     setWindows(ws);
     const initialWindow = activeWindow || ws[0]?.key || '';
     setActiveWindow(initialWindow);
-    setAttendees((regs || []) as Attendee[]);
+    // Hide attendees whose registration is declined.
+    const list = ((rows || []) as Attendee[]).filter(a => regOf(a)?.status !== 'declined');
+    setAttendees(list);
     setLoading(false);
 
     // process a scanned token from the URL (?token=…)
     const token = new URLSearchParams(window.location.search).get('token');
-    if (token && initialWindow) processToken(token, initialWindow, (regs || []) as Attendee[]);
+    if (token && initialWindow) processToken(token, initialWindow);
   };
 
-  const processToken = async (token: string, win: string, list: Attendee[]) => {
+  const processToken = async (token: string, win: string) => {
     const { data, error } = await supabase.rpc('sm_checkin_by_token', { p_token: token, p_window: win });
     if (error) { toast({ title: 'Check-in failed', description: error.message, variant: 'destructive' }); return; }
     const res = data as ScanResult;
     setScan(res);
     if (res.ok) {
-      // reflect locally
-      setAttendees(prev => prev.map(a => a.id === (data as { registration_id?: string }).registration_id
+      // reflect locally on the matching attendee
+      setAttendees(prev => prev.map(a => a.id === res.attendee_id
         ? { ...a, checkins: a.checkins.some(c => c.window_key === win) ? a.checkins : [...a.checkins, { window_key: win }] }
         : a));
       // clear token from the URL so a refresh doesn't re-scan
       const u = new URL(window.location.href); u.searchParams.delete('token'); window.history.replaceState({}, '', u.pathname);
-    } else {
-      void list;
     }
   };
 
   const manualCheckin = async (a: Attendee) => {
     if (!activeWindow) { toast({ title: 'Pick an attendance window first', variant: 'destructive' }); return; }
     setBusy(a.id);
-    const { data, error } = await supabase.rpc('sm_checkin_registration', { p_registration_id: a.id, p_window: activeWindow });
+    const { data, error } = await supabase.rpc('sm_checkin_attendee', { p_attendee_id: a.id, p_window: activeWindow });
     setBusy(null);
     if (error) { toast({ title: 'Failed', description: error.message, variant: 'destructive' }); return; }
     const res = data as { already?: boolean };
@@ -193,7 +199,7 @@ export function AdminSM26Checkin() {
   const undoCheckin = async (a: Attendee) => {
     if (!activeWindow) return;
     setBusy(a.id);
-    const { error } = await supabase.rpc('sm_uncheckin_registration', { p_registration_id: a.id, p_window: activeWindow });
+    const { error } = await supabase.rpc('sm_uncheckin_attendee', { p_attendee_id: a.id, p_window: activeWindow });
     setBusy(null);
     if (error) { toast({ title: 'Could not undo', description: error.message, variant: 'destructive' }); return; }
     setAttendees(prev => prev.map(x => x.id === a.id
@@ -204,19 +210,22 @@ export function AdminSM26Checkin() {
 
   const exportCsv = () => {
     const origin = window.location.origin;
-    const head = ['First name', 'Last name', 'Email', 'Company', 'Roles', 'Checkin token', 'Checkin URL', 'Profile URL'];
-    const rows = attendees.map(a => [
-      a.first_name || '', a.last_name || '', a.email || '', a.company_name || '',
-      a.roles.map(r => r.role).join('; '), tokenOf(a),
-      `${origin}/admin/sm26/checkin?token=${tokenOf(a)}`,
-      `${origin}/users/${a.id}`,
-    ]);
+    const head = ['First name', 'Last name', 'Email', 'Company', 'Roles', 'Checkin token', 'Checkin URL', 'Registration URL'];
+    const rows = attendees.map(a => {
+      const reg = regOf(a);
+      return [
+        a.first_name || '', a.last_name || '', a.email || '', companyOf(a),
+        rolesOf(a).map(r => r.role).join('; '), tokenOf(a),
+        `${origin}/admin/sm26/checkin?token=${tokenOf(a)}`,
+        reg ? `${origin}/admin/sm26/${reg.id}` : '',
+      ];
+    });
     const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
     const csv = [head, ...rows].map(r => r.map(esc).join(',')).join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url; link.download = 'sm26-participants.csv'; link.click();
+    link.href = url; link.download = 'sm26-attendees.csv'; link.click();
     URL.revokeObjectURL(url);
   };
 
@@ -226,7 +235,7 @@ export function AdminSM26Checkin() {
   const totalCheckedIn = attendees.filter(a => a.checkins.length > 0).length;
   const filtered = attendees.filter(a => {
     if (!search) return true;
-    const hay = `${a.first_name || ''} ${a.last_name || ''} ${a.email || ''} ${a.company_name || ''}`.toLowerCase();
+    const hay = `${a.first_name || ''} ${a.last_name || ''} ${a.email || ''} ${companyOf(a)}`.toLowerCase();
     return hay.includes(search.toLowerCase());
   });
 
@@ -238,14 +247,14 @@ export function AdminSM26Checkin() {
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => load()} title="Refresh headcount"><RefreshCw className="h-4 w-4" /></Button>
           <Button className="gap-1.5" onClick={() => setScanning(s => !s)}><Camera className="h-4 w-4" /> {scanning ? 'Close scanner' : 'Scan QR'}</Button>
-          <Button variant="outline" className="gap-1.5" onClick={exportCsv}><Download className="h-4 w-4" /> Export participants (CSV)</Button>
+          <Button variant="outline" className="gap-1.5" onClick={exportCsv}><Download className="h-4 w-4" /> Export attendees (CSV)</Button>
         </div>
       </div>
 
       {scanning && (
         <QrScanner
           onClose={() => setScanning(false)}
-          onToken={(token) => { if (activeWindow) processToken(token, activeWindow, attendees); }}
+          onToken={(token) => { if (activeWindow) processToken(token, activeWindow); }}
         />
       )}
 
@@ -303,9 +312,10 @@ export function AdminSM26Checkin() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-gray-900">{name}</span>
-                    {a.roles.filter(r => r.status !== 'declined').map((r, i) => <Badge key={i} variant="secondary" className="text-[10px]">{SM26_ROLE_LABELS[r.role] || r.role}</Badge>)}
+                    {!a.is_primary && <Badge variant="outline" className="text-[10px] gap-1 text-gray-500"><Users className="h-2.5 w-2.5" /> guest</Badge>}
+                    {rolesOf(a).filter(r => r.status !== 'declined').map((r, i) => <Badge key={i} variant="secondary" className="text-[10px]">{SM26_ROLE_LABELS[r.role] || r.role}</Badge>)}
                   </div>
-                  <div className="text-xs text-gray-500">{a.company_name}</div>
+                  <div className="text-xs text-gray-500">{companyOf(a)}</div>
                   {a.checkins.length > 0 && (
                     <div className="flex gap-1 mt-1 flex-wrap">
                       {windows.filter(w => a.checkins.some(c => c.window_key === w.key)).map(w => (

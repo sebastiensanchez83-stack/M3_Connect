@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
   BookOpen, CreditCard, MessageSquare, Calendar, LayoutDashboard, Users, Scale,
-  AlertCircle, ChevronRight, Receipt, Download,
+  AlertCircle, ChevronRight, Receipt, Download, UserCheck,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,7 @@ import { SM26MyConnections } from '@/components/sm26/SM26MyConnections';
 import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
 import { SM26MyJuryPanel } from '@/components/sm26/SM26MyJuryPanel';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
+import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
 import { SM26JuryPage } from '@/pages/SM26JuryPage';
 import { SM26VotePage } from '@/pages/SM26VotePage';
 
@@ -320,6 +321,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const subTabs: { key: string; label: string; icon: typeof FileText; dot?: boolean }[] = [
     { key: 'overview', label: 'Overview', icon: LayoutDashboard },
     { key: 'participation', label: 'My details', icon: FileText, dot: outstandingCount > 0 || (reqTotal > 0 && reqDone < reqTotal) },
+    { key: 'attendees', label: 'Attendees', icon: UserCheck },
     { key: 'programme', label: 'Programme', icon: Calendar },
     ...(ecat.length > 0 ? [{ key: 'catalogue', label: 'E-catalogue', icon: BookOpen }] : []),
     { key: 'connections', label: 'Connections', icon: Users },
@@ -501,6 +503,14 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
             <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
             {visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
           </>
+        )}
+
+        {subTab === 'attendees' && reg && (
+          <Card>
+            <CardContent className="pt-6">
+              <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit={reg.status !== 'declined'} variant="hub" />
+            </CardContent>
+          </Card>
         )}
 
         {subTab === 'programme' && (

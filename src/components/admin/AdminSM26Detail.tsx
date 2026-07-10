@@ -21,6 +21,7 @@ import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
 import { SM26Invoices } from './SM26Invoices';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
+import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
 import { SM26CompanyLink } from './SM26CompanyLink';
 import { SM26ProvisionDialog } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
@@ -657,6 +658,15 @@ export function AdminSM26Detail() {
           moves unpaid → invoiced, so refetch just the payment panel (no full-page
           reload — that would flash and drop any in-progress edits elsewhere). */}
       <SM26Invoices registrationId={reg.id} eventId={reg.event_id} onChange={() => setPayKey(k => k + 1)} />
+
+      {/* Attendee roster — named people from this company, each with a badge +
+          individual check-in. Headcount also drives how many representatives to
+          invoice (billing stays per-company). */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4">
+          <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit variant="admin" />
+        </CardContent>
+      </Card>
 
       {/* Sponsorship — a sponsor company flows into the fulfilment tracker + partners */}
       {(reg.roles.some(r => r.role === 'sponsor' && r.status !== 'declined') || sponsorLink) && (

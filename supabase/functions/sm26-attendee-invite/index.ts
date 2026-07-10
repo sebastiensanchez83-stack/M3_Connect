@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
 
   // Load the attendee + its registration (for the company org + access check).
   const { data: att } = await admin.from("sm_attendee")
-    .select("id, registration_id, event_id, first_name, last_name, email, job_title, user_id")
+    .select("id, registration_id, event_id, first_name, last_name, email, job_title, user_id, is_primary")
     .eq("id", attendeeId).maybeSingle();
   const a = att as { id: string; registration_id: string; event_id: string; first_name?: string; last_name?: string; email?: string; job_title?: string; user_id?: string } | null;
   if (!a) return json(req, { error: "Attendee not found" }, 404);
@@ -146,6 +146,13 @@ Deno.serve(async (req) => {
   if (a.user_id !== userId) {
     const { error: linkErr } = await admin.from("sm_attendee").update({ user_id: userId, updated_at: new Date().toISOString() }).eq("id", a.id);
     if (linkErr) console.error("attendee link failed", linkErr);
+  }
+
+  // If this is the primary attendee (the registration contact), link the
+  // registration to the account too, so it stops showing as "no account".
+  if (a.is_primary && !reg.user_id) {
+    const { error: regLinkErr } = await admin.from("sm_registration").update({ user_id: userId }).eq("id", a.registration_id).is("user_id", null);
+    if (regLinkErr) console.error("registration link failed", regLinkErr);
   }
 
   // Welcome / set-password email (fire-and-forget).

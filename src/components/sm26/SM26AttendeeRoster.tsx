@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, UserPlus, Trash2, Check, Users, Star } from 'lucide-react';
+import { Loader2, UserPlus, Trash2, Check, Users, Star, Mail, BadgeCheck, CheckCircle2, Send, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { useSm26RosterLock } from './useSm26EditLock';
 
 // Named-attendee roster for one SM26 registration. The person who filled the
 // form is the *registration contact*; who actually attends may differ, so the
@@ -12,8 +13,9 @@ import { toast } from '@/hooks/use-toast';
 // individual check-in. Invoicing stays per-company — this just gives an
 // accurate headcount and the names to print badges from.
 //
-// Used self-service in the participant hub (canEdit = owner/org-member) and in
-// the admin registration sheet (canEdit = staff).
+// Used self-service in the participant hub (canEdit = owner/org-member, respects
+// the admin-set roster deadline) and in the admin registration sheet
+// (canEdit = staff, no deadline lock, plus invite + confirmation-request nudge).
 
 interface Attendee {
   id: string;
@@ -22,30 +24,44 @@ interface Attendee {
   last_name: string | null;
   email: string | null;
   job_title: string | null;
+  user_id: string | null;
   is_primary: boolean;
   attending: boolean;
 }
 
 const blankDraft = { first_name: '', last_name: '', email: '', job_title: '' };
+const prettyDateTime = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
-export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant = 'hub' }: {
-  registrationId: string; eventId: string; canEdit: boolean; variant?: 'hub' | 'admin';
+export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant = 'hub', registrantUserId }: {
+  registrationId: string; eventId: string; canEdit: boolean; variant?: 'hub' | 'admin'; registrantUserId?: string | null;
 }) {
   const [rows, setRows] = useState<Attendee[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [inviting, setInviting] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState(blankDraft);
+  const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [nudging, setNudging] = useState(false);
   const orig = useRef<Record<string, Attendee>>({});
+  const { locked: rosterLocked, prettyDate: deadlinePretty } = useSm26RosterLock();
+
+  // Staff (admin sheet) can always edit; participants are gated by the deadline.
+  const editable = canEdit && (variant === 'admin' || !rosterLocked);
 
   const load = async () => {
-    const { data } = await supabase.from('sm_attendee').select('*')
-      .eq('registration_id', registrationId)
-      .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: true });
+    const [{ data }, { data: reg }] = await Promise.all([
+      supabase.from('sm_attendee').select('*')
+        .eq('registration_id', registrationId)
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true }),
+      supabase.from('sm_registration').select('attendees_confirmed_at').eq('id', registrationId).maybeSingle(),
+    ]);
     const list = (data || []) as Attendee[];
     orig.current = Object.fromEntries(list.map(r => [r.id, { ...r }]));
     setRows(list);
+    setConfirmedAt((reg as { attendees_confirmed_at?: string | null } | null)?.attendees_confirmed_at || null);
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [registrationId]);
@@ -115,6 +131,56 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
     delete orig.current[r.id];
   };
 
+  // Create-or-link a platform account for this attendee and email them a set-
+  // password link (adds them to the company org). Idempotent by email.
+  const invite = async (r: Attendee) => {
+    if (!r.email?.trim()) { toast({ title: 'Add an email for this attendee first', variant: 'destructive' }); return; }
+    if (isDirty(r)) await saveRow(r); // persist the email before inviting
+    setInviting(r.id);
+    const { data, error } = await supabase.functions.invoke('sm26-attendee-invite', { body: { attendee_id: r.id } });
+    setInviting(null);
+    if (error) {
+      let msg = error.message || 'Please try again.';
+      try { const b = await (error as { context?: Response }).context?.json(); if (b?.error) msg = b.error; } catch { /* keep */ }
+      toast({ title: 'Could not invite', description: msg, variant: 'destructive' });
+      return;
+    }
+    const d = data as { ok?: boolean; created_account?: boolean; emailed?: boolean } | null;
+    toast({
+      title: d?.created_account ? 'Account created' : 'Linked to existing account',
+      description: d?.emailed ? `A set-up email was sent to ${r.email}.` : 'Account is ready (no email sent).',
+    });
+    load();
+  };
+
+  const confirmList = async (val: boolean) => {
+    setConfirming(true);
+    const { data, error } = await supabase.rpc('sm_confirm_attendees', { p_registration_id: registrationId, p_confirmed: val });
+    setConfirming(false);
+    if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
+    setConfirmedAt((data as string | null) || null);
+    toast({ title: val ? 'Attendee list confirmed — thank you' : 'Confirmation cleared' });
+  };
+
+  // Admin nudge: bell notification + email asking the company to confirm.
+  const requestConfirmation = async () => {
+    if (!registrantUserId) return;
+    setNudging(true);
+    await supabase.from('sm_notification').insert({
+      user_id: registrantUserId,
+      type: 'sm26_attendee_confirm',
+      title: 'Please confirm your attendees',
+      body: 'Please confirm who from your company will attend the Smart & Sustainable Marina Rendezvous 2026. Add or edit the names in your event hub, then confirm the list.',
+      link: '/sm26/me',
+    });
+    const { error } = await supabase.functions.invoke('sm26-email', { body: { registration_id: registrationId, kind: 'attendees_requested' } });
+    setNudging(false);
+    toast({
+      title: 'Attendee confirmation requested',
+      description: error ? 'In-app notification sent (email may not have gone out).' : 'The participant was notified by email and in-app.',
+    });
+  };
+
   if (loading) return <div className="flex items-center gap-2 text-sm text-gray-400 py-4"><Loader2 className="h-4 w-4 animate-spin" /> Loading attendees…</div>;
 
   const attendingCount = rows.filter(r => r.attending).length;
@@ -137,6 +203,19 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
         </span>
       </div>
 
+      {/* Confirmation status */}
+      <div className={`flex items-center gap-2 text-xs rounded-lg border px-3 py-2 ${confirmedAt ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+        {confirmedAt
+          ? <><CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Attendee list confirmed on {prettyDateTime(confirmedAt)}.</>
+          : <><Users className="h-3.5 w-3.5 shrink-0" /> This list is not confirmed yet{deadlinePretty ? ` — please confirm by ${deadlinePretty}` : ''}.</>}
+      </div>
+
+      {variant === 'hub' && rosterLocked && (
+        <div className="flex items-center gap-2 text-xs text-gray-500 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+          <Lock className="h-3.5 w-3.5 shrink-0" /> The attendee list closed{deadlinePretty ? ` on ${deadlinePretty}` : ''}. Contact M3 to make a change.
+        </div>
+      )}
+
       <div className="space-y-2">
         {rows.map(r => (
           <div key={r.id} className={`rounded-lg border p-3 ${r.attending ? 'border-gray-200' : 'border-dashed border-gray-200 bg-gray-50/60'}`}>
@@ -144,28 +223,36 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
               {r.is_primary
                 ? <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5"><Star className="h-2.5 w-2.5" /> Registration contact</span>
                 : <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 rounded-full px-2 py-0.5"><Users className="h-2.5 w-2.5" /> Guest</span>}
-              {canEdit && !r.is_primary && (
+              {r.user_id && <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5"><BadgeCheck className="h-2.5 w-2.5" /> Has account</span>}
+              {editable && !r.is_primary && (
                 <Button size="sm" variant="ghost" className="h-6 w-6 p-0 ml-auto text-gray-300 hover:text-red-600" disabled={busy === r.id} onClick={() => remove(r)} title="Remove attendee">
                   {busy === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                 </Button>
               )}
             </div>
             <div className="grid sm:grid-cols-2 gap-2">
-              <Input value={r.first_name || ''} disabled={!canEdit} placeholder="First name" className="h-9 text-sm" onChange={e => patch(r.id, { first_name: e.target.value })} />
-              <Input value={r.last_name || ''} disabled={!canEdit} placeholder="Last name" className="h-9 text-sm" onChange={e => patch(r.id, { last_name: e.target.value })} />
-              <Input value={r.email || ''} disabled={!canEdit} placeholder="Email" type="email" className="h-9 text-sm" onChange={e => patch(r.id, { email: e.target.value })} />
-              <Input value={r.job_title || ''} disabled={!canEdit} placeholder="Job title" className="h-9 text-sm" onChange={e => patch(r.id, { job_title: e.target.value })} />
+              <Input value={r.first_name || ''} disabled={!editable} placeholder="First name" className="h-9 text-sm" onChange={e => patch(r.id, { first_name: e.target.value })} />
+              <Input value={r.last_name || ''} disabled={!editable} placeholder="Last name" className="h-9 text-sm" onChange={e => patch(r.id, { last_name: e.target.value })} />
+              <Input value={r.email || ''} disabled={!editable} placeholder="Email" type="email" className="h-9 text-sm" onChange={e => patch(r.id, { email: e.target.value })} />
+              <Input value={r.job_title || ''} disabled={!editable} placeholder="Job title" className="h-9 text-sm" onChange={e => patch(r.id, { job_title: e.target.value })} />
             </div>
             <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
               <label className={`flex items-center gap-2 text-xs cursor-pointer ${r.attending ? 'text-gray-700' : 'text-gray-400'}`}>
-                <Checkbox checked={r.attending} disabled={!canEdit} onCheckedChange={v => canEdit && setAttending(r, v === true)} />
+                <Checkbox checked={r.attending} disabled={!editable} onCheckedChange={v => editable && setAttending(r, v === true)} />
                 {r.is_primary ? 'I am attending in person' : 'Attending in person'}
               </label>
-              {canEdit && isDirty(r) && (
-                <Button size="sm" className="h-8 gap-1.5" disabled={busy === r.id} onClick={() => saveRow(r)}>
-                  {busy === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save
-                </Button>
-              )}
+              <div className="flex items-center gap-1.5">
+                {canEdit && !r.user_id && (
+                  <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={inviting === r.id || !r.email?.trim()} onClick={() => invite(r)} title={r.email?.trim() ? 'Create or link a platform account and email a set-up link' : 'Add an email first'}>
+                    {inviting === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />} Invite to account
+                  </Button>
+                )}
+                {editable && isDirty(r) && (
+                  <Button size="sm" className="h-8 gap-1.5" disabled={busy === r.id} onClick={() => saveRow(r)}>
+                    {busy === r.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />} Save
+                  </Button>
+                )}
+              </div>
             </div>
             {r.is_primary && !r.attending && (
               <p className="text-[11px] text-gray-400 mt-1.5">Marked as not attending — no badge will be issued for this person.</p>
@@ -174,7 +261,7 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
         ))}
       </div>
 
-      {canEdit && (
+      {editable && (
         <div className="rounded-lg border border-dashed border-gray-200 p-3 space-y-2">
           <div className="text-xs font-medium text-gray-600 flex items-center gap-1.5"><UserPlus className="h-3.5 w-3.5 text-primary" /> Add an attendee</div>
           <div className="grid sm:grid-cols-2 gap-2">
@@ -185,6 +272,32 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
           </div>
           <Button size="sm" className="gap-1.5" disabled={adding} onClick={addAttendee}>
             {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />} Add attendee
+          </Button>
+        </div>
+      )}
+
+      {/* Footer actions: participant confirms; admin nudges. */}
+      {variant === 'hub' && canEdit && (
+        <div className="flex items-center justify-between gap-2 flex-wrap pt-1">
+          <p className="text-[11px] text-gray-400 max-w-prose">
+            {confirmedAt ? 'You can still edit and re-confirm.' : 'Once your list is complete, confirm it so M3 knows it is final.'}
+          </p>
+          <Button size="sm" variant={confirmedAt ? 'outline' : 'default'} className="gap-1.5" disabled={confirming} onClick={() => confirmList(!confirmedAt)}>
+            {confirming ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            {confirmedAt ? 'Unconfirm' : 'Confirm attendee list'}
+          </Button>
+        </div>
+      )}
+
+      {variant === 'admin' && (
+        <div className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-gray-100 mt-1">
+          <p className="text-[11px] text-gray-400 max-w-prose pt-2">
+            {registrantUserId
+              ? 'Ask the company to review and confirm who is attending (bell + email).'
+              : 'No platform account on this registration yet — invite an attendee or provision the account to enable the reminder.'}
+          </p>
+          <Button size="sm" variant="outline" className="gap-1.5 mt-2" disabled={nudging || !registrantUserId} onClick={requestConfirmation}>
+            {nudging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Request attendee confirmation
           </Button>
         </div>
       )}

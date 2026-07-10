@@ -664,7 +664,7 @@ export function AdminSM26Detail() {
           invoice (billing stays per-company). */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4">
-          <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit variant="admin" />
+          <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit variant="admin" registrantUserId={reg.user_id} />
         </CardContent>
       </Card>
 

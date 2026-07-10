@@ -73,6 +73,8 @@ export function AdminSM26Health() {
   const [onboardMsg, setOnboardMsg] = useState<string | null>(null);
   const [editDeadline, setEditDeadline] = useState('');
   const [savingDeadline, setSavingDeadline] = useState(false);
+  const [rosterDeadline, setRosterDeadline] = useState('');
+  const [savingRoster, setSavingRoster] = useState(false);
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -82,6 +84,7 @@ export function AdminSM26Health() {
     const eid = (ev as { id: string }).id;
     setEventId(eid);
     setEditDeadline(((ev as { settings?: { edit_locks_at?: string } }).settings?.edit_locks_at) || '');
+    setRosterDeadline(((ev as { settings?: { roster_locks_at?: string } }).settings?.roster_locks_at) || '');
     const { data } = await supabase.rpc('sm_event_health', { p_event_id: eid });
     setH((data || null) as Health | null);
     setLoading(false);
@@ -95,6 +98,17 @@ export function AdminSM26Health() {
     setSavingDeadline(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
     toast({ title: editDeadline ? `Editing closes after ${editDeadline}` : 'Editing deadline cleared' });
+  };
+
+  // Date after which the attendee roster is final (participants can't add/edit
+  // attendees — separate from the general editing deadline).
+  const saveRosterDeadline = async () => {
+    if (!eventId) return;
+    setSavingRoster(true);
+    const { error } = await supabase.rpc('sm_set_roster_deadline', { p_event_id: eventId, p_date: rosterDeadline || null });
+    setSavingRoster(false);
+    if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: rosterDeadline ? `Attendee list closes after ${rosterDeadline}` : 'Attendee deadline cleared' });
   };
 
   // Pre-event reminder: a test to myself, or a one-off send to all confirmed
@@ -308,6 +322,19 @@ export function AdminSM26Health() {
             <input type="date" value={editDeadline} onChange={e => setEditDeadline(e.target.value)} className="h-9 text-sm border border-gray-200 rounded-md px-2.5" />
             <Button size="sm" variant="outline" className="gap-1.5" onClick={saveDeadline} disabled={savingDeadline}>
               {savingDeadline ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Lock className="h-4 w-4 text-gray-400" /> Attendee list deadline</div>
+          <p className="text-xs text-gray-500">After this date, companies can no longer add or change the people attending under their registration (the list stays open through the day itself, Monaco time). Separate from the general editing deadline. Clear the date for no deadline.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="date" value={rosterDeadline} onChange={e => setRosterDeadline(e.target.value)} className="h-9 text-sm border border-gray-200 rounded-md px-2.5" />
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={saveRosterDeadline} disabled={savingRoster}>
+              {savingRoster ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Save
             </Button>
           </div>
         </CardContent>

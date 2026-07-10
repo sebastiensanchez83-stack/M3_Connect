@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, ChevronRight, Ship, Mail, Building2, Clock, Scale, BookOpen, CalendarDays, QrCode, Trophy, MessageSquare, Check, BellRing, X, UserPlus, Users } from 'lucide-react';
+import { RefreshCw, Search, ChevronRight, Ship, Mail, User, Clock, Scale, BookOpen, CalendarDays, QrCode, Trophy, MessageSquare, Check, BellRing, X, UserPlus, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -132,6 +132,7 @@ interface RegRow {
   user_id: string | null;
   organization_id: string | null;
   num_attendees: number | null;
+  attendees_confirmed_at: string | null;
   roles: RoleRow[];
 }
 
@@ -218,7 +219,7 @@ export function AdminSM26() {
     const [regsRes, paysRes, filesRes] = await Promise.all([
       supabase
         .from('sm_registration')
-        .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id,num_attendees, roles:sm_role_assignment(id,role,status,scope,module_data, startup:sm_startup_profile(logo_url), architecture:sm_architecture_entry(logo_url,company_image_url))')
+        .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id,num_attendees,attendees_confirmed_at, roles:sm_role_assignment(id,role,status,scope,module_data, startup:sm_startup_profile(logo_url), architecture:sm_architecture_entry(logo_url,company_image_url))')
         .eq('event_id', (ev as { id: string }).id)
         .order('created_at', { ascending: false }),
       supabase.from('sm_payment').select('registration_id,status'),
@@ -493,12 +494,12 @@ export function AdminSM26() {
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-900 truncate group-hover:text-primary transition-colors">{name}</span>
+                        <span className="text-base font-semibold text-gray-900 truncate group-hover:text-primary transition-colors">{r.company_name || name}</span>
                         <Badge className={`shrink-0 text-[10px] ${regStatusBadgeClass(r.status)}`}>{prettyStatus(r.status)}</Badge>
                       </div>
                       <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                        {r.company_name && <span className="flex items-center gap-1"><User className="h-3 w-3" /> {name}</span>}
                         {r.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" /> {r.email}</span>}
-                        {r.company_name && <span className="flex items-center gap-1"><Building2 className="h-3 w-3" /> {r.company_name}</span>}
                         {(r.num_attendees || 0) > 1 && <span className="flex items-center gap-1 text-primary"><Users className="h-3 w-3" /> {r.num_attendees} attendees</span>}
                         <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(r.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                       </div>
@@ -534,6 +535,9 @@ export function AdminSM26() {
                           r.user_id ? { t: 'Account ✓', c: 'green' } : { t: 'No account', c: 'amber' },
                           info,
                           ...(entry ? [entry] : []),
+                          ...((r.num_attendees || 0) > 1
+                            ? [r.attendees_confirmed_at ? { t: 'Attendees ✓', c: 'green' } : { t: 'Attendees pending', c: 'amber' }]
+                            : []),
                           paidSet.has(r.id) ? { t: 'Paid ✓', c: 'green' } : { t: 'Not paid', c: 'gray' },
                         ];
                         const cls: Record<string, string> = {

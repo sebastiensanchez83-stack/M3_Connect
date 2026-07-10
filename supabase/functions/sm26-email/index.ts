@@ -33,7 +33,7 @@ const json = (req: Request, body: unknown, status = 200) =>
 const EVENT = "Smart & Sustainable Marina Rendezvous 2026";
 const WHEN = "20–21 September 2026, Yacht Club de Monaco";
 
-const STAFF_KINDS = new Set(["confirmed", "paid", "ecat_published", "info_requested", "declined", "payment_reminder", "invoice_available"]);
+const STAFF_KINDS = new Set(["confirmed", "paid", "ecat_published", "info_requested", "declined", "payment_reminder", "invoice_available", "attendees_requested"]);
 const OWNER_KINDS = new Set(["registration_received", "admin_new_registration", "admin_info_completed"]);
 const PARTNER_KINDS = new Set(["ecat_review"]);
 
@@ -55,6 +55,9 @@ function content(kind: string, r: Reg, pay?: Pay | null): { subject: string; htm
     case "info_requested":
       return { to, subject: `A few details needed — ${EVENT}`,
         html: `${hi}<p>To complete your registration for the <strong>${EVENT}</strong>, M3 needs a few more details from you. Open your participation page to see exactly what's needed and provide it there.</p>${btn(me, "Complete my details")}${foot}` };
+    case "attendees_requested":
+      return { to, subject: `Please confirm who's attending — ${EVENT}`,
+        html: `${hi}<p>For the <strong>${EVENT}</strong> (${WHEN}), please confirm the names of everyone from your company who will attend — each person gets their own badge and on-site check-in. Open your event hub, go to <strong>Attendees</strong>, add or edit the names, then confirm the list.</p>${btn(`${SITE_URL}/account?tab=event`, "Confirm my attendees")}${foot}` };
     case "declined":
       return { to, subject: `Update on your ${EVENT} registration`,
         html: `${hi}<p>Thank you for your interest in the <strong>${EVENT}</strong>. After review, we're not able to confirm your participation for this edition. If you have any questions, please contact <a href="mailto:${ADMIN_EMAIL}">${ADMIN_EMAIL}</a>.</p>${foot}` };

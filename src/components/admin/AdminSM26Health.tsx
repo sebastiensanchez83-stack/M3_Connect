@@ -75,6 +75,8 @@ export function AdminSM26Health() {
   const [savingDeadline, setSavingDeadline] = useState(false);
   const [rosterDeadline, setRosterDeadline] = useState('');
   const [savingRoster, setSavingRoster] = useState(false);
+  const [badgeBusy, setBadgeBusy] = useState(false);
+  const [badgeMsg, setBadgeMsg] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
   const load = async () => {
@@ -162,6 +164,20 @@ export function AdminSM26Health() {
     setPayBusy(false);
     setPayMsg(`Payment reminder sent to ${n} participant(s).`);
     toast({ title: `Payment reminders sent to ${n}` });
+  };
+
+  // Email every attending person across the event their personal entry QR.
+  const sendEntryPasses = async () => {
+    if (!eventId) return;
+    if (!window.confirm('Email every attending person their personal entry QR now? Badges are minted first.')) return;
+    setBadgeBusy(true); setBadgeMsg(null);
+    await supabase.rpc('sm_ensure_badges', { p_event_id: eventId });
+    const { data, error } = await invokeWithRetry('sm26-badge-email', { event_id: eventId, all: true });
+    setBadgeBusy(false);
+    if (error) { setBadgeMsg(`Could not send: ${error.message || 'please try again'}`); toast({ title: 'Could not send entry passes', variant: 'destructive' }); return; }
+    const d = data as { sent?: number; skipped?: { no_email?: number; no_badge?: number } } | null;
+    setBadgeMsg(`Entry pass emailed to ${d?.sent ?? 0} attendee(s). Skipped ${d?.skipped?.no_email || 0} without an email, ${d?.skipped?.no_badge || 0} without a badge.`);
+    toast({ title: `Entry passes sent to ${d?.sent ?? 0}` });
   };
 
   // Onboarding invites: email everyone who has a registration but no account yet
@@ -311,6 +327,17 @@ export function AdminSM26Health() {
             {payBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Remind all invoiced-but-unpaid
           </Button>
           {payMsg && <p className="text-xs text-gray-500">{payMsg}</p>}
+        </CardContent>
+      </Card>
+
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><QrCode className="h-4 w-4 text-gray-400" /> Entry passes (QR)</div>
+          <p className="text-xs text-gray-500">Email every attending person their personal entry QR to show at check-in. Badges are minted first; anyone without an email or badge is skipped. You can also send them per registration from its Attendees card.</p>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={sendEntryPasses} disabled={badgeBusy}>
+            {badgeBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send entry QR to all attendees
+          </Button>
+          {badgeMsg && <p className="text-xs text-gray-500">{badgeMsg}</p>}
         </CardContent>
       </Card>
 

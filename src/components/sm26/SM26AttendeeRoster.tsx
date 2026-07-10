@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Loader2, UserPlus, Trash2, Check, Users, Star, Mail, BadgeCheck, CheckCircle2, Send, Lock } from 'lucide-react';
+import { Loader2, UserPlus, Trash2, Check, Users, Star, Mail, BadgeCheck, CheckCircle2, Send, Lock, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -44,6 +44,7 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [nudging, setNudging] = useState(false);
+  const [sendingQr, setSendingQr] = useState(false);
   const orig = useRef<Record<string, Attendee>>({});
   const { locked: rosterLocked, prettyDate: deadlinePretty } = useSm26RosterLock();
 
@@ -181,6 +182,22 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
     });
   };
 
+  // Email every attending person their personal entry QR (mints badges first).
+  const emailEntryQr = async () => {
+    if (!window.confirm('Email each attending person their entry QR now?')) return;
+    setSendingQr(true);
+    await supabase.rpc('sm_ensure_badges', { p_event_id: eventId });
+    const { data, error } = await supabase.functions.invoke('sm26-badge-email', { body: { registration_id: registrationId } });
+    setSendingQr(false);
+    if (error) { toast({ title: 'Could not send entry passes', description: error.message, variant: 'destructive' }); return; }
+    const d = data as { sent?: number; skipped?: { no_email?: number; no_badge?: number } } | null;
+    const skips = (d?.skipped?.no_email || 0) + (d?.skipped?.no_badge || 0);
+    toast({
+      title: `Entry pass sent to ${d?.sent ?? 0} attendee${(d?.sent ?? 0) === 1 ? '' : 's'}`,
+      description: skips ? `${d?.skipped?.no_email || 0} had no email, ${d?.skipped?.no_badge || 0} had no badge.` : undefined,
+    });
+  };
+
   if (loading) return <div className="flex items-center gap-2 text-sm text-gray-400 py-4"><Loader2 className="h-4 w-4 animate-spin" /> Loading attendees…</div>;
 
   const attendingCount = rows.filter(r => r.attending).length;
@@ -296,9 +313,14 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
               ? 'Ask the company to review and confirm who is attending (bell + email).'
               : 'No platform account on this registration yet — invite an attendee or provision the account to enable the reminder.'}
           </p>
-          <Button size="sm" variant="outline" className="gap-1.5 mt-2" disabled={nudging || !registrantUserId} onClick={requestConfirmation}>
-            {nudging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Request attendee confirmation
-          </Button>
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={sendingQr} onClick={emailEntryQr} title="Email each attending person their personal entry QR">
+              {sendingQr ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />} Email entry QR
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={nudging || !registrantUserId} onClick={requestConfirmation}>
+              {nudging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Request attendee confirmation
+            </Button>
+          </div>
         </div>
       )}
     </div>

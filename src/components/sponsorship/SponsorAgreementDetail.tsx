@@ -127,8 +127,22 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
     const { data, error } = await supabase.rpc('sp_link_sponsor_user', { p_sponsor_id: sponsorId, p_email: linkEmail.trim() });
     setBusy(false);
     if (error) { toast({ title: 'Could not link', description: error.message, variant: 'destructive' }); return; }
-    if (!data) { toast({ title: 'No account for that email yet', description: 'They need to sign up first, then link them.', variant: 'destructive' }); return; }
+    if (!data) { toast({ title: 'No account for that email yet', description: 'Use "Invite" to create their account and email a set-password link.', variant: 'destructive' }); return; }
     setLinkEmail(''); toast({ title: 'Account linked to sponsor portal' });
+    await load();
+  };
+
+  // Create (or find) the contact's account, grant portal access, and email a
+  // set-password link that lands them on their Sponsorship tab.
+  const inviteUser = async () => {
+    if (!sponsorId || !linkEmail.trim()) return;
+    setBusy(true);
+    const { data, error } = await supabase.functions.invoke('sponsor-invite', { body: { sponsor_id: sponsorId, email: linkEmail.trim() } });
+    setBusy(false);
+    if (error) { toast({ title: 'Could not invite', description: error.message, variant: 'destructive' }); return; }
+    const emailed = (data as { emailed?: boolean } | null)?.emailed;
+    setLinkEmail('');
+    toast({ title: 'Sponsor invited', description: emailed ? 'Account ready — a set-password email was sent.' : 'Account ready, but the email could not be sent — check the function logs.' });
     await load();
   };
 
@@ -204,8 +218,9 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
           <div className="flex items-center gap-2 text-xs text-gray-500 flex-wrap">
             <UserPlus className="h-3.5 w-3.5" />
             <span>{users.length} account{users.length === 1 ? '' : 's'} with portal access</span>
-            <Input value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="link account by email…" className="h-8 text-xs w-56" />
-            <Button size="sm" variant="outline" className="h-8 text-xs" disabled={busy || !linkEmail.trim()} onClick={linkUser}>Link</Button>
+            <Input value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="contact email…" className="h-8 text-xs w-48" />
+            <Button size="sm" variant="outline" className="h-8 text-xs" disabled={busy || !linkEmail.trim()} onClick={linkUser} title="Link an existing account — no email sent">Link existing</Button>
+            <Button size="sm" className="h-8 text-xs" disabled={busy || !linkEmail.trim()} onClick={inviteUser} title="Create their account and email a set-password link">Invite</Button>
           </div>
         </CardContent>
       </Card>

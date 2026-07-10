@@ -304,13 +304,13 @@ export function AdminEventDetail() {
 
     setUploadingPdf(true);
     const fileName = `event-pdfs/${Date.now()}-${file.name}`;
-    const { error } = await supabase.storage.from('public-assets').upload(fileName, file);
+    const { error } = await supabase.storage.from('resource-images').upload(fileName, file);
     if (error) {
       toast({ title: 'Upload failed', description: error.message, variant: 'destructive' });
       setUploadingPdf(false);
       return;
     }
-    const { data: urlData } = supabase.storage.from('public-assets').getPublicUrl(fileName);
+    const { data: urlData } = supabase.storage.from('resource-images').getPublicUrl(fileName);
     setPdfUrl(urlData.publicUrl);
     toast({ title: 'PDF uploaded!' });
     setUploadingPdf(false);

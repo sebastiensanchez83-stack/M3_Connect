@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, UserPlus, Building2, Link2, Ban, Search, Mail } from 'lucide-react';
+import { Loader2, UserPlus, Building2, Link2, Ban, Search, Mail, ShieldCheck } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,6 +91,8 @@ export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [sendEmail, setSendEmail] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Whether this email already has a platform account (and if it's active).
+  const [acctStatus, setAcctStatus] = useState<'none' | 'pending' | 'active' | null>(null);
 
   // Re-derive suggestions each time the dialog opens for a registration.
   useEffect(() => {
@@ -102,6 +104,27 @@ export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
     setOrgQuery(s.orgName);
     setOrgId(null);
     setSendEmail(!reg.user_id); // already-claimed accounts usually don't need the invite email
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, reg.id]);
+
+  // Look up whether this email already has an account. A person can't get a
+  // duplicate account (Supabase enforces unique emails — provisioning links the
+  // existing one), and we must never send a "set your password" email to someone
+  // who already has an active account. So detect it up front and, when active,
+  // force the email off.
+  useEffect(() => {
+    if (!open) { setAcctStatus(null); return; }
+    const email = (reg.email || '').trim();
+    if (!email) { setAcctStatus('none'); return; }
+    let active = true;
+    setAcctStatus(null);
+    supabase.rpc('sm_account_status_for_email', { p_email: email }).then(({ data }) => {
+      if (!active) return;
+      const s = ((data as string) || 'none') as 'none' | 'pending' | 'active';
+      setAcctStatus(s);
+      if (s === 'active') setSendEmail(false);
+    });
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, reg.id]);
 
@@ -198,13 +221,30 @@ export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
             )}
           </div>
 
-          <label className="flex items-start gap-2 cursor-pointer">
-            <Checkbox checked={sendEmail} onCheckedChange={c => setSendEmail(c as boolean)} className="mt-0.5" />
+          {/* Account existence — created vs linked, and email safety. */}
+          {acctStatus && (
+            <div className={`text-xs rounded-lg border px-3 py-2 flex items-start gap-2 ${
+              acctStatus === 'active' ? 'border-green-200 bg-green-50 text-green-700'
+                : acctStatus === 'pending' ? 'border-amber-200 bg-amber-50 text-amber-700'
+                  : 'border-gray-200 bg-gray-50 text-gray-600'}`}>
+              {acctStatus === 'active' ? <ShieldCheck className="h-3.5 w-3.5 mt-0.5 shrink-0" /> : <Mail className="h-3.5 w-3.5 mt-0.5 shrink-0" />}
+              <span>
+                {acctStatus === 'active'
+                  ? <>This email <strong>already has an active account</strong> — it will just be linked (no new account is created), and no email is sent.</>
+                  : acctStatus === 'pending'
+                    ? <>This email has an account that hasn't set a password yet — you can re-send the set-up link below.</>
+                    : <>No account exists for this email yet — a new one will be created.</>}
+              </span>
+            </div>
+          )}
+
+          <label className={`flex items-start gap-2 ${acctStatus === 'active' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'}`}>
+            <Checkbox checked={sendEmail} disabled={acctStatus === 'active'} onCheckedChange={c => setSendEmail(c as boolean)} className="mt-0.5" />
             <span className="text-sm text-gray-700 flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-gray-400" /> Send the welcome email now (set password → event hub)</span>
           </label>
 
           <Button className="w-full gap-1.5" onClick={submit} disabled={busy}>
-            {busy && <Loader2 className="h-4 w-4 animate-spin" />} {reg.user_id ? 'Apply platform identity' : 'Create account & apply'}
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />} {reg.user_id ? 'Apply platform identity' : acctStatus === 'active' ? 'Link account & apply' : 'Create account & apply'}
           </Button>
         </div>
       </DialogContent>

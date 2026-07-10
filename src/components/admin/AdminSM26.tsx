@@ -261,28 +261,35 @@ export function AdminSM26() {
   const [provBusy, setProvBusy] = useState<string | null>(null);
   const pendingProvision = rows.filter(r => r.status === 'confirmed' && !r.user_id);
 
-  const provisionOne = async (r: RegRow): Promise<boolean> => {
+  const provisionOne = async (r: RegRow): Promise<{ ok: boolean; skippedActive: boolean }> => {
     const s = suggestProvision(r);
+    // Never email a set-password link to someone who already has an ACTIVE
+    // account — link them silently instead (no new account is created either way).
+    let sendEmail = true, skippedActive = false;
+    if (r.email) {
+      const { data: status } = await supabase.rpc('sm_account_status_for_email', { p_email: r.email });
+      if (status === 'active') { sendEmail = false; skippedActive = true; }
+    }
     const res = await runProvision({
       registration_id: r.id, persona: s.persona, org: s.orgMode,
-      org_name: s.orgMode === 'create' ? s.orgName : undefined, send_email: true,
+      org_name: s.orgMode === 'create' ? s.orgName : undefined, send_email: sendEmail,
     });
     if (!res.ok) toast({ title: `Failed: ${`${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email}`, description: res.error, variant: 'destructive' });
-    return res.ok;
+    return { ok: res.ok, skippedActive };
   };
   const provisionRow = async (r: RegRow) => {
     setProvBusy(r.id);
-    const ok = await provisionOne(r);
+    const { ok, skippedActive } = await provisionOne(r);
     setProvBusy(null);
-    if (ok) { toast({ title: 'Account provisioned & invite sent', description: r.email || undefined }); load(); }
+    if (ok) { toast({ title: skippedActive ? 'Linked to existing active account (no email sent)' : 'Account provisioned & invite sent', description: r.email || undefined }); load(); }
   };
   const provisionAll = async () => {
-    if (!window.confirm(`Provision platform accounts and send welcome invites to all ${pendingProvision.length} confirmed registrants without an account?`)) return;
+    if (!window.confirm(`Provision platform accounts and send welcome invites to all ${pendingProvision.length} confirmed registrants without an account? Anyone who already has an active account is linked without an email.`)) return;
     setProvBusy('__all__');
-    let okCount = 0;
-    for (const r of pendingProvision) { if (await provisionOne(r)) okCount++; }
+    let okCount = 0, linkedActive = 0;
+    for (const r of pendingProvision) { const res = await provisionOne(r); if (res.ok) { okCount++; if (res.skippedActive) linkedActive++; } }
     setProvBusy(null);
-    toast({ title: `${okCount}/${pendingProvision.length} accounts provisioned & invited` });
+    toast({ title: `${okCount}/${pendingProvision.length} accounts provisioned`, description: linkedActive ? `${linkedActive} already had an active account (linked, no email).` : undefined });
     load();
   };
 

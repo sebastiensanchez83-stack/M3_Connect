@@ -53,12 +53,20 @@ export function AdminSM26EcatDossier() {
       if (typeof v === 'string' && v.trim()) textFields[k] = v;
       else if (Array.isArray(v) && v.length) textFields[k] = v.join(', ');
     }
-    // assets live in role_assignment.module_data as storage paths
+    // assets live in role_assignment.module_data AND (for imported startups) in
+    // the sm_startup_profile columns — pull both, deduped by path.
     const assets: { field: string; path: string }[] = [];
-    const pushAsset = (k: string, p: unknown) => { if (typeof p === 'string' && p.includes('/')) assets.push({ field: k, path: p }); };
+    const seenPaths = new Set<string>();
+    const pushAsset = (k: string, p: unknown) => { if (typeof p === 'string' && p.includes('/') && !seenPaths.has(p)) { seenPaths.add(p); assets.push({ field: k, path: p }); } };
     for (const [k, v] of Object.entries(moduleData)) {
       if (Array.isArray(v)) v.forEach(p => pushAsset(k, p)); // multi-file assets are stored as a list
       else pushAsset(k, v);
+    }
+    if (startup) {
+      pushAsset('logo', startup.logo_url);
+      pushAsset('deck', startup.deck_url);
+      pushAsset('pitch_media', startup.pitch_media_url);
+      if (Array.isArray(startup.product_images)) startup.product_images.forEach(p => pushAsset('product_image', p));
     }
 
     setDetail({

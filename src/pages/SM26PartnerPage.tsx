@@ -39,7 +39,7 @@ const fmtTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('en-GB'
 const dayKey = (s: string | null) => s ? new Date(s).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ }) : 'TBD';
 const ECAT_STATUSES = ['awaiting_export', 'exported', 'in_design', 'uploaded', 'changes_requested', 'approved', 'published'];
 
-const ASSET_KEYS = new Set(['logo', 'logo_url', 'photo', 'photo_url', 'banner', 'deck', 'deck_url', 'slides', 'hero_image', 'press_card', 'proof_of_enrolment', 'panels', 'notice', 'pitch_media', 'pitch_media_url', 'product_images']);
+const ASSET_KEYS = new Set(['logo', 'logo_url', 'photo', 'photo_url', 'banner', 'deck', 'deck_url', 'slides', 'hero_image', 'press_card', 'proof_of_enrolment', 'panels', 'notice', 'pitch_media', 'pitch_media_url', 'product_images', 'renders', 'project_renders', 'company_image_url']);
 const STARTUP_SKIP = new Set(['id', 'role_assignment_id', 'event_id', 'created_at', 'updated_at', 'visibility_level', 'pitch_optin', 'social_links', 'logo_url', 'deck_url', 'product_images', 'pitch_media_url']);
 const isHttp = (s: string) => /^https?:\/\//i.test(s);
 const isImg = (s: string) => /\.(png|jpe?g|webp|gif|svg)$/i.test(s.split('?')[0]);
@@ -53,8 +53,12 @@ function isProvided(rq: Requirement, d: DossierRow): boolean {
   if (k === '__job_title') return !!d.job_title;
   if (k === 'website') return !!d.website;
   const md = d.module_data || {};
-  const v = md[k];
-  if (v != null && v !== '' && !(Array.isArray(v) && v.length === 0)) return true;
+  const has = (val: unknown) => val != null && val !== '' && !(Array.isArray(val) && val.length === 0);
+  if (has(md[k])) return true;
+  // Key-alias tolerance: marina/sponsor/speaker store logo/photo as logo_url/
+  // photo_url in module_data while the requirement field_key is 'logo'/'photo'.
+  const alt = k.endsWith('_url') ? k.slice(0, -4) : `${k}_url`;
+  if (has(md[alt])) return true;
   const sp = d.startup;
   if (sp) {
     if (k === 'logo') return !!sp.logo_url;

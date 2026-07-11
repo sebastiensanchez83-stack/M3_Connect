@@ -12,6 +12,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { SM26AssetGallery } from '@/components/sm26/SM26AssetGallery';
 
 // Juror scoring (Area 3). Lists the entries M3 assigned to the signed-in juror,
 // and scores each on the right versioned scorecard (innovation: stage picks the
@@ -233,6 +234,10 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
                       </div>
                     );
                   })()}
+                  {/* Imported architecture entries store their boards in
+                      project_renders (not sm_architecture_file) — the resolver
+                      surfaces them as anonymised previews for scoring. */}
+                  <SM26AssetGallery roleAssignmentId={selected.entry_id} title="Project images" emptyText="" />
                   {Array.isArray(payload?.categories) && (payload!.categories as string[]).length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-1">
                       {(payload!.categories as string[]).map(c => <Badge key={c} variant="secondary" className="text-[10px]">{c}</Badge>)}

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
+import { SM26AssetGallery } from '@/components/sm26/SM26AssetGallery';
 import { SM_CATEGORIES } from '@/components/sm26/StartupFields';
 
 // SM26 innovation portfolio / deal-flow — visible to VALIDATED investors and
@@ -20,6 +21,7 @@ import { SM_CATEGORIES } from '@/components/sm26/StartupFields';
 
 interface Entry {
   id: string;
+  role_assignment_id: string | null;
   company_name: string | null;
   country: string | null;
   website: string | null;
@@ -187,6 +189,11 @@ export function SM26PortfolioPage() {
 
                       {open && (
                         <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+                          {e.role_assignment_id && (
+                            <div className="pb-1">
+                              <SM26AssetGallery roleAssignmentId={e.role_assignment_id} title="Deck & materials" emptyText="" />
+                            </div>
+                          )}
                           {([
                             ['Differentiation', e.differentiation],
                             ['USP', e.usp],

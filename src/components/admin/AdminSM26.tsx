@@ -181,6 +181,10 @@ export function AdminSM26() {
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [noAccountOnly, setNoAccountOnly] = useState(false);
+  // "Ready to invoice": the company has confirmed its final attendee list
+  // (headcount locked) but payment isn't settled yet — the point at which the
+  // invoice can be raised for the right amount.
+  const [readyToInvoiceOnly, setReadyToInvoiceOnly] = useState(false);
   // Per-registration progress: payment settled + architecture entry files.
   const [paidSet, setPaidSet] = useState<Set<string>>(new Set());
   const [archProgress, setArchProgress] = useState<Map<string, { panels: number; notice: boolean }>>(new Map());
@@ -252,8 +256,11 @@ export function AdminSM26() {
     if (roleFilter !== 'all' && !r.roles.some(x => x.role === roleFilter)) return false;
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
     if (noAccountOnly && r.user_id) return false;
+    if (readyToInvoiceOnly && !(r.attendees_confirmed_at && !paidSet.has(r.id))) return false;
     return true;
   });
+
+  const readyToInvoiceCount = rows.filter(r => r.attendees_confirmed_at && !paidSet.has(r.id)).length;
 
   // Summary counts by registration status
   const counts: Record<string, number> = {};
@@ -405,6 +412,15 @@ export function AdminSM26() {
             className={`text-xs px-2.5 py-1 rounded-full border transition-all bg-amber-50 text-amber-700 border-amber-200 ${noAccountOnly ? 'ring-2 ring-primary/30' : ''}`}
           >
             No account · {rows.filter(r => !r.user_id).length}
+          </button>
+        )}
+        {readyToInvoiceCount > 0 && (
+          <button
+            onClick={() => setReadyToInvoiceOnly(v => !v)}
+            title="Attendee list confirmed, payment not settled — ready to invoice"
+            className={`text-xs px-2.5 py-1 rounded-full border transition-all bg-emerald-50 text-emerald-700 border-emerald-200 ${readyToInvoiceOnly ? 'ring-2 ring-primary/30' : ''}`}
+          >
+            Ready to invoice · {readyToInvoiceCount}
           </button>
         )}
       </div>

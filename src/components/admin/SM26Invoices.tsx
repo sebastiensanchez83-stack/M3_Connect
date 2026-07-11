@@ -38,7 +38,7 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
   registrationId: string; eventId: string; onChange?: () => void;
 }) {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
-  const [billTo, setBillTo] = useState<{ company: string | null; address: string | null; vat: string | null }>({ company: null, address: null, vat: null });
+  const [billTo, setBillTo] = useState<{ company: string | null; address: string | null; vat: string | null; attendees: number | null; attendeesConfirmedAt: string | null }>({ company: null, address: null, vat: null, attendees: null, attendeesConfirmedAt: null });
   const [label, setLabel] = useState('');
   const [amount, setAmount] = useState('');
   const [notify, setNotify] = useState(true);
@@ -53,11 +53,11 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
         .select('id,file_path,label,amount_cents,currency,created_at')
         .eq('registration_id', registrationId)
         .order('created_at', { ascending: false }),
-      supabase.from('sm_registration').select('company_name,billing_address,vat_number').eq('id', registrationId).maybeSingle(),
+      supabase.from('sm_registration').select('company_name,billing_address,vat_number,num_attendees,attendees_confirmed_at').eq('id', registrationId).maybeSingle(),
     ]);
     setRows((data || []) as InvoiceRow[]);
-    const r = reg as { company_name?: string | null; billing_address?: string | null; vat_number?: string | null } | null;
-    setBillTo({ company: r?.company_name || null, address: r?.billing_address || null, vat: r?.vat_number || null });
+    const r = reg as { company_name?: string | null; billing_address?: string | null; vat_number?: string | null; num_attendees?: number | null; attendees_confirmed_at?: string | null } | null;
+    setBillTo({ company: r?.company_name || null, address: r?.billing_address || null, vat: r?.vat_number || null, attendees: r?.num_attendees ?? null, attendeesConfirmedAt: r?.attendees_confirmed_at || null });
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [registrationId]);
 
@@ -170,6 +170,17 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
           </div>
         ) : (
           <p className="text-[11px] text-amber-600">No billing address / VAT captured yet — the participant can add it under “My details” in their event hub, or you can request it.</p>
+        )}
+        {(billTo.attendees || 0) > 1 && (
+          billTo.attendeesConfirmedAt ? (
+            <p className="text-[11px] text-emerald-600">
+              ✓ Attendee list confirmed ({billTo.attendees} attendees) on {new Date(billTo.attendeesConfirmedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} — headcount is locked, ready to invoice.
+            </p>
+          ) : (
+            <p className="text-[11px] text-amber-600">
+              Attendee list not confirmed yet ({billTo.attendees} on the roster) — the headcount may still change before you invoice.
+            </p>
+          )
         )}
         {rows.length === 0 && <p className="text-sm text-gray-400">No invoice uploaded yet.</p>}
         {rows.map(r => (

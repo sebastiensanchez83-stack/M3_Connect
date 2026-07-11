@@ -106,7 +106,10 @@ export function formatBenefitValue(b: Pick<SpAgreementBenefit, 'value_type' | 'v
 export const isWysPending = (b: Pick<SpAgreementBenefit, 'program' | 'event_id'>) => b.program === 'WYS' && !b.event_id;
 
 // Delivered-percentage across a set of line items (drives the tracker progress).
-export function deliveredPct(items: Pick<SpAgreementBenefit, 'delivered'>[]): number {
-  if (items.length === 0) return 0;
-  return Math.round((items.filter(i => i.delivered).length / items.length) * 100);
+// WYS items with no scheduled event instance yet can't be delivered, so they're
+// excluded from the denominator (else fulfilment caps below 100% until WYS is set).
+export function deliveredPct(items: Pick<SpAgreementBenefit, 'delivered' | 'program' | 'event_id'>[]): number {
+  const applicable = items.filter(i => !isWysPending(i));
+  if (applicable.length === 0) return 0;
+  return Math.round((applicable.filter(i => i.delivered).length / applicable.length) * 100);
 }

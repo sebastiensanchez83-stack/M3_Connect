@@ -40,7 +40,9 @@ const dayKey = (s: string | null) => s ? new Date(s).toLocaleDateString('en-GB',
 const ECAT_STATUSES = ['awaiting_export', 'exported', 'in_design', 'uploaded', 'changes_requested', 'approved', 'published'];
 
 const ASSET_KEYS = new Set(['logo', 'logo_url', 'photo', 'photo_url', 'banner', 'deck', 'deck_url', 'slides', 'hero_image', 'press_card', 'proof_of_enrolment', 'panels', 'notice', 'pitch_media', 'pitch_media_url', 'product_images', 'renders', 'project_renders', 'company_image_url']);
-const STARTUP_SKIP = new Set(['id', 'role_assignment_id', 'event_id', 'created_at', 'updated_at', 'visibility_level', 'pitch_optin', 'social_links', 'logo_url', 'deck_url', 'product_images', 'pitch_media_url']);
+// Not catalogue-relevant / commercially sensitive fundraising fields are never
+// shown to the Yacht Club catalogue team.
+const STARTUP_SKIP = new Set(['id', 'role_assignment_id', 'event_id', 'created_at', 'updated_at', 'visibility_level', 'pitch_optin', 'social_links', 'logo_url', 'deck_url', 'product_images', 'pitch_media_url', 'investment_seeking', 'investment_stage', 'investment_type', 'funds_needed']);
 const isHttp = (s: string) => /^https?:\/\//i.test(s);
 const isImg = (s: string) => /\.(png|jpe?g|webp|gif|svg)$/i.test(s.split('?')[0]);
 const prettyKey = (k: string) => k.replace(/_url$/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -74,6 +76,7 @@ function buildDossier(d: DossierRow): Built {
   const md = d.module_data || {};
   for (const [k, v] of Object.entries(md)) {
     if (v == null || v === '') continue;
+    if (k.startsWith('_')) continue; // internal admin fields (_request_note, _requested_info, …)
     if (ASSET_KEYS.has(k)) {
       if (typeof v === 'string') assets.push({ label: prettyKey(k), value: v });
       else if (Array.isArray(v)) v.forEach((p, i) => typeof p === 'string' && assets.push({ label: `${prettyKey(k)} ${i + 1}`, value: p }));

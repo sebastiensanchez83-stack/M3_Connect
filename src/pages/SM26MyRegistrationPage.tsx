@@ -518,6 +518,14 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                 </CardContent>
               </Card>
             )}
+            {invoices.length === 0 && payStatus === 'invoiced' && (
+              <Card>
+                <CardContent className="pt-5 flex items-start gap-2.5">
+                  <Receipt className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                  <p className="text-sm text-gray-600">Your participation has been <strong>invoiced</strong>. The invoice document will follow shortly — for any question contact <a href="mailto:events@m3monaco.com" className="text-primary hover:underline">events@m3monaco.com</a>.</p>
+                </CardContent>
+              </Card>
+            )}
             {visibleRoles.some(r => r.role === 'startup') && <SM26MyJuryPanel eventId={reg.event_id} />}
             <SM26VotePage embedded />
             <Card>

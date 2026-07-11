@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { SpSponsor, SpTier, SPONSOR_STATUS_CLS, deliveredPct } from '@/lib/sponsorship';
+import { SpSponsor, SpTier, SpProgram, SPONSOR_STATUS_CLS, deliveredPct } from '@/lib/sponsorship';
 
 // Admin / YCM fulfilment hub: every sponsor with tier, status and % delivered.
 // basePath differs by mount point (/admin/sponsorships vs /sponsorship).
@@ -29,14 +29,14 @@ export function SponsorshipHub({ basePath }: { basePath: string }) {
     const [{ data: sponsors }, { data: agr }, { data: benefits }, { data: tierRows }] = await Promise.all([
       supabase.from('sp_sponsor').select('*').order('created_at', { ascending: false }),
       supabase.from('sp_agreement').select('id,sponsor_id,tier_key,status'),
-      supabase.from('sp_agreement_benefit').select('agreement_id,delivered'),
+      supabase.from('sp_agreement_benefit').select('agreement_id,delivered,program,event_id'),
       supabase.from('sp_tier').select('*').order('display_order'),
     ]);
     const tierList = (tierRows || []) as SpTier[];
     setTiers(tierList);
     const tierLabel = (k: string | null) => tierList.find(t => t.tier_key === k)?.label || null;
     const agrs = (agr || []) as { id: string; sponsor_id: string; tier_key: string | null; status: string }[];
-    const bens = (benefits || []) as { agreement_id: string; delivered: boolean }[];
+    const bens = (benefits || []) as { agreement_id: string; delivered: boolean; program: SpProgram; event_id: string | null }[];
     const agrBySponsor = new Map<string, typeof agrs>();
     agrs.forEach(a => { const l = agrBySponsor.get(a.sponsor_id) || []; l.push(a); agrBySponsor.set(a.sponsor_id, l); });
     setRows(((sponsors || []) as SpSponsor[]).map(s => {

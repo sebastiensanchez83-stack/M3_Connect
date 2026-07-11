@@ -359,6 +359,18 @@ export function SM26RegisterPage() {
       toast({ title: 'Please fill in your name and email', variant: 'destructive' }); return;
     }
     if (!role) { toast({ title: 'Select how you want to participate', variant: 'destructive' }); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      toast({ title: 'Please enter a valid email address', variant: 'destructive' }); return;
+    }
+    // Exhibitor / company-scoped roles must identify their company + country
+    // (these records feed the public e-catalogue, badges and invoicing).
+    const ORG_ROLES = new Set(['marina', 'startup', 'sponsor', 'architect_pro']);
+    if (ORG_ROLES.has(role)) {
+      if (!form.company_name.trim()) { toast({ title: 'Company name is required for this participation type', variant: 'destructive' }); return; }
+      if (!form.country.trim()) { toast({ title: 'Country is required for this participation type', variant: 'destructive' }); return; }
+    }
+    const urlOk = (u: string) => !u.trim() || /^(https?:\/\/)?[\w-]+(\.[\w-]+)+.*$/.test(u.trim());
+    if (!urlOk(form.website)) { toast({ title: 'Please enter a valid website (e.g. example.com)', variant: 'destructive' }); return; }
     if (!terms) { toast({ title: 'Please accept the terms & conditions', variant: 'destructive' }); return; }
     if (!user) { await submitGuest(); return; }
     if (!eventId) { toast({ title: 'Event not available yet', variant: 'destructive' }); return; }

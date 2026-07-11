@@ -110,12 +110,23 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
     const { error } = await supabase.from('sp_agreement_benefit').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
     if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); load(); }
   };
-  const setStatus = (i: SpAgreementBenefit, status: SpAgreementBenefit['status']) =>
-    patchItem(i.id, {
+  const setStatus = async (i: SpAgreementBenefit, status: SpAgreementBenefit['status']) => {
+    await patchItem(i.id, {
       status, delivered: status === 'DELIVERED',
       delivered_at: status === 'DELIVERED' ? new Date().toISOString() : null,
       requested_at: status === 'REQUESTED_FROM_SPONSOR' ? new Date().toISOString() : i.requested_at,
     });
+    // Requesting an asset now emails the sponsor's contacts so they don't have to
+    // discover it by opening the portal.
+    if (status === 'REQUESTED_FROM_SPONSOR') {
+      const { data, error } = await supabase.functions.invoke('sp-notify', { body: { benefit_id: i.id } });
+      const d = data as { sent?: number } | null;
+      toast({
+        title: error ? 'Requested — the email could not be sent' : (d?.sent ? `Requested — emailed ${d.sent} sponsor contact${d.sent === 1 ? '' : 's'}` : 'Requested — no sponsor contact/email on file'),
+        variant: error ? 'destructive' : undefined,
+      });
+    }
+  };
 
   const removeItem = async (i: SpAgreementBenefit) => {
     if (!window.confirm(`Remove "${i.name}" from this agreement?`)) return;

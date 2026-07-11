@@ -264,20 +264,35 @@ export function AdminSM26() {
   const pendingProvision = rows.filter(r => r.status === 'confirmed' && !r.user_id);
 
   const provisionOne = async (r: RegRow): Promise<{ ok: boolean; skippedActive: boolean }> => {
-    const s = suggestProvision(r);
-    // Never email a set-password link to someone who already has an ACTIVE
-    // account — link them silently instead (no new account is created either way).
-    let sendEmail = true, skippedActive = false;
+    const who = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email;
+    // If this email already has an ACTIVE account, just LINK the registration to
+    // it — no new account, no email, and (unlike provisioning) no persona/org
+    // overwrite that could demote an existing marina/partner/investor.
     if (r.email) {
       const { data: status } = await supabase.rpc('sm_account_status_for_email', { p_email: r.email });
-      if (status === 'active') { sendEmail = false; skippedActive = true; }
+      if (status === 'active') {
+        const { data: uid, error } = await supabase.rpc('sm_link_registration_to_account', { p_registration_id: r.id });
+        if (error || !uid) { toast({ title: `Could not link: ${who}`, description: error?.message, variant: 'destructive' }); return { ok: false, skippedActive: true }; }
+        return { ok: true, skippedActive: true };
+      }
+    }
+    const s = suggestProvision(r);
+    // Avoid creating a DUPLICATE organization when one already exists by the same
+    // name — link the existing one instead of spinning up a second.
+    let org: 'create' | 'link' | 'none' = s.orgMode;
+    let orgId: string | undefined;
+    if (org === 'create' && s.orgName) {
+      const { data: existing } = await supabase.from('organizations').select('id').ilike('name', s.orgName).limit(1).maybeSingle();
+      if ((existing as { id?: string } | null)?.id) { org = 'link'; orgId = (existing as { id: string }).id; }
     }
     const res = await runProvision({
-      registration_id: r.id, persona: s.persona, org: s.orgMode,
-      org_name: s.orgMode === 'create' ? s.orgName : undefined, send_email: sendEmail,
+      registration_id: r.id, persona: s.persona, org,
+      org_name: org === 'create' ? s.orgName : undefined,
+      org_id: org === 'link' ? orgId : undefined,
+      send_email: true,
     });
-    if (!res.ok) toast({ title: `Failed: ${`${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email}`, description: res.error, variant: 'destructive' });
-    return { ok: res.ok, skippedActive };
+    if (!res.ok) toast({ title: `Failed: ${who}`, description: res.error, variant: 'destructive' });
+    return { ok: res.ok, skippedActive: false };
   };
   const provisionRow = async (r: RegRow) => {
     setProvBusy(r.id);

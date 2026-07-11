@@ -27,6 +27,8 @@ interface Attendee {
   user_id: string | null;
   is_primary: boolean;
   attending: boolean;
+  dietary: string | null;
+  accessibility: string | null;
 }
 
 const blankDraft = { first_name: '', last_name: '', email: '', job_title: '' };
@@ -72,7 +74,7 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
 
   const isDirty = (r: Attendee) => {
     const o = orig.current[r.id];
-    return !!o && (['first_name', 'last_name', 'email', 'job_title'] as const).some(k => (r[k] || '') !== (o[k] || ''));
+    return !!o && (['first_name', 'last_name', 'email', 'job_title', 'dietary', 'accessibility'] as const).some(k => (r[k] || '') !== (o[k] || ''));
   };
 
   const saveRow = async (r: Attendee) => {
@@ -82,6 +84,8 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
       last_name: r.last_name?.trim() || null,
       email: r.email?.trim() || null,
       job_title: r.job_title?.trim() || null,
+      dietary: r.dietary?.trim() || null,
+      accessibility: r.accessibility?.trim() || null,
       updated_at: new Date().toISOString(),
     }).eq('id', r.id);
     setBusy(null);
@@ -252,6 +256,8 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
               <Input value={r.last_name || ''} disabled={!editable} placeholder="Last name" className="h-9 text-sm" onChange={e => patch(r.id, { last_name: e.target.value })} />
               <Input value={r.email || ''} disabled={!editable} placeholder="Email" type="email" className="h-9 text-sm" onChange={e => patch(r.id, { email: e.target.value })} />
               <Input value={r.job_title || ''} disabled={!editable} placeholder="Job title" className="h-9 text-sm" onChange={e => patch(r.id, { job_title: e.target.value })} />
+              <Input value={r.dietary || ''} disabled={!editable} placeholder="Dietary needs (optional)" className="h-9 text-sm" onChange={e => patch(r.id, { dietary: e.target.value })} />
+              <Input value={r.accessibility || ''} disabled={!editable} placeholder="Accessibility needs (optional)" className="h-9 text-sm" onChange={e => patch(r.id, { accessibility: e.target.value })} />
             </div>
             <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
               <label className={`flex items-center gap-2 text-xs cursor-pointer ${r.attending ? 'text-gray-700' : 'text-gray-400'}`}>

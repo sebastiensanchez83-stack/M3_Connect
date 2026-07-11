@@ -428,7 +428,8 @@ ${d.missing.length ? `<h2>Still missing for the catalogue</h2><p>${esc(d.missing
                     </div>
                     <Select value={p.status} onValueChange={v => setEcatStatus(p.id, v)} disabled={busyRow}>
                       <SelectTrigger className="w-40 h-8 text-xs"><SelectValue /></SelectTrigger>
-                      <SelectContent>{ECAT_STATUSES.map(s => <SelectItem key={s} value={s}>{ECAT_STATUS_LABEL[s] || s}</SelectItem>)}</SelectContent>
+                      {/* 'approved' is the participant's step and 'published' is M3's — a partner sets only the design/upload states (also enforced server-side). */}
+                      <SelectContent>{ECAT_STATUSES.filter(s => s !== 'approved' && s !== 'published').map(s => <SelectItem key={s} value={s}>{ECAT_STATUS_LABEL[s] || s}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
 

@@ -110,8 +110,10 @@ export function SM26RegisterPage() {
   const [light, setLight] = useState<LightData>({});
   const [assets, setAssets] = useState<Record<string, File[]>>({});
   const [socials, setSocials] = useState({ linkedin: '', instagram: '', facebook: '', twitter: '' });
-  const [ecatConsent, setEcatConsent] = useState(true);
-  const [socialConsent, setSocialConsent] = useState(true);
+  // Consent to be featured — explicit opt-in (unchecked by default) to match
+  // image_consent and GDPR expectations for a public e-catalogue / social feature.
+  const [ecatConsent, setEcatConsent] = useState(false);
+  const [socialConsent, setSocialConsent] = useState(false);
   const [onsite, setOnsite] = useState(false);
   const [imageConsent, setImageConsent] = useState(false);
   const [terms, setTerms] = useState(false);

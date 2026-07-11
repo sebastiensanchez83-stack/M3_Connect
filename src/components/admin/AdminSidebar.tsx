@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
-  Award, ArrowUpCircle, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
+  Award, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
   ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen,
   Scale, Trophy, Activity,
 } from 'lucide-react';
@@ -68,8 +68,6 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     ] },
     { key: 'commercial', label: 'Commercial & content', icon: <Megaphone className="h-4 w-4" />, items: [
       { to: '/admin/sponsorships', label: 'Sponsorship', icon: <Award className="h-4 w-4" />, adminOnly: true },
-      { to: '/admin/sponsorship-requests', label: 'Tier upgrade requests', icon: <ArrowUpCircle className="h-4 w-4" />, adminOnly: true },
-      { to: '/admin/expositions', label: 'Expositions', icon: <Anchor className="h-4 w-4" />, adminOnly: true },
       { to: '/admin/resources', label: isAdmin ? t('admin.resources') : 'Propose Resources', icon: <FileText className="h-4 w-4" /> },
       { to: '/admin/banners', label: 'Ad banners', icon: <Image className="h-4 w-4" />, adminOnly: true },
       { to: '/admin/sectors', label: 'Sectors', icon: <Tag className="h-4 w-4" />, adminOnly: true },

@@ -140,47 +140,12 @@ export function OrganizationTab() {
   const [docDescription, setDocDescription] = useState('');
   const docInputRef = useRef<HTMLInputElement>(null);
 
-  const handleUpgradeRequest = async () => {
-    if (!org || !user) return;
-    setUpgradeSubmitting(true);
-    try {
-      // Upload invoice file if provided
-      let invoiceUrl: string | null = null;
-      if (upgradeInvoiceFile) {
-        setUploadingInvoice(true);
-        const ext = upgradeInvoiceFile.name.split('.').pop() || 'pdf';
-        const storagePath = `${org.id}/invoice-${Date.now()}.${ext}`;
-        const { error: upErr } = await supabase.storage.from('org-documents').upload(storagePath, upgradeInvoiceFile, { cacheControl: '3600' });
-        if (upErr) throw upErr;
-        const { data: signedData } = await supabase.storage.from('org-documents').createSignedUrl(storagePath, 60 * 60 * 24 * 365);
-        invoiceUrl = signedData?.signedUrl || null;
-        setUploadingInvoice(false);
-      }
-
-      const { error } = await supabase.from('sponsorship_requests').insert({
-        organization_id: org.id,
-        requested_by: user.id,
-        requested_tier: upgradeTier,
-        current_tier: org.tier,
-        amount_already_paid: (() => {
-          // Map current tier to approximate paid amount for deduction
-          const paidMap: Record<string, number> = { member: 500, innovation_partner: 3000, associate_partner: 15000, premium_partner: 40000, premium_sponsor: 100000, main_sponsor: 150000 };
-          return paidMap[org.tier] || 0;
-        })(),
-        invoice_url: invoiceUrl,
-      });
-      if (error) throw error;
-      toast({ title: 'Sponsorship request submitted', description: 'M3 will contact you with details about the selected package.' });
-      setUpgradeOpen(false);
-      setUpgradeInvoiceFile(null);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      toast({ title: 'Error', description: message, variant: 'destructive' });
-    } finally {
-      setUpgradeSubmitting(false);
-      setUploadingInvoice(false);
-    }
-  };
+  // Sponsorship is now sales-led: packages are arranged directly with the M3
+  // team and tracked in the sp_* fulfilment tracker, not via a self-service
+  // request queue. The "Upgrade to Sponsor" button opens a contact prompt
+  // (see the dialog below) instead of writing to the retired
+  // sponsorship_requests table.
+  const SPONSORSHIP_CONTACT = 'events@m3monaco.com';
 
   // ── Product-image gallery (any member; shown on the public profile) ──
   const handleGalleryUpload = async (files: FileList) => {
@@ -2248,83 +2213,29 @@ export function OrganizationTab() {
       <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{isSponsorTier(org.tier as OrgTier) ? 'Upgrade Sponsorship' : 'Upgrade to Sponsor'}</DialogTitle>
+            <DialogTitle>{isSponsorTier(org.tier as OrgTier) ? 'Upgrade sponsorship' : 'Become a sponsor'}</DialogTitle>
             <DialogDescription>
               {isSponsorTier(org.tier as OrgTier)
-                ? `You are currently a ${TIER_LABELS[org.tier as OrgTier]}. Submit an upgrade request and M3 will contact you with details about the higher tier package. Your existing sponsorship investment will be accounted for.`
-                : 'Submit a sponsorship request to M3 Monaco. Our team will contact you with details about the selected package.'}
+                ? `You are currently a ${TIER_LABELS[org.tier as OrgTier]}. Talk to the M3 team about moving to a higher tier — your existing sponsorship investment is accounted for.`
+                : 'Sponsorship packages are arranged directly with the M3 team.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="space-y-2">
-              <Label>Select Sponsor Level</Label>
-              <Select value={upgradeTier} onValueChange={setUpgradeTier}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {(['innovation_partner', 'associate_partner', 'premium_partner', 'premium_sponsor', 'main_sponsor'] as OrgTier[])
-                    .filter(t => {
-                      // Only show tiers above the current tier
-                      const tierOrder: OrgTier[] = ['member', 'innovation_partner', 'associate_partner', 'premium_partner', 'premium_sponsor', 'main_sponsor'];
-                      return tierOrder.indexOf(t) > tierOrder.indexOf((org?.tier || 'member') as OrgTier);
-                    })
-                    .map(t => (
-                      <SelectItem key={t} value={t}>{TIER_LABELS[t]}</SelectItem>
-                    ))
-                  }
-                </SelectContent>
-              </Select>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+              <p className="font-medium mb-1">Tailored to your organization</p>
+              <p className="text-blue-700">
+                Every package is put together with you — the M3 team will walk you through the tiers,
+                benefits and pricing, then set everything up. Compare the tiers on the{' '}
+                <Link to="/tiers" className="underline font-medium" onClick={() => setUpgradeOpen(false)}>Tiers page</Link>.
+              </p>
             </div>
-            {/* Invoice Upload */}
-            <div className="space-y-2">
-              <Label>Upload Invoice (optional)</Label>
-              <p className="text-xs text-gray-500">If you have already received an invoice from M3, upload it here. PDF, JPG or PNG — up to 10&nbsp;MB.</p>
-              <input
-                ref={invoiceInputRef}
-                type="file"
-                accept=".pdf,.jpg,.jpeg,.png"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    if (file.size > 10 * 1024 * 1024) {
-                      toast({ title: 'File too large', description: 'Maximum 10 MB', variant: 'destructive' });
-                      return;
-                    }
-                    setUpgradeInvoiceFile(file);
-                  }
-                }}
-              />
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => invoiceInputRef.current?.click()}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  {upgradeInvoiceFile ? 'Change File' : 'Choose File'}
-                </Button>
-                {upgradeInvoiceFile && (
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <FileText className="h-4 w-4" />
-                    <span className="truncate max-w-[200px]">{upgradeInvoiceFile.name}</span>
-                    <button type="button" onClick={() => setUpgradeInvoiceFile(null)} className="text-gray-400 hover:text-red-500">
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-              <p className="font-medium mb-1">How it works:</p>
-              <ol className="list-decimal ml-4 space-y-1 text-blue-700">
-                <li>Submit your sponsorship request</li>
-                <li>M3 team will contact you with pricing details</li>
-                <li>Upload your invoice when received</li>
-                <li>Once payment is confirmed, your tier is upgraded</li>
-              </ol>
-            </div>
-            <div className="flex justify-end gap-3 pt-2">
-              <Button variant="outline" onClick={() => { setUpgradeOpen(false); setUpgradeInvoiceFile(null); }}>Cancel</Button>
-              <Button onClick={handleUpgradeRequest} disabled={upgradeSubmitting || uploadingInvoice} className="bg-primary hover:bg-primary/90">
-                {(upgradeSubmitting || uploadingInvoice) && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                Submit Request
+            <div className="flex flex-col sm:flex-row justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setUpgradeOpen(false)}>Close</Button>
+              <Button
+                className="bg-primary hover:bg-primary/90"
+                onClick={() => { window.location.href = `mailto:${SPONSORSHIP_CONTACT}?subject=${encodeURIComponent('Sponsorship enquiry — ' + (org.name || ''))}`; }}
+              >
+                <Mail className="h-4 w-4 mr-2" /> Contact the M3 team
               </Button>
             </div>
           </div>

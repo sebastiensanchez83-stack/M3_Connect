@@ -255,36 +255,6 @@ export function EventRegistrationFlow({
     }
   };
 
-  // Submit exposition request (exhibitor marina)
-  const submitExpositionRequest = async () => {
-    if (!user || !eventId || !organization?.id) return;
-    setRegistering(true);
-    try {
-      const { error } = await supabase.from('exposition_requests').insert({
-        organization_id: organization.id,
-        event_id: eventId,
-        requested_by: user.id,
-      });
-      if (error) {
-        if (error.code === '23505') {
-          toast({ title: 'Already requested', description: 'An exposition request already exists for this event.', variant: 'destructive' });
-        } else {
-          toast({ title: 'Request failed', description: error.message, variant: 'destructive' });
-        }
-      } else {
-        setStatus('expo_pending');
-        toast({
-          title: 'Exposition request submitted',
-          description: 'Smart Marina Connect will review your request and contact you.',
-        });
-      }
-    } catch (err) {
-      toast({ title: 'Request failed', description: 'An unexpected error occurred.', variant: 'destructive' });
-    } finally {
-      setRegistering(false);
-    }
-  };
-
   // Cancel registration
   const handleCancel = async () => {
     if (!user || !eventId) return;
@@ -523,27 +493,6 @@ export function EventRegistrationFlow({
                   </CardContent>
                 </Card>
               ))}
-
-              {/* Also offer marina-specific options if applicable */}
-              {isMarina && (
-                <Card
-                  className="cursor-pointer hover:border-primary hover:shadow-md transition-all duration-200 rounded-xl"
-                  onClick={() => {
-                    setPackageSelectOpen(false);
-                    submitExpositionRequest();
-                  }}
-                >
-                  <CardContent className="flex items-center gap-4 p-4">
-                    <div className="bg-amber-100 rounded-xl p-3">
-                      <Ship className="h-6 w-6 text-amber-700" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold">Exhibitor</h3>
-                      <p className="text-sm text-gray-600">Request an exhibition spot. Subject to approval.</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
             </div>
           </DialogContent>
         </Dialog>
@@ -592,48 +541,15 @@ export function EventRegistrationFlow({
     );
   }
 
-  // Marina (non-sponsor, no packages): choice between visitor and exhibitor
+  // Marina (non-sponsor, no packages): register as a visitor. Exhibitor/booth
+  // requests are no longer self-service — exhibition is arranged directly with
+  // the M3 team, so we register straight through rather than offering a choice.
   if (isMarina) {
     return (
-      <>
-        <Button onClick={() => setMarinaChoiceOpen(true)} disabled={registering} className="w-full sm:w-auto rounded-xl shadow-sm">
-          {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-          Register for this Event
-        </Button>
-
-        <Dialog open={marinaChoiceOpen} onOpenChange={setMarinaChoiceOpen}>
-          <DialogContent className="max-w-md rounded-2xl">
-            <DialogHeader>
-              <DialogTitle>How would you like to participate?</DialogTitle>
-              <DialogDescription>Choose your participation type for this event.</DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-3 mt-2">
-              <Card className="cursor-pointer hover:border-primary hover:shadow-md transition-all duration-200 rounded-xl" onClick={() => { setMarinaChoiceOpen(false); registerDirect('visitor'); }}>
-                <CardContent className="flex items-center gap-4 p-4">
-                  <div className="bg-blue-100 rounded-xl p-3">
-                    <Eye className="h-6 w-6 text-blue-700" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Visitor</h3>
-                    <p className="text-sm text-gray-600">Attend the event as a visitor. Subject to approval.</p>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="cursor-pointer hover:border-primary hover:shadow-md transition-all duration-200 rounded-xl" onClick={() => { setMarinaChoiceOpen(false); submitExpositionRequest(); }}>
-                <CardContent className="flex items-center gap-4 p-4">
-                  <div className="bg-amber-100 rounded-xl p-3">
-                    <Ship className="h-6 w-6 text-amber-700" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">Exhibitor</h3>
-                    <p className="text-sm text-gray-600">Request an exhibition spot. Subject to approval.</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </>
+      <Button onClick={() => registerDirect('visitor')} disabled={registering} className="w-full sm:w-auto rounded-xl shadow-sm">
+        {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+        Register for this Event
+      </Button>
     );
   }
 

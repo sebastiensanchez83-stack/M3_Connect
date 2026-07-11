@@ -38,6 +38,7 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
   registrationId: string; eventId: string; onChange?: () => void;
 }) {
   const [rows, setRows] = useState<InvoiceRow[]>([]);
+  const [billTo, setBillTo] = useState<{ company: string | null; address: string | null; vat: string | null }>({ company: null, address: null, vat: null });
   const [label, setLabel] = useState('');
   const [amount, setAmount] = useState('');
   const [notify, setNotify] = useState(true);
@@ -47,12 +48,16 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
   const { isDragging, dropHandlers } = useFileDrop(files => { const f = files[0]; if (f) void upload(f); }, uploading);
 
   const load = async () => {
-    const { data } = await supabase
-      .from('sm_invoice')
-      .select('id,file_path,label,amount_cents,currency,created_at')
-      .eq('registration_id', registrationId)
-      .order('created_at', { ascending: false });
+    const [{ data }, { data: reg }] = await Promise.all([
+      supabase.from('sm_invoice')
+        .select('id,file_path,label,amount_cents,currency,created_at')
+        .eq('registration_id', registrationId)
+        .order('created_at', { ascending: false }),
+      supabase.from('sm_registration').select('company_name,billing_address,vat_number').eq('id', registrationId).maybeSingle(),
+    ]);
     setRows((data || []) as InvoiceRow[]);
+    const r = reg as { company_name?: string | null; billing_address?: string | null; vat_number?: string | null } | null;
+    setBillTo({ company: r?.company_name || null, address: r?.billing_address || null, vat: r?.vat_number || null });
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [registrationId]);
 
@@ -156,6 +161,16 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
         <CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4 text-primary" /> Invoices</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
+        {(billTo.address || billTo.vat) ? (
+          <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-3 text-sm">
+            <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Bill to</div>
+            {billTo.company && <div className="font-medium text-gray-900">{billTo.company}</div>}
+            {billTo.address && <div className="text-gray-600 whitespace-pre-wrap">{billTo.address}</div>}
+            {billTo.vat && <div className="text-gray-500 mt-0.5">VAT: {billTo.vat}</div>}
+          </div>
+        ) : (
+          <p className="text-[11px] text-amber-600">No billing address / VAT captured yet — the participant can add it under “My details” in their event hub, or you can request it.</p>
+        )}
         {rows.length === 0 && <p className="text-sm text-gray-400">No invoice uploaded yet.</p>}
         {rows.map(r => (
           <div key={r.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3">

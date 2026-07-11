@@ -79,6 +79,8 @@ export const SM26_BASE_FIELDS: { key: string; label: string; multi?: boolean }[]
   { key: 'job_title', label: 'Job title' },
   { key: 'website', label: 'Website' },
   { key: 'country', label: 'Country' },
+  { key: 'billing_address', label: 'Billing address (for the invoice)', multi: true },
+  { key: 'vat_number', label: 'VAT number' },
   { key: 'objective', label: 'Objectives for attending', multi: true },
 ];
 

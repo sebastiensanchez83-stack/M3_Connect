@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
   Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target, Download,
-  ChevronLeft, ChevronRight, UserPlus,
+  ChevronLeft, ChevronRight, UserPlus, Eye,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,8 @@ import { SM26CompanyLink } from './SM26CompanyLink';
 import { SM26ProvisionDialog } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
 import { SM26RequestFields } from './SM26RequestFields';
+import { useAuth } from '@/contexts/AuthContext';
+import { startImpersonation } from '@/lib/impersonation';
 
 // SM26 registration detail — full contact + per-role module data, with the
 // registration status pipeline AND role management: add roles (auto-filling
@@ -303,6 +305,8 @@ interface Registration {
 export function AdminSM26Detail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { isAdmin } = useAuth();
+  const [viewingAs, setViewingAs] = useState(false);
   const [reg, setReg] = useState<Registration | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [paid, setPaid] = useState(false);
@@ -550,6 +554,26 @@ export function AdminSM26Detail() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {isAdmin && reg.user_id && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5 h-9"
+                  disabled={viewingAs}
+                  title="Open the platform in this participant's own account to see exactly what they see"
+                  onClick={async () => {
+                    setViewingAs(true);
+                    try {
+                      await startImpersonation(reg.user_id!);
+                    } catch (e) {
+                      toast({ title: 'Could not start view-as', description: (e as Error).message, variant: 'destructive' });
+                      setViewingAs(false);
+                    }
+                  }}
+                >
+                  <Eye className="h-4 w-4" /> {viewingAs ? 'Opening…' : 'View as this participant'}
+                </Button>
+              )}
               <Button size="sm" variant="outline" className="gap-1.5 h-9" onClick={() => setProvisionOpen(true)}>
                 <KeyRound className="h-4 w-4" /> {reg.user_id ? 'Platform identity' : 'Set up account'}
               </Button>

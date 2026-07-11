@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { AnnouncementBar, AnnouncementPopup } from '@/components/ui/SiteAnnouncements';
+import { ImpersonationBanner } from '@/components/ImpersonationBanner';
 import { AuthRedirector } from '@/components/auth/AuthRedirector';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -82,6 +83,7 @@ function App() {
       >
         Skip to main content
       </a>
+      <ImpersonationBanner />
       <AnnouncementBar />
       <Navbar />
       <AuthRedirector />

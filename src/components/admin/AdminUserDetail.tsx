@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, Save, Loader2, User, Building2,
   ExternalLink, UserCheck, FileCheck, FileMinus, FileX, Clock,
-  ArrowUpCircle, RefreshCw, ToggleLeft, Award,
+  ArrowUpCircle, RefreshCw, ToggleLeft, Award, Eye,
 } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
@@ -23,6 +23,8 @@ import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { startImpersonation } from '@/lib/impersonation';
+import { useAuth } from '@/contexts/AuthContext';
 import type { AdminProfile } from './types';
 
 interface ReferenceItem {
@@ -45,6 +47,8 @@ export function AdminUserDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { isAdmin } = useAuth();
+  const [viewingAs, setViewingAs] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -426,6 +430,26 @@ export function AdminUserDetail() {
           {getPersonaBadge(user.persona)}
           {getStatusBadge(user.access_status)}
         </div>
+        {isAdmin && id && user.persona !== 'admin' && user.persona !== 'moderator' && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={viewingAs}
+            title="Open the platform in this user's own account to see exactly what they see"
+            onClick={async () => {
+              setViewingAs(true);
+              try {
+                await startImpersonation(id);
+              } catch (e) {
+                toast({ title: 'Could not start view-as', description: (e as Error).message, variant: 'destructive' });
+                setViewingAs(false);
+              }
+            }}
+          >
+            <Eye className="h-4 w-4" /> {viewingAs ? 'Opening…' : 'View as this user'}
+          </Button>
+        )}
       </div>
 
       {/* SM26 event participation — single source (sm_registration) */}

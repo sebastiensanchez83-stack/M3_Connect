@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
+import { SM26PartnerSponsors } from '@/components/sm26/SM26PartnerSponsors';
 import { ECAT_STATUS_LABEL, ecatStatusClass } from '@/components/admin/AdminSM26Ecat';
 
 // Yacht Club / event-partner scoped view, geared to building the e-catalogue.
@@ -379,7 +380,7 @@ ${d.missing.length ? `<h2>Still missing for the catalogue</h2><p>${esc(d.missing
         <Section role="architect_pro" />
         <Section role="architect_student" />
         <Section role="jury" />
-        <Section role="sponsor" />
+        <SM26PartnerSponsors />
         <Section role="speaker" />
 
         {/* Programme (read-only) */}

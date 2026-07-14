@@ -377,9 +377,21 @@ export function SM26RegisterPage() {
 
     setSubmitting(true);
     try {
+      // A long-idle tab can keep `user` in memory (restored from a stored session)
+      // while its JWT has silently expired. The insert then reaches PostgREST with
+      // no valid token, auth.uid() resolves to null, and the RLS check
+      // (user_id = auth.uid()) fails with a cryptic "violates row-level security
+      // policy" error. Validate — and if needed refresh — the session first, and
+      // bounce to sign-in if it can't be recovered (entries auto-save on-device).
+      let authedId = (await supabase.auth.getUser()).data.user?.id ?? null;
+      if (!authedId) authedId = (await supabase.auth.refreshSession()).data.user?.id ?? null;
+      if (!authedId) {
+        toast({ title: 'Your session has expired', description: 'Please sign in again, then resubmit — your entries are saved on this device.', variant: 'destructive' });
+        return;
+      }
       const { data: reg, error: regErr } = await supabase.from('sm_registration').insert({
         event_id: eventId,
-        user_id: user.id,
+        user_id: authedId,
         organization_id: organization?.id ?? null,
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
@@ -395,8 +407,15 @@ export function SM26RegisterPage() {
       }).select('id').single();
 
       if (regErr || !reg) {
-        toast({ title: 'Registration failed', description: regErr?.message, variant: 'destructive' });
-        setSubmitting(false); return;
+        const sessionLost = regErr?.message?.includes('row-level security');
+        toast({
+          title: sessionLost ? 'Your session has expired' : 'Registration failed',
+          description: sessionLost
+            ? 'Please sign in again, then resubmit — your entries are saved on this device.'
+            : regErr?.message,
+          variant: 'destructive',
+        });
+        return;
       }
 
       // If the member already has a logo on their SMC organisation, reuse it so

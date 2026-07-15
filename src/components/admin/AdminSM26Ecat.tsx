@@ -144,6 +144,15 @@ export function AdminSM26Ecat() {
     return true;
   };
 
+  // Send a page to the designer + email the Yacht Club designer(s) that there
+  // are pages waiting to be designed.
+  const sendToDesigner = async (p: Page) => {
+    const ok = await patch(p, { status: 'exported' });
+    if (!ok) return;
+    void supabase.functions.invoke('sm26-ecat-designer', { body: { registration_id: p.registration_id } }).catch(() => {});
+    toast({ title: 'Sent to the designer', description: 'The Yacht Club has been emailed that a page is ready to design.' });
+  };
+
   const uploadDesigned = async (p: Page, file: File) => {
     if (!user) return;
     setBusy(p.id);
@@ -366,7 +375,7 @@ export function AdminSM26Ecat() {
                         onChange={e => { const f = e.target.files?.[0]; if (f) uploadDesigned(p, f); e.target.value = ''; }} />
 
                       {p.status === 'awaiting_export' && (
-                        <Button size="sm" className="gap-1.5" onClick={() => patch(p, { status: 'exported' })} disabled={isBusy}>
+                        <Button size="sm" className="gap-1.5" onClick={() => sendToDesigner(p)} disabled={isBusy}>
                           <Send className="h-3.5 w-3.5" /> Send to designer
                         </Button>
                       )}

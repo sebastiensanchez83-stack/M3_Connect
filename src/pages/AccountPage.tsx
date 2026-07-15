@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
+import { SM26PartnerConsoleCard } from '@/components/sm26/SM26PartnerConsoleCard';
 import { SM26MyRegistrationPage } from '@/pages/SM26MyRegistrationPage';
 import { SponsorPortal } from '@/components/sponsorship/SponsorPortal';
 import { useAuth } from '@/contexts/AuthContext';
@@ -783,6 +784,9 @@ export function AccountPage() {
 
             {/* SM26 event participation — single source (sm_registration), so any status change shows here automatically */}
             {user && <SM26ParticipationCard userId={user.id} variant="self" />}
+
+            {/* Event partner console access (Yacht Club / Yachting Ventures) — shows only for event partners */}
+            <SM26PartnerConsoleCard />
 
             {/* Analytics Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

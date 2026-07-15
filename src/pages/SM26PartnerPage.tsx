@@ -15,6 +15,7 @@ import { toast } from '@/hooks/use-toast';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { SM26PartnerSponsors } from '@/components/sm26/SM26PartnerSponsors';
 import { ECAT_STATUS_LABEL, ecatStatusClass } from '@/components/admin/AdminSM26Ecat';
+import { downloadDossierZip, downloadAsset } from '@/lib/dossierExport';
 
 // Yacht Club / event-partner scoped view, geared to building the e-catalogue.
 // Drill into any entry to see its content + uploaded assets and what's still
@@ -229,69 +230,32 @@ export function SM26PartnerPage() {
     setMsg('');
   };
 
-  // One-click "everything" export for the catalogue designers: a self-contained
-  // HTML file with all base fields, every text answer, and images inlined as data
-  // URIs (so it survives signed-URL expiry). Open in a browser / print to PDF.
+  // One-click "everything" export for the catalogue designers: a .zip holding a
+  // readable PDF (all base fields, every text answer, inline images) plus an
+  // assets/ folder with every original image and file at full quality.
   const downloadDossier = async () => {
     if (!dossier) return;
     const d = dossier;
     setBusy('dossier');
     try {
-      const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const title = d.company || d.name || 'Entry';
-      const baseRows: [string, string | null][] = [
-        ['Name', d.name], ['Company', d.company], ['Job title', d.job_title],
-        ['Country', d.country], ['Website', d.website], ['Email', d.email],
-      ];
-      const imgBlocks: string[] = [];
-      const fileRows: string[] = [];
-      for (const a of d.assets) {
-        if (isImg(a.value)) {
-          const src = isHttp(a.value) ? a.value : d.signed[a.value];
-          let uri = src || '';
-          try {
-            if (src) {
-              const blob = await (await fetch(src)).blob();
-              uri = await new Promise<string>((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result)); fr.onerror = rej; fr.readAsDataURL(blob); });
-            }
-          } catch { /* keep the (possibly signed) direct URL */ }
-          if (uri) imgBlocks.push(`<figure><img src="${uri}" alt="${esc(a.label)}"/><figcaption>${esc(a.label)}</figcaption></figure>`);
-        } else {
-          const fn = a.value.split('/').pop()?.split('?')[0] || 'file';
-          fileRows.push(`<li><strong>${esc(a.label)}:</strong> ${esc(fn)}</li>`);
-        }
-      }
-      const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"/><title>${esc(title)} — SM26 dossier</title>
-<style>body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:780px;margin:32px auto;padding:0 20px;color:#16264a;line-height:1.5}
-h1{font-size:24px;margin:0 0 2px}.sub{color:#6b7a99;margin:0 0 22px}
-h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#8b96b0;border-bottom:1px solid #eef0f4;padding-bottom:5px;margin:26px 0 10px}
-table{width:100%;border-collapse:collapse}td{padding:4px 6px;vertical-align:top}td.k{color:#6b7a99;width:140px}
-.field{margin:0 0 14px}.field .l{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#9aa3ba;margin-bottom:1px}.field .v{white-space:pre-wrap}
-figure{display:inline-block;margin:0 14px 14px 0;text-align:center}img{max-width:230px;max-height:190px;border:1px solid #eef0f4;border-radius:8px;display:block}
-figcaption{font-size:10px;color:#9aa3ba;text-transform:uppercase;margin-top:3px}ul{padding-left:18px}</style></head>
-<body>
-<h1>${esc(title)}</h1>
-<p class="sub">Smart &amp; Sustainable Marina Rendezvous 2026${d.role ? ` · ${esc(ROLE_META[d.role]?.singular || d.role)}` : ''}</p>
-<h2>Contact &amp; profile</h2>
-<table>${baseRows.filter(([, v]) => v).map(([k, v]) => `<tr><td class="k">${esc(k)}</td><td>${esc(String(v))}</td></tr>`).join('')}</table>
-${d.text.length ? `<h2>Details</h2>${d.text.map(t => `<div class="field"><div class="l">${esc(t.label)}</div><div class="v">${esc(t.value)}</div></div>`).join('')}` : ''}
-${imgBlocks.length ? `<h2>Images</h2>${imgBlocks.join('')}` : ''}
-${fileRows.length ? `<h2>Other files</h2><ul>${fileRows.join('')}</ul><p style="font-size:11px;color:#9aa3ba">Download these from the entry in the partner area.</p>` : ''}
-${d.missing.length ? `<h2>Still missing for the catalogue</h2><p>${esc(d.missing.join(', '))}</p>` : ''}
-</body></html>`;
-      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const base = (d.company || d.name || 'entry').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'entry';
-      link.href = url; link.download = `${base}-sm26-dossier.html`;
-      document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1500);
-      toast({ title: 'Dossier downloaded', description: 'Open it in a browser — print to PDF if you need a PDF.' });
+      await downloadDossierZip({
+        company: d.company, name: d.name, job_title: d.job_title, country: d.country,
+        website: d.website, email: d.email,
+        roleLabel: d.role ? (ROLE_META[d.role]?.singular || d.role) : null,
+        text: d.text, assets: d.assets, signed: d.signed, missing: d.missing,
+      });
+      toast({ title: 'Dossier downloaded', description: 'A .zip with the PDF summary and all original files.' });
     } catch {
       toast({ title: 'Could not build the dossier', variant: 'destructive' });
     } finally {
       setBusy(null);
     }
+  };
+
+  // Direct download of a single asset (the real file, not an open-in-tab).
+  const downloadOne = async (value: string) => {
+    try { await downloadAsset(value, dossier?.signed || {}); }
+    catch { toast({ title: 'Could not download the file', variant: 'destructive' }); }
   };
 
   if (authLoading || access === 'loading') return <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -493,7 +457,7 @@ ${d.missing.length ? `<h2>Still missing for the catalogue</h2><p>${esc(d.missing
               <div className="flex justify-end -mt-2">
                 <button onClick={downloadDossier} disabled={busy === 'dossier'}
                   className="inline-flex items-center gap-1.5 text-xs font-medium border border-gray-200 rounded-md px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-60">
-                  {busy === 'dossier' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download full dossier
+                  {busy === 'dossier' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download full dossier (.zip)
                 </button>
               </div>
 
@@ -527,7 +491,7 @@ ${d.missing.length ? `<h2>Still missing for the catalogue</h2><p>${esc(d.missing
                               {isImg(a.value) ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />} <span className="truncate">{filename}</span>
                             </button>
                           )}
-                          <button onClick={() => openAsset(a.value)} className="mt-1.5 w-full inline-flex items-center justify-center gap-1 text-[11px] text-gray-600 border border-gray-200 rounded-md py-1 hover:bg-gray-50">
+                          <button onClick={() => downloadOne(a.value)} className="mt-1.5 w-full inline-flex items-center justify-center gap-1 text-[11px] text-gray-600 border border-gray-200 rounded-md py-1 hover:bg-gray-50">
                             <Download className="h-3 w-3" /> Download
                           </button>
                         </div>

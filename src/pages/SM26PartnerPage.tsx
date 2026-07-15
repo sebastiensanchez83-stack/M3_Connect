@@ -304,9 +304,12 @@ export function SM26PartnerPage() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-gray-900 truncate">{title}</div>
                       {sub && <div className="text-xs text-gray-500 truncate">{sub}</div>}
-                      {e.role === 'startup' && e.payment_status && (
-                        <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${e.payment_status === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                          {e.payment_status === 'paid' ? 'Paid' : 'Awaiting payment'}
+                      {e.payment_status && (
+                        <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${
+                          e.payment_status === 'paid' ? 'bg-green-50 text-green-700 border-green-200'
+                          : e.payment_status === 'free' ? 'bg-gray-50 text-gray-500 border-gray-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                          {e.payment_status === 'paid' ? 'Paid' : e.payment_status === 'free' ? 'Free entry' : 'Awaiting payment'}
                         </span>
                       )}
                       {e.role === 'jury' && e.jury_scope && (

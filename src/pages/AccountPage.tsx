@@ -29,6 +29,7 @@ import { InboxTab } from '@/components/inbox/InboxTab';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { resizeImage, fileMeta } from '@/lib/image';
+import { requireFreshSession } from '@/lib/session';
 
 interface EventRegistration {
   id: string;
@@ -206,6 +207,8 @@ export function AccountPage() {
 
   const handleSaveProfile = async () => {
     if (!user) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setSavingProfile(true);
     try {
       const { error: updateError } = await supabase
@@ -238,6 +241,8 @@ export function AccountPage() {
       toast({ title: 'File too large', description: 'Maximum 25 MB', variant: 'destructive' });
       return;
     }
+    const uid = await requireFreshSession();
+    if (!uid) return;
     const setter = type === 'avatar' ? setUploadingAvatar : setUploadingLogo;
     setter(true);
     try {

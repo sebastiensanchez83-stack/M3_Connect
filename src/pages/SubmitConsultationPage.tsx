@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
 import { notifyAdmin } from '@/lib/notifications';
+import { requireFreshSession } from '@/lib/session';
 
 export function SubmitConsultationPage() {
   const { t } = useTranslation();
@@ -75,6 +76,9 @@ export function SubmitConsultationPage() {
       toast({ title: t('submitConsultation.errorRequired'), description: t('submitConsultation.errorRequiredDesc'), variant: 'destructive' });
       return;
     }
+
+    const uid = await requireFreshSession();
+    if (!uid) return;
 
     setLoading(true);
     try {

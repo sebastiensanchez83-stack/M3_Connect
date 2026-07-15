@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import { checkSectorMatch } from '@/lib/sector-matching';
@@ -174,6 +175,8 @@ export function OrganizationPublicPage() {
 
   const handleSendConnectRequest = async () => {
     if (!user || !org || !org.owner_user_id) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setConnectSending(true);
     try {
       // Sector matching gate: marinas and partners must have overlapping

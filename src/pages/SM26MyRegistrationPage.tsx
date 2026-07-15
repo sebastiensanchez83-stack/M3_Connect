@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { SM26_ROLE_LABELS, roleStatusBadgeClass, prettyStatus, sm26FieldLabel } from '@/components/admin/AdminSM26';
 import { SM26Notifications } from '@/components/sm26/SM26Notifications';
@@ -158,6 +159,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   };
 
   const respondEcat = async (page: EcatPage, action: 'approve' | 'request_changes') => {
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setEcatBusy(page.id);
     const { error } = await supabase.rpc('sm_ecat_respond', {
       p_page_id: page.id, p_action: action, p_comment: action === 'request_changes' ? (changeNote[page.id] || '') : null,
@@ -182,6 +185,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     const nextStatus = allRequiredMet && (role.status === 'needs_info' || role.status === 'admin_added')
       ? 'info_provided'
       : role.status;
+    const uid = await requireFreshSession();
+    if (!uid) return false;
     const { error } = await supabase
       .from('sm_role_assignment')
       .update({ module_data: moduleData, status: nextStatus })
@@ -206,6 +211,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
 
   // Jury on-site opt-in: adds/removes the entry badge (the on-site check-in list).
   const setOnsite = async (role: RoleAssignment, attending: boolean) => {
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setOnsiteBusy(role.id);
     const { error } = await supabase.rpc('sm_set_onsite_attendance', { p_role_assignment_id: role.id, p_attending: attending });
     setOnsiteBusy(null);
@@ -242,6 +249,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
       ? 'Start a new registration? This permanently replaces your current registration — including the pending invoice on it — so you can choose how to take part again.'
       : 'Start a new registration? This permanently replaces your current registration — including any details you entered — so you can choose how to take part again.';
     if (!window.confirm(confirmMsg)) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setStatusBusy(true);
     const { data, error } = await supabase.rpc('sm_restart_registration', { p_event_id: reg.event_id });
     setStatusBusy(false);
@@ -268,6 +277,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const setRegStatus = async (status: 'cancelled' | 'submitted') => {
     if (!reg) return;
     if (status === 'cancelled' && !window.confirm('Unregister from the Smart & Sustainable Marina Rendezvous 2026? M3 will see that you have withdrawn. You can re-register later.')) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setStatusBusy(true);
     const { error } = await supabase.from('sm_registration').update({ status }).eq('id', reg.id);
     setStatusBusy(false);

@@ -12,6 +12,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { requireFreshSession } from '@/lib/session';
 import { sendNotification } from '@/lib/notifications';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -291,6 +292,8 @@ export function OrganizationTab() {
       toast({ title: 'File too large', description: 'Maximum 20 MB', variant: 'destructive' });
       return;
     }
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setUploadingDoc(true);
     try {
       const ext = file.name.split('.').pop() || 'pdf';
@@ -501,6 +504,8 @@ export function OrganizationTab() {
 
   const handleCreate = async () => {
     if (!createForm.name.trim()) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setCreating(true);
     try {
       // Check for duplicate domain before creating
@@ -565,6 +570,8 @@ export function OrganizationTab() {
 
   const handleSaveEdit = async () => {
     if (!org) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setSaving(true);
     try {
       // Save organization base fields
@@ -681,6 +688,8 @@ export function OrganizationTab() {
       toast({ title: t('common.error'), description: t('org.inviteDomainMismatch'), variant: 'destructive' });
       return;
     }
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setInviting(true);
     try {
       const { error } = await supabase

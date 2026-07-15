@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { requireFreshSession } from '@/lib/session';
 import { useSm26RosterLock } from './useSm26EditLock';
 
 // Named-attendee roster for one SM26 registration. The person who filled the
@@ -78,6 +79,8 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
   };
 
   const saveRow = async (r: Attendee) => {
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setBusy(r.id);
     const { error } = await supabase.from('sm_attendee').update({
       first_name: r.first_name?.trim() || null,
@@ -99,6 +102,8 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
   };
 
   const setAttending = async (r: Attendee, v: boolean) => {
+    const uid = await requireFreshSession();
+    if (!uid) return;
     patch(r.id, { attending: v });
     const { error } = await supabase.from('sm_attendee').update({ attending: v, updated_at: new Date().toISOString() }).eq('id', r.id);
     if (error) { patch(r.id, { attending: !v }); toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
@@ -109,6 +114,8 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
     if (!draft.first_name.trim() && !draft.email.trim()) {
       toast({ title: 'Add at least a name or an email', variant: 'destructive' }); return;
     }
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setAdding(true);
     const { error } = await supabase.from('sm_attendee').insert({
       registration_id: registrationId, event_id: eventId,
@@ -128,6 +135,8 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
   const remove = async (r: Attendee) => {
     if (r.is_primary) return;
     if (!window.confirm('Remove this attendee from the list?')) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setBusy(r.id);
     const { error } = await supabase.from('sm_attendee').delete().eq('id', r.id);
     setBusy(null);
@@ -159,6 +168,8 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
   };
 
   const confirmList = async (val: boolean) => {
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setConfirming(true);
     const { data, error } = await supabase.rpc('sm_confirm_attendees', { p_registration_id: registrationId, p_confirmed: val });
     setConfirming(false);

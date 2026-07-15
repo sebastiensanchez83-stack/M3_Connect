@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 
@@ -60,6 +61,8 @@ export function SM26FeedbackPage() {
     const missing = questions.filter(q => q.required && !answers[q.key]);
     if (missing.length > 0) { toast({ title: 'Please answer the required questions', variant: 'destructive' }); return; }
     if (!eventId || !user) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setSaving(true);
     const { error } = await supabase.from('sm_feedback_response').upsert({
       event_id: eventId, user_id: user.id, answers, submitted_at: new Date().toISOString(),

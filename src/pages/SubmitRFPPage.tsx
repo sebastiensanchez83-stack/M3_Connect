@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
 import { notifyAdmin } from '@/lib/notifications';
+import { requireFreshSession } from '@/lib/session';
 
 export function SubmitRFPPage() {
   const { t } = useTranslation();
@@ -92,6 +93,9 @@ export function SubmitRFPPage() {
       toast({ title: t('submitRfp.errorRequired'), description: t('submitRfp.errorRequiredDesc'), variant: 'destructive' });
       return;
     }
+
+    const uid = await requireFreshSession();
+    if (!uid) return;
 
     setLoading(true);
     try {

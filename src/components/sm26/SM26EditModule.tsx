@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { useSm26EditLock } from '@/components/sm26/useSm26EditLock';
@@ -83,6 +84,8 @@ function TableTextEditor({ roleAssignmentId, table, fields, title, subtitle, ico
 
   const save = async () => {
     if (locked) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setSaving(true);
     const patch: Record<string, unknown> = {};
     for (const f of fields) patch[f.key] = vals[f.key]?.trim() || null;
@@ -165,6 +168,8 @@ function StartupEditor({ roleAssignmentId, locked, prettyDate }: { roleAssignmen
 
   const save = async () => {
     if (locked) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setSaving(true);
     const patch: Record<string, unknown> = {
       startup_or_scaleup: startup.startup_or_scaleup || null, stage: startup.stage || null,
@@ -235,6 +240,8 @@ function ModuleTextEditor({ roleAssignmentId, locked, prettyDate }: { roleAssign
 
   const save = async () => {
     if (locked) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setSaving(true);
     const patch: Record<string, unknown> = { ...base };
     for (const f of fields) patch[f.key] = f.value.trim() || null;

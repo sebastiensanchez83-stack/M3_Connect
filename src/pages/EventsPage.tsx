@@ -13,6 +13,7 @@ import { AdBanner } from '@/components/ui/AdBanner';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { SM26_ENABLED } from '@/lib/featureFlags';
+import { requireFreshSession } from '@/lib/session';
 
 interface Event {
   id: string;
@@ -158,6 +159,8 @@ export function EventsPage() {
       });
       return;
     }
+    const uid = await requireFreshSession();
+    if (!uid) return;
     const { error } = await supabase.from('event_registrations').insert({
       event_id: eventId,
       user_id: user.id,

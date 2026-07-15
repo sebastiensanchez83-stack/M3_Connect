@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { notifyAdmin, sendNotification } from '@/lib/notifications';
 import { Lock, Anchor, Loader2 } from 'lucide-react';
@@ -82,6 +83,8 @@ export function SubmitProjectPage() {
       return;
     }
     if (!user) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setLoading(true);
 
     if (isEditMode && id) {

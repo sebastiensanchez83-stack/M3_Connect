@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
@@ -203,6 +204,8 @@ export function InboxTab() {
 
   // Action handlers
   const handlePartnerResponse = async (item: InboxItem & { kind: 'partner_request' }, newStatus: 'accepted' | 'rejected') => {
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setActingOn(item.data.id);
     const { error } = await supabase
       .from('partner_requests')
@@ -241,6 +244,8 @@ export function InboxTab() {
   };
 
   const handleJoinResponse = async (item: InboxItem & { kind: 'join_request' }, approve: boolean) => {
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setActingOn(item.data.id);
     const rpc = approve ? 'approve_join_request' : 'reject_join_request';
     const { error } = await supabase.rpc(rpc, { p_invitation_id: item.data.id });

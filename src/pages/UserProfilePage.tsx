@@ -13,6 +13,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import { checkSectorMatch } from '@/lib/sector-matching';
+import { requireFreshSession } from '@/lib/session';
 import {
   Building2, Anchor, Newspaper, ChevronLeft, Link2, Loader2,
   Users, Mail, Briefcase, CheckCircle, MapPin,
@@ -115,6 +116,8 @@ export function UserProfilePage() {
 
   const handleSendConnectRequest = async () => {
     if (!user || !id) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setConnectSending(true);
     try {
       // Sector matching gate (only relevant for cross-type connections marina↔partner)

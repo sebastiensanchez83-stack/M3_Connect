@@ -19,6 +19,7 @@ import {
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { Sector, OrgTier } from '@/types/database';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { AdBanner } from '@/components/ui/AdBanner';
@@ -188,6 +189,8 @@ export function MarketplacePage() {
 
   const handleExpressInterest = async () => {
     if (!user || !interestTarget) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setInterestSending(true);
     try {
       // Sector matching gate
@@ -610,6 +613,9 @@ export function MarketplacePage() {
       toast({ title: t('marketplace.messageRequired'), description: t('marketplace.messageRequiredDesc'), variant: 'destructive' });
       return;
     }
+
+    const uid = await requireFreshSession();
+    if (!uid) return;
 
     setContactSending(true);
     try {

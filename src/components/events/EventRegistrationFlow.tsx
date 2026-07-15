@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
+import { requireFreshSession } from '@/lib/session';
 import { OrgTier, isSponsorTier, TIER_LABELS } from '@/types/database';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import type { CalendarEventInput } from '@/lib/utils';
@@ -191,6 +192,9 @@ export function EventRegistrationFlow({
       }
     }
 
+    const uid = await requireFreshSession();
+    if (!uid) return;
+
     setRegistering(true);
     try {
       // Work out whether this registration actually costs anything. Free
@@ -258,6 +262,8 @@ export function EventRegistrationFlow({
   // Cancel registration
   const handleCancel = async () => {
     if (!user || !eventId) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setRegistering(true);
     try {
       const { error } = await supabase.from('event_registrations').delete().eq('event_id', eventId).eq('user_id', user.id);

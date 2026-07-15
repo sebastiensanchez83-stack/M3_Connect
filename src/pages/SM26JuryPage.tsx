@@ -11,6 +11,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { SM26AssetGallery } from '@/components/sm26/SM26AssetGallery';
 
@@ -125,6 +126,9 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
       const missingComment = tpl.criteria.find(c => c.critical && (draft[c.id]?.score ?? 0) < threshold && !(draft[c.id]?.comment || '').trim());
       if (missingComment) { toast({ title: 'A comment is required', description: `Low score on a critical criterion ("${missingComment.label}") needs a justification.`, variant: 'destructive' }); return; }
     }
+
+    const uid = await requireFreshSession();
+    if (!uid) return;
 
     setSaving(true);
     const total = computeTotal(tpl);

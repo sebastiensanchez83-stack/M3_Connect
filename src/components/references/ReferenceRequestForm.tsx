@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import {
   Award, Send, Loader2, Plus, Trash2, CheckCircle, AlertCircle, Globe, Briefcase,
@@ -138,6 +139,9 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
       toast({ title: 'Missing info', description: 'At least one recipient email is required.', variant: 'destructive' });
       return;
     }
+
+    const uid = await requireFreshSession();
+    if (!uid) return;
 
     setSaving(true);
     try {

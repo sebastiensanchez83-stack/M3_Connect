@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
+import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { SM26_BASE_FIELDS } from '@/components/admin/AdminSM26';
 import { useSm26EditLock } from './useSm26EditLock';
@@ -53,6 +54,8 @@ export function SM26EditDetails({ registrationId, regStatus, onSaved }: { regist
       toast({ title: 'Name required', description: 'First and last name can’t be empty.', variant: 'destructive' });
       return;
     }
+    const uid = await requireFreshSession();
+    if (!uid) return;
     setSaving(true);
     const patch: Record<string, string | null> = {};
     for (const f of SM26_BASE_FIELDS) patch[f.key] = values[f.key]?.trim() || null;

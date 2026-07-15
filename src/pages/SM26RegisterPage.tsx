@@ -9,6 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { getFreshUserId } from '@/lib/session';
 import {
   CheckCircle, Loader2, Eye, Ship, Lightbulb, Compass, GraduationCap,
   Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight,
@@ -383,8 +384,7 @@ export function SM26RegisterPage() {
       // (user_id = auth.uid()) fails with a cryptic "violates row-level security
       // policy" error. Validate — and if needed refresh — the session first, and
       // bounce to sign-in if it can't be recovered (entries auto-save on-device).
-      let authedId = (await supabase.auth.getUser()).data.user?.id ?? null;
-      if (!authedId) authedId = (await supabase.auth.refreshSession()).data.user?.id ?? null;
+      const authedId = await getFreshUserId();
       if (!authedId) {
         toast({ title: 'Your session has expired', description: 'Please sign in again, then resubmit — your entries are saved on this device.', variant: 'destructive' });
         return;

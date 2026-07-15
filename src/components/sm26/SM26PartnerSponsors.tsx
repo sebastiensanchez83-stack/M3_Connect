@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Award, Check } from 'lucide-react';
+import { Loader2, Award, Check, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
@@ -8,7 +8,9 @@ import { toast } from '@/hooks/use-toast';
 
 // Yacht Club view of the Smart Marina Event sponsors + their deliverables. No
 // fees or non-event programs (server-scoped via sm_partner_sponsors). The YCM
-// team ticks each deliverable as it is produced (sm_partner_benefit_deliver).
+// team ticks each deliverable as it is produced (sm_partner_benefit_deliver),
+// and can DOWNLOAD each sponsor's uploaded marketing/e-catalogue assets (logos,
+// deliverable files, designed e-cat page) via sm-sponsor-assets (signed URLs).
 
 interface Row {
   sponsor_id: string; company_name: string | null;
@@ -16,14 +18,21 @@ interface Row {
   fulfilment_type: string; status: string; delivered: boolean;
 }
 interface Group { sponsor_id: string; company_name: string; items: Row[] }
+interface Asset { group: string; label: string; filename: string; url: string; is_image: boolean; is_external: boolean }
+
+const GROUP_LABEL: Record<string, string> = { logo: 'Logos & brand', deliverable: 'Uploaded files', ecat: 'E-catalogue page' };
 
 export function SM26PartnerSponsors() {
   const [groups, setGroups] = useState<Group[]>([]);
+  const [assets, setAssets] = useState<Map<string, Asset[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = async () => {
-    const { data } = await supabase.rpc('sm_partner_sponsors');
+    const [{ data }, assetRes] = await Promise.all([
+      supabase.rpc('sm_partner_sponsors'),
+      supabase.functions.invoke('sm-sponsor-assets').then(r => r, () => null),
+    ]);
     const rows = (data || []) as Row[];
     const by = new Map<string, Group>();
     for (const r of rows) {
@@ -32,6 +41,11 @@ export function SM26PartnerSponsors() {
       by.set(r.sponsor_id, g);
     }
     setGroups([...by.values()]);
+
+    const am = new Map<string, Asset[]>();
+    const list = (assetRes?.data?.sponsors || []) as { sponsor_id: string; assets: Asset[] }[];
+    for (const s of list) am.set(s.sponsor_id, s.assets || []);
+    setAssets(am);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -77,6 +91,32 @@ export function SM26PartnerSponsors() {
                   </label>
                 ))}
               </div>
+
+              {/* Downloadable assets the sponsor uploaded — logos, files, e-cat page */}
+              {(() => {
+                const list = assets.get(g.sponsor_id) || [];
+                if (list.length === 0) return <p className="mt-3 text-[11px] text-gray-400">No sponsor files uploaded yet.</p>;
+                return (
+                  <div className="mt-3 pt-2.5 border-t border-gray-100">
+                    <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">Downloads — marketing &amp; e-catalogue</div>
+                    <div className="flex flex-wrap gap-2">
+                      {list.map((a, idx) => a.is_image ? (
+                        <a key={idx} href={a.url} target="_blank" rel="noreferrer" title={`${a.label} — ${GROUP_LABEL[a.group] || a.group}`}
+                          className="relative block h-16 w-16 rounded-md border border-gray-200 overflow-hidden bg-white hover:ring-2 hover:ring-primary/30">
+                          <img src={a.url} alt={a.label} className="h-full w-full object-contain" />
+                          <span className="absolute bottom-0 right-0 bg-white/90 rounded-tl p-0.5"><Download className="h-3 w-3 text-gray-500" /></span>
+                        </a>
+                      ) : (
+                        <a key={idx} href={a.url} target="_blank" rel="noreferrer" title={GROUP_LABEL[a.group] || a.group}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
+                          <Download className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                          <span className="truncate max-w-[12rem]">{a.label}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}

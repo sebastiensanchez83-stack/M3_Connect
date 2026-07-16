@@ -188,6 +188,10 @@ export function AdminSM26() {
   // Per-registration progress: payment settled + architecture entry files.
   const [paidSet, setPaidSet] = useState<Set<string>>(new Set());
   const [archProgress, setArchProgress] = useState<Map<string, { panels: number; notice: boolean }>>(new Map());
+  // Media-kit status per registration: 'sent' (files + participant notified) or
+  // 'ready' (files uploaded, not yet sent). Absent = no kit.
+  const [mediaKit, setMediaKit] = useState<Map<string, 'sent' | 'ready'>>(new Map());
+  const [mkFilter, setMkFilter] = useState<'' | 'sent' | 'ready'>('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -222,7 +226,7 @@ export function AdminSM26() {
     setLoading(true);
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setRows([]); setLoading(false); return; }
-    const [regsRes, paysRes, filesRes] = await Promise.all([
+    const [regsRes, paysRes, filesRes, mkRes, mkFilesRes] = await Promise.all([
       supabase
         .from('sm_registration')
         .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id,num_attendees,attendees_confirmed_at, roles:sm_role_assignment(id,role,status,scope,module_data, startup:sm_startup_profile(logo_url), architecture:sm_architecture_entry(logo_url,company_image_url))')
@@ -230,6 +234,8 @@ export function AdminSM26() {
         .order('created_at', { ascending: false }),
       supabase.from('sm_payment').select('registration_id,status'),
       supabase.from('sm_architecture_file').select('role_assignment_id,kind'),
+      supabase.from('sm_media_kit').select('registration_id,notified_at'),
+      supabase.from('sm_media_kit_file').select('registration_id'),
     ]);
     setRows((regsRes.data || []) as RegRow[]);
     const ps = new Set<string>();
@@ -245,6 +251,12 @@ export function AdminSM26() {
       ap.set(f.role_assignment_id, cur);
     }
     setArchProgress(ap);
+    // Media-kit status: has files -> 'ready', has files + notified -> 'sent'.
+    const notified = new Set<string>();
+    for (const k of (mkRes.data || []) as { registration_id: string; notified_at: string | null }[]) if (k.notified_at) notified.add(k.registration_id);
+    const mk = new Map<string, 'sent' | 'ready'>();
+    for (const f of (mkFilesRes.data || []) as { registration_id: string }[]) mk.set(f.registration_id, notified.has(f.registration_id) ? 'sent' : 'ready');
+    setMediaKit(mk);
     setLoading(false);
   };
 
@@ -257,10 +269,13 @@ export function AdminSM26() {
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
     if (noAccountOnly && r.user_id) return false;
     if (readyToInvoiceOnly && !(r.attendees_confirmed_at && !paidSet.has(r.id))) return false;
+    if (mkFilter && mediaKit.get(r.id) !== mkFilter) return false;
     return true;
   });
 
   const readyToInvoiceCount = rows.filter(r => r.attendees_confirmed_at && !paidSet.has(r.id)).length;
+  const mkSentCount = rows.filter(r => mediaKit.get(r.id) === 'sent').length;
+  const mkReadyCount = rows.filter(r => mediaKit.get(r.id) === 'ready').length;
 
   // Summary counts by registration status
   const counts: Record<string, number> = {};
@@ -423,6 +438,24 @@ export function AdminSM26() {
             Ready to invoice · {readyToInvoiceCount}
           </button>
         )}
+        {mkReadyCount > 0 && (
+          <button
+            onClick={() => setMkFilter(f => f === 'ready' ? '' : 'ready')}
+            title="Media kit uploaded but the participant has not been notified yet"
+            className={`text-xs px-2.5 py-1 rounded-full border transition-all bg-amber-50 text-amber-700 border-amber-200 ${mkFilter === 'ready' ? 'ring-2 ring-primary/30' : ''}`}
+          >
+            Media kit to send · {mkReadyCount}
+          </button>
+        )}
+        {mkSentCount > 0 && (
+          <button
+            onClick={() => setMkFilter(f => f === 'sent' ? '' : 'sent')}
+            title="Media kit uploaded and the participant has been notified"
+            className={`text-xs px-2.5 py-1 rounded-full border transition-all bg-green-50 text-green-700 border-green-200 ${mkFilter === 'sent' ? 'ring-2 ring-primary/30' : ''}`}
+          >
+            Media kit sent · {mkSentCount}
+          </button>
+        )}
       </div>
 
       {/* Confirmed-but-not-onboarded backfill — provision + welcome invite, admin-triggered */}
@@ -579,6 +612,11 @@ export function AdminSM26() {
                             ? [r.attendees_confirmed_at ? { t: 'Attendees ✓', c: 'green' } : { t: 'Attendees pending', c: 'amber' }]
                             : []),
                           paidSet.has(r.id) ? { t: 'Paid ✓', c: 'green' } : { t: 'Not paid', c: 'gray' },
+                          ...(mediaKit.get(r.id) === 'sent'
+                            ? [{ t: 'Media kit ✓', c: 'green' }]
+                            : mediaKit.get(r.id) === 'ready'
+                              ? [{ t: 'Media kit to send', c: 'amber' }]
+                              : []),
                         ];
                         const cls: Record<string, string> = {
                           green: 'bg-green-50 text-green-700 border-green-200',

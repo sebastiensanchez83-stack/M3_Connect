@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFileDrop } from '@/hooks/useFileDrop';
 
 // Per-participant media kit: social visuals (LinkedIn/Instagram/…) the Yacht Club
 // or M3 make for a participant to post about their SM26 participation, plus a
@@ -51,7 +52,7 @@ export function SM26MediaKit({ registrationId, eventId, companyName }: { registr
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [registrationId]);
 
-  const upload = async (fl: FileList) => {
+  const upload = async (fl: FileList | File[]) => {
     if (!user || !fl.length) return;
     setBusy(true);
     try {
@@ -69,6 +70,7 @@ export function SM26MediaKit({ registrationId, eventId, companyName }: { registr
       await load();
     } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ''; }
   };
+  const { isDragging, dropHandlers } = useFileDrop((fl) => upload(fl), busy);
 
   const removeFile = async (f: KitFile) => {
     if (!window.confirm('Remove this file from the media kit?')) return;
@@ -150,11 +152,12 @@ export function SM26MediaKit({ registrationId, eventId, companyName }: { registr
       ) : canEdit ? <p className="text-xs text-gray-400">No visuals yet — upload the images this participant can share.</p> : null}
 
       {canEdit && (
-        <div>
+        <div {...dropHandlers} className={`rounded-lg border border-dashed p-3 text-center transition-colors ${isDragging ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
           <input ref={fileRef} type="file" accept="image/*,application/pdf" multiple className="hidden" onChange={e => e.target.files && upload(e.target.files)} />
           <Button size="sm" variant="outline" className="gap-1.5" disabled={busy} onClick={() => fileRef.current?.click()}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload visuals
           </Button>
+          <p className="text-[11px] text-gray-400 mt-1.5">or drag &amp; drop images / PDFs here</p>
         </div>
       )}
 

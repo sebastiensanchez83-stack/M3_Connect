@@ -166,8 +166,8 @@ export function AdminSM26Ecat() {
     toast({ title: 'Designed page uploaded — participant can now review' });
   };
 
-  const publish = async (p: Page, paid: boolean) => {
-    if (!paid) { toast({ title: 'Awaiting payment', description: 'This entry must be marked paid before publishing.', variant: 'destructive' }); return; }
+  const publish = async (p: Page, canPublish: boolean) => {
+    if (!canPublish) { toast({ title: 'Awaiting payment', description: 'This entry must be marked paid before publishing.', variant: 'destructive' }); return; }
     const ok = await patch(p, { status: 'published', published_file_path: p.designed_file_path, published_at: new Date().toISOString() });
     if (ok) {
       toast({ title: 'E-catalogue page published' });
@@ -323,6 +323,10 @@ export function AdminSM26Ecat() {
             {filtered.map(p => {
               const pay = firstOf(p.registration.payment);
               const paid = pay?.status === 'paid';
+              // Only the fee-paying catalogue roles (startup/marina, via sm_payment)
+              // are payment-gated for publishing. Architecture (free entry),
+              // speakers, sponsors (billed in the sp_* system) etc. publish freely.
+              const publishable = paid || !['startup', 'marina'].includes(p.kind);
               const isBusy = busy === p.id;
               const pageComments = comments[p.id] || [];
               const canUpload = ['exported', 'in_design', 'changes_requested', 'uploaded'].includes(p.status);
@@ -390,15 +394,15 @@ export function AdminSM26Ecat() {
                       )}
                       {p.status === 'uploaded' && <span className="text-xs text-blue-600 inline-flex items-center gap-1"><Loader2 className="h-3 w-3" /> Awaiting participant approval</span>}
                       {p.status === 'approved' && (
-                        <Button size="sm" className="gap-1.5" onClick={() => publish(p, paid)} disabled={isBusy || !paid} title={paid ? 'Publish' : 'Awaiting payment'}>
-                          <CheckCircle className="h-3.5 w-3.5" /> {paid ? 'Publish' : 'Publish (needs payment)'}
+                        <Button size="sm" className="gap-1.5" onClick={() => publish(p, publishable)} disabled={isBusy || !publishable} title={publishable ? 'Publish' : 'Awaiting payment'}>
+                          <CheckCircle className="h-3.5 w-3.5" /> {publishable ? 'Publish' : 'Publish (needs payment)'}
                         </Button>
                       )}
                       {p.status === 'published' && <span className="text-xs text-green-600 inline-flex items-center gap-1"><CheckCircle className="h-3.5 w-3.5" /> Live in the e-catalogue</span>}
 
                       {/* utilities */}
                       <div className="flex items-center gap-1 ml-auto">
-                        {!['startup', 'marina'].includes(p.kind) && p.status !== 'published' && (
+                        {!['startup', 'marina', 'architecture'].includes(p.kind) && p.status !== 'published' && (
                           <Button variant="ghost" size="sm" className="gap-1.5 text-gray-400 hover:text-red-600" onClick={() => removePage(p)} disabled={isBusy} title="Remove from the e-catalogue">
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>

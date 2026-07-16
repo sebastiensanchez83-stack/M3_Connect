@@ -39,6 +39,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     { to: '/admin/sm26/architecture', label: 'Architecture', icon: <Building2 className="h-4 w-4" /> },
     { to: '/admin/sm26/awards', label: 'Awards & voting', icon: <Trophy className="h-4 w-4" /> },
     { to: '/admin/sm26/ecat', label: 'E-catalogue', icon: <BookOpen className="h-4 w-4" /> },
+    { to: '/admin/sm26/mediakits', label: 'Media kits', icon: <Megaphone className="h-4 w-4" /> },
     { to: '/admin/sm26/networking', label: 'Networking', icon: <UsersRound className="h-4 w-4" /> },
     { to: '/admin/sm26/feedback', label: 'Feedback', icon: <MessageSquare className="h-4 w-4" /> },
   ];

@@ -105,6 +105,8 @@ export function SM26MediaKit({ registrationId, eventId, companyName }: { registr
   };
 
   const download = async (f: KitFile) => {
+    // Record that the participant actually took a file (server ignores editors).
+    if (!canEdit) void supabase.functions.invoke('sm26-media-kit', { body: { action: 'downloaded', registration_id: registrationId } }).catch(() => {});
     try {
       const b = await (await fetch(f.url)).blob();
       const o = URL.createObjectURL(b);

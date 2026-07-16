@@ -57,6 +57,7 @@ const AdminSM26 = lazyWithRetry(() => import('@/components/admin/AdminSM26').the
 const AdminSM26Detail = lazyWithRetry(() => import('@/components/admin/AdminSM26Detail').then(m => ({ default: m.AdminSM26Detail })));
 const AdminSM26Jury = lazyWithRetry(() => import('@/components/admin/AdminSM26Jury').then(m => ({ default: m.AdminSM26Jury })));
 const AdminSM26Ecat = lazyWithRetry(() => import('@/components/admin/AdminSM26Ecat').then(m => ({ default: m.AdminSM26Ecat })));
+const AdminSM26MediaKits = lazyWithRetry(() => import('@/components/admin/AdminSM26MediaKits').then(m => ({ default: m.AdminSM26MediaKits })));
 const AdminSM26EcatDossier = lazyWithRetry(() => import('@/components/admin/AdminSM26EcatDossier').then(m => ({ default: m.AdminSM26EcatDossier })));
 const AdminSM26Agenda = lazyWithRetry(() => import('@/components/admin/AdminSM26Agenda').then(m => ({ default: m.AdminSM26Agenda })));
 const AdminSM26Checkin = lazyWithRetry(() => import('@/components/admin/AdminSM26Checkin').then(m => ({ default: m.AdminSM26Checkin })));
@@ -138,6 +139,7 @@ export function AdminPage() {
             <Route path="/sm26/awards" element={<AdminOnlyGuard><AdminSM26Awards /></AdminOnlyGuard>} />
             <Route path="/sm26/feedback" element={<AdminOnlyGuard><AdminSM26Feedback /></AdminOnlyGuard>} />
             <Route path="/sm26/ecat" element={<AdminOnlyGuard><AdminSM26Ecat /></AdminOnlyGuard>} />
+            <Route path="/sm26/mediakits" element={<AdminOnlyGuard><AdminSM26MediaKits /></AdminOnlyGuard>} />
             <Route path="/sm26/ecat/:pageId/dossier" element={<AdminOnlyGuard><AdminSM26EcatDossier /></AdminOnlyGuard>} />
             <Route path="/sm26/networking" element={<AdminOnlyGuard><AdminSM26Networking /></AdminOnlyGuard>} />
             <Route path="/sm26/architecture" element={<AdminOnlyGuard><AdminSM26Architecture /></AdminOnlyGuard>} />

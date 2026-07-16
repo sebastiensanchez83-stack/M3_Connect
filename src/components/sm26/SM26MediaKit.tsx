@@ -19,13 +19,13 @@ interface KitFile { id: string; filename: string; url: string; is_image: boolean
 export function defaultMediaKitCaption(company?: string | null): string {
   const who = (company || '').trim();
   const lead = who
-    ? `Proud to announce that ${who} will take part in the Smart & Sustainable Marina Rendezvous 2026! 🌊`
-    : `Proud to take part in the Smart & Sustainable Marina Rendezvous 2026! 🌊`;
+    ? `Proud to announce that ${who} will take part in the Smart & Sustainable Marina Rendezvous 2026, organized by M3 Monaco! 🌊`
+    : `Proud to take part in the Smart & Sustainable Marina Rendezvous 2026, organized by M3 Monaco! 🌊`;
   return `${lead}
 
-Join us on 20–21 September at the Yacht Club de Monaco for two days shaping the future of smart, sustainable marinas — come and meet us there.
+Join us on 20 and 21 September at the Yacht Club de Monaco for two days shaping the future of smart, sustainable marinas. Come and meet us there.
 
-#SmartMarina2026 #SustainableMarinas #YachtClubDeMonaco #M3Monaco`;
+@m3monaco @yachtclubdemonaco #SmartMarina2026`;
 }
 
 export function SM26MediaKit({ registrationId, eventId, companyName }: { registrationId: string; eventId: string; companyName?: string | null }) {

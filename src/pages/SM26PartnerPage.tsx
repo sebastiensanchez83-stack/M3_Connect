@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, ComponentType, ReactNode } from 'react';
 import { Helmet } from 'react-helmet-async';
 import {
   RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
-  Lightbulb, Scale, Image as ImageIcon, ChevronRight, Download, AlertTriangle, CheckCircle2,
+  Lightbulb, Scale, Image as ImageIcon, ChevronRight, ChevronDown, Download, AlertTriangle, CheckCircle2,
   Upload, Loader2, MessageSquare, Eye, Ruler,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -129,6 +129,38 @@ const ROLE_META: Record<string, { label: string; icon: typeof Building2; singula
   sponsor: { label: 'Sponsors', icon: Building2, singular: 'sponsor' },
   speaker: { label: 'Speakers', icon: Mic, singular: 'speaker' },
 };
+
+// Collapsible section so the console is a compact index the Yacht Club expands
+// only where they need to work (media kits, a catalogue role, the programme…).
+function CollapsiblePanel({ title, icon: Icon, count, description, defaultOpen = false, children }: {
+  title: string;
+  icon: ComponentType<{ className?: string }>;
+  count?: number;
+  description?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <Card>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between gap-2 px-4 py-3.5 text-left">
+        <span className="flex items-center gap-2 min-w-0">
+          <Icon className="h-5 w-5 text-primary shrink-0" />
+          <span className="font-semibold text-gray-900 truncate">{title}</span>
+          {typeof count === 'number' && <span className="text-xs text-gray-400 shrink-0">({count})</span>}
+        </span>
+        <ChevronDown className={`h-5 w-5 text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <CardContent className="pt-0">
+          {description && <p className="text-sm text-gray-500 mb-3">{description}</p>}
+          {children}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
 
 export function SM26PartnerPage() {
   const { user, loading: authLoading } = useAuth();
@@ -304,16 +336,13 @@ export function SM26PartnerPage() {
     const meta = ROLE_META[role];
     const list = byRole(role);
     const Icon = meta.icon;
+    const desc = role === 'startup' ? 'Full profile, contact and uploaded images for the catalogue.'
+      : role === 'jury' ? 'Logo, photo, job title & bio for the catalogue — no contact details.'
+      : role === 'marina' ? 'Marina profile & images for the catalogue.'
+      : role.startsWith('architect') ? "The firm's catalogue details — never the anonymous competition boards."
+      : undefined;
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Icon className="h-5 w-5 text-primary" /> {meta.label} ({list.length})</CardTitle>
-          {role === 'startup' && <CardDescription>Full profile, contact and uploaded images for the catalogue.</CardDescription>}
-          {role === 'jury' && <CardDescription>Logo, photo, job title &amp; bio for the catalogue — no contact details. Each juror's competition is shown on their card.</CardDescription>}
-          {role === 'marina' && <CardDescription>Marina profile &amp; images for the catalogue.</CardDescription>}
-          {role.startsWith('architect') && <CardDescription>The firm's catalogue details for the e-catalogue — never the anonymous competition boards.</CardDescription>}
-        </CardHeader>
-        <CardContent>
+      <CollapsiblePanel title={meta.label} icon={Icon} count={list.length} description={desc}>
           {list.length === 0 ? (
             <p className="text-sm text-gray-400">No {meta.label.toLowerCase()} yet.</p>
           ) : (
@@ -351,8 +380,7 @@ export function SM26PartnerPage() {
               })}
             </div>
           )}
-        </CardContent>
-      </Card>
+      </CollapsiblePanel>
     );
   };
 
@@ -371,15 +399,10 @@ export function SM26PartnerPage() {
       <div className="container mx-auto px-4 py-8 max-w-3xl space-y-6">
         {/* Media kits — social visuals for participants to post (flat workspace) */}
         {eventId && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><ImageIcon className="h-5 w-5 text-primary" /> Media kits</CardTitle>
-              <CardDescription>Upload the social visuals each participant can post about the event, then notify them — all from here, no need to open each profile. The status shows who has received and opened theirs.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <SM26MediaKitBoard eventId={eventId} />
-            </CardContent>
-          </Card>
+          <CollapsiblePanel title="Media kits" icon={ImageIcon}
+            description="Upload the social visuals each participant can post about the event, then notify them — all from here. The status shows who has received and opened theirs.">
+            <SM26MediaKitBoard eventId={eventId} />
+          </CollapsiblePanel>
         )}
 
         <Section role="startup" />
@@ -387,16 +410,15 @@ export function SM26PartnerPage() {
         <Section role="architect_pro" />
         <Section role="architect_student" />
         <Section role="jury" />
-        <SM26PartnerSponsors />
+        <CollapsiblePanel title="Sponsors — deliverables" icon={Building2}
+          description="Tick each item as it is produced for the sponsor, and download each sponsor's uploaded assets.">
+          <SM26PartnerSponsors embedded />
+        </CollapsiblePanel>
         <Section role="speaker" />
 
         {/* Programme (read-only) */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-primary" /> Programme</CardTitle>
-            <CardDescription>Read-only — the schedule is managed by M3.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <CollapsiblePanel title="Programme" icon={CalendarDays} count={sessions.length} description="Read-only — the schedule is managed by M3.">
+          <div className="space-y-4">
             {days.length === 0 ? <p className="text-sm text-gray-400">The programme will be published soon.</p> : days.map(day => (
               <div key={day.key}>
                 <div className="text-sm font-semibold text-gray-700 mb-2">{day.key}</div>
@@ -417,16 +439,12 @@ export function SM26PartnerPage() {
                 </div>
               </div>
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </CollapsiblePanel>
 
         {/* E-catalogue — design + upload for participant review */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><BookOpen className="h-5 w-5 text-primary" /> E-catalogue pages ({ecat.length})</CardTitle>
-            <CardDescription>Set a page to “Designing”, then upload the designed PDF — the participant is asked to approve it or request changes.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <CollapsiblePanel title="E-catalogue pages" icon={BookOpen} count={ecat.length} description="Set a page to “Designing”, then upload the designed PDF — the participant is asked to approve it or request changes.">
+          <div className="space-y-2">
             {ecat.length === 0 ? <p className="text-sm text-gray-400">No catalogue pages yet.</p> : ecat.map(p => {
               const busyRow = busy === p.id;
               return (
@@ -495,8 +513,8 @@ export function SM26PartnerPage() {
                 </div>
               );
             })}
-          </CardContent>
-        </Card>
+          </div>
+        </CollapsiblePanel>
 
         <p className="text-xs text-gray-400 text-center">
           <ExternalLink className="h-3 w-3 inline mr-1" /> The full attendee list isn't shown here. For anything else, contact events@m3monaco.com.

@@ -22,7 +22,7 @@ interface Asset { group: string; label: string; filename: string; url: string; i
 
 const GROUP_LABEL: Record<string, string> = { logo: 'Logos & brand', deliverable: 'Uploaded files', ecat: 'E-catalogue page' };
 
-export function SM26PartnerSponsors() {
+export function SM26PartnerSponsors({ embedded = false }: { embedded?: boolean } = {}) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [assets, setAssets] = useState<Map<string, Asset[]>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -64,14 +64,7 @@ export function SM26PartnerSponsors() {
   if (loading) return <div className="flex items-center gap-2 text-sm text-gray-400 py-4"><Loader2 className="h-4 w-4 animate-spin" /> Loading sponsors…</div>;
   if (groups.length === 0) return null;
 
-  return (
-    <Card className="border-0 shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2"><Award className="h-4 w-4 text-primary" /> Sponsors — deliverables</CardTitle>
-        <CardDescription>Tick each item as it is produced for the sponsor. (Fees are managed by M3 and not shown here.)</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {groups.map(g => {
+  const rows = groups.map(g => {
           const done = g.items.filter(i => i.delivered).length;
           return (
             <div key={g.sponsor_id} className="rounded-lg border border-gray-100 p-3">
@@ -119,8 +112,16 @@ export function SM26PartnerSponsors() {
               })()}
             </div>
           );
-        })}
-      </CardContent>
+  });
+
+  if (embedded) return <div className="space-y-4">{rows}</div>;
+  return (
+    <Card className="border-0 shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2"><Award className="h-4 w-4 text-primary" /> Sponsors — deliverables</CardTitle>
+        <CardDescription>Tick each item as it is produced for the sponsor. (Fees are managed by M3 and not shown here.)</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">{rows}</CardContent>
     </Card>
   );
 }

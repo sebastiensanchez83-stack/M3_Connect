@@ -249,6 +249,17 @@ export function AdminSM26Ecat() {
     if (url) setPreview({ id: p.id, url });
   };
 
+  // Remove a wrongly-uploaded designed page: clear the file + back to "Designing".
+  const removeDesigned = async (p: Page) => {
+    if (!window.confirm('Remove the uploaded designed page? This clears the file and returns the page to “Designing” so the right one can be uploaded.')) return;
+    const oldPath = p.designed_file_path;
+    const ok = await patch(p, { designed_file_path: null, status: 'in_design' });
+    if (!ok) return;
+    if (oldPath) supabase.storage.from('event-media').remove([oldPath]).catch(() => {});
+    if (preview?.id === p.id) setPreview(null);
+    toast({ title: 'File removed', description: 'The page is back to “Designing”.' });
+  };
+
   // Load signed URLs for all published pages when entering Browse view.
   const enterBrowse = async () => {
     setView('browse');
@@ -464,6 +475,11 @@ export function AdminSM26Ecat() {
                         {canUpload && p.designed_file_path && (
                           <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500" onClick={() => fileRefs.current[p.id]?.click()} disabled={isBusy} title="Replace the designed page">
                             <Upload className="h-3.5 w-3.5" /> Re-upload
+                          </Button>
+                        )}
+                        {canUpload && p.designed_file_path && (
+                          <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500 hover:text-red-600" onClick={() => removeDesigned(p)} disabled={isBusy} title="Remove the uploaded file">
+                            <Trash2 className="h-3.5 w-3.5" /> Remove
                           </Button>
                         )}
                       </div>

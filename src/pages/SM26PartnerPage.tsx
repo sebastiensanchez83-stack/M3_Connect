@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import {
   RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
   Lightbulb, Scale, Image as ImageIcon, ChevronRight, ChevronDown, Download, AlertTriangle, CheckCircle2,
-  Upload, Loader2, MessageSquare, Eye, Ruler,
+  Upload, Loader2, MessageSquare, Eye, Ruler, Trash2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -43,7 +43,7 @@ const fmtTime = (s: string | null) => s ? new Date(s).toLocaleTimeString('en-GB'
 const dayKey = (s: string | null) => s ? new Date(s).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: TZ }) : 'TBD';
 const ECAT_STATUSES = ['awaiting_export', 'exported', 'in_design', 'uploaded', 'changes_requested', 'approved', 'published'];
 
-const ASSET_KEYS = new Set(['logo', 'logo_url', 'photo', 'photo_url', 'banner', 'deck', 'deck_url', 'slides', 'hero_image', 'press_card', 'proof_of_enrolment', 'panels', 'notice', 'pitch_media', 'pitch_media_url', 'product_images', 'renders', 'project_renders', 'company_image_url']);
+const ASSET_KEYS = new Set(['logo', 'logo_url', 'photo', 'photo_url', 'banner', 'deck', 'deck_url', 'slides', 'hero_image', 'press_card', 'proof_of_enrolment', 'panels', 'notice', 'pitch_media', 'pitch_media_url', 'product_images', 'renders', 'project_renders', 'company_image_url', 'hd_images', 'building_images', 'pitch_deck', 'contact_photo']);
 // Not catalogue-relevant / commercially sensitive fundraising fields are never
 // shown to the Yacht Club catalogue team.
 const STARTUP_SKIP = new Set(['id', 'role_assignment_id', 'event_id', 'created_at', 'updated_at', 'visibility_level', 'pitch_optin', 'social_links', 'logo_url', 'deck_url', 'product_images', 'pitch_media_url', 'investment_seeking', 'investment_stage', 'investment_type', 'funds_needed']);
@@ -263,6 +263,19 @@ export function SM26PartnerPage() {
   const previewEcat = async (path: string) => {
     const { data } = await supabase.storage.from('event-media').createSignedUrl(path, 600);
     if (data) window.open(data.signedUrl, '_blank'); else toast({ title: 'Could not open file', variant: 'destructive' });
+  };
+
+  // Remove a wrongly-uploaded designed page: clear the file + return to "Designing".
+  const removeEcat = async (p: EcatRow) => {
+    if (!window.confirm('Remove the uploaded designed page? This clears the file and returns the page to “Designing” so you can upload the right one.')) return;
+    setBusy(p.id);
+    const oldPath = p.designed_file_path;
+    const { error } = await supabase.rpc('sm_partner_ecat_clear', { p_page_id: p.id });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not remove', description: error.message, variant: 'destructive' }); return; }
+    if (oldPath) supabase.storage.from('event-media').remove([oldPath]).catch(() => {});
+    setEcat(prev => prev.map(x => x.id === p.id ? { ...x, designed_file_path: null, status: 'in_design' } : x));
+    toast({ title: 'File removed', description: 'The page is back to “Designing”.' });
   };
 
   // Yacht Club asks a participant to update / provide something for the catalogue.
@@ -504,6 +517,12 @@ export function SM26PartnerPage() {
                       <button type="button" onClick={() => previewEcat(p.designed_file_path!)}
                         className="inline-flex items-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-md px-2.5 py-1.5 hover:bg-gray-50">
                         <Eye className="h-3.5 w-3.5" /> Preview
+                      </button>
+                    )}
+                    {p.designed_file_path && p.status !== 'approved' && p.status !== 'published' && (
+                      <button type="button" onClick={() => removeEcat(p)} disabled={busyRow}
+                        className="inline-flex items-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-md px-2.5 py-1.5 hover:bg-red-50 hover:text-red-600 disabled:opacity-60">
+                        <Trash2 className="h-3.5 w-3.5" /> Remove
                       </button>
                     )}
                     {p.status === 'uploaded' && <span className="text-xs text-blue-600 inline-flex items-center gap-1">Awaiting participant approval</span>}

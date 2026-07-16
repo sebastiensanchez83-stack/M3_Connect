@@ -524,7 +524,7 @@ export function SM26PartnerPage() {
               {/* Media kit — social visuals for the participant to post */}
               {openId && eventId && (() => {
                 const rid = entries.find(e => e.role_assignment_id === openId)?.reg_id;
-                return rid ? <div className="border-t pt-3 mt-1"><SM26MediaKit registrationId={rid} eventId={eventId} /></div> : null;
+                return rid ? <div className="border-t pt-3 mt-1"><SM26MediaKit registrationId={rid} eventId={eventId} companyName={dossier.company} /></div> : null;
               })()}
 
               {/* Request a change / ask the participant for info */}

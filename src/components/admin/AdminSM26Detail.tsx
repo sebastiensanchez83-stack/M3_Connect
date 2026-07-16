@@ -696,7 +696,7 @@ export function AdminSM26Detail() {
       {/* Media kit — social visuals + caption for this participant to share */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4">
-          <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} />
+          <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} companyName={reg.company_name} />
         </CardContent>
       </Card>
 

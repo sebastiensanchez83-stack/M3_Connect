@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
   BookOpen, CreditCard, MessageSquare, Calendar, LayoutDashboard, Users, Scale,
-  AlertCircle, ChevronRight, Receipt, Download, UserCheck,
+  AlertCircle, ChevronRight, Receipt, Download, UserCheck, Megaphone,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -89,6 +89,9 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const [statusBusy, setStatusBusy] = useState(false);
   const [onsiteBusy, setOnsiteBusy] = useState<string | null>(null);
   const [subTab, setSubTab] = useState('overview');
+  const [hasMediaKit, setHasMediaKit] = useState(false);
+  const [searchParams] = useSearchParams();
+  const deepLinkedRef = useRef(false);
   // Resolved uploaded documents (from the sm26-assets resolver) — used to show
   // previews AND to recognise assets that live in profile tables under a
   // different key than the requirement checklist expects (logo vs logo_url).
@@ -102,7 +105,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     selectedIdRef.current = r.id;
     // Reset per-registration panels immediately so a slow load can't show the
     // previous registration's billing data under the new identity.
-    setEcat([]); setInvoices([]); setPayStatus('unpaid'); setHubAssets([]);
+    setEcat([]); setInvoices([]); setPayStatus('unpaid'); setHubAssets([]); setHasMediaKit(false);
     const d: Record<string, Record<string, string>> = {};
     for (const role of r.roles) {
       d[role.id] = {};
@@ -111,17 +114,22 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
       }
     }
     setDrafts(d);
-    const [{ data: ecatRows }, { data: pay }, { data: invRows }, assetRes] = await Promise.all([
+    const [{ data: ecatRows }, { data: pay }, { data: invRows }, assetRes, { count: kitCount }] = await Promise.all([
       supabase.from('sm_ecat_page').select('id,kind,status,designed_file_path,published_file_path').eq('registration_id', r.id),
       supabase.from('sm_payment').select('status').eq('registration_id', r.id).maybeSingle(),
       supabase.from('sm_invoice').select('id,file_path,label,amount_cents,currency,created_at').eq('registration_id', r.id).order('created_at', { ascending: false }),
       supabase.functions.invoke('sm26-assets', { body: { registration_id: r.id } }),
+      supabase.from('sm_media_kit_file').select('id', { count: 'exact', head: true }).eq('registration_id', r.id),
     ]);
     if (selectedIdRef.current !== r.id) return; // selection moved on mid-flight
     setEcat((ecatRows || []) as EcatPage[]);
     setPayStatus((pay as { status?: string } | null)?.status || 'unpaid');
     setInvoices((invRows || []) as Invoice[]);
     setHubAssets(((assetRes?.data as { assets?: SM26Asset[] } | null)?.assets) || []);
+    const hasKit = (kitCount || 0) > 0;
+    setHasMediaKit(hasKit);
+    // Deep link from the "media kit ready" email (/account?tab=event&sub=mediakit).
+    if (!deepLinkedRef.current && hasKit && searchParams.get('sub') === 'mediakit') { deepLinkedRef.current = true; setSubTab('mediakit'); }
   };
 
   const load = async () => {
@@ -378,6 +386,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     { key: 'attendees', label: 'Attendees', icon: UserCheck },
     { key: 'programme', label: 'Programme', icon: Calendar },
     ...(ecat.length > 0 ? [{ key: 'catalogue', label: 'E-catalogue', icon: BookOpen }] : []),
+    ...(hasMediaKit ? [{ key: 'mediakit', label: 'Media kit', icon: Megaphone }] : []),
     { key: 'connections', label: 'Connections', icon: Users },
     ...(isJuror ? [{ key: 'jury', label: 'Jury', icon: Scale }] : []),
   ];
@@ -570,9 +579,12 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                 <SM26AssetGallery provided={hubAssets} title="" emptyText="You haven't uploaded any documents yet — add them below." />
               </CardContent>
             </Card>
-            {/* Media kit — visuals + caption to announce your participation (shows only when one is ready) */}
-            <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} />
           </>
+        )}
+
+        {/* Media kit — visuals + caption to announce your participation (its own tab; shown only when a kit exists) */}
+        {subTab === 'mediakit' && reg && (
+          <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} companyName={reg.company_name} />
         )}
 
         {subTab === 'attendees' && reg && (

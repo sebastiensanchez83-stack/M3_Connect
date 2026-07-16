@@ -13,7 +13,22 @@ import { useAuth } from '@/contexts/AuthContext';
 
 interface KitFile { id: string; filename: string; url: string; is_image: boolean; mime: string | null; storage_path?: string }
 
-export function SM26MediaKit({ registrationId, eventId }: { registrationId: string; eventId: string }) {
+// Ready-to-post default caption, so a caption is always pre-written (the Yacht
+// Club/M3 can tweak per participant before saving). The company name is filled
+// in when we have it.
+export function defaultMediaKitCaption(company?: string | null): string {
+  const who = (company || '').trim();
+  const lead = who
+    ? `Proud to announce that ${who} will take part in the Smart & Sustainable Marina Rendezvous 2026! 🌊`
+    : `Proud to take part in the Smart & Sustainable Marina Rendezvous 2026! 🌊`;
+  return `${lead}
+
+Join us on 20–21 September at the Yacht Club de Monaco for two days shaping the future of smart, sustainable marinas — come and meet us there.
+
+#SmartMarina2026 #SustainableMarinas #YachtClubDeMonaco #M3Monaco`;
+}
+
+export function SM26MediaKit({ registrationId, eventId, companyName }: { registrationId: string; eventId: string; companyName?: string | null }) {
   const { user } = useAuth();
   const [files, setFiles] = useState<KitFile[]>([]);
   const [caption, setCaption] = useState('');
@@ -30,7 +45,7 @@ export function SM26MediaKit({ registrationId, eventId }: { registrationId: stri
     const { data } = await supabase.functions.invoke('sm26-media-kit', { body: { action: 'get', registration_id: registrationId } });
     const d = data as { caption?: string; notified_at?: string | null; files?: KitFile[]; can_edit?: boolean } | null;
     setFiles(d?.files || []);
-    setCaption(d?.caption || ''); setSavedCaption(d?.caption || '');
+    setCaption(d?.caption || defaultMediaKitCaption(companyName)); setSavedCaption(d?.caption || '');
     setNotifiedAt(d?.notified_at || null); setCanEdit(!!d?.can_edit);
     setLoading(false);
   };
@@ -97,11 +112,12 @@ export function SM26MediaKit({ registrationId, eventId }: { registrationId: stri
     } catch { window.open(f.url, '_blank'); }
   };
 
-  const copyCaption = async () => { try { await navigator.clipboard.writeText(savedCaption); toast({ title: 'Caption copied' }); } catch { /* ignore */ } };
+  const displayCaption = savedCaption || defaultMediaKitCaption(companyName);
+  const copyCaption = async () => { try { await navigator.clipboard.writeText(displayCaption); toast({ title: 'Caption copied' }); } catch { /* ignore */ } };
 
   if (loading) return <div className="flex items-center gap-2 text-sm text-gray-400 py-3"><Loader2 className="h-4 w-4 animate-spin" /> Loading media kit…</div>;
-  // Participant with nothing yet: render nothing.
-  if (!canEdit && files.length === 0 && !savedCaption) return null;
+  // Participant with no visuals yet: render nothing (a kit is its images + caption).
+  if (!canEdit && files.length === 0) return null;
 
   return (
     <div className="rounded-lg border border-gray-100 p-3 space-y-3">
@@ -152,13 +168,13 @@ export function SM26MediaKit({ registrationId, eventId }: { registrationId: stri
             {savingCap && <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />} Save caption
           </Button>
         </div>
-      ) : savedCaption ? (
+      ) : (
         <div className="space-y-1.5">
           <div className="text-[11px] uppercase tracking-wide text-gray-400">Suggested caption</div>
-          <div className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-md p-2 border border-gray-100">{savedCaption}</div>
+          <div className="text-sm text-gray-700 whitespace-pre-wrap bg-gray-50 rounded-md p-2 border border-gray-100">{displayCaption}</div>
           <Button size="sm" variant="outline" className="gap-1.5" onClick={copyCaption}><Copy className="h-3.5 w-3.5" /> Copy caption</Button>
         </div>
-      ) : null}
+      )}
 
       {canEdit && files.length > 0 && (
         <div className="flex items-center gap-2 pt-1 border-t border-gray-100">

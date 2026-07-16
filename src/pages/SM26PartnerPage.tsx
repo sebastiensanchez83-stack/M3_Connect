@@ -51,8 +51,21 @@ const isHttp = (s: string) => /^https?:\/\//i.test(s);
 const isImg = (s: string) => /\.(png|jpe?g|webp|gif|svg)$/i.test(s.split('?')[0]);
 const prettyKey = (k: string) => k.replace(/_url$/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
+// Social links reach us three ways: individual module_data keys (marina), a
+// module_data.social_links object (jury), or sm_startup_profile.social_links
+// (startups). Collect them all into one clickable "Social media" list.
+const SOCIAL_INDIVIDUAL = new Set(['linkedin', 'instagram', 'facebook', 'twitter', 'x', 'youtube', 'tiktok']);
+const platformLabel = (k: string) => {
+  const key = k.toLowerCase();
+  return key === 'twitter' || key === 'x' ? 'X / Twitter'
+    : key === 'linkedin' ? 'LinkedIn' : key === 'instagram' ? 'Instagram'
+    : key === 'facebook' ? 'Facebook' : key === 'youtube' ? 'YouTube'
+    : key === 'tiktok' ? 'TikTok' : prettyKey(k);
+};
+
 interface BuiltAsset { label: string; value: string }
-interface Built { text: { label: string; value: string }[]; assets: BuiltAsset[]; missing: string[] }
+interface SocialLink { label: string; url: string }
+interface Built { text: { label: string; value: string }[]; assets: BuiltAsset[]; social: SocialLink[]; missing: string[] }
 
 function isProvided(rq: Requirement, d: DossierRow): boolean {
   const k = rq.field_key;
@@ -77,10 +90,23 @@ function isProvided(rq: Requirement, d: DossierRow): boolean {
 function buildDossier(d: DossierRow): Built {
   const text: { label: string; value: string }[] = [];
   const assets: BuiltAsset[] = [];
+  const social: SocialLink[] = [];
+  const seenSocial = new Set<string>();
+  const addSocial = (platform: string, url: unknown) => {
+    if (typeof url !== 'string' || !url.trim() || seenSocial.has(url.trim())) return;
+    seenSocial.add(url.trim());
+    social.push({ label: platformLabel(platform), url: url.trim() });
+  };
   const md = d.module_data || {};
   for (const [k, v] of Object.entries(md)) {
     if (v == null || v === '') continue;
     if (k.startsWith('_')) continue; // internal admin fields (_request_note, _requested_info, …)
+    const kl = k.toLowerCase();
+    if (kl === 'social_links') {
+      if (v && typeof v === 'object' && !Array.isArray(v)) for (const [p, u] of Object.entries(v as Record<string, unknown>)) addSocial(p, u);
+      continue;
+    }
+    if (SOCIAL_INDIVIDUAL.has(kl)) { addSocial(kl, v); continue; }
     if (ASSET_KEYS.has(k)) {
       if (typeof v === 'string') assets.push({ label: prettyKey(k), value: v });
       else if (Array.isArray(v)) v.forEach((p, i) => typeof p === 'string' && assets.push({ label: `${prettyKey(k)} ${i + 1}`, value: p }));
@@ -97,6 +123,9 @@ function buildDossier(d: DossierRow): Built {
       if (typeof v === 'string' && v.trim()) text.push({ label: prettyKey(k), value: v });
       else if (Array.isArray(v) && v.length) text.push({ label: prettyKey(k), value: v.join(', ') });
       else if (typeof v === 'boolean') text.push({ label: prettyKey(k), value: v ? 'Yes' : 'No' });
+    }
+    if (sp.social_links && typeof sp.social_links === 'object' && !Array.isArray(sp.social_links)) {
+      for (const [p, u] of Object.entries(sp.social_links as Record<string, unknown>)) addSocial(p, u);
     }
     if (typeof sp.logo_url === 'string' && sp.logo_url) assets.push({ label: 'Logo', value: sp.logo_url });
     if (typeof sp.deck_url === 'string' && sp.deck_url) assets.push({ label: 'Pitch deck', value: sp.deck_url });
@@ -117,7 +146,7 @@ function buildDossier(d: DossierRow): Built {
   // startup logo/product images written to both) — show each file once.
   const seenAsset = new Set<string>();
   const dedupedAssets = assets.filter(a => { if (seenAsset.has(a.value)) return false; seenAsset.add(a.value); return true; });
-  return { text, assets: dedupedAssets, missing };
+  return { text, assets: dedupedAssets, social, missing };
 }
 
 const ROLE_META: Record<string, { label: string; icon: typeof Building2; singular: string }> = {
@@ -364,7 +393,7 @@ export function SM26PartnerPage() {
         company: d.company, name: d.name, job_title: d.job_title, country: d.country,
         website: d.website, email: d.email,
         roleLabel: d.role ? (ROLE_META[d.role]?.singular || d.role) : null,
-        text: d.text, assets: d.assets, signed: d.signed, missing: d.missing,
+        text: [...d.text, ...d.social.map(s => ({ label: s.label, value: s.url }))], assets: d.assets, signed: d.signed, missing: d.missing,
       });
       toast({ title: 'Dossier downloaded', description: 'A .zip with the PDF summary and all original files.' });
     } catch {
@@ -587,6 +616,20 @@ export function SM26PartnerPage() {
                 </div>
               )}
 
+              {dossier.social.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Social media</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {dossier.social.map((s, i) => (
+                      <a key={i} href={toHref(s.url)} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-primary border border-gray-200 rounded-md px-2.5 py-1.5 hover:bg-gray-50">
+                        {s.label} <ExternalLink className="h-3 w-3" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {dossier.assets.length > 0 && (
                 <div>
                   <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Images &amp; files</h3>
@@ -628,7 +671,7 @@ export function SM26PartnerPage() {
                 </div>
               )}
 
-              {dossier.assets.length === 0 && dossier.text.length === 0 && (
+              {dossier.assets.length === 0 && dossier.text.length === 0 && dossier.social.length === 0 && (
                 <p className="text-sm text-gray-400">No profile content captured yet.</p>
               )}
 

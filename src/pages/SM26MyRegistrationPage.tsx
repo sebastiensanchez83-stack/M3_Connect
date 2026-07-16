@@ -27,6 +27,7 @@ import { SM26MyJuryPanel } from '@/components/sm26/SM26MyJuryPanel';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
 import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
 import { SM26AssetGallery, SM26Asset } from '@/components/sm26/SM26AssetGallery';
+import { SM26MediaKit } from '@/components/sm26/SM26MediaKit';
 import { SM26JuryPage } from '@/pages/SM26JuryPage';
 import { SM26VotePage } from '@/pages/SM26VotePage';
 
@@ -569,6 +570,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                 <SM26AssetGallery provided={hubAssets} title="" emptyText="You haven't uploaded any documents yet — add them below." />
               </CardContent>
             </Card>
+            {/* Media kit — visuals + caption to announce your participation (shows only when one is ready) */}
+            <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} />
           </>
         )}
 

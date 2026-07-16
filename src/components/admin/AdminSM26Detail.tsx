@@ -22,6 +22,7 @@ import { SM26PaymentPanel } from './SM26PaymentPanel';
 import { SM26Invoices } from './SM26Invoices';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
 import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
+import { SM26MediaKit } from '@/components/sm26/SM26MediaKit';
 import { SM26CompanyLink } from './SM26CompanyLink';
 import { SM26ProvisionDialog } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
@@ -689,6 +690,13 @@ export function AdminSM26Detail() {
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4">
           <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit variant="admin" registrantUserId={reg.user_id} />
+        </CardContent>
+      </Card>
+
+      {/* Media kit — social visuals + caption for this participant to share */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4">
+          <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} />
         </CardContent>
       </Card>
 

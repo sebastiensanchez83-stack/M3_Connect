@@ -16,6 +16,7 @@ import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { SM26PartnerSponsors } from '@/components/sm26/SM26PartnerSponsors';
 import { ECAT_STATUS_LABEL, ecatStatusClass } from '@/components/admin/AdminSM26Ecat';
 import { downloadDossierZip, downloadAsset } from '@/lib/dossierExport';
+import { SM26MediaKit } from '@/components/sm26/SM26MediaKit';
 
 // Yacht Club / event-partner scoped view, geared to building the e-catalogue.
 // Drill into any entry to see its content + uploaded assets and what's still
@@ -519,6 +520,12 @@ export function SM26PartnerPage() {
               {dossier.assets.length === 0 && dossier.text.length === 0 && (
                 <p className="text-sm text-gray-400">No profile content captured yet.</p>
               )}
+
+              {/* Media kit — social visuals for the participant to post */}
+              {openId && eventId && (() => {
+                const rid = entries.find(e => e.role_assignment_id === openId)?.reg_id;
+                return rid ? <div className="border-t pt-3 mt-1"><SM26MediaKit registrationId={rid} eventId={eventId} /></div> : null;
+              })()}
 
               {/* Request a change / ask the participant for info */}
               <div className="border-t pt-3 mt-1">

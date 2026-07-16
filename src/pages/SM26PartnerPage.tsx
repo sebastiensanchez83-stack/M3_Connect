@@ -162,6 +162,69 @@ function CollapsiblePanel({ title, icon: Icon, count, description, defaultOpen =
   );
 }
 
+// Absolute URL for an external link — many entries store a bare host (no scheme),
+// which as an href resolves relative to our app and 404s.
+const toHref = (u: string) => /^https?:\/\//i.test(u.trim()) ? u.trim() : `https://${u.trim()}`;
+
+// A role's entry list. Defined at MODULE level (not inside SM26PartnerPage) so it
+// keeps a stable component identity across the page's re-renders — otherwise every
+// re-render (e.g. opening a dossier) remounts it and collapses its panel.
+function RoleSection({ role, list, thumbSrc, onOpen }: {
+  role: string;
+  list: Entry[];
+  thumbSrc: (t: string | null) => string | null;
+  onOpen: (ra: string) => void;
+}) {
+  const meta = ROLE_META[role];
+  const Icon = meta.icon;
+  const desc = role === 'startup' ? 'Full profile, contact and uploaded images for the catalogue.'
+    : role === 'jury' ? 'Logo, photo, job title & bio for the catalogue — no contact details.'
+    : role === 'marina' ? 'Marina profile & images for the catalogue.'
+    : role.startsWith('architect') ? "The firm's catalogue details — never the anonymous competition boards."
+    : undefined;
+  return (
+    <CollapsiblePanel title={meta.label} icon={Icon} count={list.length} description={desc}>
+      {list.length === 0 ? (
+        <p className="text-sm text-gray-400">No {meta.label.toLowerCase()} yet.</p>
+      ) : (
+        <div className="grid sm:grid-cols-2 gap-2">
+          {list.map(e => {
+            const title = e.company || e.name || 'Entry';
+            const sub = [e.company ? e.name : null, e.job_title].filter(Boolean).join(' · ');
+            const src = thumbSrc(e.thumb);
+            return (
+              <button key={e.role_assignment_id} onClick={() => onOpen(e.role_assignment_id)}
+                className="flex items-center gap-3 text-left rounded-lg border border-gray-100 hover:border-primary/40 hover:bg-gray-50 p-2.5 transition-colors">
+                <div className="w-10 h-10 rounded-lg bg-white border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+                  {src ? <img src={src} alt="" className="w-full h-full object-contain p-0.5" /> : <Icon className="h-5 w-5 text-gray-300" />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-gray-900 truncate">{title}</div>
+                  {sub && <div className="text-xs text-gray-500 truncate">{sub}</div>}
+                  {e.payment_status && (
+                    <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${
+                      e.payment_status === 'paid' ? 'bg-green-50 text-green-700 border-green-200'
+                      : e.payment_status === 'free' ? 'bg-gray-50 text-gray-500 border-gray-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                      {e.payment_status === 'paid' ? 'Paid' : e.payment_status === 'free' ? 'Free entry' : 'Awaiting payment'}
+                    </span>
+                  )}
+                  {e.role === 'jury' && e.jury_scope && (
+                    <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border bg-primary/5 text-primary border-primary/20">
+                      {e.jury_scope === 'both' ? 'Innovation + Architecture' : e.jury_scope === 'architecture' ? 'Architecture' : 'Innovation'}
+                    </span>
+                  )}
+                </div>
+                <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </CollapsiblePanel>
+  );
+}
+
 export function SM26PartnerPage() {
   const { user, loading: authLoading } = useAuth();
   const [eventId, setEventId] = useState<string | null>(null);
@@ -345,58 +408,6 @@ export function SM26PartnerPage() {
 
   const thumbSrc = (t: string | null) => !t ? null : isHttp(t) ? t : (thumbs[t] || null);
 
-  const Section = ({ role }: { role: string }) => {
-    const meta = ROLE_META[role];
-    const list = byRole(role);
-    const Icon = meta.icon;
-    const desc = role === 'startup' ? 'Full profile, contact and uploaded images for the catalogue.'
-      : role === 'jury' ? 'Logo, photo, job title & bio for the catalogue — no contact details.'
-      : role === 'marina' ? 'Marina profile & images for the catalogue.'
-      : role.startsWith('architect') ? "The firm's catalogue details — never the anonymous competition boards."
-      : undefined;
-    return (
-      <CollapsiblePanel title={meta.label} icon={Icon} count={list.length} description={desc}>
-          {list.length === 0 ? (
-            <p className="text-sm text-gray-400">No {meta.label.toLowerCase()} yet.</p>
-          ) : (
-            <div className="grid sm:grid-cols-2 gap-2">
-              {list.map(e => {
-                const title = e.company || e.name || 'Entry';
-                const sub = [e.company ? e.name : null, e.job_title].filter(Boolean).join(' · ');
-                const src = thumbSrc(e.thumb);
-                return (
-                  <button key={e.role_assignment_id} onClick={() => openEntry(e.role_assignment_id)}
-                    className="flex items-center gap-3 text-left rounded-lg border border-gray-100 hover:border-primary/40 hover:bg-gray-50 p-2.5 transition-colors">
-                    <div className="w-10 h-10 rounded-lg bg-white border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
-                      {src ? <img src={src} alt="" className="w-full h-full object-contain p-0.5" /> : <Icon className="h-5 w-5 text-gray-300" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-gray-900 truncate">{title}</div>
-                      {sub && <div className="text-xs text-gray-500 truncate">{sub}</div>}
-                      {e.payment_status && (
-                        <span className={`inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border ${
-                          e.payment_status === 'paid' ? 'bg-green-50 text-green-700 border-green-200'
-                          : e.payment_status === 'free' ? 'bg-gray-50 text-gray-500 border-gray-200'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                          {e.payment_status === 'paid' ? 'Paid' : e.payment_status === 'free' ? 'Free entry' : 'Awaiting payment'}
-                        </span>
-                      )}
-                      {e.role === 'jury' && e.jury_scope && (
-                        <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full border bg-primary/5 text-primary border-primary/20">
-                          {e.jury_scope === 'both' ? 'Innovation + Architecture' : e.jury_scope === 'architecture' ? 'Architecture' : 'Innovation'}
-                        </span>
-                      )}
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
-                  </button>
-                );
-              })}
-            </div>
-          )}
-      </CollapsiblePanel>
-    );
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet><title>Partner area — SM26</title></Helmet>
@@ -418,16 +429,16 @@ export function SM26PartnerPage() {
           </CollapsiblePanel>
         )}
 
-        <Section role="startup" />
-        <Section role="marina" />
-        <Section role="architect_pro" />
-        <Section role="architect_student" />
-        <Section role="jury" />
+        <RoleSection role="startup" list={byRole('startup')} thumbSrc={thumbSrc} onOpen={openEntry} />
+        <RoleSection role="marina" list={byRole('marina')} thumbSrc={thumbSrc} onOpen={openEntry} />
+        <RoleSection role="architect_pro" list={byRole('architect_pro')} thumbSrc={thumbSrc} onOpen={openEntry} />
+        <RoleSection role="architect_student" list={byRole('architect_student')} thumbSrc={thumbSrc} onOpen={openEntry} />
+        <RoleSection role="jury" list={byRole('jury')} thumbSrc={thumbSrc} onOpen={openEntry} />
         <CollapsiblePanel title="Sponsors — deliverables" icon={Building2}
           description="Tick each item as it is produced for the sponsor, and download each sponsor's uploaded assets.">
           <SM26PartnerSponsors embedded />
         </CollapsiblePanel>
-        <Section role="speaker" />
+        <RoleSection role="speaker" list={byRole('speaker')} thumbSrc={thumbSrc} onOpen={openEntry} />
 
         {/* Programme (read-only) */}
         <CollapsiblePanel title="Programme" icon={CalendarDays} count={sessions.length} description="Read-only — the schedule is managed by M3.">
@@ -553,7 +564,7 @@ export function SM26PartnerPage() {
                   {dossier.company && dossier.name && <span>{dossier.name}</span>}
                   {dossier.job_title && <span>{dossier.job_title}</span>}
                   {dossier.country && <span>{dossier.country}</span>}
-                  {dossier.website && <a href={dossier.website} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-1">{dossier.website.replace(/^https?:\/\//, '')} <ExternalLink className="h-3 w-3" /></a>}
+                  {dossier.website && <a href={toHref(dossier.website)} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-1">{dossier.website.replace(/^https?:\/\//, '')} <ExternalLink className="h-3 w-3" /></a>}
                   {dossier.email && <a href={`mailto:${dossier.email}`} className="text-primary">{dossier.email}</a>}
                 </div>
               </DialogHeader>

@@ -28,7 +28,8 @@ interface Entry {
   name: string | null; company: string | null; job_title: string | null; country: string | null; thumb: string | null;
   payment_status: string | null; jury_scope: string | null;
 }
-interface EcatRow { id: string; registration_id: string; kind: string; status: string; title: string; designed_file_path: string | null; changes_note: string | null }
+interface EcatRow { id: string; registration_id: string; kind: string; status: string; title: string; designed_file_path: string | null; changes_note: string | null; change_attachments: string[] | null }
+interface ChangeImg { path: string; url: string | null; filename: string; is_image: boolean }
 interface Session { id: string; title: string; type: string; starts_at: string | null; ends_at: string | null; room: string | null; speakers: string | null }
 interface Requirement { field_key: string; label: string; required: boolean; is_asset: boolean }
 interface DossierRow {
@@ -112,7 +113,11 @@ function buildDossier(d: DossierRow): Built {
     ];
   }
   const missing = reqs.filter(rq => rq.required && !isProvided(rq, d)).map(rq => rq.label);
-  return { text, assets, missing };
+  // The same file can arrive from both module_data and a typed profile row (e.g.
+  // startup logo/product images written to both) — show each file once.
+  const seenAsset = new Set<string>();
+  const dedupedAssets = assets.filter(a => { if (seenAsset.has(a.value)) return false; seenAsset.add(a.value); return true; });
+  return { text, assets: dedupedAssets, missing };
 }
 
 const ROLE_META: Record<string, { label: string; icon: typeof Building2; singular: string }> = {
@@ -132,6 +137,7 @@ export function SM26PartnerPage() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [ecat, setEcat] = useState<EcatRow[]>([]);
+  const [changeImgs, setChangeImgs] = useState<Record<string, ChangeImg[]>>({});
   const [sessions, setSessions] = useState<Session[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -159,8 +165,15 @@ export function SM26PartnerPage() {
       supabase.rpc('sm_partner_ecat', { p_event_id: eid }),
       supabase.rpc('sm_agenda', { p_event_id: eid }),
     ]);
-    setEcat((ec || []) as EcatRow[]);
+    const ecRows = (ec || []) as EcatRow[];
+    setEcat(ecRows);
     setSessions((ag || []) as Session[]);
+    // Sign the reference images participants attached to change requests (server-side; the designer can't read the participant's folder directly).
+    if (ecRows.some(r => r.status === 'changes_requested' && r.change_attachments?.length)) {
+      supabase.functions.invoke('sm26-ecat-change-files', { body: { event_id: eid } })
+        .then(res => setChangeImgs(((res?.data as { byPage?: Record<string, ChangeImg[]> } | null)?.byPage) || {}))
+        .catch(() => {});
+    }
     // sign storage-path thumbnails (http thumbs render directly)
     const signed: Record<string, string> = {};
     await Promise.all(rows.filter(r => r.thumb && !isHttp(r.thumb)).map(async r => {
@@ -257,6 +270,19 @@ export function SM26PartnerPage() {
   const downloadOne = async (value: string) => {
     try { await downloadAsset(value, dossier?.signed || {}); }
     catch { toast({ title: 'Could not download the file', variant: 'destructive' }); }
+  };
+
+  // Change-request images are already server-signed (the designer can't re-sign
+  // the participant's folder), so download straight from the signed URL.
+  const downloadChangeImg = async (img: ChangeImg) => {
+    if (!img.url) return;
+    try {
+      const b = await (await fetch(img.url)).blob();
+      const o = URL.createObjectURL(b);
+      const a = document.createElement('a'); a.href = o; a.download = img.filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(o), 1500);
+    } catch { window.open(img.url, '_blank'); }
   };
 
   if (authLoading || access === 'loading') return <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -421,6 +447,30 @@ export function SM26PartnerPage() {
                   {p.status === 'changes_requested' && p.changes_note && (
                     <div className="rounded-md bg-red-50 border border-red-100 px-2.5 py-1.5 text-xs text-red-700 flex items-start gap-1.5">
                       <MessageSquare className="h-3.5 w-3.5 mt-0.5 shrink-0" /> <span><span className="font-medium">Changes requested:</span> {p.changes_note}</span>
+                    </div>
+                  )}
+
+                  {p.status === 'changes_requested' && (changeImgs[p.id]?.length ?? 0) > 0 && (
+                    <div className="rounded-md bg-amber-50 border border-amber-100 px-2.5 py-2">
+                      <div className="text-[11px] font-medium text-amber-800 mb-1.5 flex items-center gap-1.5"><ImageIcon className="h-3.5 w-3.5" /> Images the participant attached</div>
+                      <div className="flex flex-wrap gap-2">
+                        {changeImgs[p.id].map(img => (
+                          <div key={img.path} className="relative">
+                            {img.is_image && img.url ? (
+                              <button onClick={() => img.url && window.open(img.url, '_blank')} title={`Open ${img.filename}`} className="block h-16 w-16 rounded-md border border-amber-200 overflow-hidden bg-white hover:ring-2 hover:ring-primary/30">
+                                <img src={img.url} alt={img.filename} className="h-full w-full object-contain" />
+                              </button>
+                            ) : (
+                              <button onClick={() => img.url && window.open(img.url, '_blank')} title={img.filename} className="h-16 w-16 rounded-md border border-amber-200 flex flex-col items-center justify-center gap-1 text-[9px] text-gray-600 hover:bg-white p-1">
+                                <Download className="h-3.5 w-3.5 text-gray-400" /><span className="truncate w-full text-center">{img.filename}</span>
+                              </button>
+                            )}
+                            <button onClick={() => downloadChangeImg(img)} title="Download" className="absolute -bottom-1.5 -right-1.5 bg-white border border-gray-200 rounded-full p-0.5 text-gray-500 hover:text-primary shadow-sm">
+                              <Download className="h-3 w-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 

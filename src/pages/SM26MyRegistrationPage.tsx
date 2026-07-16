@@ -50,7 +50,7 @@ interface Registration {
   roles: RoleAssignment[];
 }
 interface EcatPage {
-  id: string; kind: string; status: string;
+  id: string; kind: string; status: string; role_assignment_id: string | null;
   designed_file_path: string | null; published_file_path: string | null;
 }
 interface Invoice {
@@ -86,6 +86,9 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const [payStatus, setPayStatus] = useState<string>('unpaid');
   const [ecatBusy, setEcatBusy] = useState<string | null>(null);
   const [changeNote, setChangeNote] = useState<Record<string, string>>({});
+  // Reference images the participant attaches to a change request, each with an
+  // optional profile slot (field_key) to also replace on their profile ('' = reference only).
+  const [changeFiles, setChangeFiles] = useState<Record<string, { path: string; field_key: string }[]>>({});
   const [statusBusy, setStatusBusy] = useState(false);
   const [onsiteBusy, setOnsiteBusy] = useState<string | null>(null);
   const [subTab, setSubTab] = useState('overview');
@@ -115,7 +118,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     }
     setDrafts(d);
     const [{ data: ecatRows }, { data: pay }, { data: invRows }, assetRes, { count: kitCount }] = await Promise.all([
-      supabase.from('sm_ecat_page').select('id,kind,status,designed_file_path,published_file_path').eq('registration_id', r.id),
+      supabase.from('sm_ecat_page').select('id,kind,status,role_assignment_id,designed_file_path,published_file_path').eq('registration_id', r.id),
       supabase.from('sm_payment').select('status').eq('registration_id', r.id).maybeSingle(),
       supabase.from('sm_invoice').select('id,file_path,label,amount_cents,currency,created_at').eq('registration_id', r.id).order('created_at', { ascending: false }),
       supabase.functions.invoke('sm26-assets', { body: { registration_id: r.id } }),
@@ -167,18 +170,79 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     setLoading(false);
   };
 
+  // Labelled image "slots" a participant can replace via a change request — the
+  // asset requirements for that page's role (Logo, Main photo, Product images…).
+  const ecatSlotOptions = (page: EcatPage): { field_key: string; label: string }[] => {
+    const ra = reg?.roles.find(r => r.id === page.role_assignment_id);
+    if (!ra) return [];
+    return reqsForRole(ra.role).filter(r => r.is_asset).map(r => ({ field_key: r.field_key, label: r.label || r.field_key }));
+  };
+  const slotLabel = (page: EcatPage, field_key: string) => ecatSlotOptions(page).find(o => o.field_key === field_key)?.label || field_key;
+
+  // Reconcile the attached-file list (SM26AssetUpload owns uploads) while keeping
+  // each file's chosen slot.
+  const onChangeFiles = (pageId: string, paths: string[]) =>
+    setChangeFiles(prev => {
+      const existing = prev[pageId] || [];
+      return { ...prev, [pageId]: paths.map(p => existing.find(f => f.path === p) || { path: p, field_key: '' }) };
+    });
+  const setChangeSlot = (pageId: string, path: string, field_key: string) =>
+    setChangeFiles(prev => ({ ...prev, [pageId]: (prev[pageId] || []).map(f => f.path === path ? { ...f, field_key } : f) }));
+
   const respondEcat = async (page: EcatPage, action: 'approve' | 'request_changes') => {
+    const pending = (changeNote[page.id] || '').trim() || (changeFiles[page.id] || []).length > 0;
+    // Approving is final and can't be reopened from the hub — warn before it silently discards a half-written change request.
+    if (action === 'approve' && pending &&
+      !window.confirm('Approve this page? Any note or images you added here will be discarded — approving is final. To change the page instead, use “Request changes”.')) return;
     const uid = await requireFreshSession();
     if (!uid) return;
     setEcatBusy(page.id);
+
+    if (action === 'approve') {
+      // Remove reference images the participant uploaded but is now abandoning, so they don't linger in storage.
+      const abandoned = (changeFiles[page.id] || []).map(f => f.path);
+      if (abandoned.length) supabase.storage.from('event-media').remove(abandoned).catch(() => {});
+      const { error } = await supabase.rpc('sm_ecat_respond', { p_page_id: page.id, p_action: 'approve', p_comment: null, p_attachments: null });
+      setEcatBusy(null);
+      if (error) { toast({ title: 'Could not submit', description: error.message, variant: 'destructive' }); return; }
+      setEcat(prev => prev.map(p => p.id === page.id ? { ...p, status: 'approved' } : p));
+      setChangeNote(prev => ({ ...prev, [page.id]: '' }));
+      setChangeFiles(prev => ({ ...prev, [page.id]: [] }));
+      toast({ title: 'Page approved' });
+      return;
+    }
+
+    // request_changes: apply the chosen images to the profile FIRST, so the note
+    // only ever claims what actually succeeded.
+    const files = changeFiles[page.id] || [];
+    const applied = files.filter(f => f.field_key);
+    const succeeded: string[] = [];
+    for (const f of applied) {
+      const { error: e2 } = await supabase.rpc('sm_ecat_apply_to_profile', { p_page_id: page.id, p_path: f.path, p_field_key: f.field_key });
+      if (e2) toast({ title: 'A profile image could not be updated', description: e2.message, variant: 'destructive' });
+      else succeeded.push(slotLabel(page, f.field_key));
+    }
+    let note = changeNote[page.id] || '';
+    if (succeeded.length) {
+      const labels = [...new Set(succeeded)].join(', ');
+      note = `${note ? note + '\n\n' : ''}Updated on my profile: ${labels}.`;
+    }
+    const attachments = files.map(f => f.path);
     const { error } = await supabase.rpc('sm_ecat_respond', {
-      p_page_id: page.id, p_action: action, p_comment: action === 'request_changes' ? (changeNote[page.id] || '') : null,
+      p_page_id: page.id, p_action: 'request_changes', p_comment: note || null, p_attachments: attachments.length ? attachments : null,
     });
     setEcatBusy(null);
     if (error) { toast({ title: 'Could not submit', description: error.message, variant: 'destructive' }); return; }
-    setEcat(prev => prev.map(p => p.id === page.id ? { ...p, status: action === 'approve' ? 'approved' : 'changes_requested' } : p));
+    setEcat(prev => prev.map(p => p.id === page.id ? { ...p, status: 'changes_requested' } : p));
     setChangeNote(prev => ({ ...prev, [page.id]: '' }));
-    toast({ title: action === 'approve' ? 'Page approved' : 'Change request sent' });
+    setChangeFiles(prev => ({ ...prev, [page.id]: [] }));
+    toast({ title: 'Change request sent' });
+    // Refresh resolved assets so an updated profile image shows immediately in the hub.
+    if (succeeded.length && reg) {
+      supabase.functions.invoke('sm26-assets', { body: { registration_id: reg.id } })
+        .then(res => setHubAssets(((res?.data as { assets?: SM26Asset[] } | null)?.assets) || []))
+        .catch(() => {});
+    }
   };
 
   const reqsForRole = (role: string) =>
@@ -636,6 +700,34 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                     <div className="space-y-2">
                       <p className="text-sm text-gray-600">Please review the designed page and either approve it or request changes.</p>
                       <Textarea rows={2} placeholder="Optional: what would you like changed?" value={changeNote[page.id] || ''} onChange={e => setChangeNote(prev => ({ ...prev, [page.id]: e.target.value }))} />
+
+                      {/* Attach reference images (e.g. a replacement photo) with the change request */}
+                      <div className="rounded-lg bg-gray-50 border border-gray-100 p-3 space-y-2">
+                        <p className="text-xs font-medium text-gray-700">Attach images (optional)</p>
+                        <p className="text-[11px] text-gray-500 -mt-1">If you'd like an image replaced, upload or drag &amp; drop the correct one here for the designer.</p>
+                        <SM26AssetUpload
+                          value={(changeFiles[page.id] || []).map(f => f.path)}
+                          basePath={`${user!.id}/ecat-change/${page.id}`}
+                          accept="image/*"
+                          onChange={paths => onChangeFiles(page.id, paths)}
+                        />
+                        {(changeFiles[page.id] || []).length > 0 && ecatSlotOptions(page).length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            {(changeFiles[page.id] || []).map(f => (
+                              <div key={f.path} className="flex items-center gap-2 text-xs">
+                                <span className="text-gray-400 truncate max-w-[120px]" title={f.path.split('/').pop()}>{(f.path.split('/').pop() || '').replace(/^\d+-\d+-/, '')}</span>
+                                <span className="text-gray-400">→</span>
+                                <select value={f.field_key} onChange={e => setChangeSlot(page.id, f.path, e.target.value)}
+                                  className="flex-1 text-xs rounded-md border border-gray-200 px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-primary">
+                                  <option value="">Reference only (don't change my profile)</option>
+                                  {ecatSlotOptions(page).map(o => <option key={o.field_key} value={o.field_key}>Also set as my {o.label}</option>)}
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
                       <div className="flex gap-2">
                         <Button size="sm" className="gap-1.5" disabled={ecatBusy === page.id} onClick={() => respondEcat(page, 'approve')}>
                           {ecatBusy === page.id && <Loader2 className="h-4 w-4 animate-spin" />}<Check className="h-4 w-4" /> Approve

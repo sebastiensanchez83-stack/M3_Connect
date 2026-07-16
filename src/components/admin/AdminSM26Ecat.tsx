@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, BookOpen, Upload, FileText, ExternalLink, CheckCircle, Loader2, Send,
   CreditCard, MessageSquare, Eye, EyeOff, LayoutGrid, ListChecks, Palette, Plus, Trash2,
+  Image as ImageIcon, Download,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,6 +62,7 @@ interface Page {
   registration: Reg;
 }
 interface Comment { id: string; ecat_page_id: string; author_role: string | null; body: string; created_at: string; }
+interface ChangeImg { path: string; url: string | null; filename: string; is_image: boolean }
 interface Addable { role_assignment_id: string; role: string; name: string; }
 
 const firstOf = <T,>(x: T | T[] | undefined): T | undefined => Array.isArray(x) ? x[0] : x;
@@ -92,6 +94,7 @@ export function AdminSM26Ecat() {
   const [eventId, setEventId] = useState<string | null>(null);
   const [pages, setPages] = useState<Page[]>([]);
   const [comments, setComments] = useState<Record<string, Comment[]>>({});
+  const [changeImgs, setChangeImgs] = useState<Record<string, ChangeImg[]>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
@@ -125,6 +128,11 @@ export function AdminSM26Ecat() {
       for (const c of (cms || []) as Comment[]) (byPage[c.ecat_page_id] ||= []).push(c);
       setComments(byPage);
     }
+    // Sign any reference images participants attached to change requests.
+    if (pgs.some(p => p.status === 'changes_requested')) {
+      const { data: ci } = await supabase.functions.invoke('sm26-ecat-change-files', { body: { event_id: eid } });
+      setChangeImgs(((ci as { byPage?: Record<string, ChangeImg[]> } | null)?.byPage) || {});
+    }
     const { data: add } = await supabase.rpc('sm_ecat_addable', { p_event_id: eid });
     setAddable((add || []) as Addable[]);
     setLoading(false);
@@ -133,6 +141,19 @@ export function AdminSM26Ecat() {
   const title = (p: Page) => {
     const r = p.registration;
     return r.company_name || `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Entry';
+  };
+
+  // The signed URLs live on the Supabase origin; the HTML download attribute is
+  // ignored cross-origin, so fetch to a blob and download that.
+  const downloadChangeImg = async (img: ChangeImg) => {
+    if (!img.url) return;
+    try {
+      const b = await (await fetch(img.url)).blob();
+      const o = URL.createObjectURL(b);
+      const a = document.createElement('a'); a.href = o; a.download = img.filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(o), 1500);
+    } catch { window.open(img.url, '_blank'); }
   };
 
   const patch = async (p: Page, fields: Record<string, unknown>) => {
@@ -363,6 +384,31 @@ export function AdminSM26Ecat() {
                         {pageComments.filter(c => c.author_role === 'participant').slice(-3).map(c => (
                           <div key={c.id} className="text-sm text-gray-700 flex gap-2"><MessageSquare className="h-3.5 w-3.5 text-red-400 shrink-0 mt-0.5" /> {c.body}</div>
                         ))}
+                      </div>
+                    )}
+
+                    {/* Reference images the participant attached to the change request */}
+                    {p.status === 'changes_requested' && (changeImgs[p.id]?.length ?? 0) > 0 && (
+                      <div className="rounded-lg bg-amber-50 border border-amber-100 p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-amber-500 mb-1.5 flex items-center gap-1.5"><ImageIcon className="h-3.5 w-3.5" /> Images the participant attached</div>
+                        <div className="flex flex-wrap gap-2">
+                          {changeImgs[p.id].map(img => (
+                            <div key={img.path} className="relative">
+                              {img.is_image && img.url ? (
+                                <button onClick={() => img.url && window.open(img.url, '_blank')} title={`Open ${img.filename}`} className="block h-16 w-16 rounded-md border border-amber-200 overflow-hidden bg-white hover:ring-2 hover:ring-primary/30">
+                                  <img src={img.url} alt={img.filename} className="h-full w-full object-contain" />
+                                </button>
+                              ) : (
+                                <button onClick={() => img.url && window.open(img.url, '_blank')} title={img.filename} className="h-16 w-16 rounded-md border border-amber-200 flex flex-col items-center justify-center gap-1 text-[9px] text-gray-600 hover:bg-white p-1">
+                                  <Download className="h-3.5 w-3.5 text-gray-400" /><span className="truncate w-full text-center">{img.filename}</span>
+                                </button>
+                              )}
+                              <button onClick={() => downloadChangeImg(img)} title="Download" className="absolute -bottom-1.5 -right-1.5 bg-white border border-gray-200 rounded-full p-0.5 text-gray-500 hover:text-primary shadow-sm">
+                                <Download className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 

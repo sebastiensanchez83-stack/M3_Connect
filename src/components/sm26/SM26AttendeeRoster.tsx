@@ -32,6 +32,13 @@ interface Attendee {
   accessibility: string | null;
 }
 
+// Colleagues in this registration's company who already have a platform account
+// and aren't on the roster yet (sm_org_member_candidates — scoped to your own org).
+interface Candidate {
+  user_id: string; first_name: string | null; last_name: string | null;
+  email: string | null; job_title: string | null;
+}
+
 const blankDraft = { first_name: '', last_name: '', email: '', job_title: '' };
 const prettyDateTime = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -48,6 +55,7 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
   const [confirming, setConfirming] = useState(false);
   const [nudging, setNudging] = useState(false);
   const [sendingQr, setSendingQr] = useState(false);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
   const orig = useRef<Record<string, Attendee>>({});
   const { locked: rosterLocked, prettyDate: deadlinePretty } = useSm26RosterLock();
 
@@ -55,17 +63,19 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
   const editable = canEdit && (variant === 'admin' || !rosterLocked);
 
   const load = async () => {
-    const [{ data }, { data: reg }] = await Promise.all([
+    const [{ data }, { data: reg }, { data: cands }] = await Promise.all([
       supabase.from('sm_attendee').select('*')
         .eq('registration_id', registrationId)
         .order('is_primary', { ascending: false })
         .order('created_at', { ascending: true }),
       supabase.from('sm_registration').select('attendees_confirmed_at').eq('id', registrationId).maybeSingle(),
+      supabase.rpc('sm_org_member_candidates', { p_registration_id: registrationId }),
     ]);
     const list = (data || []) as Attendee[];
     orig.current = Object.fromEntries(list.map(r => [r.id, { ...r }]));
     setRows(list);
     setConfirmedAt((reg as { attendees_confirmed_at?: string | null } | null)?.attendees_confirmed_at || null);
+    setCandidates((cands || []) as Candidate[]);
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [registrationId]);
@@ -129,6 +139,27 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
       return;
     }
     setDraft(blankDraft);
+    load();
+  };
+
+  // One click to put a colleague who already has an account on the list — their
+  // account is linked explicitly (no guessing from a typed email).
+  const addFromOrg = async (c: Candidate) => {
+    const uid = await requireFreshSession();
+    if (!uid) return;
+    setBusy(c.user_id);
+    const { error } = await supabase.from('sm_attendee').insert({
+      registration_id: registrationId, event_id: eventId,
+      first_name: c.first_name || null, last_name: c.last_name || null,
+      email: c.email || null, job_title: c.job_title || null,
+      user_id: c.user_id, is_primary: false, attending: true,
+    });
+    setBusy(null);
+    if (error) {
+      toast({ title: error.code === '23505' ? 'Already on this list' : 'Could not add', description: error.message, variant: 'destructive' });
+      return;
+    }
+    toast({ title: 'Added to the attendee list' });
     load();
   };
 
@@ -295,9 +326,33 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
         ))}
       </div>
 
+      {/* Colleagues who already have an account — one click, account linked explicitly. */}
+      {editable && candidates.length > 0 && (
+        <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+          <div className="text-xs font-medium text-gray-600 flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-primary" /> Add from my company</div>
+          <p className="text-[11px] text-gray-400 -mt-1">Colleagues who already have an account on the platform. Anyone else — add them below.</p>
+          <div className="flex flex-wrap gap-2">
+            {candidates.map(c => {
+              const name = [c.first_name, c.last_name].filter(Boolean).join(' ') || c.email || 'Colleague';
+              return (
+                <button key={c.user_id} type="button" disabled={busy === c.user_id} onClick={() => addFromOrg(c)}
+                  className="inline-flex items-center gap-1.5 text-xs border border-gray-200 rounded-full pl-2 pr-2.5 py-1 hover:border-primary/40 hover:bg-gray-50 disabled:opacity-60">
+                  {busy === c.user_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3 text-primary" />}
+                  <span className="font-medium text-gray-800">{name}</span>
+                  {c.job_title && <span className="text-gray-400 truncate max-w-[9rem]">· {c.job_title}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {editable && (
         <div className="rounded-lg border border-dashed border-gray-200 p-3 space-y-2">
-          <div className="text-xs font-medium text-gray-600 flex items-center gap-1.5"><UserPlus className="h-3.5 w-3.5 text-primary" /> Add an attendee</div>
+          <div className="text-xs font-medium text-gray-600 flex items-center gap-1.5">
+            <UserPlus className="h-3.5 w-3.5 text-primary" /> {candidates.length > 0 ? 'Add someone else' : 'Add an attendee'}
+          </div>
+          <p className="text-[11px] text-gray-400 -mt-1">No account needed to attend — they still get a badge. Add an email if you'd like to invite them to the platform afterwards.</p>
           <div className="grid sm:grid-cols-2 gap-2">
             <Input value={draft.first_name} placeholder="First name" className="h-9 text-sm" onChange={e => setDraft(d => ({ ...d, first_name: e.target.value }))} />
             <Input value={draft.last_name} placeholder="Last name" className="h-9 text-sm" onChange={e => setDraft(d => ({ ...d, last_name: e.target.value }))} />

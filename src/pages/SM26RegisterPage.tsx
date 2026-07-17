@@ -12,7 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import { getFreshUserId } from '@/lib/session';
 import {
   CheckCircle, Loader2, Eye, Ship, Lightbulb, Compass, GraduationCap,
-  Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight,
+  Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight, AlertTriangle,
 } from 'lucide-react';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
@@ -169,6 +169,42 @@ export function SM26RegisterPage() {
     })();
     return () => { active = false; };
   }, [user, eventId, navigate]);
+
+  // A company registers ONCE, then adds the people who are coming. If a colleague
+  // already registered under this company, don't offer a second registration —
+  // the whole team can already open and manage the existing one (org membership
+  // is what grants access). A DB unique index enforces this server-side too.
+  const [orgReg, setOrgReg] = useState<{ id: string; first_name: string | null; last_name: string | null; company_name: string | null; user_id: string | null } | null>(null);
+  useEffect(() => {
+    if (!user || !eventId || !organization?.id) return;
+    let active = true;
+    (async () => {
+      const { data } = await supabase.from('sm_registration')
+        .select('id, first_name, last_name, company_name, user_id')
+        .eq('event_id', eventId).eq('organization_id', organization.id)
+        .not('status', 'in', '("declined","cancelled")')
+        .limit(1).maybeSingle();
+      const row = data as { id: string; first_name: string | null; last_name: string | null; company_name: string | null; user_id: string | null } | null;
+      // Their own registration is handled by the redirect above.
+      if (active && row && row.user_id !== user.id) setOrgReg(row);
+    })();
+    return () => { active = false; };
+  }, [user, eventId, organization?.id]);
+
+  // Soft duplicate warning by company name — the only signal available for guests
+  // (who have no organisation yet). Advisory: a genuinely different company that
+  // shares a name must still be able to register.
+  const [nameTaken, setNameTaken] = useState(false);
+  useEffect(() => {
+    const name = form.company_name.trim();
+    if (!eventId || name.length < 3) { setNameTaken(false); return; }
+    let active = true;
+    const t = setTimeout(async () => {
+      const { data } = await supabase.rpc('sm_company_has_registration', { p_event_id: eventId, p_company: name });
+      if (active) setNameTaken(data === true);
+    }, 500);
+    return () => { active = false; clearTimeout(t); };
+  }, [form.company_name, eventId]);
 
   // ─── Save & resume ────────────────────────────────────────────────
   const firstSaveRef = useRef(true);
@@ -408,6 +444,17 @@ export function SM26RegisterPage() {
 
       if (regErr || !reg) {
         const sessionLost = regErr?.message?.includes('row-level security');
+        // The (event_id, organization_id) unique index: someone at this company
+        // registered in the meantime. Send them to it instead of a raw DB error.
+        const companyDup = regErr?.code === '23505' && regErr?.message?.includes('sm_registration_event_org_live_uq');
+        if (companyDup) {
+          toast({
+            title: 'Your company is already registered',
+            description: 'A colleague registered your company for this event — taking you to it so you can add yourself to the attendee list.',
+          });
+          navigate('/sm26/me');
+          return;
+        }
         toast({
           title: sessionLost ? 'Your session has expired' : 'Registration failed',
           description: sessionLost
@@ -532,6 +579,35 @@ export function SM26RegisterPage() {
     }
   };
 
+  // Your company already registered — send them to it rather than let them create a duplicate.
+  if (orgReg) {
+    const contact = [orgReg.first_name, orgReg.last_name].filter(Boolean).join(' ');
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-xl text-center">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-50">
+          <Building2 className="h-8 w-8 text-primary" />
+        </div>
+        <h1 className="text-2xl font-bold mb-2">{orgReg.company_name || 'Your company'} is already registered</h1>
+        <p className="text-gray-600">
+          {contact ? <>{contact} has</> : <>A colleague has</>} already registered your company for the
+          Smart &amp; Sustainable Marina Rendezvous 2026. A company registers once and then adds the
+          people who are coming — so you don't need a second registration.
+        </p>
+        <p className="text-gray-600 mt-3">
+          You're on the team, so you can open the registration and add yourself to the attendee list.
+        </p>
+        <div className="mt-6">
+          <Button asChild className="gap-1.5">
+            <Link to="/sm26/me">Open our registration <ArrowRight className="h-4 w-4" /></Link>
+          </Button>
+        </div>
+        <p className="text-xs text-gray-400 mt-3">
+          If this is genuinely a different company, contact <a href="mailto:events@m3monaco.com" className="text-primary">events@m3monaco.com</a>.
+        </p>
+      </div>
+    );
+  }
+
   if (done) {
     return (
       <div className="container mx-auto px-4 py-16 max-w-xl text-center">
@@ -587,7 +663,21 @@ export function SM26RegisterPage() {
               <div className="space-y-1"><Label>Last name *</Label><Input value={form.last_name} onChange={e => setField('last_name', e.target.value)} required /></div>
               <div className="space-y-1"><Label>Email *</Label><Input type="email" value={form.email} onChange={e => setField('email', e.target.value)} required /></div>
               <div className="space-y-1"><Label>Phone</Label><Input value={form.phone} onChange={e => setField('phone', e.target.value)} /></div>
-              <div className="space-y-1"><Label>Company / University</Label><Input value={form.company_name} onChange={e => setField('company_name', e.target.value)} /></div>
+              <div className="space-y-1">
+                <Label>Company / University</Label>
+                <Input value={form.company_name} onChange={e => setField('company_name', e.target.value)} />
+                {nameTaken && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5 flex items-start gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 mt-px shrink-0" />
+                    <span>
+                      <strong>{form.company_name.trim()}</strong> is already registered for this event. A company registers once
+                      and then adds the people who are coming — ask your colleague to add you to their attendee list, or contact{' '}
+                      <a href="mailto:events@m3monaco.com" className="underline">events@m3monaco.com</a>. If you're a different
+                      company with the same name, just continue.
+                    </span>
+                  </p>
+                )}
+              </div>
               <div className="space-y-1"><Label>Website</Label><Input value={form.website} onChange={e => setField('website', e.target.value)} placeholder="https://" /></div>
               <div className="space-y-1"><Label>Country</Label><Input value={form.country} onChange={e => setField('country', e.target.value)} /></div>
               <div className="space-y-1"><Label>Job title</Label><Input value={form.job_title} onChange={e => setField('job_title', e.target.value)} /></div>

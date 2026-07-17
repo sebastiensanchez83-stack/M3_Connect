@@ -55,12 +55,16 @@ export function JoinPage() {
     if (!inviteId) { setPageState('error'); return; }
 
     const loadInvite = async () => {
-      // Fetch invitation (simple query — no joins that might fail on FK names)
-      const { data, error } = await supabase
-        .from('organization_invitations')
-        .select('id, email, organization_id, status, invited_by_user_id, first_name, last_name')
-        .eq('id', inviteId)
-        .maybeSingle();
+      // This page is pre-auth, so it can't read organization_invitations directly
+      // (that table is no longer world-readable). get_invitation_for_join returns
+      // exactly this invite — keyed on the id from the emailed link, which acts as
+      // the token — plus the org and inviter names, in one call.
+      const { data: rows, error } = await supabase
+        .rpc('get_invitation_for_join', { p_invitation_id: inviteId });
+      const data = (Array.isArray(rows) ? rows[0] : rows) as {
+        id: string; email: string; organization_id: string; organization_name: string | null;
+        status: string; first_name: string | null; last_name: string | null; inviter_name: string | null;
+      } | undefined;
 
       if (error || !data) {
         if (import.meta.env.DEV) console.error('[JoinPage] Invitation fetch error:', error);
@@ -68,30 +72,8 @@ export function JoinPage() {
         return;
       }
 
-      // Fetch org name separately
-      let orgName = 'Organization';
-      if (data.organization_id) {
-        const { data: orgData } = await supabase
-          .from('organizations')
-          .select('name')
-          .eq('id', data.organization_id)
-          .maybeSingle();
-        if (orgData?.name) orgName = orgData.name;
-      }
-
-      // Fetch inviter name via the safe public-profile RPC (the profiles table
-      // is now readable only for your own row / moderators, so direct reads of
-      // another user's row are blocked; the RPC returns name without email).
-      let inviterName = 'A team member';
-      if (data.invited_by_user_id) {
-        const { data: inviterRows } = await supabase
-          .rpc('get_public_profile', { target_user_id: data.invited_by_user_id });
-        const inviterData = Array.isArray(inviterRows) ? inviterRows[0] : inviterRows;
-        if (inviterData) {
-          const name = `${inviterData.first_name || ''} ${inviterData.last_name || ''}`.trim();
-          if (name) inviterName = name;
-        }
-      }
+      const orgName = data.organization_name || 'Organization';
+      const inviterName = data.inviter_name || 'A team member';
 
       const info: InviteInfo = {
         id: data.id,

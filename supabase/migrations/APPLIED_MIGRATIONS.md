@@ -2,7 +2,7 @@
 
 Authoritative list of every migration applied to Supabase project
 `djjbgzasuomhyfvtlidi`, in order (from `supabase_migrations.schema_migrations`).
-**223 migrations**, `20260130111556` → `20260717122535`.
+**226 migrations**, `20260130111556` → `20260717123859`.
 
 Generated 2026-07-16. Regenerate with:
 
@@ -236,4 +236,7 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260716131722  sm_partner_ecat_clear_and_marina_gallery
 20260716150138  sm_partner_dossier_architect_social_links
 20260717122535  sm_one_registration_per_company_and_team_picker
+20260717123558  lock_down_invitations_and_guard_attendee_roster
+20260717123754  scope_invitation_select_policies_to_authenticated
+20260717123859  fix_invitee_policy_auth_users_permission
 ```

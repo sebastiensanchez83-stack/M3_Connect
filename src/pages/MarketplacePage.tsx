@@ -127,6 +127,9 @@ export function MarketplacePage() {
   const [partnerSearch, setPartnerSearch] = useState('');
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
   const [typeFilter, setTypeFilter] = useState('all');
+  // Most marinas in the directory are pre-created records nobody has claimed yet.
+  // They stay listed (sorted last), but this hides them in one click.
+  const [joinedOnly, setJoinedOnly] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false); // mobile toggle
 
   /* --- contact dialog state --- */
@@ -355,9 +358,15 @@ export function MarketplacePage() {
           member_count: memberCountMap[o.id] || 0,
         }));
 
-        // Sort by sponsorship tier (highest first), then alphabetically
+        // Organisations whose team has actually joined come FIRST. Most of the
+        // marina directory is pre-created records that were never claimed, and
+        // they'd otherwise bury the real accounts. Then sponsorship tier, then
+        // alphabetically.
         const tierOrder: Record<string, number> = { main_sponsor: 0, premium_partner: 1, associate_partner: 2, innovation_partner: 3, member: 4 };
         cards.sort((a, b) => {
+          const aJoined = a.member_count > 0 ? 0 : 1;
+          const bJoined = b.member_count > 0 ? 0 : 1;
+          if (aJoined !== bJoined) return aJoined - bJoined;
           const aOrder = tierOrder[a.tier] ?? 5;
           const bOrder = tierOrder[b.tier] ?? 5;
           if (aOrder !== bOrder) return aOrder - bOrder;
@@ -724,8 +733,10 @@ export function MarketplacePage() {
     );
     const matchesSector = selectedSectors.length === 0 || o.sectors.some(s => selectedSectors.includes(s.id));
     const matchesType = typeFilter === 'all' || o.organization_type === typeFilter;
-    return matchesSearch && matchesSector && matchesType;
+    const matchesJoined = !joinedOnly || o.member_count > 0;
+    return matchesSearch && matchesSector && matchesType && matchesJoined;
   });
+  const joinedCount = orgs.filter(o => o.member_count > 0).length;
 
   /* ========== render ========== */
 
@@ -765,6 +776,19 @@ export function MarketplacePage() {
                 <SelectItem value="media_partner">{t('marketplace.typeMedia', 'Media')}</SelectItem>
               </SelectContent>
             </Select>
+            {/* Members-first is the default order; this hides the never-claimed records entirely. */}
+            <button
+              type="button"
+              onClick={() => setJoinedOnly(v => !v)}
+              title="Show only organizations whose team has an account on the platform"
+              className={`h-11 shrink-0 inline-flex items-center gap-1.5 rounded-xl border px-3 text-sm font-medium transition-colors ${
+                joinedOnly ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <Users className="h-4 w-4" />
+              On the platform
+              <span className={joinedOnly ? 'text-white/80' : 'text-gray-400'}>({joinedCount})</span>
+            </button>
             {/* Mobile: toggle sidebar button */}
             <Button
               variant="outline"
@@ -960,10 +984,14 @@ export function MarketplacePage() {
                             )}
 
                             <div className="flex items-center justify-between mt-3 pt-2 border-t">
-                              {orgCard.member_count > 0 && (
+                              {orgCard.member_count > 0 ? (
                                 <span className="text-xs text-gray-500 flex items-center gap-1">
                                   <Users className="h-3 w-3" />
                                   {orgCard.member_count} {orgCard.member_count === 1 ? 'member' : 'members'}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400 italic flex items-center gap-1" title="This organization is listed but its team hasn't joined the platform yet.">
+                                  Not yet on the platform
                                 </span>
                               )}
                               <span className="text-xs text-primary font-medium flex items-center gap-1 ml-auto">

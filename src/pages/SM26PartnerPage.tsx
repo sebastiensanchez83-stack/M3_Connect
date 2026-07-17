@@ -20,8 +20,10 @@ import { SM26MediaKitBoard } from '@/components/sm26/SM26MediaKitBoard';
 
 // Yacht Club / event-partner scoped view, geared to building the e-catalogue.
 // Drill into any entry to see its content + uploaded assets and what's still
-// missing. Contact details are shown ONLY for innovations (never sponsors,
-// speakers or jury — server-enforced in sm_partner_entry_dossier).
+// missing. Contact details are shown only for the roles whose catalogue page the
+// Yacht Club builds — innovations, marinas and architecture — never for jury
+// (anonymous), sponsors or speakers (M3 owns those). Server-enforced in
+// sm_partner_entry_dossier.
 
 interface Entry {
   role_assignment_id: string; reg_id: string; role: string;

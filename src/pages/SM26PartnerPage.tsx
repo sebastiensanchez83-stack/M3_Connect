@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import {
   RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
   Lightbulb, Scale, Image as ImageIcon, ChevronRight, ChevronDown, Download, AlertTriangle, CheckCircle2,
-  Upload, Loader2, MessageSquare, Eye, Ruler, Trash2,
+  Upload, Loader2, MessageSquare, Eye, Ruler, Trash2, Bell,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -359,6 +359,15 @@ export function SM26PartnerPage() {
     if (data) window.open(data.signedUrl, '_blank'); else toast({ title: 'Could not open file', variant: 'destructive' });
   };
 
+  // Email a participant whose page is uploaded but not yet approved a reminder.
+  const remindReview = async (p: EcatRow) => {
+    setBusy(p.id);
+    const { error } = await supabase.functions.invoke('sm26-email', { body: { registration_id: p.registration_id, kind: 'ecat_review_reminder' } });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not send the reminder', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Reminder sent', description: 'The participant was emailed to review and approve their page.' });
+  };
+
   // Remove a wrongly-uploaded designed page: clear the file + return to "Designing".
   const removeEcat = async (p: EcatRow) => {
     if (!window.confirm('Remove the uploaded designed page? This clears the file and returns the page to “Designing” so you can upload the right one.')) return;
@@ -567,7 +576,16 @@ export function SM26PartnerPage() {
                         <Trash2 className="h-3.5 w-3.5" /> Remove
                       </button>
                     )}
-                    {p.status === 'uploaded' && <span className="text-xs text-blue-600 inline-flex items-center gap-1">Awaiting participant approval</span>}
+                    {p.status === 'uploaded' && (
+                      <>
+                        <span className="text-xs text-blue-600 inline-flex items-center gap-1">Awaiting participant approval</span>
+                        <button type="button" onClick={() => remindReview(p)} disabled={busyRow}
+                          className="inline-flex items-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-md px-2.5 py-1.5 hover:bg-gray-50 disabled:opacity-60"
+                          title="Email the participant a reminder to review & approve their page">
+                          <Bell className="h-3.5 w-3.5" /> Remind to approve
+                        </button>
+                      </>
+                    )}
                     {p.status === 'approved' && <span className="text-xs text-emerald-600 inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Approved by participant</span>}
                     {p.status === 'published' && <span className="text-xs text-green-600 inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Published</span>}
                   </div>

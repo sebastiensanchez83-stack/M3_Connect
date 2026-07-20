@@ -131,8 +131,12 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     setHubAssets(((assetRes?.data as { assets?: SM26Asset[] } | null)?.assets) || []);
     const hasKit = (kitCount || 0) > 0;
     setHasMediaKit(hasKit);
-    // Deep link from the "media kit ready" email (/account?tab=event&sub=mediakit).
-    if (!deepLinkedRef.current && hasKit && searchParams.get('sub') === 'mediakit') { deepLinkedRef.current = true; setSubTab('mediakit'); }
+    // Deep links from emails (/account?tab=event&sub=...).
+    if (!deepLinkedRef.current) {
+      const sub = searchParams.get('sub');
+      if (sub === 'mediakit' && hasKit) { deepLinkedRef.current = true; setSubTab('mediakit'); }
+      else if (sub === 'catalogue' && (ecatRows || []).length > 0) { deepLinkedRef.current = true; setSubTab('catalogue'); }
+    }
   };
 
   const load = async () => {

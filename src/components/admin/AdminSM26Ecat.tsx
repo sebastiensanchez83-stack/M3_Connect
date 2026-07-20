@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, BookOpen, Upload, FileText, ExternalLink, CheckCircle, Loader2, Send,
   CreditCard, MessageSquare, Eye, EyeOff, LayoutGrid, ListChecks, Palette, Plus, Trash2,
-  Image as ImageIcon, Download,
+  Image as ImageIcon, Download, Bell,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -172,6 +172,15 @@ export function AdminSM26Ecat() {
     if (!ok) return;
     void supabase.functions.invoke('sm26-ecat-designer', { body: { registration_id: p.registration_id } }).catch(() => {});
     toast({ title: 'Sent to the designer', description: 'The Yacht Club has been emailed that a page is ready to design.' });
+  };
+
+  // Nudge a participant whose designed page is uploaded but not yet approved.
+  const remindReview = async (p: Page) => {
+    setBusy(p.id);
+    const { error } = await supabase.functions.invoke('sm26-email', { body: { registration_id: p.registration_id, kind: 'ecat_review_reminder' } });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not send the reminder', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Reminder sent', description: 'The participant was emailed to review and approve their page.' });
   };
 
   const uploadDesigned = async (p: Page, file: File) => {
@@ -449,7 +458,14 @@ export function AdminSM26Ecat() {
                           {p.status === 'changes_requested' ? 'Upload revised page' : 'Upload designed page'}
                         </Button>
                       )}
-                      {p.status === 'uploaded' && <span className="text-xs text-blue-600 inline-flex items-center gap-1"><Loader2 className="h-3 w-3" /> Awaiting participant approval</span>}
+                      {p.status === 'uploaded' && (
+                        <>
+                          <span className="text-xs text-blue-600 inline-flex items-center gap-1"><Loader2 className="h-3 w-3" /> Awaiting participant approval</span>
+                          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => remindReview(p)} disabled={isBusy} title="Email the participant a reminder to review & approve their page">
+                            <Bell className="h-3.5 w-3.5" /> Remind to approve
+                          </Button>
+                        </>
+                      )}
                       {p.status === 'approved' && (
                         <Button size="sm" className="gap-1.5" onClick={() => publish(p, publishable)} disabled={isBusy || !publishable} title={publishable ? 'Publish' : 'Awaiting payment'}>
                           <CheckCircle className="h-3.5 w-3.5" /> {publishable ? 'Publish' : 'Publish (needs payment)'}

@@ -21,6 +21,7 @@ import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
 import { SM26Invoices } from './SM26Invoices';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
+import { fetchLastEmails, lastEmailText, type LastEmail } from '@/lib/sm26EmailLog';
 import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
 import { SM26MediaKit } from '@/components/sm26/SM26MediaKit';
 import { SM26CompanyLink } from './SM26CompanyLink';
@@ -309,6 +310,7 @@ export function AdminSM26Detail() {
   const { isAdmin } = useAuth();
   const [viewingAs, setViewingAs] = useState(false);
   const [reg, setReg] = useState<Registration | null>(null);
+  const [lastEmail, setLastEmail] = useState<LastEmail | null>(null);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [paid, setPaid] = useState(false);
   const [waived, setWaived] = useState(false);
@@ -357,6 +359,7 @@ export function AdminSM26Detail() {
       .maybeSingle();
     const r = data as Registration | null;
     setReg(r);
+    if (r) fetchLastEmails([r.id]).then(m => setLastEmail(m[r.id] || null));
     if (r?.event_id) {
       const { data: reqs } = await supabase.from('sm_role_requirement').select('*').eq('event_id', r.event_id);
       setRequirements((reqs || []) as Requirement[]);
@@ -588,6 +591,9 @@ export function AdminSM26Detail() {
             </div>
           </div>
           <SM26StatusTimeline status={reg.status} paid={paid} waived={waived} />
+          {lastEmailText(lastEmail) && (
+            <p className="text-[11px] text-gray-400 mt-2">{lastEmailText(lastEmail)}</p>
+          )}
         </CardContent>
       </Card>
 

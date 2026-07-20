@@ -16,6 +16,7 @@ import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { SM26PartnerSponsors } from '@/components/sm26/SM26PartnerSponsors';
 import { ECAT_STATUS_LABEL, ecatStatusClass } from '@/components/admin/AdminSM26Ecat';
 import { downloadDossierZip, downloadAsset } from '@/lib/dossierExport';
+import { fetchLastEmails, lastEmailText, type LastEmail } from '@/lib/sm26EmailLog';
 import { SM26MediaKitBoard } from '@/components/sm26/SM26MediaKitBoard';
 
 // Yacht Club / event-partner scoped view, geared to building the e-catalogue.
@@ -264,6 +265,7 @@ export function SM26PartnerPage() {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [ecat, setEcat] = useState<EcatRow[]>([]);
   const [changeImgs, setChangeImgs] = useState<Record<string, ChangeImg[]>>({});
+  const [lastEmail, setLastEmail] = useState<Record<string, LastEmail>>({});
   const [sessions, setSessions] = useState<Session[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -293,6 +295,7 @@ export function SM26PartnerPage() {
     ]);
     const ecRows = (ec || []) as EcatRow[];
     setEcat(ecRows);
+    fetchLastEmails(ecRows.map(r => r.registration_id)).then(setLastEmail);
     setSessions((ag || []) as Session[]);
     // Sign the reference images participants attached to change requests (server-side; the designer can't read the participant's folder directly).
     if (ecRows.some(r => r.status === 'changes_requested' && r.change_attachments?.length)) {
@@ -365,6 +368,7 @@ export function SM26PartnerPage() {
     const { error } = await supabase.functions.invoke('sm26-email', { body: { registration_id: p.registration_id, kind: 'ecat_review_reminder' } });
     setBusy(null);
     if (error) { toast({ title: 'Could not send the reminder', description: error.message, variant: 'destructive' }); return; }
+    setLastEmail(m => ({ ...m, [p.registration_id]: { kind: 'ecat_review_reminder', sent_at: new Date().toISOString() } }));
     toast({ title: 'Reminder sent', description: 'The participant was emailed to review and approve their page.' });
   };
 
@@ -589,6 +593,9 @@ export function SM26PartnerPage() {
                     {p.status === 'approved' && <span className="text-xs text-emerald-600 inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Approved by participant</span>}
                     {p.status === 'published' && <span className="text-xs text-green-600 inline-flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Published</span>}
                   </div>
+                  {lastEmailText(lastEmail[p.registration_id]) && (
+                    <p className="text-[11px] text-gray-400">{lastEmailText(lastEmail[p.registration_id])}</p>
+                  )}
                 </div>
               );
             })}

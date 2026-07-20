@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { fetchLastEmails, lastEmailText, type LastEmail } from '@/lib/sm26EmailLog';
 
 // Admin e-catalogue console. Each marina & startup gets a catalogue page; this
 // drives it through: prepare → send to designer → design → participant review →
@@ -95,6 +96,7 @@ export function AdminSM26Ecat() {
   const [pages, setPages] = useState<Page[]>([]);
   const [comments, setComments] = useState<Record<string, Comment[]>>({});
   const [changeImgs, setChangeImgs] = useState<Record<string, ChangeImg[]>>({});
+  const [lastEmail, setLastEmail] = useState<Record<string, LastEmail>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
@@ -122,6 +124,7 @@ export function AdminSM26Ecat() {
     // Declined registrations never appear in the catalogue.
     const pgs = ((data || []) as Page[]).filter(p => (p.registration as { status?: string })?.status !== 'declined');
     setPages(pgs);
+    fetchLastEmails(pgs.map(p => p.registration_id)).then(setLastEmail);
     if (pgs.length) {
       const { data: cms } = await supabase.from('sm_ecat_comment').select('*').in('ecat_page_id', pgs.map(p => p.id)).order('created_at', { ascending: true });
       const byPage: Record<string, Comment[]> = {};
@@ -180,6 +183,7 @@ export function AdminSM26Ecat() {
     const { error } = await supabase.functions.invoke('sm26-email', { body: { registration_id: p.registration_id, kind: 'ecat_review_reminder' } });
     setBusy(null);
     if (error) { toast({ title: 'Could not send the reminder', description: error.message, variant: 'destructive' }); return; }
+    setLastEmail(m => ({ ...m, [p.registration_id]: { kind: 'ecat_review_reminder', sent_at: new Date().toISOString() } }));
     toast({ title: 'Reminder sent', description: 'The participant was emailed to review and approve their page.' });
   };
 
@@ -382,6 +386,9 @@ export function AdminSM26Ecat() {
                           <Badge className={`text-[10px] ${ecatStatusClass(p.status)}`}>{ECAT_STATUS_LABEL[p.status] || p.status}</Badge>
                         </div>
                         <MiniPipeline status={p.status} />
+                        {lastEmailText(lastEmail[p.registration_id]) && (
+                          <p className="text-[11px] text-gray-400">{lastEmailText(lastEmail[p.registration_id])}</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge className={`text-[10px] ${payClass(pay?.status)}`}><CreditCard className="h-3 w-3 mr-1" />{pay?.status || 'unpaid'}</Badge>

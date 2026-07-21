@@ -17,23 +17,26 @@ import { defaultMediaKitCaption } from './SM26MediaKit';
 // Opened -> Downloaded. Server (sm26-media-kit) gates + signs and stamps the
 // opened/downloaded events; uploads/deletes/caption run client-side via RLS.
 
-interface KitFile { id: string; filename: string; url: string | null; is_image: boolean; mime: string | null; storage_path?: string }
-interface Participant { reg_id: string; name: string | null; company: string | null; thumb: string | null; roles: string[] }
-interface KitData { caption: string; notified_at: string | null; first_viewed_at: string | null; first_downloaded_at: string | null; files: KitFile[] }
-type Status = 'none' | 'ready' | 'sent' | 'opened' | 'downloaded';
+export interface KitFile { id: string; filename: string; url: string | null; is_image: boolean; mime: string | null; storage_path?: string }
+export interface Participant { reg_id: string; name: string | null; company: string | null; thumb: string | null; roles: string[] }
+export interface KitData { caption: string; notified_at: string | null; first_viewed_at: string | null; first_downloaded_at: string | null; files: KitFile[] }
+export type MediaKitStatus = 'none' | 'ready' | 'sent' | 'opened' | 'downloaded';
+type Status = MediaKitStatus;
 
-const EMPTY: KitData = { caption: '', notified_at: null, first_viewed_at: null, first_downloaded_at: null, files: [] };
+export const EMPTY_KIT: KitData = { caption: '', notified_at: null, first_viewed_at: null, first_downloaded_at: null, files: [] };
+const EMPTY = EMPTY_KIT;
 const isHttp = (s: string) => /^https?:\/\//i.test(s);
 const isImgName = (s: string) => /\.(png|jpe?g|webp|gif|svg|avif|bmp)$/i.test(s.split('?')[0]);
 const fmtDate = (s: string | null) => s ? new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '';
 
-const STATUS_META: Record<Status, { label: string; cls: string }> = {
+export const MEDIA_KIT_STATUS_META: Record<Status, { label: string; cls: string }> = {
   none: { label: 'No kit', cls: 'bg-gray-50 text-gray-500 border-gray-200' },
   ready: { label: 'To send', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
   sent: { label: 'Sent', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
   opened: { label: 'Opened', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
   downloaded: { label: 'Downloaded', cls: 'bg-green-50 text-green-700 border-green-200' },
 };
+const STATUS_META = MEDIA_KIT_STATUS_META;
 const FILTER_ORDER: Status[] = ['ready', 'sent', 'opened', 'downloaded', 'none'];
 
 // Group the board by participant category so it's easier to work through one type
@@ -52,16 +55,22 @@ const categoryOf = (roles: string[]): string => {
   return 'other';
 };
 
-function statusOf(k: Pick<KitData, 'files' | 'notified_at' | 'first_viewed_at' | 'first_downloaded_at'>): Status {
+export function mediaKitStatusOf(k: Pick<KitData, 'files' | 'notified_at' | 'first_viewed_at' | 'first_downloaded_at'>): Status {
   if (!k.files.length) return 'none';
   if (k.first_downloaded_at) return 'downloaded';
   if (k.first_viewed_at) return 'opened';
   if (k.notified_at) return 'sent';
   return 'ready';
 }
+const statusOf = mediaKitStatusOf;
 
-function MediaKitRow({ p, eventId, uid, initial, onStatus }: {
-  p: Participant; eventId: string; uid: string; initial: KitData; onStatus: (regId: string, s: Status) => void;
+// One participant's media-kit workspace (upload / caption / notify / status).
+// Exported so the Yacht Club console drawer reuses the exact same row while the
+// admin media-kit board keeps rendering a flat list of them.
+export function MediaKitRow({ p, eventId, uid, initial, onStatus, onData }: {
+  p: Participant; eventId: string; uid: string; initial: KitData;
+  onStatus: (regId: string, s: Status) => void;
+  onData?: (regId: string, data: KitData) => void;
 }) {
   const [files, setFiles] = useState<KitFile[]>(initial.files);
   const [caption, setCaption] = useState(initial.caption || defaultMediaKitCaption(p.company));
@@ -77,6 +86,9 @@ function MediaKitRow({ p, eventId, uid, initial, onStatus }: {
 
   const status = statusOf({ files, notified_at: notifiedAt, first_viewed_at: viewedAt, first_downloaded_at: downloadedAt });
   useEffect(() => { onStatus(p.reg_id, status); }, [status, p.reg_id, onStatus]);
+  // Keep the parent's cached kit data fresh so reopening a drawer shows the files
+  // just uploaded (the board doesn't pass onData; it reloads wholesale instead).
+  useEffect(() => { onData?.(p.reg_id, { caption: savedCaption, notified_at: notifiedAt, first_viewed_at: viewedAt, first_downloaded_at: downloadedAt, files }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [files, savedCaption, notifiedAt]);
 
   const upload = async (fl: FileList | File[]) => {
     const arr = Array.from(fl); if (!arr.length) return;

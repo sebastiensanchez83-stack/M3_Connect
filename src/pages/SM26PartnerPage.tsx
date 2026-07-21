@@ -4,7 +4,7 @@ import {
   RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
   Lightbulb, Scale, Image as ImageIcon, ChevronRight, ChevronDown, Download, AlertTriangle,
   CheckCircle2, Upload, Loader2, MessageSquare, Eye, Ruler, Trash2, Bell, Search, X, Clock,
-  CreditCard, Palette, Send,
+  CreditCard, Palette, Send, CheckSquare, Square, ClipboardCheck, UserCheck,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -32,7 +32,7 @@ import {
 interface Entry {
   role_assignment_id: string; reg_id: string; role: string;
   name: string | null; company: string | null; job_title: string | null; country: string | null; thumb: string | null;
-  payment_status: string | null; jury_scope: string | null;
+  payment_status: string | null; jury_scope: string | null; catalogue_listed: boolean;
 }
 interface EcatRow { id: string; registration_id: string; kind: string; status: string; title: string; designed_file_path: string | null; changes_note: string | null; change_attachments: string[] | null }
 interface ChangeImg { path: string; url: string | null; filename: string; is_image: boolean }
@@ -173,9 +173,13 @@ const CATEGORIES: { key: string; label: string; icon: ComponentType<{ className?
 const CATEGORY_LABEL: Record<string, string> = { ...Object.fromEntries(CATEGORIES.map(c => [c.key, c.label])), other: 'Autres' };
 const CATEGORY_ICON: Record<string, ComponentType<{ className?: string }>> = { ...Object.fromEntries(CATEGORIES.map(c => [c.key, c.icon])), other: Building2 };
 const categoryOf = (roles: string[]): string => { for (const c of CATEGORIES) if (roles.some(r => c.roles.includes(r))) return c.key; return 'other'; };
-// Roles whose catalogue page the Yacht Club actually builds — used to scope the
-// "missing info" / e-catalogue signals (M3 owns sponsor & speaker pages).
-const BUILDS_PAGE = new Set(['startup', 'marina', 'architect_pro', 'architect_student', 'jury']);
+// Roles whose catalogue page the Yacht Club actually DESIGNS (prepare → upload →
+// the participant approves). Jury are NOT here: they're just listed, with a
+// simple "added to catalogue" tick, no page and no validation.
+const BUILDS_PAGE = new Set(['startup', 'marina', 'architect_pro', 'architect_student']);
+// Roles for which we still gather catalogue info + flag what's missing (jury
+// included — Olivia needs their logo/photo/bio/title to list them).
+const HAS_CATALOGUE_INFO = new Set(['startup', 'marina', 'architect_pro', 'architect_student', 'jury']);
 const ROLE_LABEL_FR: Record<string, string> = { startup: 'Innovation', marina: 'Marina', architect_pro: 'Architecture · Pro', architect_student: 'Architecture · Étudiant', jury: 'Jury', sponsor: 'Sponsor', speaker: 'Speaker' };
 const ROLE_SINGULAR: Record<string, string> = { startup: 'innovation', marina: 'marina', architect_pro: 'architecture entry', architect_student: 'architecture entry', jury: 'juror', sponsor: 'sponsor', speaker: 'speaker' };
 
@@ -184,6 +188,7 @@ type Payment = 'paid' | 'awaiting' | 'free' | null;
 interface Company {
   reg_id: string; company: string; contact: string | null; thumb: string | null;
   category: string; roles: string[]; entries: Entry[]; payment: Payment; pages: EcatRow[]; missing: number;
+  juryRa: string | null; listed: boolean;
 }
 function aggPayment(entries: Entry[]): Payment {
   const s = entries.map(e => e.payment_status).filter(Boolean) as string[];
@@ -227,11 +232,12 @@ function companyEcatBadge(co: Company): { label: string; cls: string } | null {
 }
 
 // ---- Dashboard tiles ---------------------------------------------------------
-type FilterKey = 'changes' | 'design' | 'approval' | 'kit_todo' | 'kit_send' | 'missing' | 'payment';
+type FilterKey = 'changes' | 'design' | 'approval' | 'kit_todo' | 'kit_send' | 'missing' | 'payment' | 'jury_todo';
 const TILES: { key: FilterKey; label: string; icon: ComponentType<{ className?: string }>; cls: string; num: string }[] = [
   { key: 'changes', label: 'Modifs demandées', icon: MessageSquare, cls: 'border-red-200 bg-red-50', num: 'text-red-700' },
   { key: 'design', label: 'Pages à préparer', icon: Palette, cls: 'border-violet-200 bg-violet-50', num: 'text-violet-700' },
   { key: 'approval', label: 'En attente d’appro', icon: Clock, cls: 'border-blue-200 bg-blue-50', num: 'text-blue-700' },
+  { key: 'jury_todo', label: 'Jury à ajouter', icon: UserCheck, cls: 'border-teal-200 bg-teal-50', num: 'text-teal-700' },
   { key: 'kit_todo', label: 'Media kits à créer', icon: ImageIcon, cls: 'border-amber-200 bg-amber-50', num: 'text-amber-700' },
   { key: 'kit_send', label: 'Media kits à envoyer', icon: Send, cls: 'border-orange-200 bg-orange-50', num: 'text-orange-700' },
   { key: 'missing', label: 'Infos manquantes', icon: AlertTriangle, cls: 'border-slate-200 bg-slate-100', num: 'text-slate-700' },
@@ -243,6 +249,7 @@ function matchFilter(key: FilterKey, co: Company, kit: MediaKitStatus): boolean 
     case 'changes': return f.hasChanges;
     case 'design': return f.hasDesign || (co.entries.some(e => BUILDS_PAGE.has(e.role)) && !co.pages.length);
     case 'approval': return f.hasApproval;
+    case 'jury_todo': return !!co.juryRa && !co.listed;
     case 'kit_todo': return kit === 'none';
     case 'kit_send': return kit === 'ready';
     case 'missing': return co.missing > 0;
@@ -399,7 +406,7 @@ export function SM26PartnerPage() {
     const byReg = new Map<string, Company>();
     for (const e of entries) {
       let c = byReg.get(e.reg_id);
-      if (!c) { c = { reg_id: e.reg_id, company: e.company || e.name || 'Participant', contact: e.company ? e.name : null, thumb: e.thumb, category: 'other', roles: [], entries: [], payment: null, pages: [], missing: 0 }; byReg.set(e.reg_id, c); }
+      if (!c) { c = { reg_id: e.reg_id, company: e.company || e.name || 'Participant', contact: e.company ? e.name : null, thumb: e.thumb, category: 'other', roles: [], entries: [], payment: null, pages: [], missing: 0, juryRa: null, listed: false }; byReg.set(e.reg_id, c); }
       c.entries.push(e);
       if (e.role && !c.roles.includes(e.role)) c.roles.push(e.role);
       if (!c.thumb && e.thumb) c.thumb = e.thumb;
@@ -409,13 +416,16 @@ export function SM26PartnerPage() {
       c.category = categoryOf(c.roles);
       c.payment = aggPayment(c.entries);
       c.pages = ecat.filter(p => p.registration_id === c.reg_id);
-      c.missing = c.entries.reduce((sum, e) => BUILDS_PAGE.has(e.role) ? sum + (dossiers.get(e.role_assignment_id)?.missing.length || 0) : sum, 0);
+      c.missing = c.entries.reduce((sum, e) => HAS_CATALOGUE_INFO.has(e.role) ? sum + (dossiers.get(e.role_assignment_id)?.missing.length || 0) : sum, 0);
+      const je = c.entries.find(e => e.role === 'jury');
+      c.juryRa = je?.role_assignment_id || null;
+      c.listed = !!je?.catalogue_listed;
     }
     return [...byReg.values()];
   }, [entries, dossiers, ecat]);
 
   const counts = useMemo(() => {
-    const c: Record<FilterKey, number> = { changes: 0, design: 0, approval: 0, kit_todo: 0, kit_send: 0, missing: 0, payment: 0 };
+    const c: Record<FilterKey, number> = { changes: 0, design: 0, approval: 0, kit_todo: 0, kit_send: 0, missing: 0, payment: 0, jury_todo: 0 };
     for (const co of companies) { const kit = kitStatus.get(co.reg_id) || 'none'; for (const t of TILES) if (matchFilter(t.key, co, kit)) c[t.key]++; }
     return c;
   }, [companies, kitStatus]);
@@ -445,6 +455,12 @@ export function SM26PartnerPage() {
     let paid = 0, awaiting = 0;
     for (const co of companies) { if (co.payment === 'paid') paid++; else if (co.payment === 'awaiting') awaiting++; }
     return { paid, awaiting };
+  }, [companies]);
+
+  const jurySummary = useMemo(() => {
+    let listed = 0, total = 0;
+    for (const co of companies) if (co.juryRa) { total++; if (co.listed) listed++; }
+    return { listed, total };
   }, [companies]);
 
   const visible = useMemo(() => {
@@ -570,6 +586,15 @@ export function SM26PartnerPage() {
     setMsg(m => ({ ...m, [ra]: '' }));
   };
 
+  // Tick "added to catalogue" for a juror — internal checklist, no notification.
+  const toggleListing = async (ra: string, listed: boolean) => {
+    setBusy(`list:${ra}`);
+    const { error } = await supabase.rpc('sm_catalogue_listing_set', { p_ra: ra, p_listed: listed });
+    setBusy(null);
+    if (error) { toast({ title: 'Impossible de mettre à jour', description: error.message, variant: 'destructive' }); return; }
+    setEntries(prev => prev.map(e => e.role_assignment_id === ra ? { ...e, catalogue_listed: listed } : e));
+  };
+
   if (authLoading || access === 'loading') return <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
   if (access === 'denied') return (
     <div className="container mx-auto px-4 py-16 max-w-md text-center">
@@ -615,7 +640,7 @@ export function SM26PartnerPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {TILES.map(t => {
                 const Icon = t.icon; const n = counts[t.key]; const active = filter === t.key;
                 return (
@@ -645,8 +670,11 @@ export function SM26PartnerPage() {
               ]} />
             </div>
 
-            <div className="text-[11px] text-gray-500 flex items-center gap-3 pt-1 border-t">
+            <div className="text-[11px] text-gray-500 flex items-center gap-x-4 gap-y-1 flex-wrap pt-1 border-t">
               <span className="inline-flex items-center gap-1"><CreditCard className="h-3.5 w-3.5 text-gray-400" /> Paiement : <span className="text-green-700 font-medium">{paySummary.paid} payés</span> · <span className="text-amber-700 font-medium">{paySummary.awaiting} en attente</span></span>
+              {jurySummary.total > 0 && (
+                <span className="inline-flex items-center gap-1"><UserCheck className="h-3.5 w-3.5 text-gray-400" /> Jury au catalogue : <span className="text-teal-700 font-medium">{jurySummary.listed}/{jurySummary.total} ajoutés</span></span>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -683,24 +711,35 @@ export function SM26PartnerPage() {
                 const kit = kitStatus.get(co.reg_id) || 'none';
                 const eb = companyEcatBadge(co);
                 const src = thumbSrc(co.thumb);
+                const isJury = co.category === 'jury' && !!co.juryRa;
                 return (
-                  <button key={co.reg_id} onClick={() => openCompany(co.reg_id)}
-                    className="w-full flex items-center gap-3 text-left rounded-lg border border-gray-100 bg-white hover:border-primary/40 hover:bg-gray-50 p-2.5 transition-colors">
-                    <div className="w-10 h-10 rounded-lg bg-white border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
-                      {src ? <img src={src} alt="" className="w-full h-full object-contain p-0.5" /> : <Cat className="h-5 w-5 text-gray-300" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-gray-900 truncate">{co.company}</div>
-                      {co.contact && <div className="text-xs text-gray-500 truncate">{co.contact}</div>}
-                      <div className="flex items-center gap-1 flex-wrap mt-1">
-                        {co.payment && <Pill {...PAY_META[co.payment]} />}
-                        {eb && <Pill {...eb} />}
-                        <Pill {...KIT_META[kit]} />
-                        {co.missing > 0 && <Pill label={`${co.missing} info${co.missing > 1 ? 's' : ''} manquante${co.missing > 1 ? 's' : ''}`} cls="bg-slate-100 text-slate-600 border-slate-200" />}
+                  <div key={co.reg_id} className="flex items-center gap-1 rounded-lg border border-gray-100 bg-white hover:border-primary/40 hover:bg-gray-50 transition-colors">
+                    <button onClick={() => openCompany(co.reg_id)} className="flex items-center gap-3 text-left flex-1 min-w-0 p-2.5">
+                      <div className="w-10 h-10 rounded-lg bg-white border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+                        {src ? <img src={src} alt="" className="w-full h-full object-contain p-0.5" /> : <Cat className="h-5 w-5 text-gray-300" />}
                       </div>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-gray-300 shrink-0" />
-                  </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-gray-900 truncate">{co.company}</div>
+                        {co.contact && <div className="text-xs text-gray-500 truncate">{co.contact}</div>}
+                        <div className="flex items-center gap-1 flex-wrap mt-1">
+                          {co.payment && <Pill {...PAY_META[co.payment]} />}
+                          {eb && <Pill {...eb} />}
+                          <Pill {...KIT_META[kit]} />
+                          {co.missing > 0 && <Pill label={`${co.missing} info${co.missing > 1 ? 's' : ''} manquante${co.missing > 1 ? 's' : ''}`} cls="bg-slate-100 text-slate-600 border-slate-200" />}
+                        </div>
+                      </div>
+                    </button>
+                    {isJury ? (
+                      <button type="button" onClick={() => toggleListing(co.juryRa!, !co.listed)} disabled={busy === `list:${co.juryRa}`}
+                        title={co.listed ? 'Marquer comme non ajouté au catalogue' : 'Marquer comme ajouté au catalogue'}
+                        className={`shrink-0 mr-2 inline-flex items-center gap-1.5 text-xs font-medium rounded-md border px-2.5 py-1.5 transition-colors disabled:opacity-60 ${co.listed ? 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                        {busy === `list:${co.juryRa}` ? <Loader2 className="h-4 w-4 animate-spin" /> : co.listed ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+                        {co.listed ? 'Ajouté' : 'À ajouter'}
+                      </button>
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-gray-300 shrink-0 mr-2.5" />
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -778,6 +817,7 @@ export function SM26PartnerPage() {
                 onDownloadChangeImg={downloadChangeImg}
                 onDownloadDossier={downloadDossier}
                 onSendMessage={sendPartnerMessage}
+                onToggleListing={toggleListing}
                 reportKitStatus={reportKitStatus}
                 reportKitData={reportKitData}
               />
@@ -814,6 +854,7 @@ function DrawerBody(props: {
   onDownloadChangeImg: (img: ChangeImg) => void;
   onDownloadDossier: (d: EntryBuilt) => void;
   onSendMessage: (ra: string) => void;
+  onToggleListing: (ra: string, listed: boolean) => void;
   reportKitStatus: (reg: string, s: MediaKitStatus) => void;
   reportKitData: (reg: string, d: KitData) => void;
 }) {
@@ -868,7 +909,7 @@ function DrawerBody(props: {
                   <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 flex items-start gap-1.5">
                     <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> <span><span className="font-medium">Manque pour le catalogue :</span> {d.missing.join(', ')}.</span>
                   </div>
-                ) : BUILDS_PAGE.has(d.role) ? (
+                ) : HAS_CATALOGUE_INFO.has(d.role) ? (
                   <div className="rounded-md border border-green-200 bg-green-50 px-2.5 py-1.5 text-xs text-green-800 flex items-center gap-1.5">
                     <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Toutes les infos requises sont fournies.
                   </div>
@@ -1018,6 +1059,21 @@ function DrawerBody(props: {
                 })}
               </div>
             )}
+          </section>
+        )}
+
+        {/* 2b — Jury : ajout au catalogue (pas de page, juste une case) */}
+        {co.juryRa && (
+          <section>
+            <SectionHeader icon={ClipboardCheck} title="Catalogue" />
+            <div className="rounded-lg border border-gray-100 bg-white p-3">
+              <button type="button" onClick={() => props.onToggleListing(co.juryRa!, !co.listed)} disabled={busy === `list:${co.juryRa}`}
+                className={`w-full flex items-center gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${co.listed ? 'bg-teal-50 border-teal-200' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                {busy === `list:${co.juryRa}` ? <Loader2 className="h-5 w-5 animate-spin text-gray-400 shrink-0" /> : co.listed ? <CheckSquare className="h-5 w-5 text-teal-600 shrink-0" /> : <Square className="h-5 w-5 text-gray-400 shrink-0" />}
+                <span className={`text-sm font-medium ${co.listed ? 'text-teal-800' : 'text-gray-800'}`}>{co.listed ? 'Ajouté au catalogue' : 'Marquer comme ajouté au catalogue'}</span>
+              </button>
+              <p className="text-[11px] text-gray-500 mt-2">Le jury est simplement listé dans le catalogue — pas de page à concevoir ni de validation. Cochez pour votre suivi ; le juré n'est pas notifié.</p>
+            </div>
           </section>
         )}
 

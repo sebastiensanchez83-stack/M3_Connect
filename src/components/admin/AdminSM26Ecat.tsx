@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, BookOpen, Upload, FileText, ExternalLink, CheckCircle, Loader2, Send,
   CreditCard, MessageSquare, Eye, EyeOff, LayoutGrid, ListChecks, Palette, Plus, Trash2,
-  Image as ImageIcon, Download, Bell,
+  Image as ImageIcon, Download, Bell, Scale, CheckSquare, Square,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -65,6 +65,7 @@ interface Page {
 interface Comment { id: string; ecat_page_id: string; author_role: string | null; body: string; created_at: string; }
 interface ChangeImg { path: string; url: string | null; filename: string; is_image: boolean }
 interface Addable { role_assignment_id: string; role: string; name: string; }
+interface JuryItem { ra: string; name: string; company: string | null; listed: boolean; }
 
 const firstOf = <T,>(x: T | T[] | undefined): T | undefined => Array.isArray(x) ? x[0] : x;
 
@@ -105,6 +106,7 @@ export function AdminSM26Ecat() {
   const [browseUrls, setBrowseUrls] = useState<Record<string, string>>({});
   const [addable, setAddable] = useState<Addable[]>([]);
   const [addSel, setAddSel] = useState('');
+  const [jury, setJury] = useState<JuryItem[]>([]);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => { load(); }, []);
@@ -138,7 +140,21 @@ export function AdminSM26Ecat() {
     }
     const { data: add } = await supabase.rpc('sm_ecat_addable', { p_event_id: eid });
     setAddable((add || []) as Addable[]);
+    // Jury don't get a designed page — they're just listed. Load them + the
+    // "added to catalogue" tick so M3 can track who's in (parity with the YCM console).
+    const { data: ent } = await supabase.rpc('sm_partner_entries', { p_event_id: eid });
+    setJury(((ent || []) as Array<{ role_assignment_id: string; role: string; name: string | null; company: string | null; catalogue_listed: boolean }>)
+      .filter(e => e.role === 'jury')
+      .map(e => ({ ra: e.role_assignment_id, name: e.name || e.company || 'Juror', company: e.company, listed: !!e.catalogue_listed })));
     setLoading(false);
+  };
+
+  const toggleJury = async (ra: string, listed: boolean) => {
+    setBusy(`jury:${ra}`);
+    const { error } = await supabase.rpc('sm_catalogue_listing_set', { p_ra: ra, p_listed: listed });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
+    setJury(prev => prev.map(j => j.ra === ra ? { ...j, listed } : j));
   };
 
   const title = (p: Page) => {
@@ -315,6 +331,32 @@ export function AdminSM26Ecat() {
               <SelectContent>{addable.map(a => <SelectItem key={a.role_assignment_id} value={a.role_assignment_id}>{a.name} · {a.role}</SelectItem>)}</SelectContent>
             </Select>
             <Button size="sm" disabled={!addSel || busy === 'add'} onClick={addPage}>{busy === 'add' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add page'}</Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Jury — just listed, no designed page. Tick who's been added to the
+          catalogue. Independent of e-cat pages, so it always shows on the Board. */}
+      {view === 'board' && jury.length > 0 && (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Scale className="h-4 w-4 text-primary" /> Jury — added to catalogue</h2>
+              <span className="text-xs text-gray-400">{jury.filter(j => j.listed).length}/{jury.length} added</span>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">Jurors are just listed in the catalogue — no designed page, no participant approval. Tick each one as you add it.</p>
+            <div className="grid sm:grid-cols-2 gap-1.5">
+              {jury.map(j => (
+                <button key={j.ra} type="button" onClick={() => toggleJury(j.ra, !j.listed)} disabled={busy === `jury:${j.ra}`}
+                  className={`flex items-center gap-2 rounded-md border px-2.5 py-2 text-left transition-colors disabled:opacity-60 ${j.listed ? 'bg-teal-50 border-teal-200' : 'bg-white border-gray-200 hover:bg-gray-50'}`}>
+                  {busy === `jury:${j.ra}` ? <Loader2 className="h-4 w-4 animate-spin text-gray-400 shrink-0" /> : j.listed ? <CheckSquare className="h-4 w-4 text-teal-600 shrink-0" /> : <Square className="h-4 w-4 text-gray-400 shrink-0" />}
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-gray-900 truncate">{j.name}</span>
+                    {j.company && j.company !== j.name && <span className="block text-[11px] text-gray-500 truncate">{j.company}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
           </CardContent>
         </Card>
       )}

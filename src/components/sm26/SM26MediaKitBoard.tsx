@@ -36,6 +36,22 @@ const STATUS_META: Record<Status, { label: string; cls: string }> = {
 };
 const FILTER_ORDER: Status[] = ['ready', 'sent', 'opened', 'downloaded', 'none'];
 
+// Group the board by participant category so it's easier to work through one type
+// at a time. A participant is placed in the first matching category (priority order).
+const CATEGORIES: { key: string; label: string; roles: string[] }[] = [
+  { key: 'startup', label: 'Innovations', roles: ['startup'] },
+  { key: 'marina', label: 'Marinas', roles: ['marina'] },
+  { key: 'architecture', label: 'Architecture', roles: ['architect_pro', 'architect_student'] },
+  { key: 'jury', label: 'Jury', roles: ['jury'] },
+  { key: 'sponsor', label: 'Sponsors', roles: ['sponsor'] },
+  { key: 'speaker', label: 'Speakers', roles: ['speaker'] },
+];
+const CATEGORY_LABEL: Record<string, string> = { ...Object.fromEntries(CATEGORIES.map(c => [c.key, c.label])), other: 'Other' };
+const categoryOf = (roles: string[]): string => {
+  for (const c of CATEGORIES) if (roles.some(r => c.roles.includes(r))) return c.key;
+  return 'other';
+};
+
 function statusOf(k: Pick<KitData, 'files' | 'notified_at' | 'first_viewed_at' | 'first_downloaded_at'>): Status {
   if (!k.files.length) return 'none';
   if (k.first_downloaded_at) return 'downloaded';
@@ -253,6 +269,13 @@ export function SM26MediaKitBoard({ eventId }: { eventId: string }) {
     });
   }, [participants, statusMap, q, filter]);
 
+  // Group the visible participants by category, in the fixed category order.
+  const groups = useMemo(() => {
+    const by: Record<string, Participant[]> = {};
+    for (const p of visible) (by[categoryOf(p.roles)] ||= []).push(p);
+    return [...CATEGORIES.map(c => c.key), 'other'].filter(k => by[k]?.length).map(k => ({ key: k, rows: by[k] }));
+  }, [visible]);
+
   if (loading) return <div className="flex items-center gap-2 text-sm text-gray-400 py-8 justify-center"><Loader2 className="h-4 w-4 animate-spin" /> Loading media kits…</div>;
 
   return (
@@ -282,9 +305,18 @@ export function SM26MediaKitBoard({ eventId }: { eventId: string }) {
       {visible.length === 0 ? (
         <p className="text-sm text-gray-400 py-6 text-center">No participants match.</p>
       ) : (
-        <div className="space-y-2">
-          {visible.map(p => (
-            <MediaKitRow key={`${p.reg_id}:${nonce}`} p={p} eventId={eventId} uid={user?.id || ''} initial={kits.get(p.reg_id) || EMPTY} onStatus={reportStatus} />
+        <div className="space-y-4">
+          {groups.map(g => (
+            <div key={g.key} className="space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">{CATEGORY_LABEL[g.key]}</span>
+                <span className="text-[11px] text-gray-400">{g.rows.length}</span>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
+              {g.rows.map(p => (
+                <MediaKitRow key={`${p.reg_id}:${nonce}`} p={p} eventId={eventId} uid={user?.id || ''} initial={kits.get(p.reg_id) || EMPTY} onStatus={reportStatus} />
+              ))}
+            </div>
           ))}
         </div>
       )}

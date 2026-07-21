@@ -195,6 +195,12 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
 
   const respondEcat = async (page: EcatPage, action: 'approve' | 'request_changes') => {
     const pending = (changeNote[page.id] || '').trim() || (changeFiles[page.id] || []).length > 0;
+    // A change request must actually say what to change — an empty one leaves the
+    // designer with nothing to act on.
+    if (action === 'request_changes' && !pending) {
+      toast({ title: 'Tell us what to change', description: 'Please describe the changes you’d like (or attach a corrected image) before sending your request.', variant: 'destructive' });
+      return;
+    }
     // Approving is final and can't be reopened from the hub — warn before it silently discards a half-written change request.
     if (action === 'approve' && pending &&
       !window.confirm('Approve this page? Any note or images you added here will be discarded — approving is final. To change the page instead, use “Request changes”.')) return;

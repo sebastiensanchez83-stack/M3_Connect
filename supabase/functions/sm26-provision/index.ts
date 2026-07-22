@@ -1,4 +1,4 @@
-// SM26 account provisioning — turns a confirmed event registration into a real
+// SM26 account provisioning -- turns a confirmed event registration into a real
 // platform identity in one shot: auth account (if none), persona, verified
 // status, company organization (create/link, member tier, verified) and the
 // welcome email (magic link -> /welcome to set a password).
@@ -28,7 +28,7 @@ const PERSONAS = new Set(["marina", "partner", "media_partner", "investor", "ind
 const ORG_TYPES = new Set(["marina", "partner", "media_partner", "investor", "developer"]);
 
 const slugify = (s: string) =>
-  s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "org";
+  s.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "org";
 
 async function sendWelcomeEmail(email: string, firstName: string, link: string) {
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
@@ -121,7 +121,7 @@ Deno.serve(async (req) => {
       if (!exists) { console.error("createUser failed", createErr); return json(req, { error: "Could not create the account" }, 500); }
       const { data: existing } = await admin.from("profiles").select("user_id").ilike("email", email).maybeSingle();
       userId = (existing as { user_id?: string } | null)?.user_id || null;
-      if (!userId) return json(req, { error: "An auth user exists for this email but has no profile — resolve in Supabase" }, 409);
+      if (!userId) return json(req, { error: "An auth user exists for this email but has no profile -- resolve in Supabase" }, 409);
     } else {
       userId = created.user!.id;
       createdAccount = true;
@@ -171,10 +171,20 @@ Deno.serve(async (req) => {
     const { data: existingMem } = await admin.from("organization_members")
       .select("id").eq("organization_id", orgId).eq("user_id", userId).maybeSingle();
     if (!existingMem) {
-      const { data: hasOwner } = await admin.from("organization_members")
-        .select("id").eq("organization_id", orgId).eq("role", "owner").limit(1).maybeSingle();
+      // Only the organization's owner of record joins as "owner"; everyone else
+      // joins as a collaborator. This used to key off "does an owner member
+      // already exist", which silently handed ownership away: the ~164
+      // pre-created marina organizations have no members at all, so the first
+      // event participant linked to one became its owner. claim_organization
+      // only sets owner_user_id when the org has no owner member yet, so that
+      // permanently locked the real manager out of their own organization when
+      // they later entered their claim code -- repairable only by hand.
+      const { data: orgRow } = await admin.from("organizations")
+        .select("owner_user_id").eq("id", orgId).maybeSingle();
+      const isOwnerOfRecord =
+        !!userId && (orgRow as { owner_user_id: string | null } | null)?.owner_user_id === userId;
       const { error: memErr } = await admin.from("organization_members")
-        .insert({ organization_id: orgId, user_id: userId, role: hasOwner ? "collaborator" : "owner" });
+        .insert({ organization_id: orgId, user_id: userId, role: isOwnerOfRecord ? "owner" : "collaborator" });
       if (memErr && (memErr as { code?: string }).code !== "23505") console.error("link membership failed", memErr);
     }
   }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, UserPlus, Building2, Link2, Ban, Search, Mail, ShieldCheck } from 'lucide-react';
+import { Loader2, UserPlus, Building2, Link2, Ban, Search, Mail, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -116,6 +116,8 @@ export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
   const [busy, setBusy] = useState(false);
   // Whether this email already has a platform account (and if it's active).
   const [acctStatus, setAcctStatus] = useState<'none' | 'pending' | 'active' | null>(null);
+  // Existing organizations matching the name we are about to create, if any.
+  const [dup, setDup] = useState<OrgNameMatch | null>(null);
 
   // Re-derive suggestions each time the dialog opens for a registration.
   useEffect(() => {
@@ -150,6 +152,27 @@ export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
     return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, reg.id]);
+
+  // Warn -- never block -- when an organization of this name already exists, so
+  // provisioning stops minting a second company beside one that is already on
+  // the platform (typically a pre-created marina waiting for its claim code).
+  // Deliberately writes ONLY to `dup`: the dialog is reused across
+  // registrations, and a late response must never be able to overwrite the
+  // admin's persona/org selection. Debounced and cancellable on top of that.
+  useEffect(() => {
+    if (!open) { setDup(null); return; }
+    if (orgMode !== 'create') { setDup(null); return; }
+    const name = orgName.trim();
+    if (name.length < 2) { setDup(null); return; }
+    let active = true;
+    const t = setTimeout(async () => {
+      const res = await findOrgByName(name);
+      if (!active) return;
+      setDup(res.exact || res.similar.length ? res : null);
+    }, 300);
+    return () => { active = false; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, reg.id, orgMode, orgName]);
 
   // Live org search for the link mode.
   useEffect(() => {
@@ -219,6 +242,24 @@ export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
               <div className="space-y-1 pt-1">
                 <Input value={orgName} onChange={e => setOrgName(e.target.value)} placeholder="Organization name" />
                 <p className="text-[11px] text-gray-500">Created as a verified <strong>{persona === 'individual' ? 'partner' : persona.replace('_', ' ')}</strong> organization · member tier · {name} becomes owner.</p>
+                {dup?.exact && (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 space-y-1.5">
+                    <p className="text-[11px] text-amber-900 flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span><strong>{dup.exact.name}</strong> already exists on the platform. Creating it again would leave two companies with the same name.</span>
+                    </p>
+                    <button type="button"
+                      onClick={() => { setOrgMode('link'); setOrgQuery(dup.exact!.name); setOrgId(dup.exact!.id); }}
+                      className="text-[11px] font-medium text-primary underline underline-offset-2">
+                      Link to the existing one instead
+                    </button>
+                  </div>
+                )}
+                {!dup?.exact && (dup?.similar.length ?? 0) > 0 && (
+                  <p className="text-[11px] text-amber-700">
+                    Similar names already exist: {dup!.similar.slice(0, 3).map(o => o.name).join(', ')}. Worth a check before creating.
+                  </p>
+                )}
               </div>
             )}
             {orgMode === 'link' && (

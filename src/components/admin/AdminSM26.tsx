@@ -9,7 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { suggestProvision, runProvision } from './SM26ProvisionDialog';
+import { suggestProvision, runProvision, findOrgByName } from './SM26ProvisionDialog';
 
 // SM26 admin console — list of registrations for the Smart & Sustainable
 // Marina Rendezvous 2026, with role/status filters and a click-through detail.
@@ -304,8 +304,11 @@ export function AdminSM26() {
     let org: 'create' | 'link' | 'none' = s.orgMode;
     let orgId: string | undefined;
     if (org === 'create' && s.orgName) {
-      const { data: existing } = await supabase.from('organizations').select('id').ilike('name', s.orgName).limit(1).maybeSingle();
-      if ((existing as { id?: string } | null)?.id) { org = 'link'; orgId = (existing as { id: string }).id; }
+      // Exact normalised-name match only. The previous ilike() passed the raw
+      // company name as a pattern, so "100% Marine" or "A_B" matched unrelated
+      // rows, and limit(1) then picked one of them non-deterministically.
+      const { exact } = await findOrgByName(s.orgName);
+      if (exact) { org = 'link'; orgId = exact.id; }
     }
     const res = await runProvision({
       registration_id: r.id, persona: s.persona, org,

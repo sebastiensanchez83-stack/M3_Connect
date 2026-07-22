@@ -76,6 +76,29 @@ export async function runProvision(body: {
 }
 
 interface OrgHit { id: string; name: string; organization_type: string | null; tier: string }
+export interface OrgNameMatch { exact: OrgHit | null; similar: OrgHit[] }
+
+const normaliseOrgName = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+// Single primitive for "does an organization with this name already exist?".
+// Several admin screens hand-rolled this with divergent ilike patterns, none of
+// which escaped the LIKE wildcards — a company called "100% Marine" or "A_B"
+// silently matched the wrong rows. It also separates an exact (normalised) name
+// match from mere look-alikes, which is what provisioning needs in order to stop
+// creating a second organization beside one that already exists (typically a
+// pre-created marina still waiting for its claim code).
+export async function findOrgByName(name: string): Promise<OrgNameMatch> {
+  const wanted = normaliseOrgName(name);
+  if (wanted.length < 2) return { exact: null, similar: [] };
+  const escaped = wanted.replace(/[\\%_]/g, c => `\\${c}`);
+  const { data } = await supabase.from('organizations')
+    .select('id, name, organization_type, tier')
+    .ilike('name', `%${escaped}%`)
+    .order('name').limit(8);
+  const hits = (data || []) as OrgHit[];
+  const exact = hits.find(h => normaliseOrgName(h.name) === wanted) || null;
+  return { exact, similar: hits.filter(h => h.id !== exact?.id) };
+}
 
 export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
   reg: ProvisionReg;
@@ -133,11 +156,9 @@ export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
     if (!open || orgMode !== 'link' || orgQuery.trim().length < 2) { setOrgHits([]); return; }
     let active = true;
     const t = setTimeout(async () => {
-      const { data } = await supabase.from('organizations')
-        .select('id, name, organization_type, tier')
-        .ilike('name', `%${orgQuery.trim()}%`)
-        .order('name').limit(8);
-      if (active) setOrgHits((data || []) as OrgHit[]);
+      const { exact, similar } = await findOrgByName(orgQuery);
+      // Exact name match first — it is almost always the one to link.
+      if (active) setOrgHits(exact ? [exact, ...similar] : similar);
     }, 250);
     return () => { active = false; clearTimeout(t); };
   }, [open, orgMode, orgQuery]);

@@ -78,6 +78,13 @@ interface MarinaDetails {
 }
 
 const STATUS_OPTIONS = ['verified', 'pending', 'rejected', 'suspended'];
+// organizations.onboarding_status is plain text (no enum, no check). These are
+// the values the app actually writes; it matters because an organization only
+// counts as fully onboarded — and, downstream, as commercially eligible — when
+// it is 'completed'. Without this control the only way to set it was raw SQL:
+// the user-facing admin screens filter on profiles.access_status, not on the
+// organization's onboarding_status.
+const ONBOARDING_OPTIONS = ['draft', 'submitted', 'completed'];
 const STATUS_COLORS: Record<string, string> = {
   verified: 'bg-green-50 text-green-700 border-green-200',
   pending: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -99,6 +106,7 @@ export function AdminOrganizationDetail() {
 
   // Editable fields
   const [status, setStatus] = useState('');
+  const [onboardingStatus, setOnboardingStatus] = useState('');
   const [tier, setTier] = useState('');
   const [maxSeats, setMaxSeats] = useState(5);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -140,6 +148,7 @@ export function AdminOrganizationDetail() {
     setMembers(enrichedMembers);
     setMarina(marinaData as MarinaDetails | null);
     setStatus(orgData.access_status);
+    setOnboardingStatus(orgData.onboarding_status);
     setTier(orgData.tier);
     setMaxSeats(orgData.max_seats);
     setRejectionReason(orgData.rejection_reason || '');
@@ -153,6 +162,7 @@ export function AdminOrganizationDetail() {
     setSaving(true);
     const updates: Record<string, unknown> = {
       access_status: status,
+      onboarding_status: onboardingStatus,
       tier,
       max_seats: maxSeats,
       rejection_reason: status === 'rejected' ? rejectionReason : null,
@@ -444,6 +454,18 @@ export function AdminOrganizationDetail() {
                   <Textarea value={rejectionReason} onChange={e => setRejectionReason(e.target.value)} rows={2} />
                 </div>
               )}
+              <div>
+                <Label className="text-xs">Onboarding Status</Label>
+                <Select value={onboardingStatus} onValueChange={setOnboardingStatus}>
+                  <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {ONBOARDING_OPTIONS.map(s => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Only “Completed” counts as a fully onboarded organization. Set it here rather than in SQL.
+                </p>
+              </div>
               <div>
                 <Label className="text-xs">Tier</Label>
                 <Select value={tier} onValueChange={setTier}>

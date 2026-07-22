@@ -98,8 +98,14 @@ export function ResetPasswordPage() {
 
     try {
       // Session is already established (from PKCE code exchange)
-      // Just update the password directly
-      const { error: updateError } = await supabase.auth.updateUser({ password });
+      // Just update the password directly. Clearing pw_pending matters: an
+      // event-provisioned account that resets its password here has done the
+      // welcome step's job, and AuthRedirector would otherwise keep bouncing
+      // it back to /welcome to "set a password" on every navigation.
+      const { error: updateError } = await supabase.auth.updateUser({
+        password,
+        data: { pw_pending: false },
+      });
 
       if (updateError) {
         setError(updateError.message);

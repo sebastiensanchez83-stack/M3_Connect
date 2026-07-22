@@ -604,12 +604,15 @@ export function OnboardingPage() {
     try {
       let createdOrgId = orgId;
 
-      // Duplicate-domain check removed \u2014 multiple organizations can share an
-      // email domain (e.g. two independent marinas using the same holding
-      // company's mail suffix). Domain is still stored for reference but is no
-      // longer used to block creation.
-      const emailDomain = user.email?.split('@')[1]?.toLowerCase();
-      const primaryDomain = emailDomain || null;
+      // Never infer primary_domain from the signer's e-mail. Two server-side
+      // rules make that inference a dead end at the very last click, after the
+      // whole form has been filled: create_organization rejects public domains
+      // (gmail/outlook/\u2026), and organizations.primary_domain carries a UNIQUE
+      // index, so a corporate domain already used by another org fails with a
+      // raw 23505. Multiple organizations legitimately share a mail suffix
+      // anyway (e.g. two marinas under one holding). The domain is set later by
+      // the owner or an admin, where it can be handled interactively.
+      const primaryDomain: string | null = null;
 
       if (profile.persona === 'marina') {
         if (!marina.marina_name || !marina.country || !marina.city || !marina.marina_type) {

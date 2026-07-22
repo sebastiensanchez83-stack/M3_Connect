@@ -508,8 +508,11 @@ export function OrganizationTab() {
     if (!uid) return;
     setCreating(true);
     try {
-      // Check for duplicate domain before creating
-      const trimmedDomain = createForm.domain.trim();
+      // Check for duplicate domain before creating. Normalised to lower case:
+      // organizations.primary_domain carries a UNIQUE index, so "Example.com"
+      // would slip past this lookup and then collide at INSERT.
+      const trimmedDomain = createForm.domain.trim().toLowerCase();
+      let domainToUse: string | null = trimmedDomain || null;
       if (trimmedDomain) {
         const { data: existingOrg } = await supabase
           .from('organizations')
@@ -530,6 +533,11 @@ export function OrganizationTab() {
             setCreating(false);
             return;
           }
+          // Creating anyway: the domain is taken and primary_domain is UNIQUE,
+          // so passing it here would fail create_organization with a raw 23505
+          // at the last click. Create the org without a domain instead — the
+          // owner or an admin can attach one afterwards.
+          domainToUse = null;
         }
       }
 
@@ -540,7 +548,7 @@ export function OrganizationTab() {
       const { data, error } = await supabase.rpc('create_organization', {
         p_name: createForm.name.trim(),
         p_organization_type: orgType,
-        p_primary_domain: createForm.domain.trim() || null,
+        p_primary_domain: domainToUse,
         p_website: createForm.website.trim() || null,
         p_description: createForm.description.trim() || null,
         p_country: createForm.country.trim() || null,

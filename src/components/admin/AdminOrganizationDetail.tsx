@@ -107,6 +107,7 @@ export function AdminOrganizationDetail() {
   // Editable fields
   const [status, setStatus] = useState('');
   const [onboardingStatus, setOnboardingStatus] = useState('');
+  const [settingOwner, setSettingOwner] = useState<string | null>(null);
   const [tier, setTier] = useState('');
   const [maxSeats, setMaxSeats] = useState(5);
   const [rejectionReason, setRejectionReason] = useState('');
@@ -155,6 +156,22 @@ export function AdminOrganizationDetail() {
     setClaimCode(orgData.claim_code || '');
     setFeatured(orgData.featured_partner || false);
     setLoading(false);
+  };
+
+  // Designate an owner. transfer_org_ownership cannot do this — it requires the
+  // caller to BE the current owner, so an organization that ended up without one
+  // (e.g. a pre-created marina whose manager was attached as a collaborator)
+  // was unrecoverable except by hand.
+  const handleSetOwner = async (m: MemberRow) => {
+    if (!org) return;
+    const label = [m.first_name, m.last_name].filter(Boolean).join(' ') || m.email || 'this member';
+    if (!window.confirm(`Make ${label} the owner of ${org.name}?\n\nAny current owner becomes a collaborator.`)) return;
+    setSettingOwner(m.user_id);
+    const { error } = await supabase.rpc('admin_set_org_owner', { p_org_id: org.id, p_user_id: m.user_id });
+    setSettingOwner(null);
+    if (error) { toast({ title: 'Could not set the owner', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: 'Owner updated', description: `${label} now owns ${org.name}.` });
+    await loadOrg();
   };
 
   const handleSave = async () => {
@@ -506,6 +523,12 @@ export function AdminOrganizationDetail() {
               </CardTitle>
             </CardHeader>
             <CardContent>
+              {!org.owner_user_id && members.length > 0 && (
+                <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mb-2">
+                  This organization has no owner. Use “Make owner” on a member, or let the real
+                  manager claim it with the code — claiming now promotes an existing member too.
+                </p>
+              )}
               {members.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-4">No members yet</p>
               ) : (
@@ -525,6 +548,17 @@ export function AdminOrganizationDetail() {
                         <p className="text-xs text-gray-400 truncate">{m.email}</p>
                       </div>
                       <Badge variant="outline" className="text-[10px] shrink-0">{m.role}</Badge>
+                      {m.role !== 'owner' && (
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); handleSetOwner(m); }}
+                          disabled={settingOwner === m.user_id}
+                          title="Make this member the organization owner"
+                          className="shrink-0 text-[10px] font-medium border border-gray-200 rounded px-1.5 py-0.5 text-gray-600 hover:bg-white hover:text-primary hover:border-primary/40 disabled:opacity-60"
+                        >
+                          {settingOwner === m.user_id ? '…' : 'Make owner'}
+                        </button>
+                      )}
                       {m.access_status && (
                         <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${
                           m.access_status === 'verified' ? 'bg-green-500' :

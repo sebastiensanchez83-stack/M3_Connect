@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { SM26MarinaSustainability } from '@/components/organization/SM26MarinaSustainability';
 import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
@@ -480,6 +481,9 @@ export function OrganizationPublicPage() {
                   </CardContent>
                 </Card>
               )}
+
+              {/* Smart Marina 2026 sustainability narrative + evidence images (self-hides if none) */}
+              {org.organization_type === 'marina' && <SM26MarinaSustainability orgId={org.id} />}
 
               {/* Recommended by — confirmed marina references for partners */}
               {org.organization_type === 'partner' && confirmedReferences.length > 0 && (

@@ -88,7 +88,7 @@ function roleModuleData(role: string, r: string[]): Record<string, string> {
   if (role === "jury") return clean({ domain: r[12], jury_category: r[38], ecat_consent: r[39], social_consent: r[40], bio: r[43], company_description: r[17], sustainability: r[18], references: r[19], logo_url: r[41], photo_url: r[42] });
   if (role === "investor") return clean({ domain: r[12], note: "Derived from jury registration" });
   if (role === "speaker") return clean({ domain: r[12], bio: r[43] || r[18], company_description: r[17], references: r[19], photo_url: r[20] || r[32], portfolio: r[33], linkedin: r[24] });
-  if (role === "marina") return clean({ type: r[45], register_award: r[44], overview: r[60], services: r[61], sustainable_diff: r[62], total_berths: r[48], superyacht_berths: r[49], longest_berths: r[50], certification: r[53], yacht_club: r[54], logo_url: r[47], hd_images: r[63], building_images: r[64], pitch: r[65] });
+  if (role === "marina") return clean({ type: r[45], register_award: r[44], overview: r[60], services: r[61], total_berths: r[48], superyacht_berths: r[49], longest_berths: r[50], certification: r[53], yacht_club: r[54], logo_url: r[47], hd_images: r[63], building_images: r[64], pitch: r[65] });
   return {};
 }
 
@@ -111,7 +111,9 @@ function typedProfile(role: string, r: string[], eventId: string, raId: string):
     row: {
       role_assignment_id: raId, event_id: eventId,
       architectural_quality: S(r[71]), biodiversity: S(r[72]), water: S(r[74]), energy: S(r[76]),
-      waste: S(r[78]), innovation: S(r[80]), security: S(r[82]), further_info: S(r[84]),
+      waste: S(r[78]), innovation: S(r[80]), security: S(r[82]), sustainable_diff: S(r[62]), further_info: S(r[84]),
+      biodiversity_image: S(r[73]), water_image: S(r[75]), energy_image: S(r[77]),
+      waste_image: S(r[79]), innovation_image: S(r[81]), security_image: S(r[83]),
     },
   };
   return null;

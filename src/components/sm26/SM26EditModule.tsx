@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Loader2, Save, Pencil, Lightbulb, Lock, FileText, Ship, type LucideIcon } from 'lucide-react';
+import { Loader2, Save, Pencil, Lightbulb, Lock, FileText, Ship, Upload, Trash2, ExternalLink, type LucideIcon } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { useSm26EditLock } from '@/components/sm26/useSm26EditLock';
@@ -50,34 +51,55 @@ const MARINA_FIELDS: { key: string; label: string }[] = [
   { key: 'further_info', label: 'Further information' },
 ];
 
+// Per-criterion supporting images for the Award submission. Columns already
+// exist on sm_marina_extra; captured here in the hub (kept out of the lighter
+// signup). Values are storage paths, or Jotform URLs for imported marinas.
+const MARINA_IMAGES: { key: string; label: string }[] = [
+  { key: 'biodiversity_image', label: 'Biodiversity / sustainability image' },
+  { key: 'water_image', label: 'Water management image' },
+  { key: 'energy_image', label: 'Energy management image' },
+  { key: 'waste_image', label: 'Waste management image' },
+  { key: 'innovation_image', label: 'Innovation image' },
+  { key: 'security_image', label: 'Security image' },
+];
+
 export function SM26EditModule({ roleAssignmentId, role }: { roleAssignmentId: string; role: string }) {
   const { locked, prettyDate } = useSm26EditLock();
   if (role === 'startup') return <StartupEditor roleAssignmentId={roleAssignmentId} locked={locked} prettyDate={prettyDate} />;
   if (role === 'architect_pro' || role === 'architect_student')
     return <SM26ArchitectureEntry roleAssignmentId={roleAssignmentId} />;
   if (role === 'marina')
-    return <TableTextEditor roleAssignmentId={roleAssignmentId} table="sm_marina_extra" fields={MARINA_FIELDS} title="Marina submission" subtitle="Your sustainability narrative for the catalogue and jury." icon={Ship} locked={locked} prettyDate={prettyDate} />;
+    return <TableTextEditor roleAssignmentId={roleAssignmentId} table="sm_marina_extra" fields={MARINA_FIELDS} imageFields={MARINA_IMAGES} title="Marina submission" subtitle="Your sustainability narrative + supporting images for the catalogue and jury." icon={Ship} locked={locked} prettyDate={prettyDate} />;
   return <ModuleTextEditor roleAssignmentId={roleAssignmentId} locked={locked} prettyDate={prettyDate} />;
 }
 
 // ── Dedicated table-backed text editor (architecture / marina) ────────────────
-function TableTextEditor({ roleAssignmentId, table, fields, title, subtitle, icon: Icon, locked, prettyDate }: {
+function TableTextEditor({ roleAssignmentId, table, fields, imageFields, title, subtitle, icon: Icon, locked, prettyDate }: {
   roleAssignmentId: string; table: 'sm_architecture_entry' | 'sm_marina_extra'; fields: { key: string; label: string }[];
+  imageFields?: { key: string; label: string }[];
   title: string; subtitle: string; icon: LucideIcon; locked: boolean; prettyDate: string | null;
 }) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [vals, setVals] = useState<Record<string, string>>({});
+  const [imgs, setImgs] = useState<Record<string, string>>({});
+  const [busyImg, setBusyImg] = useState<string | null>(null);
+  const imgKeys = (imageFields || []).map(f => f.key);
 
   const load = async () => {
     setLoading(true);
-    const { data } = await supabase.from(table).select(fields.map(f => f.key).join(',')).eq('role_assignment_id', roleAssignmentId).maybeSingle();
+    const cols = [...fields.map(f => f.key), ...imgKeys];
+    const { data } = await supabase.from(table).select(cols.join(',')).eq('role_assignment_id', roleAssignmentId).maybeSingle();
     const d = (data || {}) as Record<string, unknown>;
     const v: Record<string, string> = {};
     for (const f of fields) v[f.key] = typeof d[f.key] === 'string' ? (d[f.key] as string) : '';
     setVals(v);
+    const im: Record<string, string> = {};
+    for (const k of imgKeys) im[k] = typeof d[k] === 'string' ? (d[k] as string) : '';
+    setImgs(im);
     setLoaded(true);
     setLoading(false);
   };
@@ -94,6 +116,45 @@ function TableTextEditor({ roleAssignmentId, table, fields, title, subtitle, ico
     setSaving(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
     toast({ title: 'Details saved' });
+  };
+
+  // A stored image is either an uploaded storage path or (for imported marinas)
+  // a Jotform URL — open each accordingly.
+  const openImage = async (val: string) => {
+    if (/^https?:\/\//i.test(val)) { window.open(val, '_blank'); return; }
+    const { data } = await supabase.storage.from('event-media').createSignedUrl(val, 300);
+    if (data) window.open(data.signedUrl, '_blank');
+  };
+
+  const uploadImage = async (key: string, file: File) => {
+    if (locked || !user) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
+    setBusyImg(key);
+    const prev = imgs[key];
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${user.id}/sm26/marina/${roleAssignmentId}/${key}-${Date.now()}-${safe}`;
+    const { error: upErr } = await supabase.storage.from('event-media').upload(path, file, { upsert: false });
+    if (upErr) { setBusyImg(null); toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' }); return; }
+    const { error } = await supabase.from(table).update({ [key]: path }).eq('role_assignment_id', roleAssignmentId);
+    if (error) { setBusyImg(null); toast({ title: 'Could not save image', description: error.message, variant: 'destructive' }); return; }
+    if (prev && !/^https?:\/\//i.test(prev)) await supabase.storage.from('event-media').remove([prev]).catch(() => {});
+    setImgs(p => ({ ...p, [key]: path }));
+    setBusyImg(null);
+    toast({ title: 'Image uploaded' });
+  };
+
+  const removeImage = async (key: string) => {
+    if (locked) return;
+    const uid = await requireFreshSession();
+    if (!uid) return;
+    setBusyImg(key);
+    const prev = imgs[key];
+    const { error } = await supabase.from(table).update({ [key]: null }).eq('role_assignment_id', roleAssignmentId);
+    if (error) { setBusyImg(null); toast({ title: 'Could not remove', description: error.message, variant: 'destructive' }); return; }
+    if (prev && !/^https?:\/\//i.test(prev)) await supabase.storage.from('event-media').remove([prev]).catch(() => {});
+    setImgs(p => ({ ...p, [key]: '' }));
+    setBusyImg(null);
   };
 
   if (!open) {
@@ -123,6 +184,28 @@ function TableTextEditor({ roleAssignmentId, table, fields, title, subtitle, ico
             <Textarea rows={2} value={vals[f.key] || ''} onChange={e => setVals(p => ({ ...p, [f.key]: e.target.value }))} />
           </div>
         ))}
+        {imageFields && imageFields.length > 0 && (
+          <div className="space-y-2 border-t border-gray-100 pt-3">
+            <div className="text-xs font-medium text-gray-600">Supporting images <span className="font-normal text-gray-400">· optional, one per criterion</span></div>
+            {imageFields.map(f => (
+              <div key={f.key} className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 flex-1 min-w-0 truncate">{f.label}</span>
+                {imgs[f.key]
+                  ? (
+                    <>
+                      <button type="button" onClick={() => openImage(imgs[f.key])} className="text-xs text-primary inline-flex items-center gap-1"><ExternalLink className="h-3.5 w-3.5" /> View</button>
+                      <button type="button" onClick={() => removeImage(f.key)} disabled={busyImg === f.key} className="text-gray-400 hover:text-red-600 p-1"><Trash2 className="h-4 w-4" /></button>
+                    </>
+                  ) : (
+                    <label className="text-xs text-primary inline-flex items-center gap-1 cursor-pointer">
+                      {busyImg === f.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload
+                      <input type="file" accept="image/*" className="hidden" onChange={e => { const file = e.target.files?.[0]; if (file) uploadImage(f.key, file); e.target.value = ''; }} />
+                    </label>
+                  )}
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setOpen(false)}>Close</Button>
           <Button onClick={save} disabled={saving} className="gap-1.5">

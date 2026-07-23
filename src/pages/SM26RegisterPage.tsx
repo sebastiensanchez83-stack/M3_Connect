@@ -4,6 +4,7 @@ import { Helmet } from 'react-helmet-async';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/contexts/AuthContext';
@@ -94,6 +95,7 @@ interface DraftShape {
   arch?: ArchitectureData;
   marina?: MarinaData;
   light?: LightData;
+  prior?: boolean;
 }
 
 export function SM26RegisterPage() {
@@ -103,6 +105,7 @@ export function SM26RegisterPage() {
   const [fees, setFees] = useState<Record<string, number>>({});
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '', phone: '', company_name: '', website: '', country: '', job_title: '',
+    how_heard: '', objective: '', vat_number: '', billing_address: '', num_attendees: '', prior_events: '',
   });
   const [role, setRole] = useState<string>('');
   const [startup, setStartup] = useState<StartupData>(EMPTY_STARTUP);
@@ -118,6 +121,7 @@ export function SM26RegisterPage() {
   const [onsite, setOnsite] = useState(false);
   const [imageConsent, setImageConsent] = useState(false);
   const [terms, setTerms] = useState(false);
+  const [priorParticipated, setPriorParticipated] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [honeypot, setHoneypot] = useState(''); // bot trap — must stay empty
@@ -208,7 +212,7 @@ export function SM26RegisterPage() {
 
   // ─── Save & resume ────────────────────────────────────────────────
   const firstSaveRef = useRef(true);
-  const snapshot = (): DraftShape => ({ form, role, startup, arch, marina, light });
+  const snapshot = (): DraftShape => ({ form, role, startup, arch, marina, light, prior: priorParticipated });
   const applyDraft = (d: DraftShape) => {
     if (d.form) setForm(prev => ({ ...prev, ...d.form }));
     if (d.role) setRole(d.role);
@@ -216,6 +220,7 @@ export function SM26RegisterPage() {
     if (d.arch) setArch(d.arch);
     if (d.marina) setMarina(d.marina);
     if (d.light) setLight(d.light);
+    if (typeof d.prior === 'boolean') setPriorParticipated(d.prior);
   };
 
   // Resume from an emailed link (?draft=token) — cross-device.
@@ -244,7 +249,7 @@ export function SM26RegisterPage() {
     if (firstSaveRef.current) { firstSaveRef.current = false; return; }
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot())); } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, role, startup, arch, marina, light]);
+  }, [form, role, startup, arch, marina, light, priorParticipated]);
 
   const saveDraft = async () => {
     if (!form.email.trim()) {
@@ -283,6 +288,14 @@ export function SM26RegisterPage() {
     r.feeKey ? (fmtFee(fees[r.feeKey]) ?? r.freeNote ?? null) : (r.freeNote ?? null);
 
   const setAsset = (key: string, files: File[]) => setAssets(prev => ({ ...prev, [key]: files }));
+
+  // Optional enrichment base fields (Jotform parity). All nullable / non-blocking.
+  const priorPayload = (): { participated: string; events?: string } | null => {
+    const events = form.prior_events.trim();
+    if (!priorParticipated && !events) return null;
+    return { participated: priorParticipated ? 'yes' : 'no', ...(events ? { events } : {}) };
+  };
+  const numAttendees = (): number | null => { const n = parseInt(form.num_attendees, 10); return Number.isFinite(n) && n > 0 ? n : null; };
 
   // module_data captured for every role: socials, on-site, consents, and the
   // jury competition→scope mapping the rest of the platform reads.
@@ -351,6 +364,12 @@ export function SM26RegisterPage() {
             website: form.website.trim(),
             country: form.country.trim(),
             job_title: form.job_title.trim(),
+            how_heard: form.how_heard.trim(),
+            objective: form.objective.trim(),
+            billing_address: form.billing_address.trim(),
+            vat_number: form.vat_number.trim(),
+            num_attendees: numAttendees(),
+            prior_participation: priorPayload(),
             image_consent: imageConsent,
             terms_accepted: terms,
           },
@@ -437,6 +456,12 @@ export function SM26RegisterPage() {
         website: form.website.trim() || null,
         country: form.country.trim() || null,
         job_title: form.job_title.trim() || null,
+        how_heard: form.how_heard.trim() || null,
+        objective: form.objective.trim() || null,
+        billing_address: form.billing_address.trim() || null,
+        vat_number: form.vat_number.trim() || null,
+        num_attendees: numAttendees(),
+        prior_participation: priorPayload(),
         image_consent: imageConsent,
         terms_accepted_at: new Date().toISOString(),
         status: 'submitted',
@@ -681,6 +706,49 @@ export function SM26RegisterPage() {
               <div className="space-y-1"><Label>Website</Label><Input value={form.website} onChange={e => setField('website', e.target.value)} placeholder="https://" /></div>
               <div className="space-y-1"><Label>Country</Label><Input value={form.country} onChange={e => setField('country', e.target.value)} /></div>
               <div className="space-y-1"><Label>Job title</Label><Input value={form.job_title} onChange={e => setField('job_title', e.target.value)} /></div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>A bit more about you</CardTitle>
+              <CardDescription>Optional — it helps us prepare. You can complete or change these later.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1">
+                <Label>How did you hear about the event?</Label>
+                <Input value={form.how_heard} onChange={e => setField('how_heard', e.target.value)} placeholder="LinkedIn, a colleague, the M3 team…" />
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-start gap-2">
+                  <Checkbox id="prior" checked={priorParticipated} onCheckedChange={c => setPriorParticipated(c as boolean)} />
+                  <Label htmlFor="prior" className="font-normal text-sm">I've taken part in a previous Smart Marina / Smart Events edition</Label>
+                </div>
+                {priorParticipated && (
+                  <Input value={form.prior_events} onChange={e => setField('prior_events', e.target.value)} placeholder="Which edition(s)?" />
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label>What's your objective in taking part?</Label>
+                <Textarea rows={3} value={form.objective} onChange={e => setField('objective', e.target.value)} placeholder="What you'd like to get out of the Rendezvous." />
+              </div>
+              <div className="border-t border-gray-100 pt-4 space-y-4">
+                <p className="text-xs text-gray-500">Only needed if you'll attend on-site or receive an invoice.</p>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label>Number of attendees</Label>
+                    <Input type="number" min={1} value={form.num_attendees} onChange={e => setField('num_attendees', e.target.value)} placeholder="1" />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>VAT number</Label>
+                    <Input value={form.vat_number} onChange={e => setField('vat_number', e.target.value)} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label>Billing address</Label>
+                  <Textarea rows={2} value={form.billing_address} onChange={e => setField('billing_address', e.target.value)} />
+                </div>
+              </div>
             </CardContent>
           </Card>
 

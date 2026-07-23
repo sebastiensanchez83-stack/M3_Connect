@@ -45,7 +45,7 @@ export function AdminSM26EcatDossier() {
     const marina = (Array.isArray(ra.marina) ? ra.marina[0] : ra.marina) as Record<string, unknown> | undefined;
     const moduleData = (ra.module_data || {}) as Record<string, unknown>;
 
-    const skip = new Set(['id', 'role_assignment_id', 'event_id', 'organization_id', 'created_at', 'updated_at', 'anon_code', 'logo_url', 'deck_url', 'product_images', 'social_links', 'visibility_level', 'pitch_optin']);
+    const skip = new Set(['id', 'role_assignment_id', 'event_id', 'organization_id', 'created_at', 'updated_at', 'anon_code', 'logo_url', 'deck_url', 'product_images', 'social_links', 'visibility_level', 'pitch_optin', 'biodiversity_image', 'water_image', 'energy_image', 'waste_image', 'innovation_image', 'security_image']);
     const src = (page.kind === 'startup' ? startup : marina) || {};
     const textFields: Record<string, string> = {};
     for (const [k, v] of Object.entries(src)) {
@@ -68,6 +68,12 @@ export function AdminSM26EcatDossier() {
       pushAsset('pitch_media', startup.pitch_media_url);
       if (Array.isArray(startup.product_images)) startup.product_images.forEach(p => pushAsset('product_image', p));
     }
+    if (marina) {
+      // Per-criterion evidence images (storage paths, or Jotform URLs for imports).
+      for (const k of ['biodiversity_image', 'water_image', 'energy_image', 'waste_image', 'innovation_image', 'security_image']) {
+        pushAsset(k, marina[k]);
+      }
+    }
 
     setDetail({
       kind: page.kind as string,
@@ -80,6 +86,7 @@ export function AdminSM26EcatDossier() {
     const urls: Record<string, string> = {};
     for (const a of assets) {
       if (isImage(a.path)) {
+        if (/^https?:\/\//i.test(a.path)) { urls[a.path] = a.path; continue; } // imported (Jotform) URL — use as-is
         const { data: s } = await supabase.storage.from('event-media').createSignedUrl(a.path, 600);
         if (s) urls[a.path] = s.signedUrl;
       }
@@ -89,6 +96,7 @@ export function AdminSM26EcatDossier() {
   };
 
   const openAsset = async (path: string) => {
+    if (/^https?:\/\//i.test(path)) { window.open(path, '_blank'); return; }
     const { data } = await supabase.storage.from('event-media').createSignedUrl(path, 300);
     if (data) window.open(data.signedUrl, '_blank');
   };

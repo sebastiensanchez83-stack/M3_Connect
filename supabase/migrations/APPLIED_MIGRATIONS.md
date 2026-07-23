@@ -2,7 +2,7 @@
 
 Authoritative list of every migration applied to Supabase project
 `djjbgzasuomhyfvtlidi`, in order (from `supabase_migrations.schema_migrations`).
-**235 migrations**, `20260130111556` → `20260723073500`.
+**236 migrations**, `20260130111556` → `20260723082832`.
 
 Generated 2026-07-16. Regenerate with:
 
@@ -248,4 +248,5 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260721223556  profiles_select_org_comembers
 20260722154912  claim_promotes_member_and_admin_set_org_owner
 20260723073500  sm_registration_import_role_suggestions
+20260723082832  claim_organization_for_user
 ```

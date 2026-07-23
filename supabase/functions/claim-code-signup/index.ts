@@ -1,4 +1,4 @@
-// Signup via a valid organization claim code — bypasses email confirmation
+// Signup via a valid organization claim code -- bypasses email confirmation
 // because the user already proved ownership of the email by clicking the
 // invitation link sent to that address.
 //
@@ -28,7 +28,7 @@ function corsHeaders(req: Request) {
 }
 
 // Fire-and-forget admin notification (fans out to every admin via notify-admins)
-async function notifyAdminsOfSignup(data: { email: string; first_name?: string; last_name?: string; org_name?: string; claim_code?: string }) {
+async function notifyAdminsOfSignup(data: { email: string; first_name?: string; last_name?: string; org_name?: string; claim_code?: string; membership?: string }) {
   try {
     if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return;
     const fullName = [data.first_name, data.last_name].filter(Boolean).join(" ").trim() || data.email;
@@ -36,6 +36,7 @@ async function notifyAdminsOfSignup(data: { email: string; first_name?: string; 
       `Email: ${data.email}`,
       `Signup method: Claim code (${data.claim_code || "unknown"})`,
       data.org_name ? `Organization: ${data.org_name}` : "",
+      data.membership ? `Membership: ${data.membership}` : "",
     ].filter(Boolean).join("\n");
     await fetch(`${SUPABASE_URL}/functions/v1/notify-admins`, {
       method: "POST",
@@ -52,7 +53,7 @@ async function notifyAdminsOfSignup(data: { email: string; first_name?: string; 
       }),
     });
   } catch {
-    // Swallow any errors — notifications must never block signup
+    // Swallow any errors -- notifications must never block signup
   }
 }
 
@@ -79,13 +80,16 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
-    // 1. Validate the claim code matches a real organization (case-insensitive)
+    // 1. Validate the claim code matches a real organization (case-insensitive).
+    //    Escape LIKE wildcards so "IGY_MIAMI" can't match a different org than
+    //    the exact claim below (the RPC uses exact upper/trim equality).
     const normalizedCode = String(claim_code).trim().toUpperCase();
+    const codePattern = normalizedCode.replace(/[\\%_]/g, (c) => `\\${c}`);
     const { data: org, error: orgError } = await admin
       .from("organizations")
       .select("id, name, organization_type")
       .not("claim_code", "is", null)
-      .ilike("claim_code", normalizedCode)
+      .ilike("claim_code", codePattern)
       .maybeSingle();
 
     if (orgError || !org) {
@@ -124,13 +128,30 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 4. Notify all admins of the new signup (fire-and-forget)
+    // 4. Create the org membership + resolve persona/status SERVER-SIDE and
+    //    atomically. This used to depend on a best-effort client auto-claim run
+    //    after sign-in; a failed sign-in or a closed tab left a confirmed account
+    //    with no membership, invisible to its own organization. The client effect
+    //    now only acts as a redundant fallback.
+    let membershipRole = "FAILED";
+    const { data: claimData, error: claimErr } = await admin.rpc("claim_organization_for_user", {
+      p_user_id: newUser.user.id,
+      p_claim_code: normalizedCode,
+    });
+    if (claimErr) {
+      console.error("claim_organization_for_user failed", claimErr);
+    } else {
+      membershipRole = (claimData as { role?: string } | null)?.role || "unknown";
+    }
+
+    // 5. Notify all admins of the new signup (fire-and-forget), incl. the outcome.
     notifyAdminsOfSignup({
       email,
       first_name,
       last_name,
       org_name: org.name,
       claim_code: claim_code,
+      membership: membershipRole,
     });
 
     return new Response(
@@ -140,6 +161,7 @@ Deno.serve(async (req: Request) => {
         email: newUser.user.email,
         organization_id: org.id,
         organization_name: org.name,
+        member_role: membershipRole,
       }),
       { status: 200, headers }
     );

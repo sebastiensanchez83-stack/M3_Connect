@@ -46,6 +46,7 @@ const MARINA_FIELDS: { key: string; label: string }[] = [
   { key: 'waste', label: 'Waste' },
   { key: 'innovation', label: 'Innovation' },
   { key: 'security', label: 'Security' },
+  { key: 'sustainable_diff', label: 'Sustainable differentiation' },
   { key: 'further_info', label: 'Further information' },
 ];
 

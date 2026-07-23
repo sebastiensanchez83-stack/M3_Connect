@@ -15,12 +15,13 @@ export interface MarinaData {
   waste: string;
   innovation: string;
   security: string;
+  sustainable_diff: string;
   further_info: string;
 }
 
 export const EMPTY_MARINA: MarinaData = {
   architectural_quality: '', biodiversity: '', water: '', energy: '', waste: '',
-  innovation: '', security: '', further_info: '',
+  innovation: '', security: '', sustainable_diff: '', further_info: '',
 };
 
 const FIELDS: { key: keyof MarinaData; label: string }[] = [
@@ -31,6 +32,7 @@ const FIELDS: { key: keyof MarinaData; label: string }[] = [
   { key: 'waste', label: 'Initiatives for waste management' },
   { key: 'innovation', label: 'Innovative initiatives in design, management or operations' },
   { key: 'security', label: 'Health & security measures for marina guests' },
+  { key: 'sustainable_diff', label: 'Your sustainable differentiation & smart / innovative solution' },
   { key: 'further_info', label: 'Anything else you would like to present' },
 ];
 

@@ -92,6 +92,7 @@ function mapMarina(d: Record<string, unknown>) {
     waste: s(d.waste),
     innovation: s(d.innovation),
     security: s(d.security),
+    sustainable_diff: s(d.sustainable_diff),
     further_info: s(d.further_info),
   };
 }

@@ -586,6 +586,7 @@ export function SM26RegisterPage() {
           waste: marina.waste || null,
           innovation: marina.innovation || null,
           security: marina.security || null,
+          sustainable_diff: marina.sustainable_diff || null,
           further_info: marina.further_info || null,
         });
         if (meErr) {

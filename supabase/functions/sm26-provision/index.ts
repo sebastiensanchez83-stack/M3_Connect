@@ -128,14 +128,30 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 2) Persona + verified (never touch staff accounts)
+  // 2) Persona + access. Never touch staff, and never silently override an
+  //    ESTABLISHED core identity: a real (non-'individual') persona is left
+  //    exactly as-is -- no persona switch, no forced verification (which would
+  //    bypass the core references gate). Only a fresh event identity
+  //    ('individual', or a just-created account) is provisioned to the suggested
+  //    persona. The caller is told when an identity was preserved.
+  let profileNote: string | null = null;
   const { data: targetProf } = await admin.from("profiles").select("persona, access_status").eq("user_id", userId).maybeSingle();
   const tp = targetProf as { persona?: string; access_status?: string } | null;
-  if (tp && !["admin", "moderator"].includes(tp.persona || "")) {
-    const { error: profErr } = await admin.from("profiles")
-      .update({ persona, access_status: "verified", onboarding_status: "completed" })
-      .eq("user_id", userId);
-    if (profErr) { console.error("profile update failed", profErr); return json(req, { error: `Profile update failed: ${profErr.message}` }, 500); }
+  if (tp) {
+    const ep = (tp.persona || "").trim();
+    // A just-created account already carries the suggested persona (set in its
+    // metadata at createUser), so it must NOT be mistaken for a pre-existing
+    // identity -- only accounts that existed BEFORE this call are preserved.
+    if (["admin", "moderator"].includes(ep)) {
+      // staff -- never touched
+    } else if (!createdAccount && ep !== "" && ep !== "individual") {
+      profileNote = `This email already has a "${ep}" account -- left unchanged (persona, access and onboarding kept). Adjust in Admin > Users if it should differ.`;
+    } else {
+      const { error: profErr } = await admin.from("profiles")
+        .update({ persona, access_status: "verified", onboarding_status: "completed" })
+        .eq("user_id", userId);
+      if (profErr) { console.error("profile update failed", profErr); return json(req, { error: `Profile update failed: ${profErr.message}` }, 500); }
+    }
   }
 
   // 3) Organization
@@ -149,8 +165,13 @@ Deno.serve(async (req) => {
     for (let attempt = 0; attempt < 4 && !inserted; attempt++) {
       const slug = attempt === 0 ? slugify(name) : `${slugify(name)}-${Math.floor(1000 + Math.random() * 9000)}`;
       const { data: org, error: orgErr } = await admin.from("organizations").insert({
+        // access_status verified (M3 vouches for the company by provisioning it),
+        // but onboarding_status is left at its 'draft' default: the org profile is
+        // not actually complete (only the name is set), and provisioning an event
+        // registration must not fabricate a "fully onboarded" org. Complete it
+        // from the admin org sheet when the profile is filled.
         name, slug, organization_type: orgType, tier: "member",
-        access_status: "verified", onboarding_status: "completed",
+        access_status: "verified",
         created_by_user_id: userId, owner_user_id: userId,
         website: null,
       }).select("id").single();
@@ -212,5 +233,5 @@ Deno.serve(async (req) => {
     } catch (e) { console.error("welcome email failed", e); }
   }
 
-  return json(req, { ok: true, user_id: userId, organization_id: orgId, created_account: createdAccount, created_org: orgCreated, emailed });
+  return json(req, { ok: true, user_id: userId, organization_id: orgId, created_account: createdAccount, created_org: orgCreated, emailed, profile_note: profileNote });
 });

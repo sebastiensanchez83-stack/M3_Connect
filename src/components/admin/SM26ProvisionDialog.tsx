@@ -60,7 +60,7 @@ export function suggestProvision(reg: ProvisionReg): { persona: string; orgMode:
 export async function runProvision(body: {
   registration_id: string; persona: string;
   org: 'create' | 'link' | 'none'; org_name?: string; org_id?: string; send_email: boolean;
-}): Promise<{ ok: boolean; error?: string; emailed?: boolean }> {
+}): Promise<{ ok: boolean; error?: string; emailed?: boolean; profileNote?: string | null }> {
   let res = await supabase.functions.invoke('sm26-provision', { body });
   if (res.error && (res.error as { name?: string }).name === 'FunctionsFetchError') {
     await new Promise(r => setTimeout(r, 900));
@@ -71,8 +71,8 @@ export async function runProvision(body: {
     try { const b = await (res.error as { context?: Response }).context?.json(); if (b?.error) msg = b.error; } catch { /* keep */ }
     return { ok: false, error: msg };
   }
-  const d = res.data as { ok?: boolean; error?: string; emailed?: boolean } | null;
-  return d?.ok ? { ok: true, emailed: d.emailed } : { ok: false, error: d?.error || 'Unexpected response' };
+  const d = res.data as { ok?: boolean; error?: string; emailed?: boolean; profile_note?: string | null } | null;
+  return d?.ok ? { ok: true, emailed: d.emailed, profileNote: d.profile_note ?? null } : { ok: false, error: d?.error || 'Unexpected response' };
 }
 
 interface OrgHit { id: string; name: string; organization_type: string | null; tier: string }
@@ -200,7 +200,12 @@ export function SM26ProvisionDialog({ reg, open, onOpenChange, onDone }: {
     });
     setBusy(false);
     if (!r.ok) { toast({ title: 'Provisioning failed', description: r.error, variant: 'destructive' }); return; }
-    toast({ title: 'Platform account ready', description: sendEmail ? (r.emailed ? `Welcome email sent to ${reg.email}` : 'Account set up — the email could not be sent, retry from the sheet') : 'Account set up (no email sent)' });
+    const readyDesc = sendEmail ? (r.emailed ? `Welcome email sent to ${reg.email}` : 'Account set up — the email could not be sent, retry from the sheet') : 'Account set up (no email sent)';
+    // When an existing core identity was preserved, lead with that — it's the
+    // thing the admin needs to notice — then the usual confirmation.
+    toast(r.profileNote
+      ? { title: 'Registration linked — existing account kept', description: `${r.profileNote} ${readyDesc}` }
+      : { title: 'Platform account ready', description: readyDesc });
     onOpenChange(false);
     onDone();
   };

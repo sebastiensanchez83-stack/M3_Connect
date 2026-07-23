@@ -2,7 +2,7 @@
 
 Authoritative list of every migration applied to Supabase project
 `djjbgzasuomhyfvtlidi`, in order (from `supabase_migrations.schema_migrations`).
-**240 migrations**, `20260130111556` → `20260723152937`.
+**241 migrations**, `20260130111556` → `20260723153436`.
 
 Generated 2026-07-16. Regenerate with:
 
@@ -252,4 +252,6 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260723144123  sm_marina_extra_sustainable_diff
 20260723151208  sm_org_marina_submission_public
 20260723152249  sm26_category_sector_map
+20260723152937  sm_enrich_org_from_registration
+20260723153436  sm_org_sector_suggestions
 ```

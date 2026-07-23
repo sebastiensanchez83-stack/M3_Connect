@@ -1,4 +1,4 @@
-// SM26 public registration — provisions a guest account + writes the
+// SM26 public registration -- provisions a guest account + writes the
 // registration/role/module rows server-side (service role, bypassing RLS),
 // then emails a magic-link so the guest can access their workspace.
 //
@@ -133,7 +133,7 @@ async function sendAccessEmail(email: string, firstName: string, link: string) {
   const SENDER_EMAIL =
     Deno.env.get("SENDER_EMAIL") || "Smart Marina Connect <noreply@smartmarinaconnect.com>";
   if (!RESEND_API_KEY) {
-    console.error("RESEND_API_KEY not set — skipping access email");
+    console.error("RESEND_API_KEY not set -- skipping access email");
     return;
   }
   const greeting = firstName ? `Hello ${firstName},` : "Hello,";
@@ -144,11 +144,11 @@ async function sendAccessEmail(email: string, firstName: string, link: string) {
 <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);">
 <tr><td style="background:#0b2653;padding:32px 40px;text-align:center;">
 <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;">Smart &amp; Sustainable Marina Rendezvous 2026</h1>
-<p style="margin:6px 0 0;color:#93c5fd;font-size:13px;">20–21 September 2026 · Yacht Club de Monaco</p></td></tr>
+<p style="margin:6px 0 0;color:#93c5fd;font-size:13px;">20-21 September 2026 · Yacht Club de Monaco</p></td></tr>
 <tr><td style="padding:40px;">
 <p style="margin:0 0 8px;color:#374151;font-size:16px;">${greeting}</p>
 <h2 style="margin:0 0 16px;color:#111827;font-size:20px;font-weight:600;">Your registration is received</h2>
-<p style="margin:0 0 28px;color:#4b5563;font-size:15px;line-height:1.6;">Thank you for registering for the Rendezvous. We've created your Smart Marina Connect workspace — click below to set your password and complete your participation. M3 will confirm your registration (and send any invoice) shortly.</p>
+<p style="margin:0 0 28px;color:#4b5563;font-size:15px;line-height:1.6;">Thank you for registering for the Rendezvous. We've created your Smart Marina Connect workspace -- click below to set your password and complete your participation. M3 will confirm your registration (and send any invoice) shortly.</p>
 <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto;"><tr><td style="background:#0b2653;border-radius:8px;">
 <a href="${link}" target="_blank" style="display:inline-block;padding:14px 32px;color:#fff;font-size:15px;font-weight:600;text-decoration:none;">Set my password &amp; access my registration</a>
 </td></tr></table>
@@ -180,7 +180,7 @@ async function sendAdminAlert(d: { first: string; last: string; email: string; c
   const name = `${d.first} ${d.last}`.trim();
   const html =
     `<p>A new registration came in for the <strong>Smart &amp; Sustainable Marina Rendezvous 2026</strong>:</p>` +
-    `<p><strong>${name}</strong>${d.company ? ` — ${d.company}` : ""}<br>Role: ${d.role}<br>${d.email}</p>` +
+    `<p><strong>${name}</strong>${d.company ? ` -- ${d.company}` : ""}<br>Role: ${d.role}<br>${d.email}</p>` +
     `<p><a href="${SITE_URL}/admin/sm26" style="background:#0b2653;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;display:inline-block">Open the registrations console</a></p>`;
   try {
     await fetch("https://api.resend.com/emails", {
@@ -189,7 +189,7 @@ async function sendAdminAlert(d: { first: string; last: string; email: string; c
       body: JSON.stringify({
         from: SENDER_EMAIL,
         to: [ADMIN_EMAIL],
-        subject: `New registration — ${name}${d.company ? ` (${d.company})` : ""}`,
+        subject: `New registration -- ${name}${d.company ? ` (${d.company})` : ""}`,
         html,
       }),
     });
@@ -238,6 +238,20 @@ Deno.serve(async (req: Request) => {
   if (!ev) return json(req, { error: "Event not available" }, 400);
   const eventId = (ev as { id: string }).id;
 
+  // Don't create a second registration when a LIVE one already exists for this
+  // email -- typically an imported Jotform row not yet claimed (user_id still
+  // null). Checked BEFORE creating an auth account so a duplicate attempt leaves
+  // no orphan pw_pending account behind. Respond exactly like a fresh success
+  // (anti-enumeration); the person inherits that record on login via
+  // sm_autoclaim_by_email. Public endpoint -- we only READ here, never mutate a
+  // record that may belong to someone else.
+  const emailEsc = email.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data: liveByEmail } = await admin
+    .from("sm_registration").select("id, status").eq("event_id", eventId).ilike("email", emailEsc);
+  if ((liveByEmail as { status: string }[] | null || []).some(
+    (x) => !["declined", "cancelled"].includes((x.status || "").toLowerCase())
+  )) return json(req, { status: "ok" });
+
   // Provision a confirmed account (we send our own magic-link below)
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email,
@@ -267,7 +281,7 @@ Deno.serve(async (req: Request) => {
       return json(req, { error: "Registration could not be completed. Please try again." }, 400);
     }
     // Existing account: link the registration to it. Never reveal that the email
-    // already exists — respond exactly as for a brand-new signup (anti-enumeration).
+    // already exists -- respond exactly as for a brand-new signup (anti-enumeration).
     const { data: prof } = await admin.from("profiles").select("user_id").ilike("email", email).maybeSingle();
     if (!(prof as { user_id?: string } | null)?.user_id) return json(req, { status: "ok" });
     userId = (prof as { user_id: string }).user_id;

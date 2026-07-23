@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
   Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target, Download,
-  ChevronLeft, ChevronRight, UserPlus, Eye,
+  ChevronLeft, ChevronRight, UserPlus, Eye, AlertTriangle,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -301,6 +301,7 @@ interface Registration {
   source: string | null;
   requested_fields: string[] | null;
   info_request_note: string | null;
+  import_role_suggestions: string[] | null;
   roles: RoleAssignment[];
 }
 
@@ -753,6 +754,24 @@ export function AdminSM26Detail() {
           </Button>
         </div>
       </div>
+
+      {/* A Jotform import found a role this person didn't self-select. Not added
+          automatically — click to pre-fill the picker, then Add if you agree. */}
+      {(reg.import_role_suggestions?.filter(s => !assignedRoles.has(s)).length ?? 0) > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 flex items-start gap-2">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <div className="flex-1">
+            <span>Their Jotform submission suggests a role they didn't select here:&nbsp;</span>
+            {reg.import_role_suggestions!.filter(s => !assignedRoles.has(s)).map(s => (
+              <button key={s} type="button" onClick={() => setAddRoleValue(s)}
+                className="font-medium underline underline-offset-2 mr-2 hover:text-amber-700">
+                {SM26_ROLE_LABELS[s] || s}
+              </button>
+            ))}
+            <span className="text-amber-700">— review, then add above if it's right.</span>
+          </div>
+        </div>
+      )}
 
       {reg.roles.length === 0 ? (
         <Card className="border-0 shadow-sm"><CardContent className="py-8 text-center text-gray-400">No roles assigned yet.</CardContent></Card>

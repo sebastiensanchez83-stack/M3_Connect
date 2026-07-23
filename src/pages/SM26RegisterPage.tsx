@@ -7,10 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { getFreshUserId } from '@/lib/session';
+import { COUNTRIES } from '@/lib/countries';
 import {
   CheckCircle, Loader2, Eye, Ship, Lightbulb, Compass, GraduationCap,
   Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight, AlertTriangle,
@@ -704,7 +706,13 @@ export function SM26RegisterPage() {
                 )}
               </div>
               <div className="space-y-1"><Label>Website</Label><Input value={form.website} onChange={e => setField('website', e.target.value)} placeholder="https://" /></div>
-              <div className="space-y-1"><Label>Country</Label><Input value={form.country} onChange={e => setField('country', e.target.value)} /></div>
+              <div className="space-y-1">
+                <Label>Country</Label>
+                <Select value={form.country || undefined} onValueChange={v => setField('country', v)}>
+                  <SelectTrigger><SelectValue placeholder="Select a country" /></SelectTrigger>
+                  <SelectContent>{COUNTRIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
               <div className="space-y-1"><Label>Job title</Label><Input value={form.job_title} onChange={e => setField('job_title', e.target.value)} /></div>
             </CardContent>
           </Card>

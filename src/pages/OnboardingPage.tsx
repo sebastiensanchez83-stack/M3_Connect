@@ -17,6 +17,7 @@ import { Sector, PersonaType, PendingInvitationResult } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
 import { getStoredInvite, clearStoredInvite } from '@/lib/invite-store';
 import { sendNotification } from '@/lib/notifications';
+import { COUNTRIES } from '@/lib/countries';
 
 /* ─── Types ─── */
 interface MarinaOrgForm {
@@ -47,16 +48,7 @@ interface MarinaOrgForm {
 }
 
 /* ─── Constants ─── */
-const countries = [
-  'Albania', 'Algeria', 'Bahrain', 'Belgium', 'Brazil', 'Canada', 'Chile', 'China',
-  'Croatia', 'Cyprus', 'Denmark', 'Egypt', 'Estonia', 'Finland', 'France', 'Germany',
-  'Gibraltar', 'Greece', 'Indonesia', 'Ireland', 'Israel', 'Italy', 'Japan', 'Jordan',
-  'Kuwait', 'Latvia', 'Lebanon', 'Libya', 'Lithuania', 'Malta', 'Mauritius', 'Mexico',
-  'Monaco', 'Montenegro', 'Morocco', 'Netherlands', 'New Zealand', 'Norway', 'Oman',
-  'Philippines', 'Poland', 'Portugal', 'Qatar', 'Romania', 'Saudi Arabia', 'Singapore',
-  'Slovenia', 'South Africa', 'Spain', 'Sweden', 'Thailand', 'Tunisia', 'Turkey',
-  'United Arab Emirates', 'United Kingdom', 'United States', 'Other',
-];
+const countries = COUNTRIES;
 
 const certificationOptions = [
   'Blue Flag', 'ISO 14001', 'PIANC Green Marina', 'Clean Marina',

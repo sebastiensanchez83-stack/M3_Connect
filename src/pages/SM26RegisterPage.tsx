@@ -154,7 +154,10 @@ export function SM26RegisterPage() {
       job_title: prev.job_title || profile?.job_title || '',
       company_name: prev.company_name || organization?.name || '',
       website: prev.website || organization?.website || '',
-      country: prev.country || organization?.country || '',
+      // Only seed the country Select from a value that is on the canonical list;
+      // an out-of-vocab org country would show as an empty placeholder yet still
+      // submit silently, so leave it blank and let the user pick.
+      country: prev.country || (organization?.country && (COUNTRIES as readonly string[]).includes(organization.country) ? organization.country : ''),
     }));
   }, [user, profile, organization]);
 

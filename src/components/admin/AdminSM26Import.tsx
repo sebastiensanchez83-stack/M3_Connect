@@ -38,32 +38,43 @@ function parseCSV(str: string): string[][] {
 }
 
 // File-bearing columns, by 0-based index — same indices the engine uses.
-// (A) already ingested by the engine, (B) ingested from phase 3/4 onwards.
-const FILE_COLUMNS: { idx: number; label: string; group: 'A' | 'B' }[] = [
-  { idx: 20, label: 'Profile photo', group: 'A' },
-  { idx: 21, label: 'Company logo (architecture)', group: 'B' },
-  { idx: 22, label: 'Company image (architecture)', group: 'B' },
-  { idx: 23, label: 'Project renders (architecture)', group: 'B' },
-  { idx: 31, label: 'Proof of enrolment', group: 'B' },
-  { idx: 32, label: 'Profile photo (student)', group: 'A' },
-  { idx: 41, label: 'Company logo (jury)', group: 'A' },
-  { idx: 42, label: 'Profile picture (jury)', group: 'A' },
-  { idx: 47, label: 'Company logo (marina)', group: 'A' },
-  { idx: 63, label: 'Marina HD images', group: 'A' },
-  { idx: 64, label: 'Marina building images', group: 'A' },
-  { idx: 65, label: 'Marina pitch media', group: 'A' },
-  { idx: 73, label: 'Sustainability image', group: 'B' },
-  { idx: 75, label: 'Water image', group: 'B' },
-  { idx: 77, label: 'Energy image', group: 'B' },
-  { idx: 79, label: 'Waste image', group: 'B' },
-  { idx: 81, label: 'Innovation image', group: 'B' },
-  { idx: 83, label: 'Security image', group: 'B' },
-  { idx: 85, label: 'Press card', group: 'B' },
-  { idx: 95, label: 'Product images', group: 'A' },
-  { idx: 103, label: 'Company logo (startup)', group: 'A' },
-  { idx: 104, label: 'Pitch deck', group: 'A' },
-  { idx: 110, label: 'Pitch media', group: 'A' },
+// `ingested` = the engine currently stores this column. Only those are re-hosted:
+// uploading a column nothing reads would just leave orphans in storage. The
+// architecture entry (21/22/23/31) and the press card (85) flip to true once
+// phases 4 and 3 map them.
+const FILE_COLUMNS: { idx: number; label: string; ingested: boolean }[] = [
+  { idx: 20, label: 'Profile photo', ingested: true },
+  { idx: 21, label: 'Company logo (architecture)', ingested: false },
+  { idx: 22, label: 'Company image (architecture)', ingested: false },
+  { idx: 23, label: 'Project renders (architecture)', ingested: false },
+  { idx: 31, label: 'Proof of enrolment', ingested: false },
+  { idx: 32, label: 'Profile photo (student)', ingested: true },
+  { idx: 41, label: 'Company logo (jury)', ingested: true },
+  { idx: 42, label: 'Profile picture (jury)', ingested: true },
+  { idx: 47, label: 'Company logo (marina)', ingested: true },
+  { idx: 63, label: 'Marina HD images', ingested: true },
+  { idx: 64, label: 'Marina building images', ingested: true },
+  { idx: 65, label: 'Marina pitch media', ingested: true },
+  { idx: 73, label: 'Sustainability image', ingested: true },
+  { idx: 75, label: 'Water image', ingested: true },
+  { idx: 77, label: 'Energy image', ingested: true },
+  { idx: 79, label: 'Waste image', ingested: true },
+  { idx: 81, label: 'Innovation image', ingested: true },
+  { idx: 83, label: 'Security image', ingested: true },
+  { idx: 85, label: 'Press card', ingested: false },
+  { idx: 95, label: 'Product images', ingested: true },
+  { idx: 103, label: 'Company logo (startup)', ingested: true },
+  { idx: 104, label: 'Pitch deck', ingested: true },
+  { idx: 110, label: 'Pitch media', ingested: true },
 ];
+
+// Storage prefix for re-hosted files. Matches what is already in event-media
+// (~300 objects) and the relative-path form sm26-register stores, so an imported
+// registration is indistinguishable from a self-registration.
+const importPath = (submissionId: string, filename: string) =>
+  `imported/${submissionId}/${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+
+const UPLOAD_CONCURRENCY = 4;
 
 // Roles the engine maps today. Anything else falls back to "visitor" — notably
 // "Architecture contest", which is why the preview flags it (phase 4 fixes it).
@@ -77,7 +88,7 @@ interface ImportResult {
   errors: { email: string; error: string }[];
 }
 
-interface FileRef { submissionId: string; filename: string; column: string; group: 'A' | 'B'; url: string }
+interface FileRef { submissionId: string; filename: string; column: string; ingested: boolean; url: string; file?: File }
 interface LocalAnalysis {
   rows: number;
   refs: FileRef[];
@@ -143,6 +154,8 @@ export function AdminSM26Import() {
   const [result, setResult] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [uploadFailures, setUploadFailures] = useState<FileRef[]>([]);
 
   const csvRef = useRef<HTMLInputElement | null>(null);
   const dirRef = useRef<HTMLInputElement | null>(null);
@@ -155,7 +168,10 @@ export function AdminSM26Import() {
     }
   }, []);
 
-  const reset = () => { setCsvName(null); setCsvText(null); setAssets([]); setAnalysis(null); setResult(null); };
+  const reset = () => {
+    setCsvName(null); setCsvText(null); setAssets([]); setAnalysis(null);
+    setResult(null); setProgress(null); setUploadFailures([]);
+  };
 
   const takeFiles = async (incoming: { path: string; file: File }[]) => {
     const csv = incoming.find(x => x.file.name.toLowerCase().endsWith('.csv'));
@@ -212,7 +228,7 @@ export function AdminSM26Import() {
           if (!/^https?:\/\//i.test(raw)) continue;
           const parsed = parseJotformUrl(raw);
           if (!parsed) continue;
-          refs.push({ ...parsed, column: col.label, group: col.group, url: raw });
+          refs.push({ ...parsed, column: col.label, ingested: col.ingested, url: raw });
         }
       }
     }
@@ -221,7 +237,8 @@ export function AdminSM26Import() {
     for (const ref of refs) {
       const exact = bySub.get(`${ref.submissionId}/${ref.filename}`);
       const fallback = byName.get(ref.filename);
-      if (exact || (fallback && fallback.length === 1)) matched.push(ref); else missing.push(ref);
+      const file = exact || (fallback && fallback.length === 1 ? fallback[0] : undefined);
+      if (file) matched.push({ ...ref, file }); else missing.push(ref);
     }
 
     return {
@@ -250,6 +267,80 @@ export function AdminSM26Import() {
       toast({ title: 'Preview ready', description: 'Nothing has been written to the database.' });
     } catch (e) {
       toast({ title: 'Preview failed', description: (e as Error).message, variant: 'destructive' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* ─── Confirm: re-host the matched files, rewrite the CSV, run the import ─── */
+  const runImport = async () => {
+    if (!csvText || !analysis || !result) return;
+    const toUpload = analysis.matched.filter(m => m.ingested && m.file);
+    const laterPhase = analysis.matched.length - toUpload.length;
+    const confirmed = window.confirm(
+      `Import ${result.deduped} registration(s)?\n\n` +
+      `- ${toUpload.length} file(s) will be re-hosted into event-media\n` +
+      `- ${analysis.missing.length} file(s) not found keep their original Jotform URL\n` +
+      (laterPhase > 0 ? `- ${laterPhase} file(s) belong to columns the engine doesn't store yet (architecture / press card) and are left untouched\n` : '') +
+      `\nThis writes to the database.`
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setUploadFailures([]);
+    setProgress({ done: 0, total: toUpload.length });
+    try {
+      // 1. Upload each distinct URL once, in small concurrent batches.
+      const byUrl = new Map<string, FileRef>();
+      for (const m of toUpload) if (!byUrl.has(m.url)) byUrl.set(m.url, m);
+      const jobs = [...byUrl.values()];
+      const urlToPath = new Map<string, string>();
+      const failed: FileRef[] = [];
+      let done = 0;
+
+      for (let i = 0; i < jobs.length; i += UPLOAD_CONCURRENCY) {
+        const batch = jobs.slice(i, i + UPLOAD_CONCURRENCY);
+        await Promise.all(batch.map(async ref => {
+          const path = importPath(ref.submissionId, ref.filename);
+          // upsert: the path is fully determined by (submissionId, filename), so
+          // re-running writes the same bytes to the same key — which is what
+          // makes re-importing the same export idempotent.
+          const { error } = await supabase.storage.from('event-media')
+            .upload(path, ref.file!, { upsert: true, contentType: ref.file!.type || 'application/octet-stream' });
+          if (error) failed.push(ref); else urlToPath.set(ref.url, path);
+          done++; setProgress({ done, total: jobs.length });
+        }));
+      }
+      setUploadFailures(failed);
+
+      // 2. Rewrite the RAW csv text: swap each Jotform URL for its storage path.
+      //    Plain string replacement on the raw text (never re-serialised), so the
+      //    quoting is untouched and multi-file cells keep their newline layout.
+      //    Longest URL first, so one URL can never clobber a longer sibling.
+      let rewritten = csvText;
+      for (const [url, path] of [...urlToPath.entries()].sort((a, b) => b[0].length - a[0].length)) {
+        rewritten = rewritten.split(url).join(path);
+      }
+
+      // 3. Hand the rewritten CSV to the engine for the real write.
+      const { data, error } = await invokeWithRetry('sm26-import', { csv: rewritten, dry_run: false });
+      if (error) {
+        let msg = error.message;
+        try {
+          const b = await (error as { context?: Response }).context?.json();
+          if (b?.error) msg = b.error;
+        } catch { /* keep the generic message */ }
+        // Deliberately no rollback: paths are deterministic, so a previous
+        // successful import may already reference these exact objects — deleting
+        // them would break it. Re-running is safe (upload upserts, engine enriches).
+        toast({ title: 'Import failed', description: `${msg}. Uploaded files were kept — you can safely retry.`, variant: 'destructive' });
+        return;
+      }
+      setResult(data as ImportResult);
+      const r = data as ImportResult;
+      toast({ title: 'Import complete', description: `${r.imported} created, ${r.enriched} enriched, ${urlToPath.size} file(s) re-hosted.` });
+    } catch (e) {
+      toast({ title: 'Import failed', description: (e as Error).message, variant: 'destructive' });
     } finally {
       setBusy(false);
     }
@@ -323,14 +414,25 @@ export function AdminSM26Import() {
       {/* Preview */}
       {result && (
         <>
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900 flex items-start gap-2">
-            <Info className="h-4 w-4 mt-px shrink-0" />
-            <span>
-              <strong>Preview only — nothing was written.</strong> Counters come from the import engine
-              running in dry-run mode. <em>Skipped</em> is an estimate: rows that would collide with a
-              unique index (re-importing a declined or cancelled registration) are counted as new here.
-            </span>
-          </div>
+          {result.dry_run ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900 flex items-start gap-2">
+              <Info className="h-4 w-4 mt-px shrink-0" />
+              <span>
+                <strong>Preview only — nothing was written.</strong> Counters come from the import engine
+                running in dry-run mode. <em>Skipped</em> is an estimate: rows that would collide with a
+                unique index (re-importing a declined or cancelled registration) are counted as new here.
+              </span>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2.5 text-xs text-green-900 flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 mt-px shrink-0" />
+              <span>
+                <strong>Import complete.</strong> Registrations were created or enriched, and the matched
+                files now live in <code>event-media</code>. Running the same export again is safe: it
+                enriches instead of duplicating, and never overwrites a value that is already filled.
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
             {stat('Rows', result.total)}
@@ -347,11 +449,19 @@ export function AdminSM26Import() {
                 <div className="text-sm font-medium flex items-center gap-2">
                   <FileWarning className="h-4 w-4 text-primary" /> Files
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {stat('Referenced', analysis.refs.length)}
                   {stat('Matched', analysis.matched.length, 'text-green-600')}
+                  {stat('To re-host', analysis.matched.filter(m => m.ingested).length, 'text-primary')}
                   {stat('Not found', analysis.missing.length, analysis.missing.length ? 'text-amber-600' : 'text-gray-900')}
                 </div>
+                {analysis.matched.some(m => !m.ingested) && (
+                  <p className="text-xs text-gray-500">
+                    {analysis.matched.filter(m => !m.ingested).length} matched file(s) belong to columns the
+                    engine doesn't store yet (architecture entry, press card) — they are left untouched
+                    until phases 3 and 4.
+                  </p>
+                )}
                 {analysis.missing.length > 0 && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
                     <div className="flex items-start gap-1.5">
@@ -458,9 +568,46 @@ export function AdminSM26Import() {
             </Card>
           )}
 
-          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
-            Confirming the import (file re-hosting + database write) ships in phase 2.
-          </div>
+          {uploadFailures.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="flex items-start gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  <strong>{uploadFailures.length} file(s) could not be uploaded</strong> and kept their
+                  original Jotform URL: {uploadFailures.slice(0, 8).map(f => f.filename).join(', ')}
+                  {uploadFailures.length > 8 ? ` + ${uploadFailures.length - 8} more` : ''}.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {result.dry_run && (
+            <Card>
+              <CardContent className="pt-6 space-y-3">
+                {progress && progress.total > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>Re-hosting files…</span>
+                      <span>{progress.done} / {progress.total}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-full bg-primary transition-all"
+                        style={{ width: `${progress.total ? Math.round((progress.done / progress.total) * 100) : 0}%` }} />
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-gray-500">
+                    Confirming re-hosts the matched files into <code>event-media</code> and writes the
+                    registrations. Files that weren't found keep their Jotform URL.
+                  </p>
+                  <Button className="gap-1.5 shrink-0" disabled={busy} onClick={runImport}>
+                    {busy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Confirm import
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>

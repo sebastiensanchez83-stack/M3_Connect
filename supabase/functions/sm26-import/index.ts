@@ -58,7 +58,20 @@ for (const [k, v] of Object.entries(PARTICIPATE)) PARTICIPATE_NORM.set(norm(k), 
 for (const alias of ["media", "press", "media / press", "media/press", "press / media", "media partner"]) {
   PARTICIPATE_NORM.set(norm(alias), ["media"]);
 }
+// The architecture contest can't live in the static map: the role depends on a
+// SECOND column (r[16] Professional/Student). Until this existed, every
+// architecture entrant was imported as a plain "visitor" and their whole
+// competition entry (logo, company image, renders) was dropped.
+function rolesFor(r: string[]): string[] {
+  const p = norm(r[15]);
+  if (p.startsWith("architecture")) {
+    return [norm(r[16]) === "student" ? "architect_student" : "architect_pro"];
+  }
+  return PARTICIPATE_NORM.get(p) || ["visitor"];
+}
+
 const ORG = new Set(["marina", "startup", "sponsor"]);
+const isArchitect = (role: string) => role === "architect_pro" || role === "architect_student";
 const social = (r: string[], a: number, b: number, c: number, d: number) => clean({ linkedin: r[a], instagram: r[b], facebook: r[c], twitter: r[d] });
 function genCode(used: Set<string>) { const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let c: string; do { c = "SM26-"; for (let i = 0; i < 6; i++) c += A[Math.floor(Math.random() * A.length)]; } while (used.has(c)); used.add(c); return c; }
 
@@ -110,6 +123,22 @@ function roleModuleData(role: string, r: string[]): Record<string, unknown> {
     const domain = S(r[12]); if (domain) out.domain = domain;
     return out;
   }
+  // Architect: the entry itself goes to sm_architecture_entry (typedProfile).
+  // module_data only carries what self-reg keeps there — the headshot, the
+  // student's uploaded enrolment proof, socials and the on-site flag.
+  if (isArchitect(role)) {
+    const out: Record<string, unknown> = {};
+    const photo = role === "architect_student" ? ARRN(r[32] || r[20]) : ARRN(r[20] || r[32]);
+    if (photo.length) out.photo_url = photo;
+    if (role === "architect_student") {
+      // NB: the typed proof_of_enrolment_url column is for a URL the registrant
+      // types in; an uploaded file belongs here instead.
+      const proof = ARRN(r[31]); if (proof.length) out.proof_of_enrolment = proof;
+    }
+    const sl = social(r, 24, 25, 26, 27); if (Object.keys(sl).length) out.social_links = sl;
+    out.onsite_attendance = BOOL(r[37]) ? "yes" : "no";
+    return out;
+  }
   if (role === "jury") return clean({ domain: r[12], jury_category: r[38], ecat_consent: r[39], social_consent: r[40], bio: r[43], company_description: r[17], sustainability: r[18], references: r[19], logo_url: r[41], photo_url: r[42] });
   if (role === "investor") return clean({ domain: r[12], note: "Derived from jury registration" });
   if (role === "speaker") return clean({ domain: r[12], bio: r[43] || r[18], company_description: r[17], references: r[19], photo_url: r[20] || r[32], portfolio: r[33], linkedin: r[24] });
@@ -129,6 +158,31 @@ function typedProfile(role: string, r: string[], eventId: string, raId: string):
       investment_seeking: BOOL(r[100]), investment_type: S(r[101]), funds_needed: S(r[102]), references_text: S(r[94]),
       logo_url: S(r[103]), deck_url: S(r[104]), product_images: ARR(r[95]), pitch_optin: !!E(r[110]), pitch_media_url: S(r[110]),
       social_links: social(r, 106, 107, 108, 109), visibility_level: 3,
+    },
+  };
+  // Architecture competition entry — mirrors what sm26-register writes so an
+  // imported entry is judged exactly like a self-submitted one. Multi-file cells
+  // keep every path in project_renders, but logo/company image are scalar
+  // columns, so only the first path is kept there (same as self-reg).
+  if (isArchitect(role)) return {
+    table: "sm_architecture_entry",
+    row: {
+      role_assignment_id: raId, event_id: eventId,
+      category: role === "architect_pro" ? "professional" : "student",
+      company_description: S(r[17]),
+      sustainability_statement: S(r[18]),
+      // "Other" pushes the real answer into the follow-up column.
+      domain: norm(r[12]) === "other" ? (S(r[13]) || S(r[12])) : S(r[12]),
+      references_text: S(r[19]),
+      portfolio_link: S(r[33]),
+      is_team: BOOL(r[28]),
+      team_size: parseInt(E(r[29]), 10) || null,
+      team_members: ARRN(r[30]),
+      logo_url: ARRN(r[21])[0] ?? null,
+      company_image_url: ARRN(r[22])[0] ?? null,
+      project_renders: ARRN(r[23]),
+      social_links: social(r, 24, 25, 26, 27),
+      onsite_attendance: BOOL(r[37]),
     },
   };
   if (role === "marina") return {
@@ -216,7 +270,7 @@ Deno.serve(async (req: Request) => {
   for (const r of deduped) {
     const email = E(r[3]).toLowerCase();
     try {
-      const roles = PARTICIPATE_NORM.get(norm(r[15])) || ["visitor"];
+      const roles = rolesFor(r);
 
       // Any registration already on this event for this email (case-insensitive,
       // LIKE-safe). A live one -> enrich; only declined/cancelled -> treat as

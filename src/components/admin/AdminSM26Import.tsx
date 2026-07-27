@@ -38,15 +38,14 @@ function parseCSV(str: string): string[][] {
 }
 
 // File-bearing columns, by 0-based index — same indices the engine uses.
-// `ingested` = the engine currently stores this column. Only those are re-hosted:
-// uploading a column nothing reads would just leave orphans in storage. The
-// architecture entry (21/22/23/31) flips to true once phase 4 maps it.
+// `ingested` = the engine stores this column, so it is worth re-hosting.
+// Uploading a column nothing reads would just leave orphans in storage.
 const FILE_COLUMNS: { idx: number; label: string; ingested: boolean }[] = [
   { idx: 20, label: 'Profile photo', ingested: true },
-  { idx: 21, label: 'Company logo (architecture)', ingested: false },
-  { idx: 22, label: 'Company image (architecture)', ingested: false },
-  { idx: 23, label: 'Project renders (architecture)', ingested: false },
-  { idx: 31, label: 'Proof of enrolment', ingested: false },
+  { idx: 21, label: 'Company logo (architecture)', ingested: true },
+  { idx: 22, label: 'Company image (architecture)', ingested: true },
+  { idx: 23, label: 'Project renders (architecture)', ingested: true },
+  { idx: 31, label: 'Proof of enrolment', ingested: true },
   { idx: 32, label: 'Profile photo (student)', ingested: true },
   { idx: 41, label: 'Company logo (jury)', ingested: true },
   { idx: 42, label: 'Profile picture (jury)', ingested: true },
@@ -81,6 +80,7 @@ const UPLOAD_CONCURRENCY = 4;
 const MAPPED_PARTICIPATION = new Set([
   'jury member', 'marina', 'speaker', 'startup / scaleup', 'visitor',
   'media', 'press', 'media / press', 'media/press', 'press / media', 'media partner',
+  'architecture contest',
 ]);
 const normParticipation = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
@@ -98,7 +98,8 @@ interface LocalAnalysis {
   refs: FileRef[];
   matched: FileRef[];
   missing: FileRef[];
-  architectureCount: number;
+  architectPro: number;
+  architectStudent: number;
   unmappedParticipation: { value: string; count: number }[];
 }
 
@@ -220,13 +221,17 @@ export function AdminSM26Import() {
     }
 
     const refs: FileRef[] = [];
-    let architectureCount = 0;
+    let architectPro = 0; let architectStudent = 0;
     const unmapped = new Map<string, number>();
 
     for (const r of data) {
       const participation = (r[15] || '').trim();
       const p = normParticipation(participation);
-      if (p === 'architecture contest') architectureCount++;
+      // Same split the engine applies: r[16] Professional/Student, defaulting to
+      // professional when the column is blank.
+      if (p.startsWith('architecture')) {
+        if (normParticipation(r[16] || '') === 'student') architectStudent++; else architectPro++;
+      }
       // "Architecture contest" is unmapped too, but it gets its own dedicated
       // warning below — listing it here as well just says the same thing twice.
       if (participation && p !== 'architecture contest' && !MAPPED_PARTICIPATION.has(p)) {
@@ -253,7 +258,7 @@ export function AdminSM26Import() {
     }
 
     return {
-      rows: data.length, refs, matched, missing, architectureCount,
+      rows: data.length, refs, matched, missing, architectPro, architectStudent,
       unmappedParticipation: [...unmapped.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count),
     };
   };
@@ -496,13 +501,14 @@ export function AdminSM26Import() {
             </Card>
           )}
 
-          {analysis && analysis.architectureCount > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 mt-px shrink-0" />
+          {analysis && (analysis.architectPro + analysis.architectStudent) > 0 && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-900 flex items-start gap-2">
+              <CheckCircle2 className="h-4 w-4 mt-px shrink-0" />
               <span>
-                <strong>{analysis.architectureCount} “Architecture contest” registrant{analysis.architectureCount === 1 ? '' : 's'} would be imported as <em>visitor</em>.</strong>{' '}
-                The engine has no architecture mapping yet, so the competition entry (logo, company image,
-                project renders, proof of enrolment) would not be captured. Phase 4 fixes this.
+                <strong>{analysis.architectPro + analysis.architectStudent} architecture contest entr{(analysis.architectPro + analysis.architectStudent) === 1 ? 'y' : 'ies'}</strong>{' '}
+                ({analysis.architectPro} professional, {analysis.architectStudent} student) — imported with
+                their competition entry: company description, sustainability statement, references, team,
+                portfolio link, and the re-hosted logo, company image and project renders.
               </span>
             </div>
           )}

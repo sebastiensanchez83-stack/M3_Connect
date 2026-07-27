@@ -45,6 +45,7 @@ interface OrgDetail {
   auto_approve_domain_joins: boolean;
   claim_code: string | null;
   featured_partner: boolean;
+  is_event_media_partner: boolean;
   created_at: string;
   updated_at: string;
   owner_user_id: string | null;
@@ -114,6 +115,7 @@ export function AdminOrganizationDetail() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [claimCode, setClaimCode] = useState('');
   const [featured, setFeatured] = useState(false);
+  const [mediaPartner, setMediaPartner] = useState(false);
 
   useEffect(() => { if (id) loadOrg(); }, [id]);
 
@@ -156,6 +158,7 @@ export function AdminOrganizationDetail() {
     setRejectionReason(orgData.rejection_reason || '');
     setClaimCode(orgData.claim_code || '');
     setFeatured(orgData.featured_partner || false);
+    setMediaPartner(orgData.is_event_media_partner || false);
     setLoading(false);
   };
 
@@ -186,6 +189,7 @@ export function AdminOrganizationDetail() {
       rejection_reason: status === 'rejected' ? rejectionReason : null,
       claim_code: claimCode.trim() || null,
       featured_partner: featured,
+      is_event_media_partner: mediaPartner,
       updated_at: new Date().toISOString(),
     };
 
@@ -510,6 +514,16 @@ export function AdminOrganizationDetail() {
                 <span>
                   <span className="text-sm font-medium text-gray-800">Feature on home page</span>
                   <span className="block text-xs text-gray-500">Show this organisation in the "Our Partners" showcase on the public home page.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <Checkbox checked={mediaPartner} onCheckedChange={v => setMediaPartner(!!v)} className="mt-0.5" />
+                <span>
+                  <span className="text-sm font-medium text-gray-800">Media partner</span>
+                  <span className="block text-xs text-gray-500">
+                    Tag this media outlet as one of our media partners — shown with a badge in the public
+                    partners directory. Accreditation for an event is separate.
+                  </span>
                 </span>
               </label>
               <Separator />

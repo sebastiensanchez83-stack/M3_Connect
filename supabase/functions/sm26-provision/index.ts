@@ -93,12 +93,13 @@ Deno.serve(async (req) => {
   const sendEmail = body.send_email !== false;
 
   const { data: regData } = await admin.from("sm_registration")
-    .select("id, event_id, email, first_name, last_name, job_title, company_name, user_id, organization_id")
+    .select("id, event_id, email, first_name, last_name, job_title, company_name, website, user_id, organization_id")
     .eq("id", body.registration_id || "").maybeSingle();
   if (!regData) return json(req, { error: "Registration not found" }, 404);
   const reg = regData as {
     id: string; event_id: string; email: string | null; first_name: string | null; last_name: string | null;
-    job_title: string | null; company_name: string | null; user_id: string | null; organization_id: string | null;
+    job_title: string | null; company_name: string | null; website: string | null;
+    user_id: string | null; organization_id: string | null;
   };
   const email = (reg.email || "").trim().toLowerCase();
   if (!email) return json(req, { error: "Registration has no email" }, 400);
@@ -218,6 +219,65 @@ Deno.serve(async (req) => {
   if (orgId) {
     await admin.from("sm_role_assignment").update({ organization_id: orgId })
       .eq("registration_id", reg.id).eq("scope", "org");
+  }
+
+  // 4b) A media outlet must land on a real press profile, not an empty shell.
+  //     Seed the org-level media identity (and the individual press card) from
+  //     what the registration already carries. Fill-missing only: never clobber
+  //     anything the outlet has since written itself. Best-effort -- a failure
+  //     here must not fail the provisioning.
+  if (orgId && persona === "media_partner") {
+    try {
+      const { data: mediaRa } = await admin.from("sm_role_assignment")
+        .select("module_data").eq("registration_id", reg.id).eq("role", "media").maybeSingle();
+      const md = ((mediaRa as { module_data?: Record<string, unknown> } | null)?.module_data) || {};
+      const t = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+      const socials = (md.social_links && typeof md.social_links === "object" && !Array.isArray(md.social_links))
+        ? md.social_links as Record<string, unknown> : {};
+      const blank = (v: unknown) =>
+        v == null || v === "" ||
+        (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0);
+
+      const seed: Record<string, unknown> = {
+        audience_description: t(md.audience_description) || t(md.audience),
+        editorial_focus: t(md.editorial_focus) || t(md.domain),
+        reach: t(md.reach),
+        press_contact_email: email,
+        social_media_links: socials,
+      };
+
+      const { data: existingMd } = await admin.from("organization_media_details")
+        .select("*").eq("organization_id", orgId).maybeSingle();
+      if (!existingMd) {
+        await admin.from("organization_media_details").insert({ organization_id: orgId, ...seed });
+      } else {
+        const patch: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(seed)) {
+          if (!blank(v) && blank((existingMd as Record<string, unknown>)[k])) patch[k] = v;
+        }
+        if (Object.keys(patch).length) {
+          await admin.from("organization_media_details")
+            .update({ ...patch, updated_at: new Date().toISOString() }).eq("organization_id", orgId);
+        }
+      }
+
+      // Individual journalist card. media_name is NOT NULL -- prefer the outlet
+      // they gave, fall back to the company on the registration.
+      const mediaName = t(md.outlet) || t(reg.company_name);
+      if (mediaName) {
+        const { data: existingCard } = await admin.from("media_partner_profiles")
+          .select("user_id").eq("user_id", userId).maybeSingle();
+        if (!existingCard) {
+          await admin.from("media_partner_profiles").insert({
+            user_id: userId, media_name: mediaName, website: t(reg.website),
+            audience_description: t(md.audience_description) || t(md.audience),
+            social_media_links: socials,
+          });
+        }
+      }
+    } catch (e) {
+      console.error("media profile seed failed", e);
+    }
   }
 
   // 5) Welcome email (magic link -> /welcome)

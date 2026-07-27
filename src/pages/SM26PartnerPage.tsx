@@ -4,7 +4,7 @@ import {
   RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
   Lightbulb, Scale, Image as ImageIcon, ChevronRight, ChevronDown, Download, AlertTriangle,
   CheckCircle2, Upload, Loader2, MessageSquare, Eye, Ruler, Trash2, Bell, Search, X, Clock,
-  CreditCard, Palette, Send, CheckSquare, Square, ClipboardCheck, UserCheck,
+  CreditCard, Palette, Send, CheckSquare, Square, ClipboardCheck, UserCheck, Newspaper,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { SM26PartnerSponsors } from '@/components/sm26/SM26PartnerSponsors';
+import { SM26PartnerPressRequests } from '@/components/sm26/SM26PartnerPressRequests';
 import { ECAT_STATUS_LABEL, ecatStatusClass } from '@/components/admin/AdminSM26Ecat';
 import { downloadDossierZip, downloadAsset } from '@/lib/dossierExport';
 import { fetchLastEmails, lastEmailText, type LastEmail } from '@/lib/sm26EmailLog';
@@ -751,6 +752,14 @@ export function SM26PartnerPage() {
           description="Cochez chaque livrable produit pour le sponsor et téléchargez ses fichiers.">
           <SM26PartnerSponsors embedded />
         </CollapsiblePanel>
+
+        {/* Press accreditation — the Yacht Club decides, M3 supervises */}
+        {eventId && (
+          <CollapsiblePanel title="Demandes presse" icon={Newspaper}
+            description="Accréditez les journalistes qui souhaitent couvrir l'événement.">
+            <SM26PartnerPressRequests eventId={eventId} />
+          </CollapsiblePanel>
+        )}
 
         {/* Programme (read-only) */}
         <CollapsiblePanel title="Programme" icon={CalendarDays} count={sessions.length} description="Lecture seule — le planning est géré par M3.">

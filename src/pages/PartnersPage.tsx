@@ -23,6 +23,7 @@ interface OrgCard {
   headquarters_country: string | null;
   logo_url: string | null;
   tier: OrgTier;
+  is_event_media_partner: boolean;
   sectors: { id: string; label: string }[];
 }
 
@@ -38,15 +39,20 @@ export function PartnersPage() {
       try {
         // Get verified partner organizations on a paying tier (innovation_partner
         // and up). Free Member-tier orgs are excluded from the public directory.
-        const { data: orgRows, error } = await supabase
-          .from('organizations')
-          .select('id, slug, name, organization_type, website, country, headquarters_country, description, logo_url, access_status, tier')
-          .eq('access_status', 'verified')
-          .eq('organization_type', 'partner')
-          .in('tier', SPONSOR_TIERS);
+        const COLS = 'id, slug, name, organization_type, website, country, headquarters_country, description, logo_url, access_status, tier, is_event_media_partner';
+        // Media outlets join the directory as a press listing. They are not
+        // sponsors, so the paying-tier rule doesn't apply to them — being a
+        // verified media_partner org is the qualification.
+        const [partnerRes, mediaRes] = await Promise.all([
+          supabase.from('organizations').select(COLS)
+            .eq('access_status', 'verified').eq('organization_type', 'partner').in('tier', SPONSOR_TIERS),
+          supabase.from('organizations').select(COLS)
+            .eq('access_status', 'verified').eq('organization_type', 'media_partner'),
+        ]);
 
-        if (error) throw error;
-        if (!orgRows || orgRows.length === 0) {
+        if (partnerRes.error) throw partnerRes.error;
+        const orgRows = [...(partnerRes.data || []), ...(mediaRes.data || [])];
+        if (orgRows.length === 0) {
           setPartners([]);
           return;
         }
@@ -80,6 +86,7 @@ export function PartnersPage() {
           description: o.description,
           logo_url: o.logo_url,
           tier: o.tier as OrgTier,
+          is_event_media_partner: !!o.is_event_media_partner,
           sectors: sectorMap[o.id] || [],
         }));
 
@@ -161,8 +168,16 @@ export function PartnersPage() {
                     </div>
                   )}
                   <h3 className="font-semibold mb-1">{partner.name}</h3>
-                  <div className="flex justify-center mb-2">
-                    <SponsorBadge tier={partner.tier} size="sm" />
+                  <div className="flex justify-center items-center gap-1.5 mb-2 flex-wrap">
+                    {/* Media outlets are listed as press, not as a sponsor tier. */}
+                    {partner.organization_type === 'media_partner'
+                      ? <Badge variant="outline" className="text-xs">Press</Badge>
+                      : <SponsorBadge tier={partner.tier} size="sm" />}
+                    {partner.is_event_media_partner && (
+                      <Badge className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-50">
+                        Media Partner
+                      </Badge>
+                    )}
                   </div>
                   {partner.sectors.length > 0 && (
                     <div className="flex flex-wrap gap-1 justify-center mb-2">

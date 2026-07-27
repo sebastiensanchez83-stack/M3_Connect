@@ -5,7 +5,7 @@ import {
   Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
   Award, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
   ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen,
-  Scale, Trophy, Activity, Upload,
+  Scale, Trophy, Activity, Upload, Download,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -73,6 +73,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
       { to: '/admin/resources', label: isAdmin ? t('admin.resources') : 'Propose Resources', icon: <FileText className="h-4 w-4" /> },
       { to: '/admin/banners', label: 'Ad banners', icon: <Image className="h-4 w-4" />, adminOnly: true },
       { to: '/admin/sectors', label: 'Sectors', icon: <Tag className="h-4 w-4" />, adminOnly: true },
+      { to: '/admin/media-downloads', label: 'Press downloads', icon: <Download className="h-4 w-4" />, adminOnly: true },
     ] },
   ];
 

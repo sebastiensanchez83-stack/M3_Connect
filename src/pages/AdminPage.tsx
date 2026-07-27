@@ -67,6 +67,7 @@ const AdminSM26Architecture = lazyWithRetry(() => import('@/components/admin/Adm
 const AdminSM26Feedback = lazyWithRetry(() => import('@/components/admin/AdminSM26Feedback').then(m => ({ default: m.AdminSM26Feedback })));
 const AdminSM26Health = lazyWithRetry(() => import('@/components/admin/AdminSM26Health').then(m => ({ default: m.AdminSM26Health })));
 const AdminSM26Import = lazyWithRetry(() => import('@/components/admin/AdminSM26Import').then(m => ({ default: m.AdminSM26Import })));
+const AdminMediaDownloads = lazyWithRetry(() => import('@/components/admin/AdminMediaDownloads').then(m => ({ default: m.AdminMediaDownloads })));
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -145,6 +146,7 @@ export function AdminPage() {
             <Route path="/sm26/networking" element={<AdminOnlyGuard><AdminSM26Networking /></AdminOnlyGuard>} />
             <Route path="/sm26/architecture" element={<AdminOnlyGuard><AdminSM26Architecture /></AdminOnlyGuard>} />
             <Route path="/sm26/import" element={<AdminOnlyGuard><AdminSM26Import /></AdminOnlyGuard>} />
+            <Route path="/media-downloads" element={<AdminOnlyGuard><AdminMediaDownloads /></AdminOnlyGuard>} />
             <Route path="/sm26/:id" element={<AdminOnlyGuard><AdminSM26Detail /></AdminOnlyGuard>} />
             {/* Partners merged into Users tab */}
             <Route path="/sponsorships" element={<AdminOnlyGuard><SponsorshipHub basePath="/admin/sponsorships" /></AdminOnlyGuard>} />

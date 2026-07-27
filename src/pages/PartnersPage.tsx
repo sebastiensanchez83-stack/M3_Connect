@@ -40,14 +40,15 @@ export function PartnersPage() {
         // Get verified partner organizations on a paying tier (innovation_partner
         // and up). Free Member-tier orgs are excluded from the public directory.
         const COLS = 'id, slug, name, organization_type, website, country, headquarters_country, description, logo_url, access_status, tier, is_event_media_partner';
-        // Media outlets join the directory as a press listing. They are not
-        // sponsors, so the paying-tier rule doesn't apply to them — being a
-        // verified media_partner org is the qualification.
+        // A media outlet is only shown HERE once an admin has tagged it as one of
+        // our media partners. Accredited press that isn't a partner keeps a normal
+        // company profile and lives in the network directory, not on this page.
         const [partnerRes, mediaRes] = await Promise.all([
           supabase.from('organizations').select(COLS)
             .eq('access_status', 'verified').eq('organization_type', 'partner').in('tier', SPONSOR_TIERS),
           supabase.from('organizations').select(COLS)
-            .eq('access_status', 'verified').eq('organization_type', 'media_partner'),
+            .eq('access_status', 'verified').eq('organization_type', 'media_partner')
+            .eq('is_event_media_partner', true),
         ]);
 
         if (partnerRes.error) throw partnerRes.error;

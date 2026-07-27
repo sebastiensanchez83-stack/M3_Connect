@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { MediaArticles } from '@/components/media/MediaArticles';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -141,6 +142,10 @@ export function AccountPage() {
   const [connectionRequestCount, setConnectionRequestCount] = useState(0);
   const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [hasSM26, setHasSM26] = useState(false);
+  // Press room is open to any media on the platform: the media_partner persona,
+  // a member of a media organisation, or press accredited for an event. That
+  // rule lives in is_media_user() so the UI and the data agree.
+  const [isMedia, setIsMedia] = useState(false);
   const [sponsorIds, setSponsorIds] = useState<string[]>([]);
   const [feedResources, setFeedResources] = useState<{ id: string; title: string; type: string; summary: string }[]>([]);
   const [feedEvents, setFeedEvents] = useState<{ id: string; title: string; date_time: string }[]>([]);
@@ -159,6 +164,17 @@ export function AccountPage() {
       if (!ev || !active) return;
       const { data } = await supabase.from('sm_registration').select('id').eq('event_id', (ev as { id: string }).id).limit(1);
       if (active) setHasSM26(!!(data && data.length));
+    })();
+    return () => { active = false; };
+  }, [user]);
+
+  // Press room visibility — the server decides who counts as media.
+  useEffect(() => {
+    if (!user) { setIsMedia(false); return; }
+    let active = true;
+    (async () => {
+      const { data } = await supabase.rpc('is_media_user');
+      if (active) setIsMedia(data === true);
     })();
     return () => { active = false; };
   }, [user]);
@@ -618,6 +634,7 @@ export function AccountPage() {
     : [
         { value: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
         { value: 'event', label: 'Event hub', icon: <Ship className="h-4 w-4" />, show: hasSM26 },
+        { value: 'press', label: 'Press room', icon: <Newspaper className="h-4 w-4" />, show: isMedia },
         { value: 'sponsorship', label: 'Sponsorship', icon: <Award className="h-4 w-4" />, show: sponsorIds.length > 0 },
         { value: 'organization', label: t('org.tabTitle'), icon: <Building2 className="h-4 w-4" />, notifDot: orgNeedsAction },
         { value: 'profile', label: 'Profile', icon: <Users className="h-4 w-4" /> },
@@ -1915,6 +1932,10 @@ export function AccountPage() {
         {/* ── NOTIFICATIONS ── */}
         <TabsContent value="notifications">
           <NotificationPreferencesTab />
+        </TabsContent>
+
+        <TabsContent value="press">
+          <MediaArticles />
         </TabsContent>
 
         <TabsContent value="event">

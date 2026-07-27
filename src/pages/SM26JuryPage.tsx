@@ -369,7 +369,8 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
       <div className={embedded ? 'space-y-6' : 'container mx-auto px-4 py-8 max-w-2xl space-y-6'}>
         {entries.length === 0 ? (
           <Card><CardContent className="py-10 text-center text-gray-400">
-            No entries are assigned to you for scoring yet — M3 assigns jurors to entries and you'll be notified.
+            Nothing to score yet — Yachting Ventures will invite you to a jury session, and the startups
+            you hear will appear here for scoring afterwards.
             {allInnovations.length > 0 && <span className="block mt-1">You can already read every innovation below.</span>}
           </CardContent></Card>
         ) : (

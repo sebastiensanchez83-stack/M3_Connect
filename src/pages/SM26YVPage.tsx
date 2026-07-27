@@ -15,8 +15,8 @@ import { Pill, Funnel, ConsoleTile, ConsoleDrawer } from '@/components/sm26/SM26
 import { SM26YVTimetable, type Cell, type GroupRef, fmtDay, slotRange } from '@/components/sm26/SM26YVTimetable';
 
 // Yachting Ventures console. Gabbi does not assign one juror to one startup: she
-// builds jury panels (3 jurors, balanced by type), startup batches (6 startups)
-// and a rotation timetable, then asks each panel for their availability BEFORE
+// builds jury panels (balanced by juror type), startup batches, and a rotation
+// timetable, then asks each panel for their availability BEFORE
 // any Zoom invitation goes out. This console mirrors that, while every pairing
 // still materializes into sm_jury_assignment so the scorecards, sm_review and
 // the official Awards Score keep working untouched.
@@ -51,9 +51,6 @@ interface Panel { id: string; code: string; name: string | null; members: PanelM
 interface Batch { id: string; code: string; name: string | null; members: BatchMember[] }
 interface Assignment { id: string; entry_role_assignment_id: string; juror_user_id: string; juror_name: string; submitted: boolean }
 
-const PANEL_SIZE = 3;   // Gabbi's default: 3 jurors hear 6 startups in one hour.
-const BATCH_SIZE = 6;
-
 const TYPE_LABEL: Record<string, string> = { angel: 'Angel', vc: 'VC', corporate: 'Corporate' };
 const OWNER_LABEL: Record<string, string> = { yv: 'YV', m3: 'M3' };
 const typeCls = (t: string | null) =>
@@ -71,7 +68,9 @@ const payBadge = (s: string) =>
   : s === 'invoiced' ? 'bg-amber-50 text-amber-700 border-amber-200'
   : 'bg-gray-50 text-gray-500 border-gray-200';
 
-/** A panel is balanced when it has a full complement and at least two juror types, all known. */
+// A panel is flagged when it has no jurors, when a member's Type is still unset,
+// or when everyone on it is the same type. Panel SIZE is deliberately not
+// checked — how many jurors sit on a panel is Yachting Ventures' call.
 function panelMix(members: PanelMember[]) {
   const counts: Record<string, number> = { angel: 0, vc: 0, corporate: 0 };
   let unset = 0;
@@ -79,7 +78,8 @@ function panelMix(members: PanelMember[]) {
   const kinds = Object.values(counts).filter(n => n > 0).length;
   const label = Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${TYPE_LABEL[k]}`).join(' · ')
     + (unset ? `${kinds ? ' · ' : ''}${unset} unset` : '');
-  return { counts, unset, kinds, label: label || 'no jurors yet', balanced: members.length >= 2 && kinds >= 2 && unset === 0 };
+  const balanced = members.length > 0 && unset === 0 && (members.length === 1 || kinds >= 2);
+  return { counts, unset, kinds, label: label || 'no jurors yet', balanced };
 }
 
 type FilterKey = 'ungrouped' | 'nopanel' | 'unbalanced' | 'unscheduled' | 'outstanding' | 'payment';
@@ -156,7 +156,7 @@ export function SM26YVPage() {
   const counts = useMemo((): Record<FilterKey, number> => ({
     ungrouped: innovations.filter(i => !i.group_id).length,
     nopanel: jurors.filter(j => j.panels.length === 0).length,
-    unbalanced: panels.filter(p => !panelMix(p.members).balanced || p.members.length !== PANEL_SIZE).length,
+    unbalanced: panels.filter(p => !panelMix(p.members).balanced).length,
     unscheduled: cells.filter(c => c.status !== 'cancelled' && !c.zoom_sent).length,
     outstanding: jurors.filter(j => j.innovation_assignments > 0 && j.evaluated < j.innovation_assignments).length,
     payment: innovations.filter(i => i.payment_status !== 'paid' && i.payment_status !== 'waived').length,
@@ -191,7 +191,7 @@ export function SM26YVPage() {
     return matches(j.name, j.email, j.company, j.panels.join(' '));
   }), [jurors, filter, needle]);
   const shownPanels = useMemo(() => panels.filter(p => {
-    if (filter === 'unbalanced' && panelMix(p.members).balanced && p.members.length === PANEL_SIZE) return false;
+    if (filter === 'unbalanced' && panelMix(p.members).balanced) return false;
     return matches(p.code, p.name, ...p.members.map(m => m.name));
   }), [panels, filter, needle]);
   const shownBatches = useMemo(() => batches.filter(b =>
@@ -367,8 +367,8 @@ export function SM26YVPage() {
                 <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy === 'new:jury'} onClick={() => createGroup('jury')}><Plus className="h-4 w-4" /> New panel</Button>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                A panel is {PANEL_SIZE} jurors, deliberately mixed by type. Set each juror's type on the Jurors tab — a panel is
-                flagged until every member has one and at least two types are represented.
+                Put as many jurors on a panel as you need — there is no fixed size. Set each juror's type on the Jurors tab:
+                a panel is flagged until every member has one and, from two jurors up, at least two types are represented.
               </p>
             </CardHeader>
             <CardContent className="space-y-2">
@@ -377,15 +377,14 @@ export function SM26YVPage() {
                 const mix = panelMix(p.members);
                 const taken = new Set(p.members.map(m => m.user_id));
                 const available = pool.filter(j => !taken.has(j.user_id));
-                const sizeOff = p.members.length !== PANEL_SIZE;
                 return (
                   <div key={p.id} className="rounded-lg border border-gray-200 p-3">
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <div className="flex items-center gap-2 flex-wrap min-w-0">
                         <span className="text-sm font-semibold">{p.code}</span>
                         {p.name && <span className="text-sm text-gray-500 truncate">{p.name}</span>}
+                        <Pill label={`${p.members.length} juror${p.members.length === 1 ? '' : 's'}`} cls="bg-gray-50 text-gray-600 border-gray-200" />
                         <Pill label={mix.label} cls={mix.balanced ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'} />
-                        {sizeOff && <Pill label={`${p.members.length}/${PANEL_SIZE} jurors`} cls="bg-amber-50 text-amber-700 border-amber-200" />}
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-gray-700" title="Rename" onClick={() => renameGroup('jury', p)}><Pencil className="h-3.5 w-3.5" /></Button>
@@ -431,7 +430,7 @@ export function SM26YVPage() {
                 <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy === 'new:startup'} onClick={() => createGroup('startup')}><Plus className="h-4 w-4" /> New batch</Button>
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                A batch is the {BATCH_SIZE} startups heard in one session. {counts.ungrouped > 0
+                A batch is the startups heard together in one session — put as many in it as you want.  {counts.ungrouped > 0
                   ? <span className="text-amber-700 font-medium">{counts.ungrouped} startup{counts.ungrouped === 1 ? ' is' : 's are'} not in a batch yet.</span>
                   : 'Every startup is in a batch.'}
               </p>
@@ -447,8 +446,8 @@ export function SM26YVPage() {
                       <div className="flex items-center gap-2 flex-wrap min-w-0">
                         <span className="text-sm font-semibold">{b.code}</span>
                         {b.name && <span className="text-sm text-gray-500 truncate">{b.name}</span>}
-                        <Pill label={`${b.members.length}/${BATCH_SIZE} startups`}
-                          cls={b.members.length === BATCH_SIZE ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'} />
+                        <Pill label={`${b.members.length} startup${b.members.length === 1 ? '' : 's'}`}
+                          cls={b.members.length > 0 ? 'bg-gray-50 text-gray-600 border-gray-200' : 'bg-amber-50 text-amber-700 border-amber-200'} />
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-gray-700" title="Rename" onClick={() => renameGroup('startup', b)}><Pencil className="h-3.5 w-3.5" /></Button>

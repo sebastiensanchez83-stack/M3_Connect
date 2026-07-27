@@ -1,5 +1,6 @@
 // Innovation jury sessions, run the way Yachting Ventures actually runs them:
-// a jury panel (3 jurors) hears a startup batch (6 startups) in a one-hour slot.
+// a jury panel hears a startup batch in one time slot. Panels and batches are
+// sized freely, so every count in the emails comes from the session itself.
 // The session is created as a DRAFT by sm_yv_session_create (no Zoom, no email);
 // this function owns the three outbound steps that follow:
 //   1. notify_availability - ask each panel juror if the slot works (tokened
@@ -247,8 +248,10 @@ Deno.serve(async (req: Request) => {
       const jurors = await sessionJurors(sessionId);
       if (!jurors.length) return json(req, { error: "This session has no panel jurors yet." }, 400);
       const entryIds = await sessionEntryIds(s);
+      if (!entryIds.length) return json(req, { error: "This session's batch has no startups yet, so there is nothing to ask the panel about." }, 400);
       const names = await companyNames(entryIds);
-      const startupCount = entryIds.length || Number(body.startup_count) || 6;
+      // Always the real batch size -- panels and batches are sized freely.
+      const startupCount = entryIds.length;
       const pitchMinutes = Math.max(1, Number(body.pitch_minutes) || 5);
       const qaMinutes = Math.max(1, Number(body.qa_minutes) || 5);
       const coJurors = Math.max(jurors.length - 1, 0);

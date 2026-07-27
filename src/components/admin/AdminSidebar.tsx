@@ -5,7 +5,7 @@ import {
   Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
   Award, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
   ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen,
-  Scale, Trophy, Activity,
+  Scale, Trophy, Activity, Upload,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -42,6 +42,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     { to: '/admin/sm26/mediakits', label: 'Media kits', icon: <Megaphone className="h-4 w-4" /> },
     { to: '/admin/sm26/networking', label: 'Networking', icon: <UsersRound className="h-4 w-4" /> },
     { to: '/admin/sm26/feedback', label: 'Feedback', icon: <MessageSquare className="h-4 w-4" /> },
+    { to: '/admin/sm26/import', label: 'Import', icon: <Upload className="h-4 w-4" /> },
   ];
   // "Registrations" owns /admin/sm26 AND the registration detail (/admin/sm26/:id),
   // but NOT the named sub-routes — pick the most specific match.

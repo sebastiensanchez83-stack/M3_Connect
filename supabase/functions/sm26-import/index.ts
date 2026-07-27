@@ -123,14 +123,15 @@ function typedProfile(role: string, r: string[], eventId: string, raId: string):
 type Admin = any;
 
 // Insert (if absent) or fill-missing (if present) the typed profile for a role.
-async function upsertTypedProfile(admin: Admin, role: string, r: string[], eventId: string, raId: string) {
+// dryRun: compute the same work but perform no write.
+async function upsertTypedProfile(admin: Admin, role: string, r: string[], eventId: string, raId: string, dryRun = false) {
   const tp = typedProfile(role, r, eventId, raId);
   if (!tp) return;
   const { data: existing } = await admin.from(tp.table).select("*").eq("role_assignment_id", raId).maybeSingle();
-  if (!existing) { await admin.from(tp.table).insert(tp.row); return; }
+  if (!existing) { if (!dryRun) await admin.from(tp.table).insert(tp.row); return; }
   const { role_assignment_id: _a, event_id: _b, ...candidate } = tp.row as Record<string, unknown>;
   const patch = fillMissing(existing as Record<string, unknown>, candidate);
-  if (Object.keys(patch).length) await admin.from(tp.table).update(patch).eq("role_assignment_id", raId);
+  if (Object.keys(patch).length && !dryRun) await admin.from(tp.table).update(patch).eq("role_assignment_id", raId);
 }
 
 Deno.serve(async (req: Request) => {
@@ -147,9 +148,15 @@ Deno.serve(async (req: Request) => {
   const { data: isStaff } = await userClient.rpc("sm_is_staff");
   if (!isStaff) return json(req, { error: "Staff only" }, 403);
 
-  let body: { csv?: string };
+  let body: { csv?: string; dry_run?: boolean };
   try { body = await req.json(); } catch { return json(req, { error: "Invalid JSON" }, 400); }
   if (!body.csv) return json(req, { error: "Missing csv" }, 400);
+  // Preview mode: run the full pipeline (reads, dedupe, matching, code
+  // generation) and return the same counters WITHOUT writing anything.
+  // Caveat: `skipped` is only incremented on a real 23505 from an insert, which
+  // never happens here -- those rows are counted as `imported` in a dry run.
+  const dryRun = body.dry_run === true;
+  const DRY_ID = "00000000-0000-0000-0000-000000000000";
 
   const admin = createClient(url, srk, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: ev } = await admin.from("sm_event").select("id").eq("slug", "sm26").maybeSingle();
@@ -199,7 +206,7 @@ Deno.serve(async (req: Request) => {
 
         // 1) Base info -- fill only what is empty.
         const basePatch = fillMissing(existing, baseEnrichable(r));
-        if (Object.keys(basePatch).length) {
+        if (Object.keys(basePatch).length && !dryRun) {
           await admin.from("sm_registration").update({ ...basePatch, updated_at: new Date().toISOString() }).eq("id", regId);
         }
 
@@ -215,10 +222,10 @@ Deno.serve(async (req: Request) => {
           if (match) {
             const md = roleModuleData(role, r);
             const mdPatch = fillMissing(match.module_data || {}, md);
-            if (Object.keys(mdPatch).length) {
+            if (Object.keys(mdPatch).length && !dryRun) {
               await admin.from("sm_role_assignment").update({ module_data: { ...(match.module_data || {}), ...mdPatch } }).eq("id", match.id);
             }
-            await upsertTypedProfile(admin, role, r, eventId, match.id);
+            await upsertTypedProfile(admin, role, r, eventId, match.id, dryRun);
           } else if (role !== "visitor") {
             suggest.push(role);
           }
@@ -228,7 +235,7 @@ Deno.serve(async (req: Request) => {
         const prior = (existing.import_role_suggestions as string[] | null) || [];
         const fresh = suggest.filter(s => !prior.includes(s) && !held.has(s));
         if (fresh.length) {
-          await admin.from("sm_registration").update({ import_role_suggestions: [...prior, ...fresh] }).eq("id", regId);
+          if (!dryRun) await admin.from("sm_registration").update({ import_role_suggestions: [...prior, ...fresh] }).eq("id", regId);
           result.role_suggestions.push({ email, has_roles: [...held], suggested: fresh });
         }
 
@@ -240,31 +247,37 @@ Deno.serve(async (req: Request) => {
       const { data: uid } = await admin.rpc("sm_user_id_by_email", { p_email: email });
       const code = uid ? null : genCode(used);
 
-      const { data: regRow, error: regErr } = await admin.from("sm_registration").insert({
-        event_id: eventId, user_id: uid || null, source: "jotform_import", email,
-        ...baseEnrichable(r),
-        image_consent: BOOL(r[117]),
-        terms_accepted_at: BOOL(r[118]) ? (dateISO(r[0]) || new Date().toISOString()) : null,
-        claim_code: code, status: "submitted", created_at: dateISO(r[0]) || new Date().toISOString(),
-      }).select("id").single();
-      if (regErr) {
-        // Partial unique indexes (event+email for imports, event+user) backstop
-        // duplicates the LIVE-row lookup can't see -- e.g. re-importing someone
-        // whose only existing row is declined/cancelled. Skip quietly, don't
-        // create a second row and don't surface it as an error.
-        if ((regErr as { code?: string }).code === "23505") { result.skipped++; continue; }
-        throw regErr;
+      let rid = DRY_ID;
+      if (!dryRun) {
+        const { data: regRow, error: regErr } = await admin.from("sm_registration").insert({
+          event_id: eventId, user_id: uid || null, source: "jotform_import", email,
+          ...baseEnrichable(r),
+          image_consent: BOOL(r[117]),
+          terms_accepted_at: BOOL(r[118]) ? (dateISO(r[0]) || new Date().toISOString()) : null,
+          claim_code: code, status: "submitted", created_at: dateISO(r[0]) || new Date().toISOString(),
+        }).select("id").single();
+        if (regErr) {
+          // Partial unique indexes (event+email for imports, event+user) backstop
+          // duplicates the LIVE-row lookup can't see -- e.g. re-importing someone
+          // whose only existing row is declined/cancelled. Skip quietly, don't
+          // create a second row and don't surface it as an error.
+          if ((regErr as { code?: string }).code === "23505") { result.skipped++; continue; }
+          throw regErr;
+        }
+        rid = (regRow as { id: string }).id;
       }
-      const rid = (regRow as { id: string }).id;
 
       for (const role of roles) {
         const scope = ORG.has(role) ? "org" : "user";
-        const { data: raRow, error: raErr } = await admin.from("sm_role_assignment")
-          .insert({ registration_id: rid, event_id: eventId, role, scope, depth: "full", source: "self", status: "self_submitted", module_data: roleModuleData(role, r) })
-          .select("id").single();
-        if (raErr) throw raErr;
-        const raId = (raRow as { id: string }).id;
-        await upsertTypedProfile(admin, role, r, eventId, raId);
+        let raId = DRY_ID;
+        if (!dryRun) {
+          const { data: raRow, error: raErr } = await admin.from("sm_role_assignment")
+            .insert({ registration_id: rid, event_id: eventId, role, scope, depth: "full", source: "self", status: "self_submitted", module_data: roleModuleData(role, r) })
+            .select("id").single();
+          if (raErr) throw raErr;
+          raId = (raRow as { id: string }).id;
+        }
+        await upsertTypedProfile(admin, role, r, eventId, raId, dryRun);
       }
 
       result.imported++;
@@ -274,5 +287,5 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  return json(req, result);
+  return json(req, { ...result, dry_run: dryRun });
 });

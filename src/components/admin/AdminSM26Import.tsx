@@ -1,0 +1,468 @@
+import { useState, useRef, useEffect, type DragEvent } from 'react';
+import {
+  Upload, FileUp, FolderUp, RefreshCw, AlertTriangle, CheckCircle2, FileWarning,
+  Users, Sparkles, KeyRound, Info, X,
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { supabase } from '@/lib/supabase';
+import { toast } from '@/hooks/use-toast';
+
+// Drag & drop importer for the Jotform registration exports.
+//
+// Phase 1 = PREVIEW ONLY. Nothing is written: the CSV is sent to the sm26-import
+// engine with dry_run:true, which runs the whole pipeline (dedupe, account
+// linking, claim-code generation, enrichment matching) and returns the same
+// counters without touching the database. File re-hosting and the real import
+// come in phase 2.
+//
+// The engine stays the single source of truth for the business rules. This
+// screen only: parses the CSV locally, matches each Jotform file URL to a
+// dropped file, and renders what would happen.
+
+/* ─── Engine-compatible CSV parser (mirrors sm26-import parseCSV) ─── */
+function parseCSV(str: string): string[][] {
+  const rows: string[][] = []; let row: string[] = []; let f = ''; let i = 0; let q = false;
+  while (i < str.length) {
+    const c = str[i];
+    if (q) { if (c === '"') { if (str[i + 1] === '"') { f += '"'; i += 2; continue; } q = false; i++; continue; } f += c; i++; continue; }
+    if (c === '"') { q = true; i++; continue; }
+    if (c === ',') { row.push(f); f = ''; i++; continue; }
+    if (c === '\r') { i++; continue; }
+    if (c === '\n') { row.push(f); rows.push(row); row = []; f = ''; i++; continue; }
+    f += c; i++;
+  }
+  if (f.length || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+
+// File-bearing columns, by 0-based index — same indices the engine uses.
+// (A) already ingested by the engine, (B) ingested from phase 3/4 onwards.
+const FILE_COLUMNS: { idx: number; label: string; group: 'A' | 'B' }[] = [
+  { idx: 20, label: 'Profile photo', group: 'A' },
+  { idx: 21, label: 'Company logo (architecture)', group: 'B' },
+  { idx: 22, label: 'Company image (architecture)', group: 'B' },
+  { idx: 23, label: 'Project renders (architecture)', group: 'B' },
+  { idx: 31, label: 'Proof of enrolment', group: 'B' },
+  { idx: 32, label: 'Profile photo (student)', group: 'A' },
+  { idx: 41, label: 'Company logo (jury)', group: 'A' },
+  { idx: 42, label: 'Profile picture (jury)', group: 'A' },
+  { idx: 47, label: 'Company logo (marina)', group: 'A' },
+  { idx: 63, label: 'Marina HD images', group: 'A' },
+  { idx: 64, label: 'Marina building images', group: 'A' },
+  { idx: 65, label: 'Marina pitch media', group: 'A' },
+  { idx: 73, label: 'Sustainability image', group: 'B' },
+  { idx: 75, label: 'Water image', group: 'B' },
+  { idx: 77, label: 'Energy image', group: 'B' },
+  { idx: 79, label: 'Waste image', group: 'B' },
+  { idx: 81, label: 'Innovation image', group: 'B' },
+  { idx: 83, label: 'Security image', group: 'B' },
+  { idx: 85, label: 'Press card', group: 'B' },
+  { idx: 95, label: 'Product images', group: 'A' },
+  { idx: 103, label: 'Company logo (startup)', group: 'A' },
+  { idx: 104, label: 'Pitch deck', group: 'A' },
+  { idx: 110, label: 'Pitch media', group: 'A' },
+];
+
+// Roles the engine maps today. Anything else falls back to "visitor" — notably
+// "Architecture contest", which is why the preview flags it (phase 4 fixes it).
+const MAPPED_PARTICIPATION = new Set(['Jury member', 'Marina', 'Speaker', 'Startup / Scaleup', 'Visitor']);
+
+interface ImportResult {
+  total: number; deduped: number; imported: number; enriched: number;
+  skipped: number; linked: number; dry_run?: boolean;
+  codes: { email: string; code: string }[];
+  role_suggestions: { email: string; has_roles: string[]; suggested: string[] }[];
+  errors: { email: string; error: string }[];
+}
+
+interface FileRef { submissionId: string; filename: string; column: string; group: 'A' | 'B'; url: string }
+interface LocalAnalysis {
+  rows: number;
+  refs: FileRef[];
+  matched: FileRef[];
+  missing: FileRef[];
+  architectureCount: number;
+  unmappedParticipation: { value: string; count: number }[];
+}
+
+/* ─── Jotform URL → { submissionId, filename } ─── */
+function parseJotformUrl(u: string): { submissionId: string; filename: string } | null {
+  try {
+    const url = new URL(u.trim());
+    const segs = url.pathname.split('/').filter(Boolean); // uploads/<user>/<formId>/<submissionId>/<filename>
+    const i = segs.indexOf('uploads');
+    if (i === -1 || segs.length < i + 5) return null;
+    return { submissionId: segs[i + 3], filename: decodeURIComponent(segs[i + 4]) };
+  } catch { return null; }
+}
+
+const basename = (p: string) => p.split('/').pop() || p;
+
+// Retry a transient cold-start network failure once (same pattern as AdminSM26Health).
+async function invokeWithRetry(name: string, body: Record<string, unknown>) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await supabase.functions.invoke(name, { body });
+    if (res.error && (res.error as { name?: string }).name === 'FunctionsFetchError' && attempt < 1) {
+      await new Promise(r => setTimeout(r, 900));
+      continue;
+    }
+    return res;
+  }
+}
+
+/* ─── Recursively read a dropped directory entry ─── */
+interface FsEntry {
+  isFile: boolean; isDirectory: boolean; name: string; fullPath: string;
+  file?: (cb: (f: File) => void, err?: (e: unknown) => void) => void;
+  createReader?: () => { readEntries: (cb: (entries: FsEntry[]) => void, err?: (e: unknown) => void) => void };
+}
+async function readEntry(entry: FsEntry, prefix: string, out: { path: string; file: File }[]): Promise<void> {
+  if (entry.isFile && entry.file) {
+    const file = await new Promise<File | null>(res => entry.file!(f => res(f), () => res(null)));
+    if (file) out.push({ path: `${prefix}${entry.name}`, file });
+    return;
+  }
+  if (entry.isDirectory && entry.createReader) {
+    const reader = entry.createReader();
+    // readEntries returns at most 100 entries per call — keep reading until empty.
+    for (;;) {
+      const batch = await new Promise<FsEntry[]>(res => reader.readEntries(e => res(e || []), () => res([])));
+      if (!batch.length) break;
+      for (const child of batch) await readEntry(child, `${prefix}${entry.name}/`, out);
+    }
+  }
+}
+
+export function AdminSM26Import() {
+  const [csvName, setCsvName] = useState<string | null>(null);
+  const [csvText, setCsvText] = useState<string | null>(null);
+  const [assets, setAssets] = useState<{ path: string; file: File }[]>([]);
+  const [analysis, setAnalysis] = useState<LocalAnalysis | null>(null);
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  const csvRef = useRef<HTMLInputElement | null>(null);
+  const dirRef = useRef<HTMLInputElement | null>(null);
+
+  // webkitdirectory isn't in the React typings — set it on the DOM node.
+  useEffect(() => {
+    if (dirRef.current) {
+      dirRef.current.setAttribute('webkitdirectory', '');
+      dirRef.current.setAttribute('directory', '');
+    }
+  }, []);
+
+  const reset = () => { setCsvName(null); setCsvText(null); setAssets([]); setAnalysis(null); setResult(null); };
+
+  const takeFiles = async (incoming: { path: string; file: File }[]) => {
+    const csv = incoming.find(x => x.file.name.toLowerCase().endsWith('.csv'));
+    if (csv) { setCsvName(csv.file.name); setCsvText(await csv.file.text()); }
+    const rest = incoming.filter(x => !x.file.name.toLowerCase().endsWith('.csv'));
+    if (rest.length) setAssets(prev => [...prev, ...rest]);
+    setAnalysis(null); setResult(null);
+  };
+
+  const onDrop = async (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); setDragging(false);
+    const items = Array.from(e.dataTransfer.items || []);
+    const out: { path: string; file: File }[] = [];
+    const entries = items
+      .map(it => (it as unknown as { webkitGetAsEntry?: () => FsEntry | null }).webkitGetAsEntry?.() || null)
+      .filter((x): x is FsEntry => !!x);
+    if (entries.length) {
+      for (const entry of entries) await readEntry(entry, '', out);
+    } else {
+      for (const f of Array.from(e.dataTransfer.files || [])) out.push({ path: f.name, file: f });
+    }
+    await takeFiles(out);
+  };
+
+  /* ─── Local analysis: match every Jotform file URL to a dropped file ─── */
+  const analyseLocal = (text: string): LocalAnalysis => {
+    const rows = parseCSV(text);
+    const data = rows.slice(1).filter(r => (r[3] || '').trim() || (r[1] || '').trim());
+
+    // Index the dropped files by "<submissionId>/<basename>" and by basename.
+    const bySub = new Map<string, File>();
+    const byName = new Map<string, File[]>();
+    for (const { path, file } of assets) {
+      const name = basename(path);
+      const seg = path.split('/').find(s => s.startsWith('uploads_'));
+      if (seg) bySub.set(`${seg.slice('uploads_'.length)}/${name}`, file);
+      const list = byName.get(name) || []; list.push(file); byName.set(name, list);
+    }
+
+    const refs: FileRef[] = [];
+    let architectureCount = 0;
+    const unmapped = new Map<string, number>();
+
+    for (const r of data) {
+      const participation = (r[15] || '').trim();
+      if (participation === 'Architecture contest') architectureCount++;
+      if (participation && !MAPPED_PARTICIPATION.has(participation)) {
+        unmapped.set(participation, (unmapped.get(participation) || 0) + 1);
+      }
+      for (const col of FILE_COLUMNS) {
+        const cell = (r[col.idx] || '').trim();
+        if (!cell) continue;
+        for (const raw of cell.split('\n').map(s => s.trim()).filter(Boolean)) {
+          if (!/^https?:\/\//i.test(raw)) continue;
+          const parsed = parseJotformUrl(raw);
+          if (!parsed) continue;
+          refs.push({ ...parsed, column: col.label, group: col.group, url: raw });
+        }
+      }
+    }
+
+    const matched: FileRef[] = []; const missing: FileRef[] = [];
+    for (const ref of refs) {
+      const exact = bySub.get(`${ref.submissionId}/${ref.filename}`);
+      const fallback = byName.get(ref.filename);
+      if (exact || (fallback && fallback.length === 1)) matched.push(ref); else missing.push(ref);
+    }
+
+    return {
+      rows: data.length, refs, matched, missing, architectureCount,
+      unmappedParticipation: [...unmapped.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count),
+    };
+  };
+
+  const runPreview = async () => {
+    if (!csvText) return;
+    setBusy(true); setResult(null);
+    try {
+      const local = analyseLocal(csvText);
+      setAnalysis(local);
+      const { data, error } = await invokeWithRetry('sm26-import', { csv: csvText, dry_run: true });
+      if (error) {
+        let msg = error.message;
+        try {
+          const b = await (error as { context?: Response }).context?.json();
+          if (b?.error) msg = b.error;
+        } catch { /* keep the generic message */ }
+        toast({ title: 'Preview failed', description: msg, variant: 'destructive' });
+        return;
+      }
+      setResult(data as ImportResult);
+      toast({ title: 'Preview ready', description: 'Nothing has been written to the database.' });
+    } catch (e) {
+      toast({ title: 'Preview failed', description: (e as Error).message, variant: 'destructive' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stat = (label: string, value: number | string, tone?: string) => (
+    <div className="rounded-lg border border-gray-100 bg-white px-3 py-2.5">
+      <div className="text-[11px] uppercase tracking-wide text-gray-400">{label}</div>
+      <div className={`text-xl font-bold ${tone || 'text-gray-900'}`}>{value}</div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <Upload className="h-6 w-6 text-primary" /> Import registrations
+      </h1>
+      <p className="text-sm text-gray-500 -mt-2">
+        Drop the Jotform CSV export and its <code>uploads_*</code> folders to preview what would be
+        imported. This screen is preview-only — nothing is written yet.
+      </p>
+
+      {/* Dropzone */}
+      <Card>
+        <CardContent className="pt-6">
+          <div
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            className={`rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors ${dragging ? 'border-primary bg-primary/5' : 'border-gray-200'}`}
+          >
+            <FolderUp className={`h-8 w-8 mx-auto mb-3 ${dragging ? 'text-primary' : 'text-gray-300'}`} />
+            <p className="text-sm text-gray-700 font-medium">Drop the CSV export and the <code>uploads_*</code> folders here</p>
+            <p className="text-xs text-gray-500 mt-1">Folders are read recursively. You can also pick them manually:</p>
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <input ref={csvRef} type="file" accept=".csv" className="hidden"
+                onChange={async e => { const f = e.target.files?.[0]; if (f) await takeFiles([{ path: f.name, file: f }]); e.target.value = ''; }} />
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => csvRef.current?.click()}>
+                <FileUp className="h-4 w-4" /> Choose CSV
+              </Button>
+              <input ref={dirRef} type="file" multiple className="hidden"
+                onChange={async e => {
+                  const list = Array.from(e.target.files || []).map(f => ({ path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name, file: f }));
+                  if (list.length) await takeFiles(list);
+                  e.target.value = '';
+                }} />
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => dirRef.current?.click()}>
+                <FolderUp className="h-4 w-4" /> Choose folder
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 mt-4">
+            {csvName
+              ? <Badge variant="secondary" className="gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> {csvName}</Badge>
+              : <Badge variant="outline" className="text-gray-400">No CSV yet</Badge>}
+            <Badge variant="outline">{assets.length} file{assets.length === 1 ? '' : 's'} staged</Badge>
+            {(csvName || assets.length > 0) && (
+              <Button size="sm" variant="ghost" className="gap-1.5 text-gray-500" onClick={reset}>
+                <X className="h-3.5 w-3.5" /> Clear
+              </Button>
+            )}
+            <div className="flex-1" />
+            <Button className="gap-1.5" disabled={!csvText || busy} onClick={runPreview}>
+              {busy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Preview import
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Preview */}
+      {result && (
+        <>
+          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900 flex items-start gap-2">
+            <Info className="h-4 w-4 mt-px shrink-0" />
+            <span>
+              <strong>Preview only — nothing was written.</strong> Counters come from the import engine
+              running in dry-run mode. <em>Skipped</em> is an estimate: rows that would collide with a
+              unique index (re-importing a declined or cancelled registration) are counted as new here.
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {stat('Rows', result.total)}
+            {stat('After dedupe', result.deduped)}
+            {stat('New', result.imported, 'text-green-600')}
+            {stat('Enriched', result.enriched, 'text-blue-600')}
+            {stat('Linked to account', result.linked)}
+            {stat('Skipped (est.)', result.skipped, 'text-gray-500')}
+          </div>
+
+          {analysis && (
+            <Card>
+              <CardContent className="pt-6 space-y-3">
+                <div className="text-sm font-medium flex items-center gap-2">
+                  <FileWarning className="h-4 w-4 text-primary" /> Files
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {stat('Referenced', analysis.refs.length)}
+                  {stat('Matched', analysis.matched.length, 'text-green-600')}
+                  {stat('Not found', analysis.missing.length, analysis.missing.length ? 'text-amber-600' : 'text-gray-900')}
+                </div>
+                {analysis.missing.length > 0 && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1">
+                    <div className="flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        These files were referenced in the CSV but not found in the dropped folders. On
+                        import they keep their original Jotform URL — the import is never blocked.
+                      </span>
+                    </div>
+                    <ul className="pl-5 list-disc max-h-40 overflow-y-auto">
+                      {analysis.missing.slice(0, 40).map((m, i) => (
+                        <li key={i}><code>{m.filename}</code> <span className="text-amber-600">· {m.column} · submission {m.submissionId}</span></li>
+                      ))}
+                    </ul>
+                    {analysis.missing.length > 40 && <div className="pl-5 text-amber-600">+ {analysis.missing.length - 40} more</div>}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {analysis && analysis.architectureCount > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-900 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-px shrink-0" />
+              <span>
+                <strong>{analysis.architectureCount} “Architecture contest” registrant{analysis.architectureCount === 1 ? '' : 's'} would be imported as <em>visitor</em>.</strong>{' '}
+                The engine has no architecture mapping yet, so the competition entry (logo, company image,
+                project renders, proof of enrolment) would not be captured. Phase 4 fixes this.
+              </span>
+            </div>
+          )}
+
+          {analysis && analysis.unmappedParticipation.length > 0 && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-sm font-medium mb-2">Unmapped participation values</div>
+                <div className="flex flex-wrap gap-2">
+                  {analysis.unmappedParticipation.map(u => (
+                    <Badge key={u.value} variant="outline" className="text-amber-700 border-amber-300">
+                      {u.value} · {u.count}
+                    </Badge>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">These fall back to the <code>visitor</code> role.</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {result.codes.length > 0 && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-sm font-medium flex items-center gap-2 mb-2">
+                  <KeyRound className="h-4 w-4 text-primary" /> Claim codes to be generated ({result.codes.length})
+                </div>
+                <div className="max-h-56 overflow-y-auto text-xs divide-y divide-gray-100">
+                  {result.codes.map(c => (
+                    <div key={c.email} className="flex items-center justify-between py-1.5 gap-3">
+                      <span className="text-gray-600 truncate">{c.email}</span>
+                      <code className="shrink-0 text-gray-900">{c.code}</code>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Codes are regenerated on the real import — treat these as indicative.</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {result.role_suggestions.length > 0 && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-sm font-medium flex items-center gap-2 mb-2">
+                  <Users className="h-4 w-4 text-primary" /> Role suggestions ({result.role_suggestions.length})
+                </div>
+                <div className="max-h-56 overflow-y-auto text-xs divide-y divide-gray-100">
+                  {result.role_suggestions.map(s => (
+                    <div key={s.email} className="py-1.5">
+                      <div className="text-gray-700">{s.email}</div>
+                      <div className="text-gray-500">
+                        has: {s.has_roles.join(', ') || '—'} · suggested: <span className="text-amber-700">{s.suggested.join(', ')}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-2">Suggestions are recorded for staff review — roles are never added automatically.</p>
+              </CardContent>
+            </Card>
+          )}
+
+          {result.errors.length > 0 && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="text-sm font-medium flex items-center gap-2 mb-2 text-red-600">
+                  <AlertTriangle className="h-4 w-4" /> Row errors ({result.errors.length})
+                </div>
+                <div className="max-h-56 overflow-y-auto text-xs divide-y divide-gray-100">
+                  {result.errors.map((e, i) => (
+                    <div key={i} className="py-1.5">
+                      <div className="text-gray-700">{e.email}</div>
+                      <div className="text-red-600">{e.error}</div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5 text-xs text-gray-600">
+            Confirming the import (file re-hosting + database write) ships in phase 2.
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

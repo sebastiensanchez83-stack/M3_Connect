@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Download, RefreshCw, TrendingUp, Users, FileText } from 'lucide-react';
+import { Download, RefreshCw, TrendingUp, Users, FileText, Newspaper, Link2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
+import { PressResourcesEditor } from '@/components/media/PressResourcesEditor';
 
 // Who downloaded which press resource, and when. Reads media_download_log —
 // RLS already restricts it to admins (and the Yacht Club for its own events),
@@ -16,6 +17,10 @@ interface LogRow {
   organizations: { name: string } | null;
 }
 interface Person { first_name: string | null; last_name: string | null; email: string | null }
+interface CoverageRow {
+  id: string; url: string; outlet: string | null; title: string | null;
+  published_at: string | null; organizations: { name: string } | null;
+}
 
 const TYPE_LABEL: Record<string, string> = {
   article: 'Article', press_release: 'Press release', photo_link: 'Photos',
@@ -24,6 +29,8 @@ const TYPE_LABEL: Record<string, string> = {
 export function AdminMediaDownloads() {
   const [rows, setRows] = useState<LogRow[]>([]);
   const [people, setPeople] = useState<Record<string, Person>>({});
+  const [coverage, setCoverage] = useState<CoverageRow[]>([]);
+  const [eventId, setEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
 
@@ -49,6 +56,15 @@ export function AdminMediaDownloads() {
       }
       setPeople(map);
     }
+
+    const [cov, ev] = await Promise.all([
+      supabase.from('media_coverage')
+        .select('id, url, outlet, title, published_at, organizations(name)')
+        .order('published_at', { ascending: false, nullsFirst: false }),
+      supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle(),
+    ]);
+    setCoverage((cov.data || []) as unknown as CoverageRow[]);
+    setEventId((ev.data as { id: string } | null)?.id || null);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -74,11 +90,53 @@ export function AdminMediaDownloads() {
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-        <Download className="h-6 w-6 text-primary" /> Press downloads
+        <Newspaper className="h-6 w-6 text-primary" /> Press
       </h1>
       <p className="text-sm text-gray-500 -mt-2">
-        Every article, press release and photo pack downloaded by accredited media.
+        Press material, what accredited media downloaded, and the coverage they published.
       </p>
+
+      {/* Press material for our own events — hosted here rather than linked out. */}
+      {eventId && (
+        <Card><CardContent className="pt-6 space-y-2">
+          <div className="text-sm font-medium flex items-center gap-2">
+            <FileText className="h-4 w-4 text-primary" /> Press material
+          </div>
+          <p className="text-xs text-gray-500 -mt-1">
+            Link out to an organiser's site, or host the documents here — several are fine, typically
+            one per language. Accredited media see them in their press room.
+          </p>
+          <PressResourcesEditor eventId={eventId} />
+        </CardContent></Card>
+      )}
+
+      {/* Coverage report — what the press actually published. */}
+      <Card><CardContent className="pt-6">
+        <div className="text-sm font-medium flex items-center gap-2 mb-2">
+          <Link2 className="h-4 w-4 text-primary" /> Coverage report ({coverage.length})
+        </div>
+        {coverage.length === 0 ? (
+          <p className="text-xs text-gray-400">No coverage declared yet.</p>
+        ) : (
+          <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
+            {coverage.map(c => (
+              <div key={c.id} className="py-2">
+                <a href={c.url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline truncate block">
+                  {c.title || c.url}
+                </a>
+                <div className="text-xs text-gray-500">
+                  {[c.outlet, c.organizations?.name, c.published_at ? new Date(c.published_at).toLocaleDateString('en-GB') : null]
+                    .filter(Boolean).join(' · ')}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent></Card>
+
+      <div className="text-sm font-semibold text-gray-700 flex items-center gap-2 pt-2">
+        <Download className="h-4 w-4 text-primary" /> Downloads
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Card><CardContent className="p-4">

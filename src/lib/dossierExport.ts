@@ -24,10 +24,15 @@ export interface DossierData {
 }
 
 // Resolve an asset value to a fetchable URL (external link, pre-signed, or sign now).
+// Safety net: a scalar asset column may hold SEVERAL paths joined by a newline
+// (multi-file Jotform answers). Signing that raw string always fails and the
+// file just vanishes, so fall back to the first path. Callers that can show
+// every file expand the value before getting here.
 async function resolveUrl(value: string, signed: Record<string, string>): Promise<string | null> {
-  if (isHttp(value)) return value;
-  if (signed[value]) return signed[value];
-  const { data } = await supabase.storage.from('event-media').createSignedUrl(value, 600);
+  const v = value.includes('\n') ? (value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || value) : value;
+  if (isHttp(v)) return v;
+  if (signed[v]) return signed[v];
+  const { data } = await supabase.storage.from('event-media').createSignedUrl(v, 600);
   return data?.signedUrl || null;
 }
 

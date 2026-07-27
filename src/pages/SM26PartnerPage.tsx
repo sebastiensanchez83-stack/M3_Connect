@@ -110,6 +110,17 @@ function buildDossier(d: DossierRow): Built {
     seenSocial.add(url.trim());
     social.push({ label: platformLabel(platform), url: url.trim() });
   };
+  // A scalar asset column can legitimately hold SEVERAL paths joined by a
+  // newline: the Jotform import stored multi-file answers (two logo variants, a
+  // pitch in two parts…) that way. Signing the raw value fails, so the file was
+  // silently dropped from the dossier and the zip. Expand every value here so
+  // one row can yield several downloadable assets.
+  const pushAsset = (label: string, raw: unknown) => {
+    if (typeof raw !== 'string') return;
+    const parts = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    parts.forEach((p, i) => assets.push({ label: parts.length > 1 ? `${label} ${i + 1}` : label, value: p }));
+  };
+
   const md = d.module_data || {};
   for (const [k, v] of Object.entries(md)) {
     if (v == null || v === '') continue;
@@ -121,8 +132,8 @@ function buildDossier(d: DossierRow): Built {
     }
     if (SOCIAL_INDIVIDUAL.has(kl)) { addSocial(kl, v); continue; }
     if (ASSET_KEYS.has(k)) {
-      if (typeof v === 'string') assets.push({ label: prettyKey(k), value: v });
-      else if (Array.isArray(v)) v.forEach((p, i) => typeof p === 'string' && assets.push({ label: `${prettyKey(k)} ${i + 1}`, value: p }));
+      if (typeof v === 'string') pushAsset(prettyKey(k), v);
+      else if (Array.isArray(v)) v.forEach((p, i) => typeof p === 'string' && pushAsset(`${prettyKey(k)} ${i + 1}`, p));
     } else if (typeof v === 'string') {
       text.push({ label: prettyKey(k), value: v });
     } else if (Array.isArray(v) && v.length) {
@@ -140,10 +151,10 @@ function buildDossier(d: DossierRow): Built {
     if (sp.social_links && typeof sp.social_links === 'object' && !Array.isArray(sp.social_links)) {
       for (const [p, u] of Object.entries(sp.social_links as Record<string, unknown>)) addSocial(p, u);
     }
-    if (typeof sp.logo_url === 'string' && sp.logo_url) assets.push({ label: 'Logo', value: sp.logo_url });
-    if (typeof sp.deck_url === 'string' && sp.deck_url) assets.push({ label: 'Pitch deck', value: sp.deck_url });
-    if (typeof sp.pitch_media_url === 'string' && sp.pitch_media_url) assets.push({ label: 'Pitch media', value: sp.pitch_media_url });
-    if (Array.isArray(sp.product_images)) sp.product_images.forEach((p, i) => typeof p === 'string' && p && assets.push({ label: `Product image ${i + 1}`, value: p }));
+    pushAsset('Logo', sp.logo_url);
+    pushAsset('Pitch deck', sp.deck_url);
+    pushAsset('Pitch media', sp.pitch_media_url);
+    if (Array.isArray(sp.product_images)) sp.product_images.forEach((p, i) => typeof p === 'string' && p && pushAsset(`Product image ${i + 1}`, p));
   }
   let reqs: Requirement[] = d.requirements || [];
   if (d.role === 'jury' && reqs.length === 0) {

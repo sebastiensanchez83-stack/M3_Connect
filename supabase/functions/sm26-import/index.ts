@@ -156,6 +156,11 @@ function typedProfile(role: string, r: string[], eventId: string, raId: string):
       problem: S(r[88]), solution: S(r[89]), differentiation: S(r[90]), usp: S(r[93]), target_markets: S(r[92]),
       business_model: S(r[96]), competitive_positioning: S(r[97]), collaboration_expected: S(r[98]),
       investment_seeking: BOOL(r[100]), investment_type: S(r[101]), funds_needed: S(r[102]), references_text: S(r[94]),
+      // NB: these are scalar columns, but a Jotform answer can carry several
+      // files, so the value may be several paths joined by a newline. Keeping
+      // the whole cell is deliberate -- truncating to the first path would drop
+      // the other files entirely (a startup's second logo variant, a two-part
+      // pitch). Readers expand the value; see dossierExport/resolveUrl.
       logo_url: S(r[103]), deck_url: S(r[104]), product_images: ARR(r[95]), pitch_optin: !!E(r[110]), pitch_media_url: S(r[110]),
       social_links: social(r, 106, 107, 108, 109), visibility_level: 3,
     },

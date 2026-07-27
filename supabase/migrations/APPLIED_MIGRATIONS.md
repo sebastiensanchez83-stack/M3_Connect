@@ -2,7 +2,7 @@
 
 Authoritative list of every migration applied to Supabase project
 `djjbgzasuomhyfvtlidi`, in order (from `supabase_migrations.schema_migrations`).
-**250 migrations**, `20260130111556` → `20260727124346`.
+**256 migrations**, `20260130111556` → `20260727133402`.
 
 Generated 2026-07-16. Regenerate with:
 
@@ -263,4 +263,10 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260727101916  media_press_files_upload_and_languages
 20260727124043  sm_admin_rankings_gate_and_full_coverage
 20260727124346  sm_jury_my_entries_stage_template_mapping
+20260727130002  jury_panels_batches_schema
+20260727130231  jury_panels_write_rpcs
+20260727130339  jury_panels_read_rpcs_and_rsvp
+20260727130420  jury_yv_enrich_existing_reads
+20260727131050  jury_yv_innovations_draft_count
+20260727133402  sm26_edition_label
 ```

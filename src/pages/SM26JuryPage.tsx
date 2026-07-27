@@ -14,6 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { SM26AssetGallery } from '@/components/sm26/SM26AssetGallery';
+import { SM26MyJurySchedule } from '@/components/sm26/SM26MyJurySchedule';
 
 // Juror scoring (Area 3). Lists the entries M3 assigned to the signed-in juror,
 // and scores each on the right versioned scorecard (innovation: stage picks the
@@ -367,6 +368,9 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
       )}
 
       <div className={embedded ? 'space-y-6' : 'container mx-auto px-4 py-8 max-w-2xl space-y-6'}>
+        {/* When do I judge, whom, and am I confirmed — before the scorecards. */}
+        <SM26MyJurySchedule eventId={eventId} />
+
         {entries.length === 0 ? (
           <Card><CardContent className="py-10 text-center text-gray-400">
             Nothing to score yet — Yachting Ventures will invite you to a jury session, and the startups

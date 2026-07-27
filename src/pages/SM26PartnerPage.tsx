@@ -21,6 +21,7 @@ import { fetchLastEmails, lastEmailText, type LastEmail } from '@/lib/sm26EmailL
 import {
   MediaKitRow, EMPTY_KIT, mediaKitStatusOf, type KitData, type MediaKitStatus,
 } from '@/components/sm26/SM26MediaKitBoard';
+import { Pill, Funnel, ConsoleTile, CollapsiblePanel, ConsoleDrawer } from '@/components/sm26/SM26ConsoleUI';
 
 // Yacht Club / event-partner console — reorganised BY SOCIÉTÉ. Each participant
 // company is one row; opening it slides in a drawer holding everything the Yacht
@@ -267,57 +268,6 @@ function matchFilter(key: FilterKey, co: Company, kit: MediaKitStatus): boolean 
     case 'missing': return co.missing > 0;
     case 'payment': return co.payment === 'awaiting';
   }
-}
-
-// Small pill.
-const Pill = ({ label, cls }: { label: string; cls: string }) => (
-  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${cls}`}>{label}</span>
-);
-
-// Segmented progress funnel.
-function Funnel({ title, segments }: { title: string; segments: { label: string; value: number; bar: string; dot: string }[] }) {
-  const total = segments.reduce((a, s) => a + s.value, 0) || 1;
-  return (
-    <div>
-      <div className="text-xs font-semibold text-gray-600 mb-1.5">{title}</div>
-      <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100">
-        {segments.map((s, i) => s.value > 0 && <div key={i} className={s.bar} style={{ width: `${(s.value / total) * 100}%` }} title={`${s.label}: ${s.value}`} />)}
-      </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5">
-        {segments.map((s, i) => (
-          <span key={i} className="text-[11px] text-gray-500 inline-flex items-center gap-1">
-            <span className={`inline-block h-2 w-2 rounded-full ${s.dot}`} /> {s.label} {s.value}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Collapsible section for the read-only / specialised blocks (Programme, Sponsor
-// deliverables) that live below the by-société list.
-function CollapsiblePanel({ title, icon: Icon, count, description, defaultOpen = false, children }: {
-  title: string; icon: ComponentType<{ className?: string }>; count?: number; description?: string; defaultOpen?: boolean; children: ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <Card>
-      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-2 px-4 py-3.5 text-left">
-        <span className="flex items-center gap-2 min-w-0">
-          <Icon className="h-5 w-5 text-primary shrink-0" />
-          <span className="font-semibold text-gray-900 truncate">{title}</span>
-          {typeof count === 'number' && <span className="text-xs text-gray-400 shrink-0">({count})</span>}
-        </span>
-        <ChevronDown className={`h-5 w-5 text-gray-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && (
-        <CardContent className="pt-0">
-          {description && <p className="text-sm text-gray-500 mb-3">{description}</p>}
-          {children}
-        </CardContent>
-      )}
-    </Card>
-  );
 }
 
 export function SM26PartnerPage() {
@@ -653,17 +603,11 @@ export function SM26PartnerPage() {
             )}
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {TILES.map(t => {
-                const Icon = t.icon; const n = counts[t.key]; const active = filter === t.key;
-                return (
-                  <button key={t.key} type="button" onClick={() => setFilter(f => f === t.key ? null : t.key)}
-                    className={`text-left rounded-lg border p-2.5 transition-all hover:shadow-sm ${t.cls} ${active ? 'ring-2 ring-primary/50' : ''} ${n === 0 && !active ? 'opacity-55' : ''}`}>
-                    <Icon className={`h-4 w-4 mb-1 ${t.num}`} />
-                    <div className={`text-xl font-bold leading-none ${t.num}`}>{n}</div>
-                    <div className="text-[11px] text-gray-600 mt-1 leading-tight">{t.label}</div>
-                  </button>
-                );
-              })}
+              {TILES.map(t => (
+                <ConsoleTile key={t.key} label={t.label} icon={t.icon} cls={t.cls} num={t.num}
+                  value={counts[t.key]} active={filter === t.key}
+                  onClick={() => setFilter(f => f === t.key ? null : t.key)} />
+              ))}
             </div>
 
             <div className="grid sm:grid-cols-2 gap-4 pt-1">
@@ -805,10 +749,8 @@ export function SM26PartnerPage() {
 
       {/* ---- Drawer : fiche société ---- */}
       {openReg && (
-        <>
-          <div className="fixed inset-0 bg-black/30 z-40" onClick={() => setOpenReg(null)} />
-          <div className="fixed inset-y-0 right-0 w-full max-w-xl bg-gray-50 z-50 shadow-2xl overflow-y-auto">
-            {!drawerCompany ? (
+        <ConsoleDrawer onClose={() => setOpenReg(null)}>
+          {!drawerCompany ? (
               <div className="flex items-center justify-center h-40"><RefreshCw className="h-6 w-6 animate-spin text-gray-300" /></div>
             ) : (
               <DrawerBody
@@ -842,8 +784,7 @@ export function SM26PartnerPage() {
                 reportKitData={reportKitData}
               />
             )}
-          </div>
-        </>
+        </ConsoleDrawer>
       )}
     </div>
   );

@@ -56,6 +56,7 @@ const CookiePolicyPage = lazyWithRetry(() => import('@/pages/CookiePolicyPage').
 const SM26RegisterPage = lazyWithRetry(() => import('@/pages/SM26RegisterPage').then(m => ({ default: m.SM26RegisterPage })));
 // SM26MyRegistrationPage renders inside the /account "Event" tab now; /sm26/me redirects there.
 const SM26JuryPage = lazyWithRetry(() => import('@/pages/SM26JuryPage').then(m => ({ default: m.SM26JuryPage })));
+const SM26JuryRsvpPage = lazyWithRetry(() => import('@/pages/SM26JuryRsvpPage').then(m => ({ default: m.SM26JuryRsvpPage })));
 const SM26AgendaPage = lazyWithRetry(() => import('@/pages/SM26AgendaPage').then(m => ({ default: m.SM26AgendaPage })));
 const SM26VotePage = lazyWithRetry(() => import('@/pages/SM26VotePage').then(m => ({ default: m.SM26VotePage })));
 const SM26PortfolioPage = lazyWithRetry(() => import('@/pages/SM26PortfolioPage').then(m => ({ default: m.SM26PortfolioPage })));
@@ -105,6 +106,8 @@ function App() {
                   <Route path="/sm26/register" element={<SM26RegisterPage />} />
                   <Route path="/sm26/me" element={<Navigate to="/account?tab=event" replace />} />
                   <Route path="/sm26/jury" element={<ProtectedRoute><SM26JuryPage /></ProtectedRoute>} />
+                  {/* Availability RSVP from the jury email — tokened, no login. */}
+                  <Route path="/sm26/jury/rsvp" element={<SM26JuryRsvpPage />} />
                   <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
                   <Route path="/sm26/vote" element={<ProtectedRoute><SM26VotePage /></ProtectedRoute>} />
                   <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />

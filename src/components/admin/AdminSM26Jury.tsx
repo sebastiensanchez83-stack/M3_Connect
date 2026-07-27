@@ -1,19 +1,26 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, Scale, X, Trophy, AlertTriangle, Users, Check } from 'lucide-react';
+import { RefreshCw, ArrowLeft, Scale, X, Trophy, AlertTriangle, Users, Check, CalendarDays, Layers, ExternalLink, Video } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { Pill } from '@/components/sm26/SM26ConsoleUI';
+import { cellState, fmtDay, slotRange, type Cell } from '@/components/sm26/SM26YVTimetable';
 
-// Admin jury management: assign jurors to entries + see official rankings.
+// Admin jury management: assign jurors to entries, see the panels/batches/
+// timetable Yachting Ventures built, and read the official rankings.
 // Awards Score (mandatory, non-COI, submitted) is computed in sm_admin_rankings.
 
 type Comp = 'innovation' | 'architecture_pro' | 'architecture_student';
 interface Juror { user_id: string; name: string; scope: string | null; }
-interface JuryRole { id: string; status: string; user_id: string | null; name: string; email: string | null; scope: string | null; }
+interface JuryRole {
+  id: string; status: string; user_id: string | null; name: string; email: string | null; scope: string | null;
+  juryType: string | null; juryOwner: string | null;
+}
+interface GroupRow { id: string; code: string; name: string | null; members: Record<string, unknown>[] }
 interface Entry { id: string; competition: Comp; title: string; subtitle: string; }
 interface Assignment { id: string; juror_user_id: string; entry_role_assignment_id: string; mandatory: boolean; }
 interface Ranking {
@@ -32,7 +39,7 @@ export function AdminSM26Jury() {
   const navigate = useNavigate();
   const [eventId, setEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'assign' | 'rankings'>('assign');
+  const [tab, setTab] = useState<'assign' | 'panels' | 'rankings'>('assign');
   const [competition, setCompetition] = useState<Comp>('innovation');
 
   const [jurors, setJurors] = useState<Juror[]>([]);
@@ -40,6 +47,9 @@ export function AdminSM26Jury() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [rankings, setRankings] = useState<Ranking[]>([]);
+  const [panels, setPanels] = useState<GroupRow[]>([]);
+  const [batches, setBatches] = useState<GroupRow[]>([]);
+  const [cells, setCells] = useState<Cell[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => { load(); }, []);
@@ -51,6 +61,11 @@ export function AdminSM26Jury() {
     if (!ev) { setLoading(false); return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
+
+    // Staff pass sm_is_yv(), so the panel / batch / timetable RPCs are readable here too.
+    supabase.rpc('sm_yv_jury_groups', { p_event_id: eid }).then(r => setPanels((r.data || []) as GroupRow[]));
+    supabase.rpc('sm_yv_startup_groups', { p_event_id: eid }).then(r => setBatches((r.data || []) as GroupRow[]));
+    supabase.rpc('sm_yv_timetable', { p_event_id: eid }).then(r => setCells((r.data || []) as Cell[]));
 
     const [{ data: ents }, { data: jur }, { data: asg }] = await Promise.all([
       supabase.from('sm_role_assignment')
@@ -91,6 +106,8 @@ export function AdminSM26Jury() {
         name: `${reg.first_name || ''} ${reg.last_name || ''}`.trim() || reg.email || 'Juror',
         email: reg.email || null,
         scope: typeof md.jury_scope === 'string' ? md.jury_scope : null,
+        juryType: typeof md.jury_type === 'string' ? md.jury_type : null,
+        juryOwner: typeof md.jury_owner === 'string' ? md.jury_owner : null,
       };
     });
     setJuryRoles(jr);
@@ -117,6 +134,16 @@ export function AdminSM26Jury() {
     const { error } = await supabase.rpc('sm_set_jury_scope', { p_role_assignment_id: id, p_scope: scope || null });
     setBusy(false);
     if (error) { toast({ title: 'Could not set competition', description: error.message, variant: 'destructive' }); return; }
+    await load();
+  };
+
+  // Juror Type / relationship owner — the same fields Yachting Ventures use to
+  // balance a panel, editable here so staff can do everything YV can.
+  const setJurorMeta = async (id: string, type: string | null, owner: string | null) => {
+    setBusy(true);
+    const { error } = await supabase.rpc('sm_yv_set_juror_meta', { p_role_assignment_id: id, p_type: type, p_owner: owner });
+    setBusy(false);
+    if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
     await load();
   };
 
@@ -175,6 +202,7 @@ export function AdminSM26Jury() {
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => { load(); if (tab === 'rankings') loadRankings(); }} title="Refresh"><RefreshCw className="h-4 w-4" /></Button>
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">
             <button onClick={() => setTab('assign')} className={`px-3 h-9 text-sm ${tab === 'assign' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}>Assignments</button>
+            <button onClick={() => setTab('panels')} className={`px-3 h-9 text-sm ${tab === 'panels' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}>Panels &amp; timetable</button>
             <button onClick={() => setTab('rankings')} className={`px-3 h-9 text-sm ${tab === 'rankings' ? 'bg-primary text-white' : 'bg-white text-gray-600'}`}>Rankings</button>
           </div>
           <Select value={competition} onValueChange={v => setCompetition(v as Comp)}>
@@ -210,7 +238,7 @@ export function AdminSM26Jury() {
                         {!j.user_id && <span className="text-[10px] text-gray-400">no account yet — can't score until they claim their registration</span>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                       <Select value={j.scope || 'none'} onValueChange={v => setScope(j.id, v === 'none' ? '' : v)} disabled={busy}>
                         <SelectTrigger className="w-36 h-8 text-xs"><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -218,6 +246,23 @@ export function AdminSM26Jury() {
                           <SelectItem value="innovation">Innovation</SelectItem>
                           <SelectItem value="architecture">Architecture</SelectItem>
                           <SelectItem value="both">Both</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Select value={j.juryType || 'none'} onValueChange={v => setJurorMeta(j.id, v === 'none' ? null : v, j.juryOwner)} disabled={busy}>
+                        <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Type: unset</SelectItem>
+                          <SelectItem value="angel">Angel</SelectItem>
+                          <SelectItem value="vc">VC</SelectItem>
+                          <SelectItem value="corporate">Corporate</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Select value={j.juryOwner || 'none'} onValueChange={v => setJurorMeta(j.id, j.juryType, v === 'none' ? null : v)} disabled={busy}>
+                        <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Owner: unset</SelectItem>
+                          <SelectItem value="yv">YV</SelectItem>
+                          <SelectItem value="m3">M3</SelectItem>
                         </SelectContent>
                       </Select>
                       {confirmed
@@ -232,7 +277,92 @@ export function AdminSM26Jury() {
         </CardContent>
       </Card>
 
-      {tab === 'assign' ? (
+      {tab === 'panels' ? (
+        <div className="space-y-4">
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-4 flex items-start justify-between gap-3 flex-wrap">
+              <p className="text-xs text-gray-500 max-w-2xl">
+                Yachting Ventures build the panels, the startup batches and the rotation here below. Pairing a panel with a
+                batch is what creates the assignments on the left. To edit them, or to send an availability request or a Zoom
+                invitation, open the full console — staff have the same rights there as YV.
+              </p>
+              <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => window.open('/sm26/yv', '_blank')}>
+                <ExternalLink className="h-4 w-4" /> Open the YV console
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-4">
+              <div className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+                <CalendarDays className="h-4 w-4 text-primary" /> Timetable
+                <span className="text-xs font-normal text-gray-400">{cells.filter(c => c.status !== 'cancelled').length} slot(s)</span>
+              </div>
+              {cells.length === 0 ? <p className="text-sm text-gray-400">No jury session scheduled yet.</p> : (
+                <div className="space-y-1.5">
+                  {cells.map(c => {
+                    const yes = c.jurors.filter(j => j.rsvp === 'available' || j.rsvp === 'confirmed').length;
+                    return (
+                      <div key={c.id} className={`rounded-lg border border-gray-100 px-3 py-2 ${c.status === 'cancelled' ? 'opacity-50' : ''}`}>
+                        <div className="flex items-center gap-2 flex-wrap text-sm">
+                          <span className="font-medium">{c.jury_group_code || '—'} × {c.startup_group_code || '—'}</span>
+                          <span className="text-gray-400 text-xs">{fmtDay(c.scheduled_at)} · {c.slot_label || slotRange(c.scheduled_at, c.duration_minutes)}</span>
+                          {c.is_test && <Pill label="TEST" cls="bg-purple-50 text-purple-700 border-purple-200" />}
+                          <Pill label={cellState(c) === 'cancelled' ? 'cancelled' : cellState(c) === 'draft' ? 'draft' : cellState(c) === 'asked' ? 'availability requested' : cellState(c) === 'invited' ? 'Zoom sent' : 'all scores in'}
+                            cls={cellState(c) === 'scored' ? 'bg-green-50 text-green-700 border-green-200' : cellState(c) === 'invited' ? 'bg-blue-50 text-blue-700 border-blue-200' : cellState(c) === 'asked' ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-gray-50 text-gray-600 border-gray-200'} />
+                          {c.zoom_sent && c.zoom_join_url && c.status !== 'cancelled' && (
+                            <a href={c.zoom_join_url} target="_blank" rel="noreferrer" className="text-primary text-xs inline-flex items-center gap-0.5"><Video className="h-3 w-3" /> Zoom</a>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {yes}/{c.jurors.length} jurors available · {c.entries.length} startups · {c.submitted}/{c.assigned} scored
+                        </div>
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {c.jurors.map(j => (
+                            <span key={j.user_id} className={`text-[11px] rounded-full border px-2 py-0.5 ${j.rsvp === 'unavailable' ? 'bg-red-50 text-red-600 border-red-200' : j.rsvp === 'invited' ? 'bg-gray-50 text-gray-500 border-gray-200' : 'bg-green-50 text-green-700 border-green-200'}`}>{j.name}</span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <div className="grid lg:grid-cols-2 gap-4">
+            {([['Jury panels', Scale, panels], ['Startup batches', Layers, batches]] as const).map(([title, Icon, rows]) => (
+              <Card key={title} className="border-0 shadow-sm">
+                <CardContent className="p-4">
+                  <div className="text-sm font-semibold text-gray-800 flex items-center gap-2 mb-3">
+                    <Icon className="h-4 w-4 text-primary" /> {title}
+                    <span className="text-xs font-normal text-gray-400">{rows.length}</span>
+                  </div>
+                  {rows.length === 0 ? <p className="text-sm text-gray-400">None yet.</p> : (
+                    <div className="space-y-1.5">
+                      {rows.map(g => (
+                        <div key={g.id} className="rounded-lg border border-gray-100 px-3 py-2">
+                          <div className="text-sm font-medium">{g.code}{g.name ? <span className="text-gray-500 font-normal"> · {g.name}</span> : ''}
+                            <span className="text-xs text-gray-400 font-normal"> — {g.members.length} member{g.members.length === 1 ? '' : 's'}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {g.members.map((m, i) => (
+                              <span key={i} className="text-[11px] bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">
+                                {String(m.name || m.company || '—')}
+                                {m.jury_type ? <span className="text-gray-400"> · {String(m.jury_type)}</span> : null}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ) : tab === 'assign' ? (
         compEntries.length === 0 ? (
           <Card className="border-0 shadow-sm"><CardContent className="py-12 text-center text-gray-400">No {competition} entries yet.</CardContent></Card>
         ) : (

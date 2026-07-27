@@ -40,8 +40,7 @@ function parseCSV(str: string): string[][] {
 // File-bearing columns, by 0-based index — same indices the engine uses.
 // `ingested` = the engine currently stores this column. Only those are re-hosted:
 // uploading a column nothing reads would just leave orphans in storage. The
-// architecture entry (21/22/23/31) and the press card (85) flip to true once
-// phases 4 and 3 map them.
+// architecture entry (21/22/23/31) flips to true once phase 4 maps it.
 const FILE_COLUMNS: { idx: number; label: string; ingested: boolean }[] = [
   { idx: 20, label: 'Profile photo', ingested: true },
   { idx: 21, label: 'Company logo (architecture)', ingested: false },
@@ -61,7 +60,7 @@ const FILE_COLUMNS: { idx: number; label: string; ingested: boolean }[] = [
   { idx: 79, label: 'Waste image', ingested: true },
   { idx: 81, label: 'Innovation image', ingested: true },
   { idx: 83, label: 'Security image', ingested: true },
-  { idx: 85, label: 'Press card', ingested: false },
+  { idx: 85, label: 'Press card', ingested: true },
   { idx: 95, label: 'Product images', ingested: true },
   { idx: 103, label: 'Company logo (startup)', ingested: true },
   { idx: 104, label: 'Pitch deck', ingested: true },
@@ -76,9 +75,14 @@ const importPath = (submissionId: string, filename: string) =>
 
 const UPLOAD_CONCURRENCY = 4;
 
-// Roles the engine maps today. Anything else falls back to "visitor" — notably
-// "Architecture contest", which is why the preview flags it (phase 4 fixes it).
-const MAPPED_PARTICIPATION = new Set(['Jury member', 'Marina', 'Speaker', 'Startup / Scaleup', 'Visitor']);
+// Roles the engine maps today (matched case/space-insensitively, like the
+// engine). Anything else falls back to "visitor" — notably "Architecture
+// contest", which is why the preview flags it (phase 4 fixes it).
+const MAPPED_PARTICIPATION = new Set([
+  'jury member', 'marina', 'speaker', 'startup / scaleup', 'visitor',
+  'media', 'press', 'media / press', 'media/press', 'press / media', 'media partner',
+]);
+const normParticipation = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
 interface ImportResult {
   total: number; deduped: number; imported: number; enriched: number;
@@ -221,10 +225,11 @@ export function AdminSM26Import() {
 
     for (const r of data) {
       const participation = (r[15] || '').trim();
-      if (participation === 'Architecture contest') architectureCount++;
+      const p = normParticipation(participation);
+      if (p === 'architecture contest') architectureCount++;
       // "Architecture contest" is unmapped too, but it gets its own dedicated
       // warning below — listing it here as well just says the same thing twice.
-      if (participation && participation !== 'Architecture contest' && !MAPPED_PARTICIPATION.has(participation)) {
+      if (participation && p !== 'architecture contest' && !MAPPED_PARTICIPATION.has(p)) {
         unmapped.set(participation, (unmapped.get(participation) || 0) + 1);
       }
       for (const col of FILE_COLUMNS) {

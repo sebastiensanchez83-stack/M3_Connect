@@ -39,11 +39,25 @@ const E = (v: unknown) => (v == null ? "" : String(v)).trim();
 const S = (v: unknown) => E(v) === "" ? null : E(v);
 const BOOL = (v: unknown) => ["yes", "oui", "accepté", "accepted", "true", "1"].includes(E(v).toLowerCase());
 const ARR = (v: unknown) => E(v).split(/\r?\n|;|,/).map(x => x.trim()).filter(Boolean);
+// Multi-file cells separate entries with a bare newline only -- never a comma
+// (filenames and paths may legitimately contain one).
+const ARRN = (v: unknown) => E(v).split(/\r?\n/).map(x => x.trim()).filter(Boolean);
 const clean = (o: Record<string, unknown>) => { const r: Record<string, string> = {}; for (const k in o) { const x = o[k]; if (x != null && String(x).trim() !== "") r[k] = String(x).trim(); } return r; };
 const dateISO = (v: unknown) => { const t = E(v); if (!t) return null; const d = new Date(t); return isNaN(d.getTime()) ? null : d.toISOString(); };
 const likeEsc = (s: string) => s.replace(/[\\%_]/g, c => `\\${c}`);
 
-const PARTICIPATE: Record<string, string[]> = { "Jury member": ["jury", "investor"], "Marina": ["marina"], "Speaker": ["speaker"], "Startup / Scaleup": ["startup"], "Visitor": ["visitor"] };
+const PARTICIPATE: Record<string, string[]> = { "Jury member": ["jury", "investor"], "Marina": ["marina"], "Speaker": ["speaker"], "Startup / Scaleup": ["startup"], "Visitor": ["visitor"], "Media": ["media"] };
+
+// The option labels are authored in Jotform, outside this repo. Matching them
+// character-exactly means a stray capital or double space silently drops someone
+// to "visitor" -- the exact failure the architecture rows still show. Match on a
+// normalised key instead, and accept the known spellings of the media option.
+const norm = (v: unknown) => E(v).toLowerCase().replace(/\s+/g, " ");
+const PARTICIPATE_NORM = new Map<string, string[]>();
+for (const [k, v] of Object.entries(PARTICIPATE)) PARTICIPATE_NORM.set(norm(k), v);
+for (const alias of ["media", "press", "media / press", "media/press", "press / media", "media partner"]) {
+  PARTICIPATE_NORM.set(norm(alias), ["media"]);
+}
 const ORG = new Set(["marina", "startup", "sponsor"]);
 const social = (r: string[], a: number, b: number, c: number, d: number) => clean({ linkedin: r[a], instagram: r[b], facebook: r[c], twitter: r[d] });
 function genCode(used: Set<string>) { const A = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; let c: string; do { c = "SM26-"; for (let i = 0; i < 6; i++) c += A[Math.floor(Math.random() * A.length)]; } while (used.has(c)); used.add(c); return c; }
@@ -84,7 +98,18 @@ function baseEnrichable(r: string[]): Record<string, unknown> {
 
 // module_data captured per role. Startup/architect carry their data in typed
 // profile tables instead, so return {} for them.
-function roleModuleData(role: string, r: string[]): Record<string, string> {
+function roleModuleData(role: string, r: string[]): Record<string, unknown> {
+  // Media has no typed table: everything lives in module_data, and the assets are
+  // stored as ARRAYS of storage paths -- same shape the self-registration writes,
+  // so an imported press contact is indistinguishable from one who signed up.
+  if (role === "media") {
+    const out: Record<string, unknown> = {};
+    const press = ARRN(r[85]); if (press.length) out.press_card = press;
+    const photo = ARRN(r[42]); if (photo.length) out.photo_url = photo;
+    const outlet = S(r[5]); if (outlet) out.outlet = outlet;   // no dedicated outlet column in Jotform
+    const domain = S(r[12]); if (domain) out.domain = domain;
+    return out;
+  }
   if (role === "jury") return clean({ domain: r[12], jury_category: r[38], ecat_consent: r[39], social_consent: r[40], bio: r[43], company_description: r[17], sustainability: r[18], references: r[19], logo_url: r[41], photo_url: r[42] });
   if (role === "investor") return clean({ domain: r[12], note: "Derived from jury registration" });
   if (role === "speaker") return clean({ domain: r[12], bio: r[43] || r[18], company_description: r[17], references: r[19], photo_url: r[20] || r[32], portfolio: r[33], linkedin: r[24] });
@@ -191,7 +216,7 @@ Deno.serve(async (req: Request) => {
   for (const r of deduped) {
     const email = E(r[3]).toLowerCase();
     try {
-      const roles = PARTICIPATE[E(r[15])] || ["visitor"];
+      const roles = PARTICIPATE_NORM.get(norm(r[15])) || ["visitor"];
 
       // Any registration already on this event for this email (case-insensitive,
       // LIKE-safe). A live one -> enrich; only declined/cancelled -> treat as

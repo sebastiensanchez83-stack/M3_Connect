@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MediaArticles } from '@/components/media/MediaArticles';
+import { MediaPressRoom } from '@/components/media/MediaPressRoom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -1935,7 +1936,10 @@ export function AccountPage() {
         </TabsContent>
 
         <TabsContent value="press">
-          <MediaArticles />
+          <div className="space-y-6">
+            <MediaPressRoom />
+            <MediaArticles />
+          </div>
         </TabsContent>
 
         <TabsContent value="event">

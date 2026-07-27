@@ -156,6 +156,10 @@ export function AdminSM26Import() {
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [uploadFailures, setUploadFailures] = useState<FileRef[]>([]);
+  // Tracked client-side rather than read back from the response: we know which
+  // call we made, so the confirm step can never go missing if the engine ever
+  // stops echoing the flag.
+  const [mode, setMode] = useState<'preview' | 'imported' | null>(null);
 
   const csvRef = useRef<HTMLInputElement | null>(null);
   const dirRef = useRef<HTMLInputElement | null>(null);
@@ -170,7 +174,7 @@ export function AdminSM26Import() {
 
   const reset = () => {
     setCsvName(null); setCsvText(null); setAssets([]); setAnalysis(null);
-    setResult(null); setProgress(null); setUploadFailures([]);
+    setResult(null); setProgress(null); setUploadFailures([]); setMode(null);
   };
 
   const takeFiles = async (incoming: { path: string; file: File }[]) => {
@@ -218,7 +222,9 @@ export function AdminSM26Import() {
     for (const r of data) {
       const participation = (r[15] || '').trim();
       if (participation === 'Architecture contest') architectureCount++;
-      if (participation && !MAPPED_PARTICIPATION.has(participation)) {
+      // "Architecture contest" is unmapped too, but it gets its own dedicated
+      // warning below — listing it here as well just says the same thing twice.
+      if (participation && participation !== 'Architecture contest' && !MAPPED_PARTICIPATION.has(participation)) {
         unmapped.set(participation, (unmapped.get(participation) || 0) + 1);
       }
       for (const col of FILE_COLUMNS) {
@@ -264,6 +270,7 @@ export function AdminSM26Import() {
         return;
       }
       setResult(data as ImportResult);
+      setMode('preview');
       toast({ title: 'Preview ready', description: 'Nothing has been written to the database.' });
     } catch (e) {
       toast({ title: 'Preview failed', description: (e as Error).message, variant: 'destructive' });
@@ -337,6 +344,7 @@ export function AdminSM26Import() {
         return;
       }
       setResult(data as ImportResult);
+      setMode('imported');
       const r = data as ImportResult;
       toast({ title: 'Import complete', description: `${r.imported} created, ${r.enriched} enriched, ${urlToPath.size} file(s) re-hosted.` });
     } catch (e) {
@@ -414,7 +422,7 @@ export function AdminSM26Import() {
       {/* Preview */}
       {result && (
         <>
-          {result.dry_run ? (
+          {mode === 'preview' ? (
             <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-900 flex items-start gap-2">
               <Info className="h-4 w-4 mt-px shrink-0" />
               <span>
@@ -581,7 +589,7 @@ export function AdminSM26Import() {
             </div>
           )}
 
-          {result.dry_run && (
+          {mode === 'preview' && (
             <Card>
               <CardContent className="pt-6 space-y-3">
                 {progress && progress.total > 0 && (

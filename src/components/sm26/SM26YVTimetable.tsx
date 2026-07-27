@@ -414,25 +414,38 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
 
                   {!cancelled && (
                     <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2.5 border-t border-gray-100">
-                      {!c.zoom_sent && (
-                        <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendAvailability(c)}>
-                          <Send className="h-3.5 w-3.5" /> {c.last_availability_email_at ? 'Resend availability request' : 'Send availability request'}
-                        </Button>
-                      )}
-                      {!c.zoom_sent && (
-                        <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendZoom(c)}>
-                          <Video className="h-3.5 w-3.5" /> Send Zoom invite{yes === 0 ? ' (nobody confirmed yet)' : ` (${yes})`}
-                        </Button>
-                      )}
-                      {c.zoom_sent && (
-                        <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendEvaluate(c)}>
-                          <Mail className="h-3.5 w-3.5" /> Email jurors to score
-                        </Button>
+                      {/* A test slot refuses to email anyone but you, so the real
+                          send buttons would only ever return an error — offer the
+                          previews instead. */}
+                      {c.is_test ? (
+                        <span className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-2 py-1">
+                          Test slot — it can only ever email you. Use the previews to see each email.
+                        </span>
+                      ) : (
+                        <>
+                          {!c.zoom_sent && (
+                            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendAvailability(c)}>
+                              <Send className="h-3.5 w-3.5" /> {c.last_availability_email_at ? 'Resend availability request' : 'Send availability request'}
+                            </Button>
+                          )}
+                          {!c.zoom_sent && (
+                            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendZoom(c)}>
+                              <Video className="h-3.5 w-3.5" /> Send Zoom invite{yes === 0 ? ' (nobody confirmed yet)' : ` (${yes})`}
+                            </Button>
+                          )}
+                          {c.zoom_sent && (
+                            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendEvaluate(c)}>
+                              <Mail className="h-3.5 w-3.5" /> Email jurors to score
+                            </Button>
+                          )}
+                        </>
                       )}
                       {testEmail && (
                         <div className="flex items-center gap-1 ml-auto">
                           <span className="text-[11px] text-gray-400 inline-flex items-center gap-1"><FlaskConical className="h-3 w-3" /> preview to me:</span>
                           <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => sendAvailability(c, true)}>availability</button>
+                          {!c.zoom_sent && <><span className="text-gray-300">·</span>
+                            <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => sendZoom(c, true)}>zoom invite</button></>}
                           {c.zoom_sent && <><span className="text-gray-300">·</span>
                             <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => sendEvaluate(c, true)}>scoring</button></>}
                         </div>

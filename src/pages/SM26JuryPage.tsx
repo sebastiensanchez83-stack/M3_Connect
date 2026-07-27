@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import {
-  RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ExternalLink, Lightbulb, Download,
+  RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ExternalLink, Lightbulb, Download, Languages,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -112,15 +112,20 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
   const setComment = (cid: string, comment: string) =>
     setDraft(prev => ({ ...prev, [cid]: { score: prev[cid]?.score ?? null, comment } }));
 
+  // Weighted percentage of the WHOLE scorecard. Dividing by only the criteria
+  // scored so far made a half-finished draft read 100/100, which is misleading
+  // both to the juror and in the saved draft total. A submitted review has every
+  // criterion scored, so the official Awards Score is unchanged.
   const computeTotal = (tpl: Template): number | null => {
-    let wsum = 0, weighted = 0;
+    const fullWeight = tpl.criteria.reduce((a, c) => a + c.weight, 0);
+    let scoredWeight = 0, weighted = 0;
     for (const c of tpl.criteria) {
       const s = draft[c.id]?.score;
       if (s == null) continue;
       weighted += (s / tpl.scale_max) * c.weight;
-      wsum += c.weight;
+      scoredWeight += c.weight;
     }
-    return wsum > 0 ? Math.round((weighted / wsum) * 1000) / 10 : null;
+    return scoredWeight > 0 && fullWeight > 0 ? Math.round((weighted / fullWeight) * 1000) / 10 : null;
   };
 
   const saveReview = async (submit: boolean) => {
@@ -268,7 +273,21 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
                   <CardHeader>
                     <div className="flex items-center justify-between gap-2 flex-wrap">
                       <CardTitle className="text-base flex items-center gap-2"><Scale className="h-4 w-4 text-primary" /> {tpl.name}</CardTitle>
-                      <div className="text-sm">{total != null ? <span className="font-semibold text-primary">{total.toFixed(1)}/100</span> : <span className="text-gray-400">not scored</span>}</div>
+                      {(() => {
+                        const scored = tpl.criteria.filter(c => draft[c.id]?.score != null).length;
+                        return (
+                          <div className="text-sm text-right">
+                            {total != null
+                              ? <span className="font-semibold text-primary">{total.toFixed(1)}/100</span>
+                              : <span className="text-gray-400">not scored</span>}
+                            {total != null && scored < tpl.criteria.length && (
+                              <div className="text-[11px] font-normal text-amber-600">
+                                partial — {scored} of {tpl.criteria.length} criteria scored
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <CardDescription>Score each criterion 0–{tpl.scale_max}. A comment is required for a low score on a critical criterion.</CardDescription>
                   </CardHeader>
@@ -377,6 +396,16 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
       )}
 
       <div className={embedded ? 'space-y-6' : 'container mx-auto px-4 py-8 max-w-2xl space-y-6'}>
+        {/* The platform is EN/FR but the scorecards are English-only. The hero
+            says so on the standalone page; inside the account tab there is no
+            hero, so say it here. */}
+        {embedded && (
+          <p className="text-xs text-gray-500 flex items-start gap-1.5">
+            <Languages className="h-3.5 w-3.5 text-gray-300 shrink-0 mt-px" />
+            Jury scoring is in English, and completes before the event.
+          </p>
+        )}
+
         {/* When do I judge, whom, and am I confirmed — before the scorecards. */}
         <SM26MyJurySchedule eventId={eventId} />
 

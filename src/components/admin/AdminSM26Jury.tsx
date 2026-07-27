@@ -72,7 +72,7 @@ export function AdminSM26Jury() {
         .select('id, role, status, registration:sm_registration(company_name,first_name,last_name,status), startup:sm_startup_profile(stage), arch:sm_architecture_entry(category,anon_code)')
         .eq('event_id', eid).in('role', ['startup', 'architect_pro', 'architect_student']).neq('status', 'declined'),
       supabase.from('sm_role_assignment')
-        .select('id, status, module_data, registration:sm_registration(user_id,first_name,last_name,email)')
+        .select('id, status, module_data, registration:sm_registration(user_id,first_name,last_name,email,status)')
         .eq('event_id', eid).eq('role', 'jury').neq('status', 'declined'),
       supabase.from('sm_jury_assignment').select('id, juror_user_id, entry_role_assignment_id, mandatory').eq('event_id', eid),
     ]);
@@ -92,11 +92,16 @@ export function AdminSM26Jury() {
         subtitle: isInnovation ? (startup.stage || '') : (arch.category || ''),
       };
     };
-    setEntries(((ents || []) as Record<string, unknown>[])
-      .filter(r => ((r.registration || {}) as { status?: string }).status !== 'declined')
-      .map(mapEntry));
+    // A withdrawn registration is excluded from the rankings just like a declined
+    // one, so it must not be assignable here either — otherwise you can spend
+    // jury time on an entry that will never be ranked. Same for a juror who
+    // withdrew: they can no longer score.
+    const regHidden = (r: Record<string, unknown>) =>
+      ['declined', 'cancelled'].includes(String(((r.registration || {}) as { status?: string }).status || ''));
 
-    const jr: JuryRole[] = ((jur || []) as Record<string, unknown>[]).map(row => {
+    setEntries(((ents || []) as Record<string, unknown>[]).filter(r => !regHidden(r)).map(mapEntry));
+
+    const jr: JuryRole[] = ((jur || []) as Record<string, unknown>[]).filter(r => !regHidden(r)).map(row => {
       const reg = (row.registration || {}) as { user_id?: string; first_name?: string; last_name?: string; email?: string };
       const md = (row.module_data || {}) as Record<string, unknown>;
       return {
@@ -175,7 +180,21 @@ export function AdminSM26Jury() {
       competition: entry.competition, mandatory: true,
     }).select('id, juror_user_id, entry_role_assignment_id, mandatory').single();
     setBusy(false);
-    if (error) { toast({ title: 'Could not assign', description: error.message, variant: 'destructive' }); return; }
+    if (error) {
+      // 23505 = the UNIQUE(juror, entry): Yachting Ventures assigned them from
+      // their own console, or this tab has gone stale. Say that, not the raw
+      // constraint name, and pull the current list in.
+      const duplicate = (error as { code?: string }).code === '23505';
+      toast({
+        title: duplicate ? 'Already assigned' : 'Could not assign',
+        description: duplicate
+          ? 'This juror is already on that entry — refreshing to show the current assignments.'
+          : error.message,
+        variant: 'destructive',
+      });
+      if (duplicate) load();
+      return;
+    }
     setAssignments(prev => [...prev, data as Assignment]);
   };
 

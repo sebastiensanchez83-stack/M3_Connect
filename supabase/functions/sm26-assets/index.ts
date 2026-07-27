@@ -150,8 +150,13 @@ Deno.serve(async (req) => {
       push(r.role, r.id, "pitch", su.pitch_media_url);
     }
     if (ar) {
-      push(r.role, r.id, "logo", ar.logo_url);
-      push(r.role, r.id, "company_image", ar.company_image_url);
+      // Architecture is judged blind. The firm's logo and company image identify
+      // it just as plainly as the enrolment proof does, so all three are gated:
+      // a juror only ever receives the project boards, which are what they score.
+      if (!blind) {
+        push(r.role, r.id, "logo", ar.logo_url);
+        push(r.role, r.id, "company_image", ar.company_image_url);
+      }
       push(r.role, r.id, "render", ar.project_renders);
       if (!blind) push(r.role, r.id, "proof", ar.proof_of_enrolment_url);
     }
@@ -162,7 +167,11 @@ Deno.serve(async (req) => {
       if (NON_ASSET_KEY.test(k)) continue;
       if (!FILE_KEY.test(k)) continue;
       const kind = /logo/i.test(k) ? "logo" : /photo/i.test(k) ? "photo" : /deck|pitch/i.test(k) ? "deck" : /product/i.test(k) ? "product" : /render|panel/i.test(k) ? "render" : /hero/i.test(k) ? "hero" : /banner/i.test(k) ? "banner" : /slides/i.test(k) ? "slides" : /press/i.test(k) ? "press" : /proof/i.test(k) ? "proof" : "other";
-      if (blind && (kind === "logo" || kind === "photo")) continue; // anonymise
+      // Anonymise for blind judging. hero_image is the architecture "company
+      // image" stored under a second key, so gating only the
+      // sm_architecture_entry column above would leave the very same file
+      // reachable through here: every architecture entry carries both.
+      if (blind && (kind === "logo" || kind === "photo" || kind === "hero" || kind === "company_image" || kind === "proof")) continue;
       push(r.role, r.id, kind, v);
     }
   }

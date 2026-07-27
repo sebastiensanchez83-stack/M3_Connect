@@ -74,7 +74,16 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     setLoading(false);
   };
 
-  const templateFor = (e: Entry) => templates.find(t => t.competition === e.competition && t.key === e.template_key) || null;
+  // An assignment carries the granular competition (architecture_pro /
+  // architecture_student, which the rankings split on) but the architecture
+  // scorecard is defined once for the family — so normalise before matching,
+  // or every architecture entry shows "No scorecard configured" and can never
+  // be submitted. The innovation path is unaffected, and the review row still
+  // records the granular competition.
+  const templateFor = (e: Entry) => {
+    const family = e.competition.startsWith('architecture') ? 'architecture' : e.competition;
+    return templates.find(t => t.competition === family && t.key === e.template_key) || null;
+  };
 
   const openEntry = async (e: Entry) => {
     setSelected(e);

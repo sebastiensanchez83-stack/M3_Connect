@@ -15,8 +15,8 @@ import { toast } from '@/hooks/use-toast';
 import { Pill } from '@/components/sm26/SM26ConsoleUI';
 import {
   REGISTERS, LETTER_TYPES, bodyParagraphs, complimentaryCloseFor, letterDateLong, salutationFor,
-  subjectFor, signOffFor, addressPlaceholder,
-  SENDER_DEFAULT, SIGNATORY_DEFAULT, FOOTER_DEFAULT,
+  subjectFor, signOffFor, addressPlaceholder, salutationWord,
+  SENDER_DEFAULT, SIGNATORY_DEFAULT, FOOTER_DEFAULT, BUNDLED_ASSETS,
   type EventFacts, type Lang, type Register, type LetterType,
 } from '@/lib/invitationTemplates';
 import { downloadInvitationPdf, invitationPdfBlobUrl, toDataUrl, type LetterAssets, type LetterData } from '@/lib/invitationPdf';
@@ -62,11 +62,11 @@ type Letterhead = {
   sender?: string; footer?: string;
 };
 type AssetSlot = 'banner' | 'logo' | 'signature' | 'stamp';
-const ASSET_SLOTS: { key: AssetSlot; label: string; hint: string }[] = [
-  { key: 'banner', label: 'Header strip', hint: 'The full-width banner across the top of the page.' },
-  { key: 'logo', label: 'Sender logo', hint: 'Sits next to the M3 address block.' },
-  { key: 'signature', label: 'Signature', hint: 'Drawn under the signatory’s name.' },
-  { key: 'stamp', label: 'Company stamp', hint: 'Drawn beside the signature.' },
+const ASSET_SLOTS: { key: AssetSlot; label: string; hint: string; bundled?: boolean }[] = [
+  { key: 'banner', label: 'Header strip', hint: 'The full-width banner across the top of the page.', bundled: true },
+  { key: 'logo', label: 'Sender logo', hint: 'Sits next to the M3 address block.', bundled: true },
+  { key: 'signature', label: 'Signature', hint: 'Drawn under the signatory’s name. Kept private — never published on the website.' },
+  { key: 'stamp', label: 'Company stamp', hint: 'Drawn beside the signature. Kept private — never published on the website.' },
 ];
 
 const statusMeta = (s: string) =>
@@ -118,17 +118,23 @@ export function AdminSM26Invitations() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  // Sign the letterhead images once and keep them as data URLs for jsPDF.
+  // Resolve the letterhead images to data URLs for jsPDF. The banner and the
+  // logo ship with the app, so a letter is correct out of the box; an upload
+  // simply overrides them.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const out: LetterAssets = {};
+      out.banner = await toDataUrl(BUNDLED_ASSETS.banner);
+      out.logo = await toDataUrl(BUNDLED_ASSETS.logo);
       // Only the four image slots are storage paths; sender/footer are text.
       const paths = ASSET_SLOTS.map(s => [s.key, letterhead[s.key]] as const).filter(([, v]) => !!v) as [AssetSlot, string][];
-      if (!paths.length) { setAssets({}); return; }
-      const out: LetterAssets = {};
       for (const [k, p] of paths) {
         const { data } = await supabase.storage.from('event-media').createSignedUrl(p, 600);
-        if (data?.signedUrl) out[k] = await toDataUrl(data.signedUrl);
+        if (data?.signedUrl) {
+          const url = await toDataUrl(data.signedUrl);
+          if (url) out[k] = url;
+        }
       }
       if (!cancelled) setAssets(out);
     })();
@@ -178,7 +184,7 @@ export function AdminSM26Invitations() {
       const wasTemplate = sameBody(d.paragraphs, templateBody(d));
       const n: Invitation = { ...d, ...patch };
       n.salutation = salutationFor(n.language, n.register);
-      n.complimentary_close = complimentaryCloseFor(n.language, n.letter_type, n.register);
+      n.complimentary_close = complimentaryCloseFor(n.language, n.letter_type, n.register, salutationWord(n.language, n.salutation));
       n.sign_off = signOffFor(n.language, n.letter_type);
       n.subject = subjectFor(n.language, n.letter_type, facts);
       if (wasTemplate) n.paragraphs = bodyParagraphs(n.language, n.letter_type, n.register, facts, { country: n.country || '' });
@@ -201,6 +207,25 @@ export function AdminSM26Invitations() {
       paragraphs: bodyParagraphs(d.language, d.letter_type, d.register, facts, { country: d.country || '' }),
       complimentary_close: complimentaryCloseFor(d.language, d.letter_type, d.register),
     } : d));
+  };
+
+  /**
+   * The salutation and the complimentary close name the same person, so editing
+   * one has to carry into the other — a letter that opens "Monsieur le
+   * Ministre," cannot close on "Excellence". The close only follows while it
+   * still reads as the generated one; once it has been rewritten by hand, it is
+   * left alone.
+   */
+  const setSalutation = (v: string) => {
+    setDraft(d => {
+      if (!d) return d;
+      const generated = complimentaryCloseFor(d.language, d.letter_type, d.register, salutationWord(d.language, d.salutation));
+      const next = { ...d, salutation: v };
+      if (d.complimentary_close.trim() === generated.trim()) {
+        next.complimentary_close = complimentaryCloseFor(d.language, d.letter_type, d.register, salutationWord(d.language, v));
+      }
+      return next;
+    });
   };
 
   const setPara = (i: number, v: string) =>
@@ -340,7 +365,10 @@ export function AdminSM26Invitations() {
     } finally { setBusy(null); }
   };
 
-  const missingAssets = useMemo(() => ASSET_SLOTS.filter(s => !letterhead[s.key]).map(s => s.label), [letterhead]);
+  // Only the two private slots can actually be missing; the rest ship with the app.
+  const missingAssets = useMemo(
+    () => ASSET_SLOTS.filter(s => !s.bundled && !letterhead[s.key]).map(s => s.label.toLowerCase()),
+    [letterhead]);
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
@@ -376,8 +404,8 @@ export function AdminSM26Invitations() {
 
       {missingAssets.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-          The letter will print without {missingAssets.join(', ').toLowerCase()} until you upload {missingAssets.length > 1 ? 'them' : 'it'} under <b>Letterhead</b>.
-          Everything else already works.
+          The header strip and the M3 logo ship with the platform, so letters already look right.
+          Upload the {missingAssets.join(' and ')} once under <b>Letterhead</b> and every future letter carries {missingAssets.length > 1 ? 'them' : 'it'} — you never do this again.
         </div>
       )}
 
@@ -398,7 +426,9 @@ export function AdminSM26Invitations() {
                   </div>
                   {letterhead[s.key]
                     ? <Pill label="uploaded" cls="bg-green-50 text-green-700 border-green-200" />
-                    : <Pill label="missing" cls="bg-amber-50 text-amber-700 border-amber-200" />}
+                    : s.bundled
+                      ? <Pill label="ships with the app" cls="bg-blue-50 text-blue-700 border-blue-200" />
+                      : <Pill label="not set" cls="bg-amber-50 text-amber-700 border-amber-200" />}
                 </div>
                 <div className="flex items-center gap-2 mt-2">
                   <input ref={el => { fileRefs.current[s.key] = el; }} type="file" accept="image/*" className="hidden"
@@ -547,7 +577,7 @@ export function AdminSM26Invitations() {
               <div><Label className="text-xs text-gray-500">Date</Label>
                 <Input type="date" className="h-9 mt-1" value={draft.letter_date} onChange={e => set('letter_date', e.target.value)} /></div>
               <div><Label className="text-xs text-gray-500">Salutation</Label>
-                <Input className="h-9 mt-1" value={draft.salutation} onChange={e => set('salutation', e.target.value)} /></div>
+                <Input className="h-9 mt-1" value={draft.salutation} onChange={e => setSalutation(e.target.value)} /></div>
             </div>
 
             <div>

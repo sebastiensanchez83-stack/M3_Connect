@@ -110,6 +110,18 @@ const REGISTER_COPY: Record<Register, Record<Lang, RegisterCopy>> = {
 
 export const salutationFor = (lang: Lang, r: Register) => REGISTER_COPY[r][lang].salutation;
 
+/**
+ * The form of address inside a salutation, reusable in the complimentary close.
+ * "Excellence," -> "Excellence"; "Dear Minister," -> "Minister". The two must
+ * agree: a letter that opens "Monsieur le Ministre," cannot close on
+ * "Excellence".
+ */
+export function salutationWord(lang: Lang, salutation: string): string {
+  let s = salutation.trim().replace(/[,:;.\s]+$/, '');
+  if (lang === 'en') s = s.replace(/^dear\s+/i, '');
+  return s;
+}
+
 export function subjectFor(lang: Lang, type: LetterType, ev: EventFacts): string {
   const ord = editionOrdinal(lang, ev.editionLabel);
   if (type === 'authorities') {
@@ -122,8 +134,9 @@ export function subjectFor(lang: Lang, type: LetterType, ev: EventFacts): string
     : `Invitation to the ${ord} Edition of the Monaco Smart & Sustainable Marina Rendezvous`;
 }
 
-export function complimentaryCloseFor(lang: Lang, type: LetterType, r: Register): string {
-  const w = REGISTER_COPY[r][lang].closeWord;
+/** `word` overrides the register's default, so an edited salutation carries through. */
+export function complimentaryCloseFor(lang: Lang, type: LetterType, r: Register, word?: string): string {
+  const w = word?.trim() || REGISTER_COPY[r][lang].closeWord;
   // The authorities letter closes on "highest consideration"; the general one
   // adds "and respect" — both taken from M3's reference documents.
   const tail = type === 'authorities'
@@ -236,5 +249,18 @@ export function addressPlaceholder(lang: Lang, type: LetterType): string {
 
 export const SENDER_DEFAULT = ['M3 S.A.M.', 'Monte Carlo Palace', '3/7 Boulevard des Moulins', '98 000 Monaco'];
 export const SIGNATORY_DEFAULT = { name: 'Avv. José Marco Casellini', title: 'CEO', org: 'M3 S.A.M.' };
+// Identifiers read off the company stamp on M3's own letters.
 export const FOOTER_DEFAULT =
-  'M3 S.A.M. — Monte Carlo Palace, 3/7 Boulevard des Moulins — 98 000 Monaco';
+  'M3 S.A.M. — Monte Carlo Palace, 3/7 Boulevard des Moulins, 98000 Monaco — info@m3monaco.com — NIS : 6820 B 19807 — RCI : 18 S 07927';
+
+/**
+ * Artwork shipped with the app, so a letter looks right with nothing to set up.
+ * Only the public marketing assets live here: the CEO's signature and the
+ * company stamp are deliberately NOT bundled, because everything under public/
+ * is downloadable by anyone who guesses the URL. Those two are uploaded once
+ * into private storage instead.
+ */
+export const BUNDLED_ASSETS = {
+  banner: '/letterhead/sm26-banner.png',
+  logo: '/letterhead/m3-logo.png',
+};

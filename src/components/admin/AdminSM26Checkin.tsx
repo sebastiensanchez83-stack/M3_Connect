@@ -157,8 +157,10 @@ export function AdminSM26Checkin() {
     setWindows(ws);
     const initialWindow = activeWindow || ws[0]?.key || '';
     setActiveWindow(initialWindow);
-    // Hide attendees whose registration is declined.
-    const list = ((rows || []) as Attendee[]).filter(a => regOf(a)?.status !== 'declined');
+    // This list IS the door list, so it must only hold people who are actually
+    // coming: a withdrawn registration counts as much as a refused one.
+    const OUT = ['declined', 'cancelled'];
+    const list = ((rows || []) as Attendee[]).filter(a => !OUT.includes(regOf(a)?.status || ''));
     setAttendees(list);
     setLoading(false);
 
@@ -272,7 +274,24 @@ export function AdminSM26Checkin() {
                 </div>
               </div>
             ) : (
-              <div className="text-sm text-red-700">Unknown or invalid QR token.</div>
+              // Say WHY. "Unknown token" on a cancelled registration sends the
+              // desk hunting for a scanner problem that doesn't exist.
+              <div className="flex items-center gap-3">
+                <X className="h-8 w-8 text-red-600 shrink-0" />
+                <div>
+                  <div className="font-semibold text-red-800">
+                    {scan.error === 'registration_cancelled' ? 'Registration withdrawn — do not admit'
+                      : scan.error === 'registration_declined' ? 'Registration refused — do not admit'
+                      : scan.error === 'not_attending' ? 'Marked as not attending'
+                      : scan.error === 'not_found' ? 'No attendee behind this badge'
+                      : 'Unknown or invalid QR code'}
+                  </div>
+                  {(scan.name || scan.company) && (
+                    <div className="text-sm text-red-700">{[scan.name, scan.company].filter(Boolean).join(' · ')}</div>
+                  )}
+                  <div className="text-xs text-red-600 mt-0.5">Nothing was recorded. Check with the M3 desk before letting them in.</div>
+                </div>
+              </div>
             )}
             <button onClick={() => setScan(null)} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
           </CardContent>

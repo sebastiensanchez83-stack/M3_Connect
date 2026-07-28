@@ -2,7 +2,7 @@
 
 Authoritative list of every migration applied to Supabase project
 `djjbgzasuomhyfvtlidi`, in order (from `supabase_migrations.schema_migrations`).
-**259 migrations**, `20260130111556` → `20260728082022`.
+**261 migrations**, `20260130111556` → `20260728094816`.
 
 Generated 2026-07-16. Regenerate with:
 
@@ -272,4 +272,6 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260728073417  sm26_official_invitations
 20260728073757  sm26_letterhead_setting
 20260728082022  sm26_invitation_type_and_attribution
+20260728094743  sm26_checkin_refuse_withdrawn
+20260728094816  sm26_revoke_badges_on_withdrawal
 ```

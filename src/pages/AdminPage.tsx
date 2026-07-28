@@ -56,6 +56,7 @@ const AdminPulse = lazyWithRetry(() => import('@/components/admin/AdminPulse').t
 const AdminSM26 = lazyWithRetry(() => import('@/components/admin/AdminSM26').then(m => ({ default: m.AdminSM26 })));
 const AdminSM26Detail = lazyWithRetry(() => import('@/components/admin/AdminSM26Detail').then(m => ({ default: m.AdminSM26Detail })));
 const AdminSM26Jury = lazyWithRetry(() => import('@/components/admin/AdminSM26Jury').then(m => ({ default: m.AdminSM26Jury })));
+const AdminSM26Invitations = lazyWithRetry(() => import('@/components/admin/AdminSM26Invitations').then(m => ({ default: m.AdminSM26Invitations })));
 const AdminSM26Ecat = lazyWithRetry(() => import('@/components/admin/AdminSM26Ecat').then(m => ({ default: m.AdminSM26Ecat })));
 const AdminSM26MediaKits = lazyWithRetry(() => import('@/components/admin/AdminSM26MediaKits').then(m => ({ default: m.AdminSM26MediaKits })));
 const AdminSM26EcatDossier = lazyWithRetry(() => import('@/components/admin/AdminSM26EcatDossier').then(m => ({ default: m.AdminSM26EcatDossier })));
@@ -146,6 +147,7 @@ export function AdminPage() {
             <Route path="/sm26/networking" element={<AdminOnlyGuard><AdminSM26Networking /></AdminOnlyGuard>} />
             <Route path="/sm26/architecture" element={<AdminOnlyGuard><AdminSM26Architecture /></AdminOnlyGuard>} />
             <Route path="/sm26/import" element={<AdminOnlyGuard><AdminSM26Import /></AdminOnlyGuard>} />
+            <Route path="/sm26/invitations" element={<AdminOnlyGuard><AdminSM26Invitations /></AdminOnlyGuard>} />
             <Route path="/media-downloads" element={<AdminOnlyGuard><AdminMediaDownloads /></AdminOnlyGuard>} />
             <Route path="/sm26/:id" element={<AdminOnlyGuard><AdminSM26Detail /></AdminOnlyGuard>} />
             {/* Partners merged into Users tab */}

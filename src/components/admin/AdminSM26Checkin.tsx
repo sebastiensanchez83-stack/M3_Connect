@@ -26,10 +26,27 @@ interface Attendee {
   badge?: { checkin_token: string } | { checkin_token: string }[];
   checkins: { window_key: string }[];
 }
-interface ScanResult { ok: boolean; error?: string; name?: string; company?: string | null; roles?: string[]; already?: boolean; attendee_id?: string; }
+interface ScanResult { ok: boolean; error?: string; name?: string; company?: string | null; roles?: string[]; already?: boolean; attendee_id?: string; can_force?: boolean; forced?: boolean; }
 
 const tokenOf = (a: Attendee) => (Array.isArray(a.badge) ? a.badge[0]?.checkin_token : a.badge?.checkin_token) || '';
 const regOf = (a: Attendee): RegRef | null => (Array.isArray(a.registration) ? a.registration[0] : a.registration) || null;
+const nameOf = (a: Attendee) => `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email || 'This attendee';
+
+// Why the door refuses someone, in words the welcome desk can act on.
+const BLOCK_LABEL: Record<string, string> = {
+  registration_cancelled: 'Registration withdrawn',
+  registration_declined: 'Registration refused',
+  registration_under_review: 'Registration not confirmed yet',
+  registration_submitted: 'Registration not confirmed yet',
+  payment_missing: 'No payment recorded',
+  payment_invoiced: 'Invoice not settled',
+  payment_unpaid: 'Payment outstanding',
+  not_attending: 'Marked as not attending',
+  jury_not_onsite: 'Juror has not confirmed attending on site',
+  not_found: 'No attendee behind this badge',
+  unknown_token: 'Unknown or invalid QR code',
+  force_reason_required: 'A reason is required to admit anyway',
+};
 const rolesOf = (a: Attendee) => regOf(a)?.roles || [];
 const companyOf = (a: Attendee) => regOf(a)?.company_name || '';
 
@@ -137,6 +154,10 @@ export function AdminSM26Checkin() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  // attendee_id -> why the door would refuse them. Absent = free to walk in.
+  const [eligibility, setEligibility] = useState<Record<string, string>>({});
+  // Kept so a refusal can be re-sent as an override without rescanning the badge.
+  const lastToken = useRef<string>('');
 
   useEffect(() => { load(); }, []);
 
@@ -162,6 +183,12 @@ export function AdminSM26Checkin() {
     const OUT = ['declined', 'cancelled'];
     const list = ((rows || []) as Attendee[]).filter(a => !OUT.includes(regOf(a)?.status || ''));
     setAttendees(list);
+    // The verdict comes from the server, so this screen shows exactly the rule
+    // the door enforces rather than a second copy of it.
+    const { data: elig } = await supabase.rpc('sm_checkin_eligibility_map', { p_event_id: eid });
+    setEligibility(Object.fromEntries(
+      ((elig || []) as { attendee_id: string; ok: boolean; reason: string | null }[])
+        .filter(e => !e.ok).map(e => [e.attendee_id, e.reason || 'not_eligible'])));
     setLoading(false);
 
     // process a scanned token from the URL (?token=…)
@@ -170,6 +197,7 @@ export function AdminSM26Checkin() {
   };
 
   const processToken = async (token: string, win: string) => {
+    lastToken.current = token;
     const { data, error } = await supabase.rpc('sm_checkin_by_token', { p_token: token, p_window: win });
     if (error) { toast({ title: 'Check-in failed', description: error.message, variant: 'destructive' }); return; }
     const res = data as ScanResult;
@@ -186,15 +214,48 @@ export function AdminSM26Checkin() {
 
   const manualCheckin = async (a: Attendee) => {
     if (!activeWindow) { toast({ title: 'Pick an attendance window first', variant: 'destructive' }); return; }
+    // Someone the rules refuse can still be let in, but only deliberately and
+    // only with a reason, which is stored on the check-in.
+    const blocked = eligibility[a.id];
+    let reason: string | null = null;
+    if (blocked) {
+      reason = prompt(`${nameOf(a)} cannot be admitted: ${BLOCK_LABEL[blocked] || blocked}.\n\nTo let them in anyway, type why (recorded against this check-in):`);
+      if (!reason || !reason.trim()) return;
+    }
     setBusy(a.id);
-    const { data, error } = await supabase.rpc('sm_checkin_attendee', { p_attendee_id: a.id, p_window: activeWindow });
+    const { data, error } = await supabase.rpc('sm_checkin_attendee', {
+      p_attendee_id: a.id, p_window: activeWindow,
+      p_force: !!blocked, p_force_reason: reason,
+    });
     setBusy(null);
     if (error) { toast({ title: 'Failed', description: error.message, variant: 'destructive' }); return; }
-    const res = data as { already?: boolean };
+    const res = data as { ok?: boolean; already?: boolean; forced?: boolean; error?: string };
+    if (res.ok === false) {
+      toast({ title: 'Not admitted', description: BLOCK_LABEL[res.error || ''] || res.error, variant: 'destructive' });
+      return;
+    }
     setAttendees(prev => prev.map(x => x.id === a.id
       ? { ...x, checkins: x.checkins.some(c => c.window_key === activeWindow) ? x.checkins : [...x.checkins, { window_key: activeWindow }] }
       : x));
-    toast({ title: res.already ? 'Already checked in for this window' : 'Checked in' });
+    toast({
+      title: res.already ? 'Already checked in for this window' : res.forced ? 'Admitted by override' : 'Checked in',
+      description: res.forced ? 'Recorded as an override with your reason.' : undefined,
+    });
+  };
+
+  /** Let a refused scan through, deliberately and with a recorded reason. */
+  const forceFromScan = async (res: ScanResult) => {
+    if (!res.attendee_id || !activeWindow) return;
+    const who = [res.name, res.company].filter(Boolean).join(' · ') || 'this person';
+    const reason = prompt(`Admit ${who} anyway?\n\nRefused because: ${BLOCK_LABEL[res.error || ''] || res.error}.\nType why (recorded against this check-in):`);
+    if (!reason || !reason.trim()) return;
+    const { data, error } = await supabase.rpc('sm_checkin_by_token', {
+      p_token: lastToken.current, p_window: activeWindow, p_force: true, p_force_reason: reason,
+    });
+    if (error) { toast({ title: 'Failed', description: error.message, variant: 'destructive' }); return; }
+    setScan(data as ScanResult);
+    toast({ title: 'Admitted by override', description: 'Recorded with your reason.' });
+    load();
   };
 
   // Undo a check-in clicked by mistake (current window).
@@ -235,6 +296,11 @@ export function AdminSM26Checkin() {
 
   const countFor = (win: string) => attendees.filter(a => a.checkins.some(c => c.window_key === win)).length;
   const totalCheckedIn = attendees.filter(a => a.checkins.length > 0).length;
+  const blockedSummary = attendees.reduce((acc, a) => {
+    const r = eligibility[a.id];
+    if (r) { acc.total++; acc.byReason[r] = (acc.byReason[r] || 0) + 1; }
+    return acc;
+  }, { total: 0, byReason: {} as Record<string, number> });
   const filtered = attendees.filter(a => {
     if (!search) return true;
     const hay = `${a.first_name || ''} ${a.last_name || ''} ${a.email || ''} ${companyOf(a)}`.toLowerCase();
@@ -276,21 +342,21 @@ export function AdminSM26Checkin() {
             ) : (
               // Say WHY. "Unknown token" on a cancelled registration sends the
               // desk hunting for a scanner problem that doesn't exist.
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <X className="h-8 w-8 text-red-600 shrink-0" />
-                <div>
+                <div className="min-w-0">
                   <div className="font-semibold text-red-800">
-                    {scan.error === 'registration_cancelled' ? 'Registration withdrawn — do not admit'
-                      : scan.error === 'registration_declined' ? 'Registration refused — do not admit'
-                      : scan.error === 'not_attending' ? 'Marked as not attending'
-                      : scan.error === 'not_found' ? 'No attendee behind this badge'
-                      : 'Unknown or invalid QR code'}
+                    {BLOCK_LABEL[scan.error || ''] || 'Unknown or invalid QR code'} — do not admit
                   </div>
                   {(scan.name || scan.company) && (
                     <div className="text-sm text-red-700">{[scan.name, scan.company].filter(Boolean).join(' · ')}</div>
                   )}
-                  <div className="text-xs text-red-600 mt-0.5">Nothing was recorded. Check with the M3 desk before letting them in.</div>
+                  <div className="text-xs text-red-600 mt-0.5">Nothing was recorded.</div>
                 </div>
+                {scan.can_force && scan.attendee_id && (
+                  <Button size="sm" variant="outline" className="ml-auto border-red-300 text-red-700"
+                    onClick={() => forceFromScan(scan)}>Admit anyway…</Button>
+                )}
               </div>
             )}
             <button onClick={() => setScan(null)} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
@@ -315,6 +381,29 @@ export function AdminSM26Checkin() {
         </CardContent>
       </Card>
 
+      {/* Readiness — so a data problem is found now, not at the door on the day. */}
+      {blockedSummary.total > 0 && (
+        <Card className="border-0 shadow-sm bg-amber-50">
+          <CardContent className="p-4">
+            <div className="text-sm font-semibold text-amber-900">
+              {blockedSummary.total} of {attendees.length} would be refused at the door today
+            </div>
+            <p className="text-xs text-amber-800 mt-1">
+              Admission requires a <b>confirmed</b> registration, a <b>settled</b> fee (paid or waived),
+              and — for anyone holding a jury role — that they have said on their account they are coming on site.
+              Fix these in the registration sheets, or admit them one by one with a recorded reason.
+            </p>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {Object.entries(blockedSummary.byReason).sort((a, b) => b[1] - a[1]).map(([reason, n]) => (
+                <Badge key={reason} className="text-[10px] bg-white text-amber-800 border-amber-200">
+                  {n} · {BLOCK_LABEL[reason] || reason}
+                </Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Manual search + check-in */}
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -333,6 +422,11 @@ export function AdminSM26Checkin() {
                     <span className="text-sm font-semibold text-gray-900">{name}</span>
                     {!a.is_primary && <Badge variant="outline" className="text-[10px] gap-1 text-gray-500"><Users className="h-2.5 w-2.5" /> guest</Badge>}
                     {rolesOf(a).filter(r => r.status !== 'declined').map((r, i) => <Badge key={i} variant="secondary" className="text-[10px]">{SM26_ROLE_LABELS[r.role] || r.role}</Badge>)}
+                    {eligibility[a.id] && (
+                      <Badge className="text-[10px] bg-red-50 text-red-700 border-red-200">
+                        {BLOCK_LABEL[eligibility[a.id]] || eligibility[a.id]}
+                      </Badge>
+                    )}
                   </div>
                   <div className="text-xs text-gray-500">{companyOf(a)}</div>
                   {a.checkins.length > 0 && (

@@ -199,6 +199,11 @@ async function sendAdminAlert(d: { first: string; last: string; email: string; c
   }
 }
 
+// A real person saw a success screen but nothing was written. Make it findable.
+function logDrop(reason: string, d: Record<string, unknown>) {
+  console.error(`SM26 REGISTRATION NOT WRITTEN [${reason}] ${JSON.stringify(d)}`);
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
   if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
@@ -219,8 +224,16 @@ Deno.serve(async (req: Request) => {
   const extras = (payload.extras ?? {}) as Record<string, unknown>;
   const assetsIn = (payload.assets ?? {}) as Record<string, { name?: string; type?: string; data?: string }[]>;
 
-  // Silently accept bots (honeypot field should always be empty)
-  if (honeypot) return json(req, { status: "created" });
+  // Silently accept bots (honeypot field should always be empty). Browsers and
+  // password managers do autofill hidden inputs, so log the whole attempt: a
+  // false positive here throws away a genuine registrant behind a success screen.
+  if (honeypot) {
+    logDrop("honeypot", {
+      email: s(r.email), first: s(r.first_name), last: s(r.last_name),
+      company: s(r.company_name), role, trap_value: String(honeypot).slice(0, 200),
+    });
+    return json(req, { status: "created" });
+  }
 
   const email = (typeof r.email === "string" ? r.email : "").trim().toLowerCase();
   const first = s(r.first_name);
@@ -251,7 +264,10 @@ Deno.serve(async (req: Request) => {
     .from("sm_registration").select("id, status").eq("event_id", eventId).ilike("email", emailEsc);
   if ((liveByEmail as { status: string }[] | null || []).some(
     (x) => !["declined", "cancelled"].includes((x.status || "").toLowerCase())
-  )) return json(req, { status: "ok" });
+  )) {
+    logDrop("already_registered_email", { email, role });
+    return json(req, { status: "ok" });
+  }
 
   // Provision a confirmed account (we send our own magic-link below)
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
@@ -284,8 +300,18 @@ Deno.serve(async (req: Request) => {
     // Existing account: link the registration to it. Never reveal that the email
     // already exists -- respond exactly as for a brand-new signup (anti-enumeration).
     const { data: prof } = await admin.from("profiles").select("user_id").ilike("email", email).maybeSingle();
-    if (!(prof as { user_id?: string } | null)?.user_id) return json(req, { status: "ok" });
-    userId = (prof as { user_id: string }).user_id;
+    let existingId = (prof as { user_id?: string } | null)?.user_id || null;
+    if (!existingId) {
+      // The account exists in auth but has no profile row. Resolving it from
+      // auth keeps the registration instead of dropping it behind a fake success.
+      const { data: byAuth } = await admin.rpc("sm_user_id_by_email", { p_email: email });
+      existingId = (byAuth as string | null) || null;
+    }
+    if (!existingId) {
+      logDrop("auth_email_exists_user_unresolved", { email, role });
+      return json(req, { status: "ok" });
+    }
+    userId = existingId;
   } else {
     userId = created.user!.id;
   }
@@ -293,7 +319,10 @@ Deno.serve(async (req: Request) => {
   // Idempotent: if this person already registered for the event, succeed quietly.
   const { data: dupReg } = await admin
     .from("sm_registration").select("id").eq("event_id", eventId).eq("user_id", userId).maybeSingle();
-  if (dupReg) return json(req, { status: "ok" });
+  if (dupReg) {
+    logDrop("already_registered_user", { email, role });
+    return json(req, { status: "ok" });
+  }
 
   const { data: reg, error: regErr } = await admin
     .from("sm_registration")
@@ -322,7 +351,10 @@ Deno.serve(async (req: Request) => {
     .select("id")
     .single();
   if (regErr || !reg) {
-    if ((regErr as { code?: string } | null)?.code === "23505") return json(req, { status: "ok" }); // already registered (race)
+    if ((regErr as { code?: string } | null)?.code === "23505") {
+      logDrop("insert_conflict_race", { email, role });
+      return json(req, { status: "ok" }); // already registered (race)
+    }
     console.error("registration insert failed", regErr);
     return json(req, { error: "Registration could not be completed. Please try again." }, 500);
   }

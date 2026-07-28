@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, Search, ChevronRight, Ship, Mail, User, Clock, Scale, BookOpen, CalendarDays, QrCode, Trophy, MessageSquare, Check, BellRing, X, UserPlus, Users } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -172,6 +172,60 @@ function pickAvatarPath(r: RegRow): string | null {
   return [...logos, ...photos].find(imgish) || null;
 }
 
+// ── Tracking dimensions ────────────────────────────────────────────────────
+// Four things the team follows up on outside the registration status itself.
+// Every participant sits in exactly one bucket per dimension (absent data is
+// its own bucket, never a silent gap), so each row of the overview adds up to
+// the same total and any bucket can be clicked as a filter.
+type PayState = 'paid' | 'waived' | 'invoiced' | 'unpaid' | 'none';
+type AcctState = 'active' | 'pw_pending' | 'never_signed_in' | 'none';
+type MkState = 'sent' | 'ready' | 'none';
+type EcatState = 'approved' | 'uploaded' | 'changes_requested' | 'awaiting_export' | 'none';
+
+type Bucket = { key: string; label: string; cls: string; hint: string };
+const GREEN = 'bg-green-50 text-green-700 border-green-200';
+const AMBER = 'bg-amber-50 text-amber-700 border-amber-200';
+const SKY = 'bg-sky-50 text-sky-700 border-sky-200';
+const RED = 'bg-red-50 text-red-700 border-red-200';
+const GREY = 'bg-gray-50 text-gray-500 border-gray-200';
+
+const PAY_BUCKETS: Bucket[] = [
+  { key: 'paid', label: 'Paid', cls: GREEN, hint: 'Fee received' },
+  { key: 'waived', label: 'Waived', cls: SKY, hint: 'No fee due for this participant' },
+  { key: 'invoiced', label: 'Invoiced', cls: AMBER, hint: 'Invoice raised, payment still outstanding' },
+  { key: 'unpaid', label: 'Unpaid', cls: RED, hint: 'Explicitly marked unpaid' },
+  { key: 'none', label: 'Nothing recorded', cls: GREY, hint: 'No fee line at all — neither invoiced nor waived' },
+];
+const ACCT_BUCKETS: Bucket[] = [
+  { key: 'active', label: 'Active', cls: GREEN, hint: 'Has signed in at least once' },
+  { key: 'pw_pending', label: 'Password pending', cls: AMBER, hint: 'Account created, the person has not set their password yet' },
+  { key: 'never_signed_in', label: 'Never signed in', cls: SKY, hint: 'Password set but never logged in' },
+  { key: 'none', label: 'No account', cls: GREY, hint: 'No platform account has been created' },
+];
+const MK_BUCKETS: Bucket[] = [
+  { key: 'sent', label: 'Sent', cls: GREEN, hint: 'Visuals uploaded and the participant has been emailed' },
+  { key: 'ready', label: 'To send', cls: AMBER, hint: 'Visuals uploaded but nobody has been notified yet' },
+  { key: 'none', label: 'No kit', cls: GREY, hint: 'No visuals uploaded' },
+];
+const ECAT_BUCKETS: Bucket[] = [
+  { key: 'approved', label: 'Approved', cls: GREEN, hint: 'Page signed off' },
+  { key: 'uploaded', label: 'Awaiting approval', cls: AMBER, hint: 'Designed page uploaded, waiting for sign-off' },
+  { key: 'changes_requested', label: 'Changes requested', cls: RED, hint: 'Sent back for corrections' },
+  { key: 'awaiting_export', label: 'To export', cls: SKY, hint: 'Not exported to the designer yet' },
+  { key: 'none', label: 'No page', cls: GREY, hint: 'No e-catalogue page for this participant' },
+];
+const DIMENSIONS = [
+  { key: 'pay', title: 'Payment', buckets: PAY_BUCKETS },
+  { key: 'acct', title: 'Account', buckets: ACCT_BUCKETS },
+  { key: 'mk', title: 'Media kit', buckets: MK_BUCKETS },
+  { key: 'ecat', title: 'E-catalogue', buckets: ECAT_BUCKETS },
+] as const;
+
+// A participant can hold several e-catalogue pages (one per role). Surface the
+// one that still needs work rather than the best one, so nothing hides behind
+// an already-approved sibling page.
+const ECAT_PRIORITY: EcatState[] = ['changes_requested', 'awaiting_export', 'uploaded', 'approved'];
+
 export function AdminSM26() {
   const navigate = useNavigate();
   const [rows, setRows] = useState<RegRow[]>([]);
@@ -180,18 +234,21 @@ export function AdminSM26() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [noAccountOnly, setNoAccountOnly] = useState(false);
   // "Ready to invoice": the company has confirmed its final attendee list
   // (headcount locked) but payment isn't settled yet — the point at which the
   // invoice can be raised for the right amount.
   const [readyToInvoiceOnly, setReadyToInvoiceOnly] = useState(false);
-  // Per-registration progress: payment settled + architecture entry files.
-  const [paidSet, setPaidSet] = useState<Set<string>>(new Set());
   const [archProgress, setArchProgress] = useState<Map<string, { panels: number; notice: boolean }>>(new Map());
-  // Media-kit status per registration: 'sent' (files + participant notified) or
-  // 'ready' (files uploaded, not yet sent). Absent = no kit.
-  const [mediaKit, setMediaKit] = useState<Map<string, 'sent' | 'ready'>>(new Map());
-  const [mkFilter, setMkFilter] = useState<'' | 'sent' | 'ready'>('');
+  // One map per tracking dimension, each keyed by registration id. A missing
+  // key means the 'none' bucket.
+  const [payStatus, setPayStatus] = useState<Map<string, PayState>>(new Map());
+  const [acctState, setAcctState] = useState<Map<string, AcctState>>(new Map());
+  const [mediaKit, setMediaKit] = useState<Map<string, MkState>>(new Map());
+  const [ecat, setEcat] = useState<Map<string, EcatState>>(new Map());
+  const [payFilter, setPayFilter] = useState('');
+  const [acctFilter, setAcctFilter] = useState('');
+  const [mkFilter, setMkFilter] = useState('');
+  const [ecatFilter, setEcatFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -226,7 +283,8 @@ export function AdminSM26() {
     setLoading(true);
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setRows([]); setLoading(false); return; }
-    const [regsRes, paysRes, filesRes, mkRes, mkFilesRes] = await Promise.all([
+    const evId = (ev as { id: string }).id;
+    const [regsRes, paysRes, filesRes, mkRes, mkFilesRes, acctRes, ecatRes] = await Promise.all([
       supabase
         .from('sm_registration')
         .select('id,first_name,last_name,email,company_name,country,status,created_at,user_id,organization_id,num_attendees,attendees_confirmed_at, roles:sm_role_assignment(id,role,status,scope,module_data, startup:sm_startup_profile(logo_url), architecture:sm_architecture_entry(logo_url,company_image_url))')
@@ -236,13 +294,31 @@ export function AdminSM26() {
       supabase.from('sm_architecture_file').select('role_assignment_id,kind'),
       supabase.from('sm_media_kit').select('registration_id,notified_at'),
       supabase.from('sm_media_kit_file').select('registration_id'),
+      // pw_pending lives in auth.users metadata, which PostgREST cannot read —
+      // this staff-only RPC is the only way to tell an invited-but-dormant
+      // account from a working one.
+      supabase.rpc('sm_account_state_map', { p_event_id: evId }),
+      supabase.from('sm_ecat_page').select('registration_id,status'),
     ]);
     setRows((regsRes.data || []) as RegRow[]);
-    const ps = new Set<string>();
+    const pay = new Map<string, PayState>();
     for (const p of (paysRes.data || []) as { registration_id: string; status: string }[]) {
-      if (p.status === 'paid' || p.status === 'waived') ps.add(p.registration_id);
+      pay.set(p.registration_id, p.status as PayState);
     }
-    setPaidSet(ps);
+    setPayStatus(pay);
+    const acct = new Map<string, AcctState>();
+    for (const a of (acctRes.data || []) as { registration_id: string; state: string }[]) {
+      if (a.state !== 'none') acct.set(a.registration_id, a.state as AcctState);
+    }
+    setAcctState(acct);
+    const ec = new Map<string, EcatState>();
+    for (const p of (ecatRes.data || []) as { registration_id: string | null; status: string }[]) {
+      if (!p.registration_id) continue;
+      const cur = ec.get(p.registration_id);
+      const next = p.status as EcatState;
+      if (!cur || ECAT_PRIORITY.indexOf(next) < ECAT_PRIORITY.indexOf(cur)) ec.set(p.registration_id, next);
+    }
+    setEcat(ec);
     const ap = new Map<string, { panels: number; notice: boolean }>();
     for (const f of (filesRes.data || []) as { role_assignment_id: string; kind: string }[]) {
       const cur = ap.get(f.role_assignment_id) || { panels: 0, notice: false };
@@ -254,28 +330,52 @@ export function AdminSM26() {
     // Media-kit status: has files -> 'ready', has files + notified -> 'sent'.
     const notified = new Set<string>();
     for (const k of (mkRes.data || []) as { registration_id: string; notified_at: string | null }[]) if (k.notified_at) notified.add(k.registration_id);
-    const mk = new Map<string, 'sent' | 'ready'>();
+    const mk = new Map<string, MkState>();
     for (const f of (mkFilesRes.data || []) as { registration_id: string }[]) mk.set(f.registration_id, notified.has(f.registration_id) ? 'sent' : 'ready');
     setMediaKit(mk);
     setLoading(false);
   };
 
-  const filtered = rows.filter(r => {
+  const paidSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const [id, st] of payStatus) if (st === 'paid' || st === 'waived') s.add(id);
+    return s;
+  }, [payStatus]);
+
+  // Which bucket a registration falls in, per dimension. Kept in one place so
+  // the overview counts and the list filter can never drift apart.
+  const bucketOf = (r: RegRow, dim: string): string =>
+    dim === 'pay' ? (payStatus.get(r.id) || 'none')
+      : dim === 'acct' ? (acctState.get(r.id) || 'none')
+        : dim === 'mk' ? (mediaKit.get(r.id) || 'none')
+          : (ecat.get(r.id) || 'none');
+  const dimFilter: Record<string, string> = { pay: payFilter, acct: acctFilter, mk: mkFilter, ecat: ecatFilter };
+  const dimSetter: Record<string, (v: string) => void> = { pay: setPayFilter, acct: setAcctFilter, mk: setMkFilter, ecat: setEcatFilter };
+
+  // Two stages: `scoped` applies who-you're-looking-at (search / role / status),
+  // `filtered` then applies the tracking dimensions. The overview counts run off
+  // `scoped`, so picking "Confirmed" re-breaks-down payment for confirmed people
+  // instead of zeroing every other bucket.
+  const scoped = rows.filter(r => {
     if (search) {
       const hay = `${r.first_name || ''} ${r.last_name || ''} ${r.email || ''} ${r.company_name || ''}`.toLowerCase();
       if (!hay.includes(search.toLowerCase())) return false;
     }
     if (roleFilter !== 'all' && !r.roles.some(x => x.role === roleFilter)) return false;
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
-    if (noAccountOnly && r.user_id) return false;
+    return true;
+  });
+  const filtered = scoped.filter(r => {
+    for (const d of DIMENSIONS) if (dimFilter[d.key] && bucketOf(r, d.key) !== dimFilter[d.key]) return false;
     if (readyToInvoiceOnly && !(r.attendees_confirmed_at && !paidSet.has(r.id))) return false;
-    if (mkFilter && mediaKit.get(r.id) !== mkFilter) return false;
     return true;
   });
 
-  const readyToInvoiceCount = rows.filter(r => r.attendees_confirmed_at && !paidSet.has(r.id)).length;
-  const mkSentCount = rows.filter(r => mediaKit.get(r.id) === 'sent').length;
-  const mkReadyCount = rows.filter(r => mediaKit.get(r.id) === 'ready').length;
+  const readyToInvoiceCount = scoped.filter(r => r.attendees_confirmed_at && !paidSet.has(r.id)).length;
+  const anyTrackingFilter = readyToInvoiceOnly || DIMENSIONS.some(d => dimFilter[d.key]);
+  const clearTracking = () => {
+    setPayFilter(''); setAcctFilter(''); setMkFilter(''); setEcatFilter(''); setReadyToInvoiceOnly(false);
+  };
 
   // Summary counts by registration status
   const counts: Record<string, number> = {};
@@ -424,14 +524,6 @@ export function AdminSM26() {
             {prettyStatus(s)} · {counts[s]}
           </button>
         ))}
-        {rows.some(r => !r.user_id) && (
-          <button
-            onClick={() => setNoAccountOnly(v => !v)}
-            className={`text-xs px-2.5 py-1 rounded-full border transition-all bg-amber-50 text-amber-700 border-amber-200 ${noAccountOnly ? 'ring-2 ring-primary/30' : ''}`}
-          >
-            No account · {rows.filter(r => !r.user_id).length}
-          </button>
-        )}
         {readyToInvoiceCount > 0 && (
           <button
             onClick={() => setReadyToInvoiceOnly(v => !v)}
@@ -441,25 +533,45 @@ export function AdminSM26() {
             Ready to invoice · {readyToInvoiceCount}
           </button>
         )}
-        {mkReadyCount > 0 && (
-          <button
-            onClick={() => setMkFilter(f => f === 'ready' ? '' : 'ready')}
-            title="Media kit uploaded but the participant has not been notified yet"
-            className={`text-xs px-2.5 py-1 rounded-full border transition-all bg-amber-50 text-amber-700 border-amber-200 ${mkFilter === 'ready' ? 'ring-2 ring-primary/30' : ''}`}
-          >
-            Media kit to send · {mkReadyCount}
-          </button>
-        )}
-        {mkSentCount > 0 && (
-          <button
-            onClick={() => setMkFilter(f => f === 'sent' ? '' : 'sent')}
-            title="Media kit uploaded and the participant has been notified"
-            className={`text-xs px-2.5 py-1 rounded-full border transition-all bg-green-50 text-green-700 border-green-200 ${mkFilter === 'sent' ? 'ring-2 ring-primary/30' : ''}`}
-          >
-            Media kit sent · {mkSentCount}
-          </button>
-        )}
       </div>
+
+      {/* Follow-up overview — one row per dimension, every bucket a filter.
+          Each row totals the same {scoped.length} people, so a glance shows
+          where everyone stands without opening a single registration. */}
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-3 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-gray-500">
+              Follow-up · {scoped.length} registration{scoped.length === 1 ? '' : 's'}
+              {statusFilter !== 'all' || roleFilter !== 'all' || search ? ' in view' : ''}
+            </span>
+            {anyTrackingFilter && (
+              <button onClick={clearTracking} className="text-xs text-gray-400 hover:text-primary flex items-center gap-1">
+                <X className="h-3 w-3" /> Clear
+              </button>
+            )}
+          </div>
+          {DIMENSIONS.map(d => {
+            const n: Record<string, number> = {};
+            for (const r of scoped) { const b = bucketOf(r, d.key); n[b] = (n[b] || 0) + 1; }
+            return (
+              <div key={d.key} className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] uppercase tracking-wide text-gray-400 w-24 shrink-0">{d.title}</span>
+                {d.buckets.map(b => n[b.key] ? (
+                  <button
+                    key={b.key}
+                    title={b.hint}
+                    onClick={() => dimSetter[d.key](dimFilter[d.key] === b.key ? '' : b.key)}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-all ${b.cls} ${dimFilter[d.key] === b.key ? 'ring-2 ring-primary/30' : ''}`}
+                  >
+                    {b.label} · {n[b.key]}
+                  </button>
+                ) : null)}
+              </div>
+            );
+          })}
+        </CardContent>
+      </Card>
 
       {/* Confirmed-but-not-onboarded backfill — provision + welcome invite, admin-triggered */}
       {pendingProvision.length > 0 && (

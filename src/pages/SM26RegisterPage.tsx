@@ -861,13 +861,23 @@ export function SM26RegisterPage() {
             </div>
           )}
 
-          {/* Honeypot — hidden from real users; bots that fill it are silently dropped */}
+          {/* Honeypot — hidden from real users; bots that fill it are dropped.
+              The name must stay meaningless: this was once "company_url", which
+              Chrome and password managers happily autofilled on a hidden field
+              (they ignore autocomplete="off"), so genuine registrations were
+              discarded behind a success screen. Keep the vendor opt-outs below
+              and never give this field a name resembling a real one. */}
           <input
             type="text"
-            name="company_url"
+            name="sm-x-verify"
+            id="sm-x-verify"
             tabIndex={-1}
             autoComplete="off"
             aria-hidden="true"
+            data-lpignore="true"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-form-type="other"
             value={honeypot}
             onChange={e => setHoneypot(e.target.value)}
             style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, opacity: 0 }}

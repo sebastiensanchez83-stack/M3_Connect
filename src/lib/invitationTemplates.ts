@@ -1,15 +1,22 @@
-// Copy for the official invitation letters (ambassadors, ministers,
-// institutional guests), in French and English.
+// Copy for the official invitation letters, in French and English.
 //
-// The templates are DEFAULTS, not a fixed script: the admin screen drops them
-// into editable paragraph boxes, because a real invitation is mostly standard
-// wording plus one or two paragraphs specific to that guest (a previous visit,
-// a bilateral partnership). Switching language re-fills the untouched ones.
+// Two letter types, taken from M3's own reference documents:
+//   authorities — ministries, public authorities, tourism offices. Speaks to a
+//                 country and its delegation, and offers a speaking slot.
+//   general     — companies, CEOs and everyone else. Shorter, no delegation.
+//
+// The wording is deliberately GENERIC: no sentence names a particular guest.
+// Anything specific to one recipient (a previous visit, a bilateral
+// partnership) is added by the admin as an extra paragraph.
+//
+// These are DEFAULTS. The admin screen drops them into editable boxes, so any
+// letter can be adjusted without touching this file.
 //
 // **double asterisks** mark a bold run — invitationPdf renders them.
 
 export type Lang = 'fr' | 'en';
 export type Register = 'excellency' | 'minister' | 'standard';
+export type LetterType = 'authorities' | 'general';
 
 export interface EventFacts {
   name: string;
@@ -19,10 +26,23 @@ export interface EventFacts {
   editionLabel: string | null; // as stored on the event, e.g. "6th"
 }
 
+export const LETTER_TYPES: { key: LetterType; fr: string; en: string; hint_fr: string; hint_en: string }[] = [
+  {
+    key: 'authorities', fr: 'Autorités publiques / Ministère', en: 'Public authorities / Ministry',
+    hint_fr: "Parle du pays et de sa délégation, et propose une prise de parole.",
+    hint_en: 'Addresses the country and its delegation, and offers a speaking slot.',
+  },
+  {
+    key: 'general', fr: 'Général (entreprises, dirigeants…)', en: 'General (companies, CEOs…)',
+    hint_fr: 'Version courte, sans délégation ni prise de parole.',
+    hint_en: 'Shorter version, no delegation and no speaking slot.',
+  },
+];
+
 export const REGISTERS: { key: Register; fr: string; en: string }[] = [
   { key: 'excellency', fr: 'Excellence (ambassadeur, chef de délégation)', en: 'Excellency (ambassador, head of delegation)' },
   { key: 'minister', fr: 'Ministre', en: 'Minister' },
-  { key: 'standard', fr: 'Standard (institutionnel, entreprise)', en: 'Standard (institutional, corporate)' },
+  { key: 'standard', fr: 'Standard (office du tourisme, entreprise)', en: 'Standard (tourism office, company)' },
 ];
 
 /** "6th" -> "6e" (fr) / "6th" (en). Falls back to the stored label. */
@@ -53,87 +73,166 @@ export function eventDatesLong(lang: Lang, startDate: string | null, endDate: st
   return `${weekday(s)} ${day(s)} ${monthYear(s)} ${and} ${weekday(e)} ${day(e)} ${monthYear(e)}`;
 }
 
-/** Long date for the "Monaco, on ..." line. */
+/** Compact form for the authorities letter: "20-21 September 2026". */
+export function eventDatesShort(lang: Lang, startDate: string | null, endDate: string | null): string {
+  if (!startDate) return '';
+  const locale = lang === 'fr' ? 'fr-FR' : 'en-GB';
+  const at = (d: string) => new Date(`${d}T12:00:00Z`);
+  const s = at(startDate);
+  const e = endDate ? at(endDate) : s;
+  const f = (d: Date, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(locale, { timeZone: 'UTC', ...o }).format(d);
+  if (s.getTime() === e.getTime()) return `${f(s, { day: 'numeric' })} ${f(s, { month: 'long', year: 'numeric' })}`;
+  return `${f(s, { day: 'numeric' })}-${f(e, { day: 'numeric' })} ${f(e, { month: 'long', year: 'numeric' })}`;
+}
+
+/** Long date for the "Monaco, ..." line. */
 export function letterDateLong(lang: Lang, iso: string): string {
   const d = new Date(`${iso}T12:00:00Z`);
   return new Intl.DateTimeFormat(lang === 'fr' ? 'fr-FR' : 'en-GB',
     { timeZone: 'UTC', day: 'numeric', month: 'long', year: 'numeric' }).format(d);
 }
 
-interface RegisterCopy { salutation: string; presence: string; closeWord: string }
+interface RegisterCopy { salutation: string; honour: string; closeWord: string }
 const REGISTER_COPY: Record<Register, Record<Lang, RegisterCopy>> = {
   excellency: {
-    fr: { salutation: 'Excellence,', presence: 'de solliciter la haute présence de Votre Excellence', closeWord: 'Excellence' },
-    en: { salutation: 'Your Excellency,', presence: 'to request the high presence of Your Excellency', closeWord: 'Your Excellency' },
+    fr: { salutation: 'Excellence,', honour: "nous avons l'honneur", closeWord: 'Excellence' },
+    en: { salutation: 'Your Excellency,', honour: 'we have the honour', closeWord: 'Your Excellency' },
   },
   minister: {
-    fr: { salutation: 'Monsieur le Ministre,', presence: 'de solliciter la haute présence de Votre Excellence', closeWord: 'Monsieur le Ministre' },
-    en: { salutation: 'Dear Minister,', presence: 'to request the high presence of Your Excellency', closeWord: 'Minister' },
+    fr: { salutation: 'Monsieur le Ministre,', honour: "nous avons l'honneur", closeWord: 'Monsieur le Ministre' },
+    en: { salutation: 'Dear Minister,', honour: 'we have the honour', closeWord: 'Minister' },
   },
   standard: {
-    fr: { salutation: 'Madame, Monsieur,', presence: 'de solliciter votre présence', closeWord: 'Madame, Monsieur' },
-    en: { salutation: 'Dear Sir or Madam,', presence: 'to invite you', closeWord: 'Sir or Madam' },
+    fr: { salutation: 'Madame, Monsieur,', honour: 'nous avons le plaisir', closeWord: 'Madame, Monsieur' },
+    en: { salutation: 'Dear Sir or Madam,', honour: 'it is our pleasure', closeWord: 'Sir or Madam' },
   },
 };
 
 export const salutationFor = (lang: Lang, r: Register) => REGISTER_COPY[r][lang].salutation;
 
-export function subjectFor(lang: Lang, ev: EventFacts): string {
+export function subjectFor(lang: Lang, type: LetterType, ev: EventFacts): string {
   const ord = editionOrdinal(lang, ev.editionLabel);
+  if (type === 'authorities') {
+    return lang === 'fr'
+      ? `Invitation officielle — ${ord} édition du Monaco Smart & Sustainable Marina Rendezvous`
+      : `Official Invitation — ${ord} Edition of the Monaco Smart & Sustainable Marina Rendezvous`;
+  }
   return lang === 'fr'
     ? `Invitation à la ${ord} édition du Monaco Smart & Sustainable Marina Rendezvous`
-    : `Invitation to the ${ord} edition of the Monaco Smart & Sustainable Marina Rendezvous`;
+    : `Invitation to the ${ord} Edition of the Monaco Smart & Sustainable Marina Rendezvous`;
 }
 
-export function complimentaryCloseFor(lang: Lang, r: Register): string {
+export function complimentaryCloseFor(lang: Lang, type: LetterType, r: Register): string {
   const w = REGISTER_COPY[r][lang].closeWord;
-  return lang === 'fr'
-    ? `Nous vous prions d'agréer, ${w}, l'expression de notre très haute considération et de notre profond respect.`
-    : `Please accept, ${w}, the assurance of our highest consideration and our deepest respect.`;
+  // The authorities letter closes on "highest consideration"; the general one
+  // adds "and respect" — both taken from M3's reference documents.
+  const tail = type === 'authorities'
+    ? (lang === 'fr' ? "l'expression de notre très haute considération." : 'the assurances of our highest consideration.')
+    : (lang === 'fr' ? "l'expression de notre très haute considération et de notre profond respect." : 'the assurances of our highest consideration and respect.');
+  return lang === 'fr' ? `Nous vous prions d'agréer, ${w}, ${tail}` : `Please accept, ${w}, ${tail}`;
+}
+
+/** The line above the signature. Empty in French, where the close already does it. */
+export function signOffFor(lang: Lang, type: LetterType): string {
+  return lang === 'en' && type === 'general' ? 'Yours sincerely,' : '';
 }
 
 export interface BodyOptions {
   rsvpDeadline?: string | null;  // YYYY-MM-DD
   rsvpEmail?: string;
+  /** Used by the authorities letter: "a delegation from …". */
+  country?: string;
 }
 
-/** The standard body, in order. Custom paragraphs are added by the admin. */
-export function bodyParagraphs(lang: Lang, r: Register, ev: EventFacts, opt: BodyOptions = {}): string[] {
+/** The standard body for a letter type, in order. */
+export function bodyParagraphs(lang: Lang, type: LetterType, r: Register, ev: EventFacts, opt: BodyOptions = {}): string[] {
   const ord = editionOrdinal(lang, ev.editionLabel);
-  const dates = eventDatesLong(lang, ev.startDate, ev.endDate);
   const venue = ev.venue || 'Yacht Club de Monaco';
-  const presence = REGISTER_COPY[r][lang].presence;
+  const honour = REGISTER_COPY[r][lang].honour;
   const email = opt.rsvpEmail || 'info@m3monaco.com';
   const deadline = opt.rsvpDeadline ? letterDateLong(lang, opt.rsvpDeadline) : '';
+  // Left as a visible placeholder when unset, so nobody sends a letter with a
+  // blank where the country should be.
+  const country = opt.country?.trim() || (lang === 'fr' ? '« le pays »' : '« country »');
 
+  if (type === 'authorities') {
+    const dates = eventDatesShort(lang, ev.startDate, ev.endDate);
+    if (lang === 'fr') {
+      return [
+        `Au nom de **M3 Monaco**, ${honour} de vous inviter à participer au **Monaco Smart & Sustainable Marina Rendezvous**, qui se tiendra les **${dates}** au ${venue}.`,
+
+        `Inscrit dans le cadre de l'initiative « **Monaco, Capital of Advanced Yachting** », le Rendezvous est une plateforme internationale de premier plan réunissant près de **250 décideurs internationaux** — autorités, représentants de destinations, opérateurs de marinas, investisseurs, promoteurs, architectes, fournisseurs de technologies et acteurs majeurs du secteur — afin de façonner l'avenir des marinas intelligentes et durables et des destinations littorales.`,
+
+        // "représentant X" rather than "de X": French elision before a country
+        // name is irregular (de la France, du Maroc, d'Égypte), and the admin
+        // types the name freely. This phrasing is correct whatever they type.
+        `Nous serions particulièrement honorés d'accueillir une délégation représentant **${country}**, comprenant des représentants de ses secteurs du tourisme, des marinas, des ports et du littoral. Le Rendezvous offre une occasion unique de mettre en valeur la destination, de renforcer sa visibilité internationale, de promouvoir ses ambitions maritimes et touristiques, de découvrir l'écosystème mondial des marinas et du yachting, d'échanger avec les principaux acteurs et investisseurs du secteur et d'explorer de nouvelles opportunités de partenariat et de développement durable.`,
+
+        `Soutenu par la **Fondation Prince Albert II de Monaco**, l'événement accueille également les **Monaco Smart & Sustainable Marina Awards**, qui récompensent les innovations les plus remarquables en matière de conception, de technologie et de performance environnementale des marinas.`,
+
+        `Si vous le souhaitez, nous serions ravis de vous offrir l'opportunité de vous adresser au public international et de présenter la vision, les projets phares et les priorités stratégiques de votre pays. Nous serions également heureux d'échanger sur le format le plus approprié pour votre participation et celle de votre délégation, y compris l'implication des acteurs du tourisme et des marinas concernés.`,
+
+        `Nous espérons sincèrement avoir le privilège de vous accueillir, ainsi que votre délégation, à Monaco, afin de partager les valeurs promues par la Principauté et de célébrer ensemble les initiatives qui façonnent l'avenir du tourisme, des marinas et des destinations littorales.`,
+      ];
+    }
+    return [
+      `On behalf of **M3 Monaco**, ${honour} to invite you to participate in the **Monaco Smart & Sustainable Marina Rendezvous**, taking place on **${dates}** at the ${venue}.`,
+
+      `As part of the « **Monaco, Capital of Advanced Yachting** » initiative, the Rendezvous is a leading international platform bringing together nearly **250 international decision-makers**, including authorities, destination representatives, marina operators, investors, developers, architects, technology providers and industry leaders, to shape the future of smart and sustainable marinas and waterfront destinations.`,
+
+      `We would be particularly honoured to welcome a delegation from **${country}**, including representatives from its tourism, marina, port and waterfront sectors. The Rendezvous offers a unique opportunity to showcase the destination, strengthen its international visibility, promote its maritime and tourism ambitions, discover the global marina and yachting ecosystem, engage with leading industry stakeholders and investors, and explore new opportunities for partnerships and sustainable development.`,
+
+      `Supported by the **Prince Albert II of Monaco Foundation**, the event also features the **Monaco Smart & Sustainable Marina Awards**, recognising outstanding innovations in marina design, technology and environmental performance.`,
+
+      // "your country's" rather than "<Country>'s": robust for names that
+      // already carry an article, such as "the United Arab Emirates".
+      `Should you wish, we would be delighted to offer you the opportunity to address the international audience and present your country's vision, flagship projects and strategic priorities. We would also be pleased to discuss the most appropriate format for your participation and that of your delegation, including the involvement of relevant tourism and marina stakeholders.`,
+
+      `We sincerely hope to have the privilege of welcoming you and your delegation to Monaco, to share the values promoted by the Principality and celebrate together the initiatives shaping the future of tourism, marinas and waterfront destinations.`,
+    ];
+  }
+
+  // ---- general -------------------------------------------------------------
+  const dates = eventDatesLong(lang, ev.startDate, ev.endDate);
   if (lang === 'fr') {
     return [
-      `M3 Monaco a l'honneur ${presence} à la ${ord} édition du **Monaco Smart & Sustainable Marina Rendezvous**, qui se tiendra les **${dates}** au prestigieux **${venue}**.`,
+      `M3 Monaco a l'honneur de vous inviter à la ${ord} édition du **Monaco Smart & Sustainable Marina Rendezvous**, qui se tiendra les **${dates}** au prestigieux **${venue}**.`,
 
-      `Inscrit dans le cadre de l'initiative « **Monaco, Capital of Advanced Yachting** », cet événement international réunit près de **250 décideurs et acteurs majeurs** des secteurs du yachting, des marinas, du tourisme, de l'investissement et de l'innovation, afin de favoriser les échanges autour du développement de destinations nautiques intelligentes et durables.`,
+      `Cette initiative internationale, organisée par M3 Monaco, s'inscrit dans la démarche plus large « **Monaco, Capital of Advanced Yachting** ». Placé sous le Haut Patronage de S.A.S. le Prince Albert II de Monaco et soutenu par la **Fondation Prince Albert II**, l'événement réunit près de **250 acteurs clés** des écosystèmes de la marina, du yachting, du tourisme et de l'innovation.`,
 
-      `Votre présence constituerait une occasion privilégiée de renforcer les échanges avec les acteurs internationaux réunis à Monaco. Soutenu par la **Fondation Prince Albert II de Monaco**, le Rendezvous accueillera également les **Monaco Smart & Sustainable Marina Awards**, récompensant les initiatives les plus remarquables en matière de durabilité et d'innovation maritime.`,
+      `Ce rendez-vous annuel présentera à nouveau les **Monaco Smart & Sustainable Marina Awards**, qui distinguent les réalisations les plus remarquables en matière de durabilité et d'innovation parmi les start-ups, les scale-ups, les marinas et les agences d'architecture. L'événement favorise le dialogue autour de la finance durable, du développement touristique et des stratégies littorales respectueuses de l'environnement.`,
 
-      `Nous serions heureux de pouvoir échanger avec votre Cabinet afin de convenir des modalités de votre participation et restons à votre entière disposition pour toute information complémentaire.${deadline ? ` Nous vous saurions gré de bien vouloir confirmer votre présence avant le **${deadline}** à l'adresse suivante : ${email}.` : ` Merci de bien vouloir confirmer votre présence à l'adresse suivante : ${email}.`}`,
+      `Nous serions très honorés de votre présence lors du Rendezvous, afin de partager ensemble les valeurs promues par la Principauté de Monaco et l'ensemble des innovations qui préparent un avenir plus vert pour le secteur du tourisme.`,
 
-      `Nous espérons avoir l'honneur de vous accueillir à Monaco et de poursuivre, à travers cette rencontre internationale, le dialogue engagé autour des valeurs communes de durabilité, d'innovation et de coopération qui façonnent l'avenir du tourisme, des marinas et des destinations côtières.`,
+      deadline
+        ? `Nous vous saurions gré de bien vouloir confirmer votre présence avant le **${deadline}** à l'adresse ${email}.`
+        : `Merci de bien vouloir confirmer votre présence à l'adresse ${email}.`,
     ];
   }
   return [
-    `M3 Monaco has the honour ${presence} at the ${ord} edition of the **Monaco Smart & Sustainable Marina Rendezvous**, which will be held on **${dates}** at the prestigious **${venue}**.`,
+    `M3 Monaco is honoured to invite you to the ${ord} Edition of the **Monaco Smart & Sustainable Marina Rendezvous**, taking place on **${dates}** at the prestigious **${venue}**.`,
 
-    `Part of the « **Monaco, Capital of Advanced Yachting** » initiative, this international event brings together close to **250 decision-makers and leading figures** from the yachting, marina, tourism, investment and innovation sectors, to encourage dialogue on the development of smart and sustainable nautical destinations.`,
+    `This international initiative, organised by M3 Monaco, is part of the broader « **Monaco, Capital of Advanced Yachting** » approach. Held under the High Patronage of H.S.H. Prince Albert II of Monaco, and supported by the **Prince Albert II Foundation**, the event brings together nearly **250 key stakeholders** from the marina, yachting, tourism and innovation ecosystem.`,
 
-    `Your presence would be a valuable opportunity to strengthen exchanges with the international community gathered in Monaco. Supported by the **Prince Albert II of Monaco Foundation**, the Rendezvous will also host the **Monaco Smart & Sustainable Marina Awards**, recognising the most remarkable initiatives in maritime sustainability and innovation.`,
+    `This annual gathering will once again present the **Monaco Smart & Sustainable Marina Awards**, recognising outstanding achievements in sustainability and innovation across start-ups, scale-ups, marinas and architectural practices. The event fosters dialogue on sustainable finance, tourism development and environmentally responsible coastal strategies.`,
 
-    `We would be glad to liaise with your Office to agree the arrangements for your participation, and remain entirely at your disposal for any further information.${deadline ? ` We would be grateful if you could confirm your attendance before **${deadline}** at the following address: ${email}.` : ` Please confirm your attendance at the following address: ${email}.`}`,
+    `We would be greatly honoured by your presence during the Rendezvous, to share together the values promoted by the Principality of Monaco and all the innovations promoting a greener future in the tourism sector.`,
 
-    `We hope to have the honour of welcoming you to Monaco and of continuing, through this international gathering, the dialogue around the shared values of sustainability, innovation and cooperation that shape the future of tourism, marinas and coastal destinations.`,
+    deadline
+      ? `Kindly confirm your attendance by **${deadline}** at ${email}.`
+      : `Kindly confirm your attendance at ${email}.`,
   ];
 }
 
-/** Where a bespoke paragraph is usually inserted (after the context paragraph). */
-export const CUSTOM_INSERT_INDEX = 2;
+/** Placeholder address block, so the shape of the letter is obvious. */
+export function addressPlaceholder(lang: Lang, type: LetterType): string {
+  if (type === 'authorities') {
+    return lang === 'fr'
+      ? 'Nom du Ministère\nAdresse\nCode postal, Ville\nPays'
+      : 'Name of the Ministry\nAddress\nZip Code, City\nCountry';
+  }
+  return lang === 'fr' ? 'Nom de la société\nNom du destinataire\nAdresse postale' : 'Company Name\nRecipient Name\nPostal Address';
+}
 
 export const SENDER_DEFAULT = ['M3 S.A.M.', 'Monte Carlo Palace', '3/7 Boulevard des Moulins', '98 000 Monaco'];
 export const SIGNATORY_DEFAULT = { name: 'Avv. José Marco Casellini', title: 'CEO', org: 'M3 S.A.M.' };

@@ -14,9 +14,10 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { Pill } from '@/components/sm26/SM26ConsoleUI';
 import {
-  REGISTERS, bodyParagraphs, complimentaryCloseFor, letterDateLong, salutationFor, subjectFor,
+  REGISTERS, LETTER_TYPES, bodyParagraphs, complimentaryCloseFor, letterDateLong, salutationFor,
+  subjectFor, signOffFor, addressPlaceholder,
   SENDER_DEFAULT, SIGNATORY_DEFAULT, FOOTER_DEFAULT,
-  type EventFacts, type Lang, type Register,
+  type EventFacts, type Lang, type Register, type LetterType,
 } from '@/lib/invitationTemplates';
 import { downloadInvitationPdf, invitationPdfBlobUrl, toDataUrl, type LetterAssets, type LetterData } from '@/lib/invitationPdf';
 
@@ -29,7 +30,12 @@ interface Invitation {
   id: string;
   event_id: string;
   language: Lang;
+  letter_type: LetterType;
   register: Register;
+  country: string | null;
+  sign_off: string;
+  created_by: string | null;
+  sent_by: string | null;
   recipient_name: string | null;
   recipient_role: string | null;
   recipient_org: string | null;
@@ -81,7 +87,10 @@ export function AdminSM26Invitations() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Invitation | null>(null);
   const [showAssets, setShowAssets] = useState(false);
+  const [staff, setStaff] = useState<Record<string, string>>({});
+  const [me, setMe] = useState<string | null>(null);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const staffName = (id: string | null) => (id ? staff[id] || 'Staff' : null);
 
   // ---- load ---------------------------------------------------------------
   const load = useCallback(async () => {
@@ -101,6 +110,10 @@ export function AdminSM26Invitations() {
     const { data: list } = await supabase.from('sm_invitation')
       .select('*').eq('event_id', e.id).order('updated_at', { ascending: false });
     setRows((list || []) as Invitation[]);
+    const { data: st } = await supabase.rpc('sm_invitation_staff', { p_event_id: e.id });
+    setStaff(Object.fromEntries(((st || []) as { user_id: string; name: string }[]).map(s => [s.user_id, s.name])));
+    const { data: u } = await supabase.auth.getUser();
+    setMe(u?.user?.id || null);
     setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -125,66 +138,68 @@ export function AdminSM26Invitations() {
   const facts: EventFacts = event || { name: '', venue: null, startDate: null, endDate: null, editionLabel: null };
 
   // ---- create / edit ------------------------------------------------------
-  const blank = (): Invitation => {
+  const blank = (type: LetterType): Invitation => {
     const lang: Lang = 'fr';
-    const register: Register = 'excellency';
+    // A ministry is addressed as an Excellency; a company is not.
+    const register: Register = type === 'authorities' ? 'excellency' : 'standard';
     return {
-      id: '', event_id: event?.id || '', language: lang, register,
+      id: '', event_id: event?.id || '', language: lang, letter_type: type, register,
+      country: '', sign_off: signOffFor(lang, type), created_by: me, sent_by: null,
       recipient_name: '', recipient_role: '', recipient_org: '',
       address_block: '', salutation: salutationFor(lang, register),
       letter_place: 'Monaco', letter_date: new Date().toISOString().slice(0, 10),
-      subject: subjectFor(lang, facts),
-      paragraphs: bodyParagraphs(lang, register, facts, { rsvpEmail: 'info@m3monaco.com' }),
-      complimentary_close: complimentaryCloseFor(lang, register),
+      subject: subjectFor(lang, type, facts),
+      paragraphs: bodyParagraphs(lang, type, register, facts, { rsvpEmail: 'info@m3monaco.com' }),
+      complimentary_close: complimentaryCloseFor(lang, type, register),
       signatory_name: SIGNATORY_DEFAULT.name, signatory_title: SIGNATORY_DEFAULT.title, signatory_org: SIGNATORY_DEFAULT.org,
       status: 'draft', sent_at: null, notes: '', updated_at: '',
     };
   };
 
-  const openNew = () => { setDraft(blank()); setOpenId('new'); };
+  const openNew = (type: LetterType) => { setDraft(blank(type)); setOpenId('new'); };
   const openRow = (r: Invitation) => { setDraft({ ...r }); setOpenId(r.id); };
   const close = () => { setDraft(null); setOpenId(null); };
 
   const set = <K extends keyof Invitation>(k: K, v: Invitation[K]) =>
     setDraft(d => (d ? { ...d, [k]: v } : d));
 
-  /** Standard body for the draft's current language + register. */
-  const templateBody = (d: Invitation) => bodyParagraphs(d.language, d.register, facts, {});
+  /** Standard body for the draft's current type + language + register. */
+  const templateBody = (d: Invitation) =>
+    bodyParagraphs(d.language, d.letter_type, d.register, facts, { country: d.country || '' });
 
-  // Changing language (or register) rewrites the standard wording — but only
-  // when the body is still untouched, so a bespoke letter is never destroyed.
-  const switchLanguage = (lang: Lang) => {
+  /**
+   * Re-derive the standard wording after a language / type / register change —
+   * but only while the body is still untouched, so a letter someone has
+   * personalised is never destroyed by flipping a selector.
+   */
+  const reshape = (patch: Partial<Invitation>) => {
     setDraft(d => {
       if (!d) return d;
       const wasTemplate = sameBody(d.paragraphs, templateBody(d));
-      const next: Invitation = { ...d, language: lang };
-      next.salutation = salutationFor(lang, d.register);
-      next.complimentary_close = complimentaryCloseFor(lang, d.register);
-      next.subject = subjectFor(lang, facts);
-      if (wasTemplate) next.paragraphs = bodyParagraphs(lang, d.register, facts, {});
-      return next;
+      const n: Invitation = { ...d, ...patch };
+      n.salutation = salutationFor(n.language, n.register);
+      n.complimentary_close = complimentaryCloseFor(n.language, n.letter_type, n.register);
+      n.sign_off = signOffFor(n.language, n.letter_type);
+      n.subject = subjectFor(n.language, n.letter_type, facts);
+      if (wasTemplate) n.paragraphs = bodyParagraphs(n.language, n.letter_type, n.register, facts, { country: n.country || '' });
+      return n;
     });
   };
-  const switchRegister = (register: Register) => {
-    setDraft(d => {
-      if (!d) return d;
-      const wasTemplate = sameBody(d.paragraphs, templateBody(d));
-      const next: Invitation = { ...d, register };
-      next.salutation = salutationFor(d.language, register);
-      next.complimentary_close = complimentaryCloseFor(d.language, register);
-      if (wasTemplate) next.paragraphs = bodyParagraphs(d.language, register, facts, {});
-      return next;
-    });
-  };
+  const switchLanguage = (language: Lang) => reshape({ language });
+  const switchRegister = (register: Register) => reshape({ register });
+  const switchType = (letter_type: LetterType) =>
+    reshape({ letter_type, register: letter_type === 'authorities' ? 'excellency' : 'standard' });
+
   const reloadTemplate = () => {
     if (!draft) return;
     if (!confirm('Replace the body with the standard wording? Anything you typed in the paragraphs is lost.')) return;
     setDraft(d => (d ? {
       ...d,
-      subject: subjectFor(d.language, facts),
+      subject: subjectFor(d.language, d.letter_type, facts),
       salutation: salutationFor(d.language, d.register),
-      paragraphs: bodyParagraphs(d.language, d.register, facts, {}),
-      complimentary_close: complimentaryCloseFor(d.language, d.register),
+      sign_off: signOffFor(d.language, d.letter_type),
+      paragraphs: bodyParagraphs(d.language, d.letter_type, d.register, facts, { country: d.country || '' }),
+      complimentary_close: complimentaryCloseFor(d.language, d.letter_type, d.register),
     } : d));
   };
 
@@ -209,7 +224,12 @@ export function AdminSM26Invitations() {
     if (!draft || !event) return null;
     const payload = {
       event_id: event.id,
-      language: draft.language, register: draft.register,
+      language: draft.language, letter_type: draft.letter_type, register: draft.register,
+      country: draft.country || null,
+      sign_off: draft.sign_off,
+      created_by: draft.created_by || me,
+      // Whoever flips it to "sent" owns that, and it sticks.
+      sent_by: draft.status === 'sent' ? (draft.sent_by || me) : null,
       recipient_name: draft.recipient_name || null,
       recipient_role: draft.recipient_role || null,
       recipient_org: draft.recipient_org || null,
@@ -287,11 +307,13 @@ export function AdminSM26Invitations() {
     addressBlock: d.address_block,
     place: d.letter_place,
     dateLine: letterDateLong(d.language, d.letter_date),
-    subjectLabel: d.language === 'fr' ? 'Objet' : 'Subject',
+    // The authorities letter heads its subject with no "Subject:" label.
+    subjectLabel: d.letter_type === 'authorities' ? '' : (d.language === 'fr' ? 'Objet' : 'Subject'),
     subject: d.subject,
     salutation: d.salutation,
     paragraphs: d.paragraphs,
     complimentaryClose: d.complimentary_close,
+    signOff: d.sign_off,
     signatoryName: d.signatory_name,
     signatoryTitle: d.signatory_title,
     signatoryOrg: d.signatory_org,
@@ -331,14 +353,26 @@ export function AdminSM26Invitations() {
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={load} title="Refresh"><RefreshCw className="h-4 w-4" /></Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAssets(o => !o)}><ImageIcon className="h-4 w-4" /> Letterhead</Button>
-          <Button size="sm" className="gap-1.5" onClick={openNew}><Plus className="h-4 w-4" /> New invitation</Button>
         </div>
       </div>
 
       <p className="text-sm text-gray-500 -mt-1 max-w-3xl">
-        Fill the form, choose French or English, and the platform draws the letter on the M3 letterhead.
-        The standard wording is loaded for you — edit any paragraph, and add your own where the letter needs to be personal.
+        Pick the kind of letter, fill the recipient, choose French or English, and the platform draws it on the M3 letterhead.
+        The wording is generic and loaded for you — edit any paragraph, and add your own where the letter needs to be personal.
       </p>
+
+      {/* Choosing the letter type is the first decision: it changes the whole body. */}
+      <div className="grid sm:grid-cols-2 gap-3">
+        {LETTER_TYPES.map(t => (
+          <button key={t.key} type="button" onClick={() => openNew(t.key)}
+            className="text-left rounded-lg border border-gray-200 bg-white p-4 hover:border-primary/50 hover:shadow-sm transition-all">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <Plus className="h-4 w-4 text-primary" /> {t.en}
+            </div>
+            <p className="text-xs text-gray-500 mt-1">{t.hint_en}</p>
+          </button>
+        ))}
+      </div>
 
       {missingAssets.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -430,7 +464,33 @@ export function AdminSM26Invitations() {
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
-            {/* language + register + status */}
+            {/* type + language + register + status */}
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-gray-500">Kind of letter</Label>
+                <Select value={draft.letter_type} onValueChange={v => switchType(v as LetterType)}>
+                  <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {LETTER_TYPES.map(t => <SelectItem key={t.key} value={t.key}>{t.en}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              {draft.letter_type === 'authorities' && (
+                <div>
+                  <Label className="text-xs text-gray-500">Country / territory — named in the letter</Label>
+                  <Input className="h-9 mt-1" value={draft.country || ''}
+                    onChange={e => set('country', e.target.value)}
+                    onBlur={() => reshape({})}
+                    placeholder={draft.language === 'fr' ? "l'Égypte" : 'Egypt'} />
+                  {draft.language === 'fr' && (
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      Include the article: <i>l’Égypte</i>, <i>le Maroc</i>, <i>les Émirats arabes unis</i>.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="grid sm:grid-cols-3 gap-3">
               <div>
                 <Label className="text-xs text-gray-500">Language</Label>
@@ -478,7 +538,7 @@ export function AdminSM26Invitations() {
             <div>
               <Label className="text-xs text-gray-500">Address block — printed as typed, one line per line</Label>
               <Textarea rows={5} className="mt-1 font-mono text-xs" value={draft.address_block} onChange={e => set('address_block', e.target.value)}
-                placeholder={'À Son Excellence\nMonsieur l’Ambassadeur de la\nRépublique Arabe d’Égypte\nDr. Tarek Dahroug\nAmbassade d’Égypte en France\n56 Avenue d’Iéna, 75 116 Paris'} />
+                placeholder={addressPlaceholder(draft.language, draft.letter_type)} />
             </div>
 
             <div className="grid sm:grid-cols-3 gap-3">
@@ -524,9 +584,15 @@ export function AdminSM26Invitations() {
               </div>
             </div>
 
-            <div>
-              <Label className="text-xs text-gray-500">Complimentary close</Label>
-              <Textarea rows={2} className="mt-1 text-sm" value={draft.complimentary_close} onChange={e => set('complimentary_close', e.target.value)} />
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2">
+                <Label className="text-xs text-gray-500">Complimentary close</Label>
+                <Textarea rows={2} className="mt-1 text-sm" value={draft.complimentary_close} onChange={e => set('complimentary_close', e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-xs text-gray-500">Sign-off above the signature</Label>
+                <Input className="h-9 mt-1" value={draft.sign_off} onChange={e => set('sign_off', e.target.value)} placeholder="Yours sincerely," />
+              </div>
             </div>
 
             <div className="grid sm:grid-cols-3 gap-3">
@@ -551,14 +617,15 @@ export function AdminSM26Invitations() {
         <CardContent className="p-0">
           {rows.length === 0 ? (
             <div className="py-12 text-center text-gray-400 text-sm">
-              No invitation yet. Click <b>New invitation</b> — the French letter is pre-written, you only add the recipient.
+              No invitation yet. Pick a kind of letter above — the wording is pre-written, you only add the recipient.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                  <th className="px-4 py-2">Recipient</th><th className="px-4 py-2">Language</th>
-                  <th className="px-4 py-2">Date</th><th className="px-4 py-2">Status</th><th className="px-4 py-2" />
+                  <th className="px-4 py-2">Recipient</th><th className="px-4 py-2">Letter</th>
+                  <th className="px-4 py-2">Date</th><th className="px-4 py-2">Status</th>
+                  <th className="px-4 py-2">Staff</th><th className="px-4 py-2" />
                 </tr></thead>
                 <tbody>
                   {rows.map(r => {
@@ -569,9 +636,20 @@ export function AdminSM26Invitations() {
                           <div className="font-medium">{r.recipient_name || '—'}</div>
                           <div className="text-xs text-gray-400">{[r.recipient_role, r.recipient_org].filter(Boolean).join(' · ') || r.subject}</div>
                         </td>
-                        <td className="px-4 py-2.5"><Pill label={r.language.toUpperCase()} cls="bg-gray-50 text-gray-600 border-gray-200" /></td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <Pill label={r.letter_type === 'authorities' ? 'Authorities' : 'General'} cls="bg-blue-50 text-blue-700 border-blue-200" />
+                            <Pill label={r.language.toUpperCase()} cls="bg-gray-50 text-gray-600 border-gray-200" />
+                          </div>
+                        </td>
                         <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{r.letter_date}</td>
                         <td className="px-4 py-2.5"><Pill label={m.label} cls={m.cls} /></td>
+                        <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                          {staffName(r.created_by) && <div>Prepared by {staffName(r.created_by)}</div>}
+                          {r.sent_by
+                            ? <div className="text-green-700">Sent by {staffName(r.sent_by)}{r.sent_at ? ` · ${r.sent_at.slice(0, 10)}` : ''}</div>
+                            : <div className="text-gray-300">not sent</div>}
+                        </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center justify-end gap-1">
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-primary" title="Download the PDF"

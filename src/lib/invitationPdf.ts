@@ -25,11 +25,12 @@ export interface LetterData {
   addressBlock: string;          // recipient, one line per line
   place: string;
   dateLine: string;              // already localised
-  subjectLabel: string;          // "Objet" / "Subject"
+  subjectLabel: string;          // "Objet" / "Subject" — empty prints the subject alone
   subject: string;
   salutation: string;
   paragraphs: string[];          // may contain **bold** runs
   complimentaryClose: string;
+  signOff: string;               // "Yours sincerely," — optional
   signatoryName: string;
   signatoryTitle: string;
   signatoryOrg: string;
@@ -234,11 +235,16 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   // ---- subject ------------------------------------------------------------
   if (d.subject.trim()) {
     if (flow.y > PAGE_H - M_BOTTOM) flow.y = flow.newPage();
-    const label = `${d.subjectLabel}: `;
     doc.setFont(FONT, 'normal');
-    doc.text(label, M_LEFT, flow.y);
-    const lw = doc.getTextWidth(label);
-    drawParagraph(doc, flow, d.subject, M_LEFT, CONTENT_W, M_LEFT + lw, CONTENT_W - lw);
+    // The authorities letter heads the subject with no "Subject:" label.
+    if (d.subjectLabel.trim()) {
+      const label = `${d.subjectLabel}: `;
+      doc.text(label, M_LEFT, flow.y);
+      const lw = doc.getTextWidth(label);
+      drawParagraph(doc, flow, d.subject, M_LEFT, CONTENT_W, M_LEFT + lw, CONTENT_W - lw);
+    } else {
+      drawParagraph(doc, flow, d.subject, M_LEFT, CONTENT_W);
+    }
     flow.y += PARA_GAP;
   }
 
@@ -258,6 +264,11 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   if (d.complimentaryClose.trim()) {
     drawParagraph(doc, flow, d.complimentaryClose, M_LEFT, CONTENT_W);
     flow.y += PARA_GAP;
+  }
+  if (d.signOff.trim()) {
+    if (flow.y > PAGE_H - M_BOTTOM) flow.y = flow.newPage();
+    doc.text(d.signOff, M_LEFT, flow.y);
+    flow.y += LEADING + PARA_GAP;
   }
 
   // ---- signature ----------------------------------------------------------

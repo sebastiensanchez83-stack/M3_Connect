@@ -39,6 +39,9 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "Smart Marina Connect <noreply@smartmarinaconnect.com>";
 const SITE_URL = Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com";
 const ORGANIZER_EMAIL = "victor@m3monaco.com";
+// SENDER_EMAIL carries a display name ("Name <box@host>"); the calendar needs
+// the bare address.
+const SENDER_ADDRESS = (SENDER_EMAIL.match(/<([^>]+)>/)?.[1] || SENDER_EMAIL).trim();
 // Always on every Zoom invitation, on top of the panel jurors + startups.
 const ALWAYS_INVITE = ["victor@m3monaco.com", "gabriella@yachtingventures.co"];
 
@@ -84,7 +87,10 @@ function buildIcs(o: { uid: string; seq: number; method: "REQUEST" | "CANCEL"; s
     "BEGIN:VEVENT", `UID:${o.uid}`, `SEQUENCE:${o.seq}`, `DTSTAMP:${icsStamp(new Date())}`,
     `DTSTART:${icsStamp(o.start)}`, `DTEND:${icsStamp(end)}`,
     `SUMMARY:${icsEsc(o.title)}`, `DESCRIPTION:${desc}`, `LOCATION:${icsEsc(o.joinUrl)}`,
-    `ORGANIZER;CN=Smart Marina Connect:mailto:${ORGANIZER_EMAIL}`,
+    // The organiser is the address that receives the acceptances; SENT-BY names
+    // the mailbox the message actually left from, which is what stops Outlook
+    // treating the mismatch as suspect.
+    `ORGANIZER;CN=Smart Marina Connect;SENT-BY="mailto:${SENDER_ADDRESS}":mailto:${ORGANIZER_EMAIL}`,
     `ATTENDEE;CN=${icsEsc(o.recipient.name || o.recipient.email)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${o.recipient.email}`,
     `STATUS:${o.method === "CANCEL" ? "CANCELLED" : "CONFIRMED"}`,
     "END:VEVENT", "END:VCALENDAR",
@@ -95,10 +101,22 @@ function buildIcs(o: { uid: string; seq: number; method: "REQUEST" | "CANCEL"; s
 // ---- Mail -------------------------------------------------------------------
 // Both helpers report success/failure so callers can tell the console how many
 // messages actually left, instead of silently claiming everything was sent.
-async function sendMail(to: string, subject: string, html: string, ics?: string): Promise<boolean> {
+async function sendMail(to: string, subject: string, html: string, ics?: string, method: "REQUEST" | "CANCEL" = "REQUEST"): Promise<boolean> {
   if (!RESEND_API_KEY) { console.error("no RESEND_API_KEY"); return false; }
   const body: Record<string, unknown> = { from: SENDER_EMAIL, to: [to], subject, html };
-  if (ics) body.attachments = [{ filename: "invite.ics", content: btoa(unescape(encodeURIComponent(ics))) }];
+  if (ics) {
+    body.attachments = [{
+      filename: "invite.ics",
+      content: btoa(unescape(encodeURIComponent(ics))),
+      // Outlook decides whether to draw Accept / Decline from the calendar
+      // part's content type, not from the file extension. Without an explicit
+      // method Resend derives "text/calendar" from the filename alone, and the
+      // invitation lands as a .ics file to download and open by hand. Declaring
+      // the method makes it a meeting request the recipient can answer in one
+      // click. It must match the METHOD inside the payload.
+      content_type: `text/calendar; charset=utf-8; method=${method}`,
+    }];
+  }
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -376,7 +394,7 @@ Deno.serve(async (req: Request) => {
 <p><strong>${esc(s.title)}</strong><br>${esc(dayLabel)} &middot; ${s.duration_minutes} min</p>
 ${names.length ? `<p>Startups pitching in this session: ${esc(names.join(", "))}.</p>` : ""}
 <p>${BTN(meeting.join_url, "Join the Zoom meeting", "#0b2653")}</p>
-<p style="font-size:12px;color:#8a95a8">Accept the attached calendar invitation to add it to your calendar.</p>
+<p style="font-size:12px;color:#8a95a8">Use the Accept button on this invitation to add the session to your calendar.</p>
 </div>`;
         const ok = await sendMail(a.email, `Invitation: ${s.title}`, html, ics);
         if (ok) sent++; else failed++;
@@ -420,7 +438,7 @@ ${names.length ? `<p>Startups pitching in this session: ${esc(names.join(", "))}
       let sent = 0; let failed = 0;
       for (const a of out.values()) {
         const ics = buildIcs({ uid: String(s.ics_uid), seq: newSeq, method: "CANCEL", start, duration: s.duration_minutes, title: s.title, joinUrl: String(s.zoom_join_url || ""), recipient: a });
-        const ok = await sendMail(a.email, `Cancelled: ${s.title}`, html, ics);
+        const ok = await sendMail(a.email, `Cancelled: ${s.title}`, html, ics, "CANCEL");
         if (ok) sent++; else failed++;
       }
       return json(req, { ok: true, sent, failed });

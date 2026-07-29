@@ -126,8 +126,8 @@ export function subjectFor(lang: Lang, type: LetterType, ev: EventFacts): string
   const ord = editionOrdinal(lang, ev.editionLabel);
   if (type === 'authorities') {
     return lang === 'fr'
-      ? `Invitation officielle — ${ord} édition du Monaco Smart & Sustainable Marina Rendezvous`
-      : `Official Invitation — ${ord} Edition of the Monaco Smart & Sustainable Marina Rendezvous`;
+      ? `Invitation officielle : ${ord} édition du Monaco Smart & Sustainable Marina Rendezvous`
+      : `Official Invitation: ${ord} Edition of the Monaco Smart & Sustainable Marina Rendezvous`;
   }
   return lang === 'fr'
     ? `Invitation à la ${ord} édition du Monaco Smart & Sustainable Marina Rendezvous`
@@ -174,7 +174,7 @@ export function bodyParagraphs(lang: Lang, type: LetterType, r: Register, ev: Ev
       return [
         `Au nom de **M3 Monaco**, ${honour} de vous inviter à participer au **Monaco Smart & Sustainable Marina Rendezvous**, qui se tiendra les **${dates}** au ${venue}.`,
 
-        `Inscrit dans le cadre de l'initiative « **Monaco, Capital of Advanced Yachting** », le Rendezvous est une plateforme internationale de premier plan réunissant près de **250 décideurs internationaux** — autorités, représentants de destinations, opérateurs de marinas, investisseurs, promoteurs, architectes, fournisseurs de technologies et acteurs majeurs du secteur — afin de façonner l'avenir des marinas intelligentes et durables et des destinations littorales.`,
+        `Inscrit dans le cadre de l'initiative « **Monaco, Capital of Advanced Yachting** », le Rendezvous est une plateforme internationale de premier plan réunissant près de **250 décideurs internationaux** (autorités, représentants de destinations, opérateurs de marinas, investisseurs, promoteurs, architectes, fournisseurs de technologies et acteurs majeurs du secteur) afin de façonner l'avenir des marinas intelligentes et durables et des destinations littorales.`,
 
         // "représentant X" rather than "de X": French elision before a country
         // name is irregular (de la France, du Maroc, d'Égypte), and the admin
@@ -239,19 +239,20 @@ export function bodyParagraphs(lang: Lang, type: LetterType, r: Register, ev: Ev
 
 /** Placeholder address block, so the shape of the letter is obvious. */
 export function addressPlaceholder(lang: Lang, type: LetterType): string {
+  // Postal lines only. The name, title, organisation and country come from
+  // their own fields and are placed above/below this block when the letter is
+  // drawn, so repeating them here would print each one twice.
   if (type === 'authorities') {
-    return lang === 'fr'
-      ? 'Nom du Ministère\nAdresse\nCode postal, Ville\nPays'
-      : 'Name of the Ministry\nAddress\nZip Code, City\nCountry';
+    return lang === 'fr' ? 'Adresse\nCode postal, Ville' : 'Address\nZip Code, City';
   }
-  return lang === 'fr' ? 'Nom de la société\nNom du destinataire\nAdresse postale' : 'Company Name\nRecipient Name\nPostal Address';
+  return lang === 'fr' ? 'Adresse postale\nCode postal, Ville' : 'Postal Address\nZip Code, City';
 }
 
 export const SENDER_DEFAULT = ['M3 S.A.M.', 'Monte Carlo Palace', '3/7 Boulevard des Moulins', '98 000 Monaco'];
 export const SIGNATORY_DEFAULT = { name: 'Avv. José Marco Casellini', title: 'CEO', org: 'M3 S.A.M.' };
 // Identifiers read off the company stamp on M3's own letters.
 export const FOOTER_DEFAULT =
-  'M3 S.A.M. — Monte Carlo Palace, 3/7 Boulevard des Moulins, 98000 Monaco — info@m3monaco.com — NIS : 6820 B 19807 — RCI : 18 S 07927';
+  'M3 S.A.M. · Monte Carlo Palace, 3/7 Boulevard des Moulins, 98000 Monaco · info@m3monaco.com · NIS : 6820 B 19807 · RCI : 18 S 07927';
 
 /**
  * Artwork shipped with the app, so a letter looks right with nothing to set up.

@@ -277,7 +277,8 @@ Deno.serve(async (req: Request) => {
 <p style="font-size:12px;color:#8a95a8;margin-top:18px">All times are ${tz} (Monaco).${names.length ? ` Startups in this session: ${esc(names.join(", "))}.` : ""}</p>
 </div>`;
         const ok = await sendMail(to, "Your jury session - Smart Marina Rendezvous", html);
-        if (ok) { sent++; await admin.from("sm_jury_session_juror").update({ invited_at: new Date().toISOString() }).eq("id", j.id); }
+        // A preview must not make a juror look contacted.
+        if (ok) { sent++; if (!testEmail) await admin.from("sm_jury_session_juror").update({ invited_at: new Date().toISOString() }).eq("id", j.id); }
         else failed++;
         if (testEmail) break; // one preview mail only
       }
@@ -294,14 +295,16 @@ Deno.serve(async (req: Request) => {
       const s = await loadSession(sessionId);
       if (!s) return json(req, { error: "Session not found" }, 404);
       if (s.status === "cancelled") return json(req, { error: "This session is cancelled" }, 400);
-      if (s.zoom_sent) return json(req, { error: "The Zoom invitation has already been sent for this session." }, 400);
+      // Previews stay allowed after the real send - looking costs nothing.
+      if (s.zoom_sent && !testEmail) return json(req, { error: "The Zoom invitation has already been sent for this session." }, 400);
       const blocked = guardTest(s);
       if (blocked) return json(req, { error: blocked }, 400);
 
       const jurors = await sessionJurors(sessionId);
       const availableJurors = jurors.filter(j => j.status === "available" || j.status === "confirmed");
       const force = body.force === true;
-      if (!availableJurors.length && !force) {
+      // A preview does not need a confirmed panel: it is shown to the tester only.
+      if (!availableJurors.length && !force && !testEmail) {
         return json(req, { error: "No juror has confirmed availability yet. Send the availability request first, or tick 'send anyway'." }, 400);
       }
       const invitedJurors = force ? jurors : availableJurors;
@@ -340,18 +343,27 @@ Deno.serve(async (req: Request) => {
 
       const ztoken = await zoomToken();
       const host = await zoomHostId(ztoken);
-      const meeting = await zoomCreate(ztoken, host, s.title, start.toISOString(), s.duration_minutes);
+      // A preview reuses the real meeting when one exists; otherwise it spins up
+      // a throwaway purely so the mail looks authentic, and deletes it below.
+      const reuse = !!testEmail && !!s.zoom_meeting_id && !!s.zoom_join_url;
+      const meeting = reuse
+        ? { id: String(s.zoom_meeting_id), join_url: String(s.zoom_join_url), start_url: "" }
+        : await zoomCreate(ztoken, host, s.title, start.toISOString(), s.duration_minutes);
+      const throwaway = !!testEmail && !reuse;
 
-      const { error: upErr } = await admin.from("sm_jury_session").update({
-        zoom_meeting_id: meeting.id, zoom_join_url: meeting.join_url, zoom_start_url: meeting.start_url,
-        zoom_sent: true, zoom_sent_at: new Date().toISOString(), status: "scheduled", updated_at: new Date().toISOString(),
-      }).eq("id", sessionId);
-      // Don't leave an orphan meeting on the Zoom account if we can't record it.
-      if (upErr) { console.error("session update failed", upErr); await zoomDelete(ztoken, meeting.id); return json(req, { error: "Could not save the meeting" }, 500); }
-
-      // Mark the jurors we invited as confirmed for this slot.
-      if (!testEmail && invitedJurors.length) {
-        await admin.from("sm_jury_session_juror").update({ status: "confirmed" }).in("id", invitedJurors.map(j => j.id));
+      // Nothing is persisted for a preview: the slot must still be at the
+      // availability step afterwards, with no Zoom recorded against it.
+      if (!testEmail) {
+        const { error: upErr } = await admin.from("sm_jury_session").update({
+          zoom_meeting_id: meeting.id, zoom_join_url: meeting.join_url, zoom_start_url: meeting.start_url,
+          zoom_sent: true, zoom_sent_at: new Date().toISOString(), status: "scheduled", updated_at: new Date().toISOString(),
+        }).eq("id", sessionId);
+        // Don't leave an orphan meeting on the Zoom account if we can't record it.
+        if (upErr) { console.error("session update failed", upErr); await zoomDelete(ztoken, meeting.id); return json(req, { error: "Could not save the meeting" }, 500); }
+        // Mark the jurors we invited as confirmed for this slot.
+        if (invitedJurors.length) {
+          await admin.from("sm_jury_session_juror").update({ status: "confirmed" }).in("id", invitedJurors.map(j => j.id));
+        }
       }
 
       const dayLabel = `${sessionDay(start)}, ${s.slot_label || slotTime(start, s.duration_minutes)} ${tzLabel(start)}`;
@@ -369,6 +381,8 @@ ${names.length ? `<p>Startups pitching in this session: ${esc(names.join(", "))}
         const ok = await sendMail(a.email, `Invitation: ${s.title}`, html, ics);
         if (ok) sent++; else failed++;
       }
+      // The preview meeting never belonged to anyone - remove it.
+      if (throwaway) await zoomDelete(ztoken, meeting.id);
       return json(req, { ok: true, id: s.id, join_url: meeting.join_url, sent, failed, invited: recipients.length, test: !!testEmail });
     }
 

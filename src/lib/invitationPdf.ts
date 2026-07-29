@@ -222,15 +222,18 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   doc.setFont(FONT, 'normal');
   flow.y = top + Math.max(sender.length * ADDR_LEADING, 13) + 7;
 
-  // ---- recipient, indented to the right half ------------------------------
+  // ---- recipient, set into the right-hand column --------------------------
+  // Sits at 58% of the text width rather than dead centre: at 50% the block
+  // read as if it were drifting into the middle of the page instead of being
+  // an addressee column.
   const addr = d.addressBlock.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  const addrX = M_LEFT + CONTENT_W * 0.5;
+  const addrX = M_LEFT + CONTENT_W * 0.58;
   addr.forEach((l, i) => doc.text(l, addrX, flow.y + i * ADDR_LEADING));
   flow.y += addr.length * ADDR_LEADING + 6;
 
   // ---- place & date -------------------------------------------------------
   doc.text(`${d.place}, ${d.dateLine}`, addrX, flow.y);
-  flow.y += 9;
+  flow.y += 17;
 
   // ---- subject ------------------------------------------------------------
   if (d.subject.trim()) {

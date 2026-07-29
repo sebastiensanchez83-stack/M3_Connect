@@ -92,7 +92,7 @@ interface ImportResult {
   errors: { email: string; error: string }[];
 }
 
-interface FileRef { submissionId: string; filename: string; column: string; ingested: boolean; url: string; file?: File }
+interface FileRef { submissionId: string; filename: string; column: string; ingested: boolean; url: string; file?: File; reason?: string }
 interface LocalAnalysis {
   rows: number;
   refs: FileRef[];
@@ -324,7 +324,13 @@ export function AdminSM26Import() {
           // makes re-importing the same export idempotent.
           const { error } = await supabase.storage.from('event-media')
             .upload(path, ref.file!, { upsert: true, contentType: ref.file!.type || 'application/octet-stream' });
-          if (error) failed.push(ref); else urlToPath.set(ref.url, path);
+          // Keep the reason: the usual cause is the bucket's 50 MB per-file
+          // ceiling (camera-original photos), and "could not be uploaded" with
+          // no explanation sends everyone hunting for the wrong problem.
+          if (error) {
+            const mb = ref.file ? ` (${(ref.file.size / 1048576).toFixed(1)} MB)` : '';
+            failed.push({ ...ref, reason: `${error.message}${mb}` });
+          } else urlToPath.set(ref.url, path);
           done++; setProgress({ done, total: jobs.length });
         }));
       }
@@ -593,8 +599,14 @@ export function AdminSM26Import() {
                 <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                 <span>
                   <strong>{uploadFailures.length} file(s) could not be uploaded</strong> and kept their
-                  original Jotform URL: {uploadFailures.slice(0, 8).map(f => f.filename).join(', ')}
-                  {uploadFailures.length > 8 ? ` + ${uploadFailures.length - 8} more` : ''}.
+                  original Jotform URL. Files over 50 MB are refused by storage — ask the
+                  participant for a smaller copy and add it from their registration.
+                  <ul className="mt-1 space-y-0.5">
+                    {uploadFailures.slice(0, 8).map((f, i) => (
+                      <li key={i}>{f.filename}{f.reason ? ` — ${f.reason}` : ''}</li>
+                    ))}
+                  </ul>
+                  {uploadFailures.length > 8 ? `+ ${uploadFailures.length - 8} more.` : ''}
                 </span>
               </div>
             </div>

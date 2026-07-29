@@ -191,6 +191,25 @@ export function AdminSM26Invitations() {
       return n;
     });
   };
+  /**
+   * The country names itself inside one body paragraph, so typing it has to
+   * refresh that paragraph. reshape() cannot do this job: by the time it ran,
+   * the draft already carried the new country, so its "is the body still the
+   * standard wording?" test compared the paragraphs against a template built
+   * with that same new country — never a match, so the letter was treated as
+   * personalised and kept "« le pays »". Here the comparison happens against
+   * the draft as it stands, which still holds the previous country.
+   */
+  const setCountry = (country: string) => {
+    setDraft(d => {
+      if (!d) return d;
+      const wasTemplate = sameBody(d.paragraphs, templateBody(d));
+      const n: Invitation = { ...d, country };
+      if (wasTemplate) n.paragraphs = bodyParagraphs(n.language, n.letter_type, n.register, facts, { country });
+      return n;
+    });
+  };
+
   const switchLanguage = (language: Lang) => reshape({ language });
   const switchRegister = (register: Register) => reshape({ register });
   const switchType = (letter_type: LetterType) =>
@@ -329,7 +348,17 @@ export function AdminSM26Invitations() {
   // ---- render the PDF -----------------------------------------------------
   const letterData = (d: Invitation): LetterData => ({
     senderLines: (letterhead.sender || SENDER_DEFAULT.join('\n')).split(/\r?\n/),
-    addressBlock: d.address_block,
+    // The addressee column is assembled from the structured fields, not just the
+    // free-text box: who / their title / their organisation were captured on the
+    // form but never reached the letter, and the country was only feeding the
+    // body paragraph. A letter addresses a person, so they belong here.
+    addressBlock: [
+      d.recipient_name,
+      d.recipient_role,
+      d.recipient_org,
+      ...(d.address_block || '').split(/\r?\n/),
+      d.country,
+    ].map(s => (s || '').trim()).filter(Boolean).join('\n'),
     place: d.letter_place,
     dateLine: letterDateLong(d.language, d.letter_date),
     // The authorities letter heads its subject with no "Subject:" label.
@@ -505,20 +534,22 @@ export function AdminSM26Invitations() {
                   </SelectContent>
                 </Select>
               </div>
-              {draft.letter_type === 'authorities' && (
-                <div>
-                  <Label className="text-xs text-gray-500">Country / territory — named in the letter</Label>
-                  <Input className="h-9 mt-1" value={draft.country || ''}
-                    onChange={e => set('country', e.target.value)}
-                    onBlur={() => reshape({})}
-                    placeholder={draft.language === 'fr' ? "l'Égypte" : 'Egypt'} />
-                  {draft.language === 'fr' && (
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Include the article: <i>l’Égypte</i>, <i>le Maroc</i>, <i>les Émirats arabes unis</i>.
-                    </p>
-                  )}
-                </div>
-              )}
+              {/* Shown for both kinds: the authorities letter names the country in
+                  its delegation paragraph, and every letter needs it on the last
+                  line of the address. */}
+              <div>
+                <Label className="text-xs text-gray-500">
+                  {draft.letter_type === 'authorities' ? 'Country / territory (named in the letter)' : 'Country'}
+                </Label>
+                <Input className="h-9 mt-1" value={draft.country || ''}
+                  onChange={e => setCountry(e.target.value)}
+                  placeholder={draft.language === 'fr' ? "l'Égypte" : 'Egypt'} />
+                {draft.language === 'fr' && draft.letter_type === 'authorities' && (
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Include the article: <i>l’Égypte</i>, <i>le Maroc</i>, <i>les Émirats arabes unis</i>.
+                  </p>
+                )}
+              </div>
             </div>
 
             <div className="grid sm:grid-cols-3 gap-3">

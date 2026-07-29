@@ -327,18 +327,39 @@ export function AdminSM26Detail() {
 
   useEffect(() => { if (id) load(id); }, [id]);
 
-  // Surface the sponsorship-tracker record for this company (by org, else name).
+  // Surface the sponsorship-tracker record for this company. The organization is
+  // the stable key; the company name is only a fallback and is fuzzy by nature —
+  // the tracker often holds a qualified name ("Foo (PROJECT)") while a bare stub
+  // of the same company sits beside it. Matching the exact name therefore picked
+  // the empty stub and hid the real negotiated agreement, so widen the match and
+  // prefer whichever candidate actually carries one.
   useEffect(() => {
     if (!reg) { setSponsorLink(null); return; }
     let ignore = false;
     (async () => {
-      const q = reg.organization_id
-        ? supabase.from('sp_sponsor').select('id,company_name').eq('organization_id', reg.organization_id).limit(1).maybeSingle()
-        : reg.company_name
-        ? supabase.from('sp_sponsor').select('id,company_name').ilike('company_name', reg.company_name).limit(1).maybeSingle()
-        : Promise.resolve({ data: null });
-      const { data } = await q;
-      if (!ignore) setSponsorLink((data as { id: string; company_name: string } | null) || null);
+      type Hit = { id: string; company_name: string };
+      let rows: Hit[] = [];
+      if (reg.organization_id) {
+        const { data } = await supabase.from('sp_sponsor').select('id,company_name')
+          .eq('organization_id', reg.organization_id).limit(5);
+        rows = (data || []) as Hit[];
+      }
+      if (!rows.length && reg.company_name?.trim()) {
+        const esc = reg.company_name.trim().replace(/[\\%_]/g, c => `\\${c}`);
+        const { data } = await supabase.from('sp_sponsor').select('id,company_name')
+          .ilike('company_name', `${esc}%`).limit(5);
+        rows = (data || []) as Hit[];
+      }
+      let best: Hit | null = rows[0] || null;
+      if (rows.length > 1) {
+        const { data: agrs } = await supabase.from('sp_agreement').select('sponsor_id,status')
+          .in('sponsor_id', rows.map(r => r.id));
+        const list = (agrs || []) as { sponsor_id: string; status: string }[];
+        const active = new Set(list.filter(a => a.status === 'active').map(a => a.sponsor_id));
+        const any = new Set(list.map(a => a.sponsor_id));
+        best = rows.find(r => active.has(r.id)) || rows.find(r => any.has(r.id)) || rows[0];
+      }
+      if (!ignore) setSponsorLink(best);
     })();
     return () => { ignore = true; };
   }, [reg]);

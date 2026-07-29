@@ -109,11 +109,19 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // 3. Create the user with email_confirm: true (skips confirmation email)
+    // 3. Create the user UNCONFIRMED. This endpoint is public (verify_jwt=false)
+    //    and used to pass email_confirm:true on the stated assumption that the
+    //    caller had proved ownership of the address by clicking an invitation
+    //    link -- but no token was ever passed or checked, and claim codes were
+    //    readable by anonymous visitors, so anyone could mint a working account
+    //    under someone else's email with a password of their choosing. GoTrue now
+    //    sends its own confirmation mail and the account is inert until the real
+    //    mailbox owner clicks it. The org membership is still granted below, so a
+    //    genuine invitee loses nothing.
     const { data: newUser, error: createError } = await admin.auth.admin.createUser({
       email,
       password,
-      email_confirm: true,
+      email_confirm: false,
       user_metadata: {
         first_name: first_name || "",
         last_name: last_name || "",

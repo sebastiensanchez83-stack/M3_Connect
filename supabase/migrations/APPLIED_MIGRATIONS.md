@@ -282,4 +282,9 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260729082000  sp_link_from_sm26_qualified_name_match
 20260729101500  sm_sync_jury_session_roster_with_batch
 20260729101800  sm_sync_jury_session_panel_with_group
+20260729140000  sec_revoke_anon_execute_internal_functions
+20260729140500  sec_revoke_public_execute_internal_functions
+20260729141500  sec_event_partner_media_exclude_invoices
+20260729142500  sec_hide_claim_codes_from_anon
+20260729143000  sec_hide_claim_codes_from_anon_column_grants
 ```

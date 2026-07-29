@@ -17,7 +17,6 @@ import {
   prettyStatus, ORG_SCOPE_ROLES, MODULE_TABLE_ROLES,
   ROLE_STATUS_DESC, SM26_BASE_FIELDS, sm26FieldLabel,
 } from './AdminSM26';
-import { SponsorPackageEditor } from './SM26SponsorPackage';
 import { SM26PaymentPanel } from './SM26PaymentPanel';
 import { SM26Invoices } from './SM26Invoices';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
@@ -864,8 +863,28 @@ export function AdminSM26Detail() {
                 {hasLight && <ModuleFields data={role.module_data} />}
                 {!hasModuleDetails && <p className="text-xs text-gray-400">No details captured for this role yet.</p>}
 
-                {role.role === 'sponsor' && reg && (
-                  <SponsorPackageEditor roleAssignmentId={role.id} eventId={reg.event_id} />
+                {/* The package is NOT edited here. It used to be, from a list of
+                    hardcoded tiers written into a second table — which nothing
+                    downstream ever read and which would drift from the signed
+                    deal the moment anything was renegotiated. The agreement in
+                    the sponsorship tracker is the single source of truth: it
+                    carries the negotiated fee and any bespoke line. */}
+                {role.role === 'sponsor' && (
+                  <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-xs text-amber-800 flex items-start gap-2">
+                    <Building2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      The package is held on their sponsorship agreement — negotiated fee, bespoke
+                      lines and delivery tracking.{' '}
+                      {sponsorLink ? (
+                        <button type="button" onClick={() => navigate(`/admin/sponsorships/${sponsorLink.id}`)}
+                          className="font-medium underline underline-offset-2">
+                          Open {sponsorLink.company_name}
+                        </button>
+                      ) : (
+                        <span>Add them to the fulfilment tracker below to set it up.</span>
+                      )}
+                    </span>
+                  </div>
                 )}
 
                 {reqs.length > 0 && (

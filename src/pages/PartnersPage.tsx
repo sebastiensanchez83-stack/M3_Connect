@@ -37,22 +37,29 @@ export function PartnersPage() {
     const fetchPartners = async () => {
       setLoading(true);
       try {
-        // Get verified partner organizations on a paying tier (innovation_partner
-        // and up). Free Member-tier orgs are excluded from the public directory.
+        // Every verified organisation on a paying tier (innovation_partner and
+        // up), whatever kind of company it is. The tier is what makes someone a
+        // partner here, not their type: this used to require organization_type
+        // 'partner', which quietly hid a marina, a destination or a port
+        // authority that had bought a tier — and those are exactly the sponsors
+        // this event attracts. Free Member-tier orgs stay out of the directory.
         const COLS = 'id, slug, name, organization_type, website, country, headquarters_country, description, logo_url, access_status, tier, is_event_media_partner';
         // A media outlet is only shown HERE once an admin has tagged it as one of
         // our media partners. Accredited press that isn't a partner keeps a normal
         // company profile and lives in the network directory, not on this page.
         const [partnerRes, mediaRes] = await Promise.all([
           supabase.from('organizations').select(COLS)
-            .eq('access_status', 'verified').eq('organization_type', 'partner').in('tier', SPONSOR_TIERS),
+            .eq('access_status', 'verified').in('tier', SPONSOR_TIERS),
           supabase.from('organizations').select(COLS)
             .eq('access_status', 'verified').eq('organization_type', 'media_partner')
             .eq('is_event_media_partner', true),
         ]);
 
         if (partnerRes.error) throw partnerRes.error;
-        const orgRows = [...(partnerRes.data || []), ...(mediaRes.data || [])];
+        // A media partner on a paying tier matches both queries; keep one card.
+        const byId = new Map<string, (typeof partnerRes.data)[number]>();
+        for (const o of [...(partnerRes.data || []), ...(mediaRes.data || [])]) byId.set(o.id, o);
+        const orgRows = [...byId.values()];
         if (orgRows.length === 0) {
           setPartners([]);
           return;

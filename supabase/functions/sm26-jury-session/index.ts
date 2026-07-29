@@ -76,6 +76,28 @@ async function zoomDelete(token: string, meetingId: string) {
 
 // ---- Calendar ---------------------------------------------------------------
 const icsStamp = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+// The same instant written as Monaco wall-clock time. Sending the event in UTC
+// was correct but made Outlook announce "08:00 - 09:00 in (UTC)" above a body
+// that said 10:00-11:00, which reads like two different meetings. Anchoring the
+// event to a named zone lets every client show the local hour the panel agreed.
+function localStamp(d: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Monaco", hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(d);
+  const g = (t: string) => parts.find(x => x.type === t)?.value || "00";
+  return `${g("year")}${g("month")}${g("day")}T${g("hour")}${g("minute")}${g("second")}`;
+}
+// Monaco follows the EU rule: last Sunday of March / October.
+const VTIMEZONE = [
+  "BEGIN:VTIMEZONE", "TZID:Europe/Monaco",
+  "BEGIN:DAYLIGHT", "TZOFFSETFROM:+0100", "TZOFFSETTO:+0200", "TZNAME:CEST",
+  "DTSTART:19700329T020000", "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU", "END:DAYLIGHT",
+  "BEGIN:STANDARD", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100", "TZNAME:CET",
+  "DTSTART:19701025T030000", "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU", "END:STANDARD",
+  "END:VTIMEZONE",
+];
 const icsEsc = (s: string) => String(s).replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
 // One .ics per recipient: organiser + that person only, so grouped startups
 // never see each other's email addresses in the attachment.
@@ -84,8 +106,9 @@ function buildIcs(o: { uid: string; seq: number; method: "REQUEST" | "CANCEL"; s
   const desc = `Innovation jury session for the Smart & Sustainable Marina Rendezvous 2026.\\nJoin Zoom: ${o.joinUrl}`;
   const lines = [
     "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Smart Marina Connect//SM26//EN", `METHOD:${o.method}`, "CALSCALE:GREGORIAN",
+    ...VTIMEZONE,
     "BEGIN:VEVENT", `UID:${o.uid}`, `SEQUENCE:${o.seq}`, `DTSTAMP:${icsStamp(new Date())}`,
-    `DTSTART:${icsStamp(o.start)}`, `DTEND:${icsStamp(end)}`,
+    `DTSTART;TZID=Europe/Monaco:${localStamp(o.start)}`, `DTEND;TZID=Europe/Monaco:${localStamp(end)}`,
     `SUMMARY:${icsEsc(o.title)}`, `DESCRIPTION:${desc}`, `LOCATION:${icsEsc(o.joinUrl)}`,
     // The organiser is the address that receives the acceptances; SENT-BY names
     // the mailbox the message actually left from, which is what stops Outlook
@@ -141,6 +164,13 @@ const sessionDay = (d: Date) => fmt(d, { weekday: "long", day: "numeric", month:
 const hhmm = (d: Date) => fmt(d, { hour: "2-digit", minute: "2-digit", hour12: false });
 function slotTime(start: Date, minutes: number): string {
   return `${hhmm(start)} to ${hhmm(new Date(start.getTime() + minutes * 60000))}`;
+}
+// slot_label is free text from the console and normally already carries the
+// zone ("10:00-11:00 CEST"). Appending the zone unconditionally printed
+// "10:00-11:00 CEST CEST", so only add it when it isn't there.
+function slotWithZone(label: string | null, start: Date, minutes: number): string {
+  const raw = (label || "").trim() || slotTime(start, minutes);
+  return /\b(CET|CEST|UTC|GMT)\b/i.test(raw) ? raw : `${raw} ${tzLabel(start)}`;
 }
 // "20-21 September 2026" / "20 September 2026" from the sm_event record.
 function eventDates(startDate: string | null, endDate: string | null): string {
@@ -276,7 +306,7 @@ Deno.serve(async (req: Request) => {
 
       const start = new Date(s.scheduled_at);
       const day = sessionDay(start);
-      const time = s.slot_label ? esc(s.slot_label) : slotTime(start, s.duration_minutes);
+      const time = esc(slotWithZone(s.slot_label, start, s.duration_minutes));
       const tz = tzLabel(start);
 
       let sent = 0; let failed = 0;
@@ -288,7 +318,7 @@ Deno.serve(async (req: Request) => {
         const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1e2838">
 <p>Dear ${esc(j.first_name || "there")},</p>
 <p>Thanks once again for agreeing to participate as a jury member in ${eventLine()}.</p>
-<p>We are now scheduling the jury sessions and would like to ask whether you're available on <strong>${esc(day)} from ${time} ${tz}</strong> for your session?</p>
+<p>We are now scheduling the jury sessions and would like to ask whether you're available on <strong>${esc(day)} from ${time}</strong> for your session?</p>
 <p>During this hour, you will hear a pitch from <strong>${startupCount} of the chosen startups</strong> (${pitchMinutes} minute pitch per startup, followed by ${qaMinutes} minutes Q&amp;A). You will also be joined on the call by <strong>${coJurors} other jury member${coJurors === 1 ? "" : "s"}</strong>, and you will be asked to submit a short feedback form on each of the ${startupCount} startups after the call.</p>
 <p>Please let me know if that works for you, and we will send you a zoom invitation.</p>
 <p style="margin:22px 0 6px">${BTN(yes, "Confirm availability", "#16a34a")}${BTN(no, "Not available", "#64748b")}</p>
@@ -384,7 +414,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const dayLabel = `${sessionDay(start)}, ${s.slot_label || slotTime(start, s.duration_minutes)} ${tzLabel(start)}`;
+      const dayLabel = `${sessionDay(start)}, ${slotWithZone(s.slot_label, start, s.duration_minutes)}`;
       const names = await companyNames(entryIds);
       let sent = 0; let failed = 0;
       for (const a of recipients) {
@@ -528,7 +558,7 @@ ${names.length ? `<p>Startups pitching in this session: ${esc(names.join(", "))}
       for (const { rsvp, s } of slots) {
         const start = new Date(s.scheduled_at);
         const names = await companyNames(await sessionEntryIds(s));
-        blocks.push(`<li style="margin-bottom:10px"><strong>${esc(sessionDay(start))}, ${esc(s.slot_label || slotTime(start, s.duration_minutes))} ${tzLabel(start)}</strong>
+        blocks.push(`<li style="margin-bottom:10px"><strong>${esc(sessionDay(start))}, ${esc(slotWithZone(s.slot_label, start, s.duration_minutes))}</strong>
 ${names.length ? `<br><span style="color:#55637a">${esc(names.join(", "))}</span>` : ""}
 ${s.zoom_sent && s.zoom_join_url ? `<br><a href="${s.zoom_join_url}">Join the Zoom meeting</a>` : `<br><span style="color:#8a95a8">Zoom link to follow${rsvp === "invited" ? " once you confirm your availability" : ""}</span>`}</li>`);
       }

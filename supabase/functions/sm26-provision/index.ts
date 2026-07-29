@@ -104,6 +104,29 @@ Deno.serve(async (req) => {
   const email = (reg.email || "").trim().toLowerCase();
   if (!email) return json(req, { error: "Registration has no email" }, 400);
 
+  // Chase mode: re-send the set-password link and change NOTHING else - no
+  // persona, no organization, no access change. The registrations console uses
+  // it in bulk on the people whose account exists but who never chose a
+  // password. Guarded on pw_pending rather than trusting the caller, so this
+  // can never tell someone with a working password to go and set one.
+  if (body.welcome_only === true) {
+    if (!reg.user_id) return json(req, { error: "No account yet - provision this registration first." }, 400);
+    const { data: got } = await admin.auth.admin.getUserById(reg.user_id);
+    if (got?.user?.user_metadata?.pw_pending !== true) {
+      return json(req, { ok: true, skipped: "password already set", emailed: false });
+    }
+    const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
+      type: "magiclink", email, options: { redirectTo: `${SITE_URL}/welcome` },
+    });
+    const actionLink = (linkData as { properties?: { action_link?: string } })?.properties?.action_link;
+    if (linkErr || !actionLink) {
+      console.error("generateLink failed", linkErr);
+      return json(req, { error: "Could not create the sign-in link" }, 500);
+    }
+    const ok = await sendWelcomeEmail(email, reg.first_name || "", actionLink);
+    return json(req, { ok: true, emailed: ok, welcome_only: true });
+  }
+
   // 1) Ensure an auth account
   let userId = reg.user_id;
   let createdAccount = false;

@@ -479,6 +479,56 @@ export function AdminSM26() {
     clearSel();
   };
 
+  // Follow-up emails, sent to a selection. Each kind carries its own test for
+  // who it actually applies to, and only those people are mailed however wide
+  // the selection is: a payment reminder to someone who has paid, or a
+  // "set your password" to someone who already has one, costs more goodwill
+  // than it saves effort. The count is shown before anything leaves.
+  const CHASE: { key: string; label: string; who: string; eligible: (r: RegRow) => boolean }[] = [
+    { key: 'welcome', label: 'Set-password link', who: 'account created but no password chosen yet',
+      eligible: r => acctState.get(r.id) === 'pw_pending' },
+    { key: 'payment_reminder', label: 'Payment reminder', who: 'fee not settled',
+      eligible: r => { const p = payStatus.get(r.id); return p !== 'paid' && p !== 'waived'; } },
+    { key: 'invoice_available', label: 'Invoice available', who: 'an invoice has been raised',
+      eligible: r => payStatus.get(r.id) === 'invoiced' },
+    { key: 'attendees_requested', label: 'Confirm attendees', who: 'attendee list not confirmed',
+      eligible: r => !r.attendees_confirmed_at },
+    { key: 'ecat_review', label: 'Review e-catalogue page', who: 'a page is waiting for their approval',
+      eligible: r => ecat.get(r.id) === 'uploaded' },
+    { key: 'info_requested', label: 'Complete your details', who: 'everyone selected',
+      eligible: () => true },
+  ];
+
+  const bulkEmail = async (key: string) => {
+    const def = CHASE.find(c => c.key === key);
+    if (!def) return;
+    const targets = rows.filter(r => selected.has(r.id) && def.eligible(r));
+    if (targets.length === 0) {
+      toast({ title: `Nobody selected fits "${def.label}"`, description: `It only goes to those where ${def.who}.` });
+      return;
+    }
+    if (!window.confirm(
+      `Send "${def.label}" to ${targets.length} of the ${selected.size} selected?\n\n` +
+      `Only those where ${def.who} are emailed.`)) return;
+    setBulkBusy(true);
+    let sent = 0; let failed = 0;
+    for (const r of targets) {
+      const res = key === 'welcome'
+        ? await supabase.functions.invoke('sm26-provision', { body: { registration_id: r.id, welcome_only: true } })
+        : await supabase.functions.invoke('sm26-email', { body: { registration_id: r.id, kind: key } });
+      const ok = !res.error && (key !== 'welcome' || (res.data as { emailed?: boolean } | null)?.emailed === true);
+      if (ok) sent++; else failed++;
+    }
+    setBulkBusy(false);
+    toast({
+      title: `${def.label} sent to ${sent}`,
+      description: failed ? `${failed} could not be sent.` : undefined,
+      variant: failed && !sent ? 'destructive' : undefined,
+    });
+    clearSel();
+    load();
+  };
+
   if (loading) return (
     <div className="flex items-center justify-center h-64">
       <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
@@ -646,6 +696,21 @@ export function AdminSM26() {
             <SelectContent>{REG_STATUSES.map(s => <SelectItem key={s} value={s}>{prettyStatus(s)}</SelectItem>)}</SelectContent>
           </Select>
           <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={bulkBusy} onClick={bulkAskDetails}><BellRing className="h-3.5 w-3.5" /> Ask to complete details</Button>
+          {/* Each option shows how many of the selection it would actually reach,
+              so the effect is known before it is sent. */}
+          <Select value="" onValueChange={v => bulkEmail(v)} disabled={bulkBusy}>
+            <SelectTrigger className="w-52 h-8 text-xs"><SelectValue placeholder="Send a follow-up email…" /></SelectTrigger>
+            <SelectContent>
+              {CHASE.map(c => {
+                const n = rows.filter(r => selected.has(r.id) && c.eligible(r)).length;
+                return (
+                  <SelectItem key={c.key} value={c.key} disabled={n === 0}>
+                    {c.label} · {n}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
           <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-gray-500 ml-auto" onClick={clearSel}><X className="h-3.5 w-3.5" /> Clear</Button>
         </div>
       ) : filtered.length > 0 && (

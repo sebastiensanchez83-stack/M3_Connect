@@ -25,7 +25,7 @@ import { fetchLastEmails, lastEmailText, type LastEmail } from '@/lib/sm26EmailL
 import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
 import { SM26MediaKit } from '@/components/sm26/SM26MediaKit';
 import { SM26CompanyLink } from './SM26CompanyLink';
-import { SM26ProvisionDialog } from './SM26ProvisionDialog';
+import { SM26ProvisionDialog, suggestProvision } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
 import { SM26RequestFields } from './SM26RequestFields';
 import { useAuth } from '@/contexts/AuthContext';
@@ -384,8 +384,13 @@ export function AdminSM26Detail() {
     if (error) { toast({ title: 'Could not update status', description: error.message, variant: 'destructive' }); return; }
     setReg({ ...reg, status: newStatus });
     toast({ title: `Status set to "${prettyStatus(newStatus)}"` });
-    // Confirming someone without an account → set up their platform identity now.
-    if (newStatus === 'confirmed' && !reg.user_id) setProvisionOpen(true);
+    // Confirming → set up their platform identity now. Not only when the account
+    // is missing: someone who registered on the public form already has one
+    // (sm26-register provisions it), yet still has no company — and their
+    // e-catalogue page, team seats and sponsor entitlements all hang off an
+    // organization. Opening the dialog only proposes; nothing is applied until
+    // the admin confirms it.
+    if (newStatus === 'confirmed' && (!reg.user_id || suggestProvision(reg).orgMode !== 'none')) setProvisionOpen(true);
     if (newStatus === 'confirmed') void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'confirmed' } }).catch(() => {});
     if (newStatus === 'declined') void supabase.functions.invoke('sm26-email', { body: { registration_id: reg.id, kind: 'declined' } }).catch(() => {});
   };

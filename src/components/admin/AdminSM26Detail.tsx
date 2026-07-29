@@ -321,7 +321,7 @@ export function AdminSM26Detail() {
   const [addRoleValue, setAddRoleValue] = useState('');
   // Platform-identity provisioning (account + persona + org + welcome email).
   const [provisionOpen, setProvisionOpen] = useState(false);
-  const [sponsorLink, setSponsorLink] = useState<{ id: string; company_name: string } | null>(null);
+  const [sponsorLink, setSponsorLink] = useState<{ id: string; company_name: string; organization_id: string | null } | null>(null);
   const [sponsorBusy, setSponsorBusy] = useState(false);
 
   useEffect(() => { if (id) load(id); }, [id]);
@@ -336,16 +336,16 @@ export function AdminSM26Detail() {
     if (!reg) { setSponsorLink(null); return; }
     let ignore = false;
     (async () => {
-      type Hit = { id: string; company_name: string };
+      type Hit = { id: string; company_name: string; organization_id: string | null };
       let rows: Hit[] = [];
       if (reg.organization_id) {
-        const { data } = await supabase.from('sp_sponsor').select('id,company_name')
+        const { data } = await supabase.from('sp_sponsor').select('id,company_name,organization_id')
           .eq('organization_id', reg.organization_id).limit(5);
         rows = (data || []) as Hit[];
       }
       if (!rows.length && reg.company_name?.trim()) {
         const esc = reg.company_name.trim().replace(/[\\%_]/g, c => `\\${c}`);
-        const { data } = await supabase.from('sp_sponsor').select('id,company_name')
+        const { data } = await supabase.from('sp_sponsor').select('id,company_name,organization_id')
           .ilike('company_name', `${esc}%`).limit(5);
         rows = (data || []) as Hit[];
       }
@@ -749,6 +749,14 @@ export function AdminSM26Detail() {
                 {reg.user_id && (
                   <Button size="sm" variant="outline" className="gap-1.5" disabled={sponsorBusy} onClick={grantPortalAccess} title="Give this contact a Sponsorship tab on their account">
                     <UserPlus className="h-4 w-4" /> Grant access
+                  </Button>
+                )}
+                {/* Matched by name only. Running the link cements it on the
+                    organization id, so a later rename cannot break it. */}
+                {reg.organization_id && !sponsorLink.organization_id && (
+                  <Button size="sm" variant="outline" className="gap-1.5" disabled={sponsorBusy} onClick={linkSponsor}
+                    title="This sponsor is matched by company name only — attach the organization to make the link permanent">
+                    {sponsorBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Building2 className="h-4 w-4" />} Attach company
                   </Button>
                 )}
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => navigate(`/admin/sponsorships/${sponsorLink.id}`)}>

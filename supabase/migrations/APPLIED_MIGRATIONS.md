@@ -277,4 +277,9 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260728100125  sm26_checkin_eligibility_rules
 20260728100156  sm26_checkin_eligibility_map
 20260728100638  sm26_drop_unguarded_checkin_overloads
+20260729061500  sm_account_state_map
+20260729071500  sm_user_id_by_email
+20260729082000  sp_link_from_sm26_qualified_name_match
+20260729101500  sm_sync_jury_session_roster_with_batch
+20260729101800  sm_sync_jury_session_panel_with_group
 ```

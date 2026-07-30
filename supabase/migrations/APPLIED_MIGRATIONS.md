@@ -289,4 +289,6 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260729143000  sec_hide_claim_codes_from_anon_column_grants
 20260730090000  sm_architect_onsite_follows_door_list
 20260730093000  sm_withdraw_registration_cascade
+20260730104000  sm_scorecards_follow_panel_and_batch
+20260730104500  sm_scorecards_review_guard_fix
 ```

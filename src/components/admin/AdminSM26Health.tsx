@@ -180,6 +180,25 @@ export function AdminSM26Health() {
     toast({ title: `Entry passes sent to ${d?.sent ?? 0}` });
   };
 
+  // Prove the QR generator works before trusting it with the door. Generates a
+  // code server-side and shows it here; sends nothing to anyone. The entry pass
+  // is the one artefact the whole arrival flow depends on, so it should be
+  // possible to look at it without emailing 57 people to find out.
+  const [qrTest, setQrTest] = useState<string | null>(null);
+  const previewEntryQr = async () => {
+    setBadgeBusy(true); setBadgeMsg(null); setQrTest(null);
+    const { data, error } = await invokeWithRetry('sm26-badge-email', { preview: true });
+    setBadgeBusy(false);
+    const d = data as { png_base64?: string; encodes?: string; error?: string } | null;
+    if (error || !d?.png_base64) {
+      setBadgeMsg(`QR generation failed: ${d?.error || error?.message || 'no image returned'}`);
+      toast({ title: 'The entry QR could not be generated', variant: 'destructive' });
+      return;
+    }
+    setQrTest(`data:image/png;base64,${d.png_base64}`);
+    setBadgeMsg('QR generated on the server. Scan it with a phone — it should open the check-in page.');
+  };
+
   // Onboarding invites: email everyone who has a registration but no account yet
   // a link to create their account + claim it. Repeatable (re-targets only those
   // still not on the platform).
@@ -334,9 +353,24 @@ export function AdminSM26Health() {
         <CardContent className="p-4 space-y-3">
           <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><QrCode className="h-4 w-4 text-gray-400" /> Entry passes (QR)</div>
           <p className="text-xs text-gray-500">Email every attending person their personal entry QR to show at check-in. Badges are minted first; anyone without an email or badge is skipped. You can also send them per registration from its Attendees card.</p>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={sendEntryPasses} disabled={badgeBusy}>
-            {badgeBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send entry QR to all attendees
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={previewEntryQr} disabled={badgeBusy}>
+              {badgeBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <QrCode className="h-4 w-4" />} Test the QR (sends nothing)
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={sendEntryPasses} disabled={badgeBusy}>
+              {badgeBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send entry QR to all attendees
+            </Button>
+          </div>
+          {qrTest && (
+            <div className="flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50/60 p-3">
+              <img src={qrTest} alt="Test entry QR" width={140} height={140} className="rounded bg-white border border-gray-200 p-1" />
+              <p className="text-xs text-gray-500">
+                Scan this with a phone. It should open the check-in page with a dummy token, which the
+                scanner will reject as unknown — that is the correct outcome and proves the whole
+                chain works. Nothing was emailed to produce it.
+              </p>
+            </div>
+          )}
           {badgeMsg && <p className="text-xs text-gray-500">{badgeMsg}</p>}
         </CardContent>
       </Card>

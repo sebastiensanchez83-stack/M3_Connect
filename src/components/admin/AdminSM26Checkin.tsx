@@ -61,18 +61,27 @@ const parseToken = (raw: string) => { try { return new URL(raw).searchParams.get
 // in" are different facts and the second is the one that decides anything.
 // Deliberately no sound: the desk sits next to the sessions.
 //
-// Two mechanisms, because there is no single one that covers both phones:
+// Vibration reaches Android only, and that is settled rather than assumed.
 //
 //  - Android (Chrome, Firefox, Samsung): navigator.vibrate, a real API, exact
-//    millisecond patterns.
-//  - iPhone: iOS implements NO vibration API — navigator.vibrate is undefined in
-//    Safari and in every iOS browser, since they are all WebKit. The only lever a
-//    web page has on the Taptic Engine is Safari 17.4's native switch control,
-//    which plays a system haptic when it flips. Flipping one off-screen is a
-//    side effect of a UI control rather than an API: it needs iOS 17.4 or later,
-//    it gives one fixed tap rather than a pattern, and Apple can take it away.
-//    Hence the "Test vibration" button — one tap tells you whether this phone
-//    can do it at all, instead of finding out at the door.
+//    millisecond patterns. One tap anywhere on the page satisfies its sticky
+//    user-activation requirement for the life of the page.
+//  - iPhone: nothing, and no amount of cleverness changes it. iOS has never
+//    implemented the Vibration API — WebKit's formal standards position is to
+//    oppose it. The one lever that ever existed was the native switch control's
+//    system haptic (iOS 18.0, not the widely repeated 17.4), driven by clicking
+//    an off-screen switch. That was tried here and removed, for two reasons that
+//    are both verifiable rather than guessed:
+//      1. WebCore/html/CheckboxInputType.cpp, in WebKit main today, gates the
+//         haptic on `trigger == SwitchTrigger::Click &&
+//         !UserGestureIndicator::processingUserGesture()` — it only fires WHILE a
+//         user gesture is being processed. A QR decode arrives from a
+//         requestAnimationFrame loop, which carries no gesture. So it could
+//         never have fired on a scan, on any build since that landed.
+//      2. It was closed off entirely in iOS 26.5 (May 2026), which stripped
+//         trust from label.click().
+//    Sound is therefore the only non-visual channel an iPhone has, and the
+//    full-screen colour is the one that is guaranteed everywhere.
 type DoorSignal = 'read' | 'admitted' | 'already' | 'refused';
 const BUZZ: Record<DoorSignal, number[]> = {
   read: [25],                      // decoded — you can move the badge away
@@ -80,37 +89,6 @@ const BUZZ: Record<DoorSignal, number[]> = {
   already: [30, 80, 30],           // seen before in this window; not a fault
   refused: [70, 60, 70, 60, 120],  // unmistakably different from the other three
 };
-// How many taps stand in for each pattern where only a fixed tap is available.
-const TAPS: Record<DoorSignal, number> = { read: 1, admitted: 1, already: 2, refused: 3 };
-
-let hapticSwitch: { input: HTMLInputElement; label: HTMLLabelElement } | null = null;
-let hapticSwitchTried = false;
-// Safari 17.4+ reflects the switch attribute as a property; anything else fails
-// this test and gets nothing, which is the honest outcome.
-function iosHaptic(): { input: HTMLInputElement; label: HTMLLabelElement } | null {
-  if (hapticSwitchTried) return hapticSwitch;
-  hapticSwitchTried = true;
-  try {
-    const probe = document.createElement('input');
-    probe.type = 'checkbox';
-    if (!('switch' in probe)) return null;
-    probe.setAttribute('switch', '');
-    probe.id = 'sm26-haptic';
-    probe.tabIndex = -1;
-    probe.setAttribute('aria-hidden', 'true');
-    // It has to be laid out and hit-testable for the control to run its state
-    // change, so it is parked off-screen rather than display:none'd.
-    probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
-    const label = document.createElement('label');
-    label.htmlFor = 'sm26-haptic';
-    label.setAttribute('aria-hidden', 'true');
-    label.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
-    document.body.appendChild(probe);
-    document.body.appendChild(label);
-    hapticSwitch = { input: probe, label };
-  } catch { hapticSwitch = null; }
-  return hapticSwitch;
-}
 
 // Sound, because on an iPhone neither of the above may fire and something has to
 // reach a person who is not looking at the screen. Silenceable and remembered:
@@ -124,12 +102,23 @@ const setSoundPref = (on: boolean) => { soundOn = on; try { localStorage.setItem
 let audioCtx: AudioContext | null = null;
 // Must be called from inside a tap: iOS starts every AudioContext suspended and
 // only a user gesture may resume it. Opening the scanner is that tap.
+//
+// audioSession.type = 'playback' declares this as playback audio rather than
+// incidental UI noise. It matters on a door phone, which will be face down in
+// somebody's hand with the ring switch flipped: an iPhone silences ambient web
+// audio in that state. Available since Safari 16.4 and ignored elsewhere, so
+// setting it costs nothing — but it is a platform mapping rather than something
+// the spec promises, so the ring switch is still worth testing on the actual
+// phone before the day.
 function primeAudio() {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Ctor: typeof AudioContext | undefined = window.AudioContext || (window as any).webkitAudioContext;
     if (!audioCtx && Ctor) audioCtx = new Ctor();
     if (audioCtx?.state === 'suspended') void audioCtx.resume();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const session = (navigator as any).audioSession;
+    if (session && session.type !== 'playback') session.type = 'playback';
   } catch { audioCtx = null; }
 }
 
@@ -139,11 +128,11 @@ const TONES: Record<DoorSignal, { freqs: number[]; ms: number }> = {
   already: { freqs: [1047, 1047], ms: 85 },     // flat repeat — seen before
   refused: { freqs: [415, 311, 233], ms: 150 }, // falling — stop
 };
-function tone(kind: DoorSignal) {
-  if (!soundOn) return;
+function tone(kind: DoorSignal): boolean {
+  if (!soundOn) return false;
   primeAudio();
   const ctx = audioCtx;
-  if (!ctx || ctx.state !== 'running') return;
+  if (!ctx || ctx.state !== 'running') return false;
   const { freqs, ms } = TONES[kind];
   const step = ms / 1000;
   freqs.forEach((f, i) => {
@@ -156,20 +145,18 @@ function tone(kind: DoorSignal) {
     osc.connect(gain); gain.connect(ctx.destination);
     osc.start(t0); osc.stop(t0 + step + 0.02);
   });
+  return true;
 }
 
-// Returns how the buzz was delivered, so the test button can say something true.
-function doorSignal(kind: DoorSignal): 'vibrate' | 'ios-switch' | 'none' {
-  tone(kind);
-  try {
-    if (typeof navigator.vibrate === 'function' && navigator.vibrate(BUZZ[kind])) return 'vibrate';
-  } catch { /* fall through */ }
-  const h = iosHaptic();
-  if (h) {
-    for (let i = 0; i < TAPS[kind]; i++) setTimeout(() => { try { h.label.click(); } catch { /* gone */ } }, i * 140);
-    return 'ios-switch';
-  }
-  return 'none';
+// Reports what actually reached the person holding the phone, so the test button
+// can say something true instead of something hopeful. navigator.vibrate is
+// checked by its RETURN VALUE, not its existence: desktop Chrome defines it and
+// returns false, having nothing to vibrate.
+function doorSignal(kind: DoorSignal): { sound: boolean; buzz: boolean } {
+  const sound = tone(kind);
+  let buzz = false;
+  try { buzz = typeof navigator.vibrate === 'function' && navigator.vibrate(BUZZ[kind]); } catch { buzz = false; }
+  return { sound, buzz };
 }
 
 // Read one frame (or a crop of it) through jsQR. Both framings are kept because
@@ -379,12 +366,13 @@ function QrScanner({ onToken, onClose, paused }: { onToken: (token: string) => v
             <Camera className="h-4 w-4 mr-2" /> Take a photo instead
           </Button>
           <Button variant="ghost" size="sm" className="text-gray-500" onClick={() => {
-            const how = doorSignal('admitted');
-            toast(how === 'none'
-              ? { title: 'This phone cannot vibrate from a web page', description: 'Android does it natively; iPhone needs iOS 17.4 or later. Watch the result card on screen instead.', variant: 'destructive' }
-              : { title: how === 'vibrate' ? 'Buzzed' : 'Tapped (iOS haptic)', description: 'That is what a successful check-in will feel like.' });
+            const { sound, buzz } = doorSignal('admitted');
+            if (sound && buzz) toast({ title: 'Buzzed and beeped', description: 'That is a successful check-in.' });
+            else if (sound) toast({ title: 'Beeped', description: 'This device cannot vibrate from a web page — no iPhone can. Sound and the colour on screen are the signal.' });
+            else if (buzz) toast({ title: 'Buzzed, no sound', description: 'Sound is switched off in the toolbar, or the phone is on silent.' });
+            else toast({ title: 'Nothing reached you', description: 'No vibration on this device, and no sound: check the toolbar sound button and the phone\'s ring switch. The full-screen colour still works.', variant: 'destructive' });
           }}>
-            <Vibrate className="h-4 w-4 mr-2" /> Test vibration
+            <Vibrate className="h-4 w-4 mr-2" /> Test sound &amp; buzz
           </Button>
         </div>
       </CardContent>

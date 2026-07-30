@@ -13,7 +13,8 @@ anyone will look in three weeks.
 | | Why it matters |
 |---|---|
 | **Confirm PITR is on** in Supabase → Database → Backups | The only protection against a bad data change. Could not be established from the API. Everything else — Netlify, git, SQL grants — is already reversible. |
-| **Press "Test the QR"** on the SM26 health screen, then scan it with the check-in scanner | Proves the whole chain end to end on a real phone. It sends nothing. The generator and the scanner have each been verified off-platform; what has never been done is one real phone reading one real pass. |
+| **Rehearse the door**, on the phone that will actually be used | Press "Rehearse" on the check-in screen: real people, real badge codes, real verdict screen and sound, nothing written. Test the phone's **ring/silent switch in both positions** — that is the one thing about the sound that could not be settled from the desk. |
+| **Press "Test the QR"** on the SM26 health screen, then scan it with the check-in scanner | Proves the entry-pass chain end to end on a real phone. It sends nothing. The generator and the scanner have each been verified off-platform; what has never been done is one real phone reading one real emailed pass. |
 | **Delete Zoom meeting `82360201544`** | Created by the preview bug on 28 July, scheduled 1 Sept, belongs to nobody. |
 | **Chase 19 jurors** who have not said whether they attend on site | Balaguer, Besomi, Chiappini, Cullen, Falcone, Gonzalvez, Holi, Hopwood, Kourniotis, Laudus, Lebreton-Wolf, Maas, Murray Kerr, Racioppo, Sindermann, Sousa, Thoraval, van Brussel, Weninger. Without an answer the door refuses them. |
 | **Invoice the 4 architects coming on site** — €600 each | Cowan Architects, JASPER ARCHITECTS, Reddy Architecture & Urbanism, W_ARKS. The other 7 compete remotely and correctly owe nothing. |
@@ -105,3 +106,32 @@ apart from a broken scanner.
 
 **Still unproven:** one real phone reading one real pass. Press "Test the QR" on
 the health screen and scan the code it shows. Nothing is emailed either way.
+
+### Feedback at the door — settled, do not re-open
+
+**A web page cannot vibrate an iPhone.** Not on any version of iOS, and not by
+any trick. iOS has never implemented the Vibration API and WebKit's formal
+position is to oppose it. The one lever that ever existed — the native switch
+control's system haptic, iOS 18.0 — is gated in WebKit source on a user gesture
+being actively processed (`CheckboxInputType.cpp`), and a QR decode arrives from
+an animation-frame loop carrying none. It was therefore never going to fire on a
+scan, on any build since early 2025; iOS 26.5 then closed it off entirely. The
+shim that was tried has been deleted.
+
+**Decided on 30 July:** the door runs on **sound plus the full-screen colour**.
+No Bluetooth scanner, no dedicated Android handset. Android phones do buzz, for
+free, if one happens to be at the desk.
+
+One caveat that is worth an actual test rather than trust: an iPhone silences
+"ambient" web audio when the ring switch is flipped. The page declares
+`audioSession.type = 'playback'` to avoid that, but it is a platform mapping and
+not a spec guarantee — hence the rehearsal item above.
+
+### The rehearsal button
+
+"Rehearse" on the check-in screen runs the whole door on the real roster and
+writes nothing: real names, real badge QR codes, the real verdict screen, the
+real sound, and people the door would genuinely refuse. Scan the same badge
+twice in one window to see amber; change window and the same person is green
+again. It is the way to train whoever staffs the desk without inventing data or
+dirtying the real one.

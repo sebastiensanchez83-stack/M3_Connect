@@ -1,7 +1,7 @@
 # What is still open — SM26
 
 Event: 20–21 September 2026. Feature freeze agreed for **15 August**.
-Last updated 30 July.
+Last updated 30 July (check-in scanner fixed — see the note at the end).
 
 Kept here rather than in a chat thread, because a chat thread is not somewhere
 anyone will look in three weeks.
@@ -13,7 +13,7 @@ anyone will look in three weeks.
 | | Why it matters |
 |---|---|
 | **Confirm PITR is on** in Supabase → Database → Backups | The only protection against a bad data change. Could not be established from the API. Everything else — Netlify, git, SQL grants — is already reversible. |
-| **Press "Test the QR"** on the SM26 health screen | Proves the entry-pass generator runs in the deployed function. It sends nothing. Verified locally (a generated PNG decoded back to the exact check-in URL) but never exercised in production. |
+| **Press "Test the QR"** on the SM26 health screen, then scan it with the check-in scanner | Proves the whole chain end to end on a real phone. It sends nothing. The generator and the scanner have each been verified off-platform; what has never been done is one real phone reading one real pass. |
 | **Delete Zoom meeting `82360201544`** | Created by the preview bug on 28 July, scheduled 1 Sept, belongs to nobody. |
 | **Chase 19 jurors** who have not said whether they attend on site | Balaguer, Besomi, Chiappini, Cullen, Falcone, Gonzalvez, Holi, Hopwood, Kourniotis, Laudus, Lebreton-Wolf, Maas, Murray Kerr, Racioppo, Sindermann, Sousa, Thoraval, van Brussel, Weninger. Without an answer the door refuses them. |
 | **Invoice the 4 architects coming on site** — €600 each | Cowan Architects, JASPER ARCHITECTS, Reddy Architecture & Urbanism, W_ARKS. The other 7 compete remotely and correctly owe nothing. |
@@ -77,3 +77,31 @@ Recorded because they look alarming in a report and are not.
 - People refused at the door are **waiting for payment**, which is expected to land.
 - Architects who compete remotely have **no fee line**, which is correct — they only
   pay if they travel.
+
+---
+
+## Closed on 30 July: the door scanner would not read the pass
+
+Worth recording, because the same trap will be there next edition.
+
+The scanner took whatever resolution the browser offered. Browsers hand out
+**640×480** when nobody asks. Replaying real entry passes through the actual
+decode path: at 640×480 the code has to fill **30% of the frame** to read at
+all; at 1080p it reads down to **10%** — the badge can be held three times
+further away. That is the entire reported symptom: a phone's own camera app
+read a pass the in-app scanner could not, because the camera app uses the full
+sensor and the web page was using a postage stamp.
+
+It now asks for 1080p, asks for continuous autofocus, and waits for the video to
+actually have a frame before reading. Three smaller holes were closed at the
+same time — the native `BarcodeDetector` could fail forever without ever falling
+back to the bundled decoder; only one framing of each frame was tried; and a
+pass shown on a dark-mode screen was not attempted inverted.
+
+There is now a **"Take a photo instead"** button as a last resort, a live
+resolution readout in the corner of the viewfinder, and a prompt after seven
+seconds of reading nothing — so at the door it is possible to tell a bad frame
+apart from a broken scanner.
+
+**Still unproven:** one real phone reading one real pass. Press "Test the QR" on
+the health screen and scan the code it shows. Nothing is emailed either way.

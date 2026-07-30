@@ -159,14 +159,21 @@ printed as a text fallback, every send is written to `sm_email_log` with kind
 `entry_qr`, and a send is skipped if that address already has one (pass
 `resend: true` to override).
 
-**Repo copy is behind the deployed version for this one function** — the
-deployed source is the truth until it is re-synced.
-
 *Undo:* redeploy v2, whose QR line was:
 ```ts
 const qr = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=10&data=${encodeURIComponent(checkinUrl)}`;
 ```
 Reverting reintroduces the third-party dependency and loses the send log.
+
+### `sm26-badge-email` (v3 → v4)
+The repo copy, which had been two versions behind, is back in step with what is
+deployed — so `supabase/functions/sm26-badge-email/index.ts` can be trusted
+again. The only behaviour change is the QR image itself: rendered at 600px
+instead of 480, in black instead of the brand navy. Nothing about who is
+emailed, when, or what the message says.
+
+*Undo:* set `width: 480` and `dark: "#0b2653ff"` in `qrPngBase64` and redeploy.
+Passes already sent stay valid either way — the token is unchanged.
 
 ### Triggers added 30 July
 ```sql

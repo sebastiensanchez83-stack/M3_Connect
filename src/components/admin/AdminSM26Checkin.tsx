@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsQR from 'jsqr';
-import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users, Vibrate } from 'lucide-react';
+import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users, Vibrate, Volume2, VolumeX } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -111,8 +111,55 @@ function iosHaptic(): { input: HTMLInputElement; label: HTMLLabelElement } | nul
   return hapticSwitch;
 }
 
+// Sound, because on an iPhone neither of the above may fire and something has to
+// reach a person who is not looking at the screen. Silenceable and remembered:
+// the welcome desk sits next to the sessions, and a beeping phone during a
+// keynote is worse than no feedback at all.
+const SOUND_KEY = 'sm26.checkin.sound';
+let soundOn = (() => { try { return localStorage.getItem(SOUND_KEY) !== 'off'; } catch { return true; } })();
+const isSoundOn = () => soundOn;
+const setSoundPref = (on: boolean) => { soundOn = on; try { localStorage.setItem(SOUND_KEY, on ? 'on' : 'off'); } catch { /* private mode */ } };
+
+let audioCtx: AudioContext | null = null;
+// Must be called from inside a tap: iOS starts every AudioContext suspended and
+// only a user gesture may resume it. Opening the scanner is that tap.
+function primeAudio() {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const Ctor: typeof AudioContext | undefined = window.AudioContext || (window as any).webkitAudioContext;
+    if (!audioCtx && Ctor) audioCtx = new Ctor();
+    if (audioCtx?.state === 'suspended') void audioCtx.resume();
+  } catch { audioCtx = null; }
+}
+
+const TONES: Record<DoorSignal, { freqs: number[]; ms: number }> = {
+  read: { freqs: [1400], ms: 45 },              // a tick: the code is in
+  admitted: { freqs: [784, 1175], ms: 90 },     // rising — good news
+  already: { freqs: [1047, 1047], ms: 85 },     // flat repeat — seen before
+  refused: { freqs: [415, 311, 233], ms: 150 }, // falling — stop
+};
+function tone(kind: DoorSignal) {
+  if (!soundOn) return;
+  primeAudio();
+  const ctx = audioCtx;
+  if (!ctx || ctx.state !== 'running') return;
+  const { freqs, ms } = TONES[kind];
+  const step = ms / 1000;
+  freqs.forEach((f, i) => {
+    const osc = ctx.createOscillator(), gain = ctx.createGain();
+    const t0 = ctx.currentTime + i * step;
+    osc.type = 'sine'; osc.frequency.value = f;
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(kind === 'read' ? 0.12 : 0.32, t0 + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + step);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start(t0); osc.stop(t0 + step + 0.02);
+  });
+}
+
 // Returns how the buzz was delivered, so the test button can say something true.
 function doorSignal(kind: DoorSignal): 'vibrate' | 'ios-switch' | 'none' {
+  tone(kind);
   try {
     if (typeof navigator.vibrate === 'function' && navigator.vibrate(BUZZ[kind])) return 'vibrate';
   } catch { /* fall through */ }
@@ -172,7 +219,7 @@ function readFrame(
 // Safari only grants getUserMedia within the user-gesture window. Debounce keeps
 // the scanner open for back-to-back scans. If the live read still fails (dim
 // light, glare on a screen), "Take a photo" decodes a full-resolution still.
-function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onClose: () => void }) {
+function QrScanner({ onToken, onClose, paused }: { onToken: (token: string) => void; onClose: () => void; paused?: boolean }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -182,6 +229,10 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
   // Keep the latest handler so the long-running scan loop never goes stale.
   const onTokenRef = useRef(onToken);
   onTokenRef.current = onToken;
+  // While a verdict is on screen the camera keeps running but stops decoding —
+  // otherwise the badge still in frame re-reads itself behind the overlay.
+  const pausedRef = useRef(!!paused);
+  pausedRef.current = !!paused;
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -239,7 +290,7 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
       const tick = async () => {
         if (stopped) return;
         const now = performance.now();
-        if (now - lastScan > 120) {
+        if (!pausedRef.current && now - lastScan > 120) {
           lastScan = now;
           const vid = videoRef.current;
           // HAVE_CURRENT_DATA — reading before this yields a blank canvas.
@@ -340,6 +391,90 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
   );
 }
 
+// The verdict, full screen and in colour. At a door nobody reads a card: the
+// person in front of you is waiting, the queue is behind them, and the only two
+// questions are "who is this" and "do they come in". So the whole screen answers
+// them from arm's length — green in, amber seen-before, red stop — and the way
+// out is one large button, because the next person is already stepping forward.
+function ScanVerdict({ scan, windowLabel, onNext, onClose, onForce }: {
+  scan: ScanResult;
+  windowLabel: string;
+  onNext: () => void;
+  onClose: () => void;
+  onForce: () => void;
+}) {
+  const state: DoorSignal = !scan.ok ? 'refused' : scan.already ? 'already' : 'admitted';
+  // Shades chosen for contrast, not for prettiness: the Yacht Club is mostly
+  // glass and this is read at arm's length. White on emerald-600 or amber-500
+  // measures below 4.5:1, which washes the secondary lines out in daylight — so
+  // the two white-text states go a shade darker, and amber flips to dark text.
+  const skin = {
+    admitted: { bg: 'bg-emerald-700', fg: 'text-white', ring: 'text-emerald-50', btn: 'bg-white text-emerald-800 hover:bg-white/90' },
+    already: { bg: 'bg-amber-400', fg: 'text-amber-950', ring: 'text-amber-900', btn: 'bg-amber-950 text-amber-50 hover:bg-amber-900' },
+    refused: { bg: 'bg-red-700', fg: 'text-white', ring: 'text-red-50', btn: 'bg-white text-red-800 hover:bg-white/90' },
+  }[state];
+  const headline = state === 'admitted' ? 'Come in' : state === 'already' ? 'Already checked in' : 'Do not admit';
+
+  // Escape closes; Enter/Space moves to the next person without hunting for the
+  // button, for whoever is holding a laptop rather than a phone.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onNext(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, onNext]);
+
+  return (
+    <div className={`fixed inset-0 z-50 ${skin.bg} ${skin.fg} flex flex-col`} role="alertdialog" aria-live="assertive"
+      aria-label={`${headline}. ${scan.name || ''}`}>
+      <div className="flex justify-end p-3">
+        <button onClick={onClose} aria-label="Close" className={`${skin.ring} hover:opacity-70 p-2`}><X className="h-7 w-7" /></button>
+      </div>
+
+      <div className="flex-1 flex flex-col items-center justify-center px-6 text-center gap-3 min-h-0 overflow-y-auto">
+        {state === 'refused' ? <X className="h-16 w-16 shrink-0" /> : <UserCheck className="h-16 w-16 shrink-0" />}
+        <div className="text-3xl sm:text-4xl font-bold tracking-tight">{headline}</div>
+
+        {scan.name && <div className="text-2xl sm:text-3xl font-semibold break-words max-w-full">{scan.name}</div>}
+        {scan.company && <div className={`text-lg ${skin.ring} break-words max-w-full`}>{scan.company}</div>}
+        {!!(scan.roles || []).length && (
+          <div className="flex flex-wrap gap-1.5 justify-center">
+            {(scan.roles || []).map(r => (
+              <span key={r} className="text-sm bg-white/20 rounded-full px-3 py-0.5">{SM26_ROLE_LABELS[r] || r}</span>
+            ))}
+          </div>
+        )}
+
+        {state === 'refused' ? (
+          // Say WHY. "Unknown token" on a cancelled registration sends the desk
+          // hunting for a scanner fault that does not exist.
+          <div className="mt-1 space-y-1">
+            <div className="text-xl font-medium">{BLOCK_LABEL[scan.error || ''] || 'Unknown or invalid QR code'}</div>
+            <div className={`text-sm ${skin.ring}`}>Nothing was recorded.</div>
+          </div>
+        ) : (
+          <div className={`text-base ${skin.ring} mt-1`}>
+            {state === 'already' ? 'Seen before in' : 'Checked in ·'} {windowLabel}
+          </div>
+        )}
+      </div>
+
+      <div className="p-4 pb-6 space-y-2 shrink-0">
+        {state === 'refused' && scan.can_force && scan.attendee_id && (
+          <Button variant="outline" size="lg"
+            className="w-full h-12 bg-transparent border-white/70 text-white hover:bg-white/10 hover:text-white"
+            onClick={onForce}>Admit anyway…</Button>
+        )}
+        <Button size="lg" className={`w-full h-16 text-lg font-semibold ${skin.btn}`} onClick={onNext}>
+          <Camera className="h-5 w-5 mr-2" /> Scan next person
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AdminSM26Checkin() {
   const navigate = useNavigate();
   const [eventId, setEventId] = useState<string | null>(null);
@@ -351,6 +486,7 @@ export function AdminSM26Checkin() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [sound, setSound] = useState(isSoundOn());
   // attendee_id -> why the door would refuse them. Absent = free to walk in.
   const [eligibility, setEligibility] = useState<Record<string, string>>({});
   // Kept so a refusal can be re-sent as an override without rescanning the badge.
@@ -514,54 +650,33 @@ export function AdminSM26Checkin() {
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><QrCode className="h-6 w-6 text-primary" /> Check-in</h1>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => load()} title="Refresh headcount"><RefreshCw className="h-4 w-4" /></Button>
-          <Button className="gap-1.5" onClick={() => setScanning(s => !s)}><Camera className="h-4 w-4" /> {scanning ? 'Close scanner' : 'Scan QR'}</Button>
+          <Button variant="outline" size="icon" className="h-9 w-9" title={sound ? 'Sound on — tap to silence' : 'Silent — tap for sound'}
+            onClick={() => { const on = !sound; setSoundPref(on); setSound(on); if (on) { primeAudio(); doorSignal('read'); } }}>
+            {sound ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 text-gray-400" />}
+          </Button>
+          {/* Opening the scanner is the tap that lets iOS start the audio context. */}
+          <Button className="gap-1.5" onClick={() => { primeAudio(); setScanning(s => !s); }}><Camera className="h-4 w-4" /> {scanning ? 'Close scanner' : 'Scan QR'}</Button>
           <Button variant="outline" className="gap-1.5" onClick={exportCsv}><Download className="h-4 w-4" /> Export attendees (CSV)</Button>
         </div>
       </div>
 
       {scanning && (
         <QrScanner
+          paused={!!scan}
           onClose={() => setScanning(false)}
           onToken={(token) => { if (activeWindow) processToken(token, activeWindow); }}
         />
       )}
 
-      {/* Scan result */}
+      {/* Scan result — full screen, because at the door nobody reads a card. */}
       {scan && (
-        <Card className={`border-0 shadow-sm ${scan.ok ? 'bg-green-50' : 'bg-red-50'}`}>
-          <CardContent className="p-4 flex items-center justify-between gap-3">
-            {scan.ok ? (
-              <div className="flex items-center gap-3">
-                <UserCheck className="h-8 w-8 text-green-600" />
-                <div>
-                  <div className="font-semibold text-gray-900">{scan.name} {scan.already && <span className="text-xs text-amber-600">(already checked in)</span>}</div>
-                  <div className="text-sm text-gray-600">{scan.company} · {(scan.roles || []).map(r => SM26_ROLE_LABELS[r] || r).join(', ')}</div>
-                  <div className="text-xs text-green-700 mt-0.5">Checked in · {windows.find(w => w.key === activeWindow)?.label}</div>
-                </div>
-              </div>
-            ) : (
-              // Say WHY. "Unknown token" on a cancelled registration sends the
-              // desk hunting for a scanner problem that doesn't exist.
-              <div className="flex items-center gap-3 flex-wrap">
-                <X className="h-8 w-8 text-red-600 shrink-0" />
-                <div className="min-w-0">
-                  <div className="font-semibold text-red-800">
-                    {BLOCK_LABEL[scan.error || ''] || 'Unknown or invalid QR code'} — do not admit
-                  </div>
-                  {(scan.name || scan.company) && (
-                    <div className="text-sm text-red-700">{[scan.name, scan.company].filter(Boolean).join(' · ')}</div>
-                  )}
-                  <div className="text-xs text-red-600 mt-0.5">Nothing was recorded.</div>
-                </div>
-                {scan.can_force && scan.attendee_id && (
-                  <Button size="sm" variant="outline" className="ml-auto border-red-300 text-red-700"
-                    onClick={() => forceFromScan(scan)}>Admit anyway…</Button>
-                )}
-              </div>
-            )}
-            <button onClick={() => setScan(null)} className="text-gray-400 hover:text-gray-600"><X className="h-5 w-5" /></button>
-          </CardContent>
-        </Card>
+        <ScanVerdict
+          scan={scan}
+          windowLabel={windows.find(w => w.key === activeWindow)?.label || ''}
+          onClose={() => setScan(null)}
+          onNext={() => { primeAudio(); setScan(null); setScanning(true); }}
+          onForce={() => forceFromScan(scan)}
+        />
       )}
 
       {/* Window selector + headcount */}

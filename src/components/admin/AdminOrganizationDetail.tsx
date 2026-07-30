@@ -105,6 +105,10 @@ export function AdminOrganizationDetail() {
   const [codeCopied, setCodeCopied] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [sendingInvite, setSendingInvite] = useState(false);
+  const [memberEmail, setMemberEmail] = useState('');
+  const [memberFirst, setMemberFirst] = useState('');
+  const [memberLast, setMemberLast] = useState('');
+  const [invitingMember, setInvitingMember] = useState(false);
 
   // Editable fields
   const [status, setStatus] = useState('');
@@ -208,6 +212,59 @@ export function AdminOrganizationDetail() {
     navigator.clipboard.writeText(claimCode);
     setCodeCopied(true);
     setTimeout(() => setCodeCopied(false), 2000);
+  };
+
+  // Invite a colleague on the organisation's behalf. Until now only the OWNER
+  // could invite anyone — every policy on organization_invitations tests
+  // role='owner' — which fails in the one case where help is needed most: the
+  // owner is locked out or has left, so nobody can add their replacement. The
+  // RPC is admin-gated, reuses a live invitation rather than duplicating it, and
+  // frees a seat when the organisation is full (a plan limit should not stand
+  // between M3 and a rescue).
+  const handleAdminInvite = async () => {
+    const email = memberEmail.trim();
+    if (!email || !org) return;
+    setInvitingMember(true);
+    try {
+      const { data, error } = await supabase.rpc('admin_invite_org_member', {
+        p_organization_id: org.id,
+        p_email: email,
+        p_first_name: memberFirst.trim() || null,
+        p_last_name: memberLast.trim() || null,
+      });
+      if (error) throw error;
+      const res = data as { ok?: boolean; reason?: string; invitation_id?: string; reused?: boolean; seats_raised?: boolean; max_seats?: number };
+      if (!res?.ok) {
+        toast({
+          title: res?.reason === 'already_member' ? 'Already in this team' : 'Could not invite',
+          description: res?.reason === 'already_member' ? `${email} is already a member of ${org.name}.` : undefined,
+          variant: 'destructive',
+        });
+        return;
+      }
+      await sendNotification({
+        type: 'team_invitation',
+        email,
+        data: {
+          org_name: org.name,
+          inviter_name: 'Smart Marina Connect',
+          signup_url: `${window.location.origin}/join/${res.invitation_id}`,
+          first_name: memberFirst.trim() || '',
+        },
+      });
+      toast({
+        title: res.reused ? 'Invitation re-sent' : 'Invitation sent',
+        description: [
+          `${email} can now join ${org.name}.`,
+          res.seats_raised ? `The team was full, so seats were raised to ${res.max_seats}.` : '',
+        ].filter(Boolean).join(' '),
+      });
+      setMemberEmail(''); setMemberFirst(''); setMemberLast('');
+      await loadOrg();
+    } catch (err: unknown) {
+      toast({ title: 'Could not invite', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+    setInvitingMember(false);
   };
 
   const handleSendConnectLink = async () => {
@@ -547,6 +604,31 @@ export function AdminOrganizationDetail() {
                   manager claim it with the code — claiming now promotes an existing member too.
                 </p>
               )}
+
+              {/* Add a colleague on the organisation's behalf. The owner's own
+                  screen can do this too, but not when the owner cannot sign in —
+                  which is exactly when someone asks us to. */}
+              <div className="mb-3 rounded-lg border border-gray-200 p-2.5 space-y-2">
+                <Label className="text-xs font-medium text-gray-600">Invite a colleague</Label>
+                <Input value={memberEmail} onChange={e => setMemberEmail(e.target.value)}
+                  placeholder="their@email.com" type="email" className="h-8 text-sm"
+                  onKeyDown={e => { if (e.key === 'Enter') handleAdminInvite(); }} />
+                <div className="flex gap-2">
+                  <Input value={memberFirst} onChange={e => setMemberFirst(e.target.value)}
+                    placeholder="First name" className="h-8 text-sm" />
+                  <Input value={memberLast} onChange={e => setMemberLast(e.target.value)}
+                    placeholder="Last name" className="h-8 text-sm" />
+                </div>
+                <Button size="sm" className="w-full h-8" disabled={!memberEmail.trim() || invitingMember}
+                  onClick={handleAdminInvite}>
+                  {invitingMember ? 'Sending…' : 'Send invitation'}
+                </Button>
+                <p className="text-[11px] text-gray-400">
+                  They get a link to join {org.name} as a collaborator. The owner keeps their role.
+                  {members.length >= maxSeats && ' The team is full — sending will free a seat.'}
+                </p>
+              </div>
+
               {members.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-4">No members yet</p>
               ) : (

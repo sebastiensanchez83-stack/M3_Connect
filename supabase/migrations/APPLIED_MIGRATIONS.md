@@ -340,3 +340,28 @@ drop index if exists public.sm_architecture_entry_anon_code_key;
 ```
 The backfilled codes are kept by the undo — dropping them would send jurors back
 to UUID fragments.
+
+## admin_invite_org_member — 30 July 2026
+
+`public.admin_invite_org_member(uuid, text, text, text)` — lets M3 staff invite a
+member into an organisation, plus an admin-only SELECT policy on
+`organization_invitations`.
+
+Why: every policy on that table tested `organization_members.role = 'owner'`, and
+there was no staff policy at all — admins could not create an invitation and
+could not even read one. That fails in the single case where help is needed most:
+the owner is locked out or has left, so nobody can add their replacement. Hit on
+30 July with URBANTHINK.BY K- LC — sole owner unable to sign in, organisation
+full at 1 of 1 seat.
+
+Behaviour, each verified in a rolled-back transaction: creates the invitation;
+raises `max_seats` when the team is full and reports it; reuses a live pending
+invitation instead of duplicating; returns `already_member` for someone already
+in the team; refuses a non-admin caller. Capacity is counted the way the owner's
+own screen counts it — members plus pending invitations.
+
+Undo:
+```sql
+drop function if exists public.admin_invite_org_member(uuid, text, text, text);
+drop policy if exists admins_can_view_invitations on public.organization_invitations;
+```

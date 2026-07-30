@@ -318,3 +318,25 @@ Undo:
 drop function if exists public.admin_pending_recovery(uuid);
 ```
 and redeploy `admin-impersonate` v2 (identical minus the probe block).
+
+## sm_architecture_anon_code_writer_and_backfill — 30 July 2026
+
+`anon_code` is what a blind juror sees instead of the firm's name. It had four
+readers and **no writer**: 7 of 12 entries carried a code, 5 were null, and those
+five showed a raw UUID fragment instead — inconsistent, and a stable handle that
+appears elsewhere in the admin UI.
+
+Adds `sm_architecture_anon_code()` (SECURITY DEFINER so the collision check sees
+every row through RLS), a BEFORE INSERT trigger that fills the column, a
+row-by-row backfill, and a unique index. Alphabet excludes I, O and 1 — these
+codes get read aloud. Result: 12 entries, 12 distinct codes.
+
+Undo:
+```sql
+drop trigger if exists sm_architecture_entry_anon_code on public.sm_architecture_entry;
+drop function if exists public.sm_architecture_entry_anon_code_bi();
+drop function if exists public.sm_architecture_anon_code();
+drop index if exists public.sm_architecture_entry_anon_code_key;
+```
+The backfilled codes are kept by the undo — dropping them would send jurors back
+to UUID fragments.

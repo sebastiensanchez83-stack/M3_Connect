@@ -150,15 +150,22 @@ Deno.serve(async (req) => {
       push(r.role, r.id, "pitch", su.pitch_media_url);
     }
     if (ar) {
-      // Architecture is judged blind. The firm's logo and company image identify
-      // it just as plainly as the enrolment proof does, so all three are gated:
-      // a juror only ever receives the project boards, which are what they score.
+      // Architecture is judged blind, and project_renders are NOT the thing being
+      // judged. They are the firm's e-catalogue portfolio, collected at
+      // registration; the competition submission is the 8 A2 panels and the A3
+      // notice, which live in sm_architecture_file and reach the juror through
+      // sm_jury_entry_detail, not through here. This comment used to claim the
+      // opposite ("a juror only ever receives the project boards") while the
+      // push below sat outside the guard, so a blind juror was served the
+      // portfolio — and 8 of those storage paths carry the firm's name in
+      // plaintext, e.g. "Cowan Architects_Digital Overview Portfolio.pdf". The
+      // filename is nulled for jurors but the signed URL still contains the path.
       if (!blind) {
         push(r.role, r.id, "logo", ar.logo_url);
         push(r.role, r.id, "company_image", ar.company_image_url);
+        push(r.role, r.id, "render", ar.project_renders);
+        push(r.role, r.id, "proof", ar.proof_of_enrolment_url);
       }
-      push(r.role, r.id, "render", ar.project_renders);
-      if (!blind) push(r.role, r.id, "proof", ar.proof_of_enrolment_url);
     }
     // module_data asset keys (covers marina, jury, media, sponsor, speaker,
     // investor, vip + any duplicated startup/arch keys)
@@ -170,8 +177,11 @@ Deno.serve(async (req) => {
       // Anonymise for blind judging. hero_image is the architecture "company
       // image" stored under a second key, so gating only the
       // sm_architecture_entry column above would leave the very same file
-      // reachable through here: every architecture entry carries both.
-      if (blind && (kind === "logo" || kind === "photo" || kind === "hero" || kind === "company_image" || kind === "proof")) continue;
+      // reachable through here: every architecture entry carries both. The same
+      // is true of the renders — module_data maps any render/panel key to kind
+      // "render" — so closing the column above without closing this line would
+      // just move the leak one door along.
+      if (blind && (kind === "logo" || kind === "photo" || kind === "hero" || kind === "company_image" || kind === "proof" || kind === "render")) continue;
       push(r.role, r.id, kind, v);
     }
   }

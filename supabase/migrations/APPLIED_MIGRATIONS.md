@@ -292,3 +292,29 @@ See [README.md](./README.md) to backfill the full SQL for each of these.
 20260730104000  sm_scorecards_follow_panel_and_batch
 20260730104500  sm_scorecards_review_guard_fix
 ```
+
+## sec_admin_pending_recovery_probe (+ _fix_role_check) — 30 July 2026
+
+`public.admin_pending_recovery(uuid)` — reports whether a user is holding an
+unused password-reset / welcome link, and how old it is. Nothing else; never the
+token.
+
+Why it exists: "View as user" mints its session with
+`generateLink({type:'magiclink'})`, and Supabase keeps **one** row per
+`(user_id, token_type)` in `auth.one_time_tokens` — with `recovery_token` used
+for magic links *and* password recovery. Impersonating therefore destroyed the
+reset link the person had just been emailed. Proven on production logs: an
+impersonation at 09:41:12 on 30 July, then that participant's click at 09:55:25
+returning 403 "One-time token not found". `admin-impersonate` v3 now refuses
+unless the caller passes `force: true`.
+
+The second migration fixes the authorisation check: the first tested
+`current_user`, which inside a `SECURITY DEFINER` function is the function
+*owner*, not the caller — so the service-role path could never have matched.
+It now tests `auth.role()`.
+
+Undo:
+```sql
+drop function if exists public.admin_pending_recovery(uuid);
+```
+and redeploy `admin-impersonate` v2 (identical minus the probe block).

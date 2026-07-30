@@ -28,7 +28,7 @@ import { SM26ProvisionDialog, suggestProvision } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
 import { SM26RequestFields } from './SM26RequestFields';
 import { useAuth } from '@/contexts/AuthContext';
-import { startImpersonation } from '@/lib/impersonation';
+import { startImpersonation, PendingRecoveryError } from '@/lib/impersonation';
 
 // SM26 registration detail — full contact + per-role module data, with the
 // registration status pipeline AND role management: add roles (auto-filling
@@ -596,7 +596,21 @@ export function AdminSM26Detail() {
                     try {
                       await startImpersonation(reg.user_id!);
                     } catch (e) {
-                      toast({ title: 'Could not start view-as', description: (e as Error).message, variant: 'destructive' });
+                      // Their password link dies if we proceed, so say so and let
+                      // the admin decide rather than breaking it silently.
+                      if (e instanceof PendingRecoveryError && window.confirm(`${e.message}\n\nView as them anyway?`)) {
+                        try {
+                          await startImpersonation(reg.user_id!, true);
+                          return;
+                        } catch (e2) {
+                          toast({ title: 'Could not start view-as', description: (e2 as Error).message, variant: 'destructive' });
+                          setViewingAs(false);
+                          return;
+                        }
+                      }
+                      if (!(e instanceof PendingRecoveryError)) {
+                        toast({ title: 'Could not start view-as', description: (e as Error).message, variant: 'destructive' });
+                      }
                       setViewingAs(false);
                     }
                   }}

@@ -9,6 +9,19 @@ import { supabase } from '@/lib/supabase';
 
 const KEY = 'sm_impersonation';
 
+/**
+ * Raised when the target is holding an unused password-reset or welcome link.
+ * Starting an impersonation would cancel it — Supabase keeps one one-time token
+ * per person and magic links and recovery links share that slot — so the admin
+ * is asked first, and may retry with force.
+ */
+export class PendingRecoveryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PendingRecoveryError';
+  }
+}
+
 export interface ImpersonationState {
   target_name: string;
   target_email: string;
@@ -51,16 +64,22 @@ async function readInvokeError(error: unknown): Promise<string> {
  * the target's session, then hard-navigates so AuthContext re-initialises cleanly
  * as the target. Throws (with a readable message) if the swap is refused.
  */
-export async function startImpersonation(targetUserId: string): Promise<void> {
+export async function startImpersonation(targetUserId: string, force = false): Promise<void> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token || !session?.refresh_token) {
     throw new Error('Your admin session has expired — please sign in again.');
   }
 
   const { data, error } = await supabase.functions.invoke('admin-impersonate', {
-    body: { target_user_id: targetUserId },
+    body: { target_user_id: targetUserId, force },
   });
   if (error) throw new Error(await readInvokeError(error));
+  // Minting the session cancels any password link the target is holding, so the
+  // server refuses when one is outstanding. Surfaced as its own error type: the
+  // caller asks the admin, and only then retries with force.
+  if (data?.code === 'pending_recovery') {
+    throw new PendingRecoveryError(data.error || 'This person has an unused password link.');
+  }
   if (!data?.ok || !data?.access_token || !data?.refresh_token) {
     throw new Error(data?.error || 'Could not start impersonation');
   }

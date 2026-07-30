@@ -23,7 +23,7 @@ import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
-import { startImpersonation } from '@/lib/impersonation';
+import { startImpersonation, PendingRecoveryError } from '@/lib/impersonation';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AdminProfile } from './types';
 
@@ -442,7 +442,21 @@ export function AdminUserDetail() {
               try {
                 await startImpersonation(id);
               } catch (e) {
-                toast({ title: 'Could not start view-as', description: (e as Error).message, variant: 'destructive' });
+                // Their password link dies if we proceed, so say so and let the
+                // admin decide rather than breaking it silently.
+                if (e instanceof PendingRecoveryError && window.confirm(`${e.message}\n\nView as them anyway?`)) {
+                  try {
+                    await startImpersonation(id, true);
+                    return;
+                  } catch (e2) {
+                    toast({ title: 'Could not start view-as', description: (e2 as Error).message, variant: 'destructive' });
+                    setViewingAs(false);
+                    return;
+                  }
+                }
+                if (!(e instanceof PendingRecoveryError)) {
+                  toast({ title: 'Could not start view-as', description: (e as Error).message, variant: 'destructive' });
+                }
                 setViewingAs(false);
               }
             }}

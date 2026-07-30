@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsQR from 'jsqr';
-import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users, Vibrate, Volume2, VolumeX } from 'lucide-react';
+import QRCode from 'qrcode';
+import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users, Vibrate, Volume2, VolumeX, FlaskConical } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -396,12 +397,13 @@ function QrScanner({ onToken, onClose, paused }: { onToken: (token: string) => v
 // questions are "who is this" and "do they come in". So the whole screen answers
 // them from arm's length — green in, amber seen-before, red stop — and the way
 // out is one large button, because the next person is already stepping forward.
-function ScanVerdict({ scan, windowLabel, onNext, onClose, onForce }: {
+function ScanVerdict({ scan, windowLabel, onNext, onClose, onForce, rehearsal }: {
   scan: ScanResult;
   windowLabel: string;
   onNext: () => void;
   onClose: () => void;
   onForce: () => void;
+  rehearsal?: boolean;
 }) {
   const state: DoorSignal = !scan.ok ? 'refused' : scan.already ? 'already' : 'admitted';
   // Shades chosen for contrast, not for prettiness: the Yacht Club is mostly
@@ -429,7 +431,10 @@ function ScanVerdict({ scan, windowLabel, onNext, onClose, onForce }: {
   return (
     <div className={`fixed inset-0 z-50 ${skin.bg} ${skin.fg} flex flex-col`} role="alertdialog" aria-live="assertive"
       aria-label={`${headline}. ${scan.name || ''}`}>
-      <div className="flex justify-end p-3">
+      <div className="flex items-center justify-between p-3">
+        {rehearsal
+          ? <span className="ml-1 text-xs font-semibold uppercase tracking-wider bg-black/25 rounded-full px-3 py-1">Rehearsal · not recorded</span>
+          : <span />}
         <button onClick={onClose} aria-label="Close" className={`${skin.ring} hover:opacity-70 p-2`}><X className="h-7 w-7" /></button>
       </div>
 
@@ -487,12 +492,56 @@ export function AdminSM26Checkin() {
   const [busy, setBusy] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [sound, setSound] = useState(isSoundOn());
+  // Rehearsal: everything below lives in memory only and is thrown away on exit.
+  const [rehearsal, setRehearsal] = useState(false);
+  const [rehearsalScans, setRehearsalScans] = useState<Record<string, string[]>>({});
+  const [rehearsalQuery, setRehearsalQuery] = useState('');
+  const [qrMap, setQrMap] = useState<Record<string, string>>({});
   // attendee_id -> why the door would refuse them. Absent = free to walk in.
   const [eligibility, setEligibility] = useState<Record<string, string>>({});
   // Kept so a refusal can be re-sent as an override without rescanning the badge.
   const lastToken = useRef<string>('');
 
   useEffect(() => { load(); }, []);
+
+  // Which real badges to put on screen for the rehearsal. Without a search it
+  // picks a spread that exercises all three outcomes — people who would walk in,
+  // and people the door would currently refuse — because a rehearsal where
+  // everything goes right teaches nobody anything.
+  const pickForRehearsal = (): Attendee[] => {
+    const q = rehearsalQuery.trim().toLowerCase();
+    if (q) {
+      return attendees.filter(a =>
+        `${nameOf(a)} ${companyOf(a)} ${a.email || ''}`.toLowerCase().includes(q) && tokenOf(a)
+      ).slice(0, 8);
+    }
+    const withBadge = attendees.filter(a => tokenOf(a));
+    const ok = withBadge.filter(a => !eligibility[a.id]).slice(0, 3);
+    const blocked = withBadge.filter(a => eligibility[a.id]).slice(0, 2);
+    return [...ok, ...blocked];
+  };
+
+  // Real check-in URLs, so these are the same codes the entry-pass email carries.
+  useEffect(() => {
+    if (!rehearsal) return;
+    let dead = false;
+    (async () => {
+      const origin = window.location.origin;
+      const need = pickForRehearsal().filter(a => tokenOf(a) && !qrMap[a.id]);
+      if (!need.length) return;
+      const made: Record<string, string> = {};
+      for (const a of need) {
+        try {
+          made[a.id] = await QRCode.toDataURL(`${origin}/admin/sm26/checkin?token=${tokenOf(a)}`, {
+            margin: 2, width: 320, errorCorrectionLevel: 'M',
+          });
+        } catch { /* skip this one */ }
+      }
+      if (!dead && Object.keys(made).length) setQrMap(prev => ({ ...prev, ...made }));
+    })();
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rehearsal, rehearsalQuery, attendees, eligibility]);
 
   const load = async () => {
     setLoading(true);
@@ -529,8 +578,39 @@ export function AdminSM26Checkin() {
     if (token && initialWindow) processToken(token, initialWindow);
   };
 
+  // ——— Rehearsal ———————————————————————————————————————————————
+  // A dry run of the door, on the real roster, that writes nothing anywhere.
+  // Everything it needs is already in memory: each attendee's badge token and
+  // the eligibility map. So the verdict is computed here with the same rules
+  // sm_checkin_by_token applies on the server, and remembered only in React
+  // state — which is what makes the amber case demonstrable: scan the same
+  // badge twice in one window and it turns amber, switch window and it is green
+  // again, exactly as the real thing behaves.
+  const inRehearsal = (a: Attendee, win: string) => (rehearsalScans[a.id] || []).includes(win);
+  const simulate = (token: string, win: string): ScanResult => {
+    const a = attendees.find(x => tokenOf(x) === token);
+    if (!a) return { ok: false, error: 'unknown_token' };
+    const reg = regOf(a);
+    const common = {
+      name: nameOf(a), company: reg?.company_name || null,
+      roles: rolesOf(a).map(r => r.role), attendee_id: a.id,
+    };
+    const blocked = eligibility[a.id];
+    if (blocked) return { ok: false, error: blocked, can_force: true, ...common };
+    return { ok: true, already: inRehearsal(a, win) || a.checkins.some(c => c.window_key === win), ...common };
+  };
+  const rememberRehearsal = (attendeeId: string, win: string) =>
+    setRehearsalScans(prev => ({ ...prev, [attendeeId]: [...new Set([...(prev[attendeeId] || []), win])] }));
+
   const processToken = async (token: string, win: string) => {
     lastToken.current = token;
+    if (rehearsal) {
+      const res = simulate(token, win);
+      setScan(res);
+      doorSignal(!res.ok ? 'refused' : res.already ? 'already' : 'admitted');
+      if (res.ok && res.attendee_id) rememberRehearsal(res.attendee_id, win);
+      return;
+    }
     const { data, error } = await supabase.rpc('sm_checkin_by_token', { p_token: token, p_window: win });
     if (error) { doorSignal('refused'); toast({ title: 'Check-in failed', description: error.message, variant: 'destructive' }); return; }
     const res = data as ScanResult;
@@ -550,6 +630,15 @@ export function AdminSM26Checkin() {
 
   const manualCheckin = async (a: Attendee) => {
     if (!activeWindow) { toast({ title: 'Pick an attendance window first', variant: 'destructive' }); return; }
+    // The name-list route is half the door flow — someone who cannot find their
+    // pass — so it is rehearsed too, through the same simulation.
+    if (rehearsal) {
+      const res = simulate(tokenOf(a), activeWindow);
+      setScan(res);
+      doorSignal(!res.ok ? 'refused' : res.already ? 'already' : 'admitted');
+      if (res.ok) rememberRehearsal(a.id, activeWindow);
+      return;
+    }
     // Someone the rules refuse can still be let in, but only deliberately and
     // only with a reason, which is stored on the check-in.
     const blocked = eligibility[a.id];
@@ -585,6 +674,12 @@ export function AdminSM26Checkin() {
     const who = [res.name, res.company].filter(Boolean).join(' · ') || 'this person';
     const reason = prompt(`Admit ${who} anyway?\n\nRefused because: ${BLOCK_LABEL[res.error || ''] || res.error}.\nType why (recorded against this check-in):`);
     if (!reason || !reason.trim()) return;
+    if (rehearsal) {
+      setScan({ ...res, ok: true, already: false, forced: true, error: undefined });
+      doorSignal('admitted');
+      rememberRehearsal(res.attendee_id, activeWindow);
+      return;
+    }
     const { data, error } = await supabase.rpc('sm_checkin_by_token', {
       p_token: lastToken.current, p_window: activeWindow, p_force: true, p_force_reason: reason,
     });
@@ -597,6 +692,11 @@ export function AdminSM26Checkin() {
   // Undo a check-in clicked by mistake (current window).
   const undoCheckin = async (a: Attendee) => {
     if (!activeWindow) return;
+    if (rehearsal) {
+      setRehearsalScans(prev => ({ ...prev, [a.id]: (prev[a.id] || []).filter(w => w !== activeWindow) }));
+      toast({ title: 'Rehearsal check-in removed' });
+      return;
+    }
     setBusy(a.id);
     const { error } = await supabase.rpc('sm_uncheckin_attendee', { p_attendee_id: a.id, p_window: activeWindow });
     setBusy(null);
@@ -630,8 +730,12 @@ export function AdminSM26Checkin() {
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
-  const countFor = (win: string) => attendees.filter(a => a.checkins.some(c => c.window_key === win)).length;
-  const totalCheckedIn = attendees.filter(a => a.checkins.length > 0).length;
+  // Headcounts include rehearsal scans while rehearsing, so the numbers move as
+  // they will on the day — and revert the moment rehearsal is switched off.
+  const isIn = (a: Attendee, win: string) =>
+    a.checkins.some(c => c.window_key === win) || (rehearsal && (rehearsalScans[a.id] || []).includes(win));
+  const countFor = (win: string) => attendees.filter(a => isIn(a, win)).length;
+  const totalCheckedIn = attendees.filter(a => a.checkins.length > 0 || (rehearsal && (rehearsalScans[a.id] || []).length > 0)).length;
   const blockedSummary = attendees.reduce((acc, a) => {
     const r = eligibility[a.id];
     if (r) { acc.total++; acc.byReason[r] = (acc.byReason[r] || 0) + 1; }
@@ -654,11 +758,71 @@ export function AdminSM26Checkin() {
             onClick={() => { const on = !sound; setSoundPref(on); setSound(on); if (on) { primeAudio(); doorSignal('read'); } }}>
             {sound ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 text-gray-400" />}
           </Button>
+          <Button variant={rehearsal ? 'default' : 'outline'} className={`gap-1.5 ${rehearsal ? 'bg-violet-600 hover:bg-violet-700' : ''}`}
+            onClick={() => {
+              primeAudio();
+              const on = !rehearsal;
+              setRehearsal(on);
+              setScan(null);
+              if (!on) setRehearsalScans({});   // the dry run leaves no trace
+            }}>
+            <FlaskConical className="h-4 w-4" /> {rehearsal ? 'Leave rehearsal' : 'Rehearse'}
+          </Button>
           {/* Opening the scanner is the tap that lets iOS start the audio context. */}
           <Button className="gap-1.5" onClick={() => { primeAudio(); setScanning(s => !s); }}><Camera className="h-4 w-4" /> {scanning ? 'Close scanner' : 'Scan QR'}</Button>
           <Button variant="outline" className="gap-1.5" onClick={exportCsv}><Download className="h-4 w-4" /> Export attendees (CSV)</Button>
         </div>
       </div>
+
+      {rehearsal && (
+        <Card className="border-0 shadow-sm bg-violet-50 ring-1 ring-violet-200">
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <FlaskConical className="h-5 w-5 text-violet-600 shrink-0 mt-0.5" />
+              <div className="text-sm text-violet-900">
+                <div className="font-semibold">Rehearsal — nothing is being recorded.</div>
+                <div className="text-violet-700 mt-0.5">
+                  Real people, real badge codes, the real verdict screen and the real sound. Scans are
+                  remembered here only until you leave, and the database is not touched. Scan the same
+                  badge twice in <span className="font-medium">{windows.find(w => w.key === activeWindow)?.label || 'this window'}</span> to
+                  see amber; switch window and the same person is green again.
+                </div>
+              </div>
+            </div>
+
+            <Input value={rehearsalQuery} onChange={e => setRehearsalQuery(e.target.value)}
+              placeholder="Show a specific person's badge — name, company or email" className="max-w-md bg-white" />
+
+            <div className="flex flex-wrap gap-3">
+              {pickForRehearsal().map(a => {
+                const blocked = eligibility[a.id];
+                const done = inRehearsal(a, activeWindow);
+                return (
+                  <div key={a.id} className="w-40 bg-white rounded-xl border border-violet-100 p-2 text-center">
+                    {qrMap[a.id]
+                      ? <img src={qrMap[a.id]} alt="" className="w-full rounded-lg" />
+                      : <div className="w-full aspect-square rounded-lg bg-gray-50 flex items-center justify-center"><RefreshCw className="h-4 w-4 animate-spin text-gray-300" /></div>}
+                    <div className="text-xs font-medium text-gray-800 mt-1.5 truncate" title={nameOf(a)}>{nameOf(a)}</div>
+                    <div className="text-[11px] text-gray-500 truncate" title={companyOf(a)}>{companyOf(a) || '—'}</div>
+                    <div className="text-[11px] mt-1">
+                      {blocked ? <span className="text-red-600">would be refused</span>
+                        : done ? <span className="text-amber-600">scanned in this window</span>
+                          : <span className="text-emerald-600">would come in</span>}
+                    </div>
+                  </div>
+                );
+              })}
+              {!pickForRehearsal().length && (
+                <p className="text-sm text-violet-700">Nobody matches — clear the search to see a spread of real badges.</p>
+              )}
+            </div>
+            <p className="text-xs text-violet-600">
+              Point the door phone at a code on this screen. If you would rather hold it, open this page on
+              a second device — these are the same codes the entry-pass email carries.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {scanning && (
         <QrScanner
@@ -672,6 +836,7 @@ export function AdminSM26Checkin() {
       {scan && (
         <ScanVerdict
           scan={scan}
+          rehearsal={rehearsal}
           windowLabel={windows.find(w => w.key === activeWindow)?.label || ''}
           onClose={() => setScan(null)}
           onNext={() => { primeAudio(); setScan(null); setScanning(true); }}
@@ -727,7 +892,8 @@ export function AdminSM26Checkin() {
 
       <div className="space-y-2">
         {filtered.map(a => {
-          const here = a.checkins.some(c => c.window_key === activeWindow);
+          const here = isIn(a, activeWindow);
+          const inWindows = windows.filter(w => isIn(a, w.key));
           const name = `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email || '(no name)';
           return (
             <Card key={a.id} className="border-0 shadow-sm">
@@ -744,9 +910,11 @@ export function AdminSM26Checkin() {
                     )}
                   </div>
                   <div className="text-xs text-gray-500">{companyOf(a)}</div>
-                  {a.checkins.length > 0 && (
+                  {/* Where this person has been seen — one badge per window, which
+                      is the "who was present at each point" list Victor asked for. */}
+                  {inWindows.length > 0 && (
                     <div className="flex gap-1 mt-1 flex-wrap">
-                      {windows.filter(w => a.checkins.some(c => c.window_key === w.key)).map(w => (
+                      {inWindows.map(w => (
                         <Badge key={w.key} className="bg-green-50 text-green-700 border-green-200 text-[10px]">{w.label}</Badge>
                       ))}
                     </div>

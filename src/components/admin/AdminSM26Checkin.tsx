@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsQR from 'jsqr';
-import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users } from 'lucide-react';
+import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users, Vibrate } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -53,6 +53,76 @@ const companyOf = (a: Attendee) => regOf(a)?.company_name || '';
 // A badge QR encodes the check-in URL (…/checkin?token=XYZ). Pull the token out
 // whether we scanned a full URL or a bare token.
 const parseToken = (raw: string) => { try { return new URL(raw).searchParams.get('token') || raw; } catch { return raw.trim(); } };
+
+// Feedback at the door, silently. Whoever is scanning is looking at the badge and
+// at the person, not at the screen, so each scan announces itself in the hand.
+// Four distinct patterns, because "the code was read" and "this person may come
+// in" are different facts and the second is the one that decides anything.
+// Deliberately no sound: the desk sits next to the sessions.
+//
+// Two mechanisms, because there is no single one that covers both phones:
+//
+//  - Android (Chrome, Firefox, Samsung): navigator.vibrate, a real API, exact
+//    millisecond patterns.
+//  - iPhone: iOS implements NO vibration API — navigator.vibrate is undefined in
+//    Safari and in every iOS browser, since they are all WebKit. The only lever a
+//    web page has on the Taptic Engine is Safari 17.4's native switch control,
+//    which plays a system haptic when it flips. Flipping one off-screen is a
+//    side effect of a UI control rather than an API: it needs iOS 17.4 or later,
+//    it gives one fixed tap rather than a pattern, and Apple can take it away.
+//    Hence the "Test vibration" button — one tap tells you whether this phone
+//    can do it at all, instead of finding out at the door.
+type DoorSignal = 'read' | 'admitted' | 'already' | 'refused';
+const BUZZ: Record<DoorSignal, number[]> = {
+  read: [25],                      // decoded — you can move the badge away
+  admitted: [50],                  // let them in
+  already: [30, 80, 30],           // seen before in this window; not a fault
+  refused: [70, 60, 70, 60, 120],  // unmistakably different from the other three
+};
+// How many taps stand in for each pattern where only a fixed tap is available.
+const TAPS: Record<DoorSignal, number> = { read: 1, admitted: 1, already: 2, refused: 3 };
+
+let hapticSwitch: { input: HTMLInputElement; label: HTMLLabelElement } | null = null;
+let hapticSwitchTried = false;
+// Safari 17.4+ reflects the switch attribute as a property; anything else fails
+// this test and gets nothing, which is the honest outcome.
+function iosHaptic(): { input: HTMLInputElement; label: HTMLLabelElement } | null {
+  if (hapticSwitchTried) return hapticSwitch;
+  hapticSwitchTried = true;
+  try {
+    const probe = document.createElement('input');
+    probe.type = 'checkbox';
+    if (!('switch' in probe)) return null;
+    probe.setAttribute('switch', '');
+    probe.id = 'sm26-haptic';
+    probe.tabIndex = -1;
+    probe.setAttribute('aria-hidden', 'true');
+    // It has to be laid out and hit-testable for the control to run its state
+    // change, so it is parked off-screen rather than display:none'd.
+    probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
+    const label = document.createElement('label');
+    label.htmlFor = 'sm26-haptic';
+    label.setAttribute('aria-hidden', 'true');
+    label.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0';
+    document.body.appendChild(probe);
+    document.body.appendChild(label);
+    hapticSwitch = { input: probe, label };
+  } catch { hapticSwitch = null; }
+  return hapticSwitch;
+}
+
+// Returns how the buzz was delivered, so the test button can say something true.
+function doorSignal(kind: DoorSignal): 'vibrate' | 'ios-switch' | 'none' {
+  try {
+    if (typeof navigator.vibrate === 'function' && navigator.vibrate(BUZZ[kind])) return 'vibrate';
+  } catch { /* fall through */ }
+  const h = iosHaptic();
+  if (h) {
+    for (let i = 0; i < TAPS[kind]; i++) setTimeout(() => { try { h.label.click(); } catch { /* gone */ } }, i * 140);
+    return 'ios-switch';
+  }
+  return 'none';
+}
 
 // Read one frame (or a crop of it) through jsQR. Both framings are kept because
 // each wins somewhere, measured by replaying real entry-pass PNGs through a
@@ -187,6 +257,7 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
             if (raw && (raw !== lastVal || now - lastTime > 3000)) {
               lastVal = raw; lastTime = now;
               setStalled(false);
+              doorSignal('read');
               onTokenRef.current(parseToken(raw));
             } else if (!lastVal && now - started > 7000) {
               setStalled(true);
@@ -221,7 +292,7 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
         const sx = Math.round((w - side) / 2), sy = Math.round((h - side) / 2);
         code = jsQR(cx.getImageData(sx, sy, side, side).data, side, side, { inversionAttempts: 'attemptBoth' });
       }
-      if (code?.data) { setStalled(false); onTokenRef.current(parseToken(code.data)); }
+      if (code?.data) { setStalled(false); doorSignal('read'); onTokenRef.current(parseToken(code.data)); }
       else toast({ title: 'No QR code in that photo', description: 'Fill more of the frame with the code and try again, or find the person by name below.', variant: 'destructive' });
     } catch {
       toast({ title: 'Could not read that photo', variant: 'destructive' });
@@ -249,11 +320,19 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
         {stalled && (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2 mt-2 text-center">Nothing read yet. Move closer so the code fills the box, avoid glare on the screen — or take a photo instead.</p>
         )}
-        <div className="mt-2 text-center">
+        <div className="mt-2 flex items-center justify-center gap-2">
           <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
             onChange={e => { onPhoto(e.target.files?.[0]); e.target.value = ''; }} />
           <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
             <Camera className="h-4 w-4 mr-2" /> Take a photo instead
+          </Button>
+          <Button variant="ghost" size="sm" className="text-gray-500" onClick={() => {
+            const how = doorSignal('admitted');
+            toast(how === 'none'
+              ? { title: 'This phone cannot vibrate from a web page', description: 'Android does it natively; iPhone needs iOS 17.4 or later. Watch the result card on screen instead.', variant: 'destructive' }
+              : { title: how === 'vibrate' ? 'Buzzed' : 'Tapped (iOS haptic)', description: 'That is what a successful check-in will feel like.' });
+          }}>
+            <Vibrate className="h-4 w-4 mr-2" /> Test vibration
           </Button>
         </div>
       </CardContent>
@@ -317,9 +396,12 @@ export function AdminSM26Checkin() {
   const processToken = async (token: string, win: string) => {
     lastToken.current = token;
     const { data, error } = await supabase.rpc('sm_checkin_by_token', { p_token: token, p_window: win });
-    if (error) { toast({ title: 'Check-in failed', description: error.message, variant: 'destructive' }); return; }
+    if (error) { doorSignal('refused'); toast({ title: 'Check-in failed', description: error.message, variant: 'destructive' }); return; }
     const res = data as ScanResult;
     setScan(res);
+    // The outcome is the fact that matters at the door, and it lands about a
+    // second after the read — so it gets its own signal rather than sharing one.
+    doorSignal(!res.ok ? 'refused' : res.already ? 'already' : 'admitted');
     if (res.ok) {
       // reflect locally on the matching attendee
       setAttendees(prev => prev.map(a => a.id === res.attendee_id

@@ -690,6 +690,32 @@ Deno.serve(async (req: Request) => {
   const headers = { "Content-Type": "application/json", ...corsHeaders(req) };
 
   try {
+    // AUTHORIZATION. This endpoint is public (verify_jwt is false) and used to
+    // perform no check at all while accepting a caller-supplied recipient AND
+    // caller-supplied body text -- an unauthenticated open mail relay on M3's
+    // verified sending domain, usable for phishing and certain to burn the
+    // deliverability that every event email depends on.
+    //
+    // Turning verify_jwt on would NOT have closed it: the anon key is itself a
+    // valid JWT and ships inside the browser bundle. The caller must therefore be
+    // either another edge function (service role) or a genuinely signed-in user.
+    // Every client caller is an authenticated surface -- the admin consoles, the
+    // account and organisation tabs, the submit pages, onboarding, the
+    // marketplace, the event registration flow and deal flow. The one signup
+    // path that runs before a session exists goes through notify-admins, not
+    // this function, so nothing legitimate loses access here.
+    const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+    if (!bearer) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
+    }
+    if (bearer !== SUPABASE_SERVICE_ROLE_KEY) {
+      const gate = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+      const { data: caller } = await gate.auth.getUser(bearer);
+      if (!caller?.user) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
+      }
+    }
+
     if (!RESEND_API_KEY) {
       return new Response(JSON.stringify({ error: "RESEND_API_KEY not configured" }), { status: 500, headers });
     }

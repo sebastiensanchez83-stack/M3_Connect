@@ -54,15 +54,61 @@ const companyOf = (a: Attendee) => regOf(a)?.company_name || '';
 // whether we scanned a full URL or a bare token.
 const parseToken = (raw: string) => { try { return new URL(raw).searchParams.get('token') || raw; } catch { return raw.trim(); } };
 
-// Live camera QR scanner that works on ANY browser. Uses the native
-// BarcodeDetector when present (Chrome/Edge — fast), otherwise the bundled jsQR
-// decoder (iOS Safari / Firefox) on canvas frames. The camera is opened FIRST,
-// before any await, because iOS Safari only grants getUserMedia within the
-// user-gesture window. Debounce keeps the scanner open for back-to-back scans.
+// Read one frame (or a crop of it) through jsQR. Both framings are kept because
+// each wins somewhere, measured by replaying real entry-pass PNGs through a
+// synthetic video stream: with the code filling a tenth of the frame — a badge
+// held out, not pressed against the lens — the centre square reads it and the
+// squashed full frame does not; a little closer and slightly blurred, the full
+// frame reads it and the crop does not. Alternating gets both, at ~60ms each.
+// The 960 cap is the floor that keeps the centre crop at native resolution;
+// going lower would throw away the pixels we just asked the camera for.
+const WORK_PX = 960;
+function readFrame(
+  ctx: CanvasRenderingContext2D,
+  v: HTMLVideoElement,
+  mode: 'centre' | 'full',
+): string {
+  const vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) return '';
+  const side = Math.min(vw, vh);
+  const sw = mode === 'centre' ? Math.round(side * 0.75) : vw;
+  const sh = mode === 'centre' ? Math.round(side * 0.75) : vh;
+  const sx = Math.round((vw - sw) / 2), sy = Math.round((vh - sh) / 2);
+  const scale = Math.min(1, WORK_PX / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * scale)), h = Math.max(1, Math.round(sh * scale));
+  const c = ctx.canvas;
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  ctx.drawImage(v, sx, sy, sw, sh, 0, 0, w, h);
+  // attemptBoth also catches a code shown light-on-dark (a phone in dark mode).
+  const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
+  return code?.data || '';
+}
+
+// Live camera QR scanner that works on ANY browser.
+//
+// This used to accept whatever resolution the camera offered, which is 640×480
+// on most browsers when nobody asks. Replaying real entry passes through a
+// synthetic stream: at 640×480 the code had to fill 30% of the frame to decode
+// at all, while at 1080p it decodes down to 10% — the badge can be held three
+// times further away. That gap is why a phone's own camera app read a pass the
+// door scanner could not, and asking for resolution is the substance of the fix.
+//
+// The native BarcodeDetector is used where the platform genuinely supports it
+// (Android, macOS — it is absent on Windows, checked, so jsQR does the work
+// there). It is now probed via getSupportedFormats and demoted permanently on
+// its first failure: previously any rejection from detect() was swallowed by the
+// loop's catch and jsQR was never reached, leaving a scanner that looked alive
+// and read nothing. The camera is opened FIRST, before any await, because iOS
+// Safari only grants getUserMedia within the user-gesture window. Debounce keeps
+// the scanner open for back-to-back scans. If the live read still fails (dim
+// light, glare on a screen), "Take a photo" decodes a full-resolution still.
 function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onClose: () => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [starting, setStarting] = useState(true);
+  const [diag, setDiag] = useState('');
+  const [stalled, setStalled] = useState(false);
   // Keep the latest handler so the long-running scan loop never goes stale.
   const onTokenRef = useRef(onToken);
   onTokenRef.current = onToken;
@@ -73,45 +119,79 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-    // Native detector if present (fast); else the bundled jsQR. Built synchronously
-    // so there's no async work before getUserMedia (which iOS ties to the tap).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const native = 'BarcodeDetector' in window ? new (window as any).BarcodeDetector({ formats: ['qr_code'] }) : null;
-    const detect = async (v: HTMLVideoElement): Promise<string> => {
-      if (native) { const c = await native.detect(v); return c && c.length ? c[0].rawValue : ''; }
-      const w = v.videoWidth, h = v.videoHeight;
-      if (!w || !h || !ctx) return '';
-      canvas.width = w; canvas.height = h;
-      ctx.drawImage(v, 0, 0, w, h);
-      const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'dontInvert' });
-      return code ? code.data : '';
-    };
-
     (async () => {
       // Open the camera first, while still inside the user-gesture window.
+      // A low-resolution stream is the single most common reason a QR will not
+      // decode, so ask for 1080p and let the browser give what it can.
+      const wanted: MediaTrackConstraints = {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 }, height: { ideal: 1080 },
+      };
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        stream = await navigator.mediaDevices.getUserMedia({ video: wanted });
       } catch {
-        setErr('Camera access was blocked. Allow camera permission in your browser settings (or use the name search below).');
-        return;
+        try { stream = await navigator.mediaDevices.getUserMedia({ video: true }); } catch {
+          setErr('Camera access was blocked. Allow camera permission in your browser settings — or use "Take a photo", or the name search below.');
+          return;
+        }
       }
       if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
-      if (videoRef.current) { videoRef.current.srcObject = stream; try { await videoRef.current.play(); } catch { /* ignore */ } }
+      const track = stream.getVideoTracks()[0];
+      // Continuous autofocus where the platform supports it; ignored elsewhere.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      try { await track?.applyConstraints({ advanced: [{ focusMode: 'continuous' }] } as any); } catch { /* not supported */ }
+      const v = videoRef.current;
+      if (v) {
+        v.srcObject = stream;
+        try { await v.play(); } catch { /* autoplay attribute covers this */ }
+      }
       setStarting(false);
+
+      // Native detector, probed properly: the constructor existing proves
+      // nothing, only the platform reporting qr_code support does — and even
+      // then a first failure demotes us to jsQR for the rest of the session.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let native: any = null;
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const BD = (window as any).BarcodeDetector;
+        if (BD?.getSupportedFormats) {
+          const formats: string[] = await BD.getSupportedFormats();
+          if (formats.includes('qr_code')) native = new BD({ formats: ['qr_code'] });
+        }
+      } catch { native = null; }
+      const s = track?.getSettings?.();
+      setDiag(`${s?.width || '?'}×${s?.height || '?'} · ${native ? 'fast' : 'standard'}`);
+
       // Debounce so a badge sitting in frame isn't re-read; throttle to spare CPU.
-      let lastVal = ''; let lastTime = 0; let lastScan = 0;
+      let lastVal = ''; let lastTime = 0; let lastScan = 0; let flip = 0;
+      const started = performance.now();
       const tick = async () => {
         if (stopped) return;
         const now = performance.now();
-        if (now - lastScan > 160) {
+        if (now - lastScan > 120) {
           lastScan = now;
-          try {
-            const raw = videoRef.current ? await detect(videoRef.current) : '';
+          const vid = videoRef.current;
+          // HAVE_CURRENT_DATA — reading before this yields a blank canvas.
+          if (vid && vid.readyState >= 2 && ctx) {
+            let raw = '';
+            if (native) {
+              try {
+                const found = await native.detect(vid);
+                raw = found?.length ? found[0].rawValue : '';
+              } catch { native = null; setDiag(d => d.replace('fast', 'standard')); }
+            }
+            // Always give jsQR the frame the native pass did not resolve, and
+            // alternate centre crop / full frame so neither framing is favoured.
+            if (!raw) { try { raw = readFrame(ctx, vid, flip++ % 2 ? 'full' : 'centre'); } catch { /* keep scanning */ } }
             if (raw && (raw !== lastVal || now - lastTime > 3000)) {
               lastVal = raw; lastTime = now;
+              setStalled(false);
               onTokenRef.current(parseToken(raw));
+            } else if (!lastVal && now - started > 7000) {
+              setStalled(true);
             }
-          } catch { /* keep scanning */ }
+          }
         }
         raf = requestAnimationFrame(tick);
       };
@@ -120,6 +200,33 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
     return () => { stopped = true; cancelAnimationFrame(raf); stream?.getTracks().forEach(t => t.stop()); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Full-resolution still as a fallback: the phone's own camera app focuses and
+  // exposes far better than a live preview, so a photo decodes when video won't.
+  const onPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const cx = c.getContext('2d', { willReadFrequently: true });
+      if (!cx) return;
+      cx.drawImage(bmp, 0, 0, w, h);
+      let code = jsQR(cx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
+      if (!code) {
+        // Retry on the centre of the photo, where the badge was aimed.
+        const side = Math.round(Math.min(w, h) * 0.7);
+        const sx = Math.round((w - side) / 2), sy = Math.round((h - side) / 2);
+        code = jsQR(cx.getImageData(sx, sy, side, side).data, side, side, { inversionAttempts: 'attemptBoth' });
+      }
+      if (code?.data) { setStalled(false); onTokenRef.current(parseToken(code.data)); }
+      else toast({ title: 'No QR code in that photo', description: 'Fill more of the frame with the code and try again, or find the person by name below.', variant: 'destructive' });
+    } catch {
+      toast({ title: 'Could not read that photo', variant: 'destructive' });
+    }
+  };
 
   return (
     <Card className="border-0 shadow-sm">
@@ -132,12 +239,23 @@ function QrScanner({ onToken, onClose }: { onToken: (token: string) => void; onC
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">{err}</p>
         ) : (
           <div className="relative mx-auto max-w-xs aspect-square rounded-xl overflow-hidden bg-black">
-            <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+            <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
             <div className="absolute inset-6 border-2 border-white/80 rounded-lg pointer-events-none" />
             {starting && <div className="absolute inset-0 flex items-center justify-center text-white/80 text-sm"><RefreshCw className="h-5 w-5 animate-spin mr-2" /> Starting camera…</div>}
+            {!starting && diag && <div className="absolute bottom-1 right-2 text-[10px] text-white/60 tabular-nums">{diag}</div>}
           </div>
         )}
-        <p className="text-xs text-gray-400 mt-2 text-center">Point the camera at each badge QR — the scanner stays open, so you can check people in one after another. Each is added to the selected window.</p>
+        <p className="text-xs text-gray-400 mt-2 text-center">Fill the white box with the code — about 15&nbsp;cm away. The scanner stays open, so you can check people in one after another.</p>
+        {stalled && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2 mt-2 text-center">Nothing read yet. Move closer so the code fills the box, avoid glare on the screen — or take a photo instead.</p>
+        )}
+        <div className="mt-2 text-center">
+          <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
+            onChange={e => { onPhoto(e.target.files?.[0]); e.target.value = ''; }} />
+          <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+            <Camera className="h-4 w-4 mr-2" /> Take a photo instead
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

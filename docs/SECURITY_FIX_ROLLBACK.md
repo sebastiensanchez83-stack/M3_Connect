@@ -147,3 +147,30 @@ Recorded here so each can be reversed manually if ever needed:
 - **Countries** — two registrations normalised to `Hong Kong` (Carrie Ng, from
   `China`; Eric Ho, from `Hong Kong, China`) and the Airport Authority Hong Kong
   organisation likewise.
+
+---
+
+## 5. Later changes (30 July)
+
+### `sm26-badge-email` (v2 → v3)
+The entry QR is now generated on the server and attached to the message
+(`cid:entryqr`) instead of being hotlinked from `api.qrserver.com`, the token is
+printed as a text fallback, every send is written to `sm_email_log` with kind
+`entry_qr`, and a send is skipped if that address already has one (pass
+`resend: true` to override).
+
+**Repo copy is behind the deployed version for this one function** — the
+deployed source is the truth until it is re-synced.
+
+*Undo:* redeploy v2, whose QR line was:
+```ts
+const qr = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=10&data=${encodeURIComponent(checkinUrl)}`;
+```
+Reverting reintroduces the third-party dependency and loses the send log.
+
+### Triggers added 30 July
+```sql
+drop trigger if exists sm_architecture_onsite_sync on public.sm_architecture_entry;
+drop trigger if exists sm_registration_withdrawal on public.sm_registration;
+```
+Dropping either only stops future syncing; no data is altered by the drop.

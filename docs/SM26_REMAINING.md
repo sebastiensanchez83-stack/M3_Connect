@@ -68,6 +68,19 @@ Incubator / dealflow · FR-EN translation · HubSpot sync · Jotform webhook ·
 full financial reconciliation (participants get their invoice on their account,
 which is enough for this edition).
 
+**The Ops bridge.** A commercial event bus already exists in the production
+database — `commercial_outbox_events` / `commercial_inbox_events`, the
+`apply_ops_commercial_event()` handler, and quote/invoice projections carrying
+`ops_*` ids. It is properly built (idempotent, payload-hashed, versioned) and
+completely dormant: zero events either way, zero quotes, zero invoices, no
+scheduled drain, no UI, no code in this repo. Its scope is fixed by CHECK
+constraints to quotes and invoices inbound and quote acceptances outbound, so it
+cannot move clients or contacts — whatever labelled records "imported from SMC"
+in Ops came from somewhere else, most likely a manual CSV export from the admin
+Users page. Two open questions when this is picked up: who built it and when it
+is meant to be switched on, and whether Ops holds SMC's service-role key, which
+bypasses every row-level security rule on the platform.
+
 ---
 
 ## Not defects — normal states of the process

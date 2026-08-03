@@ -365,3 +365,50 @@ Undo:
 drop function if exists public.admin_invite_org_member(uuid, text, text, text);
 drop policy if exists admins_can_view_invitations on public.organization_invitations;
 ```
+
+## sec_ecat_files_follow_registration_access — 3 August 2026
+
+Reported by a participant: "Could not open file" on the designed e-catalogue
+page he had been reminded to approve.
+
+Cause: **the screen and the file disagreed about who is allowed in.** Page access
+is owner-OR-org-member, but `event_media_ecat_select` tested
+`r.user_id = auth.uid()` alone. Tobias Otto owns the *organisation* Lika Digital
+while the SM26 registration is in his colleague Damir's name — so he reached the
+approval screen and the signed URL was refused. The neighbouring invoice policy
+already used `sm_can_access_registration()` ("owner OR org member"); the
+e-catalogue one never followed.
+
+Two policies now use that helper:
+- `event_media_ecat_select` — designed and published pages.
+- `event_media_ecat_comment_select` — **new**. Review-comment attachments had no
+  storage policy at all, so they were readable only when the storage folder
+  happened to belong to the caller, which it never does when M3 attaches the
+  file. 5 of 15 comments carry attachments.
+
+Verified by impersonating real accounts, read-only: Tobias (org owner, not
+registration owner) now sees the file; Damir (registration owner) still does; an
+unrelated participant does not; and for comment attachments, the owning
+registration sees theirs while an outsider does not.
+
+No frontend change — the participant page signs client-side, which is correct
+once the policy is.
+
+Undo — restore the previous, owner-only policy verbatim and drop the new one:
+```sql
+drop policy if exists event_media_ecat_comment_select on storage.objects;
+drop policy if exists event_media_ecat_select on storage.objects;
+create policy event_media_ecat_select on storage.objects
+for select to authenticated
+using (
+  bucket_id = 'event-media'
+  and exists (
+    select 1 from public.sm_ecat_page p
+      join public.sm_registration r on r.id = p.registration_id
+     where r.user_id = auth.uid()
+       and (p.designed_file_path = storage.objects.name
+            or p.published_file_path = storage.objects.name)
+  )
+);
+```
+Reverting puts colleagues back outside the file they are being asked to approve.

@@ -447,3 +447,29 @@ Undo:
 ```sql
 drop function if exists public.sm_admin_create_registration(text,text,text,text,text,text[],text,boolean,boolean,text,text);
 ```
+
+## sm_agenda_draft_visible_to_yacht_club — 5 August 2026
+
+The Yacht Club console has a read-only Programme panel, but `sm_agenda` filtered
+on `s.published` and all 23 sessions are still drafts — so the venue hosting the
+event could not see its own programme.
+
+One clause changed:
+```sql
+and (s.published or sm_is_event_partner(p_event_id) or sm_is_staff())
+```
+`sm_is_event_partner()` is already scoped to `kind = 'yacht_club'`, so this opens
+drafts to the venue and to nobody else.
+
+Verified by impersonating real accounts: Yacht Club sees 23, Yachting Ventures 0,
+a participant 0, anonymous 0.
+
+The panel now carries a note saying it is a working version and that times and
+rooms may still change — sharing a draft is only safe if it is labelled as one.
+
+Undo:
+```sql
+-- restore the published-only filter
+create or replace function public.sm_agenda(p_event_id uuid) ... where s.event_id = p_event_id and s.published ...
+```
+(the full previous body is the same function with that single clause).

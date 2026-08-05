@@ -717,8 +717,17 @@ export function SM26PartnerPage() {
         )}
 
         {/* Programme (read-only) */}
+        {/* The venue sees the programme before it is published, drafts included,
+            so they can prepare the rooms. Said plainly, because horaires and
+            salles still move while it is being built. */}
         <CollapsiblePanel title="Programme" icon={CalendarDays} count={sessions.length} description="Lecture seule — le planning est géré par M3.">
           <div className="space-y-4">
+            {days.length > 0 && (
+              <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Version de travail, partagée en avance avec le Yacht Club : horaires et salles
+                peuvent encore changer jusqu'à la publication.
+              </p>
+            )}
             {days.length === 0 ? <p className="text-sm text-gray-400">Le programme sera publié prochainement.</p> : days.map(day => (
               <div key={day.key}>
                 <div className="text-sm font-semibold text-gray-700 mb-2">{day.key}</div>

@@ -251,6 +251,13 @@ export function AdminSM26() {
   const [ecatFilter, setEcatFilter] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addForm, setAddForm] = useState({
+    first: '', last: '', email: '', company: '', country: '',
+    roles: [] as string[], juryScope: 'innovation', onsite: 'unknown',
+    waive: false, status: 'confirmed',
+  });
 
   useEffect(() => { load(); }, []);
 
@@ -278,6 +285,44 @@ export function AdminSM26() {
     })();
     return () => { active = false; };
   }, [rows]);
+
+  // Register somebody on their behalf. One RPC does registration, roles,
+  // attendee, badge and waiver together, because doing them separately is how
+  // you end up with a confirmed participant nobody can scan at the door.
+  const createRegistration = async () => {
+    setAddBusy(true);
+    try {
+      const { data, error } = await supabase.rpc('sm_admin_create_registration', {
+        p_first_name: addForm.first,
+        p_last_name: addForm.last,
+        p_email: addForm.email,
+        p_company: addForm.company || null,
+        p_country: addForm.country || null,
+        p_roles: addForm.roles,
+        p_jury_scope: addForm.roles.includes('jury') ? addForm.juryScope : null,
+        p_onsite: addForm.roles.includes('jury') && addForm.onsite !== 'unknown' ? addForm.onsite === 'yes' : null,
+        p_waive_fee: addForm.waive,
+        p_status: addForm.status,
+      });
+      if (error) throw error;
+      const res = data as { registration_id?: string; linked_user?: boolean; linked_organization?: string | null; notes?: string[] };
+      toast({
+        title: `${[addForm.first, addForm.last].filter(Boolean).join(' ') || addForm.email} registered`,
+        description: [
+          res?.linked_organization ? `Linked to ${res.linked_organization}.` : '',
+          res?.linked_user ? 'Attached to their existing account.' : '',
+          ...(res?.notes || []),
+        ].filter(Boolean).join(' '),
+      });
+      setAddForm({ first: '', last: '', email: '', company: '', country: '', roles: [], juryScope: 'innovation', onsite: 'unknown', waive: false, status: 'confirmed' });
+      setAddOpen(false);
+      await load();
+      if (res?.registration_id) navigate(`/admin/sm26/${res.registration_id}`);
+    } catch (err: unknown) {
+      toast({ title: 'Could not register', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+    setAddBusy(false);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -542,6 +587,9 @@ export function AdminSM26() {
           <Ship className="h-6 w-6 text-primary" /> SM26 Registrations ({rows.length})
         </h1>
         <div className="flex items-center gap-2">
+          <Button className="gap-1.5" onClick={() => setAddOpen(o => !o)}>
+            <UserPlus className="h-4 w-4" /> {addOpen ? 'Close' : 'Register someone'}
+          </Button>
           <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/checkin')}>
             <QrCode className="h-4 w-4" /> Check-in
           </Button>
@@ -562,6 +610,86 @@ export function AdminSM26() {
           </Button>
         </div>
       </div>
+
+      {/* Register someone ourselves. Until now nobody at M3 could: row-level
+          security lets a person create their own registration and nothing else,
+          so every invited juror, sponsor or VIP had to be inserted by hand. The
+          RPC does the whole thing — registration, roles, attendee, badge, and
+          the fee waiver — and sends nothing. */}
+      {addOpen && (
+        <Card className="border-0 shadow-sm ring-1 ring-primary/20">
+          <CardContent className="p-4 space-y-3">
+            <div className="text-sm font-semibold text-gray-800">Register someone</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input placeholder="First name" value={addForm.first} onChange={e => setAddForm({ ...addForm, first: e.target.value })} />
+              <Input placeholder="Last name" value={addForm.last} onChange={e => setAddForm({ ...addForm, last: e.target.value })} />
+              <Input placeholder="Email *" type="email" value={addForm.email} onChange={e => setAddForm({ ...addForm, email: e.target.value })} />
+              <Input placeholder="Company" value={addForm.company} onChange={e => setAddForm({ ...addForm, company: e.target.value })} />
+              <Input placeholder="Country" value={addForm.country} onChange={e => setAddForm({ ...addForm, country: e.target.value })} />
+              <Select value={addForm.status} onValueChange={v => setAddForm({ ...addForm, status: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {REG_STATUSES.map(s => <SelectItem key={s} value={s}>{prettyStatus(s)}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <div className="text-xs text-gray-500 mb-1.5">Roles</div>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(SM26_ROLE_LABELS).map(([k, v]) => {
+                  const on = addForm.roles.includes(k);
+                  return (
+                    <button key={k} type="button"
+                      onClick={() => setAddForm({ ...addForm, roles: on ? addForm.roles.filter(r => r !== k) : [...addForm.roles, k] })}
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${on ? 'bg-primary text-white border-primary' : 'border-gray-200 text-gray-600 hover:border-primary/40'}`}>
+                      {v}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {addForm.roles.includes('jury') && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 p-2">
+                <span className="text-xs text-gray-500">Judges</span>
+                <Select value={addForm.juryScope} onValueChange={v => setAddForm({ ...addForm, juryScope: v })}>
+                  <SelectTrigger className="h-8 w-44"><SelectValue placeholder="Which competition" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="innovation">Innovation</SelectItem>
+                    <SelectItem value="architecture">Architecture</SelectItem>
+                    <SelectItem value="both">Both</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-xs text-gray-500 ml-2">On site</span>
+                <Select value={addForm.onsite} onValueChange={v => setAddForm({ ...addForm, onsite: v })}>
+                  <SelectTrigger className="h-8 w-40"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="yes">Yes — attends</SelectItem>
+                    <SelectItem value="no">No — remote</SelectItem>
+                    <SelectItem value="unknown">Not known yet</SelectItem>
+                  </SelectContent>
+                </Select>
+                {addForm.onsite === 'unknown' && (
+                  <span className="text-[11px] text-amber-700">The door refuses a juror until this is answered.</span>
+                )}
+              </div>
+            )}
+
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <Checkbox checked={addForm.waive} onCheckedChange={c => setAddForm({ ...addForm, waive: !!c })} />
+              Waive the fee {addForm.roles.includes('jury') && <span className="text-xs text-gray-400">(jury attend free of charge)</span>}
+            </label>
+
+            <div className="flex items-center gap-2">
+              <Button disabled={!addForm.email.trim() || !addForm.roles.length || addBusy} onClick={createRegistration}>
+                {addBusy ? 'Registering…' : 'Register'}
+              </Button>
+              <span className="text-xs text-gray-400">No email is sent. Send their entry pass separately when you are ready.</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Status summary chips */}
       <div className="flex items-center gap-2 flex-wrap">

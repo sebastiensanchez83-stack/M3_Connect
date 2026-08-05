@@ -412,3 +412,38 @@ using (
 );
 ```
 Reverting puts colleagues back outside the file they are being asked to approve.
+
+## sm_admin_create_registration (+ _fix_notes_append, _v2) — 5 August 2026
+
+`public.sm_admin_create_registration(...)` — lets M3 register somebody for an
+event. There was no way to do this: row-level security lets a person create their
+own registration and nothing else. Verified by trying it as a real verified
+admin, which was refused — so every invited juror, sponsor or VIP had to be
+inserted into the database by hand.
+
+Staff-gated (`sm_is_staff()`), and in one transaction it creates the
+registration, the role assignments, the **primary attendee** (nothing creates it
+on insert, and without it the person is invisible at check-in), the badge, the
+jury on-site flag via `sm_set_onsite_attendance`, and an optional fee waiver. It
+links to the person's existing account and organisation when they exist —
+matching a company by exact name, else by email domain but only when that domain
+belongs to exactly one organisation.
+
+It returns what it did, including `door_ok` and any blocker, plus notes such as
+"no payment recorded — the door refuses them until it is paid or waived". **It
+sends no email.**
+
+Verified in a rolled-back transaction: a waived on-site juror comes out
+`door_ok: true`; a sponsor without a waiver comes out `payment_missing` with the
+warning; a duplicate email in different case is refused; an unknown role is
+refused; a non-staff caller is refused. Production was left untouched.
+
+Two bugs caught while testing, both mine: `v_notes || 'text'` resolved to
+`text[] || text[]` and tried to parse the sentence as an array literal (now
+`array_append`), and a `RETURNING` clause referenced a variable removed in the
+same edit.
+
+Undo:
+```sql
+drop function if exists public.sm_admin_create_registration(text,text,text,text,text,text[],text,boolean,boolean,text,text);
+```

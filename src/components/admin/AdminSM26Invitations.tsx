@@ -67,7 +67,7 @@ type AssetSlot = 'banner' | 'footerImage' | 'logo' | 'signature' | 'stamp';
 // logo was 74px wide for a 20mm slot and printed visibly soft.
 const ASSET_SLOTS: { key: AssetSlot; label: string; hint: string; bundled?: boolean }[] = [
   { key: 'banner', label: 'Header strip', hint: 'The full-width banner across the top of the page. Use at least 2480px wide.', bundled: true },
-  { key: 'footerImage', label: 'Footer strip', hint: 'Full-width band at the foot of every page — partner logos. Use at least 2480px wide.' },
+  { key: 'footerImage', label: 'Footer strip', hint: 'Full-width band at the foot of every page — partner logos. Use at least 2480px wide.', bundled: true },
   { key: 'logo', label: 'Sender logo', hint: 'Sits next to the M3 address block. Use at least 240px wide, or it prints blurry.', bundled: true },
   { key: 'signature', label: 'Signature', hint: 'Drawn under the signatory’s name. Kept private — never published on the website.' },
   { key: 'stamp', label: 'Company stamp', hint: 'Drawn beside the signature. Kept private — never published on the website.' },
@@ -130,6 +130,7 @@ export function AdminSM26Invitations() {
     (async () => {
       const out: LetterAssets = {};
       out.banner = await toDataUrl(BUNDLED_ASSETS.banner);
+      out.footerImage = await toDataUrl(BUNDLED_ASSETS.footer);
       out.logo = await toDataUrl(BUNDLED_ASSETS.logo);
       // Only the four image slots are storage paths; sender/footer are text.
       const paths = ASSET_SLOTS.map(s => [s.key, letterhead[s.key]] as const).filter(([, v]) => !!v) as [AssetSlot, string][];

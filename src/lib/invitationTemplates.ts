@@ -261,12 +261,13 @@ export const FOOTER_DEFAULT =
  * is downloadable by anyone who guesses the URL. Those two are uploaded once
  * into private storage instead.
  */
+// The 2026 artwork, as supplied by the design team: both strips are 2480px
+// wide, which is exactly 300 dpi across a full A4 sheet. Served from public/
+// rather than from storage because the downloadable programme is built in a
+// participant's browser, where the admin letterhead uploads are not readable.
+// The spaces are percent-encoded because these are URLs, not paths.
 export const BUNDLED_ASSETS = {
-  banner: '/letterhead/sm26-banner.png',
+  banner: '/letterhead/Gabarits%20Smart%20Marina%202026%20-%20HEADER.jpg',
+  footer: '/letterhead/Gabarits%20Smart%20Marina%202026_FOOTER.jpg',
   logo: '/letterhead/m3-logo.png',
-  // Partner-logo strip. Served from public/ rather than storage because the
-  // downloadable programme is built in a participant's browser, where the
-  // admin letterhead uploads are not readable. Absent is handled gracefully:
-  // the document simply renders without it.
-  footer: '/letterhead/sm26-footer.png',
 };

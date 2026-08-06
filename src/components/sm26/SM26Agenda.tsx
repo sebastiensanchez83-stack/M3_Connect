@@ -139,11 +139,18 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
       d.items.push(s);
     }
     try {
-      const { downloadProgrammePdf } = await import('@/lib/programmePdf');
+      const { downloadProgrammePdf, toDataUrl } = await import('@/lib/programmePdf');
+      const { BUNDLED_ASSETS } = await import('@/lib/invitationTemplates');
+      // Same letterhead the official invitations use, so a printed programme
+      // and a printed invitation are recognisably the same event.
+      const [banner, footer] = await Promise.all([
+        toDataUrl(BUNDLED_ASSETS.banner),
+        toDataUrl(BUNDLED_ASSETS.footer),
+      ]);
       await downloadProgrammePdf(byDay, {
         title: 'Smart & Sustainable Marina Rendezvous 2026',
         subtitle: '20–21 September 2026 · Yacht Club de Monaco · Programme',
-      }, fmtTime);
+      }, fmtTime, { banner, footer });
     } catch {
       toast({ title: 'Could not build the programme', description: 'Please try again.', variant: 'destructive' });
     }

@@ -264,4 +264,9 @@ export const FOOTER_DEFAULT =
 export const BUNDLED_ASSETS = {
   banner: '/letterhead/sm26-banner.png',
   logo: '/letterhead/m3-logo.png',
+  // Partner-logo strip. Served from public/ rather than storage because the
+  // downloadable programme is built in a participant's browser, where the
+  // admin letterhead uploads are not readable. Absent is handled gracefully:
+  // the document simply renders without it.
+  footer: '/letterhead/sm26-footer.png',
 };

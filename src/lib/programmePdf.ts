@@ -41,21 +41,74 @@ export interface ProgrammeMeta {
   draftNotice?: string | null;
 }
 
+export interface ProgrammeAssets {
+  /** Event banner, drawn full width at the top of the first page. */
+  banner?: string | null;
+  /** Partner-logo strip, drawn full width at the foot of every page. */
+  footer?: string | null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Doc = any;
+
+/** Natural size of a data-URL image, so it scales without distortion. */
+function imageSize(dataUrl: string): Promise<{ w: number; h: number }> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve({ w: img.naturalWidth || 1, h: img.naturalHeight || 1 });
+    img.onerror = () => resolve({ w: 0, h: 0 });
+    img.src = dataUrl;
+  });
+}
+
+/** Fetch a URL and turn it into a data URL jsPDF can embed. */
+export async function toDataUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result || ''));
+      fr.onerror = () => resolve(null);
+      fr.readAsDataURL(blob);
+    });
+  } catch { return null; }
+}
 
 export async function buildProgrammePdf(
   days: ProgrammeDay[],
   meta: ProgrammeMeta,
   fmtTime: (iso: string | null) => string,
+  assets: ProgrammeAssets = {},
 ) {
   const { jsPDF } = await import('jspdf');
   const doc: Doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  let y = M_TOP;
+
+  // Both strips are measured before anything is laid out: the banner decides
+  // where the first page starts, the footer decides where every page must stop.
+  let bannerH = 0;
+  if (assets.banner) {
+    const s = await imageSize(assets.banner);
+    bannerH = s.w ? (PAGE_W * s.h) / s.w : 0;
+  }
+  let footerH = 0;
+  if (assets.footer) {
+    const s = await imageSize(assets.footer);
+    footerH = s.w ? (PAGE_W * s.h) / s.w : 0;
+  }
+  const bottomLimit = PAGE_H - Math.max(M_BOTTOM, footerH + 8);
+
+  let y = bannerH ? bannerH + 10 : M_TOP;
+  if (bannerH) {
+    try { doc.addImage(assets.banner, 0, 0, PAGE_W, bannerH); } catch { /* a bad image must not lose the programme */ }
+  }
 
   const room = (need: number) => {
-    if (y + need <= PAGE_H - M_BOTTOM) return;
+    if (y + need <= bottomLimit) return;
     doc.addPage();
+    // Continuation pages carry the footer but not the banner — a second full
+    // strip would eat a third of the page for no new information.
     y = M_TOP;
   };
 
@@ -115,12 +168,15 @@ export async function buildProgrammePdf(
     y += 3;
   }
 
-  // ---- page numbers ------------------------------------------------------
+  // ---- footer strip + page numbers on every page -------------------------
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
+    if (footerH) {
+      try { doc.addImage(assets.footer, 0, PAGE_H - footerH, PAGE_W, footerH); } catch { /* ignore */ }
+    }
     doc.setFont(FONT, 'normal'); doc.setFontSize(7.6); doc.setTextColor(...GREY);
-    doc.text(`${p} / ${pages}`, PAGE_W - M_RIGHT, PAGE_H - 10, { align: 'right' });
+    doc.text(`${p} / ${pages}`, PAGE_W - M_RIGHT, PAGE_H - (footerH ? footerH + 3.5 : 10), { align: 'right' });
   }
 
   return doc;
@@ -130,8 +186,9 @@ export async function downloadProgrammePdf(
   days: ProgrammeDay[],
   meta: ProgrammeMeta,
   fmtTime: (iso: string | null) => string,
+  assets: ProgrammeAssets = {},
   filename = 'sm26-programme.pdf',
 ) {
-  const doc = await buildProgrammePdf(days, meta, fmtTime);
+  const doc = await buildProgrammePdf(days, meta, fmtTime, assets);
   doc.save(filename);
 }

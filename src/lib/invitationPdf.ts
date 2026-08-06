@@ -12,6 +12,8 @@
 export interface LetterAssets {
   /** Full-width header strip, as a data URL. */
   banner?: string | null;
+  /** Full-width footer strip (partner logos), drawn at the foot of every page. */
+  footerImage?: string | null;
   /** Sender logo shown next to the address block. */
   logo?: string | null;
   /** Signature, drawn under the signatory's name. */
@@ -54,9 +56,14 @@ const FONT = 'helvetica';
 // Tuned so a letter of this length still lands on ONE page under the header
 // strip, the way the hand-made original does.
 const SIZE = 9.6;
-const LEADING = 4.3;     // mm between baselines
+// 4.3mm was 1.27x the type size — tight for a letter meant to be read once,
+// slowly, by somebody deciding whether to attend. 4.8 is ~1.42x, which is the
+// usual range for body text and still lands the standard letter on one page.
+const LEADING = 4.8;     // mm between baselines
 const PARA_GAP = 2.4;    // extra mm after a paragraph
 const ADDR_LEADING = 4.2;
+// The subject is a heading; it needs air under it, not a paragraph gap.
+const SUBJECT_GAP = 7;
 
 /** Split "a **b** c" into runs. */
 function parseRuns(s: string): { text: string; bold: boolean }[] {
@@ -114,6 +121,8 @@ interface Flow {
   y: number;
   /** Start a new page and return its first baseline. */
   newPage: () => number;
+  /** Lowest baseline the text may use, in mm. Depends on how tall the footer is. */
+  bottom: number;
 }
 
 /**
@@ -140,7 +149,7 @@ function drawParagraph(doc: Doc, flow: Flow, text: string, x: number, width: num
   if (line.length) lines.push(line);
 
   lines.forEach((ln, i) => {
-    if (flow.y > PAGE_H - M_BOTTOM) flow.y = flow.newPage();
+    if (flow.y > flow.bottom) flow.y = flow.newPage();
     const lx = i === 0 && firstX != null ? firstX : x;
     const lw = widthOf(i);
     const isLast = i === lines.length - 1;
@@ -193,8 +202,20 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   doc.setFontSize(SIZE);
   doc.setTextColor(20, 28, 44);
 
+  // The footer strip is measured BEFORE anything is laid out, because how tall
+  // it is decides how far down the text may run. Measuring it at the end, where
+  // it is drawn, would let the body flow underneath it.
+  let stripH = 0;
+  if (assets.footerImage) {
+    const s = await imageSize(assets.footerImage);
+    stripH = s.w ? (PAGE_W * s.h) / s.w : 0;
+  }
+  const legalY = PAGE_H - (stripH ? stripH + 5 : 12);
+  const bottom = (d.footer.trim() ? legalY : PAGE_H - (stripH || 0)) - 6;
+
   const flow: Flow = {
     y: 0,
+    bottom,
     newPage: () => { doc.addPage(); doc.setFontSize(SIZE); doc.setTextColor(20, 28, 44); return M_TOP_NEXT; },
   };
 
@@ -222,22 +243,30 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   doc.setFont(FONT, 'normal');
   flow.y = top + Math.max(sender.length * ADDR_LEADING, 13) + 7;
 
-  // ---- recipient, set into the right-hand column --------------------------
-  // Sits at 58% of the text width rather than dead centre: at 50% the block
-  // read as if it were drifting into the middle of the page instead of being
-  // an addressee column.
+  // ---- recipient, flush to the right text margin --------------------------
+  // A fixed 58% of the text width still read as drifting toward the middle. The
+  // block is now placed so its WIDEST line ends exactly on the right margin, so
+  // the column lines up with the justified body below it however long the
+  // address happens to be. The lines stay left-aligned with each other — an
+  // address ragged down its left edge reads as a mistake. The date line is
+  // measured too, since it shares the column and would otherwise overhang.
   const addr = d.addressBlock.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-  const addrX = M_LEFT + CONTENT_W * 0.58;
+  const dateText = `${d.place}, ${d.dateLine}`;
+  const rightEdge = PAGE_W - M_RIGHT;
+  const colW = Math.max(0, ...addr.map(l => doc.getTextWidth(l)), doc.getTextWidth(dateText));
+  // Flush right; the floor only catches an unusually long line, which would
+  // otherwise start so far left it read as body text rather than an address.
+  const addrX = Math.max(rightEdge - colW, M_LEFT + CONTENT_W * 0.5);
   addr.forEach((l, i) => doc.text(l, addrX, flow.y + i * ADDR_LEADING));
   flow.y += addr.length * ADDR_LEADING + 6;
 
   // ---- place & date -------------------------------------------------------
-  doc.text(`${d.place}, ${d.dateLine}`, addrX, flow.y);
+  doc.text(dateText, addrX, flow.y);
   flow.y += 17;
 
   // ---- subject ------------------------------------------------------------
   if (d.subject.trim()) {
-    if (flow.y > PAGE_H - M_BOTTOM) flow.y = flow.newPage();
+    if (flow.y > flow.bottom) flow.y = flow.newPage();
     doc.setFont(FONT, 'normal');
     // The authorities letter heads the subject with no "Subject:" label.
     if (d.subjectLabel.trim()) {
@@ -248,12 +277,12 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
     } else {
       drawParagraph(doc, flow, d.subject, M_LEFT, CONTENT_W);
     }
-    flow.y += PARA_GAP;
+    flow.y += SUBJECT_GAP;
   }
 
   // ---- salutation ---------------------------------------------------------
   if (d.salutation.trim()) {
-    if (flow.y > PAGE_H - M_BOTTOM) flow.y = flow.newPage();
+    if (flow.y > flow.bottom) flow.y = flow.newPage();
     doc.text(d.salutation, M_LEFT, flow.y);
     flow.y += LEADING + PARA_GAP;
   }
@@ -269,7 +298,7 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
     flow.y += PARA_GAP;
   }
   if (d.signOff.trim()) {
-    if (flow.y > PAGE_H - M_BOTTOM) flow.y = flow.newPage();
+    if (flow.y > flow.bottom) flow.y = flow.newPage();
     doc.text(d.signOff, M_LEFT, flow.y);
     flow.y += LEADING + PARA_GAP;
   }
@@ -278,7 +307,7 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   // Keep the block together: a name on one page and its signature on the next
   // would read as a forgery.
   const SIG_BLOCK = 28;   // two lines + the signature artwork
-  if (flow.y + SIG_BLOCK > PAGE_H - M_BOTTOM) flow.y = flow.newPage(); else flow.y += 5;
+  if (flow.y + SIG_BLOCK > flow.bottom) flow.y = flow.newPage(); else flow.y += 5;
   const sigRight = PAGE_W - M_RIGHT;
   doc.setFont(FONT, 'bold');
   if (d.signatoryName) {
@@ -302,13 +331,21 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   }
 
   // ---- footer, on every page ---------------------------------------------
-  if (d.footer.trim()) {
+  // Two footers, stacked: the partner-logo strip sits flush to the bottom edge
+  // like the header does, and the legal line just above it. Both heights were
+  // worked out before layout, so the body never runs into either.
+  if (assets.footerImage || d.footer.trim()) {
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
-      doc.setFontSize(7.4);
-      doc.setTextColor(130, 140, 160);
-      doc.text(d.footer, PAGE_W / 2, PAGE_H - 12, { align: 'center' });
+      if (assets.footerImage && stripH) {
+        try { doc.addImage(assets.footerImage, 0, PAGE_H - stripH, PAGE_W, stripH); } catch { /* a bad image must not lose the letter */ }
+      }
+      if (d.footer.trim()) {
+        doc.setFontSize(7.4);
+        doc.setTextColor(130, 140, 160);
+        doc.text(d.footer, PAGE_W / 2, legalY, { align: 'center' });
+      }
     }
   }
 

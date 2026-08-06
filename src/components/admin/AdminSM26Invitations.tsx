@@ -58,13 +58,17 @@ interface Invitation {
 // Images plus the two bits of fixed text that belong to the company, not to a
 // given letter: the sender block and the legal footer line.
 type Letterhead = {
-  banner?: string; logo?: string; signature?: string; stamp?: string;
+  banner?: string; footerImage?: string; logo?: string; signature?: string; stamp?: string;
   sender?: string; footer?: string;
 };
-type AssetSlot = 'banner' | 'logo' | 'signature' | 'stamp';
+type AssetSlot = 'banner' | 'footerImage' | 'logo' | 'signature' | 'stamp';
+// The pixel widths are the ones needed for a crisp 300 dpi print at the size
+// each image is actually drawn. They are spelled out because the bundled M3
+// logo was 74px wide for a 20mm slot and printed visibly soft.
 const ASSET_SLOTS: { key: AssetSlot; label: string; hint: string; bundled?: boolean }[] = [
-  { key: 'banner', label: 'Header strip', hint: 'The full-width banner across the top of the page.', bundled: true },
-  { key: 'logo', label: 'Sender logo', hint: 'Sits next to the M3 address block.', bundled: true },
+  { key: 'banner', label: 'Header strip', hint: 'The full-width banner across the top of the page. Use at least 2480px wide.', bundled: true },
+  { key: 'footerImage', label: 'Footer strip', hint: 'Full-width band at the foot of every page — partner logos. Use at least 2480px wide.' },
+  { key: 'logo', label: 'Sender logo', hint: 'Sits next to the M3 address block. Use at least 240px wide, or it prints blurry.', bundled: true },
   { key: 'signature', label: 'Signature', hint: 'Drawn under the signatory’s name. Kept private — never published on the website.' },
   { key: 'stamp', label: 'Company stamp', hint: 'Drawn beside the signature. Kept private — never published on the website.' },
 ];

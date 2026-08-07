@@ -123,13 +123,42 @@ interface Flow {
   newPage: () => number;
   /** Lowest baseline the text may use, in mm. Depends on how tall the footer is. */
   bottom: number;
+  /** mm between baselines. Squeezed by the fitting pass when a letter runs long. */
+  leading: number;
 }
+
+/**
+ * Every vertical measurement the letter uses. They are a set rather than
+ * constants because the layout is tried at several densities until it fits on
+ * one page — see buildInvitationPdf.
+ */
+interface Metrics {
+  size: number;
+  leading: number;
+  paraGap: number;
+  subjectGap: number;
+  addrLeading: number;
+  dateGap: number;
+  senderGap: number;
+  sigGap: number;
+}
+
+const metricsAt = (k: number, size: number): Metrics => ({
+  size,
+  leading: LEADING * k,
+  paraGap: PARA_GAP * k,
+  subjectGap: SUBJECT_GAP * k,
+  addrLeading: ADDR_LEADING * k,
+  dateGap: 17 * k,
+  senderGap: 7 * k,
+  sigGap: 5 * k,
+});
 
 /**
  * Draw one justified paragraph. `x`/`width` allow an indented first block
  * (the subject line sits after its "Objet:" label).
  */
-function drawParagraph(doc: Doc, flow: Flow, text: string, x: number, width: number, firstX?: number, firstWidth?: number): void {
+function drawParagraph(doc: Doc, flow: Flow, text: string, x: number, width: number, firstX?: number, firstWidth?: number, draw = true): void {
   const words = toWords(doc, parseRuns(text));
   if (!words.length) return;
   doc.setFont(FONT, 'normal');
@@ -160,12 +189,12 @@ function drawParagraph(doc: Doc, flow: Flow, text: string, x: number, width: num
     for (const w of ln) {
       for (const s of w.segs) {
         doc.setFont(FONT, s.bold ? 'bold' : 'normal');
-        doc.text(s.text, px, flow.y);
+        if (draw) doc.text(s.text, px, flow.y);
         px += doc.getTextWidth(s.text);
       }
       px += gap;
     }
-    flow.y += LEADING;
+    flow.y += flow.leading;
   });
   doc.setFont(FONT, 'normal');
 }
@@ -197,51 +226,69 @@ export async function toDataUrl(url: string): Promise<string | null> {
 
 export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {}) {
   const { jsPDF } = await import('jspdf');
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-  doc.setFont(FONT, 'normal');
-  doc.setFontSize(SIZE);
-  doc.setTextColor(20, 28, 44);
 
-  // The footer strip is measured BEFORE anything is laid out, because how tall
-  // it is decides how far down the text may run. Measuring it at the end, where
-  // it is drawn, would let the body flow underneath it.
-  let stripH = 0;
-  if (assets.footerImage) {
-    const s = await imageSize(assets.footerImage);
-    stripH = s.w ? (PAGE_W * s.h) / s.w : 0;
-  }
-  const legalY = PAGE_H - (stripH ? stripH + 5 : 12);
-  const bottom = (d.footer.trim() ? legalY : PAGE_H - (stripH || 0)) - 6;
-
-  const flow: Flow = {
-    y: 0,
-    bottom,
-    newPage: () => { doc.addPage(); doc.setFontSize(SIZE); doc.setTextColor(20, 28, 44); return M_TOP_NEXT; },
+  // ---- measure the artwork once -------------------------------------------
+  // Heights are needed before any text is placed: the banner decides where the
+  // first line starts, the footer decides where the last one may fall, and the
+  // signature decides how much room its block must reserve.
+  const heightFor = async (url: string, w = PAGE_W, fallback = 0) => {
+    const s = await imageSize(url);
+    return s.w ? (w * s.h) / s.w : fallback;
   };
+  const bannerH = assets.banner ? await heightFor(assets.banner, PAGE_W, 26) : 0;
+  const stripH = assets.footerImage ? await heightFor(assets.footerImage) : 0;
+  const LOGO_W = 20;
+  const logoH = assets.logo ? await heightFor(assets.logo, LOGO_W, 11) : 0;
+  const SIG_W = 40;
+  const sigH = assets.signature ? await heightFor(assets.signature, SIG_W, 16) : 0;
+  const STAMP_W = 32;
+  const stampH = assets.stamp ? await heightFor(assets.stamp, STAMP_W, 19) : 0;
 
-  // ---- header strip -------------------------------------------------------
-  let top = 24;
-  if (assets.banner) {
-    const s = await imageSize(assets.banner);
-    const h = s.w ? (PAGE_W * s.h) / s.w : 26;
-    try { doc.addImage(assets.banner, 0, 0, PAGE_W, h); top = h + 9; } catch { /* a bad image must not lose the letter */ }
-  }
+  const legalY = PAGE_H - (stripH ? stripH + 5 : 12);
+  const bottom = (d.footer.trim() ? legalY : PAGE_H - stripH) - 6;
+  const top = bannerH ? bannerH + 9 : 24;
 
-  // ---- sender -------------------------------------------------------------
-  const sender = d.senderLines.filter(Boolean);
-  let senderX = M_LEFT;
-  if (assets.logo) {
-    const s = await imageSize(assets.logo);
-    const lw = 20;
-    const lh = s.w ? (lw * s.h) / s.w : 11;
-    try { doc.addImage(assets.logo, M_LEFT, top - 4, lw, lh); senderX = M_LEFT + lw + 4; } catch { /* ignore */ }
-  }
-  sender.forEach((l, i) => {
-    doc.setFont(FONT, i === 0 ? 'bold' : 'normal');
-    doc.text(l, senderX, top + i * ADDR_LEADING);
-  });
-  doc.setFont(FONT, 'normal');
-  flow.y = top + Math.max(sender.length * ADDR_LEADING, 13) + 7;
+  /**
+   * Lay the letter out at a given density. With `draw` false it only walks the
+   * geometry on a scratch document, which is how the fitting pass below can ask
+   * "would this fit?" without embedding two megabytes of artwork each time.
+   * Returns the number of pages the text needed.
+   */
+  const layout = (doc: Doc, m: Metrics, draw: boolean): number => {
+    let pages = 1;
+    doc.setFont(FONT, 'normal');
+    doc.setFontSize(m.size);
+    doc.setTextColor(20, 28, 44);
+
+    const flow: Flow = {
+      y: 0,
+      bottom,
+      leading: m.leading,
+      newPage: () => {
+        pages += 1;
+        if (draw) { doc.addPage(); doc.setFontSize(m.size); doc.setTextColor(20, 28, 44); }
+        return M_TOP_NEXT;
+      },
+    };
+
+    // ---- header strip -----------------------------------------------------
+    if (draw && bannerH) {
+      try { doc.addImage(assets.banner, 0, 0, PAGE_W, bannerH); } catch { /* a bad image must not lose the letter */ }
+    }
+
+    // ---- sender -----------------------------------------------------------
+    const sender = d.senderLines.filter(Boolean);
+    let senderX = M_LEFT;
+    if (logoH) {
+      senderX = M_LEFT + LOGO_W + 4;
+      if (draw) { try { doc.addImage(assets.logo, M_LEFT, top - 4, LOGO_W, logoH); } catch { /* ignore */ } }
+    }
+    sender.forEach((l, i) => {
+      doc.setFont(FONT, i === 0 ? 'bold' : 'normal');
+      if (draw) doc.text(l, senderX, top + i * m.addrLeading);
+    });
+    doc.setFont(FONT, 'normal');
+    flow.y = top + Math.max(sender.length * m.addrLeading, 13) + m.senderGap;
 
   // ---- recipient, flush to the right text margin --------------------------
   // A fixed 58% of the text width still read as drifting toward the middle. The
@@ -256,86 +303,105 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   const colW = Math.max(0, ...addr.map(l => doc.getTextWidth(l)), doc.getTextWidth(dateText));
   // Flush right; the floor only catches an unusually long line, which would
   // otherwise start so far left it read as body text rather than an address.
-  const addrX = Math.max(rightEdge - colW, M_LEFT + CONTENT_W * 0.5);
-  addr.forEach((l, i) => doc.text(l, addrX, flow.y + i * ADDR_LEADING));
-  flow.y += addr.length * ADDR_LEADING + 6;
+    const addrX = Math.max(rightEdge - colW, M_LEFT + CONTENT_W * 0.5);
+    if (draw) addr.forEach((l, i) => doc.text(l, addrX, flow.y + i * m.addrLeading));
+    flow.y += addr.length * m.addrLeading + 6;
 
-  // ---- place & date -------------------------------------------------------
-  doc.text(dateText, addrX, flow.y);
-  flow.y += 17;
+    // ---- place & date ---------------------------------------------------
+    if (draw) doc.text(dateText, addrX, flow.y);
+    flow.y += m.dateGap;
 
-  // ---- subject ------------------------------------------------------------
-  if (d.subject.trim()) {
-    if (flow.y > flow.bottom) flow.y = flow.newPage();
-    doc.setFont(FONT, 'normal');
-    // The authorities letter heads the subject with no "Subject:" label.
-    if (d.subjectLabel.trim()) {
-      const label = `${d.subjectLabel}: `;
-      doc.text(label, M_LEFT, flow.y);
-      const lw = doc.getTextWidth(label);
-      drawParagraph(doc, flow, d.subject, M_LEFT, CONTENT_W, M_LEFT + lw, CONTENT_W - lw);
-    } else {
-      drawParagraph(doc, flow, d.subject, M_LEFT, CONTENT_W);
+    // ---- subject --------------------------------------------------------
+    if (d.subject.trim()) {
+      if (flow.y > flow.bottom) flow.y = flow.newPage();
+      doc.setFont(FONT, 'normal');
+      // The authorities letter heads the subject with no "Subject:" label.
+      if (d.subjectLabel.trim()) {
+        const label = `${d.subjectLabel}: `;
+        if (draw) doc.text(label, M_LEFT, flow.y);
+        const lw = doc.getTextWidth(label);
+        drawParagraph(doc, flow, d.subject, M_LEFT, CONTENT_W, M_LEFT + lw, CONTENT_W - lw, draw);
+      } else {
+        drawParagraph(doc, flow, d.subject, M_LEFT, CONTENT_W, undefined, undefined, draw);
+      }
+      flow.y += m.subjectGap;
     }
-    flow.y += SUBJECT_GAP;
-  }
 
-  // ---- salutation ---------------------------------------------------------
-  if (d.salutation.trim()) {
-    if (flow.y > flow.bottom) flow.y = flow.newPage();
-    doc.text(d.salutation, M_LEFT, flow.y);
-    flow.y += LEADING + PARA_GAP;
-  }
+    // ---- salutation -----------------------------------------------------
+    if (d.salutation.trim()) {
+      if (flow.y > flow.bottom) flow.y = flow.newPage();
+      if (draw) doc.text(d.salutation, M_LEFT, flow.y);
+      flow.y += m.leading + m.paraGap;
+    }
 
-  // ---- body ---------------------------------------------------------------
-  for (const p of d.paragraphs) {
-    if (!p.trim()) continue;
-    drawParagraph(doc, flow, p, M_LEFT, CONTENT_W);
-    flow.y += PARA_GAP;
-  }
-  if (d.complimentaryClose.trim()) {
-    drawParagraph(doc, flow, d.complimentaryClose, M_LEFT, CONTENT_W);
-    flow.y += PARA_GAP;
-  }
-  if (d.signOff.trim()) {
-    if (flow.y > flow.bottom) flow.y = flow.newPage();
-    doc.text(d.signOff, M_LEFT, flow.y);
-    flow.y += LEADING + PARA_GAP;
-  }
+    // ---- body -----------------------------------------------------------
+    for (const p of d.paragraphs) {
+      if (!p.trim()) continue;
+      drawParagraph(doc, flow, p, M_LEFT, CONTENT_W, undefined, undefined, draw);
+      flow.y += m.paraGap;
+    }
+    if (d.complimentaryClose.trim()) {
+      drawParagraph(doc, flow, d.complimentaryClose, M_LEFT, CONTENT_W, undefined, undefined, draw);
+      flow.y += m.paraGap;
+    }
+    if (d.signOff.trim()) {
+      if (flow.y > flow.bottom) flow.y = flow.newPage();
+      if (draw) doc.text(d.signOff, M_LEFT, flow.y);
+      flow.y += m.leading + m.paraGap;
+    }
 
-  // ---- signature ----------------------------------------------------------
-  // Keep the block together: a name on one page and its signature on the next
-  // would read as a forgery. The reserved height is measured from the actual
-  // artwork rather than assumed — it was a flat 28mm, while the real signature
-  // needs 30.5mm with its two lines, so a letter ending low on the page could
-  // have pushed the signature into the footer strip.
-  const SIG_W = 40;
-  let sigH = 0;
-  if (assets.signature) {
-    const s = await imageSize(assets.signature);
-    sigH = s.w ? (SIG_W * s.h) / s.w : 16;
+    // ---- signature ------------------------------------------------------
+    // Keep the block together: a name on one page and its signature on the
+    // next would read as a forgery. The reservation is measured from the real
+    // artwork rather than assumed.
+    const sigLines = (d.signatoryName ? 4.6 : 0) + (d.signatoryOrg ? 4.6 : 0);
+    const sigBlock = sigLines + Math.max(sigH, stampH) + 4;
+    if (flow.y + sigBlock > flow.bottom) flow.y = flow.newPage(); else flow.y += m.sigGap;
+    const sigRight = PAGE_W - M_RIGHT;
+    doc.setFont(FONT, 'bold');
+    if (d.signatoryName) {
+      if (draw) doc.text(`${d.signatoryName}${d.signatoryTitle ? `, ${d.signatoryTitle}` : ''}`, sigRight, flow.y, { align: 'right' });
+      flow.y += 4.6;
+    }
+    if (d.signatoryOrg) {
+      if (draw) doc.text(d.signatoryOrg, sigRight, flow.y, { align: 'right' });
+      flow.y += 4.6;
+    }
+    doc.setFont(FONT, 'normal');
+    const artTop = flow.y + 1;
+    if (draw && sigH) {
+      try { doc.addImage(assets.signature, sigRight - SIG_W, artTop, SIG_W, sigH); } catch { /* ignore */ }
+    }
+    if (draw && stampH) {
+      try { doc.addImage(assets.stamp, sigRight - STAMP_W - 44, artTop, STAMP_W, stampH); } catch { /* ignore */ }
+    }
+    flow.y = artTop + Math.max(sigH, stampH);
+    if (flow.y > flow.bottom + 6) pages = Math.max(pages, 2);   // artwork overhang
+
+    return pages;
+  };
+
+  // ---- fit it on one page -------------------------------------------------
+  // An official invitation that runs onto a second page just to carry the
+  // signature looks like a mistake, and it is: the content is a page's worth.
+  // So the layout is measured first and tightened until it fits — spacing goes
+  // first, and only if that is not enough does the type shrink, because a
+  // slightly tighter letter reads better than a slightly smaller one.
+  const scratch: Doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const TIGHTEST = metricsAt(0.76, 8.8);
+  let chosen: Metrics | null = null;
+  outer:
+  for (const size of [SIZE, 9.2, 8.8]) {
+    for (const k of [1, 0.94, 0.88, 0.82, 0.76]) {
+      const m = metricsAt(k, size);
+      if (layout(scratch, m, false) === 1) { chosen = m; break outer; }
+    }
   }
-  const sigLines = (d.signatoryName ? 4.6 : 0) + (d.signatoryOrg ? 4.6 : 0);
-  const SIG_BLOCK = sigLines + sigH + 4;
-  if (flow.y + SIG_BLOCK > flow.bottom) flow.y = flow.newPage(); else flow.y += 5;
-  const sigRight = PAGE_W - M_RIGHT;
-  doc.setFont(FONT, 'bold');
-  if (d.signatoryName) {
-    doc.text(`${d.signatoryName}${d.signatoryTitle ? `, ${d.signatoryTitle}` : ''}`, sigRight, flow.y, { align: 'right' });
-    flow.y += 4.6;
-  }
-  if (d.signatoryOrg) { doc.text(d.signatoryOrg, sigRight, flow.y, { align: 'right' }); flow.y += 4.6; }
-  doc.setFont(FONT, 'normal');
-  const artTop = flow.y + 1;
-  if (assets.signature && sigH) {
-    try { doc.addImage(assets.signature, sigRight - SIG_W, artTop, SIG_W, sigH); } catch { /* ignore */ }
-  }
-  if (assets.stamp) {
-    const s = await imageSize(assets.stamp);
-    const w = 32;
-    const h = s.w ? (w * s.h) / s.w : 19;
-    try { doc.addImage(assets.stamp, sigRight - w - 44, artTop, w, h); } catch { /* ignore */ }
-  }
+  // Genuinely too long for one page — let it run rather than shrink to nothing.
+  const metrics = chosen ?? TIGHTEST;
+
+  const doc: Doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  layout(doc, metrics, true);
 
   // ---- footer, on every page ---------------------------------------------
   // Two footers, stacked: the partner-logo strip sits flush to the bottom edge
@@ -345,7 +411,7 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
     const pages = doc.getNumberOfPages();
     for (let p = 1; p <= pages; p++) {
       doc.setPage(p);
-      if (assets.footerImage && stripH) {
+      if (stripH) {
         try { doc.addImage(assets.footerImage, 0, PAGE_H - stripH, PAGE_W, stripH); } catch { /* a bad image must not lose the letter */ }
       }
       if (d.footer.trim()) {

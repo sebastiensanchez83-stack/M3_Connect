@@ -270,4 +270,8 @@ export const BUNDLED_ASSETS = {
   banner: '/letterhead/Gabarits%20Smart%20Marina%202026%20-%20HEADER.jpg',
   footer: '/letterhead/Gabarits%20Smart%20Marina%202026_FOOTER.jpg',
   logo: '/letterhead/m3-logo.png',
+  // The signature slot existed in the renderer from the start but nothing ever
+  // filled it, so letters went out unsigned. 843x449px for a 40mm slot is well
+  // above the 300 dpi it needs.
+  signature: '/letterhead/Signature.png',
 };

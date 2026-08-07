@@ -305,8 +305,18 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
 
   // ---- signature ----------------------------------------------------------
   // Keep the block together: a name on one page and its signature on the next
-  // would read as a forgery.
-  const SIG_BLOCK = 28;   // two lines + the signature artwork
+  // would read as a forgery. The reserved height is measured from the actual
+  // artwork rather than assumed — it was a flat 28mm, while the real signature
+  // needs 30.5mm with its two lines, so a letter ending low on the page could
+  // have pushed the signature into the footer strip.
+  const SIG_W = 40;
+  let sigH = 0;
+  if (assets.signature) {
+    const s = await imageSize(assets.signature);
+    sigH = s.w ? (SIG_W * s.h) / s.w : 16;
+  }
+  const sigLines = (d.signatoryName ? 4.6 : 0) + (d.signatoryOrg ? 4.6 : 0);
+  const SIG_BLOCK = sigLines + sigH + 4;
   if (flow.y + SIG_BLOCK > flow.bottom) flow.y = flow.newPage(); else flow.y += 5;
   const sigRight = PAGE_W - M_RIGHT;
   doc.setFont(FONT, 'bold');
@@ -317,11 +327,8 @@ export async function buildInvitationPdf(d: LetterData, assets: LetterAssets = {
   if (d.signatoryOrg) { doc.text(d.signatoryOrg, sigRight, flow.y, { align: 'right' }); flow.y += 4.6; }
   doc.setFont(FONT, 'normal');
   const artTop = flow.y + 1;
-  if (assets.signature) {
-    const s = await imageSize(assets.signature);
-    const w = 40;
-    const h = s.w ? (w * s.h) / s.w : 16;
-    try { doc.addImage(assets.signature, sigRight - w, artTop, w, h); } catch { /* ignore */ }
+  if (assets.signature && sigH) {
+    try { doc.addImage(assets.signature, sigRight - SIG_W, artTop, SIG_W, sigH); } catch { /* ignore */ }
   }
   if (assets.stamp) {
     const s = await imageSize(assets.stamp);

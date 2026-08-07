@@ -69,7 +69,7 @@ const ASSET_SLOTS: { key: AssetSlot; label: string; hint: string; bundled?: bool
   { key: 'banner', label: 'Header strip', hint: 'The full-width banner across the top of the page. Use at least 2480px wide.', bundled: true },
   { key: 'footerImage', label: 'Footer strip', hint: 'Full-width band at the foot of every page — partner logos. Use at least 2480px wide.', bundled: true },
   { key: 'logo', label: 'Sender logo', hint: 'Sits next to the M3 address block. Use at least 240px wide, or it prints blurry.', bundled: true },
-  { key: 'signature', label: 'Signature', hint: 'Drawn under the signatory’s name. Kept private — never published on the website.' },
+  { key: 'signature', label: 'Signature', hint: 'Drawn under the signatory’s name, at the foot of the letter. Kept private — never published on the website.', bundled: true },
   { key: 'stamp', label: 'Company stamp', hint: 'Drawn beside the signature. Kept private — never published on the website.' },
 ];
 
@@ -132,6 +132,7 @@ export function AdminSM26Invitations() {
       out.banner = await toDataUrl(BUNDLED_ASSETS.banner);
       out.footerImage = await toDataUrl(BUNDLED_ASSETS.footer);
       out.logo = await toDataUrl(BUNDLED_ASSETS.logo);
+      out.signature = await toDataUrl(BUNDLED_ASSETS.signature);
       // Only the four image slots are storage paths; sender/footer are text.
       const paths = ASSET_SLOTS.map(s => [s.key, letterhead[s.key]] as const).filter(([, v]) => !!v) as [AssetSlot, string][];
       for (const [k, p] of paths) {
@@ -356,11 +357,16 @@ export function AdminSM26Invitations() {
     // The addressee column is assembled from the structured fields, not just the
     // free-text box: who / their title / their organisation were captured on the
     // form but never reached the letter, and the country was only feeding the
-    // body paragraph. A letter addresses a person, so they belong here.
+    // body paragraph.
+    //
+    // Institution first, then the post, then the person. These letters are
+    // addressed to an office rather than to an individual — the ambassador of
+    // the day changes, the embassy does not — and it reads down to the specific
+    // in the same order as the envelope.
     addressBlock: [
-      d.recipient_name,
-      d.recipient_role,
       d.recipient_org,
+      d.recipient_role,
+      d.recipient_name,
       ...(d.address_block || '').split(/\r?\n/),
       d.country,
     ].map(s => (s || '').trim()).filter(Boolean).join('\n'),

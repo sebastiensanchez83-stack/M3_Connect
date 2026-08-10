@@ -476,7 +476,13 @@ export function SM26RegisterPage() {
       }).select('id').single();
 
       if (regErr || !reg) {
-        const sessionLost = regErr?.message?.includes('row-level security');
+        // A row-level-security refusal used to be reported as "your session has
+        // expired". It is not the same thing, and the guess cost weeks: the real
+        // cause was the SELECT policy refusing the RETURNING clause, so every
+        // member with an existing account was told to sign in again and did.
+        // The session was checked a few lines above; if we got here the session
+        // was fine, so show what actually came back.
+        const rls = regErr?.message?.includes('row-level security');
         // The (event_id, organization_id) unique index: someone at this company
         // registered in the meantime. Send them to it instead of a raw DB error.
         const companyDup = regErr?.code === '23505' && regErr?.message?.includes('sm_registration_event_org_live_uq');
@@ -489,9 +495,9 @@ export function SM26RegisterPage() {
           return;
         }
         toast({
-          title: sessionLost ? 'Your session has expired' : 'Registration failed',
-          description: sessionLost
-            ? 'Please sign in again, then resubmit — your entries are saved on this device.'
+          title: 'Registration could not be saved',
+          description: rls
+            ? `The server refused to save it. Nothing was lost — please send this to events@m3monaco.com: ${regErr?.message}`
             : regErr?.message,
           variant: 'destructive',
         });

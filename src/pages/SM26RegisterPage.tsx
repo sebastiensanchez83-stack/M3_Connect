@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { getFreshUserId } from '@/lib/session';
+import { checkSession } from '@/lib/session';
 import { COUNTRIES } from '@/lib/countries';
 import {
   CheckCircle, Loader2, Eye, Ship, Lightbulb, Compass, GraduationCap,
@@ -444,11 +444,14 @@ export function SM26RegisterPage() {
       // (user_id = auth.uid()) fails with a cryptic "violates row-level security
       // policy" error. Validate — and if needed refresh — the session first, and
       // bounce to sign-in if it can't be recovered (entries auto-save on-device).
-      const authedId = await getFreshUserId();
-      if (!authedId) {
-        toast({ title: 'Your session has expired', description: 'Please sign in again, then resubmit — your entries are saved on this device.', variant: 'destructive' });
+      const sess = await checkSession();
+      if (!sess.ok) {
+        toast(sess.reason === 'signed_out'
+          ? { title: 'Your session has expired', description: 'Please sign in again, then resubmit — your entries are saved on this device.', variant: 'destructive' }
+          : { title: 'No connection to the server', description: 'Check your internet connection and press Submit again — your entries are saved on this device.', variant: 'destructive' });
         return;
       }
+      const authedId = sess.userId;
       const { data: reg, error: regErr } = await supabase.from('sm_registration').insert({
         event_id: eventId,
         user_id: authedId,

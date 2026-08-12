@@ -5,6 +5,16 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // (not merely a moderator); the target must NOT be staff; every start is logged
 // to admin_impersonation_log. The admin's client swaps to the returned session
 // and shows an "impersonating" banner with a one-click return.
+//
+// IMPORTANT, learned the hard way on 30 July 2026: minting the session below
+// calls generateLink({type:'magiclink'}), and Supabase stores magic-link and
+// password-recovery tokens in the SAME slot -- auth.one_time_tokens keeps one
+// row per (user_id, token_type) and the type is 'recovery_token' for both. So
+// impersonating somebody DESTROYS the password-reset link they were just
+// emailed. A participant spent a morning clicking dead links for exactly this
+// reason: an impersonation at 09:41:12 was followed at 09:55:25 by her click
+// returning 403 "One-time token not found". The probe below refuses to
+// impersonate anyone with an outstanding link unless the admin says otherwise.
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -23,6 +33,14 @@ const cors = (req) => ({
 });
 const json = (req, body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...cors(req) } });
+
+function ago(mins: number): string {
+  if (mins < 1) return "less than a minute ago";
+  if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+  const h = Math.round(mins / 60);
+  if (h < 48) return `${h} hour${h === 1 ? "" : "s"} ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
@@ -52,6 +70,26 @@ Deno.serve(async (req) => {
   if (["admin", "moderator"].includes(t.persona || "")) return json(req, { error: "Cannot impersonate another staff member" }, 403);
   const email = (t.email || "").trim();
   if (!email) return json(req, { error: "This user has no email on file" }, 400);
+  const who = `${t.first_name || ""} ${t.last_name || ""}`.trim() || email;
+
+  // Look before leaping: if this person is holding an unused password-reset or
+  // welcome link, starting here would silently kill it. Reported as ok:false
+  // rather than a non-2xx so the browser client gets a body it can branch on.
+  if (body.force !== true) {
+    const { data: probe, error: probeErr } = await admin.rpc("admin_pending_recovery", { p_user_id: targetId });
+    if (probeErr) console.error("admin_pending_recovery failed", probeErr);
+    const p = probe as { pending?: boolean; age_minutes?: number } | null;
+    if (p?.pending) {
+      const mins = p.age_minutes ?? 0;
+      return json(req, {
+        ok: false,
+        code: "pending_recovery",
+        age_minutes: mins,
+        error: `${who} asked for a password link ${ago(mins)} and has not used it yet. Viewing as them now would cancel that link and they would have to start again. Wait until they are in, or continue and send them a fresh link afterwards.`,
+        target: { email, name: who },
+      });
+    }
+  }
 
   // Audit the start (best-effort; do not block on a log failure).
   await admin.from("admin_impersonation_log").insert({ admin_user_id: uid, target_user_id: targetId, target_email: email }).then(() => {}, () => {});
@@ -71,6 +109,6 @@ Deno.serve(async (req) => {
     ok: true,
     access_token: session.access_token,
     refresh_token: session.refresh_token,
-    target: { email, name: `${t.first_name || ""} ${t.last_name || ""}`.trim() || email },
+    target: { email, name: who },
   });
 });

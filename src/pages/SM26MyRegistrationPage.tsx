@@ -49,10 +49,12 @@ interface Registration {
   company_name: string | null; country: string | null; created_at: string | null;
   roles: RoleAssignment[];
 }
-// Three groups, never more, never role-dependent: what M3 still needs, what you
-// do at the event, what you get out of it. The old eight tabs named artefacts
-// and came and went; these name intentions and always sit in the same place.
-type HubGroup = 'todo' | 'event' | 'visibility';
+// Three groups for everyone — what M3 still needs, what you do at the event,
+// what you get out of it — plus a fourth for jurors, because judging is a job
+// rather than a facet of attending. The old eight tabs named artefacts and
+// came and went with role and progress; these name intentions, and the set a
+// given person sees never changes between visits.
+type HubGroup = 'todo' | 'event' | 'visibility' | 'jury';
 
 interface EcatPage {
   id: string; kind: string; status: string; role_assignment_id: string | null;
@@ -467,8 +469,13 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   // still need, what they do at the event, what they get out of it.
   const GROUP_OF: Record<string, HubGroup> = {
     overview: 'todo', participation: 'todo',
-    attendees: 'event', programme: 'event', connections: 'event', jury: 'event',
+    attendees: 'event', programme: 'event', connections: 'event',
     catalogue: 'visibility', mediakit: 'visibility',
+    // Judging is a job, not a facet of attending: a juror comes here to score,
+    // and burying that behind "Your event" made them hunt for it. It gets its
+    // own place — and only jurors ever see it, so the menu still never changes
+    // shape for a given person.
+    jury: 'jury',
   };
   const shows = (key: string) => GROUP_OF[key] === group;
 
@@ -506,6 +513,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     { key: 'todo', label: 'To do', icon: ClipboardList, badge: todoLeft },
     { key: 'event', label: 'Your event', icon: Calendar },
     { key: 'visibility', label: 'Your visibility', icon: Megaphone },
+    ...(isJuror ? [{ key: 'jury' as HubGroup, label: 'Jury', icon: Scale }] : []),
   ];
 
   return (
@@ -609,7 +617,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
             scrolling sideways on a phone. The icon carries the meaning when the
             label has to shrink; the label never truncates because there is
             always room for two short words. */}
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className={`grid gap-1.5 ${GROUPS.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
           {GROUPS.map(g => {
             const Icon = g.icon;
             const active = group === g.key;

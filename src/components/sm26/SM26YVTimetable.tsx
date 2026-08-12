@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
-  Calendar, Plus, Video, Mail, X, Send, CheckCircle2, Clock, AlertTriangle, Trash2, Wand2, FlaskConical,
+  Calendar, Plus, Video, Mail, X, Send, CheckCircle2, Clock, AlertTriangle, Trash2, Wand2, FlaskConical, Copy,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -305,6 +305,29 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
     setBusy(null);
     if (error) { toast({ title: 'Could not remove them', description: error.message, variant: 'destructive' }); return; }
     onChanged();
+  };
+
+  // For jurors who will never open the platform: their personal links, as text
+  // to paste into an email written by hand. Fetched on demand rather than kept
+  // in the timetable, because a token answers and scores in that juror's name.
+  const copyLinks = async (c: Cell, kind: 'availability' | 'score') => {
+    setBusy(`links:${c.id}`);
+    const { data, error } = await supabase.rpc('sm_yv_session_juror_links', { p_session_id: c.id });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not fetch the links', description: error.message, variant: 'destructive' }); return; }
+    const rows = (data || []) as { name: string; email: string; rsvp: string; never_signed_in: boolean; token: string }[];
+    if (!rows.length) { toast({ title: 'No jurors on this panel yet' }); return; }
+    const origin = window.location.origin;
+    const path = kind === 'score' ? '/sm26/jury/score' : '/sm26/jury/rsvp';
+    const body = rows.map(r =>
+      `${r.name} <${r.email}>${r.never_signed_in ? '  [never signed in]' : ''}\n${origin}${path}?token=${encodeURIComponent(r.token)}`
+    ).join('\n\n');
+    const text = `${c.title} — ${c.slot_label || slotRange(c.scheduled_at, c.duration_minutes)}\n${kind === 'score' ? 'Scoring links (no password needed)' : 'Availability links (no password needed)'}\n\n${body}`;
+    navigator.clipboard?.writeText(text).catch(() => {});
+    toast({
+      title: `${rows.length} link${rows.length === 1 ? '' : 's'} copied`,
+      description: 'One personal link per juror. Anyone holding a link can answer in that juror’s name, so send each one only to its owner.',
+    });
   };
 
   const cancelCell = async (c: Cell) => {
@@ -623,6 +646,14 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                               <Mail className="h-3.5 w-3.5" /> Email jurors to score
                             </Button>
                           )}
+                          {/* For the jurors who will never sign in: their own
+                              links, as text to paste into an email by hand. */}
+                          <button className="text-[11px] text-gray-400 hover:text-primary hover:underline" disabled={!!busy}
+                                  onClick={() => copyLinks(c, c.zoom_sent ? 'score' : 'availability')}
+                                  title="Copies one personal, password-free link per juror — for anyone you need to email by hand">
+                            <Copy className="h-3 w-3 inline mr-0.5" />
+                            copy {c.zoom_sent ? 'scoring' : 'availability'} links
+                          </button>
                         </>
                       )}
                       {!c.zoom_sent && c.last_availability_email_at && !c.is_test && (

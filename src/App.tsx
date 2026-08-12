@@ -58,6 +58,7 @@ const SM26RegisterPage = lazyWithRetry(() => import('@/pages/SM26RegisterPage').
 const SM26JuryPage = lazyWithRetry(() => import('@/pages/SM26JuryPage').then(m => ({ default: m.SM26JuryPage })));
 const SM26JuryRsvpPage = lazyWithRetry(() => import('@/pages/SM26JuryRsvpPage').then(m => ({ default: m.SM26JuryRsvpPage })));
 const SM26StartupRsvpPage = lazyWithRetry(() => import('@/pages/SM26StartupRsvpPage').then(m => ({ default: m.SM26StartupRsvpPage })));
+const SM26JuryScorePage = lazyWithRetry(() => import('@/pages/SM26JuryScorePage').then(m => ({ default: m.SM26JuryScorePage })));
 const SM26AgendaPage = lazyWithRetry(() => import('@/pages/SM26AgendaPage').then(m => ({ default: m.SM26AgendaPage })));
 const SM26VotePage = lazyWithRetry(() => import('@/pages/SM26VotePage').then(m => ({ default: m.SM26VotePage })));
 const SM26PortfolioPage = lazyWithRetry(() => import('@/pages/SM26PortfolioPage').then(m => ({ default: m.SM26PortfolioPage })));
@@ -113,6 +114,10 @@ function App() {
                       Also outside ProtectedRoute — an imported startup may have
                       no account, and the token is the whole authorisation. */}
                   <Route path="/sm26/startup/rsvp" element={<SM26StartupRsvpPage />} />
+                  {/* Scoring from the email, no password. Same per-session
+                      token as the availability link, so it can only ever reach
+                      that juror's own scorecards for that one session. */}
+                  <Route path="/sm26/jury/score" element={<SM26JuryScorePage />} />
                   <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
                   <Route path="/sm26/vote" element={<ProtectedRoute><SM26VotePage /></ProtectedRoute>} />
                   <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />

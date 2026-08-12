@@ -52,6 +52,17 @@ const STATE_META: Record<CellState, { label: string; cls: string }> = {
   cancelled: { label: 'Cancelled', cls: 'bg-red-50 text-red-600 border-red-200' },
 };
 
+// How long a juror has been sitting on the question. "Silent" alone doesn't say
+// whether to chase; "silent for 6 days" does. invited_at is stamped only by a
+// real send, never by a preview, so no answer at all means never contacted.
+export function silenceLabel(invitedAt: string | null): string {
+  if (!invitedAt) return '(never asked)';
+  const days = Math.floor((Date.now() - new Date(invitedAt).getTime()) / 86400000);
+  if (days <= 0) return '(asked today)';
+  if (days === 1) return '(asked yesterday)';
+  return `(asked ${days} days ago)`;
+}
+
 const rsvpMeta = (s: string) =>
   s === 'confirmed' ? { cls: 'bg-green-50 text-green-700 border-green-200', label: 'confirmed' }
   : s === 'available' ? { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'available' }
@@ -180,10 +191,19 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
     setBusy(null);
     const err = error || (data as { error?: string })?.error;
     if (err) { toast({ title: 'Could not send', description: typeof err === 'string' ? err : 'Please try again.', variant: 'destructive' }); return false; }
-    const r = (data || {}) as { sent?: number; failed?: number };
+    const r = (data || {}) as { sent?: number; failed?: number; skipped?: number; nothing_to_do?: boolean };
+    // "Everyone has already answered" is the outcome we are working towards, so
+    // it gets a plain confirmation rather than a red banner.
+    if (r.nothing_to_do) {
+      toast({ title: 'Nobody left to chase', description: `All ${r.skipped ?? 0} jurors on this panel have answered.` });
+      onChanged();
+      return true;
+    }
     toast({
       title: asTest ? `Test sent to ${testEmail}` : `Sent to ${r.sent ?? 0} recipient${r.sent === 1 ? '' : 's'}`,
-      description: r.failed ? `${r.failed} could not be delivered — check the address.` : undefined,
+      description: r.failed
+        ? `${r.failed} could not be delivered — check the address.`
+        : r.skipped ? `${r.skipped} already answered and were left alone.` : undefined,
       variant: r.failed ? 'destructive' : undefined,
     });
     onChanged();
@@ -191,8 +211,21 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
   };
 
   const sendAvailability = (c: Cell, asTest = false) => {
-    if (!asTest && c.last_availability_email_at && !confirm('An availability request has already gone out for this slot. Send it again?')) return;
+    if (!asTest && c.last_availability_email_at && !confirm('This writes to the WHOLE panel, including jurors who have already answered. Send to everyone?')) return;
     invoke('avail', 'notify_availability', c, {}, asTest);
+  };
+  // The everyday action once the first request has gone out: only the jurors
+  // still sitting on "no answer". The count is spelled out in the button and
+  // again in the confirmation, so the number of people about to be emailed is
+  // never a surprise.
+  const chaseSilent = (c: Cell, asTest = false) => {
+    const silent = c.jurors.filter(j => j.rsvp === 'invited');
+    if (!asTest && !silent.length) {
+      toast({ title: 'Nobody left to chase', description: 'Every juror on this panel has answered.' });
+      return;
+    }
+    if (!asTest && !confirm(`Email the ${silent.length} juror${silent.length === 1 ? '' : 's'} who ${silent.length === 1 ? 'has' : 'have'} not answered?\n\n${silent.map(j => `· ${j.name}`).join('\n')}\n\nNobody who has already replied will be contacted.`)) return;
+    invoke('chase', 'notify_availability', c, { only_unanswered: true }, asTest);
   };
   const sendZoom = (c: Cell, asTest = false) => {
     const yes = c.jurors.filter(j => j.rsvp === 'available' || j.rsvp === 'confirmed').length;
@@ -355,6 +388,9 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
               const meta = STATE_META[st];
               const yes = c.jurors.filter(j => j.rsvp === 'available' || j.rsvp === 'confirmed').length;
               const no = c.jurors.filter(j => j.rsvp === 'unavailable').length;
+              const silent = c.jurors.filter(j => j.rsvp === 'invited');
+              // Never written to at all — chasing them is really a first ask.
+              const neverAsked = silent.filter(j => !j.invited_at).length;
               const cancelled = st === 'cancelled';
               return (
                 <div key={c.id} className={`rounded-lg border px-3 py-2.5 ${cancelled ? 'border-gray-100 opacity-50' : 'border-gray-200'}`}>
@@ -371,7 +407,8 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                         <span>{c.duration_minutes} min</span>
                         <span>· {c.entries.length} startup{c.entries.length === 1 ? '' : 's'}</span>
                         <span>· {c.jurors.length} juror{c.jurors.length === 1 ? '' : 's'}</span>
-                        {!cancelled && st !== 'draft' && <span>· <span className={yes >= c.jurors.length && c.jurors.length > 0 ? 'text-green-700' : 'text-amber-700'}>{yes}/{c.jurors.length} available</span>{no > 0 ? ` · ${no} declined` : ''}</span>}
+                        {!cancelled && st !== 'draft' && <span>· <span className={yes >= c.jurors.length && c.jurors.length > 0 ? 'text-green-700' : 'text-amber-700'}>{yes}/{c.jurors.length} available</span>{no > 0 ? ` · ${no} declined` : ''}{silent.length ? ` · ${silent.length} silent` : ''}</span>}
+                        {!cancelled && neverAsked > 0 && st !== 'draft' && <span>· <span className="text-gray-500">{neverAsked} never asked</span></span>}
                         {c.assigned > 0 && <span>· {c.submitted}/{c.assigned} scored</span>}
                         {c.zoom_sent && c.zoom_join_url && !cancelled && (
                           <a href={c.zoom_join_url} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-0.5"><Video className="h-3 w-3" /> Zoom</a>
@@ -403,9 +440,10 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                       {c.jurors.map(j => {
                         const m = rsvpMeta(j.rsvp);
                         return (
-                          <span key={j.user_id} className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-0.5 ${m.cls}`}>
+                          <span key={j.user_id} className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-0.5 ${m.cls}`}
+                                title={j.invited_at ? `Asked ${new Date(j.invited_at).toLocaleString('en-GB', { timeZone: TZ })}` : 'Never emailed about this slot'}>
                             {j.rsvp === 'unavailable' ? <AlertTriangle className="h-3 w-3" /> : j.rsvp === 'invited' ? <Clock className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-                            {j.name} <span className="opacity-60">· {m.label}</span>
+                            {j.name} <span className="opacity-60">· {m.label}{j.rsvp === 'invited' ? ` ${silenceLabel(j.invited_at)}` : ''}</span>
                           </span>
                         );
                       })}
@@ -417,15 +455,36 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                       {/* A test slot refuses to email anyone but you, so the real
                           send buttons would only ever return an error — offer the
                           previews instead. */}
-                      {c.is_test ? (
+                      {/* The availability email names the startups the panel will
+                          hear, so an empty batch has nothing to ask about and the
+                          server refuses it. Saying so here beats a red error
+                          after the click — and it is why some panels show
+                          jurors who have never been asked. */}
+                      {!c.is_test && !c.zoom_sent && c.entries.length === 0 ? (
+                        <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                          No startups in this batch yet — the panel cannot be asked until at least one is added.
+                        </span>
+                      ) : c.is_test ? (
                         <span className="text-[11px] text-purple-700 bg-purple-50 border border-purple-200 rounded px-2 py-1">
                           Test slot — it can only ever email you. Use the previews to see each email.
                         </span>
                       ) : (
                         <>
-                          {!c.zoom_sent && (
+                          {/* Once the first request has gone out, chasing the
+                              silent ones is the everyday action, so it leads.
+                              Writing to the whole panel again stays available
+                              but steps back to a quiet link. */}
+                          {!c.zoom_sent && !c.last_availability_email_at && (
                             <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendAvailability(c)}>
-                              <Send className="h-3.5 w-3.5" /> {c.last_availability_email_at ? 'Resend availability request' : 'Send availability request'}
+                              <Send className="h-3.5 w-3.5" /> Send availability request ({c.jurors.length})
+                            </Button>
+                          )}
+                          {!c.zoom_sent && c.last_availability_email_at && (
+                            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy || !silent.length} onClick={() => chaseSilent(c)}>
+                              <Send className="h-3.5 w-3.5" />
+                              {silent.length
+                                ? `Chase the ${silent.length} who haven't answered`
+                                : 'Everyone has answered'}
                             </Button>
                           )}
                           {!c.zoom_sent && (
@@ -439,6 +498,16 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                             </Button>
                           )}
                         </>
+                      )}
+                      {!c.zoom_sent && c.last_availability_email_at && !c.is_test && (
+                        <button
+                          className="text-[11px] text-gray-400 hover:text-gray-700 hover:underline"
+                          disabled={!!busy}
+                          onClick={() => sendAvailability(c)}
+                          title="Writes to every juror on the panel, including those who have already replied. Use this when the slot itself has changed."
+                        >
+                          ask all {c.jurors.length} again
+                        </button>
                       )}
                       {testEmail && (
                         <div className="flex items-center gap-1 ml-auto">

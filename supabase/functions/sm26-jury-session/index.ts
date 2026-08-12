@@ -5,8 +5,10 @@
 // this function owns the three outbound steps that follow:
 //   1. notify_availability - ask each panel juror if the slot works (tokened
 //      Confirm / Not-available buttons -> sm_jury_availability_by_token).
+//      Pass only_unanswered to chase: writes solely to jurors still on
+//      `invited`, so nobody who already answered is asked twice.
 //   2. send_zoom           - once the panel has confirmed, create the Zoom
-//      meeting and send the .ics invitation to jurors + startups.
+//      meeting and send the meeting request to jurors + startups.
 //   3. notify_evaluate     - after the session, ask each juror to score.
 // Plus cancel (deletes the Zoom, sends a CANCEL .ics) and notify_schedule (a
 // juror's full slate in one email). Staff or a yachting_ventures partner only.
@@ -295,6 +297,21 @@ Deno.serve(async (req: Request) => {
 
       const jurors = await sessionJurors(sessionId);
       if (!jurors.length) return json(req, { error: "This session has no panel jurors yet." }, 400);
+      // Chasing means writing only to the people who have said nothing. Until
+      // now "Resend" re-asked the whole panel, so a juror who had taken the
+      // trouble to click "Not available" was asked the same question again --
+      // which reads as not listening. A decline is an answer; only `invited`
+      // is silence. A preview still renders for whoever is first in the list,
+      // so the tester sees the mail even when everyone has already answered.
+      const onlyUnanswered = body.only_unanswered === true;
+      const recipientsJurors = onlyUnanswered && !testEmail
+        ? jurors.filter(j => j.status === "invited")
+        : jurors;
+      if (onlyUnanswered && !testEmail && !recipientsJurors.length) {
+        // Not an error: "everyone has answered" is the outcome we want, and a
+        // red toast for good news trains people to ignore red toasts.
+        return json(req, { ok: true, sent: 0, failed: 0, skipped: jurors.length, nothing_to_do: true });
+      }
       const entryIds = await sessionEntryIds(s);
       if (!entryIds.length) return json(req, { error: "This session's batch has no startups yet, so there is nothing to ask the panel about." }, 400);
       const names = await companyNames(entryIds);
@@ -302,6 +319,9 @@ Deno.serve(async (req: Request) => {
       const startupCount = entryIds.length;
       const pitchMinutes = Math.max(1, Number(body.pitch_minutes) || 5);
       const qaMinutes = Math.max(1, Number(body.qa_minutes) || 5);
+      // Counted over the whole panel, not the chase subset: the juror is told
+      // how many people will be on the call, which does not shrink because
+      // some of them have already replied.
       const coJurors = Math.max(jurors.length - 1, 0);
 
       const start = new Date(s.scheduled_at);
@@ -310,7 +330,7 @@ Deno.serve(async (req: Request) => {
       const tz = tzLabel(start);
 
       let sent = 0; let failed = 0;
-      for (const j of jurors) {
+      for (const j of recipientsJurors) {
         const to = testEmail || j.email;
         if (!to || !to.includes("@")) { failed++; continue; }
         const yes = `${SITE_URL}/sm26/jury/rsvp?token=${encodeURIComponent(j.token)}&answer=available`;
@@ -331,7 +351,11 @@ Deno.serve(async (req: Request) => {
         if (testEmail) break; // one preview mail only
       }
       if (!testEmail) await admin.from("sm_jury_session").update({ last_availability_email_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", sessionId);
-      return json(req, { ok: true, sent, failed, test: !!testEmail });
+      return json(req, {
+        ok: true, sent, failed,
+        skipped: jurors.length - recipientsJurors.length,
+        test: !!testEmail,
+      });
     }
 
     // ---- 2. Zoom invitation (deliberate second step) ------------------------
@@ -426,7 +450,7 @@ ${names.length ? `<p>Startups pitching in this session: ${esc(names.join(", "))}
 <p>${BTN(meeting.join_url, "Join the Zoom meeting", "#0b2653")}</p>
 <p style="font-size:12px;color:#8a95a8">Use the Accept button on this invitation to add the session to your calendar.</p>
 </div>`;
-        const ok = await sendMail(a.email, `Invitation: ${s.title}`, html, ics);
+        const ok = await sendMail(a.email, `Invitation: ${s.title}`, html, ics, "REQUEST");
         if (ok) sent++; else failed++;
       }
       // The preview meeting never belonged to anyone - remove it.

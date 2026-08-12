@@ -57,6 +57,7 @@ const SM26RegisterPage = lazyWithRetry(() => import('@/pages/SM26RegisterPage').
 // SM26MyRegistrationPage renders inside the /account "Event" tab now; /sm26/me redirects there.
 const SM26JuryPage = lazyWithRetry(() => import('@/pages/SM26JuryPage').then(m => ({ default: m.SM26JuryPage })));
 const SM26JuryRsvpPage = lazyWithRetry(() => import('@/pages/SM26JuryRsvpPage').then(m => ({ default: m.SM26JuryRsvpPage })));
+const SM26StartupRsvpPage = lazyWithRetry(() => import('@/pages/SM26StartupRsvpPage').then(m => ({ default: m.SM26StartupRsvpPage })));
 const SM26AgendaPage = lazyWithRetry(() => import('@/pages/SM26AgendaPage').then(m => ({ default: m.SM26AgendaPage })));
 const SM26VotePage = lazyWithRetry(() => import('@/pages/SM26VotePage').then(m => ({ default: m.SM26VotePage })));
 const SM26PortfolioPage = lazyWithRetry(() => import('@/pages/SM26PortfolioPage').then(m => ({ default: m.SM26PortfolioPage })));
@@ -108,6 +109,10 @@ function App() {
                   <Route path="/sm26/jury" element={<ProtectedRoute><SM26JuryPage /></ProtectedRoute>} />
                   {/* Availability RSVP from the jury email — tokened, no login. */}
                   <Route path="/sm26/jury/rsvp" element={<SM26JuryRsvpPage />} />
+                  {/* The startups' equivalent: confirm you'll pitch in your slot.
+                      Also outside ProtectedRoute — an imported startup may have
+                      no account, and the token is the whole authorisation. */}
+                  <Route path="/sm26/startup/rsvp" element={<SM26StartupRsvpPage />} />
                   <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
                   <Route path="/sm26/vote" element={<ProtectedRoute><SM26VotePage /></ProtectedRoute>} />
                   <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />

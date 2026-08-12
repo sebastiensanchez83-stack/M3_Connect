@@ -27,15 +27,25 @@ export const slotRange = (iso: string, minutes: number) =>
   `${fmtTime(iso)}–${fmtTime(new Date(new Date(iso).getTime() + minutes * 60000).toISOString())} ${tzLabel(iso)}`;
 
 export interface CellJuror { user_id: string; name: string; rsvp: string; responded_at: string | null; invited_at: string | null }
-export interface CellEntry { role_assignment_id: string; company: string }
+// Startups now carry their own RSVP, at the same grain and with the same three
+// fields as the jurors — so the chips, the counts and the chase read the same
+// on both sides of the session.
+export interface CellEntry {
+  role_assignment_id: string; company: string;
+  rsvp: string; responded_at: string | null; invited_at: string | null;
+}
 export interface Cell {
   id: string; title: string; slot_label: string | null; scheduled_at: string; duration_minutes: number;
   status: string; is_test: boolean; zoom_sent: boolean; zoom_sent_at: string | null; zoom_join_url: string | null;
-  last_availability_email_at: string | null;
+  last_availability_email_at: string | null; last_startup_email_at: string | null;
   jury_group_id: string | null; jury_group_code: string | null;
   startup_group_id: string | null; startup_group_code: string | null;
-  jurors: CellJuror[]; entries: CellEntry[]; assigned: number; submitted: number;
+  jurors: CellJuror[]; entries: CellEntry[]; guests: CellGuest[]; assigned: number; submitted: number;
 }
+// An address on the Zoom invitation that is not an account: a juror recruited
+// by email who will never sign in. No RSVP and no scorecard — those need a
+// user, which is what makes a guest a guest.
+export interface CellGuest { email: string; name: string | null }
 export interface GroupRef { id: string; code: string; name: string | null; size: number }
 
 export type CellState = 'cancelled' | 'draft' | 'asked' | 'invited' | 'scored';
@@ -68,6 +78,13 @@ const rsvpMeta = (s: string) =>
   : s === 'available' ? { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', label: 'available' }
   : s === 'unavailable' ? { cls: 'bg-red-50 text-red-600 border-red-200', label: 'not available' }
   : { cls: 'bg-gray-50 text-gray-500 border-gray-200', label: 'no answer' };
+
+// Startups answer one question, so they get three states rather than the
+// jurors' four. Same colours for the same meanings.
+const entryMeta = (s: string) =>
+  s === 'confirmed' ? { cls: 'bg-green-50 text-green-700 border-green-200', label: 'coming' }
+  : s === 'declined' ? { cls: 'bg-red-50 text-red-600 border-red-200', label: "can't make it" }
+  : { cls: 'bg-gray-100 text-gray-600 border-gray-200', label: 'no answer' };
 
 // A datetime-local value is wall-clock in the BROWSER's zone. Gabbi schedules in
 // Monaco time, so convert explicitly instead of trusting the local offset.
@@ -227,6 +244,22 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
     if (!asTest && !confirm(`Email the ${silent.length} juror${silent.length === 1 ? '' : 's'} who ${silent.length === 1 ? 'has' : 'have'} not answered?\n\n${silent.map(j => `· ${j.name}`).join('\n')}\n\nNobody who has already replied will be contacted.`)) return;
     invoke('chase', 'notify_availability', c, { only_unanswered: true }, asTest);
   };
+
+  // The startups' side of the same step. Their answer is an acknowledgement,
+  // not a negotiation, so the confirmation says what will actually happen.
+  const sendStartupSlot = (c: Cell, asTest = false) => {
+    if (!asTest && !confirm(`Tell all ${c.entries.length} startup${c.entries.length === 1 ? '' : 's'} in this batch their slot and ask them to confirm they'll be there?`)) return;
+    invoke('slot', 'notify_startup_slot', c, {}, asTest);
+  };
+  const chaseStartups = (c: Cell, asTest = false) => {
+    const silent = c.entries.filter(e => e.rsvp === 'invited');
+    if (!asTest && !silent.length) {
+      toast({ title: 'Nobody left to chase', description: 'Every startup in this batch has answered.' });
+      return;
+    }
+    if (!asTest && !confirm(`Email the ${silent.length} startup${silent.length === 1 ? '' : 's'} who ${silent.length === 1 ? 'has' : 'have'} not answered?\n\n${silent.map(e => `· ${e.company}`).join('\n')}\n\nNobody who has already replied will be contacted.`)) return;
+    invoke('slotchase', 'notify_startup_slot', c, { only_unanswered: true }, asTest);
+  };
   const sendZoom = (c: Cell, asTest = false) => {
     const yes = c.jurors.filter(j => j.rsvp === 'available' || j.rsvp === 'confirmed').length;
     const force = yes === 0;
@@ -238,6 +271,42 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
     if (!asTest && !confirm("Email every juror on this panel a link to score the session's startups?")) return;
     invoke('eval', 'notify_evaluate', c, {}, asTest);
   };
+  // Guests exist for jurors who were recruited by email and will never sign in.
+  // They are added to the Zoom invitation only — deliberately no RSVP and no
+  // scorecard, because both of those key on a user account.
+  const addGuest = async (c: Cell) => {
+    const email = prompt(`Add someone to the Zoom invitation for "${c.title}".\n\nThey will receive the calendar invitation like everyone else, but no availability request and no scorecard — those need a platform account.\n\nEmail address:`);
+    if (!email?.trim()) return;
+    const name = prompt('Their name (optional — it appears on the calendar invitation):') || null;
+    setBusy(`guest:${c.id}`);
+    const { data, error } = await supabase.rpc('sm_yv_session_guest_add', { p_session_id: c.id, p_email: email.trim(), p_name: name });
+    setBusy(null);
+    const res = (data || {}) as { ok?: boolean; error?: string };
+    if (error || !res.ok) {
+      toast({
+        title: 'Could not add them',
+        description: res.error === 'bad_email' ? "That doesn't look like an email address." : error?.message,
+        variant: 'destructive',
+      });
+      return;
+    }
+    toast({
+      title: 'Added to the Zoom invitation',
+      description: c.zoom_sent
+        ? 'The invitation has already gone out for this slot, so send them the Zoom link by hand.'
+        : 'They will be included when you send the Zoom invitation.',
+    });
+    onChanged();
+  };
+  const removeGuest = async (c: Cell, email: string) => {
+    if (!confirm(`Remove ${email} from the Zoom invitation for "${c.title}"?`)) return;
+    setBusy(`guest:${c.id}`);
+    const { error } = await supabase.rpc('sm_yv_session_guest_remove', { p_session_id: c.id, p_email: email });
+    setBusy(null);
+    if (error) { toast({ title: 'Could not remove them', description: error.message, variant: 'destructive' }); return; }
+    onChanged();
+  };
+
   const cancelCell = async (c: Cell) => {
     if (!confirm(`Cancel "${c.title}"? Any Zoom meeting is deleted and everyone invited is notified.`)) return;
     setBusy(`cancel:${c.id}`);
@@ -391,6 +460,9 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
               const silent = c.jurors.filter(j => j.rsvp === 'invited');
               // Never written to at all — chasing them is really a first ask.
               const neverAsked = silent.filter(j => !j.invited_at).length;
+              const startupsSilent = c.entries.filter(e => e.rsvp === 'invited');
+              const startupsIn = c.entries.filter(e => e.rsvp === 'confirmed').length;
+              const startupsOut = c.entries.filter(e => e.rsvp === 'declined').length;
               const cancelled = st === 'cancelled';
               return (
                 <div key={c.id} className={`rounded-lg border px-3 py-2.5 ${cancelled ? 'border-gray-100 opacity-50' : 'border-gray-200'}`}>
@@ -409,6 +481,9 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                         <span>· {c.jurors.length} juror{c.jurors.length === 1 ? '' : 's'}</span>
                         {!cancelled && st !== 'draft' && <span>· <span className={yes >= c.jurors.length && c.jurors.length > 0 ? 'text-green-700' : 'text-amber-700'}>{yes}/{c.jurors.length} available</span>{no > 0 ? ` · ${no} declined` : ''}{silent.length ? ` · ${silent.length} silent` : ''}</span>}
                         {!cancelled && neverAsked > 0 && st !== 'draft' && <span>· <span className="text-gray-500">{neverAsked} never asked</span></span>}
+                        {!cancelled && c.last_startup_email_at && (
+                          <span>· <span className={startupsIn >= c.entries.length && c.entries.length > 0 ? 'text-green-700' : 'text-amber-700'}>{startupsIn}/{c.entries.length} startups coming</span>{startupsOut > 0 ? ` · ${startupsOut} out` : ''}</span>
+                        )}
                         {c.assigned > 0 && <span>· {c.submitted}/{c.assigned} scored</span>}
                         {c.zoom_sent && c.zoom_join_url && !cancelled && (
                           <a href={c.zoom_join_url} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-0.5"><Video className="h-3 w-3" /> Zoom</a>
@@ -432,7 +507,23 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
 
                   {c.entries.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
-                      {c.entries.map(e => <span key={e.role_assignment_id} className="text-[11px] bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">{e.company}</span>)}
+                      {c.entries.map(e => {
+                        const m = entryMeta(e.rsvp);
+                        // Before anyone has been asked there is no answer to
+                        // report, so the chip stays the plain company name it
+                        // has always been.
+                        if (!c.last_startup_email_at && e.rsvp === 'invited') {
+                          return <span key={e.role_assignment_id} className="text-[11px] bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">{e.company}</span>;
+                        }
+                        return (
+                          <span key={e.role_assignment_id}
+                                className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-0.5 ${m.cls}`}
+                                title={e.invited_at ? `Asked ${new Date(e.invited_at).toLocaleString('en-GB', { timeZone: TZ })}` : 'Never emailed about this slot'}>
+                            {e.rsvp === 'declined' ? <AlertTriangle className="h-3 w-3" /> : e.rsvp === 'invited' ? <Clock className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
+                            {e.company} <span className="opacity-60">· {m.label}{e.rsvp === 'invited' ? ` ${silenceLabel(e.invited_at)}` : ''}</span>
+                          </span>
+                        );
+                      })}
                     </div>
                   )}
                   {c.jurors.length > 0 && !cancelled && (
@@ -447,6 +538,25 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                           </span>
                         );
                       })}
+                    </div>
+                  )}
+
+                  {!cancelled && (
+                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                      {(c.guests || []).map(g => (
+                        <span key={g.email} className="inline-flex items-center gap-1 text-[11px] rounded-full border border-blue-200 bg-blue-50 text-blue-800 px-2 py-0.5"
+                              title={`${g.email} — on the Zoom invitation only: no availability request, no scorecard`}>
+                          <Video className="h-3 w-3" />
+                          {g.name || g.email} <span className="opacity-60">· guest</span>
+                          <button className="ml-0.5 opacity-50 hover:opacity-100" disabled={!!busy}
+                                  onClick={() => removeGuest(c, g.email)} title="Remove from the invitation">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <button className="text-[11px] text-gray-400 hover:text-primary hover:underline px-1" disabled={!!busy} onClick={() => addGuest(c)}>
+                        + add someone to the Zoom
+                      </button>
                     </div>
                   )}
 
@@ -487,6 +597,22 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                                 : 'Everyone has answered'}
                             </Button>
                           )}
+                          {/* Asked in parallel with the panel, never gating it:
+                              waiting for 30 startups before 12 sessions can go
+                              out would deadlock the whole schedule. */}
+                          {!c.zoom_sent && c.entries.length > 0 && !c.last_startup_email_at && (
+                            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendStartupSlot(c)}>
+                              <Mail className="h-3.5 w-3.5" /> Tell the {c.entries.length} startup{c.entries.length === 1 ? '' : 's'} their slot
+                            </Button>
+                          )}
+                          {!c.zoom_sent && c.entries.length > 0 && c.last_startup_email_at && (
+                            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy || !startupsSilent.length} onClick={() => chaseStartups(c)}>
+                              <Mail className="h-3.5 w-3.5" />
+                              {startupsSilent.length
+                                ? `Chase ${startupsSilent.length} startup${startupsSilent.length === 1 ? '' : 's'}`
+                                : 'All startups answered'}
+                            </Button>
+                          )}
                           {!c.zoom_sent && (
                             <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!!busy} onClick={() => sendZoom(c)}>
                               <Video className="h-3.5 w-3.5" /> Send Zoom invite{yes === 0 ? ' (nobody confirmed yet)' : ` (${yes})`}
@@ -513,6 +639,8 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                         <div className="flex items-center gap-1 ml-auto">
                           <span className="text-[11px] text-gray-400 inline-flex items-center gap-1"><FlaskConical className="h-3 w-3" /> preview to me:</span>
                           <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => sendAvailability(c, true)}>availability</button>
+                          {c.entries.length > 0 && <><span className="text-gray-300">·</span>
+                            <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => sendStartupSlot(c, true)}>startup slot</button></>}
                           {!c.zoom_sent && <><span className="text-gray-300">·</span>
                             <button className="text-[11px] text-primary hover:underline" disabled={!!busy} onClick={() => sendZoom(c, true)}>zoom invite</button></>}
                           {c.zoom_sent && <><span className="text-gray-300">·</span>

@@ -2,19 +2,25 @@
 // a jury panel hears a startup batch in one time slot. Panels and batches are
 // sized freely, so every count in the emails comes from the session itself.
 // The session is created as a DRAFT by sm_yv_session_create (no Zoom, no email);
-// this function owns the three outbound steps that follow:
+// this function owns the outbound steps that follow:
 //   1. notify_availability - ask each panel juror if the slot works (tokened
 //      Confirm / Not-available buttons -> sm_jury_availability_by_token).
 //      Pass only_unanswered to chase: writes solely to jurors still on
 //      `invited`, so nobody who already answered is asked twice.
+//   1b. notify_startup_slot - the same step for the startups being heard,
+//      asking them to confirm they will be there (-> sm_startup_confirm_by_token).
+//      Takes only_unanswered too. A startup's silence never blocks step 2.
 //   2. send_zoom           - once the panel has confirmed, create the Zoom
-//      meeting and send the meeting request to jurors + startups.
+//      meeting and send the meeting request to jurors + startups + guests.
 //   3. notify_evaluate     - after the session, ask each juror to score.
-// Plus cancel (deletes the Zoom, sends a CANCEL .ics) and notify_schedule (a
+// Plus cancel (deletes the Zoom, sends a CANCEL) and notify_schedule (a
 // juror's full slate in one email). Staff or a yachting_ventures partner only.
 //
 // Every action takes an optional test_email: a dry run that emails ONLY that
-// address. Sessions flagged is_test refuse to email anyone else, ever.
+// address AND LEAVES NO TRACE. A preview must never advance the session or
+// stamp anyone - send_zoom used to flip zoom_sent/status even on a test run,
+// which retired the availability step for a slot nobody had been contacted
+// about. Sessions flagged is_test refuse to email anyone else, ever.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -268,6 +274,32 @@ Deno.serve(async (req: Request) => {
         };
       });
     }
+    // The startups in this session's batch, with their own RSVP row (the token
+    // lives here). Deliberately reads sm_registration.email, not profiles: an
+    // imported startup may have no account at all, and the registrant is the
+    // person who already receives everything else about this event.
+    async function sessionStartups(sessionId: string) {
+      const { data: se } = await admin.from("sm_jury_session_entry")
+        .select("entry_role_assignment_id, status, token").eq("session_id", sessionId);
+      const rows = (se || []) as { entry_role_assignment_id: string; status: string; token: string }[];
+      if (!rows.length) return [];
+      const { data: ras } = await admin.from("sm_role_assignment").select("id, registration_id").in("id", rows.map(r => r.entry_role_assignment_id));
+      const regOf = new Map<string, string>();
+      for (const x of (ras || []) as { id: string; registration_id: string }[]) regOf.set(x.id, x.registration_id);
+      const { data: regs } = await admin.from("sm_registration")
+        .select("id, email, first_name, last_name, company_name").in("id", [...regOf.values()]);
+      const byReg = new Map<string, { email?: string; first_name?: string; last_name?: string; company_name?: string }>();
+      for (const r of (regs || []) as { id: string; email?: string; first_name?: string; last_name?: string; company_name?: string }[]) byReg.set(r.id, r);
+      return rows.map(r => {
+        const reg = byReg.get(regOf.get(r.entry_role_assignment_id) || "") || {};
+        return {
+          ...r,
+          email: (reg.email || "").trim().toLowerCase(),
+          first_name: (reg.first_name || "").trim(),
+          company: (reg.company_name || "").trim() || `${reg.first_name || ""} ${reg.last_name || ""}`.trim() || "your company",
+        };
+      });
+    }
     // A test session never reaches a real inbox: only the tester's address.
     function guardTest(s: SessionRow): string | null {
       if (s.is_test && !testEmail) return "This is a test session - it can only email the address you run the test from.";
@@ -358,6 +390,74 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    // ---- 1b. Ask the startups to confirm their slot -------------------------
+    // The startups' half of the availability step. They are NOT asked whether
+    // the slot suits them -- by now the panel is being assembled around that
+    // hour -- only to acknowledge that they will be there. A decline is a
+    // signal for Yachting Ventures to pick up by hand; it never blocks the Zoom
+    // send, because 30 startups all having to answer before 12 sessions can go
+    // out would be a deadlock.
+    if (action === "notify_startup_slot") {
+      const sessionId = typeof body.session_id === "string" ? body.session_id : "";
+      if (!sessionId) return json(req, { error: "Missing session_id" }, 400);
+      const s = await loadSession(sessionId);
+      if (!s) return json(req, { error: "Session not found" }, 404);
+      if (s.status === "cancelled") return json(req, { error: "This session is cancelled" }, 400);
+      const blocked = guardTest(s);
+      if (blocked) return json(req, { error: blocked }, 400);
+
+      const startups = await sessionStartups(sessionId);
+      if (!startups.length) return json(req, { error: "This session's batch has no startups yet." }, 400);
+
+      const onlyUnanswered = body.only_unanswered === true;
+      const recipients = onlyUnanswered && !testEmail
+        ? startups.filter(x => x.status === "invited")
+        : startups;
+      if (onlyUnanswered && !testEmail && !recipients.length) {
+        return json(req, { ok: true, sent: 0, failed: 0, skipped: startups.length, nothing_to_do: true });
+      }
+
+      const jurorCount = (await sessionJurors(sessionId)).length;
+      const start = new Date(s.scheduled_at);
+      const day = sessionDay(start);
+      const time = esc(slotWithZone(s.slot_label, start, s.duration_minutes));
+      const tz = tzLabel(start);
+      const pitchMinutes = Math.max(1, Number(body.pitch_minutes) || 5);
+      const qaMinutes = Math.max(1, Number(body.qa_minutes) || 5);
+
+      let sent = 0; let failed = 0;
+      for (const x of recipients) {
+        const to = testEmail || x.email;
+        if (!to || !to.includes("@")) { failed++; continue; }
+        const yes = `${SITE_URL}/sm26/startup/rsvp?token=${encodeURIComponent(x.token)}&answer=confirmed`;
+        const no = `${SITE_URL}/sm26/startup/rsvp?token=${encodeURIComponent(x.token)}&answer=declined`;
+        const html = `<div style="font-family:Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;color:#1e2838">
+<p>Dear ${esc(x.first_name || "there")},</p>
+<p>Congratulations once again on being selected to pitch at ${eventLine()}.</p>
+<p>Your jury session is scheduled for <strong>${esc(day)}, ${time}</strong>. It is held on Zoom, and you will pitch to <strong>${jurorCount} jury member${jurorCount === 1 ? "" : "s"}</strong> — ${pitchMinutes} minutes to present, followed by ${qaMinutes} minutes of questions.</p>
+<p>Please confirm that <strong>${esc(x.company)}</strong> will be there, so we can send you the Zoom invitation.</p>
+<p style="margin:22px 0 6px">${BTN(yes, "We'll be there", "#16a34a")}${BTN(no, "We can't make it", "#64748b")}</p>
+<p style="font-size:12px;color:#8a95a8;margin-top:18px">All times are ${tz} (Monaco). If the date is a problem, tell us as soon as you can — the panel is being built around this hour.</p>
+</div>`;
+        const ok = await sendMail(to, "Confirm your pitch session - Smart Marina Rendezvous", html);
+        // As on the jury side, a preview must not make anyone look contacted.
+        if (ok) {
+          sent++;
+          if (!testEmail) {
+            await admin.from("sm_jury_session_entry").update({ invited_at: new Date().toISOString() })
+              .eq("session_id", sessionId).eq("entry_role_assignment_id", x.entry_role_assignment_id);
+          }
+        } else failed++;
+        if (testEmail) break; // one preview mail only
+      }
+      if (!testEmail) await admin.from("sm_jury_session").update({ last_startup_email_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", sessionId);
+      return json(req, {
+        ok: true, sent, failed,
+        skipped: startups.length - recipients.length,
+        test: !!testEmail,
+      });
+    }
+
     // ---- 2. Zoom invitation (deliberate second step) ------------------------
     // Only after the panel has answered: creates the meeting and sends the .ics
     // to the confirmed jurors, the batch's startups and the organisers.
@@ -384,7 +484,8 @@ Deno.serve(async (req: Request) => {
       const entryIds = await sessionEntryIds(s);
       const start = new Date(s.scheduled_at);
 
-      // Recipients: confirmed panel jurors + the batch's startups + organisers.
+      // Recipients: confirmed panel jurors + the batch's startups + guests +
+      // organisers.
       const out = new Map<string, { email: string; name?: string }>();
       const add = (email?: string | null, name?: string) => {
         const e = (email || "").trim().toLowerCase();
@@ -402,6 +503,11 @@ Deno.serve(async (req: Request) => {
             for (const x of (rr || []) as { email?: string; first_name?: string; last_name?: string }[]) add(x.email, `${x.first_name || ""} ${x.last_name || ""}`.trim());
           }
         }
+        // Jurors recruited by email who will never sign in. They get the
+        // calendar invitation and nothing else -- no availability request, no
+        // scorecard -- because they are an address, not an account.
+        const { data: guests } = await admin.from("sm_jury_session_guest").select("email, name").eq("session_id", sessionId);
+        for (const g of (guests || []) as { email: string; name: string | null }[]) add(g.email, g.name || undefined);
         for (const e of ALWAYS_INVITE) add(e);
         const { data: yvs } = await admin.from("sm_event_partner").select("user_id").eq("event_id", eventId).eq("kind", "yachting_ventures");
         const yvIds = ((yvs || []) as { user_id: string }[]).map(x => x.user_id);
@@ -485,6 +591,11 @@ ${names.length ? `<p>Startups pitching in this session: ${esc(names.join(", "))}
           for (const x of (rr || []) as { email?: string; first_name?: string; last_name?: string }[]) add(x.email, `${x.first_name || ""} ${x.last_name || ""}`.trim());
         }
       }
+      // Whoever received the invitation must receive the cancellation, guests
+      // included -- an orphaned entry in someone's calendar is worse than no
+      // invitation at all.
+      const { data: cguests } = await admin.from("sm_jury_session_guest").select("email, name").eq("session_id", sessionId);
+      for (const g of (cguests || []) as { email: string; name: string | null }[]) add(g.email, g.name || undefined);
       for (const e of ALWAYS_INVITE) add(e);
 
       const start = new Date(s.scheduled_at);

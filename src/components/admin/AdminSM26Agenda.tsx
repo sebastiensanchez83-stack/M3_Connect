@@ -91,8 +91,19 @@ export function AdminSM26Agenda() {
 
   const openNew = () => { setEditId(null); setForm(EMPTY); setDeckFile(null); setExistingDeck(null); setRemoveDeck(false); setOpen(true); };
 
-  // Publish/unpublish the programme — flips sm_event.settings.programme_published,
-  // which reveals the "Download programme" button in the participant event hub.
+  // Publish/unpublish the programme.
+  //
+  // This used to flip only sm_event.settings.programme_published, which governs
+  // the download button and the "the programme is published" banner — while what
+  // actually decides whether a participant SEES a session is sm_session.published,
+  // one flag per row (sm_agenda: `where s.published or is_partner or is_staff`).
+  // So the programme could read as published, look complete to staff and to the
+  // Yacht Club — both of whom bypass that filter — and be entirely blank for every
+  // participant. It was, for all 23 sessions.
+  //
+  // A button labelled "publish the programme" now publishes the programme. Per
+  // session visibility is still editable one by one in the session form, for the
+  // genuine case of holding one back.
   const togglePublished = async () => {
     if (!eventId) return;
     const next = !published;
@@ -100,8 +111,25 @@ export function AdminSM26Agenda() {
     const settings = { ...((ev as { settings?: Record<string, unknown> } | null)?.settings || {}), programme_published: next };
     const { error } = await supabase.from('sm_event').update({ settings }).eq('id', eventId);
     if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
+    const { error: sErr, count } = await supabase.from('sm_session')
+      .update({ published: next }, { count: 'exact' }).eq('event_id', eventId).neq('published', next);
+    if (sErr) {
+      toast({
+        title: next ? 'Programme flag set, but the sessions did not follow' : 'Programme unpublished, but the sessions did not follow',
+        description: `${sErr.message} — participants may still see the wrong thing.`,
+        variant: 'destructive',
+      });
+      setPublished(next); load();
+      return;
+    }
     setPublished(next);
-    toast({ title: next ? 'Programme published — participants can download it' : 'Programme unpublished' });
+    toast({
+      title: next ? 'Programme published' : 'Programme unpublished',
+      description: next
+        ? `${count ?? 0} session${count === 1 ? '' : 's'} are now visible to participants.`
+        : `${count ?? 0} session${count === 1 ? '' : 's'} hidden from participants.`,
+    });
+    load();
   };
   const openEdit = (s: Session) => {
     setEditId(s.id);

@@ -93,9 +93,19 @@ export function SM26JuryScorePage() {
     setSaving(null);
     const r = (res || {}) as { ok?: boolean; error?: string; missing?: number; total_score?: number };
     if (error || !r.ok) {
+      // role_not_confirmed is an M3 admin step, not something the juror can
+      // fix — say so instead of leaving them retrying a button.
+      const known: Record<string, { title: string; description: string }> = {
+        incomplete: { title: 'Score every criterion first', description: `${r.missing} still to score.` },
+        role_not_confirmed: {
+          title: 'Your jury place is not confirmed yet',
+          description: 'Nothing is wrong on your side — please tell Yachting Ventures and they will activate it.',
+        },
+      };
+      const k = known[r.error || ''];
       toast({
-        title: r.error === 'incomplete' ? 'Score every criterion first' : 'Could not save',
-        description: r.error === 'incomplete' ? `${r.missing} still to score.` : error?.message,
+        title: k?.title || 'Could not save',
+        description: k?.description || error?.message,
         variant: 'destructive',
       });
       return;

@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   CheckCircle, Loader2, Check, FileText, Paperclip, ExternalLink, Ship, RefreshCw,
   BookOpen, CreditCard, MessageSquare, Calendar, LayoutDashboard, Users, Scale,
-  AlertCircle, ChevronRight, Receipt, Download, UserCheck, Megaphone,
+  AlertCircle, ChevronRight, Receipt, Download, UserCheck, Megaphone, ClipboardList,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,6 +49,11 @@ interface Registration {
   company_name: string | null; country: string | null; created_at: string | null;
   roles: RoleAssignment[];
 }
+// Three groups, never more, never role-dependent: what M3 still needs, what you
+// do at the event, what you get out of it. The old eight tabs named artefacts
+// and came and went; these name intentions and always sit in the same place.
+type HubGroup = 'todo' | 'event' | 'visibility';
+
 interface EcatPage {
   id: string; kind: string; status: string; role_assignment_id: string | null;
   designed_file_path: string | null; published_file_path: string | null;
@@ -91,7 +96,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const [changeFiles, setChangeFiles] = useState<Record<string, { path: string; field_key: string }[]>>({});
   const [statusBusy, setStatusBusy] = useState(false);
   const [onsiteBusy, setOnsiteBusy] = useState<string | null>(null);
-  const [subTab, setSubTab] = useState('overview');
+  const [group, setGroup] = useState<HubGroup>('todo');
   const [hasMediaKit, setHasMediaKit] = useState(false);
   const [searchParams] = useSearchParams();
   const deepLinkedRef = useRef(false);
@@ -134,8 +139,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     // Deep links from emails (/account?tab=event&sub=...).
     if (!deepLinkedRef.current) {
       const sub = searchParams.get('sub');
-      if (sub === 'mediakit' && hasKit) { deepLinkedRef.current = true; setSubTab('mediakit'); }
-      else if (sub === 'catalogue' && (ecatRows || []).length > 0) { deepLinkedRef.current = true; setSubTab('catalogue'); }
+      if (sub === 'mediakit' && hasKit) { deepLinkedRef.current = true; setGroup('visibility'); }
+      else if (sub === 'catalogue' && (ecatRows || []).length > 0) { deepLinkedRef.current = true; setGroup('visibility'); }
     }
   };
 
@@ -454,15 +459,53 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
     const requested = new Set((md._requested_info as string[] | undefined) || []);
     return n + reqsForRole(role.role).filter(r => requested.has(r.field_key) && !md[r.field_key]).length;
   }, 0);
-  const subTabs: { key: string; label: string; icon: typeof FileText; dot?: boolean }[] = [
-    { key: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { key: 'participation', label: 'My details', icon: FileText, dot: outstandingCount > 0 || (reqTotal > 0 && reqDone < reqTotal) },
-    { key: 'attendees', label: 'Attendees', icon: UserCheck },
-    { key: 'programme', label: 'Programme', icon: Calendar },
-    ...(ecat.length > 0 ? [{ key: 'catalogue', label: 'E-catalogue', icon: BookOpen }] : []),
-    ...(hasMediaKit ? [{ key: 'mediakit', label: 'Media kit', icon: Megaphone }] : []),
-    { key: 'connections', label: 'Connections', icon: Users },
-    ...(isJuror ? [{ key: 'jury', label: 'Jury', icon: Scale }] : []),
+  // Eight flat tabs asked the participant to know our filing system: "My
+  // details", "E-catalogue", "Media kit" name artefacts, not tasks, and three
+  // of them appeared or vanished depending on role and progress — so the thing
+  // you clicked last time was somewhere else today. Three groups now, always
+  // the same three, in the order a participant actually cares about: what we
+  // still need, what they do at the event, what they get out of it.
+  const GROUP_OF: Record<string, HubGroup> = {
+    overview: 'todo', participation: 'todo',
+    attendees: 'event', programme: 'event', connections: 'event', jury: 'event',
+    catalogue: 'visibility', mediakit: 'visibility',
+  };
+  const shows = (key: string) => GROUP_OF[key] === group;
+
+  // The landing view is this list, not a menu. Everything here is either
+  // something we are waiting on or something already settled — nothing that is
+  // merely available to browse.
+  const ecatToApprove = ecat.filter(e => e.status === 'uploaded').length;
+  const detailsDone = outstandingCount === 0 && (reqTotal === 0 || reqDone === reqTotal);
+  const paidDone = payStatus === 'paid' || payStatus === 'waived';
+  const todo: { key: string; label: string; hint: string; done: boolean; go: HubGroup }[] = [
+    {
+      key: 'details',
+      label: reqTotal > 0 ? `Your details (${reqDone}/${reqTotal})` : 'Your details',
+      hint: outstandingCount > 0
+        ? `${outstandingCount} ${outstandingCount === 1 ? 'item' : 'items'} M3 has asked you for`
+        : detailsDone ? 'Nothing outstanding' : 'A few fields still to fill in',
+      done: detailsDone, go: 'todo',
+    },
+    ...(ecat.length > 0 ? [{
+      key: 'ecat',
+      label: 'Your e-catalogue page',
+      hint: ecatToApprove > 0 ? 'Waiting for your approval' : 'Nothing to approve right now',
+      done: ecatToApprove === 0, go: 'visibility' as HubGroup,
+    }] : []),
+    ...(invoices.length > 0 || paidDone ? [{
+      key: 'pay',
+      label: 'Payment',
+      hint: paidDone ? (payStatus === 'waived' ? 'Waived by M3' : 'Received — thank you') : 'Invoice available below',
+      done: paidDone, go: 'todo' as HubGroup,
+    }] : []),
+  ];
+  const todoLeft = todo.filter(t => !t.done).length;
+
+  const GROUPS: { key: HubGroup; label: string; icon: typeof FileText; badge?: number }[] = [
+    { key: 'todo', label: 'To do', icon: ClipboardList, badge: todoLeft },
+    { key: 'event', label: 'Your event', icon: Calendar },
+    { key: 'visibility', label: 'Your visibility', icon: Megaphone },
   ];
 
   return (
@@ -551,7 +594,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
               </div>
             )}
             {outstandingCount > 0 && (
-              <button type="button" onClick={() => setSubTab('participation')}
+              <button type="button" onClick={() => setGroup('todo')}
                 className="w-full text-left rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-center gap-2 hover:bg-amber-100 transition-colors">
                 <AlertCircle className="h-4 w-4 shrink-0" />
                 <span>M3 has requested <strong>{outstandingCount}</strong> {outstandingCount === 1 ? 'item' : 'items'} from you — tap to complete.</span>
@@ -561,23 +604,66 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           </CardContent>
         </Card>
 
-        {/* ── Sub-navigation ── */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-          {subTabs.map(t => {
-            const Icon = t.icon;
-            const active = subTab === t.key;
+        {/* ── Sub-navigation: three equal thirds ──
+            Exactly three, so they divide the width evenly at any size instead of
+            scrolling sideways on a phone. The icon carries the meaning when the
+            label has to shrink; the label never truncates because there is
+            always room for two short words. */}
+        <div className="grid grid-cols-3 gap-1.5">
+          {GROUPS.map(g => {
+            const Icon = g.icon;
+            const active = group === g.key;
             return (
-              <button key={t.key} type="button" onClick={() => setSubTab(t.key)}
-                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors ${active ? 'border-primary bg-primary text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-primary/40'}`}>
-                <Icon className="h-4 w-4" /> {t.label}
-                {t.dot && !active && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}
+              <button key={g.key} type="button" onClick={() => setGroup(g.key)}
+                aria-current={active ? 'page' : undefined}
+                className={`flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2 rounded-lg border px-2 py-2.5 text-xs sm:text-sm font-medium transition-colors ${active ? 'border-primary bg-primary text-white' : 'border-gray-200 bg-white text-gray-600 hover:border-primary/40'}`}>
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="text-center leading-tight">{g.label}</span>
+                {!!g.badge && g.badge > 0 && (
+                  <span className={`text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${active ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-800'}`}>{g.badge}</span>
+                )}
               </button>
             );
           })}
         </div>
 
+        {/* ── What we are waiting on ──
+            The first thing a participant sees is their own list, not a menu.
+            Outstanding items first with what is missing spelled out; settled
+            ones stay visible but struck through, because "nothing left to do"
+            is only reassuring if you can see what "everything" was. */}
+        {group === 'todo' && todo.length > 0 && (
+          <Card>
+            <CardContent className="pt-5">
+              <div className="flex items-baseline justify-between gap-2 mb-3">
+                <div className="text-sm font-semibold text-gray-900">
+                  {todoLeft === 0 ? "You're all set" : `${todoLeft} ${todoLeft === 1 ? 'thing' : 'things'} left to do`}
+                </div>
+                <div className="text-xs text-gray-400">{todo.length - todoLeft} of {todo.length} done</div>
+              </div>
+              <ul className="space-y-1.5">
+                {[...todo].sort((a, b) => Number(a.done) - Number(b.done)).map(t => (
+                  <li key={t.key}>
+                    <button type="button" onClick={() => setGroup(t.go)}
+                      className={`w-full text-left flex items-start gap-2.5 rounded-lg px-3 py-2.5 border transition-colors ${t.done ? 'border-transparent hover:bg-gray-50' : 'border-amber-200 bg-amber-50 hover:bg-amber-100'}`}>
+                      {t.done
+                        ? <CheckCircle className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                        : <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />}
+                      <span className="min-w-0 flex-1">
+                        <span className={`block text-sm ${t.done ? 'text-gray-400 line-through' : 'text-amber-900 font-medium'}`}>{t.label}</span>
+                        <span className={`block text-xs ${t.done ? 'text-gray-400' : 'text-amber-700'}`}>{t.hint}</span>
+                      </span>
+                      {!t.done && <ChevronRight className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
         {/* ── Overview ── */}
-        {subTab === 'overview' && (
+        {shows('overview') && (
           <div className="space-y-4">
             {invoices.length > 0 && (
               <Card>
@@ -621,29 +707,10 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                 </CardContent>
               </Card>
             )}
-            {visibleRoles.some(r => r.role === 'startup') && <SM26MyJuryPanel eventId={reg.event_id} />}
-            <SM26VotePage embedded />
-            <Card>
-              <CardContent className="pt-6">
-                <div className="text-sm font-semibold text-gray-900 mb-3">Quick access</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {subTabs.filter(t => t.key !== 'overview').map(t => {
-                    const Icon = t.icon;
-                    return (
-                      <button key={t.key} onClick={() => setSubTab(t.key)}
-                        className="rounded-lg border border-gray-100 p-3 text-left hover:border-primary/40 hover:bg-gray-50 transition-colors">
-                        <Icon className="h-4 w-4 text-primary mb-1" />
-                        <div className="text-sm font-medium text-gray-900 flex items-center gap-1.5">{t.label}{t.dot && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
           </div>
         )}
 
-        {subTab === 'participation' && (
+        {shows('participation') && (
           <>
             <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
             {visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
@@ -657,11 +724,11 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         )}
 
         {/* Media kit — visuals + caption to announce your participation (its own tab; shown only when a kit exists) */}
-        {subTab === 'mediakit' && reg && (
+        {shows('mediakit') && reg && (
           <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} companyName={reg.company_name} />
         )}
 
-        {subTab === 'attendees' && reg && (
+        {shows('attendees') && reg && (
           <Card>
             <CardContent className="pt-6">
               <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit={reg.status !== 'declined'} variant="hub" />
@@ -669,7 +736,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           </Card>
         )}
 
-        {subTab === 'programme' && (
+        {shows('programme') && (
           <Card>
             <CardContent className="pt-6">
               <div className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> My programme</div>
@@ -679,9 +746,15 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           </Card>
         )}
 
-        {subTab === 'connections' && reg && <SM26MyConnections eventId={reg.event_id} />}
+        {shows('connections') && reg && <SM26MyConnections eventId={reg.event_id} />}
 
-        {subTab === 'catalogue' && ecat.length > 0 && (
+        {/* A startup's jury panel and the audience vote are things you do for
+            the event, not things M3 is waiting on — so they sit here rather
+            than in the to-do list where they used to be buried. */}
+        {group === 'event' && visibleRoles.some(r => r.role === 'startup') && <SM26MyJuryPanel eventId={reg.event_id} />}
+        {group === 'event' && <SM26VotePage embedded />}
+
+        {shows('catalogue') && ecat.length > 0 && (
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -758,7 +831,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           </Card>
         )}
 
-        {subTab === 'participation' && (rolesWithReqs.length === 0 ? (
+        {shows('participation') && (rolesWithReqs.length === 0 ? (
           <Card>
             <CardContent className="py-10 text-center">
               <CheckCircle className="h-10 w-10 text-green-500 mx-auto mb-3" />
@@ -893,9 +966,9 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         ))}
 
         {/* Jury scoring console — jurors only */}
-        {subTab === 'jury' && isJuror && <SM26JuryPage embedded />}
+        {shows('jury') && isJuror && <SM26JuryPage embedded />}
 
-        {subTab === 'participation' && reg.status !== 'declined' && (
+        {shows('participation') && reg.status !== 'declined' && (
           <div className="text-center pt-2">
             <button type="button" onClick={() => setRegStatus('cancelled')} disabled={statusBusy}
               className="text-xs text-gray-400 hover:text-red-600 underline underline-offset-2 disabled:opacity-50">

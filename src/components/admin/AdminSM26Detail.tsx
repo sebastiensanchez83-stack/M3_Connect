@@ -322,6 +322,8 @@ export function AdminSM26Detail() {
   const [payKey, setPayKey] = useState(0); // bump to refetch the payment panel without a full-page reload
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Which jury role's on-site toggle is in flight (keyed by role assignment id).
+  const [onsiteBusy, setOnsiteBusy] = useState<string | null>(null);
   const [roleSaving, setRoleSaving] = useState(false);
   const [addRoleValue, setAddRoleValue] = useState('');
   // Platform-identity provisioning (account + persona + org + welcome email).
@@ -913,6 +915,55 @@ export function AdminSM26Detail() {
                     deal the moment anything was renegotiated. The agreement in
                     the sponsorship tracker is the single source of truth: it
                     carries the negotiated fee and any bespoke line. */}
+                {/* Whether a juror is coming to Monaco is separate from whether
+                    they are judging: the sessions are on Zoom in early September
+                    and a juror can do all of that without ever setting foot in
+                    the Yacht Club. Declining the role would remove them from the
+                    jury too, which is not what "I can't make it on the day"
+                    means.
+
+                    sm_set_onsite_attendance already handled this and already
+                    admitted staff — but the only button was in the participant's
+                    own hub, so a juror who told Victor by email could not be
+                    recorded without impersonating them. It also creates or
+                    removes the badge, and refuses to remove one from anyone
+                    already checked in. */}
+                {role.role === 'jury' && (() => {
+                  const onsite = (role.module_data || {})['onsite_attendance'];
+                  const attending = onsite === 'yes';
+                  const answered = onsite === 'yes' || onsite === 'no';
+                  return (
+                    <div className={`rounded-lg border p-3 text-xs flex items-start gap-2 flex-wrap ${answered ? (attending ? 'border-emerald-100 bg-emerald-50/50 text-emerald-800' : 'border-gray-200 bg-gray-50 text-gray-600') : 'border-amber-100 bg-amber-50/50 text-amber-800'}`}>
+                      <MapPin className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                      <span className="flex-1 min-w-[12rem]">
+                        {answered
+                          ? attending
+                            ? 'Coming to Monaco — on the badge and check-in list.'
+                            : 'Not coming to Monaco — judging remotely, and off the badge and check-in list.'
+                          : 'Has not said whether they are coming to Monaco. Until then they count as attending and hold a badge.'}
+                      </span>
+                      <Button
+                        size="sm" variant="outline" className="h-7 text-xs shrink-0"
+                        disabled={onsiteBusy === role.id}
+                        onClick={async () => {
+                          const next = !attending;
+                          if (!next && !confirm(`Mark this juror as NOT coming to Monaco?\n\nThey keep their jury role and their scorecards — the sessions are on Zoom. They come off the badge and check-in lists, unless they have already been checked in.`)) return;
+                          setOnsiteBusy(role.id);
+                          const { error } = await supabase.rpc('sm_set_onsite_attendance', { p_role_assignment_id: role.id, p_attending: next });
+                          setOnsiteBusy(null);
+                          if (error) { toast({ title: 'Could not update', description: error.message, variant: 'destructive' }); return; }
+                          toast({
+                            title: next ? 'Marked as coming to Monaco' : 'Marked as not coming to Monaco',
+                            description: next ? 'A badge has been issued.' : 'Removed from the badge and check-in lists. Their jury role is unchanged.',
+                          });
+                          load(reg.id);
+                        }}>
+                        {onsiteBusy === role.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : attending ? 'Not coming on site' : 'Coming on site'}
+                      </Button>
+                    </div>
+                  );
+                })()}
+
                 {role.role === 'sponsor' && (
                   <div className="rounded-lg border border-amber-100 bg-amber-50/50 p-3 text-xs text-amber-800 flex items-start gap-2">
                     <Building2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />

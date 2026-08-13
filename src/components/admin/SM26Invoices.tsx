@@ -171,16 +171,22 @@ export function SM26Invoices({ registrationId, eventId, onChange }: {
         ) : (
           <p className="text-[11px] text-amber-600">No billing address / VAT captured yet — the participant can add it under “My details” in their event hub, or you can request it.</p>
         )}
-        {(billTo.attendees || 0) > 1 && (
-          billTo.attendeesConfirmedAt ? (
-            <p className="text-[11px] text-emerald-600">
-              ✓ Attendee list confirmed ({billTo.attendees} attendees) on {new Date(billTo.attendeesConfirmedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} — headcount is locked, ready to invoice.
-            </p>
-          ) : (
-            <p className="text-[11px] text-amber-600">
-              Attendee list not confirmed yet ({billTo.attendees} on the roster) — the headcount may still change before you invoice.
-            </p>
-          )
+        {/* Always shown, whatever the number. This used to appear only above
+            one person, so the two cases that matter most when raising an
+            invoice — a single representative, and a company that never told us
+            — looked exactly like a company with nothing to declare. */}
+        {billTo.attendees == null ? (
+          <p className="text-[11px] text-amber-600">
+            Headcount not stated — ask how many representatives are coming before invoicing.
+          </p>
+        ) : billTo.attendeesConfirmedAt ? (
+          <p className="text-[11px] text-emerald-600">
+            ✓ {billTo.attendees} {billTo.attendees === 1 ? 'representative' : 'representatives'}, confirmed on {new Date(billTo.attendeesConfirmedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} — headcount is locked, ready to invoice.
+          </p>
+        ) : (
+          <p className="text-[11px] text-amber-600">
+            {billTo.attendees} {billTo.attendees === 1 ? 'representative' : 'representatives'} declared, not yet confirmed — the headcount may still change before you invoice.
+          </p>
         )}
         {rows.length === 0 && <p className="text-sm text-gray-400">No invoice uploaded yet.</p>}
         {rows.map(r => (

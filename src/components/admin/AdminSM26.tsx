@@ -881,7 +881,14 @@ export function AdminSM26() {
                       <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                         {r.company_name && <span className="flex items-center gap-1"><User className="h-3 w-3" /> {name}</span>}
                         {r.email && <span className="flex items-center gap-1"><Mail className="h-3 w-3" /> {r.email}</span>}
-                        {(r.num_attendees || 0) > 1 && <span className="flex items-center gap-1 text-primary"><Users className="h-3 w-3" /> {r.num_attendees} attendees</span>}
+                        {/* Shown whatever the number, including when nobody
+                            said. Hiding it below 2 meant "coming alone" and
+                            "never told us" looked identical — and 10 of these
+                            registrations have never stated a headcount. */}
+                        <span className={`flex items-center gap-1 ${(r.num_attendees || 0) > 1 ? 'text-primary font-medium' : r.num_attendees == null ? 'text-amber-600' : ''}`}>
+                          <Users className="h-3 w-3" />
+                          {r.num_attendees == null ? 'headcount not stated' : `${r.num_attendees} ${r.num_attendees === 1 ? 'person' : 'people'}`}
+                        </span>
                         <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {new Date(r.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                       </div>
                       {r.roles.length > 0 && (

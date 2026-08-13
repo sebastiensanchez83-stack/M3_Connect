@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
   Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target, Download,
-  ChevronLeft, ChevronRight, UserPlus, Eye, AlertTriangle,
+  ChevronLeft, ChevronRight, UserPlus, Eye, AlertTriangle, Users,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -295,6 +295,11 @@ interface Registration {
   status: string;
   created_at: string;
   user_id: string | null;
+  // How many people the company said it was bringing, straight from the
+  // registration form. Loaded all along (the query is select *) but never shown,
+  // so the only headcount on screen was the named roster — which is a different
+  // number, and usually a smaller one.
+  num_attendees: number | null;
   organization_id: string | null;
   claim_code: string | null;
   source: string | null;
@@ -732,9 +737,26 @@ export function AdminSM26Detail() {
 
       {/* Attendee roster — named people from this company, each with a badge +
           individual check-in. Headcount also drives how many representatives to
-          invoice (billing stays per-company). */}
+          invoice (billing stays per-company).
+
+          The number the company declared on the form sits above it, because the
+          two are different facts and the gap between them is the operational
+          one: three people announced and nobody named means three badges to
+          chase, and it was invisible until now. */}
       <Card className="border-0 shadow-sm">
-        <CardContent className="p-4">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <span className="text-xs text-gray-500 flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5" /> Declared on the registration form
+            </span>
+            {reg.num_attendees == null ? (
+              <span className="text-xs font-medium text-amber-700">Not stated</span>
+            ) : (
+              <span className="text-sm font-semibold text-gray-900">
+                {reg.num_attendees} {reg.num_attendees === 1 ? 'person' : 'people'}
+              </span>
+            )}
+          </div>
           <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit variant="admin" registrantUserId={reg.user_id} />
         </CardContent>
       </Card>

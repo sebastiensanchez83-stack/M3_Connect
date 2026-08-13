@@ -301,6 +301,8 @@ export function SM26RegisterPage() {
     return { participated: priorParticipated ? 'yes' : 'no', ...(events ? { events } : {}) };
   };
   const numAttendees = (): number | null => { const n = parseInt(form.num_attendees, 10); return Number.isFinite(n) && n > 0 ? n : null; };
+  // The roles invoiced per head, so the headcount is asked for rather than hoped for.
+  const needsHeadcount = ['startup', 'marina', 'visitor'].includes(role);
 
   // module_data captured for every role: socials, on-site, consents, and the
   // jury competition→scope mapping the rest of the platform reads.
@@ -426,9 +428,22 @@ export function SM26RegisterPage() {
     // Exhibitor / company-scoped roles must identify their company + country
     // (these records feed the public e-catalogue, badges and invoicing).
     const ORG_ROLES = new Set(['marina', 'startup', 'sponsor', 'architect_pro']);
+    const HEADCOUNT_ROLES = new Set(['startup', 'marina', 'visitor']);
     if (ORG_ROLES.has(role)) {
       if (!form.company_name.trim()) { toast({ title: 'Company name is required for this participation type', variant: 'destructive' }); return; }
       if (!form.country.trim()) { toast({ title: 'Country is required for this participation type', variant: 'destructive' }); return; }
+    }
+    // The three roles we invoice per head. Left optional, it went unanswered by
+    // ten registrations and every quote had to be redone once the real number
+    // turned up — so it is asked for once, here, where they already know it.
+    // Jurors, investors and media are not billed and are not asked.
+    if (HEADCOUNT_ROLES.has(role) && numAttendees() == null) {
+      toast({
+        title: 'How many people are coming?',
+        description: 'Tell us how many of you will be at the Rendezvous — you can change it later if your plans do.',
+        variant: 'destructive',
+      });
+      return;
     }
     const urlOk = (u: string) => !u.trim() || /^(https?:\/\/)?[\w-]+(\.[\w-]+)+.*$/.test(u.trim());
     if (!urlOk(form.website)) { toast({ title: 'Please enter a valid website (e.g. example.com)', variant: 'destructive' }); return; }
@@ -757,8 +772,13 @@ export function SM26RegisterPage() {
                 <p className="text-xs text-gray-500">Only needed if you'll attend on-site or receive an invoice.</p>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <Label>Number of attendees</Label>
+                    {/* Required for the roles we invoice per head — and marked as
+                        such here, not only when the form is submitted. */}
+                    <Label>How many people are coming{needsHeadcount ? ' *' : ''}</Label>
                     <Input type="number" min={1} value={form.num_attendees} onChange={e => setField('num_attendees', e.target.value)} placeholder="1" />
+                    {needsHeadcount && (
+                      <p className="text-[11px] text-gray-500">Including yourself. You can change this later if your plans do.</p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <Label>VAT number</Label>

@@ -71,7 +71,9 @@ export const ROLE_STATUS_DESC: Record<string, string> = {
 // Base registration fields a participant can complete/edit themselves and that
 // admins can request. Shared so the participant card and the request picker use
 // identical keys + labels. `multi` renders as chips / a longer text box.
-export const SM26_BASE_FIELDS: { key: string; label: string; multi?: boolean }[] = [
+// `numeric` fields are stored as integers, so they render as a number input and
+// are cast on save rather than trimmed as text.
+export const SM26_BASE_FIELDS: { key: string; label: string; multi?: boolean; numeric?: boolean }[] = [
   { key: 'first_name', label: 'First name' },
   { key: 'last_name', label: 'Last name' },
   { key: 'phone', label: 'Phone' },
@@ -79,6 +81,10 @@ export const SM26_BASE_FIELDS: { key: string; label: string; multi?: boolean }[]
   { key: 'job_title', label: 'Job title' },
   { key: 'website', label: 'Website' },
   { key: 'country', label: 'Country' },
+  // Editable after registration, and requestable — it was captured once on the
+  // form and then unreachable, which is why ten registrations still have no
+  // headcount and nobody could correct one without going into the database.
+  { key: 'num_attendees', label: 'How many people are coming', numeric: true },
   { key: 'billing_address', label: 'Billing address (for the invoice)', multi: true },
   { key: 'vat_number', label: 'VAT number' },
   { key: 'objective', label: 'Objectives for attending', multi: true },

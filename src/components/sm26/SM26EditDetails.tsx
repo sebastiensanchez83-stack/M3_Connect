@@ -37,7 +37,8 @@ export function SM26EditDetails({ registrationId, regStatus, onSaved }: { regist
       .eq('id', registrationId).maybeSingle();
     const r = (data || {}) as Row;
     const v: Record<string, string> = {};
-    for (const f of SM26_BASE_FIELDS) v[f.key] = (r[f.key] as string) || '';
+    // Numeric columns come back as numbers; the inputs are all string-valued.
+    for (const f of SM26_BASE_FIELDS) v[f.key] = r[f.key] == null ? '' : String(r[f.key]);
     setValues(v);
     const req = new Set((r.requested_fields as string[] | undefined) || []);
     setRequested(req);
@@ -57,8 +58,18 @@ export function SM26EditDetails({ registrationId, regStatus, onSaved }: { regist
     const uid = await requireFreshSession();
     if (!uid) return;
     setSaving(true);
-    const patch: Record<string, string | null> = {};
-    for (const f of SM26_BASE_FIELDS) patch[f.key] = values[f.key]?.trim() || null;
+    const patch: Record<string, string | number | null> = {};
+    for (const f of SM26_BASE_FIELDS) {
+      const raw = values[f.key]?.trim() || '';
+      if (f.numeric) {
+        // An integer column will not take '' — and a headcount of zero is
+        // somebody mistyping, not a company sending nobody.
+        const n = parseInt(raw, 10);
+        patch[f.key] = Number.isFinite(n) && n > 0 ? n : null;
+      } else {
+        patch[f.key] = raw || null;
+      }
+    }
     // Clear any requested field that now has a value.
     const stillMissing = [...requested].filter(k => !patch[k]);
     const { error } = await supabase.from('sm_registration')
@@ -112,7 +123,9 @@ export function SM26EditDetails({ registrationId, regStatus, onSaved }: { regist
                 </Label>
                 {f.multi
                   ? <Textarea rows={2} value={values[f.key] || ''} onChange={e => set(f.key, e.target.value)} placeholder="Separate multiple with commas" />
-                  : <Input value={values[f.key] || ''} onChange={e => set(f.key, e.target.value)} className="h-9" />}
+                  : f.numeric
+                    ? <Input type="number" min={1} value={values[f.key] || ''} onChange={e => set(f.key, e.target.value)} className="h-9" placeholder="1" />
+                    : <Input value={values[f.key] || ''} onChange={e => set(f.key, e.target.value)} className="h-9" />}
               </div>
             ))}
           </div>

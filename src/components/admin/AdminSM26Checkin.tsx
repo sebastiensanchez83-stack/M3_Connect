@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsQR from 'jsqr';
 import QRCode from 'qrcode';
-import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users, Vibrate, Volume2, VolumeX, FlaskConical } from 'lucide-react';
+import { RefreshCw, ArrowLeft, QrCode, Search, Check, Download, UserCheck, X, Camera, Undo2, Users, Vibrate, Volume2, VolumeX, FlaskConical, Printer } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,12 +24,16 @@ interface Attendee {
   first_name: string | null; last_name: string | null; email: string | null;
   is_primary: boolean; attending: boolean;
   registration: RegRef | RegRef[] | null;
-  badge?: { checkin_token: string } | { checkin_token: string }[];
+  badge?: { checkin_token: string; exported_at: string | null } | { checkin_token: string; exported_at: string | null }[];
   checkins: { window_key: string }[];
 }
 interface ScanResult { ok: boolean; error?: string; name?: string; company?: string | null; roles?: string[]; already?: boolean; attendee_id?: string; can_force?: boolean; forced?: boolean; }
 
 const tokenOf = (a: Attendee) => (Array.isArray(a.badge) ? a.badge[0]?.checkin_token : a.badge?.checkin_token) || '';
+// Null until this badge has gone to the badge printer. Badges are produced blank
+// by an outside supplier and labelled with the name beforehand, so the roster
+// leaves in batches and the second batch must not repeat the first.
+const exportedOf = (a: Attendee) => (Array.isArray(a.badge) ? a.badge[0]?.exported_at : a.badge?.exported_at) || null;
 const regOf = (a: Attendee): RegRef | null => (Array.isArray(a.registration) ? a.registration[0] : a.registration) || null;
 const nameOf = (a: Attendee) => `${a.first_name || ''} ${a.last_name || ''}`.trim() || a.email || 'This attendee';
 
@@ -541,7 +545,7 @@ export function AdminSM26Checkin() {
     const [{ data: wins }, { data: rows }] = await Promise.all([
       supabase.from('sm_attendance_window').select('key,label,sort').eq('event_id', eid).order('sort'),
       supabase.from('sm_attendee')
-        .select('id,first_name,last_name,email,is_primary,attending, registration:sm_registration!inner(id,company_name,status, roles:sm_role_assignment(role,status)), badge:sm_badge(checkin_token), checkins:sm_checkin(window_key)')
+        .select('id,first_name,last_name,email,is_primary,attending, registration:sm_registration!inner(id,company_name,status, roles:sm_role_assignment(role,status)), badge:sm_badge(checkin_token,exported_at), checkins:sm_checkin(window_key)')
         .eq('event_id', eid).eq('attending', true).order('created_at', { ascending: true }),
     ]);
     const ws = (wins || []) as Win[];
@@ -695,10 +699,11 @@ export function AdminSM26Checkin() {
     toast({ title: 'Check-in removed' });
   };
 
-  const exportCsv = () => {
+  /** Build and download the badge-printer file for a given set of attendees. */
+  const writeCsv = (list: Attendee[], filename: string) => {
     const origin = window.location.origin;
     const head = ['First name', 'Last name', 'Email', 'Company', 'Roles', 'Checkin token', 'Checkin URL', 'Registration URL'];
-    const rows = attendees.map(a => {
+    const rows = list.map(a => {
       const reg = regOf(a);
       return [
         a.first_name || '', a.last_name || '', a.email || '', companyOf(a),
@@ -712,8 +717,89 @@ export function AdminSM26Checkin() {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url; link.download = 'sm26-attendees.csv'; link.click();
+    link.href = url; link.download = filename; link.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportCsv = () => writeCsv(attendees, 'sm26-attendees.csv');
+
+  // The supplier prints blank badges and a name label for each attendee, so the
+  // roster goes out in batches: once before the event, then again for whoever
+  // confirmed late. Sending the whole list a second time makes them reprint
+  // everything, so each exported badge is stamped and only the unstamped ones
+  // come out here.
+  const notPrinted = attendees.filter(a => tokenOf(a) && !exportedOf(a));
+  const exportNewCsv = async () => {
+    if (!notPrinted.length) return;
+    // The rehearsal banner says in as many words that nothing is recorded, and
+    // this is the one irreversible write on the screen. Every other write path
+    // here branches on `rehearsal` first; this one has to as well.
+    if (rehearsal) {
+      toast({
+        title: 'Not while rehearsing',
+        description: 'Marking badges as printed is permanent, and rehearsal writes nothing. Leave rehearsal first.',
+      });
+      return;
+    }
+    // Stamping is one-way from this screen: once a badge is marked as printed it
+    // never comes out of a delta again. Worth one question, since the answer to
+    // "I downloaded it but did not send it" is otherwise a manual SQL update.
+    if (!confirm(
+      `Send ${notPrinted.length} badge${notPrinted.length > 1 ? 's' : ''} to the printer?\n\n` +
+      'They are downloaded and marked as printed, so they will not appear in the next batch. ' +
+      'The full export still contains everybody.'
+    )) return;
+    // Claim first, write the file second. Building the CSV from this browser's
+    // snapshot and stamping afterwards means two people exporting at once each
+    // send the printer the same batch and each are told it worked. The UPDATE
+    // is the arbiter: `is('exported_at', null)` makes it claim only what nobody
+    // has claimed, and the returned rows are exactly what this export owns.
+    //
+    // Chunked because `.in()` becomes a query-string list, and a whole roster of
+    // UUIDs in one URL is how you meet a request-size limit on the day you can
+    // least afford it.
+    const stamp = new Date().toISOString();
+    const ids = notPrinted.map(a => a.id);
+    const claimed = new Set<string>();
+    let failed: string | null = null;
+    for (let i = 0; i < ids.length && !failed; i += 100) {
+      const { data, error } = await supabase.from('sm_badge')
+        .update({ exported_at: stamp })
+        .in('attendee_id', ids.slice(i, i + 100))
+        .is('exported_at', null)
+        .select('attendee_id');
+      if (error) failed = error.message;
+      else for (const b of (data || []) as { attendee_id: string }[]) claimed.add(b.attendee_id);
+    }
+
+    const mine = notPrinted.filter(a => claimed.has(a.id));
+    if (mine.length) {
+      writeCsv(mine, `sm26-badges-new-${stamp.slice(0, 10)}.csv`);
+    }
+    const lost = notPrinted.length - mine.length;
+    if (failed) {
+      toast({
+        title: mine.length ? `${mine.length} exported, then it stopped` : 'Nothing was exported',
+        // Careful with the promise here: a chunk whose UPDATE committed but whose
+        // reply never arrived IS stamped and IS missing from the file, and no
+        // delta will show it again. Say so rather than claim nothing is lost.
+        description: `${failed} — try again once the error is fixed. If the connection dropped mid-way, cross-check the printed list against the full export: a badge can be marked as printed without reaching the file.`,
+        variant: 'destructive',
+      });
+    } else if (!mine.length) {
+      toast({
+        title: 'Nothing left to print',
+        description: 'Somebody else exported these badges while this page was open.',
+      });
+    } else {
+      toast({
+        title: `${mine.length} badge${mine.length > 1 ? 's' : ''} sent to the printer`,
+        description: lost > 0
+          ? `${lost} had already been claimed by another export and were left out. Everything stays in the full export.`
+          : 'They will not appear in the next batch. Everything stays in the full export.',
+      });
+    }
+    load();
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -759,6 +845,12 @@ export function AdminSM26Checkin() {
           {/* Opening the scanner is the tap that lets iOS start the audio context. */}
           <Button className="gap-1.5" onClick={() => { primeAudio(); setScanning(s => !s); }}><Camera className="h-4 w-4" /> {scanning ? 'Close scanner' : 'Scan QR'}</Button>
           <Button variant="outline" className="gap-1.5" onClick={exportCsv}><Download className="h-4 w-4" /> Export attendees (CSV)</Button>
+          <Button variant="outline" className="gap-1.5" disabled={!notPrinted.length} onClick={exportNewCsv}
+            title={notPrinted.length
+              ? `${notPrinted.length} badge(s) have never gone to the printer`
+              : 'Every badge has already been sent to the printer'}>
+            <Printer className="h-4 w-4" /> New badges for the printer{notPrinted.length ? ` (${notPrinted.length})` : ''}
+          </Button>
         </div>
       </div>
 

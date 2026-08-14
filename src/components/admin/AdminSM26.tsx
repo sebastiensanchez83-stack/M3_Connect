@@ -434,7 +434,12 @@ export function AdminSM26() {
 
   // ── Backfill: confirmed registrations that still have no platform account ──
   const [provBusy, setProvBusy] = useState<string | null>(null);
-  const pendingProvision = rows.filter(r => r.status === 'confirmed' && !r.user_id);
+  // An account needs an address to be created and a welcome link to be sent to.
+  // Invited officials are written to at an embassy and often have none, so they
+  // are confirmed, account-less and unprovisionable — and would otherwise sit in
+  // this backfill for ever while "Provision & invite all" failed on each of them.
+  const pendingProvision = rows.filter(r => r.status === 'confirmed' && !r.user_id && !!r.email);
+  const noEmailGuests = rows.filter(r => r.status === 'confirmed' && !r.user_id && !r.email).length;
 
   const provisionOne = async (r: RegRow): Promise<{ ok: boolean; skippedActive: boolean }> => {
     const who = `${r.first_name || ''} ${r.last_name || ''}`.trim() || r.email;
@@ -758,22 +763,38 @@ export function AdminSM26() {
       </Card>
 
       {/* Confirmed-but-not-onboarded backfill — provision + welcome invite, admin-triggered */}
-      {pendingProvision.length > 0 && (
+      {/* Also shown when the only account-less people are email-less guests —
+          otherwise the card is hidden in exactly the state that needs saying,
+          and nothing anywhere mentions them. */}
+      {(pendingProvision.length > 0 || noEmailGuests > 0) && (
         <Card className="border-0 shadow-sm border-l-4 border-l-amber-400">
           <CardContent className="p-4 space-y-2">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                  <UserPlus className="h-4 w-4 text-amber-500" /> {pendingProvision.length} confirmed without a platform account
+                  <UserPlus className="h-4 w-4 text-amber-500" />
+                  {pendingProvision.length > 0
+                    ? `${pendingProvision.length} confirmed without a platform account`
+                    : `${noEmailGuests} confirmed ${noEmailGuests > 1 ? 'people' : 'person'} with no email address`}
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Provisioning creates their verified account (+ company at member tier, suggested from their roles) and emails the
-                  welcome link — set password → event hub. Open a registration first to adjust persona/company if needed.
+                  {pendingProvision.length > 0 && (
+                    <>Provisioning creates their verified account (+ company at member tier, suggested from their roles) and emails the
+                    welcome link — set password → event hub. Open a registration first to adjust persona/company if needed. </>
+                  )}
+                  {noEmailGuests > 0 && (
+                    <>{pendingProvision.length > 0 ? `${noEmailGuests} more ` : 'They are '}
+                    {noEmailGuests > 1 ? 'people are' : 'person is'} confirmed with no email address — invited guests,
+                    usually. An account needs an address to be sent to, so they cannot be provisioned and are not
+                    listed here. They are on the door list and in the badge print run all the same.</>
+                  )}
                 </p>
               </div>
-              <Button size="sm" className="gap-1.5 shrink-0" disabled={provBusy !== null} onClick={provisionAll}>
-                {provBusy === '__all__' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Provision &amp; invite all
-              </Button>
+              {pendingProvision.length > 0 && (
+                <Button size="sm" className="gap-1.5 shrink-0" disabled={provBusy !== null} onClick={provisionAll}>
+                  {provBusy === '__all__' ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Provision &amp; invite all
+                </Button>
+              )}
             </div>
             <div className="divide-y divide-gray-100">
               {pendingProvision.map(r => {

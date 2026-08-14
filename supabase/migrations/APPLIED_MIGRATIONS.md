@@ -473,3 +473,286 @@ Undo:
 create or replace function public.sm_agenda(p_event_id uuid) ... where s.event_id = p_event_id and s.published ...
 ```
 (the full previous body is the same function with that single clause).
+
+## sm26_invitation_guest_list — 14 August 2026
+
+Full SQL in [`20260814120000_sm26_invitation_guest_list.sql`](./20260814120000_sm26_invitation_guest_list.sql).
+
+`sm_invitation` held letters and nothing else. Eighteen rows, each a PDF and a
+date, and no record anywhere of whether the person had answered. Invitations that
+went out through somebody's own mailbox — most of them — left no trace on the
+platform at all, and there was no path from "the ambassador accepted" to "the
+ambassador is on the check-in list": somebody had to retype them into the
+registrations console and remember to waive the fee.
+
+One row is now **one invited person**, whatever the channel; the letter is
+optional content of that row. Two independent axes, and keeping them apart is
+the point: `status` (draft/ready/sent) is what we did, `rsvp_status`
+(awaiting/accepted/declined/tentative/no_reply) is what they answered, with
+`rsvp_at` / `rsvp_by` / `rsvp_note` as the trail.
+
+`sm_invitation_to_participant` closes the gap. It mirrors
+`sm_admin_create_registration` with four differences the guest list needs:
+
+- **the email is optional.** We write to an embassy, not to a person. The old RPC
+  raises `A valid email address is required`, which is why an ambassador could
+  not be registered at all.
+- **the fee is waived by default.** `sm_checkin_eligibility` refuses a confirmed
+  registration with no payment row, so without this a guest of M3 is turned away
+  at the welcome desk.
+- **the role defaults to `vip`**, and `jury` is refused outright — a juror is
+  judged by `jury_not_onsite`, which this path cannot satisfy.
+- **the delegation comes too.** `sm_invitation_guest` holds each accompanying
+  person by name, because the badge supplier prints a name label per badge and a
+  head count would not print. `sm_invitation_sync_guests` is re-runnable, so an
+  embassy that names its people in September still gets their badges.
+
+If the invited person has meanwhile registered themselves, the invitation links
+to that registration instead of a second one being created. Two badges for one
+person is exactly what this is meant to prevent.
+
+**`discreet` defaults to true, and that is load-bearing.** An invited guest's
+badge is minted with `connect_token = NULL`, so `sm_connect_scan` answers
+`unknown_code` and nobody collects a minister's details by scanning them in a
+corridor. This needs no change to `sm_connect_scan` at all — the column was
+already nullable, it simply carries a random default that has to be overridden
+explicitly. `sm_ensure_badges` cannot undo it either: it only inserts where no
+badge exists.
+
+`sm_badge.exported_at` is the print-run marker. Badges are produced blank by an
+outside supplier and labelled beforehand, so the roster leaves in batches; without
+a marker the second file repeats everything already printed and the supplier
+reprints the lot.
+
+Verified end to end in a transaction aborted by a deliberate exception, as a real
+admin (`request.jwt.claims` set to `9e51b498-…`): an official with **no email at
+all** plus a two-person delegation converted to three attendees, three badges,
+all three `connect_token` NULL, `door_ok` true and no blocker; a fourth name added
+afterwards minted exactly one more badge; removing them took the badge with it.
+Row counts confirmed unchanged after the rollback.
+
+Undo:
+```sql
+drop function if exists public.sm_invitation_board(uuid);
+drop function if exists public.sm_invitation_remove_guest(uuid);
+drop function if exists public.sm_invitation_to_participant(uuid,text,text,text,text,text,text,text[],boolean,boolean);
+drop function if exists public.sm_invitation_sync_guests(uuid);
+drop table if exists public.sm_invitation_guest;
+alter table public.sm_badge drop column if exists exported_at;
+alter table public.sm_invitation
+  drop constraint if exists sm_invitation_channel_chk,
+  drop constraint if exists sm_invitation_rsvp_chk,
+  drop column if exists channel, drop column if exists recipient_email,
+  drop column if exists recipient_phone, drop column if exists rsvp_status,
+  drop column if exists rsvp_at, drop column if exists rsvp_by,
+  drop column if exists rsvp_note, drop column if exists discreet,
+  drop column if exists registration_id, drop column if exists converted_at;
+```
+Reverting throws away every recorded reply and every delegation name, and orphans
+the participants already created from an invitation — they stay on the check-in
+list with no record of where they came from. Export `sm_invitation` and
+`sm_invitation_guest` first.
+
+## sm26_invitation_guest_list_hardening — 14 August 2026
+
+Full SQL in [`20260814150000_sm26_invitation_guest_list_hardening.sql`](./20260814150000_sm26_invitation_guest_list_hardening.sql).
+Three holes found reviewing the above, all the same family: a rule written once
+by one function, which other code was free to undo.
+
+**`connect_token = NULL` was not durable.** `sm_invitation_to_participant` wrote
+it, and `sm_ensure_badges` — which runs on **every load of the check-in
+console** — undid it. That function re-mints a badge for any attending person
+who has none, and its INSERT takes the column DEFAULT, a fresh random token. Its
+own self-heal clauses delete badges when an attendee is set to not-attending or
+a registration is refused, so the sequence is ordinary rather than exotic:
+toggle attending off and on, open the check-in console, and a minister now
+carries a badge any participant can scan for their contact details. The
+invariant moved to a `before insert or update` trigger on `sm_badge`, where
+every writer meets it.
+
+**The networking print run carried a dead card.** `sm_admin_connect_links`
+returned every badge without checking it had a connect token, so a discreet
+guest came out as a printed QR encoding `…/sm26/connect?c=null` — with their
+name on it, handed round the room. One `and b.connect_token is not null`.
+
+**A posted letter had nowhere to go.** The importer mapped "courrier" onto
+`platform_letter`, which claims a PDF this platform can print and does not have,
+and the console offers a Download button on that claim. Added `post` to the
+channel check.
+
+Verified by running the exact sequence that used to break it, in a transaction
+aborted by a deliberate exception: convert an invitation, delete its badge, call
+`sm_ensure_badges` — `connect_token` comes back NULL, and
+`sm_admin_connect_links` returns zero cards for that guest.
+
+Undo:
+```sql
+drop trigger if exists trg_sm_badge_respect_discretion on public.sm_badge;
+drop function if exists public.sm_badge_respect_discretion();
+-- sm_admin_connect_links: drop the `and b.connect_token is not null` clause
+alter table public.sm_invitation drop constraint if exists sm_invitation_channel_chk;
+alter table public.sm_invitation add constraint sm_invitation_channel_chk
+  check (channel in ('platform_letter','email','phone','in_person','third_party'));
+```
+Reverting the trigger silently re-arms the leak — the badges stay NULL until the
+next time `sm_ensure_badges` has cause to re-mint one, so nothing looks wrong
+until it is. Do not revert it without also removing the promise the console
+makes ("access badge only"). Reverting the channel constraint fails while any
+row still says `post`.
+
+## sm26_invitation_guest_list_hardening_4 — 14 August 2026
+
+Full SQL in [`20260814180000_sm26_invitation_guest_list_hardening_4.sql`](./20260814180000_sm26_invitation_guest_list_hardening_4.sql).
+Fourth pass, and the last. Three defects, two of them introduced by the third —
+the link-to-existing branch keeps producing them because it is the one place this
+feature touches a record it does not own.
+
+> The four `…hardening*` files are successive revisions of the same two
+> functions, applied in order on the same day. Only the last is current; they are
+> kept separate because their names are in `supabase_migrations.schema_migrations`
+> and this manifest promises the file set matches it.
+
+**`sm_invitation_remove_guest` never got the headcount guard** its sibling got,
+and it was worse: a raw count with no floor. Removing invited guests from a
+company's own booking crushed a declared 7 to 1, and could write 0 —
+`sm_sync_headcount_to_roster` deliberately floors at `greatest(v_named, 1)` for
+the empty-roster case, and this bypassed it.
+
+**The discretion sweep hit bystanders.** `trg_sm_invitation_sweep_discretion`
+scoped by `registration_id`, which is right for a registration we created (every
+attendee on it *is* the delegation) and wrong on the link-to-existing branch,
+where the registration belongs to a company and carries colleagues who registered
+and paid independently. Linking one discreet invitation silently and irreversibly
+stripped that whole company's networking badges. The promise cannot be kept on
+somebody else's booking, so it is no longer kept silently: both enforcers are
+scoped to `source = 'invitation'`, and the RPC returns a note saying the badge
+stays scannable and why.
+
+**A shared mailbox let one guest swallow another.** The lookup matched any live
+registration on `(event_id, lower(email))` — including one this feature had just
+created. Email here is by design a shared mailbox, so inviting the ambassador and
+then the cultural attaché at `info@embassy` linked the second invitation to the
+first one's participant: two people, one badge, success reported. Registrations
+we created are now excluded, as are ones another invitation already claims.
+
+Verified in an aborted transaction on the whole scenario at once — a company
+booking with a colleague holding a live connect token, two invitations at its
+shared address: the colleague's token stays INTACT, the second invitation creates
+its own `source=invitation` registration instead of linking, and `remove_guest`
+answers `headcount_written: false` with the declared figure unchanged.
+
+Undo: re-apply the bodies from
+[`…hardening_3.sql`](./20260814170000_sm26_invitation_guest_list_hardening_3.sql).
+Every one of these reversions is silent — a wrong invoice, a stripped badge and a
+merged guest all look normal until someone reads them.
+
+## sm26_invitation_guest_list_hardening_3 — 14 August 2026
+
+Full SQL in [`20260814170000_sm26_invitation_guest_list_hardening_3.sql`](./20260814170000_sm26_invitation_guest_list_hardening_3.sql).
+Third pass. Two holes the second pass left open, both on the same branch — the
+one where an invited person turns out to have registered themselves.
+
+**Discretion leaked through the other door.** `trg_sm_badge_respect_discretion`
+is BEFORE INSERT OR UPDATE on `sm_badge`, so it only reaches a badge *as it is
+written*. It cannot reach one that already exists when the invitation *becomes*
+discreet — exactly the link-to-existing case: the person self-registered weeks
+ago and already carries a badge with a live `connect_token`, and linking a
+discreet invitation to it never touched the badge. The console then promised
+"access badge only" over a working scannable card, and the networking print run
+would have produced one. Same hole when staff tick discreet on an
+already-converted invitation. Closed with a sweep trigger on `sm_invitation`
+(after insert or update of `discreet`, `registration_id`) plus a one-off backfill,
+so both directions are covered.
+
+**The headcount guard did not hold.** Scoping the `num_attendees` write to
+`source = 'invitation'` was not enough: the platform's own AFTER trigger
+`sm_attendee_headcount` fires `sm_sync_headcount_to_roster` on *every* attendee
+insert, whatever the source. So minting delegation badges into a company's own
+registration still rewrote the figure `SM26Invoices` bills from. The real answer
+is not a better guard — a delegation M3 invited does not belong on a roster the
+company declared and will be invoiced for. Both the conversion and the console's
+"Issue N missing badges" button now leave somebody else's registration alone and
+return a note saying which names were not added and why.
+
+Verified in an aborted transaction against the exact scenario: a self-registered
+company with a live connect token and a discreet invitation for the same email —
+token goes LIVE → NULL, `sm_admin_connect_links` returns 0 cards for them,
+`guests_minted = 0`, the declared headcount is unchanged, and the sync button
+answers `skipped_not_ours: true`.
+
+Undo: re-apply the two bodies from
+[`…hardening_2.sql`](./20260814160000_sm26_invitation_guest_list_hardening_2.sql)
+and drop `trg_sm_invitation_sweep_discretion` with its function. Both reversions
+are silent: the badges already swept stay NULL, and the headcount only drifts the
+next time somebody adds a delegate — so nothing looks wrong until an invoice is
+wrong.
+
+## sm26_invitation_guest_list_hardening_2 — 14 August 2026
+
+Full SQL in [`20260814160000_sm26_invitation_guest_list_hardening_2.sql`](./20260814160000_sm26_invitation_guest_list_hardening_2.sql),
+pulled back with `pg_get_functiondef` so the file and the database cannot drift.
+Second review pass; both RPCs replaced.
+
+**`sync_guests` was rewriting somebody else's invoice.** It set
+`sm_registration.num_attendees` to a count of attendee rows. That column is the
+company's own *declared* headcount and it is what `SM26Invoices` bills from. On a
+registration this feature created there is nothing to overwrite — but the
+link-to-existing branch attaches an invitation to a registration the company made
+itself, and the next sync silently replaced their figure. Now written only when
+`source = 'invitation'`.
+
+**A revoked guest badge could not be reissued.** The mint loop only looked at
+guests with no attendee, so a delegate whose badge `sm_ensure_badges` had
+self-healed away (refused registration, attendee set to not-attending) was stuck:
+"Issue missing badges" saw nothing to do. A second loop reissues for a guest who
+has an attending attendee and no badge.
+
+**Link-to-existing matched dead registrations.** Any row with that email
+qualified, including `declined` and `cancelled`, and the console reported
+success — attaching the invitation to something the door refuses. Now filtered,
+confirmed preferred, and a non-confirmed match says so in the notes.
+
+**That branch returned no `door_ok`,** so a conversion that worked told staff
+"The door still refuses: undefined". It now reports the primary attendee's real
+verdict.
+
+**No row lock.** Two clicks on "Create the participant" could both pass the
+already-converted check. `select … for update`.
+
+Verified in an aborted transaction: a self-registered company declaring 6 people
+keeps `num_attendees = 6` after being linked and synced, and reports
+`door_ok=true`; a cancelled registration is not linked to (a fresh
+`source=invitation` one is created instead); deleting a delegate's badge and
+re-running sync gives `reissued: 1` with `connect_token` still NULL.
+
+Undo: re-apply the bodies from
+[`20260814120000_sm26_invitation_guest_list.sql`](./20260814120000_sm26_invitation_guest_list.sql).
+Doing so re-arms the invoice overwrite, which is silent and only visible on the
+invoice itself — export `sm_registration.num_attendees` first.
+
+## sm_invitation_staff_includes_rsvp_recorder — 14 August 2026
+
+The console names the author of every action, and `rsvp_by` is a third such
+person — whoever recorded that the guest replied. `sm_invitation_staff` only
+resolved `created_by` and `sent_by`, so the guest panel printed "recorded by
+staff" for a fact that has an author. One extra `union`.
+
+Undo:
+```sql
+-- the same function with the third union clause removed
+create or replace function public.sm_invitation_staff(p_event_id uuid)
+returns table(user_id uuid, name text) language plpgsql stable security definer
+set search_path to 'public' as $function$
+begin
+  if not sm_is_staff() then raise exception 'Not authorized'; end if;
+  return query
+  select p.user_id,
+         coalesce(nullif(trim(coalesce(p.first_name,'')||' '||coalesce(p.last_name,'')),''), p.email, 'Staff')
+  from profiles p
+  where p.user_id in (
+    select created_by from sm_invitation where event_id = p_event_id and created_by is not null
+    union
+    select sent_by from sm_invitation where event_id = p_event_id and sent_by is not null
+  );
+end $function$;
+```

@@ -223,6 +223,102 @@ export const DEFAULT_PRICING: EventPricingRow[] = [
   { tier: 'main_sponsor', price_cents: 0, max_included_seats: 15, additional_member_price_cents: 21000, discount_pct: 0 },
 ];
 
+/* ─── SM26 invitations & guest list ───
+ *
+ * One sm_invitation row = one INVITED PERSON, whatever the channel. The letter,
+ * when there is one, is content of that row rather than the thing itself. Two
+ * independent axes: `status` (draft/ready/sent) is what we did, `rsvp_status` is
+ * what they answered.
+ *
+ * These live here rather than beside the console because the console, the guest
+ * panel and the importer all need them, and importing them from the console
+ * would make the three files import each other in a ring.
+ */
+export interface SM26Invitation {
+  id: string;
+  event_id: string;
+  language: 'fr' | 'en';
+  letter_type: 'authorities' | 'general';
+  register: string;
+  country: string | null;
+  sign_off: string;
+  created_by: string | null;
+  sent_by: string | null;
+  recipient_name: string | null;
+  recipient_role: string | null;
+  recipient_org: string | null;
+  address_block: string;
+  salutation: string;
+  letter_place: string;
+  letter_date: string;
+  subject: string;
+  paragraphs: string[];
+  complimentary_close: string;
+  signatory_name: string;
+  signatory_title: string;
+  signatory_org: string;
+  status: string;
+  sent_at: string | null;
+  notes: string | null;
+  updated_at: string;
+  channel: string;
+  recipient_email: string | null;
+  recipient_phone: string | null;
+  rsvp_status: string;
+  rsvp_at: string | null;
+  rsvp_by: string | null;
+  rsvp_note: string | null;
+  /** Access badge only: no connect_token, so nobody can scan it for contacts. */
+  discreet: boolean;
+  registration_id: string | null;
+  converted_at: string | null;
+}
+
+/** One named person of a delegation. Named, because each needs a badge label. */
+export interface SM26InvitationGuest {
+  id: string;
+  invitation_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  job_title: string | null;
+  email: string | null;
+  /** Null until they have been minted into a real attendee with a badge. */
+  attendee_id: string | null;
+  created_at: string;
+}
+
+/** What sm_invitation_board() returns — state spread across four other tables. */
+export interface SM26InvitationBoardRow {
+  invitation_id: string;
+  registration_id: string | null;
+  guest_count: number;
+  guests_pending: number;
+  attendee_count: number;
+  badge_count: number;
+  exported_count: number;
+  checked_in_count: number;
+  has_account: boolean | null;
+  door_ok: boolean | null;
+  door_blocker: string | null;
+}
+
+export const SM26_INVITE_CHANNELS = [
+  { key: 'platform_letter', label: 'Letter drawn here' },
+  { key: 'email', label: 'Email, outside the platform' },
+  { key: 'post', label: 'Posted letter, written elsewhere' },
+  { key: 'phone', label: 'Phone call' },
+  { key: 'in_person', label: 'In person' },
+  { key: 'third_party', label: 'Through somebody else' },
+];
+
+export const SM26_RSVP_STATES = [
+  { key: 'awaiting', label: 'Awaiting a reply', cls: 'bg-gray-50 text-gray-600 border-gray-200' },
+  { key: 'accepted', label: 'Accepted', cls: 'bg-green-50 text-green-700 border-green-200' },
+  { key: 'declined', label: 'Declined', cls: 'bg-red-50 text-red-700 border-red-200' },
+  { key: 'tentative', label: 'Tentative', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { key: 'no_reply', label: 'No reply', cls: 'bg-gray-50 text-gray-400 border-gray-200' },
+];
+
 /* ─── Admin-only route paths — moderators are blocked from these ─── */
 export const ADMIN_ONLY_ROUTES = new Set([
   '/admin/users', '/admin/events',

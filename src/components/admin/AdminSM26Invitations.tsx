@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Plus, Trash2, Download, Eye, FileText, Image as ImageIcon,
-  Upload, RotateCcw, ChevronUp, ChevronDown, Check, X, Loader2,
+  Upload, RotateCcw, ChevronUp, ChevronDown, ChevronRight, Check, X, Loader2, Search,
+  Send, FileUp,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -20,40 +21,36 @@ import {
   type EventFacts, type Lang, type Register, type LetterType,
 } from '@/lib/invitationTemplates';
 import { downloadInvitationPdf, invitationPdfBlobUrl, toDataUrl, type LetterAssets, type LetterData } from '@/lib/invitationPdf';
+import { SM26InvitationGuestPanel } from './SM26InvitationGuestPanel';
+import { SM26InvitationImport } from './SM26InvitationImport';
+import {
+  SM26_INVITE_CHANNELS as INVITE_CHANNELS, SM26_RSVP_STATES as RSVP_STATES,
+  type SM26Invitation, type SM26InvitationBoardRow,
+} from './types';
 
-// Official invitation letters for institutional guests (ambassadors, ministers).
-// Fill the form, pick French or English, and the platform draws the M3
-// letterhead PDF. Every letter is stored, so we know who was invited and can
-// re-issue an identical copy months later.
+// The invitation guest list.
+//
+// One row = ONE INVITED PERSON, whatever the channel. For an institutional guest
+// the platform still draws the letter on the M3 letterhead and stores it, so an
+// identical copy can be re-issued months later. For an invitation that went out
+// through somebody's own mailbox there is no letter at all — just the fact that
+// it went, when, and what came back.
+//
+// Two independent axes, and keeping them apart is the whole point:
+//   status      draft → ready → sent    what WE did
+//   rsvp_status awaiting → accepted/…   what THEY answered
+//
+// An accepted invitation becomes a real participant in one click: registration,
+// role, badge, fee waiver and the delegation, so the guest is on the check-in
+// list and in the badge print run without anybody retyping them.
 
-interface Invitation {
-  id: string;
-  event_id: string;
-  language: Lang;
-  letter_type: LetterType;
-  register: Register;
-  country: string | null;
-  sign_off: string;
-  created_by: string | null;
-  sent_by: string | null;
-  recipient_name: string | null;
-  recipient_role: string | null;
-  recipient_org: string | null;
-  address_block: string;
-  salutation: string;
-  letter_place: string;
-  letter_date: string;
-  subject: string;
-  paragraphs: string[];
-  complimentary_close: string;
-  signatory_name: string;
-  signatory_title: string;
-  signatory_org: string;
-  status: string;
-  sent_at: string | null;
-  notes: string | null;
-  updated_at: string;
-}
+// The letter fields are typed loosely in types.ts (it must not import the letter
+// template module); here they are narrowed to the template's own unions, which
+// is what the editor's selectors need.
+type Invitation = Omit<SM26Invitation, 'language' | 'letter_type' | 'register'> & {
+  language: Lang; letter_type: LetterType; register: Register;
+};
+type BoardRow = SM26InvitationBoardRow;
 
 // Images plus the two bits of fixed text that belong to the company, not to a
 // given letter: the sender block and the legal footer line.
@@ -78,7 +75,43 @@ const statusMeta = (s: string) =>
   : s === 'ready' ? { label: 'Ready to send', cls: 'bg-blue-50 text-blue-700 border-blue-200' }
   : { label: 'Draft', cls: 'bg-gray-50 text-gray-600 border-gray-200' };
 
+const rsvpMeta = (s: string) => RSVP_STATES.find(r => r.key === s) || RSVP_STATES[0];
+const channelLabel = (c: string) => INVITE_CHANNELS.find(x => x.key === c)?.label || c;
+
+/**
+ * Does this row carry a letter we can print?
+ *
+ * Deliberately asked of the CONTENT, not of `channel`. Gating on the channel
+ * meant that answering "how it reached them" honestly — the PDF was drawn here
+ * but scanned and emailed — hid the letter behind a value only the letter editor
+ * could change, and the editor was the thing that had just been hidden.
+ */
+const hasLetterBody = (r: Invitation) =>
+  (r.paragraphs || []).some(p => p.trim()) || !!(r.subject || '').trim();
+
 const sameBody = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+// The list is long enough that "where is the Egyptian ambassador" needs an
+// answer that is not scrolling.
+type Filter = 'all' | 'to_send' | 'awaiting' | 'accepted' | 'declined' | 'participant';
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: 'all', label: 'Everyone' },
+  { key: 'to_send', label: 'Not sent yet' },
+  { key: 'awaiting', label: 'Waiting on a reply' },
+  { key: 'accepted', label: 'Accepted' },
+  { key: 'declined', label: 'Declined' },
+  { key: 'participant', label: 'On the participant list' },
+];
+const matchesFilter = (r: Invitation, f: Filter) => {
+  switch (f) {
+    case 'to_send': return r.status !== 'sent';
+    case 'awaiting': return r.status === 'sent' && !r.registration_id && ['awaiting', 'tentative', 'no_reply'].includes(r.rsvp_status);
+    case 'accepted': return r.rsvp_status === 'accepted';
+    case 'declined': return r.rsvp_status === 'declined';
+    case 'participant': return !!r.registration_id;
+    default: return true;
+  }
+};
 
 export function AdminSM26Invitations() {
   const navigate = useNavigate();
@@ -88,17 +121,33 @@ export function AdminSM26Invitations() {
   const [letterhead, setLetterhead] = useState<Letterhead>({});
   const [assets, setAssets] = useState<LetterAssets>({});
   const [rows, setRows] = useState<Invitation[]>([]);
+  const [board, setBoard] = useState<Record<string, BoardRow>>({});
   const [openId, setOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Invitation | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [showAssets, setShowAssets] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [quick, setQuick] = useState<{ name: string; role: string; org: string; country: string; email: string; phone: string; channel: string; sent: string; note: string } | null>(null);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [query, setQuery] = useState('');
   const [staff, setStaff] = useState<Record<string, string>>({});
   const [me, setMe] = useState<string | null>(null);
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({});
-  const staffName = (id: string | null) => (id ? staff[id] || 'Staff' : null);
+  const staffName = useCallback((id: string | null) => (id ? staff[id] || 'Staff' : null), [staff]);
 
   // ---- load ---------------------------------------------------------------
-  const load = useCallback(async () => {
-    setLoading(true);
+  /**
+   * `quiet` skips the full-page spinner.
+   *
+   * The loading guard replaces the whole page with a spinner, so every child
+   * unmounts — including the expanded guest panel. Refreshing after an action
+   * there therefore threw away a half-filled "turn them into a participant"
+   * form: the name split, the roles, the fee waiver, all of it, with no warning.
+   * Actions inside the panel reload quietly; only the first load and the
+   * Refresh button take the spinner.
+   */
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
     const { data: ev } = await supabase.from('sm_event')
       .select('id, name, venue, start_date, end_date, settings').eq('slug', 'sm26').maybeSingle();
     if (!ev) { setLoading(false); return; }
@@ -114,6 +163,9 @@ export function AdminSM26Invitations() {
     const { data: list } = await supabase.from('sm_invitation')
       .select('*').eq('event_id', e.id).order('updated_at', { ascending: false });
     setRows((list || []) as Invitation[]);
+    // Guests, badges, the door verdict — one call rather than a query per row.
+    const { data: bd } = await supabase.rpc('sm_invitation_board', { p_event_id: e.id });
+    setBoard(Object.fromEntries(((bd || []) as BoardRow[]).map(b => [b.invitation_id, b])));
     const { data: st } = await supabase.rpc('sm_invitation_staff', { p_event_id: e.id });
     setStaff(Object.fromEntries(((st || []) as { user_id: string; name: string }[]).map(s => [s.user_id, s.name])));
     const { data: u } = await supabase.auth.getUser();
@@ -165,11 +217,20 @@ export function AdminSM26Invitations() {
       complimentary_close: complimentaryCloseFor(lang, type, register),
       signatory_name: SIGNATORY_DEFAULT.name, signatory_title: SIGNATORY_DEFAULT.title, signatory_org: SIGNATORY_DEFAULT.org,
       status: 'draft', sent_at: null, notes: '', updated_at: '',
+      channel: 'platform_letter', recipient_email: '', recipient_phone: '',
+      rsvp_status: 'awaiting', rsvp_at: null, rsvp_by: null, rsvp_note: '',
+      discreet: true, registration_id: null, converted_at: null,
     };
   };
 
-  const openNew = (type: LetterType) => { setDraft(blank(type)); setOpenId('new'); };
-  const openRow = (r: Invitation) => { setDraft({ ...r }); setOpenId(r.id); };
+  // The editor renders above the list, so on any list longer than a screen it
+  // opens out of sight and the only feedback is a faint tint on the row.
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const revealEditor = () =>
+    requestAnimationFrame(() => editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+
+  const openNew = (type: LetterType) => { setDraft(blank(type)); setOpenId('new'); setQuick(null); revealEditor(); };
+  const openRow = (r: Invitation) => { setDraft({ ...r }); setOpenId(r.id); revealEditor(); };
   const close = () => { setDraft(null); setOpenId(null); };
 
   const set = <K extends keyof Invitation>(k: K, v: Invitation[K]) =>
@@ -272,6 +333,10 @@ export function AdminSM26Invitations() {
   // ---- persist ------------------------------------------------------------
   const save = async (): Promise<string | null> => {
     if (!draft || !event) return null;
+    // Deliberately not in the payload: rsvp_*, discreet, registration_id and
+    // converted_at. They belong to the guest panel and to the conversion RPC,
+    // and an UPDATE that listed them would let a letter edit quietly undo an
+    // answer somebody recorded an hour earlier.
     const payload = {
       event_id: event.id,
       language: draft.language, letter_type: draft.letter_type, register: draft.register,
@@ -283,6 +348,9 @@ export function AdminSM26Invitations() {
       recipient_name: draft.recipient_name || null,
       recipient_role: draft.recipient_role || null,
       recipient_org: draft.recipient_org || null,
+      recipient_email: draft.recipient_email || null,
+      recipient_phone: draft.recipient_phone || null,
+      channel: draft.channel,
       address_block: draft.address_block,
       salutation: draft.salutation,
       letter_place: draft.letter_place,
@@ -312,13 +380,88 @@ export function AdminSM26Invitations() {
     return id;
   };
 
+  /**
+   * Record an invitation that went out without this module — a personal email, a
+   * phone call, a letter carried by somebody else. No letter is drawn: what is
+   * being captured is that it went, when, and to whom.
+   */
+  const saveQuick = async () => {
+    if (!quick || !event || !quick.name.trim()) return;
+    setBusy('quick');
+    try {
+      // A date input can be cleared, and `new Date('T12:00:00Z')` throws — which
+      // used to abort the whole function before the insert, leaving no row, no
+      // error and the page-wide busy lock stuck on. An invitation with no date
+      // is simply one we have not dated.
+      // Shape alone is not enough: 2026-13-45 matches the pattern and then
+      // throws, and 2026-02-30 silently rolls over to 2 March. Round-tripping
+      // through Date is what separates a date from a string that looks like one.
+      const looksRight = /^\d{4}-\d{2}-\d{2}$/.test(quick.sent);
+      const parsed = looksRight ? new Date(`${quick.sent}T12:00:00Z`) : null;
+      const dated = !!parsed && !Number.isNaN(parsed.getTime())
+        && parsed.toISOString().slice(0, 10) === quick.sent;
+      const today = new Date().toISOString().slice(0, 10);
+      const { error } = await supabase.from('sm_invitation').insert({
+        event_id: event.id,
+        letter_type: 'general', register: 'standard', language: 'fr',
+        recipient_name: quick.name.trim(),
+        recipient_role: quick.role.trim() || null,
+        recipient_org: quick.org.trim() || null,
+        country: quick.country.trim() || null,
+        recipient_email: quick.email.trim().toLowerCase() || null,
+        recipient_phone: quick.phone.trim() || null,
+        channel: quick.channel,
+        subject: '', salutation: '',
+        created_by: me, sent_by: me,
+        status: 'sent',
+        letter_date: dated ? quick.sent : today,
+        sent_at: new Date(`${dated ? quick.sent : today}T12:00:00Z`).toISOString(),
+        notes: quick.note.trim() || null,
+      });
+      if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
+      toast({
+        title: `${quick.name.trim()} added to the guest list`,
+        description: dated ? '' : 'No send date was given, so today was recorded — correct it if it went out earlier.',
+      });
+      setQuick(null);
+      await load();
+    } catch (e) {
+      toast({ title: 'Could not save', description: String((e as Error).message || e), variant: 'destructive' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const remove = async (r: Invitation) => {
-    if (!confirm(`Delete the invitation for ${r.recipient_name || 'this recipient'}? This cannot be undone.`)) return;
+    // Be exact about what goes. sm_invitation_guest cascades on the invitation,
+    // so the delegation DOES die with it — including names captured but not yet
+    // turned into badges, which exist nowhere else.
+    const b = board[r.id];
+    const lines: string[] = [];
+    if (b && b.guest_count > 0) {
+      lines.push(`The ${b.guest_count} name${b.guest_count > 1 ? 's' : ''} recorded under "who comes with them" go with it.`);
+      if (b.guests_pending > 0) {
+        lines.push(`${b.guests_pending} of them have no badge yet and are recorded nowhere else — they will be lost.`);
+      }
+    }
+    if (r.registration_id) {
+      lines.push('Their participant record and badges stay — only this invitation and its guest names are removed. Cancel the registration itself if they are no longer coming.');
+      if (r.discreet) {
+        // Both discretion enforcers look for a surviving sm_invitation row, so
+        // deleting the invitation quietly ends the "access badge only" promise:
+        // the badges stay NULL today, but the next time anything re-mints one it
+        // will carry a scannable token.
+        lines.push('"Access badge only" stops being enforced: their badges keep no connect code today, but a re-issued one would become scannable again.');
+      }
+    }
+    const extra = lines.length ? `\n\n${lines.join('\n')}` : '';
+    if (!confirm(`Delete the invitation for ${r.recipient_name || 'this recipient'}? This cannot be undone.${extra}`)) return;
     setBusy(`del:${r.id}`);
     const { error } = await supabase.from('sm_invitation').delete().eq('id', r.id);
     setBusy(null);
     if (error) { toast({ title: 'Could not delete', description: error.message, variant: 'destructive' }); return; }
     if (openId === r.id) close();
+    if (expanded === r.id) setExpanded(null);
     load();
   };
 
@@ -410,6 +553,24 @@ export function AdminSM26Invitations() {
     () => ASSET_SLOTS.filter(s => !s.bundled && !letterhead[s.key]).map(s => s.label.toLowerCase()),
     [letterhead]);
 
+  const counts = useMemo(() => Object.fromEntries(
+    FILTERS.map(f => [f.key, rows.filter(r => matchesFilter(r, f.key)).length])
+  ) as Record<Filter, number>, [rows]);
+
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter(r => matchesFilter(r, filter)).filter(r => !q || [
+      r.recipient_name, r.recipient_role, r.recipient_org, r.recipient_email, r.country,
+    ].some(v => (v || '').toLowerCase().includes(q)));
+  }, [rows, filter, query]);
+
+  // Used by the importer to flag a name it has seen before rather than creating
+  // a second invitation for the same person.
+  const existingEmails = useMemo(
+    () => new Set(rows.map(r => (r.recipient_email || '').toLowerCase()).filter(Boolean)), [rows]);
+  const existingNames = useMemo(
+    () => new Set(rows.map(r => (r.recipient_name || '').trim().toLowerCase()).filter(Boolean)), [rows]);
+
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   return (
@@ -417,20 +578,27 @@ export function AdminSM26Invitations() {
       <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Mail className="h-6 w-6 text-primary" /> Official invitations</h1>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <Mail className="h-6 w-6 text-primary" /> Invitations &amp; guest list ({rows.length})
+        </h1>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon" className="h-9 w-9" onClick={load} title="Refresh"><RefreshCw className="h-4 w-4" /></Button>
+          <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => load()} title="Refresh"><RefreshCw className="h-4 w-4" /></Button>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => { setShowImport(o => !o); setQuick(null); }}>
+            <FileUp className="h-4 w-4" /> Import a list
+          </Button>
           <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAssets(o => !o)}><ImageIcon className="h-4 w-4" /> Letterhead</Button>
         </div>
       </div>
 
       <p className="text-sm text-gray-500 -mt-1 max-w-3xl">
-        Pick the kind of letter, fill the recipient, choose French or English, and the platform draws it on the M3 letterhead.
-        The wording is generic and loaded for you — edit any paragraph, and add your own where the letter needs to be personal.
+        Every person we invited, however the invitation reached them. Draw the letter here and the platform
+        prints it on the M3 letterhead; or simply record one that went out from your own mailbox. Record the
+        reply as it comes in, and turn an acceptance into a participant — badge, check-in and print run
+        included — in one click.
       </p>
 
-      {/* Choosing the letter type is the first decision: it changes the whole body. */}
-      <div className="grid sm:grid-cols-2 gap-3">
+      {/* Starting a new invitation: two letters, or none at all. */}
+      <div className="grid sm:grid-cols-3 gap-3">
         {LETTER_TYPES.map(t => (
           <button key={t.key} type="button" onClick={() => openNew(t.key)}
             className="text-left rounded-lg border border-gray-200 bg-white p-4 hover:border-primary/50 hover:shadow-sm transition-all">
@@ -440,7 +608,70 @@ export function AdminSM26Invitations() {
             <p className="text-xs text-gray-500 mt-1">{t.hint_en}</p>
           </button>
         ))}
+        <button type="button"
+          onClick={() => {
+            close(); setShowImport(false);
+            setQuick(q => q ? null : {
+              name: '', role: '', org: '', country: '', email: '', phone: '',
+              channel: 'email', sent: new Date().toISOString().slice(0, 10), note: '',
+            });
+          }}
+          className="text-left rounded-lg border border-gray-200 bg-white p-4 hover:border-primary/50 hover:shadow-sm transition-all">
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            <Send className="h-4 w-4 text-primary" /> Already invited, outside the platform
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            An email you sent yourself, a phone call, a letter carried by somebody else. No letter is drawn —
+            it joins the list so the reply can be followed.
+          </p>
+        </button>
       </div>
+
+      {/* ---- record an off-platform invitation ---- */}
+      {quick && (
+        <Card className="border-0 shadow-sm ring-1 ring-primary/20">
+          <CardContent className="p-4 space-y-3">
+            <div className="text-sm font-semibold text-gray-800">Record an invitation already sent</div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <Input placeholder="Who you invited *" value={quick.name} onChange={e => setQuick({ ...quick, name: e.target.value })} />
+              <Input placeholder="Title / role" value={quick.role} onChange={e => setQuick({ ...quick, role: e.target.value })} />
+              <Input placeholder="Organisation" value={quick.org} onChange={e => setQuick({ ...quick, org: e.target.value })} />
+              <Input placeholder="Email (leave empty if there is none)" value={quick.email} onChange={e => setQuick({ ...quick, email: e.target.value })} />
+              <Input placeholder="Phone" value={quick.phone} onChange={e => setQuick({ ...quick, phone: e.target.value })} />
+              <Input placeholder="Country" value={quick.country} onChange={e => setQuick({ ...quick, country: e.target.value })} />
+              <Select value={quick.channel} onValueChange={v => setQuick({ ...quick, channel: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {INVITE_CHANNELS.filter(c => c.key !== 'platform_letter').map(c =>
+                    <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <div>
+                <Label className="text-[11px] text-gray-500">Sent on</Label>
+                <Input type="date" className="mt-0.5" value={quick.sent} onChange={e => setQuick({ ...quick, sent: e.target.value })} />
+              </div>
+              <Input placeholder="Internal note" value={quick.note} onChange={e => setQuick({ ...quick, note: e.target.value })} />
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" className="gap-1.5" disabled={busy === 'quick' || !quick.name.trim()} onClick={saveQuick}>
+                {busy === 'quick' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} Add to the guest list
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setQuick(null)}>Cancel</Button>
+              <span className="text-xs text-gray-400">No email is sent. This only records what already happened.</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {showImport && event && (
+        <SM26InvitationImport
+          eventId={event.id}
+          existingEmails={existingEmails}
+          existingNames={existingNames}
+          onImported={load}
+          onClose={() => setShowImport(false)}
+        />
+      )}
 
       {missingAssets.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -516,12 +747,12 @@ export function AdminSM26Invitations() {
 
       {/* ---- editor ---- */}
       {draft && (
-        <Card className="border-0 shadow-sm">
+        <Card className="border-0 shadow-sm scroll-mt-4" ref={editorRef}>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <CardTitle className="text-base flex items-center gap-2">
                 <FileText className="h-4 w-4 text-primary" />
-                {draft.id ? 'Edit invitation' : 'New invitation'}
+                {draft.id ? 'Edit the letter' : 'New letter'}
               </CardTitle>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="ghost" onClick={close}>Close</Button>
@@ -585,7 +816,7 @@ export function AdminSM26Invitations() {
                 </Select>
               </div>
               <div>
-                <Label className="text-xs text-gray-500">Status</Label>
+                <Label className="text-xs text-gray-500">Has it gone out?</Label>
                 <Select value={draft.status} onValueChange={v => set('status', v)}>
                   <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -605,6 +836,23 @@ export function AdminSM26Invitations() {
                 <Input className="h-9 mt-1" value={draft.recipient_role || ''} onChange={e => set('recipient_role', e.target.value)} placeholder="Ambassador" /></div>
               <div><Label className="text-xs text-gray-500">Organisation</Label>
                 <Input className="h-9 mt-1" value={draft.recipient_org || ''} onChange={e => set('recipient_org', e.target.value)} placeholder="Embassy of Egypt in France" /></div>
+            </div>
+
+            {/* How to reach them. Never printed on the letter — this is how the
+                platform emails them a badge later, and how the list is chased. */}
+            <div className="grid sm:grid-cols-3 gap-3">
+              <div><Label className="text-xs text-gray-500">Email — not printed, used to send their badge</Label>
+                <Input className="h-9 mt-1" value={draft.recipient_email || ''} onChange={e => set('recipient_email', e.target.value)} placeholder="Leave empty if there is none" /></div>
+              <div><Label className="text-xs text-gray-500">Phone — not printed</Label>
+                <Input className="h-9 mt-1" value={draft.recipient_phone || ''} onChange={e => set('recipient_phone', e.target.value)} /></div>
+              <div><Label className="text-xs text-gray-500">How it reached them</Label>
+                <Select value={draft.channel} onValueChange={v => set('channel', v)}>
+                  <SelectTrigger className="h-9 mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {INVITE_CHANNELS.map(c => <SelectItem key={c.key} value={c.key}>{c.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <div>
@@ -684,38 +932,95 @@ export function AdminSM26Invitations() {
         </Card>
       )}
 
+      {/* ---- filters ---- */}
+      {rows.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {FILTERS.map(f => (
+            <button key={f.key} type="button" onClick={() => setFilter(f.key)}
+              className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                filter === f.key ? 'bg-primary text-white border-primary' : 'border-gray-200 text-gray-600 hover:border-primary/40'}`}>
+              {f.label} <span className={filter === f.key ? 'opacity-80' : 'text-gray-400'}>{counts[f.key]}</span>
+            </button>
+          ))}
+          <div className="relative ml-auto">
+            <Search className="h-4 w-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Input className="h-9 pl-8 w-56" placeholder="Search a guest…" value={query} onChange={e => setQuery(e.target.value)} />
+          </div>
+        </div>
+      )}
+
       {/* ---- list ---- */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-0">
           {rows.length === 0 ? (
             <div className="py-12 text-center text-gray-400 text-sm">
-              No invitation yet. Pick a kind of letter above — the wording is pre-written, you only add the recipient.
+              Nobody on the list yet. Draw a letter above, record one you already sent, or import a list.
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="py-12 text-center text-gray-400 text-sm">
+              Nobody matches that. Clear the search, or pick another filter.
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                  <th className="px-4 py-2">Recipient</th><th className="px-4 py-2">Letter</th>
-                  <th className="px-4 py-2">Date</th><th className="px-4 py-2">Status</th>
+                  <th className="px-4 py-2">Guest</th><th className="px-4 py-2">Invited</th>
+                  <th className="px-4 py-2">Reply</th><th className="px-4 py-2">Participant</th>
                   <th className="px-4 py-2">Staff</th><th className="px-4 py-2" />
                 </tr></thead>
                 <tbody>
-                  {rows.map(r => {
+                  {visible.map(r => {
                     const m = statusMeta(r.status);
-                    return (
-                      <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 ${openId === r.id ? 'bg-primary/5' : ''}`}>
-                        <td className="px-4 py-2.5 cursor-pointer" onClick={() => openRow(r)}>
-                          <div className="font-medium">{r.recipient_name || '—'}</div>
-                          <div className="text-xs text-gray-400">{[r.recipient_role, r.recipient_org].filter(Boolean).join(' · ') || r.subject}</div>
+                    const rm = rsvpMeta(r.rsvp_status);
+                    const b = board[r.id];
+                    const isOpen = expanded === r.id;
+                    const hasLetter = hasLetterBody(r);
+                    return [
+                      <tr key={r.id} className={`border-b border-gray-50 hover:bg-gray-50 ${openId === r.id || isOpen ? 'bg-primary/5' : ''}`}>
+                        <td className="px-4 py-2.5 cursor-pointer" onClick={() => setExpanded(isOpen ? null : r.id)}>
+                          <div className="flex items-center gap-1.5">
+                            <ChevronRight className={`h-4 w-4 text-gray-300 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+                            <div>
+                              <div className="font-medium">{r.recipient_name || '—'}</div>
+                              <div className="text-xs text-gray-400">
+                                {[r.recipient_role, r.recipient_org].filter(Boolean).join(' · ') || r.subject || '—'}
+                              </div>
+                            </div>
+                          </div>
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center gap-1 flex-wrap">
-                            <Pill label={r.letter_type === 'authorities' ? 'Authorities' : 'General'} cls="bg-blue-50 text-blue-700 border-blue-200" />
-                            <Pill label={r.language.toUpperCase()} cls="bg-gray-50 text-gray-600 border-gray-200" />
+                            <Pill label={m.label} cls={m.cls} />
+                            {hasLetter && <Pill label={r.letter_type === 'authorities' ? 'Authorities' : 'General'} cls="bg-blue-50 text-blue-700 border-blue-200" />}
+                            {r.channel !== 'platform_letter' && <Pill label={channelLabel(r.channel)} cls="bg-gray-50 text-gray-600 border-gray-200" />}
                           </div>
+                          <div className="text-[11px] text-gray-400 mt-0.5">{(r.sent_at || '').slice(0, 10) || r.letter_date}</div>
                         </td>
-                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{r.letter_date}</td>
-                        <td className="px-4 py-2.5"><Pill label={m.label} cls={m.cls} /></td>
+                        <td className="px-4 py-2.5">
+                          <Pill label={rm.label} cls={rm.cls} />
+                          {b && b.guest_count > 0 && (
+                            <div className="text-[11px] text-gray-400 mt-0.5">+{b.guest_count} with them</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {!r.registration_id ? (
+                            <span className="text-xs text-gray-300">not yet</span>
+                          ) : (
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-1 flex-wrap">
+                                {b?.door_ok
+                                  ? <Pill label="door OK" cls="bg-green-50 text-green-700 border-green-200" />
+                                  : <Pill label="door refuses" cls="bg-red-50 text-red-700 border-red-200" />}
+                                <span className="text-[11px] text-gray-400">{b?.badge_count ?? 0} badge{(b?.badge_count ?? 0) > 1 ? 's' : ''}</span>
+                              </div>
+                              <span className="text-[11px] text-gray-400">
+                                {(b?.exported_count ?? 0) >= (b?.badge_count ?? 0)
+                                  ? 'labels printed'
+                                  : `${(b?.badge_count ?? 0) - (b?.exported_count ?? 0)} not printed yet`}
+                              </span>
+                            </div>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5 text-xs text-gray-500 whitespace-nowrap">
                           {staffName(r.created_by) && <div>Prepared by {staffName(r.created_by)}</div>}
                           {r.sent_by
@@ -724,14 +1029,34 @@ export function AdminSM26Invitations() {
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex items-center justify-end gap-1">
-                            <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-primary" title="Download the PDF"
-                              disabled={!!busy} onClick={() => download(r)}><Download className="h-4 w-4" /></Button>
+                            {/* Always reachable: this is the only editor for the
+                                recipient, the email and the channel, whether or
+                                not a letter was ever drawn. */}
+                            <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-primary"
+                              title={hasLetter ? 'Open the letter' : 'Edit this record, or write a letter for it'}
+                              onClick={() => openRow(r)}><FileText className="h-4 w-4" /></Button>
+                            {hasLetter && (
+                              <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-primary" title="Download the PDF"
+                                disabled={!!busy} onClick={() => download(r)}><Download className="h-4 w-4" /></Button>
+                            )}
                             <Button size="icon" variant="ghost" className="h-7 w-7 text-gray-400 hover:text-red-600" title="Delete"
                               disabled={busy === `del:${r.id}`} onClick={() => remove(r)}><X className="h-4 w-4" /></Button>
                           </div>
                         </td>
-                      </tr>
-                    );
+                      </tr>,
+                      isOpen ? (
+                        <tr key={`${r.id}-panel`} className="bg-gray-50/60">
+                          <td colSpan={6} className="px-4 py-4">
+                            <SM26InvitationGuestPanel
+                              invitation={r}
+                              board={b}
+                              staffName={staffName}
+                              onChanged={() => load(true)}
+                            />
+                          </td>
+                        </tr>
+                      ) : null,
+                    ];
                   })}
                 </tbody>
               </table>

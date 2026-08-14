@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { SM26_ROLE_LABELS, regStatusBadgeClass, prettyStatus } from './AdminSM26';
 import { AdminEventPartners } from './AdminEventPartners';
 import { AdminYVPartners } from './AdminYVPartners';
+import { AdminSM26Logistics } from './AdminSM26Logistics';
 
 // At-a-glance event vitals (registrations, payments, check-in, e-catalogue,
 // jury, votes, feedback) from a single sm_event_health RPC.
@@ -400,6 +401,8 @@ export function AdminSM26Health() {
           </div>
         </CardContent>
       </Card>
+
+      {eventId && <AdminSM26Logistics eventId={eventId} />}
 
       {eventId && (
         <div className="grid md:grid-cols-2 gap-4">

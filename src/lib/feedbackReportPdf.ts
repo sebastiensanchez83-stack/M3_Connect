@@ -35,7 +35,10 @@ export type ReportBlock =
   | { kind: 'checklist'; heading: string; note?: string; items: { label: string; detail?: string | null; state: string }[] }
   // A space the document deliberately leaves empty, for figures that live
   // outside the platform and are filled in before sending.
-  | { kind: 'placeholder'; heading: string; note?: string; lines: number };
+  | { kind: 'placeholder'; heading: string; note?: string; lines: number }
+  // Two or three columns of facts — a roll-call, a list of needs. Not a grid
+  // with rules: hairlines everywhere make a page look busier than it is.
+  | { kind: 'table'; heading: string; note?: string; columns: [string, string, string?]; rows: [string, string, string?][] };
 
 export interface ReportMeta { title: string; subtitle: string; note?: string }
 export interface ReportAssets { banner?: string | null; footer?: string | null }
@@ -178,6 +181,60 @@ export async function buildFeedbackReportPdf(
           y += 4;
         }
         y += 1.6;
+      }
+      y += 3;
+    }
+
+    if (block.kind === 'table') {
+      heading(block.heading, block.note);
+      const three = block.columns.length === 3 && block.columns[2] !== undefined;
+      const w1 = CONTENT_W * (three ? 0.34 : 0.42);
+      const w2 = CONTENT_W * (three ? 0.36 : 0.58);
+      const x2 = M_LEFT + w1;
+      const x3 = x2 + w2;
+
+      const columnHeads = () => {
+        doc.setFont(FONT, 'bold'); doc.setFontSize(7.6); doc.setTextColor(...GREY);
+        doc.text(block.columns[0].toUpperCase(), M_LEFT, y);
+        doc.text(block.columns[1].toUpperCase(), x2, y);
+        if (three) doc.text((block.columns[2] as string).toUpperCase(), x3, y);
+        y += 1.8;
+        doc.setDrawColor(...RULE); doc.setLineWidth(0.3);
+        doc.line(M_LEFT, y, PAGE_W - M_RIGHT, y);
+        y += 4;
+      };
+      room(9);
+      columnHeads();
+
+      // A blank first cell means "same as the row above" — a grouped list. Carry
+      // the group across a page break, or the reader inherits a column of rows
+      // with nothing saying what they belong to.
+      let group = '';
+      for (const r of block.rows) {
+        if (r[0]) group = r[0];
+        doc.setFont(FONT, 'normal'); doc.setFontSize(8.4); doc.setTextColor(...INK);
+        const c1 = doc.splitTextToSize(r[0] || '', w1 - 3) as string[];
+        const c2 = doc.splitTextToSize(r[1] || '', w2 - 3) as string[];
+        const c3 = three ? (doc.splitTextToSize(r[2] || '', CONTENT_W - w1 - w2 - 3) as string[]) : [];
+        const h = Math.max(c1.length, c2.length, c3.length) * 3.9;
+
+        const before = y;
+        room(h + 2);
+        if (y !== before) {
+          columnHeads();
+          if (!r[0] && group) {
+            doc.setFont(FONT, 'italic'); doc.setFontSize(8.4); doc.setTextColor(...GREY);
+            doc.text(`${group} — continued`, M_LEFT, y);
+            y += 5.5;
+          }
+        }
+
+        doc.setFont(FONT, 'normal'); doc.setFontSize(8.4); doc.setTextColor(...INK);
+        doc.text(c1, M_LEFT, y);
+        doc.setTextColor(...GREY);
+        doc.text(c2, x2, y);
+        if (three) doc.text(c3, x3, y);
+        y += h + 1.8;
       }
       y += 3;
     }

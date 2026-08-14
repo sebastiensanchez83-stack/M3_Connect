@@ -36,6 +36,7 @@ export function AdminSM26Feedback() {
   const [responses, setResponses] = useState<Response[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [reporting, setReporting] = useState(false);
   // Session remarks are stored by id; titles make them readable.
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
 
@@ -152,6 +153,101 @@ export function AdminSM26Feedback() {
     URL.revokeObjectURL(url);
   };
 
+  // The whole report assembled from what is already on screen, so the document
+  // and the console can never quote different numbers.
+  const downloadReport = async () => {
+    setReporting(true);
+    try {
+      const { downloadFeedbackReportPdf } = await import('@/lib/feedbackReportPdf');
+      const { toDataUrl } = await import('@/lib/programmePdf');
+      const { BUNDLED_ASSETS } = await import('@/lib/invitationTemplates');
+      const [banner, footer] = await Promise.all([
+        toDataUrl(BUNDLED_ASSETS.banner),
+        toDataUrl(BUNDLED_ASSETS.footer),
+      ]);
+
+      const blocks: import('@/lib/feedbackReportPdf').ReportBlock[] = [];
+      const countries = new Set(responses.map(r => r.country).filter(Boolean));
+      const overall = avg('overall');
+      const ret = yesNo('return_next');
+      blocks.push({
+        kind: 'stats', heading: 'In numbers',
+        items: [
+          { label: 'Responses', value: String(responses.length) },
+          { label: 'Countries represented', value: String(countries.size) },
+          { label: 'Overall rating', value: overall != null ? `${overall.toFixed(1)}/5` : '—' },
+          { label: 'Would come again', value: ret.answered ? `${Math.round((ret.yes / ret.answered) * 100)}%` : '—' },
+          { label: 'Collaborations declared', value: String(collaborations.length) },
+          { label: 'Checked in on site', value: String(responses.filter(r => r.attended).length) },
+        ],
+      });
+
+      if (ratingQs.length) {
+        blocks.push({
+          kind: 'bars', heading: 'How the event was rated',
+          items: ratingQs.map(q => {
+            const a = avg(q.key);
+            return { label: q.label, value: a ?? 0, max: 5, caption: a != null ? `${a.toFixed(1)}/5` : 'no answers' };
+          }).filter(i => i.value > 0),
+        });
+      }
+
+      for (const q of matrixQs) {
+        const rows = matrixRows(q).filter(r => r.mean != null);
+        const scaleMax = (q.options?.scale || []).length || 5;
+        if (rows.length) {
+          blocks.push({
+            kind: 'bars', heading: q.label,
+            items: rows.map(r => ({
+              label: r.row, value: r.mean as number, max: scaleMax,
+              caption: `${(r.mean as number).toFixed(1)}/${scaleMax}`,
+            })),
+          });
+        }
+      }
+
+      for (const q of choiceQs) {
+        const rows = tally(q.key);
+        if (rows.length) {
+          blocks.push({
+            kind: 'bars', heading: q.label,
+            items: rows.map(([choice, n]) => ({ label: choice, value: n, max: rows[0][1], caption: `${n}` })),
+          });
+        }
+      }
+
+      // Only people who said we may name them. Everything else stays internal —
+      // that is exactly what the consent question buys.
+      const quotable = responses.filter(consented);
+      const verbatims = quotable
+        .map(r => ({ text: String(r.answers['found_solutions'] ?? '').trim(), author: r.company }))
+        .filter(v => v.text.length > 20).slice(0, 12);
+      if (verbatims.length) {
+        blocks.push({
+          kind: 'quotes', heading: 'In their words',
+          note: 'Only from participants who agreed to be named.', items: verbatims,
+        });
+      }
+      const collabQuotes = collaborations.filter(c => consented(c.r))
+        .map(({ r, text }) => ({ text, author: r.company })).slice(0, 12);
+      if (collabQuotes.length) {
+        blocks.push({
+          kind: 'quotes', heading: 'Collaborations under discussion',
+          note: 'Declared by participants as a direct result of the Rendezvous.', items: collabQuotes,
+        });
+      }
+
+      await downloadFeedbackReportPdf(blocks, {
+        title: 'Smart & Sustainable Marina Rendezvous 2026',
+        subtitle: '20–21 September 2026 · Yacht Club de Monaco · Post-event report',
+        note: `Based on ${responses.length} response${responses.length === 1 ? '' : 's'}. Quotes are published only where the participant gave permission.`,
+      }, { banner, footer });
+    } catch (e) {
+      toast({ title: 'Could not build the report', description: (e as Error).message, variant: 'destructive' });
+    }
+    setReporting(false);
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   const ratingQs = questions.filter(q => q.kind === 'rating');
@@ -163,7 +259,15 @@ export function AdminSM26Feedback() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><MessageSquare className="h-6 w-6 text-primary" /> SM26 Feedback</h1>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><MessageSquare className="h-6 w-6 text-primary" /> SM26 Feedback</h1>
+        {responses.length > 0 && (
+          <Button variant="outline" className="gap-1.5" disabled={reporting} onClick={downloadReport}>
+            {reporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Download the impact report
+          </Button>
+        )}
+      </div>
 
       {/* The two answers with a life beyond the survey get their own cards,
           above the averages. An average is something you read once; these are

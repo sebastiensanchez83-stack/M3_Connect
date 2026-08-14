@@ -28,6 +28,7 @@ import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
 import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
 import { SM26AssetGallery, SM26Asset } from '@/components/sm26/SM26AssetGallery';
 import { SM26MediaKit } from '@/components/sm26/SM26MediaKit';
+import { SM26Logistics } from '@/components/sm26/SM26Logistics';
 import { SM26JuryPage } from '@/pages/SM26JuryPage';
 import { SM26VotePage } from '@/pages/SM26VotePage';
 
@@ -55,6 +56,10 @@ interface Registration {
 // came and went with role and progress; these name intentions, and the set a
 // given person sees never changes between visits.
 type HubGroup = 'todo' | 'event' | 'visibility' | 'jury';
+
+// Who occupies physical space at the Yacht Club, and therefore has logistics to
+// declare. Jurors, investors, media and visitors bring themselves.
+const LOGISTICS_ROLES = new Set(['sponsor', 'startup', 'marina', 'architect_pro']);
 
 interface EcatPage {
   id: string; kind: string; status: string; role_assignment_id: string | null;
@@ -716,6 +721,13 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
               </Card>
             )}
           </div>
+        )}
+
+        {/* Logistics, for the roles that occupy physical space at the Yacht Club.
+            A juror or an investor brings themselves; a sponsor brings a stand,
+            and the venue needs to know about it. */}
+        {shows('participation') && visibleRoles.some(r => LOGISTICS_ROLES.has(r.role)) && (
+          <SM26Logistics registrationId={reg.id} eventId={reg.event_id} />
         )}
 
         {shows('participation') && (

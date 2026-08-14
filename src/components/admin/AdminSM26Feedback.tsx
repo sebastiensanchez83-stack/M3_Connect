@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Plus, Trash2, Save, Star, MessageSquare, Loader2 } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Save, Star, MessageSquare, Loader2, Download } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +21,13 @@ interface Question {
 // An answer is a rating, a free text, a list of ticked choices, or a map keyed
 // by matrix row / session id.
 type AnswerValue = string | number | string[] | Record<string, string>;
-interface Response { answers: Record<string, AnswerValue>; submitted_at: string; }
+// Answers carry who wrote them, taken from the registration rather than retyped
+// on the form — so they can be cut by role, country or whether they paid.
+interface Response {
+  user_id: string | null; name: string; company: string; email: string | null;
+  country: string | null; roles: string | null; paid: boolean | null; attended: boolean | null;
+  answers: Record<string, AnswerValue>; submitted_at: string;
+}
 
 export function AdminSM26Feedback() {
   const [eventId, setEventId] = useState<string | null>(null);
@@ -43,7 +49,7 @@ export function AdminSM26Feedback() {
     setEventId(eid);
     const [{ data: qs }, { data: rs }, { data: ss }] = await Promise.all([
       supabase.from('sm_feedback_question').select('key,label,kind,required,display_order,section,help,options').eq('event_id', eid).order('display_order'),
-      supabase.from('sm_feedback_response').select('answers,submitted_at').eq('event_id', eid),
+      supabase.rpc('sm_feedback_responses_admin', { p_event_id: eid }),
       supabase.rpc('sm_agenda', { p_event_id: eid }),
     ]);
     const titles: Record<string, string> = {};
@@ -125,6 +131,27 @@ export function AdminSM26Feedback() {
     });
   };
 
+  // Everyone who said they would come again — next year's invitation list,
+  // ready the day after the event instead of reconstructed from memory in June.
+  const returners = responses.filter(r => String(r.answers['return_next'] ?? '') === 'Yes');
+  // What people said they might build together. Chased a few months later, this
+  // is the only number a sponsor actually buys: what the Rendezvous generated.
+  const collaborations = responses
+    .map(r => ({ r, text: String(r.answers['collaborations'] ?? '').trim() }))
+    .filter(x => x.text.length > 0);
+  const consented = (r: Response) => String(r.answers['consent'] ?? '') === 'Yes';
+
+  const downloadCsv = (filename: string, header: string[], rows: (string | number | null)[][]) => {
+    // Quote everything: company names carry commas, verbatims carry newlines.
+    const esc = (v: string | number | null) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = [header, ...rows].map(r => r.map(esc).join(',')).join('\r\n');
+    // A BOM, so Excel opens accented names as written rather than as mojibake.
+    const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   const ratingQs = questions.filter(q => q.kind === 'rating');
@@ -137,6 +164,80 @@ export function AdminSM26Feedback() {
   return (
     <div className="space-y-6 max-w-4xl">
       <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><MessageSquare className="h-6 w-6 text-primary" /> SM26 Feedback</h1>
+
+      {/* The two answers with a life beyond the survey get their own cards,
+          above the averages. An average is something you read once; these are
+          lists you act on. */}
+      {responses.length > 0 && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Coming back · {returners.length}</CardTitle>
+                {returners.length > 0 && (
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+                    onClick={() => downloadCsv('sm26-coming-back.csv',
+                      ['Name', 'Company', 'Email', 'Country', 'Roles', 'Paid', 'Attended'],
+                      returners.map(r => [r.name, r.company, r.email, r.country, r.roles, r.paid ? 'yes' : 'no', r.attended ? 'yes' : 'no']))}>
+                    <Download className="h-3.5 w-3.5" /> CSV
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {returners.length === 0 ? (
+                <p className="text-sm text-gray-400">Nobody has said yes yet.</p>
+              ) : (
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {returners.map(r => (
+                    <div key={r.user_id || r.submitted_at} className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="text-gray-800 truncate">{r.name}</span>
+                      <span className="text-xs text-gray-400 truncate shrink-0 max-w-[45%]">{r.company}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400 mt-2">Next year's invitation list, ready the day after the event.</p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Collaborations declared · {collaborations.length}</CardTitle>
+                {collaborations.length > 0 && (
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5"
+                    onClick={() => downloadCsv('sm26-collaborations.csv',
+                      ['Name', 'Company', 'Email', 'Roles', 'May we quote them', 'What they wrote'],
+                      collaborations.map(({ r, text }) => [r.name, r.company, r.email, r.roles, consented(r) ? 'yes' : 'no', text]))}>
+                    <Download className="h-3.5 w-3.5" /> CSV
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {collaborations.length === 0 ? (
+                <p className="text-sm text-gray-400">Nothing declared yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {collaborations.map(({ r, text }) => (
+                    <div key={(r.user_id || '') + r.submitted_at}>
+                      <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                        <span className="truncate">{r.company}</span>
+                        {consented(r)
+                          ? <Badge className="bg-green-50 text-green-700 border-green-200 text-[10px]">quotable</Badge>
+                          : <Badge className="bg-gray-100 text-gray-500 border-gray-200 text-[10px]">internal only</Badge>}
+                      </div>
+                      <p className="text-sm text-gray-700">{text}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400 mt-2">Chase these a few months on — it is the number that sells next year's sponsorship.</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Responses summary */}
       <Card className="border-0 shadow-sm">

@@ -67,6 +67,7 @@ const AdminSM26Networking = lazyWithRetry(() => import('@/components/admin/Admin
 const AdminSM26Architecture = lazyWithRetry(() => import('@/components/admin/AdminSM26Architecture').then(m => ({ default: m.AdminSM26Architecture })));
 const AdminSM26Feedback = lazyWithRetry(() => import('@/components/admin/AdminSM26Feedback').then(m => ({ default: m.AdminSM26Feedback })));
 const AdminSM26Health = lazyWithRetry(() => import('@/components/admin/AdminSM26Health').then(m => ({ default: m.AdminSM26Health })));
+const AdminSM26Logistics = lazyWithRetry(() => import('@/components/admin/AdminSM26Logistics').then(m => ({ default: m.AdminSM26Logistics })));
 const AdminSM26Import = lazyWithRetry(() => import('@/components/admin/AdminSM26Import').then(m => ({ default: m.AdminSM26Import })));
 const AdminMediaDownloads = lazyWithRetry(() => import('@/components/admin/AdminMediaDownloads').then(m => ({ default: m.AdminMediaDownloads })));
 
@@ -141,6 +142,7 @@ export function AdminPage() {
             <Route path="/sm26/health" element={<AdminOnlyGuard><AdminSM26Health /></AdminOnlyGuard>} />
             <Route path="/sm26/awards" element={<AdminOnlyGuard><AdminSM26Awards /></AdminOnlyGuard>} />
             <Route path="/sm26/feedback" element={<AdminOnlyGuard><AdminSM26Feedback /></AdminOnlyGuard>} />
+            <Route path="/sm26/logistics" element={<AdminOnlyGuard><AdminSM26Logistics /></AdminOnlyGuard>} />
             <Route path="/sm26/ecat" element={<AdminOnlyGuard><AdminSM26Ecat /></AdminOnlyGuard>} />
             <Route path="/sm26/mediakits" element={<AdminOnlyGuard><AdminSM26MediaKits /></AdminOnlyGuard>} />
             <Route path="/sm26/ecat/:pageId/dossier" element={<AdminOnlyGuard><AdminSM26EcatDossier /></AdminOnlyGuard>} />

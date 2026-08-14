@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import {
   Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
   Award, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
-  ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen,
+  ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen, Truck,
   Scale, Trophy, Activity, Upload, Newspaper, Mail,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -40,6 +40,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     { to: '/admin/sm26/awards', label: 'Awards & voting', icon: <Trophy className="h-4 w-4" /> },
     { to: '/admin/sm26/ecat', label: 'E-catalogue', icon: <BookOpen className="h-4 w-4" /> },
     { to: '/admin/sm26/mediakits', label: 'Media kits', icon: <Megaphone className="h-4 w-4" /> },
+    { to: '/admin/sm26/logistics', label: 'Logistics', icon: <Truck className="h-4 w-4" /> },
     { to: '/admin/sm26/networking', label: 'Networking', icon: <UsersRound className="h-4 w-4" /> },
     { to: '/admin/sm26/invitations', label: 'Invitations', icon: <Mail className="h-4 w-4" /> },
     { to: '/admin/sm26/feedback', label: 'Feedback', icon: <MessageSquare className="h-4 w-4" /> },

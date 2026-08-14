@@ -38,7 +38,10 @@ export type ReportBlock =
   | { kind: 'placeholder'; heading: string; note?: string; lines: number }
   // Two or three columns of facts — a roll-call, a list of needs. Not a grid
   // with rules: hairlines everywhere make a page look busier than it is.
-  | { kind: 'table'; heading: string; note?: string; columns: [string, string, string?]; rows: [string, string, string?][] };
+  // `continued` is the word appended when a grouped run spans a page break; it
+  // is a parameter because these documents are not all in the same language.
+  | { kind: 'table'; heading: string; note?: string; continued?: string;
+      columns: [string, string, string?]; rows: [string, string, string?][] };
 
 export interface ReportMeta { title: string; subtitle: string; note?: string }
 export interface ReportAssets { banner?: string | null; footer?: string | null }
@@ -224,7 +227,7 @@ export async function buildFeedbackReportPdf(
           columnHeads();
           if (!r[0] && group) {
             doc.setFont(FONT, 'italic'); doc.setFontSize(8.4); doc.setTextColor(...GREY);
-            doc.text(`${group} — continued`, M_LEFT, y);
+            doc.text(`${group} — ${block.continued || 'continued'}`, M_LEFT, y);
             y += 5.5;
           }
         }

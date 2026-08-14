@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet-async';
 import {
-  RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ExternalLink, Lightbulb, Download, Languages,
+  RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ChevronLeft, ExternalLink, Lightbulb, Download, Languages, X, Maximize2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,11 @@ interface Entry {
   title: string; subtitle: string; stage: string | null; template_key: string;
   review_status: string | null; review_total: number | null; confidence: number | null; coi_flag: boolean | null;
 }
+// One file a juror can look at without leaving the scorecard. `kind` decides how
+// it renders: panels and the notice are PDFs (A2/A3 at 300 dpi), the optional
+// animation is video.
+interface PreviewItem { path: string; label: string; kind: string }
+
 interface Criterion { id: string; label: string; description: string | null; weight: number; critical: boolean; display_order: number; }
 interface Template { id: string; competition: string; key: string; name: string; scale_max: number; criteria: Criterion[]; }
 type Draft = Record<string, { score: number | null; comment: string }>;
@@ -53,6 +58,8 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [reviewStatus, setReviewStatus] = useState<string | null>(null);
   const [loadingEntry, setLoadingEntry] = useState(false);
   const [saving, setSaving] = useState(false);
+  // The panel currently open in the lightbox; url is null while it is being signed.
+  const [preview, setPreview] = useState<{ items: PreviewItem[]; index: number; url: string | null } | null>(null);
 
   useEffect(() => { if (user) load(); }, [user]);
 
@@ -177,10 +184,48 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     setEntries(prev => prev.map(e => e.entry_id === selected.entry_id ? { ...e, review_status: submit ? 'submitted' : 'draft', review_total: total, confidence, coi_flag: coi } : e));
   };
 
-  const openArchFile = async (path: string) => {
-    const { data } = await supabase.storage.from('event-media').createSignedUrl(path, 300);
-    if (data) window.open(data.signedUrl, '_blank'); else toast({ title: 'Could not open file', variant: 'destructive' });
+  // Scoring eight A2 panels used to mean eight downloads, then eight windows to
+  // find and close, then back here to type a number. Now they open in place and
+  // the juror pages through them with ‹ ›; downloading is there for anyone who
+  // wants the file at full resolution, but it is no longer the price of looking.
+  //
+  // An hour of signing, not five minutes: a juror reads a panel, thinks, comes
+  // back — a link that dies mid-review reads as the platform breaking.
+  const openPreview = async (items: PreviewItem[], index: number) => {
+    setPreview({ items, index, url: null });
+    const { data } = await supabase.storage.from('event-media').createSignedUrl(items[index].path, 3600);
+    if (!data) { setPreview(null); toast({ title: 'Could not open that file', variant: 'destructive' }); return; }
+    setPreview(p => (p && p.items[p.index].path === items[index].path ? { ...p, url: data.signedUrl } : p));
   };
+  const movePreview = async (delta: number) => {
+    if (!preview) return;
+    const next = (preview.index + delta + preview.items.length) % preview.items.length;
+    await openPreview(preview.items, next);
+  };
+  const downloadCurrent = async () => {
+    if (!preview) return;
+    const item = preview.items[preview.index];
+    const { data } = await supabase.storage.from('event-media')
+      .createSignedUrl(item.path, 300, { download: true });
+    if (data) window.open(data.signedUrl, '_blank');
+    else toast({ title: 'Could not download that file', variant: 'destructive' });
+  };
+
+  // Eight panels is a lot of clicking. Arrows page through them, Escape closes.
+  // Skipped while the PDF iframe has focus — the browser's own viewer uses the
+  // arrow keys to scroll, and stealing them there would fight the reader.
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setPreview(null); return; }
+      if (document.activeElement?.tagName === 'IFRAME') return;
+      if (e.key === 'ArrowLeft') movePreview(-1);
+      if (e.key === 'ArrowRight') movePreview(1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preview?.index, preview?.items.length]);
 
   if (authLoading || loading) return (
     <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>
@@ -234,19 +279,24 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
                     const ps = list.filter(f => f.kind === 'panel');
                     const nt = list.find(f => f.kind === 'notice');
                     const an = list.find(f => f.kind === 'animation');
-                    const ordered = [
-                      ...ps.map((f, i) => ({ id: f.id, path: f.path, label: `Panel ${i + 1} (A2)` })),
-                      ...(nt ? [{ id: nt.id, path: nt.path, label: 'Descriptive notice (A3)' }] : []),
-                      ...(an ? [{ id: an.id, path: an.path, label: '3D animation' }] : []),
+                    const ordered: (PreviewItem & { id: string })[] = [
+                      ...ps.map((f, i) => ({ id: f.id, path: f.path, kind: 'panel', label: `Panel ${i + 1} (A2)` })),
+                      ...(nt ? [{ id: nt.id, path: nt.path, kind: 'notice', label: 'Descriptive notice (A3)' }] : []),
+                      ...(an ? [{ id: an.id, path: an.path, kind: 'animation', label: '3D animation' }] : []),
                     ];
                     return (
                       <div>
-                        <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1.5">Project files</div>
+                        <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                          <div className="text-[11px] uppercase tracking-wide text-gray-400">Project files</div>
+                          <div className="text-[11px] text-gray-400">Opens here — download only if you want to</div>
+                        </div>
                         <div className="space-y-1.5">
-                          {ordered.map(f => (
-                            <button key={f.id} onClick={() => openArchFile(f.path)} className="flex items-center gap-2 w-full text-left rounded-lg border border-gray-100 hover:border-primary/40 px-3 py-2">
-                              <Download className="h-4 w-4 text-primary shrink-0" />
+                          {ordered.map((f, i) => (
+                            <button key={f.id} onClick={() => openPreview(ordered, i)}
+                              className="flex items-center gap-2 w-full text-left rounded-lg border border-gray-100 hover:border-primary/40 hover:bg-gray-50 px-3 py-2 transition-colors">
+                              <Maximize2 className="h-4 w-4 text-primary shrink-0" />
                               <span className="text-sm text-gray-800 truncate">{f.label}</span>
+                              <ChevronRight className="h-4 w-4 text-gray-300 ml-auto shrink-0" />
                             </button>
                           ))}
                         </div>
@@ -353,6 +403,57 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
             </>
           )}
         </div>
+
+        {/* Panel viewer. Nothing here identifies the architect: the header shows
+            "Panel 3 of 8", never the filename, which carries their name and
+            would break the anonymised judging the whole competition rests on. */}
+        {preview && (() => {
+          const item = preview.items[preview.index];
+          const isVideo = item.kind === 'animation';
+          return (
+            <div className="fixed inset-0 z-50 bg-black/90 flex flex-col" role="dialog" aria-modal="true"
+                 aria-label={`${item.label}, ${preview.index + 1} of ${preview.items.length}`}>
+              <div className="flex items-center justify-between gap-3 px-4 py-3 text-white shrink-0">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{item.label}</div>
+                  <div className="text-[11px] text-white/50">{preview.index + 1} of {preview.items.length}</div>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button size="sm" variant="ghost" className="text-white hover:bg-white/10 gap-1.5" onClick={downloadCurrent}>
+                    <Download className="h-4 w-4" /> <span className="hidden sm:inline">Download</span>
+                  </Button>
+                  <Button size="icon" variant="ghost" className="text-white hover:bg-white/10" aria-label="Close" onClick={() => setPreview(null)}>
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 flex items-center gap-1 px-1 pb-3">
+                {preview.items.length > 1 && (
+                  <Button size="icon" variant="ghost" className="text-white hover:bg-white/10 shrink-0" aria-label="Previous" onClick={() => movePreview(-1)}>
+                    <ChevronLeft className="h-6 w-6" />
+                  </Button>
+                )}
+                <div className="flex-1 h-full min-w-0 rounded-lg overflow-hidden bg-white/5 flex items-center justify-center">
+                  {!preview.url ? (
+                    <RefreshCw className="h-7 w-7 animate-spin text-white/40" />
+                  ) : isVideo ? (
+                    <video src={preview.url} controls className="max-h-full max-w-full" />
+                  ) : (
+                    // A2 at 300 dpi: the browser's own PDF viewer gives zoom and
+                    // page controls for free, which is what reading a panel needs.
+                    <iframe src={preview.url} title={item.label} className="w-full h-full border-0 bg-white" />
+                  )}
+                </div>
+                {preview.items.length > 1 && (
+                  <Button size="icon" variant="ghost" className="text-white hover:bg-white/10 shrink-0" aria-label="Next" onClick={() => movePreview(1)}>
+                    <ChevronRight className="h-6 w-6" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }

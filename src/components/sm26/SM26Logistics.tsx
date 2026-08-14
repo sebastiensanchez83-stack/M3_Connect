@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/contexts/AuthContext';
 import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { SM26AssetUpload } from './SM26AssetUpload';
@@ -58,6 +59,10 @@ const oversized = (i: Partial<Item>) =>
   Math.max(i.width_cm || 0, i.height_cm || 0, i.depth_cm || 0) > BIG_CM || (i.weight_kg || 0) > BIG_KG;
 
 export function SM26Logistics({ registrationId, eventId }: { registrationId: string; eventId: string }) {
+  // Every upload to event-media must start with the uploader's own uid: the only
+  // non-staff INSERT policy checks foldername(name)[1] = auth.uid(). Anything
+  // else is refused, and it is refused silently enough to look like it worked.
+  const { user } = useAuth();
   const [log, setLog] = useState<Logistics | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,7 +217,7 @@ export function SM26Logistics({ registrationId, eventId }: { registrationId: str
                       <Label className="text-[11px] text-gray-500">Photo{it.needs_approval ? ' (please add one)' : ' (optional)'}</Label>
                       <SM26AssetUpload
                         value={it.photo_path || ''}
-                        basePath={`logistics/${registrationId}/${it.id}`}
+                        basePath={`${user?.id ?? registrationId}/logistics/${it.id}`}
                         accept="image/*"
                         maxFiles={1}
                         onChange={v => patchItem(it.id, { photo_path: Array.isArray(v) ? (v[0] ?? null) : (v || null) })}

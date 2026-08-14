@@ -50,6 +50,11 @@ const FILTERS = [
 ] as const;
 type FilterKey = typeof FILTERS[number]['key'];
 
+// An item only needs a ruling if its owner is actually turning up. Someone who
+// has said "not coming" keeps their crate on the record but off the venue's desk.
+const awaitingDecision = (r: Row) =>
+  r.coming_on_site !== false && r.items.some(i => i.needs_approval && i.approval_status === 'pending');
+
 const dims = (i: Item) => {
   const d = [i.width_cm, i.height_cm, i.depth_cm].filter(v => v != null);
   const parts = [d.length ? `${d.join(' × ')} cm` : null, i.weight_kg != null ? `${i.weight_kg} kg` : null];
@@ -185,13 +190,21 @@ export function AdminSM26Logistics() {
     URL.revokeObjectURL(url);
   };
 
-  const counts = useMemo(() => ({
-    answered: rows.filter(r => r.filled).length,
-    onsite: rows.filter(r => r.coming_on_site).length,
-    people: rows.filter(r => r.coming_on_site).reduce((a, r) => a + r.num_attendees, 0),
-    brunch: rows.reduce((a, r) => a + r.brunch_covers, 0),
-    pending: rows.reduce((a, r) => a + r.items.filter(i => i.needs_approval && i.approval_status === 'pending').length, 0),
-  }), [rows]);
+  // Every figure here also appears in the PDF the Yacht Club budgets against, so
+  // both must count the same people. Anyone who has said they are NOT coming is
+  // excluded — including their stand, their covers and their crates.
+  const counts = useMemo(() => {
+    const onSite = rows.filter(r => r.coming_on_site);
+    const notAway = rows.filter(r => r.coming_on_site !== false);
+    return {
+      answered: rows.filter(r => r.filled).length,
+      onsite: onSite.length,
+      people: onSite.reduce((a, r) => a + r.num_attendees, 0),
+      power: onSite.filter(r => r.power_needed).length,
+      brunch: onSite.reduce((a, r) => a + r.brunch_covers, 0),
+      pending: notAway.reduce((a, r) => a + r.items.filter(i => i.needs_approval && i.approval_status === 'pending').length, 0),
+    };
+  }, [rows]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -200,7 +213,7 @@ export function AdminSM26Logistics() {
       if (filter === 'silent') return !r.filled;
       if (filter === 'onsite') return r.coming_on_site === true;
       if (filter === 'away') return r.coming_on_site === false;
-      if (filter === 'validate') return r.items.some(i => i.needs_approval && i.approval_status === 'pending');
+      if (filter === 'validate') return awaitingDecision(r);
       return true;
     });
   }, [rows, q, filter]);
@@ -216,7 +229,7 @@ export function AdminSM26Logistics() {
     if (key === 'silent') return rows.length - counts.answered;
     if (key === 'onsite') return counts.onsite;
     if (key === 'away') return rows.filter(r => r.coming_on_site === false).length;
-    return rows.filter(r => r.items.some(i => i.needs_approval && i.approval_status === 'pending')).length;
+    return rows.filter(awaitingDecision).length;
   };
 
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
@@ -245,7 +258,7 @@ export function AdminSM26Logistics() {
         <Stat icon={Truck} label="Answered" value={`${counts.answered}/${rows.length}`}
           sub={rows.length - counts.answered > 0 ? `${rows.length - counts.answered} still silent` : 'everyone has answered'} />
         <Stat icon={Users} label="Coming on site" value={counts.onsite} sub={`${counts.people} people on stands`} />
-        <Stat icon={Zap} label="Stands needing power" value={rows.filter(r => r.power_needed).length} />
+        <Stat icon={Zap} label="Stands needing power" value={counts.power} />
         <Stat icon={UtensilsCrossed} label="Brunch covers" value={counts.brunch} sub="35 € each, settled separately" />
         <Stat icon={AlertTriangle} label="Awaiting a decision" value={counts.pending}
           sub={counts.pending ? 'oversized or heavy' : 'nothing over 2 m or 50 kg'} />
@@ -274,7 +287,8 @@ export function AdminSM26Logistics() {
         <div className="space-y-2">
           {shown.map(r => {
             const isOpen = open.has(r.registration_id);
-            const toValidate = r.items.filter(i => i.needs_approval && i.approval_status === 'pending').length;
+            const toValidate = awaitingDecision(r)
+              ? r.items.filter(i => i.needs_approval && i.approval_status === 'pending').length : 0;
             return (
               <Card key={r.registration_id} className="border-0 shadow-sm overflow-hidden">
                 <button onClick={() => toggle(r.registration_id)}

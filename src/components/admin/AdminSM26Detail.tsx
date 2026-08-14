@@ -324,6 +324,7 @@ export function AdminSM26Detail() {
   const [saving, setSaving] = useState(false);
   // Which jury role's on-site toggle is in flight (keyed by role assignment id).
   const [onsiteBusy, setOnsiteBusy] = useState<string | null>(null);
+  const [signInLinkBusy, setSignInLinkBusy] = useState(false);
   const [roleSaving, setRoleSaving] = useState(false);
   const [addRoleValue, setAddRoleValue] = useState('');
   // Platform-identity provisioning (account + persona + org + welcome email).
@@ -697,8 +698,13 @@ export function AdminSM26Detail() {
         </CardContent>
       </Card>
 
-      {/* Account claim (imported registrations not yet linked to an account) */}
-      {reg.claim_code && (
+      {/* Account claim — ONLY while the registration is genuinely unclaimed.
+          The card used to appear whenever a claim_code existed, and 17 claimed
+          registrations still carry a leftover code: sm_claim_registration
+          requires user_id IS NULL, so copying the link for any of those handed
+          the person a URL that answers "Invalid or already-claimed code". They
+          reasonably conclude the platform is broken. */}
+      {reg.claim_code && !reg.user_id && (
         <Card className="border-0 shadow-sm border-l-4 border-l-amber-400">
           <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
             <div>
@@ -706,11 +712,9 @@ export function AdminSM26Detail() {
               <div className="font-mono text-sm font-semibold text-gray-900 mt-0.5">{reg.claim_code}</div>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {!reg.user_id && (
-                <Button size="sm" className="gap-1.5" onClick={() => setProvisionOpen(true)}>
-                  <Mail className="h-4 w-4" /> Set up account &amp; invite
-                </Button>
-              )}
+              <Button size="sm" className="gap-1.5" onClick={() => setProvisionOpen(true)}>
+                <Mail className="h-4 w-4" /> Set up account &amp; invite
+              </Button>
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => {
                 const link = `${window.location.origin}/sm26/claim?code=${reg.claim_code}`;
                 navigator.clipboard?.writeText(link).catch(() => {});
@@ -719,6 +723,49 @@ export function AdminSM26Detail() {
                 <Copy className="h-4 w-4" /> Copy claim link
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Already has an account — the claim flow is finished and its link is
+          dead, so the only thing that gets them in is a fresh password link.
+          Until now there was no way to send one: the onboarding panel only
+          targets registrations WITHOUT an account, so someone who had claimed
+          but never set a password had to be talked through "Forgot password"
+          by email. This is the same call their own Forgot password makes —
+          same email, same landing page, nothing to keep in sync. */}
+      {reg.user_id && reg.email && (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-wide text-gray-400 flex items-center gap-1.5"><KeyRound className="h-3.5 w-3.5" /> Getting them signed in</div>
+              <div className="text-sm text-gray-600 mt-0.5">Sends a link to set a new password, to {reg.email}.</div>
+            </div>
+            <Button size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={signInLinkBusy}
+              onClick={async () => {
+                // Warn if they are already holding one: sending replaces it, so
+                // a link they are about to click would die in their hands.
+                let warn = '';
+                const { data: probe } = await supabase.rpc('admin_pending_recovery', { p_user_id: reg.user_id });
+                const p = probe as { pending?: boolean; age_minutes?: number } | null;
+                if (p?.pending) {
+                  const mins = p.age_minutes ?? 0;
+                  warn = `\n\nThey already have an unused link from ${mins < 60 ? `${mins} minutes` : `${Math.round(mins / 60)} hours`} ago. Sending a new one cancels it.`;
+                }
+                if (!confirm(`Email ${reg.email} a link to set their password?${warn}`)) return;
+                setSignInLinkBusy(true);
+                const { error } = await supabase.auth.resetPasswordForEmail(reg.email!, {
+                  redirectTo: `${window.location.origin}/reset-password`,
+                });
+                setSignInLinkBusy(false);
+                if (error) { toast({ title: 'Could not send', description: error.message, variant: 'destructive' }); return; }
+                toast({
+                  title: 'Sign-in link sent',
+                  description: `${reg.email} — ask them to check their spam folder if it hasn't arrived in a few minutes.`,
+                });
+              }}>
+              {signInLinkBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send a sign-in link
+            </Button>
           </CardContent>
         </Card>
       )}

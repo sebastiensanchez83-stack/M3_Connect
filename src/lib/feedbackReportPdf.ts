@@ -29,7 +29,13 @@ export type ReportBlock =
   // Anything scored or counted: ratings, matrix rows, objectives picked.
   | { kind: 'bars'; heading: string; note?: string; items: { label: string; value: number; max: number; caption: string }[] }
   // What people actually wrote. Only ever the consented ones — see the console.
-  | { kind: 'quotes'; heading: string; note?: string; items: { text: string; author?: string }[] };
+  | { kind: 'quotes'; heading: string; note?: string; items: { text: string; author?: string }[] }
+  // Commitments and their state. The sponsor report is mostly this: what was
+  // promised, and what has been done about it.
+  | { kind: 'checklist'; heading: string; note?: string; items: { label: string; detail?: string | null; state: string }[] }
+  // A space the document deliberately leaves empty, for figures that live
+  // outside the platform and are filled in before sending.
+  | { kind: 'placeholder'; heading: string; note?: string; lines: number };
 
 export interface ReportMeta { title: string; subtitle: string; note?: string }
 export interface ReportAssets { banner?: string | null; footer?: string | null }
@@ -145,6 +151,46 @@ export async function buildFeedbackReportPdf(
         doc.setFontSize(8.2); doc.setTextColor(...GREY);
         doc.text(it.caption, barX + barW + 3, y + 3);
         y += 6.2;
+      }
+      y += 3;
+    }
+
+    if (block.kind === 'checklist') {
+      heading(block.heading, block.note);
+      const stateX = PAGE_W - M_RIGHT - 26;
+      for (const it of block.items) {
+        doc.setFont(FONT, 'normal'); doc.setFontSize(8.8); doc.setTextColor(...INK);
+        const lines = doc.splitTextToSize(it.label, stateX - M_LEFT - 8) as string[];
+        room(lines.length * 4 + (it.detail ? 4 : 0) + 2.5);
+        // A filled dot for done, hollow for outstanding: readable in black and
+        // white, which is how a contract annexe usually ends up being printed.
+        const done = /deliver/i.test(it.state);
+        doc.setDrawColor(...NAVY); doc.setLineWidth(0.4);
+        if (done) { doc.setFillColor(...NAVY); doc.circle(M_LEFT + 1.6, y + 1.4, 1.4, 'FD'); }
+        else doc.circle(M_LEFT + 1.6, y + 1.4, 1.4, 'D');
+        doc.text(lines, M_LEFT + 6, y + 2.4);
+        doc.setFontSize(7.6); doc.setTextColor(...GREY);
+        doc.text(it.state, PAGE_W - M_RIGHT, y + 2.4, { align: 'right' });
+        y += lines.length * 4;
+        if (it.detail) {
+          doc.setFontSize(7.6); doc.setTextColor(...GREY);
+          doc.text(doc.splitTextToSize(it.detail, stateX - M_LEFT - 8)[0] as string, M_LEFT + 6, y + 2);
+          y += 4;
+        }
+        y += 1.6;
+      }
+      y += 3;
+    }
+
+    if (block.kind === 'placeholder') {
+      heading(block.heading, block.note);
+      // Ruled lines rather than a blank gap: it reads as "to be completed"
+      // rather than as something the generator forgot.
+      doc.setDrawColor(...RULE); doc.setLineWidth(0.3);
+      for (let i = 0; i < block.lines; i++) {
+        room(7);
+        doc.line(M_LEFT, y + 4, PAGE_W - M_RIGHT, y + 4);
+        y += 7;
       }
       y += 3;
     }

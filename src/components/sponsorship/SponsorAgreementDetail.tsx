@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Check, Loader2, Plus, Trash2, Pencil, Send, RotateCcw,
-  UserPlus, Award,
+  UserPlus, Award, FileDown,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,7 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
   const [loading, setLoading] = useState(true);
   const [buildTier, setBuildTier] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
   const [editItem, setEditItem] = useState<SpAgreementBenefit | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [linkEmail, setLinkEmail] = useState('');
@@ -186,6 +187,65 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
     navigate(basePath);
   };
 
+  // The renewal report: what they were promised, what has been delivered, and
+  // what the audience was. Built from sm_sponsor_report so the document and the
+  // fulfilment tracker below can never disagree — and downloaded, not sent,
+  // because the figures that close a renewal are not all in here.
+  const buildSponsorReport = async () => {
+    if (!sponsor) return;
+    setReportBusy(true);
+    try {
+      const { data: ev } = await supabase.from('sm_event').select('id, name').eq('slug', 'sm26').maybeSingle();
+      const eid = (ev as { id: string } | null)?.id;
+      if (!eid) throw new Error('Event not found');
+      const { data, error } = await supabase.rpc('sm_sponsor_report', { p_sponsor_id: sponsor.id, p_event_id: eid });
+      if (error) throw error;
+      const rows = (data || []) as { kind: string; section: string; label: string; detail: string | null; state: string; sort_order: number }[];
+
+      const { downloadFeedbackReportPdf } = await import('@/lib/feedbackReportPdf');
+      const { toDataUrl } = await import('@/lib/programmePdf');
+      const { BUNDLED_ASSETS } = await import('@/lib/invitationTemplates');
+      const [banner, footer] = await Promise.all([
+        toDataUrl(BUNDLED_ASSETS.banner), toDataUrl(BUNDLED_ASSETS.footer),
+      ]);
+
+      const blocks: import('@/lib/feedbackReportPdf').ReportBlock[] = [];
+      const audience = rows.filter(r => r.kind === 'audience');
+      for (const sec of Array.from(new Set(audience.map(a => a.section)))) {
+        blocks.push({
+          kind: 'stats', heading: sec,
+          items: audience.filter(a => a.section === sec)
+            .sort((a, b) => a.sort_order - b.sort_order)
+            .map(a => ({ label: a.label, value: a.state })),
+        });
+      }
+      const benefits = rows.filter(r => r.kind === 'benefit');
+      const done = benefits.filter(b => /deliver/i.test(b.state)).length;
+      for (const sec of Array.from(new Set(benefits.map(b => b.section)))) {
+        const inSec = benefits.filter(b => b.section === sec).sort((a, b) => a.sort_order - b.sort_order);
+        blocks.push({
+          kind: 'checklist', heading: sec,
+          note: `${inSec.filter(b => /deliver/i.test(b.state)).length} of ${inSec.length} delivered.`,
+          items: inSec.map(b => ({ label: b.label, detail: b.detail, state: b.state })),
+        });
+      }
+      blocks.push({
+        kind: 'placeholder', heading: 'To complete before sending',
+        note: 'Press coverage, social reach, and anything else measured outside the platform.',
+        lines: 6,
+      });
+
+      await downloadFeedbackReportPdf(blocks, {
+        title: sponsor.company_name,
+        subtitle: 'Smart & Sustainable Marina Rendezvous 2026 · Partnership report',
+        note: `${done} of ${benefits.length} commitments delivered at the time of writing. This document is a draft for internal completion — it is not sent automatically.`,
+      }, { banner, footer }, `${sponsor.company_name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-partnership-report.pdf`);
+    } catch (e) {
+      toast({ title: 'Could not build the report', description: (e as Error).message, variant: 'destructive' });
+    }
+    setReportBusy(false);
+  };
+
   if (loading) return <div className="flex items-center justify-center h-[50vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
   if (!sponsor) return <div className="max-w-3xl mx-auto py-16 text-center text-gray-500">Sponsor not found. <Link to={basePath} className="text-primary underline">Back</Link></div>;
 
@@ -213,10 +273,19 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
                 {agreement?.tier_key && <div className="text-xs text-gray-500">{tiers.find(t => t.tier_key === agreement.tier_key)?.label}</div>}
               </div>
             </div>
-            <Select value={sponsor.status} onValueChange={v => saveSponsor({ status: v as SpSponsorStatus })}>
-              <SelectTrigger className="w-32 h-9"><SelectValue /></SelectTrigger>
-              <SelectContent>{(['active', 'pending', 'expired'] as SpSponsorStatus[]).map(s => <SelectItem key={s} value={s}><Badge className={`text-[11px] ${SPONSOR_STATUS_CLS[s]}`}>{s}</Badge></SelectItem>)}</SelectContent>
-            </Select>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Downloaded, never sent. The document is deliberately incomplete
+                  — press coverage, social reach, anything measured outside this
+                  platform — so it goes to Victor to finish, not to the sponsor. */}
+              <Button variant="outline" className="h-9 gap-1.5" disabled={reportBusy} onClick={buildSponsorReport}>
+                {reportBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                Renewal report
+              </Button>
+              <Select value={sponsor.status} onValueChange={v => saveSponsor({ status: v as SpSponsorStatus })}>
+                <SelectTrigger className="w-32 h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>{(['active', 'pending', 'expired'] as SpSponsorStatus[]).map(s => <SelectItem key={s} value={s}><Badge className={`text-[11px] ${SPONSOR_STATUS_CLS[s]}`}>{s}</Badge></SelectItem>)}</SelectContent>
+              </Select>
+            </div>
           </div>
           {items.length > 0 && (
             <div>

@@ -45,7 +45,11 @@ function Stars({ value, onChange }: { value: number; onChange: (v: number) => vo
   );
 }
 
-export function SM26FeedbackPage() {
+// `preview` renders the form exactly as a participant meets it, but wired to
+// nothing: no saved answers are loaded, and submitting is disabled. It lives in
+// the admin next to the question editor, because the only reliable way to know
+// whether a question reads well is to see it where it will be read.
+export function SM26FeedbackPage({ preview = false }: { preview?: boolean } = {}) {
   const { user, loading: authLoading } = useAuth();
   const [eventId, setEventId] = useState<string | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -67,7 +71,11 @@ export function SM26FeedbackPage() {
     const [{ data: qs }, { data: resp }, { data: ss }] = await Promise.all([
       supabase.from('sm_feedback_question')
         .select('key,label,kind,required,display_order,section,help,options').eq('event_id', eid).order('display_order'),
-      supabase.from('sm_feedback_response').select('answers').eq('event_id', eid).eq('user_id', user!.id).maybeSingle(),
+      // A preview starts blank — showing the admin their own answers would be
+      // a rehearsal of the wrong play.
+      preview
+        ? Promise.resolve({ data: null })
+        : supabase.from('sm_feedback_response').select('answers').eq('event_id', eid).eq('user_id', user!.id).maybeSingle(),
       // The programme itself, so "remarks on the sessions" never lists last
       // year's conference titles.
       supabase.rpc('sm_agenda', { p_event_id: eid }),
@@ -224,18 +232,18 @@ export function SM26FeedbackPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Helmet><title>Your feedback — SM26</title></Helmet>
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
+    <div className={preview ? '' : 'min-h-screen bg-gray-50'}>
+      {!preview && <Helmet><title>Your feedback — SM26</title></Helmet>}
+      {!preview && <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-10">
           <div className="mb-3"><SM26BackLink light /></div>
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · Smart &amp; Sustainable Marina Rendezvous 2026</p>
           <h1 className="text-2xl lg:text-3xl font-bold">Share your feedback</h1>
           <p className="text-white/80 mt-2">Six short steps. Your answers are saved when you submit, and you can change them later.</p>
         </div>
-      </section>
+      </section>}
 
-      <div className="container mx-auto px-4 py-8 max-w-2xl space-y-4">
+      <div className={preview ? 'space-y-4' : 'container mx-auto px-4 py-8 max-w-2xl space-y-4'}>
         {/* Where they are, and how much is left. */}
         <div>
           <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
@@ -268,8 +276,8 @@ export function SM26FeedbackPage() {
             <ChevronLeft className="h-4 w-4" /> Back
           </Button>
           {isLast ? (
-            <Button onClick={submit} disabled={saving} className="flex-1 gap-1.5">
-              {saving && <Loader2 className="h-4 w-4 animate-spin" />} Submit feedback
+            <Button onClick={submit} disabled={saving || preview} className="flex-1 gap-1.5" title={preview ? 'Disabled in preview' : undefined}>
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />} {preview ? 'Submit feedback (disabled in preview)' : 'Submit feedback'}
             </Button>
           ) : (
             <Button className="flex-1 gap-1.5" onClick={() => { setStep(s => s + 1); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>

@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Plus, Trash2, Save, Star, MessageSquare, Loader2, Download } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Save, Star, MessageSquare, Loader2, Download, Eye, EyeOff } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { SM26FeedbackPage } from '@/pages/SM26FeedbackPage';
+import { SM26_ROLE_LABELS } from './AdminSM26';
 
 // Admin feedback: edit the post-event questionnaire template and review
 // responses (rating averages + free-text answers).
@@ -37,6 +40,7 @@ export function AdminSM26Feedback() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   // Session remarks are stored by id; titles make them readable.
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
 
@@ -141,6 +145,34 @@ export function AdminSM26Feedback() {
     .map(r => ({ r, text: String(r.answers['collaborations'] ?? '').trim() }))
     .filter(x => x.text.length > 0);
   const consented = (r: Response) => String(r.answers['consent'] ?? '') === 'Yes';
+
+  // How the 1-5 answers are spread, not just their mean: an event rated 5 and 1
+  // in equal measure averages the same as one everybody found merely fine, and
+  // those are not the same event.
+  const overallSpread = [1, 2, 3, 4, 5].map(n => ({
+    stars: `${n}★`,
+    count: responses.filter(r => Number(r.answers['overall']) === n).length,
+  }));
+
+  // Mean overall rating per role. A participant with several roles counts in
+  // each — they were several things at the event.
+  const byRole = (() => {
+    const acc = new Map<string, number[]>();
+    for (const r of responses) {
+      const v = Number(r.answers['overall']);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      for (const role of (r.roles || '').split(',').map(x => x.trim()).filter(Boolean)) {
+        acc.set(role, [...(acc.get(role) || []), v]);
+      }
+    }
+    return [...acc.entries()]
+      .map(([role, vals]) => ({
+        role: SM26_ROLE_LABELS[role] || role,
+        mean: Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10,
+        n: vals.length,
+      }))
+      .sort((a, b) => b.mean - a.mean);
+  })();
 
   const downloadCsv = (filename: string, header: string[], rows: (string | number | null)[][]) => {
     // Quote everything: company names carry commas, verbatims carry newlines.
@@ -268,6 +300,56 @@ export function AdminSM26Feedback() {
           </Button>
         )}
       </div>
+
+      {/* Charts before tables. Two cuts are here that a paper survey could never
+          produce, because the answers are joined to the registration: how the
+          rating differs by role, and how many of the people we confirmed
+          actually replied. */}
+      {responses.length > 0 && (
+        <div className="grid md:grid-cols-2 gap-4">
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-1"><CardTitle className="text-base">Overall rating</CardTitle></CardHeader>
+            <CardContent>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={overallSpread} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef1f6" />
+                    <XAxis dataKey="stars" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <Tooltip cursor={{ fill: '#f5f7fb' }} />
+                    <Bar dataKey="count" fill="#0b2653" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <p className="text-[11px] text-gray-400">
+                {avg('overall') != null ? `Mean ${avg('overall')!.toFixed(1)} out of 5.` : 'Nobody has rated the event yet.'}
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-1"><CardTitle className="text-base">Rating by role</CardTitle></CardHeader>
+            <CardContent>
+              {byRole.length === 0 ? (
+                <p className="text-sm text-gray-400 py-8 text-center">Not enough answers yet.</p>
+              ) : (
+                <div className="h-48">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={byRole} layout="vertical" margin={{ top: 4, right: 24, left: 4, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#eef1f6" />
+                      <XAxis type="number" domain={[0, 5]} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                      <YAxis type="category" dataKey="role" width={92} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                      <Tooltip cursor={{ fill: '#f5f7fb' }} />
+                      <Bar dataKey="mean" fill="#1d9e75" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <p className="text-[11px] text-gray-400">Who was hardest to please — only possible because answers carry the registration.</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* The two answers with a life beyond the survey get their own cards,
           above the averages. An average is something you read once; these are
@@ -476,6 +558,34 @@ export function AdminSM26Feedback() {
             </>
           )}
         </CardContent>
+      </Card>
+
+      {/* The form as a participant meets it. The editor above shows labels in a
+          list, which tells you nothing about whether a question reads well, how
+          long the third step feels, or that a grid of five rows is a wall on a
+          phone. This is the same component the participants get, loaded from the
+          same questions — with submitting disabled, so a rehearsal can never
+          file itself as a real response. */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <CardTitle className="text-base">Preview</CardTitle>
+            <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5" onClick={() => setShowPreview(v => !v)}>
+              {showPreview ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              {showPreview ? 'Hide' : 'Show the form as participants see it'}
+            </Button>
+          </div>
+        </CardHeader>
+        {showPreview && (
+          <CardContent>
+            <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-4">
+              <p className="text-[11px] text-gray-500 mb-3">
+                Live preview · nothing you type here is saved. Save the template above first to see your edits.
+              </p>
+              <SM26FeedbackPage preview />
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       {/* Template editor */}

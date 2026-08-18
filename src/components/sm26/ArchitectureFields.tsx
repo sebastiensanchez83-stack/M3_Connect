@@ -6,7 +6,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 
 // Architecture competition module — Professional or Student.
 // Registration/competition entry is free; the 8 anonymous A2 panels + A3 notice
-// are submitted later (deadline 19 Aug 2026). Onsite attendance is a paid add-on.
+// are submitted later (deadline 19 Aug 2026, 23:59 Monaco time — hardcoded here; the
+// authoritative value is sm_event.settings.architecture_closes_at, set in admin).
+// Onsite attendance is a paid add-on.
 
 export interface ArchitectureData {
   company_description: string;
@@ -42,7 +44,7 @@ export function ArchitectureFields({ variant, value, onChange }: Props) {
       <CardHeader>
         <CardTitle>Architecture entry — {variant === 'professional' ? 'Professional' : 'Student'}</CardTitle>
         <CardDescription>
-          Free to enter. Your 8 anonymous A2 panels + A3 notice are submitted later (deadline 19 Aug 2026); jury scoring is blind.
+          Free to enter. Your 8 anonymous A2 panels + A3 notice are submitted later (deadline 19 Aug 2026, 23:59 Monaco time); jury scoring is blind.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

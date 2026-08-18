@@ -46,6 +46,8 @@ export function AdminSM26Jury() {
   const [juryRoles, setJuryRoles] = useState<JuryRole[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  // synthetic juror_user_id -> external reviewer name
+  const [externals, setExternals] = useState<Record<string, string>>({});
   const [rankings, setRankings] = useState<Ranking[]>([]);
   const [panels, setPanels] = useState<GroupRow[]>([]);
   const [batches, setBatches] = useState<GroupRow[]>([]);
@@ -67,7 +69,7 @@ export function AdminSM26Jury() {
     supabase.rpc('sm_yv_startup_groups', { p_event_id: eid }).then(r => setBatches((r.data || []) as GroupRow[]));
     supabase.rpc('sm_yv_timetable', { p_event_id: eid }).then(r => setCells((r.data || []) as Cell[]));
 
-    const [{ data: ents }, { data: jur }, { data: asg }] = await Promise.all([
+    const [{ data: ents }, { data: jur }, { data: asg }, { data: ext }] = await Promise.all([
       supabase.from('sm_role_assignment')
         .select('id, role, status, registration:sm_registration(company_name,first_name,last_name,status), startup:sm_startup_profile(stage), arch:sm_architecture_entry(category,anon_code)')
         .eq('event_id', eid).in('role', ['startup', 'architect_pro', 'architect_student']).neq('status', 'declined'),
@@ -75,6 +77,11 @@ export function AdminSM26Jury() {
         .select('id, status, module_data, registration:sm_registration(user_id,first_name,last_name,email,status)')
         .eq('event_id', eid).eq('role', 'jury').neq('status', 'declined'),
       supabase.from('sm_jury_assignment').select('id, juror_user_id, entry_role_assignment_id, mandatory').eq('event_id', eid),
+      // External architecture reviewers score under a synthetic juror_user_id with
+      // no profile behind it. Without this they show up as anonymous "Juror" chips
+      // that look like junk — and removing one silently drops their score out of
+      // the Awards Score, which joins sm_review to sm_jury_assignment on that id.
+      supabase.from('sm_architecture_reviewer').select('juror_user_id, name').eq('event_id', eid),
     ]);
 
     const mapEntry = (r: Record<string, unknown>): Entry => {
@@ -121,6 +128,8 @@ export function AdminSM26Jury() {
     for (const j of jr) if (j.status === 'confirmed' && j.user_id) jmap.set(j.user_id, { user_id: j.user_id, name: j.name, scope: j.scope });
     setJurors([...jmap.values()]);
     setAssignments((asg || []) as Assignment[]);
+    setExternals(Object.fromEntries(((ext || []) as { juror_user_id: string; name: string }[])
+      .map(r => [r.juror_user_id, `${r.name} (external)`])));
     setLoading(false);
   };
 
@@ -169,7 +178,8 @@ export function AdminSM26Jury() {
     setRankings((data || []) as Ranking[]);
   };
 
-  const jurorName = (uid: string) => jurors.find(j => j.user_id === uid)?.name || 'Juror';
+  const jurorName = (uid: string) =>
+    jurors.find(j => j.user_id === uid)?.name || externals[uid] || 'Juror';
   const entryAssignments = (entryId: string) => assignments.filter(a => a.entry_role_assignment_id === entryId);
 
   const assign = async (entry: Entry, jurorId: string) => {

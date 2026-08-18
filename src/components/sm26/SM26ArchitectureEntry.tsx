@@ -181,11 +181,11 @@ export function SM26ArchitectureEntry({ roleAssignmentId }: { roleAssignmentId: 
         <CardContent className="py-4 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm font-medium flex items-center gap-2"><Upload className="h-4 w-4 text-primary" /> Competition submission</div>
-            {subLocked && <span className="text-xs text-gray-400 inline-flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" /> Closed{prettyDeadline ? ` · ${prettyDeadline}` : ''}</span>}
+            {subLocked && <span className="text-xs text-gray-400 inline-flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" /> Closed{prettyDeadline ? ` · ${prettyDeadline}, 23:59 Monaco time` : ''}</span>}
           </div>
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 flex items-start gap-1.5">
             <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-            <span>Judging is <strong>anonymous</strong> — no name, logo, or company anywhere in the documents. PDF, max 10 MB each. Name files <code>LASTNAME-FIRSTNAME_1.pdf</code>…{prettyDeadline ? <> Deadline: <strong>{prettyDeadline}</strong>.</> : null}</span>
+            <span>Judging is <strong>anonymous</strong> — no name, logo, or company anywhere in the documents. PDF, max 10 MB each. Name files <code>LASTNAME-FIRSTNAME_1.pdf</code>…{prettyDeadline ? <> Deadline: <strong>{prettyDeadline}, 23:59 Monaco time</strong> — convert to your own timezone if you are not on Monaco time (CEST, UTC+2).</> : null}</span>
           </div>
 
           {/* Panels */}

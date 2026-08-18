@@ -12,9 +12,12 @@
   command = "npm run build"
 
 # SM26 event module: enable its public /sm26/* routes on every NON-production
-# context (PR deploy previews, branch deploys, staging) so it can be tested,
-# while production stays hidden until launch. To go live, set
-# VITE_SM26_ENABLED=true on the production context (Netlify UI) and redeploy.
+# context (PR deploy previews, branch deploys, staging) so it can be tested.
+#
+# Production is ALREADY LIVE — VITE_SM26_ENABLED=true is set on the production
+# context in the Netlify UI, which this file cannot show. Verified 18 Aug 2026:
+# /sm26/register and /sm26/jury/architecture both render on smartmarinaconnect.com.
+# Do not read the absence of a production block below as "the module is hidden".
 [context.deploy-preview.environment]
   VITE_SM26_ENABLED = "true"
 

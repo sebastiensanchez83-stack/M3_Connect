@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Innovation jury — how the console works</title>
+<style>
+  :root{
+    --navy:#0b2653; --navy-2:#143a6b; --ink:#1e2838; --muted:#6b7a99; --faint:#96a1b6;
+    --rule:#e4e8f0; --paper:#ffffff; --tint:#f5f7fb;
+    --amber-i:#b45309; --amber-b:#fffbeb; --amber-r:#fde8c3;
+    --green-i:#15803d; --green-b:#f0fdf4; --green-r:#c7ecd3;
+    --blue-i:#1d4ed8;  --blue-b:#eff6ff;  --blue-r:#cfe0fb;
+    --red-i:#b91c1c;   --red-b:#fef2f2;   --red-r:#f6d2d2;
+    --plum-i:#7e22ce;  --plum-b:#faf5ff;  --plum-r:#e9d5ff;
+  }
+  @page { size:A4; margin:16mm 15mm 14mm; }
+  *{ box-sizing:border-box; }
+  html{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"Segoe UI","Helvetica Neue",Helvetica,Arial,sans-serif;
+    font-size:10.2pt; line-height:1.58; font-variant-numeric:tabular-nums;
+  }
+  p{ margin:0 0 .62em; max-width:62ch; }
+  strong{ font-weight:640; color:#101a2c; }
+  em{ font-style:normal; color:var(--muted); }
+  a{ color:var(--navy-2); text-decoration:none; }
+  code{ font-family:"Cascadia Mono",Consolas,monospace; font-size:.92em;
+        background:var(--tint); border:1px solid var(--rule); border-radius:3px; padding:.05em .34em; }
+
+  /* ---- masthead ----
+     Sits INSIDE the text column on purpose. Bleeding it into the @page margin
+     with negative margins gets clipped by Chrome's print engine, which lopped
+     the first character off every line. */
+  .masthead{
+    background:linear-gradient(135deg,var(--navy),var(--navy-2));
+    color:#fff; padding:9mm 10mm 8mm; border-radius:6px; margin:0 0 8mm;
+    break-inside:avoid;
+  }
+  .eyebrow{ text-transform:uppercase; letter-spacing:.14em; font-size:7.6pt;
+            font-weight:600; color:rgba(255,255,255,.62); margin-bottom:2.5mm; }
+  .masthead h1{ font-size:21pt; line-height:1.12; font-weight:680; margin:0 0 2.5mm;
+                letter-spacing:-.015em; text-wrap:balance; }
+  .masthead p{ color:rgba(255,255,255,.86); margin:0; max-width:52ch; font-size:10.4pt; }
+  .masthead .where{ margin-top:5mm; font-size:8.8pt; color:rgba(255,255,255,.7);
+                    border-top:1px solid rgba(255,255,255,.18); padding-top:3mm; }
+  .masthead .where b{ color:#fff; font-weight:600; }
+
+  /* ---- section headings ---- */
+  h2{
+    font-size:13.2pt; font-weight:680; letter-spacing:-.01em; margin:6.5mm 0 2.5mm;
+    padding-bottom:2mm; border-bottom:1.6px solid var(--navy); color:var(--navy);
+    break-after:avoid; text-wrap:balance;
+  }
+  h2:first-of-type{ margin-top:0; }
+  h3{ font-size:10.6pt; font-weight:660; margin:5mm 0 1.5mm; color:#101a2c; break-after:avoid; }
+
+  /* ---- the rule callout ---- */
+  .rule-box{
+    border:1.5px solid var(--navy); border-radius:5px; padding:4.5mm 6mm; margin:0 0 5mm;
+    background:var(--tint); break-inside:avoid;
+  }
+  .rule-box .tag{ text-transform:uppercase; letter-spacing:.12em; font-size:7.4pt;
+                  font-weight:700; color:var(--navy); margin-bottom:2mm; }
+  .rule-box p:last-child{ margin-bottom:0; }
+  .seq{ list-style:none; margin:3mm 0 0; padding:0; counter-reset:s; max-width:none; }
+  .seq li{ counter-increment:s; position:relative; padding-left:9mm; margin-bottom:2mm; }
+  .seq li:last-child{ margin-bottom:0; }
+  .seq li::before{
+    content:counter(s); position:absolute; left:0; top:.05em;
+    width:5.4mm; height:5.4mm; border-radius:50%; background:var(--navy); color:#fff;
+    font-size:7.4pt; font-weight:700; display:flex; align-items:center; justify-content:center;
+  }
+
+  /* ---- numbered steps ---- */
+  .step{ display:grid; grid-template-columns:11mm 1fr; gap:0 4mm; margin:0 0 5mm; break-inside:avoid; }
+  .step .n{
+    font-size:20pt; font-weight:700; line-height:1; color:var(--navy); opacity:.34;
+    letter-spacing:-.04em; padding-top:.5mm;
+  }
+  .step h3{ margin:0 0 1.5mm; }
+  .step .body > *:last-child{ margin-bottom:0; }
+  .note{
+    font-size:9.2pt; color:var(--muted); border-left:2px solid var(--rule);
+    padding:1mm 0 1mm 3.5mm; margin:2.5mm 0 0; max-width:60ch;
+  }
+
+  /* ---- definition tables ---- */
+  table{ width:100%; border-collapse:collapse; margin:2mm 0 5mm; font-size:9.6pt; }
+  th{ text-align:left; font-size:7.6pt; text-transform:uppercase; letter-spacing:.1em;
+      color:var(--faint); font-weight:650; padding:0 0 1.6mm; border-bottom:1px solid var(--rule); }
+  td{ padding:2.1mm 0; border-bottom:1px solid var(--rule); vertical-align:top; }
+  tr{ break-inside:avoid; }
+  td.k{ width:44mm; padding-right:5mm; font-weight:620; color:#101a2c; }
+  td.k.wide{ width:56mm; }
+  tbody tr:last-child td{ border-bottom:none; }
+
+  /* ---- status chips (same language as the console) ---- */
+  .chip{ display:inline-block; font-size:8.2pt; font-weight:620; line-height:1.5;
+         padding:.1em .62em; border-radius:99px; border:1px solid; white-space:nowrap; }
+  .c-grey { color:#4b5563; background:#f3f4f6; border-color:#dcdfe4; }
+  .c-amber{ color:var(--amber-i); background:var(--amber-b); border-color:var(--amber-r); }
+  .c-green{ color:var(--green-i); background:var(--green-b); border-color:var(--green-r); }
+  .c-blue { color:var(--blue-i);  background:var(--blue-b);  border-color:var(--blue-r); }
+  .c-red  { color:var(--red-i);   background:var(--red-b);   border-color:var(--red-r); }
+  .c-plum { color:var(--plum-i);  background:var(--plum-b);  border-color:var(--plum-r); }
+
+  .btn{ display:inline-block; font-size:8.6pt; font-weight:620; padding:.12em .7em;
+        border:1px solid #c9d2e0; border-radius:4px; background:#fff; white-space:nowrap; }
+
+  /* ---- the model diagram ---- */
+  .model{ display:grid; grid-template-columns:1fr auto 1fr auto 1fr; align-items:stretch;
+          gap:0 3mm; margin:1mm 0 5mm; break-inside:avoid; }
+  .model .box{ border:1px solid var(--rule); border-radius:5px; padding:3.5mm 4mm; background:#fff; }
+  .model b{ display:block; font-size:9.6pt; color:var(--navy); margin-bottom:1mm; }
+  .model span{ font-size:8.8pt; color:var(--muted); line-height:1.45; display:block; }
+  .model .op{ align-self:center; font-size:13pt; color:var(--faint); font-weight:300; }
+  .model .out{ grid-column:1 / -1; margin-top:3mm; border:1px solid var(--navy);
+               border-radius:5px; padding:3.5mm 4mm; background:var(--tint); }
+
+  .cols{ display:grid; grid-template-columns:1fr 1fr; gap:0 8mm; }
+  .cols > div > *:first-child{ margin-top:0; }
+
+  footer{ margin-top:9mm; padding-top:3.5mm; border-top:1px solid var(--rule);
+          font-size:8.6pt; color:var(--faint); display:flex; justify-content:space-between; gap:6mm; }
+  .pagebreak{ break-before:page; }
+
+  /* On screen there is no @page margin box, so mirror it here. This makes the
+     browser view a faithful preview of the printed page — including the
+     masthead, which bleeds to the paper edge via negative margins. */
+  @media screen{
+    body{ padding:16mm 15mm 14mm; max-width:210mm; margin:0 auto;
+          box-shadow:0 0 0 1px #e8ecf3; }
+  }
+</style>
+</head>
+<body>
+
+<div class="masthead">
+  <div class="eyebrow">Smart &amp; Sustainable Marina Rendezvous 2026</div>
+  <h1>Running the innovation jury</h1>
+  <p>How to build your panels, schedule the sessions and collect the scores — and what every button on the screen actually does.</p>
+  <div class="where">
+    Your console: <b>smartmarinaconnect.com/sm26/yv</b> &nbsp;·&nbsp; Yacht Club de Monaco, 20–21 September 2026
+  </div>
+</div>
+
+<h2>How it works</h2>
+
+<p>You don't assign one juror to one startup. You work in groups, and the platform does the bookkeeping underneath.</p>
+
+<div class="model">
+  <div class="box"><b>Jury panel</b><span>A group of jurors, mixed by type. JG1, JG2, …</span></div>
+  <div class="op">×</div>
+  <div class="box"><b>Startup batch</b><span>The startups heard together. SG1, SG2, …</span></div>
+  <div class="op">→</div>
+  <div class="box"><b>Slot</b><span>One panel meets one batch, at one time.</span></div>
+  <div class="out"><b>What happens automatically</b><span>The moment a panel is paired with a batch, every juror on that panel gets a scorecard for every startup in that batch. You never create scorecards by hand.</span></div>
+</div>
+
+<p>Sizes are entirely yours. A panel can hold three jurors or seven; a batch can hold four startups or eight. Nothing forces a particular number.</p>
+
+<div class="rule-box">
+  <div class="tag">The one thing to remember</div>
+  <p><strong>Nothing is ever emailed until you click a button that says so.</strong> Creating panels, batches and slots is completely silent — you can build the whole timetable, look at it, change your mind and rebuild it, without a single message leaving.</p>
+  <p style="margin-top:3mm">When you are ready, three separate clicks send three emails, in this order:</p>
+  <ol class="seq">
+    <li><strong>Send availability request</strong> — asks the panel whether the slot works for them.</li>
+    <li><strong>Send Zoom invite</strong> — creates the meeting and sends the calendar invitation.</li>
+    <li><strong>Email jurors to score</strong> — after the session, asks them for their feedback forms.</li>
+  </ol>
+</div>
+
+<h2>Step by step</h2>
+
+<div class="step">
+  <div class="n">1</div>
+  <div class="body">
+    <h3>Tag your jurors &nbsp;<span style="font-weight:400;color:var(--faint);font-size:9.4pt">— Jurors tab</span></h3>
+    <p>For each juror, set their <strong>Type</strong> (Angel, VC or Corporate) and their <strong>Owner</strong> (YV or M3). Type is what lets the console warn you when a panel isn't properly mixed. Owner is simply a reminder of who holds the relationship.</p>
+    <p class="note">A juror only appears in the panel picker once they have a platform account <em>and</em> M3 has confirmed their jury role. If someone you expect is missing, that is almost always why — ask M3 to confirm them.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">2</div>
+  <div class="body">
+    <h3>Build your panels &nbsp;<span style="font-weight:400;color:var(--faint);font-size:9.4pt">— Jury panels tab</span></h3>
+    <p><span class="btn">New panel</span> creates JG1, then JG2, and so on. Add jurors from the dropdown, which shows each person's type and how many panels they already sit on. You can rename a panel to anything you find clearer.</p>
+    <p>A panel is flagged <span class="chip c-amber">amber</span> in only three cases: it has no jurors yet, one of its members has no Type set, or everyone on it is the same type. Its size is never questioned.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">3</div>
+  <div class="body">
+    <h3>Build your batches &nbsp;<span style="font-weight:400;color:var(--faint);font-size:9.4pt">— Startup batches tab</span></h3>
+    <p><span class="btn">New batch</span> creates SG1, SG2, and so on. The picker shows each startup's stage and tells you if it already sits in another batch. The heading keeps a running count of how many startups aren't in a batch yet.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">4</div>
+  <div class="body">
+    <h3>Put them on the timetable &nbsp;<span style="font-weight:400;color:var(--faint);font-size:9.4pt">— Timetable tab</span></h3>
+    <p>Two ways to do this:</p>
+    <p><span class="btn">Add a slot</span> — choose a panel, a batch, a date and time, and a length. One slot at a time.</p>
+    <p><span class="btn">Auto-build</span> — give it a first slot, a length and a number of rounds, and it proposes a whole rotation in which each panel meets a different batch each round. Review the proposal, untick anything you don't want, then create.</p>
+    <p>Either way you get <span class="chip c-grey">Draft</span> slots. No Zoom, no email. The scorecards behind them already exist.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">5</div>
+  <div class="body">
+    <h3>Ask the panel if the slot works</h3>
+    <p><span class="btn">Send availability request</span> emails each juror on that panel, with two buttons: <em>Confirm availability</em> and <em>Not available</em>. They don't need to log in — one click is enough.</p>
+    <p>As answers arrive, the slot shows <strong>2/3 available</strong> and each juror's pill turns green or red. Nobody is chased automatically; you can re-send whenever you like.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">6</div>
+  <div class="body">
+    <h3>Send the Zoom invite</h3>
+    <p>When you're happy with the answers, <span class="btn">Send Zoom invite</span>. This is the moment the meeting is actually created. The calendar invitation goes to the jurors who confirmed, to the batch's startups, and to you and Victor.</p>
+    <p class="note">Each person's invitation lists only themselves, so the startups in a batch never see one another's email addresses.</p>
+    <p style="margin-top:2.5mm">If nobody has answered yet, the button says so and asks you to confirm before it sends anyway.</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="n">7</div>
+  <div class="body">
+    <h3>After the session, collect the scores</h3>
+    <p><span class="btn">Email jurors to score</span> sends every juror on the panel a link to their scorecards, listing the startups they just heard. They score at their own pace, and the slot shows the progress — <strong>4/18 scored</strong> — as it comes in.</p>
+  </div>
+</div>
+
+<h2>What everything means</h2>
+
+<h3>The dashboard tiles</h3>
+<p>Each tile is a count <em>and</em> a filter: click it to jump to the right tab showing only those rows, click again to clear.</p>
+<table>
+  <thead><tr><th>Tile</th><th>What it counts</th></tr></thead>
+  <tbody>
+    <tr><td class="k">Startups not in a batch</td><td>Innovation entries you haven't grouped yet.</td></tr>
+    <tr><td class="k">Jurors not on a panel</td><td>Confirmed jurors who aren't on any panel.</td></tr>
+    <tr><td class="k">Panels to balance</td><td>Panels with no jurors, an unset Type, or only one type represented.</td></tr>
+    <tr><td class="k">Slots not sent out</td><td>Slots where the Zoom invitation hasn't gone yet.</td></tr>
+    <tr><td class="k">Evaluations outstanding</td><td>Jurors who still owe you scores on entries assigned to them.</td></tr>
+    <tr><td class="k">Payment pending</td><td>Startups whose participation fee isn't settled.</td></tr>
+  </tbody>
+</table>
+
+<div class="cols">
+  <div>
+    <h3>Innovation registrations funnel</h3>
+    <p>Where your startups stand: awaiting confirmation, then confirmed, then paid.</p>
+  </div>
+  <div>
+    <h3>Scoring funnel</h3>
+    <p>Where the scorecards stand: assigned, then in progress, then submitted.</p>
+  </div>
+</div>
+
+<h3>The state of a slot</h3>
+<table>
+  <tbody>
+    <tr><td class="k"><span class="chip c-grey">Draft — nothing sent</span></td><td>Created, and the scorecards behind it exist, but no email has left and there is no meeting.</td></tr>
+    <tr><td class="k"><span class="chip c-amber">Availability requested</span></td><td>The panel has been asked. Answers appear as they come in.</td></tr>
+    <tr><td class="k"><span class="chip c-blue">Zoom invite sent</span></td><td>The meeting exists and the calendar invitation is out.</td></tr>
+    <tr><td class="k"><span class="chip c-green">All scores in</span></td><td>Every juror has submitted a scorecard for every startup in the batch.</td></tr>
+    <tr><td class="k"><span class="chip c-red">Cancelled</span></td><td>The meeting was deleted and everyone who was invited has been told.</td></tr>
+  </tbody>
+</table>
+
+<h3>The juror pills on a slot</h3>
+<table>
+  <tbody>
+    <tr><td class="k"><span class="chip c-green">green</span></td><td>Available, or confirmed once the Zoom invitation has gone.</td></tr>
+    <tr><td class="k"><span class="chip c-red">red</span></td><td>Told you they can't make it.</td></tr>
+    <tr><td class="k"><span class="chip c-grey">grey</span></td><td>Hasn't answered yet.</td></tr>
+  </tbody>
+</table>
+
+<h3>The small buttons on a slot</h3>
+<table>
+  <tbody>
+    <tr><td class="k wide">Clock icon — reschedule</td><td>Only while a slot is still a draft. Once the Zoom invitation is out, cancel the session instead and create a new one.</td></tr>
+    <tr><td class="k wide">Bin icon — delete draft</td><td>Removes a slot that never went anywhere. Nothing was sent, so nobody is notified.</td></tr>
+    <tr><td class="k wide">✕ — cancel session</td><td>For a live session: deletes the Zoom meeting and emails everyone a cancellation, which removes it from their calendar.</td></tr>
+  </tbody>
+</table>
+
+<h3>The Innovations tab</h3>
+<p>One row per startup. Click it and a panel slides in with everything about that entry: which batch it's in, which panels review it and when, each assigned juror's answer and whether they've scored, plus its registration and payment status. You can add a single extra juror here for a one-off — but normal assignment should happen through panels and batches.</p>
+
+<h2>Trying it out without emailing anyone</h2>
+<p>Two safety nets, and you can use either as much as you like.</p>
+<table>
+  <tbody>
+    <tr>
+      <td class="k">“preview to me” links</td>
+      <td>At the bottom right of any slot. They send that exact email — availability, Zoom invite or scoring request — to you and nobody else, so you can see what a juror will receive.</td>
+    </tr>
+    <tr>
+      <td class="k"><span class="chip c-plum">TEST</span> slots</td>
+      <td>Tick <em>Test slot</em> when adding a slot. It is marked [TEST] and physically refuses to email anyone except you, whatever you click. Its send buttons are hidden; use the preview links.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2>Worth knowing</h2>
+<table>
+  <tbody>
+    <tr><td class="k">Times</td><td>Everything shown on screen and written in the emails is <strong>Monaco time</strong> (CET/CEST). You don't need to convert anything.</td></tr>
+    <tr><td class="k">Language</td><td>The jury scoring screens are in English.</td></tr>
+    <tr><td class="k">What jurors see</td><td>At <a href="https://smartmarinaconnect.com/sm26/jury">smartmarinaconnect.com/sm26/jury</a>: their own sessions, who else is on their panel, the startups they'll hear, their Zoom link once it's sent, and their scorecards.</td></tr>
+    <tr><td class="k">Changing an answer</td><td>A juror can change their availability at any time, either from the email link or from that page.</td></tr>
+    <tr><td class="k">The official ranking</td><td>Lives with M3 in the admin console. It's built from the submitted scorecards — the same ones your panels fill in.</td></tr>
+    <tr><td class="k">You're not alone in here</td><td>M3 can see and edit the same panels, batches and timetable. If a juror is already assigned to an entry, that's usually why.</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  <span>Smart &amp; Sustainable Marina Rendezvous 2026 · Innovation jury console</span>
+  <span>Questions: events@m3monaco.com</span>
+</footer>
+
+</body>
+</html>

@@ -90,6 +90,11 @@ const ROLE_ASSETS: Record<string, AssetDef[]> = {
 const CATALOGUE_ROLES = new Set(['jury', 'startup', 'architect_pro', 'architect_student', 'marina', 'sponsor', 'speaker', 'media']);
 
 const DRAFT_KEY = 'sm26-register-draft';
+// Everything the form holds EXCEPT the uploaded files, which are File objects and
+// cannot be serialised — the save button says so. Leaving the tick-boxes out (as
+// this did until 18 Aug 2026) means a registrant who resumes finds on-site
+// attendance, all three consents and the terms silently cleared, and reasonably
+// concludes the save did nothing.
 interface DraftShape {
   form?: Record<string, string>;
   role?: string;
@@ -98,6 +103,12 @@ interface DraftShape {
   marina?: MarinaData;
   light?: LightData;
   prior?: boolean;
+  socials?: { linkedin: string; instagram: string; facebook: string; twitter: string };
+  onsite?: boolean;
+  ecatConsent?: boolean;
+  socialConsent?: boolean;
+  imageConsent?: boolean;
+  terms?: boolean;
 }
 
 export function SM26RegisterPage() {
@@ -217,7 +228,10 @@ export function SM26RegisterPage() {
 
   // ─── Save & resume ────────────────────────────────────────────────
   const firstSaveRef = useRef(true);
-  const snapshot = (): DraftShape => ({ form, role, startup, arch, marina, light, prior: priorParticipated });
+  const snapshot = (): DraftShape => ({
+    form, role, startup, arch, marina, light, prior: priorParticipated,
+    socials, onsite, ecatConsent, socialConsent, imageConsent, terms,
+  });
   const applyDraft = (d: DraftShape) => {
     if (d.form) setForm(prev => ({ ...prev, ...d.form }));
     if (d.role) setRole(d.role);
@@ -226,6 +240,12 @@ export function SM26RegisterPage() {
     if (d.marina) setMarina(d.marina);
     if (d.light) setLight(d.light);
     if (typeof d.prior === 'boolean') setPriorParticipated(d.prior);
+    if (d.socials) setSocials(prev => ({ ...prev, ...d.socials }));
+    if (typeof d.onsite === 'boolean') setOnsite(d.onsite);
+    if (typeof d.ecatConsent === 'boolean') setEcatConsent(d.ecatConsent);
+    if (typeof d.socialConsent === 'boolean') setSocialConsent(d.socialConsent);
+    if (typeof d.imageConsent === 'boolean') setImageConsent(d.imageConsent);
+    if (typeof d.terms === 'boolean') setTerms(d.terms);
   };
 
   // Resume from an emailed link (?draft=token) — cross-device.
@@ -233,11 +253,30 @@ export function SM26RegisterPage() {
     const token = new URLSearchParams(window.location.search).get('draft');
     if (!token) return;
     (async () => {
+      // Never fail silently here. A resume link that quietly does nothing leaves
+      // the registrant staring at an empty form, concluding the save never
+      // worked, and typing the whole thing again — which is exactly what
+      // happened on 17 Aug. If the token is dead, say so, and fall back to
+      // whatever this browser still holds.
+      let restored = false;
       try {
-        const { data } = await supabase.functions.invoke('sm26-draft', { body: { action: 'load', token } });
+        const { data, error } = await supabase.functions.invoke('sm26-draft', { body: { action: 'load', token } });
         const d = (data as { data?: DraftShape } | null)?.data;
-        if (d) { applyDraft(d); toast({ title: 'Welcome back', description: "We've restored your saved registration." }); }
-      } catch { /* ignore */ }
+        if (!error && d) { applyDraft(d); restored = true; toast({ title: 'Welcome back', description: "We've restored your saved registration." }); }
+      } catch { /* handled below */ }
+      if (restored) return;
+      let local: DraftShape | null = null;
+      try { const saved = localStorage.getItem(DRAFT_KEY); if (saved) local = JSON.parse(saved) as DraftShape; } catch { /* ignore */ }
+      if (local) {
+        applyDraft(local);
+        toast({ title: 'We restored this browser’s copy', description: "That link had expired, but we found your registration saved on this device." });
+      } else {
+        toast({
+          title: "That link didn't work",
+          description: 'It may have expired. Fill the form in again and press Save for later to get a fresh link — or write to events@m3monaco.com and we will finish it with you.',
+          variant: 'destructive',
+        });
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -254,7 +293,8 @@ export function SM26RegisterPage() {
     if (firstSaveRef.current) { firstSaveRef.current = false; return; }
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot())); } catch { /* ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form, role, startup, arch, marina, light, priorParticipated]);
+  }, [form, role, startup, arch, marina, light, priorParticipated,
+      socials, onsite, ecatConsent, socialConsent, imageConsent, terms]);
 
   const saveDraft = async () => {
     if (!form.email.trim()) {
@@ -263,11 +303,24 @@ export function SM26RegisterPage() {
     }
     setSavingDraft(true);
     try {
-      const { error } = await supabase.functions.invoke('sm26-draft', {
+      const { data, error } = await supabase.functions.invoke('sm26-draft', {
         body: { action: 'save', email: form.email.trim(), data: snapshot(), origin: window.location.origin },
       });
       if (error) throw error;
-      toast({ title: 'Saved', description: `We've emailed ${form.email.trim()} a link to continue on any device.` });
+      const r = (data || {}) as { emailed?: boolean; link?: string };
+      if (r.emailed) {
+        toast({ title: 'Saved', description: `We've emailed ${form.email.trim()} a link to continue on any device.` });
+      } else {
+        // Saved, but the email did not go. Say that rather than sending them to
+        // wait on an inbox — and put the link on the clipboard so they still have one.
+        if (r.link) { try { await navigator.clipboard.writeText(r.link); } catch { /* ignore */ } }
+        toast({
+          title: 'Saved — but we could not send the email',
+          description: r.link
+            ? 'Your link is copied to the clipboard, and this browser will remember your answers. Paste it somewhere safe.'
+            : 'This browser will remember your answers. Come back on this device, or write to events@m3monaco.com.',
+        });
+      }
     } catch {
       toast({ title: "Couldn't save", description: 'Please try again in a moment.', variant: 'destructive' });
     } finally {
@@ -940,7 +993,10 @@ export function SM26RegisterPage() {
                     {savingDraft && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                     Save &amp; continue later
                   </Button>
-                  <p className="text-[11px] text-center text-gray-400">Your progress is saved on this device automatically. Use “save &amp; continue later” to finish on another.</p>
+                  {/* Files are the one thing a draft cannot carry — they are File
+                      objects, not text. Better to say so than to let someone
+                      discover it when they come back. */}
+                  <p className="text-[11px] text-center text-gray-400">Your answers are saved on this device automatically. Use “save &amp; continue later” to finish on another — any files you attached will need choosing again.</p>
                 </>
               )}
             </CardContent>

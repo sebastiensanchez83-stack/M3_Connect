@@ -8,10 +8,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const ALLOWED_ORIGINS = [
   "https://smartmarinaconnect.com",
   "https://m3connect.netlify.app",
+  "https://m3connectv2.netlify.app",
   "http://localhost:5173",
   "http://localhost:3000",
 ];
-const NETLIFY_SUBDOMAIN = /^https:\/\/[a-z0-9-]+--m3connect\.netlify\.app$/;
+// The v2 site and its previews were missing here while every other SM26 function
+// allows them, so a save from a v2 preview got another origin's CORS header back.
+const NETLIFY_SUBDOMAIN = /^https:\/\/[a-z0-9-]+--m3connect(v2)?\.netlify\.app$/;
 function isAllowedOrigin(o: string): boolean {
   return ALLOWED_ORIGINS.includes(o) || NETLIFY_SUBDOMAIN.test(o);
 }
@@ -31,8 +34,11 @@ const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "Smart Marina Connect <noreply@smartmarinaconnect.com>";
 
-async function sendResumeEmail(email: string, firstName: string, link: string) {
-  if (!RESEND_API_KEY) { console.error("RESEND_API_KEY not set"); return; }
+// Returns whether the mail actually went. The caller used to promise the
+// registrant "we've emailed you a link" no matter what happened here, so a
+// silent Resend failure looked exactly like a save that never worked.
+async function sendResumeEmail(email: string, firstName: string, link: string): Promise<boolean> {
+  if (!RESEND_API_KEY) { console.error("RESEND_API_KEY not set"); return false; }
   const hi = firstName ? `Hello ${firstName},` : "Hello,";
   const html = `
 <!DOCTYPE html><html><body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
@@ -44,14 +50,16 @@ async function sendResumeEmail(email: string, firstName: string, link: string) {
 <h2 style="margin:0 0 14px;color:#111827;font-size:19px;">Your registration is saved</h2>
 <p style="margin:0 0 24px;color:#4b5563;font-size:15px;line-height:1.6;">You can finish it any time, on any device, from where you left off. Click below to continue.</p>
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;"><tr><td style="background:#0b2653;border-radius:8px;"><a href="${link}" target="_blank" style="display:inline-block;padding:13px 30px;color:#fff;font-size:15px;font-weight:600;text-decoration:none;">Continue my registration</a></td></tr></table>
-<p style="margin:24px 0 0;color:#9ca3af;font-size:13px;">If you didn't start a registration, you can ignore this email.</p>
+<p style="margin:24px 0 0;color:#6b7280;font-size:13px;word-break:break-all;">Or paste this into your browser:<br>${link}</p>
+<p style="margin:16px 0 0;color:#9ca3af;font-size:13px;">If you didn't start a registration, you can ignore this email.</p>
 </td></tr></table></td></tr></table></body></html>`.trim();
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({ from: SENDER_EMAIL, to: [email], subject: "Continue your Smart Marina Rendezvous 2026 registration", html }),
   });
-  if (!res.ok) console.error("resend draft email error", res.status, await res.text());
+  if (!res.ok) { console.error("resend draft email error", res.status, await res.text()); return false; }
+  return true;
 }
 
 Deno.serve(async (req: Request) => {
@@ -65,7 +73,9 @@ Deno.serve(async (req: Request) => {
   const action = body.action;
 
   if (action === "load") {
-    const token = typeof body.token === "string" ? body.token : "";
+    // trim(): a token copied out of an email arrives with whitespace often enough,
+    // and an untrimmed one answers 404 — indistinguishable from an expired link.
+    const token = typeof body.token === "string" ? body.token.trim() : "";
     if (!token) return json(req, { error: "Missing token" }, 400);
     const { data } = await admin.from("sm_registration_draft").select("data, email").eq("token", token).maybeSingle();
     if (!data) return json(req, { error: "not_found" }, 404);
@@ -98,8 +108,12 @@ Deno.serve(async (req: Request) => {
     const link = `${base}/sm26/register?draft=${token}`;
     const reg = (payload.form ?? {}) as Record<string, unknown>;
     const firstName = typeof reg.first_name === "string" ? reg.first_name : "";
-    try { await sendResumeEmail(email, firstName, link); } catch (e) { console.error("resume email failed", e); }
-    return json(req, { ok: true });
+    let emailed = false;
+    try { emailed = await sendResumeEmail(email, firstName, link); } catch (e) { console.error("resume email failed", e); }
+    // The link goes back to the caller too, so a registrant whose email bounced
+    // still has a way to return rather than being told to check an inbox that
+    // will never receive anything.
+    return json(req, { ok: true, emailed, link });
   }
 
   return json(req, { error: "Unknown action" }, 400);

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { CheckCircle, Loader2, Lock, Mail, RefreshCw, Ship, ArrowRight } from 'lucide-react';
@@ -8,7 +8,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import type { EmailOtpType } from '@supabase/supabase-js';
 import { toast } from '@/hooks/use-toast';
+
+const OTP_TYPES = ['magiclink', 'invite', 'signup', 'recovery', 'email_change'];
 
 // First-arrival welcome step for event registrants. The access email's
 // magic link lands here (and AuthRedirector routes any pw_pending account
@@ -27,6 +30,44 @@ export function WelcomePage() {
   const [busy, setBusy] = useState(false);
   const [resendEmail, setResendEmail] = useState('');
   const [resent, setResent] = useState(false);
+  // An access link carrying token_hash has to be redeemed here. Start in the
+  // redeeming state when one is present so the "your link is dead" card never
+  // flashes up while it is still being checked.
+  const [redeeming, setRedeeming] = useState(() => params.has('token_hash'));
+  const redeemed = useRef(false);
+
+  // Redeem a token_hash access link. Unlike the PKCE code flow, this is verified
+  // server-side, so it works from any browser on any device — the link survives
+  // being requested on a laptop and opened on a phone, or being sent by an admin.
+  useEffect(() => {
+    if (redeemed.current) return;
+    const url = new URL(window.location.href);
+    const tokenHash = url.searchParams.get('token_hash');
+    if (!tokenHash) return;
+    redeemed.current = true;
+
+    const typeParam = url.searchParams.get('type');
+    const type: EmailOtpType =
+      typeParam && OTP_TYPES.includes(typeParam) ? (typeParam as EmailOtpType) : 'magiclink';
+
+    let mounted = true;
+    void (async () => {
+      const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+      if (error) console.error('Access link could not be redeemed:', error.message);
+      else await refreshProfile().catch(() => {});
+
+      // Spent or not, take the credential out of the address bar — keeping only
+      // where they were headed — so a copied URL carries nothing usable.
+      const keep = new URLSearchParams();
+      const n = url.searchParams.get('next');
+      if (n) keep.set('next', n);
+      const q = keep.toString();
+      window.history.replaceState({}, '', url.pathname + (q ? `?${q}` : ''));
+
+      if (mounted) setRedeeming(false);
+    })();
+    return () => { mounted = false; };
+  }, [refreshProfile]);
 
   const finish = async () => {
     navigate(next, { replace: true });
@@ -64,7 +105,7 @@ export function WelcomePage() {
     setResent(true);
   };
 
-  if (authLoading) return (
+  if (authLoading || redeeming) return (
     <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>
   );
 

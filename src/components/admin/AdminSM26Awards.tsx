@@ -17,6 +17,7 @@ interface Award {
 }
 interface TallyRow { entry_id: string; title: string; subtitle: string; votes: number; }
 interface Candidate { entry_id: string; title: string; subtitle: string; description: string; votes: number; }
+interface Voter { voter_user_id: string; voter_name: string; email: string | null; company: string | null; persona: string | null; voted_at: string; }
 
 const VOTE_COMPS = [
   { key: 'innovation', label: 'Innovation' },
@@ -24,7 +25,7 @@ const VOTE_COMPS = [
   { key: 'architecture_student', label: 'Architecture · Student' },
 ];
 
-export function AdminSM26Awards() {
+export function AdminSM26Awards({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const [eventId, setEventId] = useState<string | null>(null);
   const [awards, setAwards] = useState<Award[]>([]);
@@ -35,6 +36,9 @@ export function AdminSM26Awards() {
   const [pickerAward, setPickerAward] = useState<Award | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [loadingCands, setLoadingCands] = useState(false);
+  const [voterEntry, setVoterEntry] = useState<{ comp: string; entry_id: string; title: string } | null>(null);
+  const [voters, setVoters] = useState<Voter[]>([]);
+  const [loadingVoters, setLoadingVoters] = useState(false);
 
   useEffect(() => { load(); }, []);
 
@@ -103,6 +107,16 @@ export function AdminSM26Awards() {
     setPickerAward(null);
   };
 
+  // Who voted for this entry — voter identity is stored on sm_public_vote; this
+  // surfaces it (name · org · when) via a read-only, staff-gated RPC.
+  const openVoters = async (comp: string, entry_id: string, title: string) => {
+    if (!eventId) return;
+    setVoterEntry({ comp, entry_id, title }); setVoters([]); setLoadingVoters(true);
+    const { data } = await supabase.rpc('sm_admin_vote_voters', { p_event_id: eventId, p_competition: comp, p_entry_id: entry_id });
+    setVoters((data || []) as Voter[]);
+    setLoadingVoters(false);
+  };
+
   if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
 
   const entriesFor = (comp: string) => tallies[comp] || [];
@@ -112,10 +126,10 @@ export function AdminSM26Awards() {
 
   return (
     <div className="space-y-4">
-      <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>
+      {!embedded && <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Trophy className="h-6 w-6 text-primary" /> Awards &amp; voting</h1>
+          {!embedded && <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Trophy className="h-6 w-6 text-primary" /> Awards &amp; voting</h1>}
           <p className="text-sm text-gray-500 mt-0.5">
             {confirmedCount} of {awards.length} winners confirmed · confirmed winners appear publicly on the <Link to="/sm26/vote" className="text-primary hover:underline">vote &amp; results page</Link>.
           </p>
@@ -144,13 +158,15 @@ export function AdminSM26Awards() {
                 {rows.length === 0 ? <p className="text-xs text-gray-400">No entries.</p> : (
                   <div className="space-y-1.5">
                     {rows.map((r, i) => (
-                      <div key={r.entry_id} className="flex items-center justify-between text-sm">
+                      <button key={r.entry_id} type="button" disabled={r.votes === 0}
+                        onClick={() => openVoters(c.key, r.entry_id, r.title)}
+                        className="w-full flex items-center justify-between text-sm rounded px-1 -mx-1 py-0.5 enabled:hover:bg-gray-50 disabled:cursor-default text-left">
                         <span className="flex items-center gap-1.5 truncate">
                           {i === 0 && r.votes > 0 && <Trophy className="h-3.5 w-3.5 text-amber-500 shrink-0" />}
                           <span className="truncate">{r.title}</span>
                         </span>
-                        <span className="font-semibold text-gray-700 tabular-nums">{r.votes}</span>
-                      </div>
+                        <span className="font-semibold text-gray-700 tabular-nums shrink-0">{r.votes}{r.votes > 0 && <span className="text-[10px] text-primary font-normal ml-1">who ▾</span>}</span>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -217,6 +233,35 @@ export function AdminSM26Awards() {
                   </button>
                 );
               })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Who voted — the roster behind a tally */}
+      <Dialog open={!!voterEntry} onOpenChange={o => !o && setVoterEntry(null)}>
+        <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Voters — {voterEntry?.title}</DialogTitle></DialogHeader>
+          {loadingVoters ? (
+            <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-gray-300" /></div>
+          ) : voters.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-400">No voters recorded for this entry.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left text-[11px] uppercase tracking-wide text-gray-400 border-b">
+                  <th className="px-2 py-2">Voter</th><th className="px-2 py-2">Organisation</th><th className="px-2 py-2">Voted</th>
+                </tr></thead>
+                <tbody>
+                  {voters.map(v => (
+                    <tr key={v.voter_user_id} className="border-b border-gray-50 align-top">
+                      <td className="px-2 py-2"><div className="font-medium text-gray-800">{v.voter_name}</div><div className="text-[11px] text-gray-400">{v.email}{v.persona ? ` · ${v.persona}` : ''}</div></td>
+                      <td className="px-2 py-2 text-gray-600">{v.company || '—'}</td>
+                      <td className="px-2 py-2 text-gray-500 whitespace-nowrap">{new Date(v.voted_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </DialogContent>

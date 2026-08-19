@@ -35,7 +35,7 @@ const COMPETITIONS: { key: Comp; label: string }[] = [
   { key: 'architecture_student', label: 'Architecture · Student' },
 ];
 
-export function AdminSM26Jury() {
+export function AdminSM26Jury({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const [eventId, setEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -223,10 +223,10 @@ export function AdminSM26Jury() {
 
   return (
     <div className="space-y-4">
-      <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>
+      {!embedded && <Button variant="ghost" size="sm" onClick={() => navigate('/admin/sm26')} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to registrations</Button>}
 
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Scale className="h-6 w-6 text-primary" /> Jury &amp; evaluation</h1>
+        {embedded ? <span /> : <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Scale className="h-6 w-6 text-primary" /> Jury &amp; evaluation</h1>}
         <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => { load(); if (tab === 'rankings') loadRankings(); }} title="Refresh"><RefreshCw className="h-4 w-4" /></Button>
           <div className="flex rounded-lg border border-gray-200 overflow-hidden">

@@ -610,11 +610,8 @@ export function AdminSM26() {
           <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/ecat')}>
             <BookOpen className="h-4 w-4" /> E-catalogue
           </Button>
-          <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/jury')}>
-            <Scale className="h-4 w-4" /> Jury &amp; evaluation
-          </Button>
-          <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/awards')}>
-            <Trophy className="h-4 w-4" /> Awards
+          <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/evaluation')}>
+            <Scale className="h-4 w-4" /> Evaluation &amp; Awards
           </Button>
           <Button variant="outline" className="gap-1.5" onClick={() => navigate('/admin/sm26/feedback')}>
             <MessageSquare className="h-4 w-4" /> Feedback

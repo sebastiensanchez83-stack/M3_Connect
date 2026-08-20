@@ -27,10 +27,15 @@ export function AdBanner({ placement, className = '', rotateInterval = 8 }: AdBa
       // Fetch all active banners for this placement
       // Date filtering: banner is valid if (no start_date OR start_date <= now) AND (no end_date OR end_date >= now)
       // We handle date filtering client-side to avoid PostgREST .or() chaining issues
+      // One advert can run on several pages, so placements is a set and we ask
+      // "does it contain this page" (PostgREST `cs.` / array @>). NOTE: .eq() or
+      // .in() against a text[] column return zero rows SILENTLY, and this
+      // component fails closed (returns null) — so a wrong operator here makes
+      // every banner vanish site-wide with a clean console.
       const { data, error } = await supabase
         .from('ad_banners')
         .select('id, title, image_url, target_url, start_date, end_date')
-        .eq('placement', placement)
+        .contains('placements', [placement])
         .eq('is_active', true);
 
       if (error || !data || data.length === 0) return;

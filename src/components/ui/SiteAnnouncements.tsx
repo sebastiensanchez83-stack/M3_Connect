@@ -24,7 +24,7 @@ function useAnnouncement(placement: string, enabled: boolean): Announcement | nu
       const { data } = await supabase
         .from('ad_banners')
         .select('id, title, image_url, target_url, start_date, end_date')
-        .eq('placement', placement)
+        .contains('placements', [placement])
         .eq('is_active', true);
       if (!active || !data) return;
       const now = new Date().toISOString();

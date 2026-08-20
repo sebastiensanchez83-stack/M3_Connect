@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
   Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target, Download,
-  ChevronLeft, ChevronRight, UserPlus, Eye, AlertTriangle, Users,
+  ChevronLeft, ChevronRight, UserPlus, Eye, AlertTriangle, Users, Upload,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ import { SM26CompanyLink } from './SM26CompanyLink';
 import { SM26ProvisionDialog, suggestProvision } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
 import { SM26RequestFields } from './SM26RequestFields';
+import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
 import { useAuth } from '@/contexts/AuthContext';
 import { startImpersonation, PendingRecoveryError } from '@/lib/impersonation';
 
@@ -329,6 +330,8 @@ export function AdminSM26Detail() {
   const [addRoleValue, setAddRoleValue] = useState('');
   // Platform-identity provisioning (account + persona + org + welcome email).
   const [provisionOpen, setProvisionOpen] = useState(false);
+  // Which role row currently has its per-field uploaders open.
+  const [uploadFor, setUploadFor] = useState<string | null>(null);
   const [sponsorLink, setSponsorLink] = useState<{ id: string; company_name: string; organization_id: string | null } | null>(null);
   const [sponsorBusy, setSponsorBusy] = useState(false);
 
@@ -441,6 +444,31 @@ export function AdminSM26Detail() {
 
   const notify = async (userId: string, title: string, body: string) => {
     await supabase.from('sm_notification').insert({ user_id: userId, type: 'sm26_info_required', title, body, link: '/sm26/me' });
+  };
+
+  // Put a file in on the participant's behalf — for the ones who email their
+  // photos instead of uploading them. Same target as their own checklist
+  // (module_data[field] as a path list), so what lands here is what they would
+  // have produced themselves, and the e-catalogue reads it the same way.
+  const setRoleAsset = async (roleId: string, field: string, paths: string[]) => {
+    if (!reg) return;
+    const role = reg.roles.find(r => r.id === roleId);
+    if (!role) return;
+    const merged = { ...(role.module_data || {}), [field]: paths.length ? paths : null };
+    const { error } = await supabase.from('sm_role_assignment').update({ module_data: merged }).eq('id', roleId);
+    if (error) { toast({ title: 'Could not save the file', description: error.message, variant: 'destructive' }); return; }
+    // Clear the outstanding request for a field once it is actually filled, so
+    // the participant is not chased for something already in.
+    if (paths.length) {
+      const requested = ((role.module_data || {})._requested_info as string[] | undefined) || [];
+      if (requested.includes(field)) {
+        await supabase.from('sm_role_assignment')
+          .update({ module_data: { ...merged, _requested_info: requested.filter(f => f !== field) } })
+          .eq('id', roleId);
+      }
+    }
+    await load(reg.id);
+    toast({ title: paths.length ? 'Added to their registration' : 'Removed' });
   };
 
   // Prefill module_data for a light role from the registration (autofill_source)
@@ -1031,26 +1059,53 @@ export function AdminSM26Detail() {
 
                 {reqs.length > 0 && (
                   <div className="rounded-lg border border-gray-100 bg-gray-50/60 p-3">
-                    <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Required from participant</div>
+                    <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                      <div className="text-[11px] uppercase tracking-wide text-gray-400">Required from participant</div>
+                      {reqs.some(r => r.is_asset) && (
+                        <button type="button" onClick={() => setUploadFor(uploadFor === role.id ? null : role.id)}
+                          className="text-[11px] text-primary hover:underline inline-flex items-center gap-1">
+                          <Upload className="h-3 w-3" /> {uploadFor === role.id ? 'Done' : 'Upload a file for them'}
+                        </button>
+                      )}
+                    </div>
                     <div className="space-y-1.5">
                       {reqs.map(req => {
                         const satisfied = fieldSatisfied(req.field_key);
                         const requested = requestedInfo.has(req.field_key);
+                        const open = uploadFor === role.id && req.is_asset;
                         return (
-                          <div key={req.id} className="flex items-center gap-2 text-sm">
-                            {satisfied
-                              ? <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
-                              : <X className="h-3.5 w-3.5 text-gray-300 shrink-0" />}
-                            <span className={satisfied ? 'text-gray-700' : 'text-gray-500'}>{req.label || req.field_key}</span>
-                            {req.is_asset
-                              ? <Paperclip className="h-3 w-3 text-gray-300" />
-                              : <FileText className="h-3 w-3 text-gray-300" />}
-                            {!req.required && <span className="text-[10px] text-gray-400">(optional)</span>}
-                            {requested && !satisfied && <span className="text-[10px] text-amber-600 font-medium">· requested</span>}
+                          <div key={req.id} className={open ? 'space-y-1.5 rounded-lg bg-white border border-gray-100 p-2' : ''}>
+                            <div className="flex items-center gap-2 text-sm">
+                              {satisfied
+                                ? <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                                : <X className="h-3.5 w-3.5 text-gray-300 shrink-0" />}
+                              <span className={satisfied ? 'text-gray-700' : 'text-gray-500'}>{req.label || req.field_key}</span>
+                              {req.is_asset
+                                ? <Paperclip className="h-3 w-3 text-gray-300" />
+                                : <FileText className="h-3 w-3 text-gray-300" />}
+                              {!req.required && <span className="text-[10px] text-gray-400">(optional)</span>}
+                              {requested && !satisfied && <span className="text-[10px] text-amber-600 font-medium">· requested</span>}
+                            </div>
+                            {/* Drop the file straight onto the field it belongs to —
+                                the field is chosen before the upload, so it cannot
+                                land somewhere unintended, and a wrong one is removed
+                                and re-added on the right line. */}
+                            {open && (
+                              <SM26AssetUpload
+                                value={(role.module_data || {})[req.field_key] as string | string[] | null}
+                                basePath={`${reg.user_id || reg.id}/${role.id}/${req.field_key}`}
+                                onChange={paths => setRoleAsset(role.id, req.field_key, paths)}
+                              />
+                            )}
                           </div>
                         );
                       })}
                     </div>
+                    {uploadFor === role.id && (
+                      <p className="text-[11px] text-gray-400 mt-2">
+                        Files are stored on the participant's registration exactly as if they had uploaded them, and clear the “requested” flag on that field.
+                      </p>
+                    )}
                   </div>
                 )}
 

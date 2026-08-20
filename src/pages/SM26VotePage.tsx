@@ -27,6 +27,7 @@ export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) 
   const [eventId, setEventId] = useState<string | null>(null);
   const [ballots, setBallots] = useState<Record<string, Ballot>>({});
   const [winners, setWinners] = useState<Winner[]>([]);
+  const [hiddenComps, setHiddenComps] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -38,13 +39,17 @@ export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) 
     if (!ev) { setLoading(false); return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
-    const [{ data: win }, ...results] = await Promise.all([
+    const [{ data: win }, { data: aw }, ...results] = await Promise.all([
       supabase.rpc('sm_award_results', { p_event_id: eid }),
+      supabase.from('sm_award').select('competition,hidden').eq('event_id', eid),
       ...COMPS.map(c => supabase.rpc('sm_vote_ballot', { p_event_id: eid, p_competition: c.key })),
     ]);
     const map: Record<string, Ballot> = {};
     results.forEach((r, i) => { map[COMPS[i].key] = (r.data || { open: false, eligible: false, my_vote: null, entries: [] }) as Ballot; });
     setBallots(map);
+    // A competition whose prize M3 has parked shows no ballot here.
+    setHiddenComps(new Set(((aw || []) as { competition: string; hidden: boolean }[])
+      .filter(a => a.hidden).map(a => a.competition)));
     setWinners((win || []) as Winner[]);
     setLoading(false);
   };
@@ -61,12 +66,13 @@ export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) 
 
   if (authLoading || loading) return <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
 
+  const shownWinners = winners.filter(w => !hiddenComps.has(w.competition));
   const anyEligible = Object.values(ballots).some(b => b.eligible);
-  const activeComps = COMPS.filter(c => (ballots[c.key]?.entries.length || 0) > 0);
+  const activeComps = COMPS.filter(c => (ballots[c.key]?.entries.length || 0) > 0 && !hiddenComps.has(c.key));
 
   // In the event hub, don't render a "vote" section until there's something to
   // show (live ballots or published winners) — keeps the hub clean pre-event.
-  if (embedded && winners.length === 0 && activeComps.length === 0) return null;
+  if (embedded && shownWinners.length === 0 && activeComps.length === 0) return null;
 
   return (
     <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
@@ -83,14 +89,14 @@ export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) 
       )}
 
       <div className={embedded ? 'space-y-6' : 'container mx-auto px-4 py-8 max-w-2xl space-y-6'}>
-        {winners.length > 0 && (
+        {shownWinners.length > 0 && (
           <Card className="border border-amber-100 shadow-sm bg-gradient-to-br from-amber-50 to-white">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-amber-800"><Trophy className="h-5 w-5" /> Award winners</CardTitle>
               <CardDescription>Congratulations to the Smart &amp; Sustainable Marina Rendezvous 2026 winners.</CardDescription>
             </CardHeader>
             <CardContent className="grid sm:grid-cols-2 gap-3">
-              {winners.map(w => (
+              {shownWinners.map(w => (
                 <div key={w.award_key} className="rounded-xl border border-amber-100 bg-white p-3">
                   <div className="text-[11px] uppercase tracking-wide text-amber-600">{w.award_label}</div>
                   <div className="font-semibold text-gray-900 mt-0.5">{w.winner_title}</div>
@@ -102,7 +108,7 @@ export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) 
         )}
         {!user ? (
           <Card><CardContent className="py-10 text-center text-gray-500">Please sign in to vote.</CardContent></Card>
-        ) : (!anyEligible && winners.length === 0) ? (
+        ) : (!anyEligible && shownWinners.length === 0) ? (
           <Card>
             <CardContent className="py-10 text-center">
               <QrCode className="h-10 w-10 text-gray-300 mx-auto mb-3" />

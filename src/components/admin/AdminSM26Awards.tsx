@@ -13,13 +13,13 @@ import { toast } from '@/hooks/use-toast';
 
 interface Award {
   id: string; key: string; label: string; competition: string; type: string;
-  winner_role_assignment_id: string | null; confirmed: boolean; sort: number;
+  winner_role_assignment_id: string | null; confirmed: boolean; sort: number; hidden: boolean;
 }
 interface TallyRow { entry_id: string; title: string; subtitle: string; votes: number; }
 interface Candidate { entry_id: string; title: string; subtitle: string; description: string; votes: number; }
 interface Voter { voter_user_id: string; voter_name: string; email: string | null; company: string | null; persona: string | null; voted_at: string; }
 
-const VOTE_COMPS = [
+const ALL_VOTE_COMPS = [
   { key: 'innovation', label: 'Innovation' },
   { key: 'architecture_pro', label: 'Architecture · Pro' },
   { key: 'architecture_student', label: 'Architecture · Student' },
@@ -51,14 +51,14 @@ export function AdminSM26Awards({ embedded = false }: { embedded?: boolean } = {
     const [{ data: aw }, { data: cfg }, ...tallyRes] = await Promise.all([
       supabase.from('sm_award').select('*').eq('event_id', eid).order('sort'),
       supabase.from('sm_vote_config').select('competition,is_open').eq('event_id', eid),
-      ...VOTE_COMPS.map(c => supabase.rpc('sm_vote_tally', { p_event_id: eid, p_competition: c.key })),
+      ...ALL_VOTE_COMPS.map(c => supabase.rpc("sm_vote_tally", { p_event_id: eid, p_competition: c.key })),
     ]);
     setAwards((aw || []) as Award[]);
     const cmap: Record<string, boolean> = {};
     for (const c of (cfg || []) as { competition: string; is_open: boolean }[]) cmap[c.competition] = c.is_open;
     setConfigs(cmap);
     const tmap: Record<string, TallyRow[]> = {};
-    VOTE_COMPS.forEach((c, i) => { tmap[c.key] = (tallyRes[i].data || []) as TallyRow[]; });
+    ALL_VOTE_COMPS.forEach((c, i) => { tmap[c.key] = (tallyRes[i].data || []) as TallyRow[]; });
     setTallies(tmap);
     setLoading(false);
   };
@@ -121,7 +121,12 @@ export function AdminSM26Awards({ embedded = false }: { embedded?: boolean } = {
 
   const entriesFor = (comp: string) => tallies[comp] || [];
   const titleOf = (comp: string, id: string | null) => id ? (entriesFor(comp).find(e => e.entry_id === id)?.title || '—') : null;
-  const confirmedCount = awards.filter(a => a.confirmed).length;
+  // A parked award category disappears from here and from the public page until
+  // someone decides its fate — nothing is deleted, so it comes straight back.
+  const visibleAwards = awards.filter(a => !a.hidden);
+  const hiddenCount = awards.length - visibleAwards.length;
+  const VOTE_COMPS = ALL_VOTE_COMPS.filter(c => awards.some(a => a.competition === c.key && !a.hidden));
+  const confirmedCount = visibleAwards.filter(a => a.confirmed).length;
   const voteLeader = (comp: string) => { const r = entriesFor(comp); return r.length && r[0].votes > 0 ? r[0] : null; };
 
   return (
@@ -131,7 +136,7 @@ export function AdminSM26Awards({ embedded = false }: { embedded?: boolean } = {
         <div>
           {!embedded && <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Trophy className="h-6 w-6 text-primary" /> Awards &amp; voting</h1>}
           <p className="text-sm text-gray-500 mt-0.5">
-            {confirmedCount} of {awards.length} winners confirmed · confirmed winners appear publicly on the <Link to="/sm26/vote" className="text-primary hover:underline">vote &amp; results page</Link>.
+            {confirmedCount} of {visibleAwards.length} winners confirmed · confirmed winners appear publicly on the <Link to="/sm26/vote" className="text-primary hover:underline">vote &amp; results page</Link>.
           </p>
         </div>
         <Button variant="outline" size="icon" className="h-9 w-9" onClick={load} title="Refresh live tallies"><RefreshCw className="h-4 w-4" /></Button>
@@ -177,9 +182,9 @@ export function AdminSM26Awards({ embedded = false }: { embedded?: boolean } = {
       </div>
 
       {/* Awards */}
-      <h2 className="text-sm font-semibold text-gray-700 pt-2">The 6 awards</h2>
+      <h2 className="text-sm font-semibold text-gray-700 pt-2">The awards ({visibleAwards.length}){hiddenCount > 0 && <span className="font-normal text-gray-400"> · {hiddenCount} parked</span>}</h2>
       <div className="space-y-2">
-        {awards.map(a => (
+        {visibleAwards.map(a => (
           <Card key={a.id} className="border-0 shadow-sm">
             <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
               <div className="min-w-0">

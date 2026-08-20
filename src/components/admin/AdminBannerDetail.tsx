@@ -24,6 +24,7 @@ interface AdBanner {
   image_url: string;
   target_url: string;
   placement: string;
+  placements: string[];
   is_active: boolean;
   start_date: string | null;
   end_date: string | null;
@@ -42,6 +43,20 @@ interface OrgOption {
 // site-wide popup. Both are for event/webinar announcements, not sponsor ads.
 const PLACEMENTS = ['homepage', 'marketplace', 'resources', 'events', 'announcement_top', 'announcement_popup'] as const;
 
+// One advert now carries a SET of pages, so the same creative is uploaded once
+// and ticked onto every page it runs on.
+const SPONSOR_PAGES: { value: string; label: string; hint?: string }[] = [
+  { value: 'homepage', label: 'Homepage' },
+  { value: 'marketplace', label: 'Marketplace' },
+  { value: 'resources', label: 'Resources', hint: 'the Resources list and every article page' },
+  { value: 'events', label: 'Events' },
+];
+const ANNOUNCEMENT_SLOTS: { value: string; label: string; hint?: string }[] = [
+  { value: 'announcement_top', label: 'Top strip', hint: 'bar above the navigation' },
+  { value: 'announcement_popup', label: 'Popup', hint: 'site-wide dialog' },
+];
+const isAnnouncement = (p: string[]) => p.some(x => x.startsWith('announcement_'));
+
 export function AdminBannerDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -57,7 +72,7 @@ export function AdminBannerDetail() {
     title: '',
     image_url: '',
     target_url: '',
-    placement: 'homepage',
+    placements: ['homepage'] as string[],
     is_active: true,
     start_date: '',
     end_date: '',
@@ -97,7 +112,8 @@ export function AdminBannerDetail() {
       title: b.title,
       image_url: b.image_url,
       target_url: b.target_url,
-      placement: b.placement,
+      // Defensive: falls back to the legacy single column if placements is empty.
+      placements: b.placements?.length ? b.placements : [b.placement],
       is_active: b.is_active,
       start_date: b.start_date ? new Date(b.start_date).toISOString().slice(0, 16) : '',
       end_date: b.end_date ? new Date(b.end_date).toISOString().slice(0, 16) : '',
@@ -107,8 +123,18 @@ export function AdminBannerDetail() {
   };
 
   const handleSave = async () => {
-    if (!form.title || !form.image_url || !form.target_url) {
-      toast({ title: 'Title, image, and target URL are required', variant: 'destructive' });
+    if (form.placements.length === 0) {
+      toast({ title: 'Pick at least one page', variant: 'destructive' });
+      return;
+    }
+    // Announcements are text-only strips — they legitimately carry no image, and
+    // requiring one meant the live SM26 announcement row could never be saved.
+    const needsImage = !isAnnouncement(form.placements);
+    if (!form.title || !form.target_url || (needsImage && !form.image_url)) {
+      toast({
+        title: needsImage ? 'Title, image, and target URL are required' : 'Title and target URL are required',
+        variant: 'destructive',
+      });
       return;
     }
     setSaving(true);
@@ -116,7 +142,10 @@ export function AdminBannerDetail() {
       title: form.title,
       image_url: form.image_url,
       target_url: form.target_url,
-      placement: form.placement,
+      placements: form.placements,
+      // Mirrors the set's first entry for any code still reading the old single
+      // column; a DB trigger keeps the two in step either way.
+      placement: form.placements[0],
       is_active: form.is_active,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
@@ -169,6 +198,19 @@ export function AdminBannerDetail() {
   const ctr = banner && banner.impression_count > 0
     ? ((banner.click_count / banner.impression_count) * 100).toFixed(2) + '%'
     : '—';
+
+  const announcementMode = isAnnouncement(form.placements);
+  const allPages = SPONSOR_PAGES.every(p => form.placements.includes(p.value));
+  // A row is either a sponsor advert or a site announcement — never both (the DB
+  // enforces the same rule), so switching sides replaces the selection.
+  const togglePlacement = (value: string) => setForm(f => {
+    const mixing = isAnnouncement([value]) !== isAnnouncement(f.placements);
+    const base = mixing ? [] : f.placements;
+    return {
+      ...f,
+      placements: base.includes(value) ? base.filter(x => x !== value) : [...base, value],
+    };
+  });
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -257,7 +299,7 @@ export function AdminBannerDetail() {
 
           {/* Banner image upload — uses private ad-banners bucket, no shared gallery */}
           <div className="space-y-2">
-            <Label>Banner Image *</Label>
+            <Label>Banner Image {announcementMode ? <span className="text-gray-400 font-normal">(optional — announcements are text-only)</span> : '*'}</Label>
             {form.image_url ? (
               <div className="relative group rounded-lg overflow-hidden border bg-gray-50">
                 <img src={form.image_url} alt="Banner" className="w-full h-40 object-cover" />
@@ -329,18 +371,57 @@ export function AdminBannerDetail() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>Placement *</Label>
-              <Select value={form.placement} onValueChange={v => setForm({ ...form, placement: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {PLACEMENTS.map(p => (
-                    <SelectItem key={p} value={p}>{(p.charAt(0).toUpperCase() + p.slice(1)).replace(/_/g, ' ')}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Upload once, tick every page it runs on — instead of one row (and one
+              re-uploaded image) per page, which is how the same advert used to end
+              up duplicated four times with its stats split four ways. */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <Label>Show on these pages *</Label>
+              {!announcementMode && (
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({
+                    ...f,
+                    placements: allPages ? [] : SPONSOR_PAGES.map(p => p.value),
+                  }))}
+                  className="text-xs text-primary hover:underline"
+                >
+                  {allPages ? 'Clear all' : 'Show on every page'}
+                </button>
+              )}
             </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {(announcementMode ? ANNOUNCEMENT_SLOTS : SPONSOR_PAGES).map(p => {
+                const on = form.placements.includes(p.value);
+                return (
+                  <label
+                    key={p.value}
+                    className={`flex items-start gap-2.5 rounded-lg border px-3 py-2 cursor-pointer transition-colors ${on ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-gray-300'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => togglePlacement(p.value)}
+                      className="mt-0.5 rounded border-gray-300"
+                    />
+                    <span className="min-w-0">
+                      <span className="text-sm font-medium text-gray-800 block">{p.label}</span>
+                      {p.hint && <span className="text-[11px] text-gray-400 block">{p.hint}</span>}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, placements: announcementMode ? ['homepage'] : ['announcement_top'] }))}
+              className="text-xs text-gray-400 hover:text-gray-600"
+            >
+              {announcementMode ? '← This is a sponsor advert, not an announcement' : 'This is a site announcement, not a sponsor advert →'}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Organization (optional)</Label>
               <Select

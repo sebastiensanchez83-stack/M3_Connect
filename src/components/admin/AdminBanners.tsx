@@ -18,6 +18,7 @@ interface AdBanner {
   image_url: string;
   target_url: string;
   placement: string;
+  placements: string[];
   is_active: boolean;
   start_date: string | null;
   end_date: string | null;
@@ -27,7 +28,11 @@ interface AdBanner {
   created_at: string;
 }
 
-const PLACEMENTS = ['homepage', 'marketplace', 'resources', 'events'] as const;
+// Must stay in step with AdminBannerDetail — the announcement slots were missing
+// here, so an announcement row could never be matched by the filter.
+const PLACEMENTS = ['homepage', 'marketplace', 'resources', 'events', 'announcement_top', 'announcement_popup'] as const;
+const pagesOf = (b: { placements?: string[]; placement: string }) =>
+  b.placements?.length ? b.placements : [b.placement];
 
 function getBannerStatus(banner: AdBanner): { label: string; variant: string } {
   if (!banner.is_active) return { label: 'Inactive', variant: 'secondary' };
@@ -61,7 +66,7 @@ export function AdminBanners() {
 
   const filtered = banners.filter(b => {
     if (search && !b.title.toLowerCase().includes(search.toLowerCase())) return false;
-    if (placementFilter !== 'all' && b.placement !== placementFilter) return false;
+    if (placementFilter !== 'all' && !pagesOf(b).includes(placementFilter)) return false;
     if (statusFilter !== 'all') {
       const s = getBannerStatus(b).label.toLowerCase();
       if (s !== statusFilter) return false;
@@ -164,18 +169,24 @@ export function AdminBanners() {
                         <Badge variant={status.variant as any} className="shrink-0 text-[10px]">
                           {status.label}
                         </Badge>
-                        <Badge variant="outline" className="shrink-0 text-[10px]">
-                          {b.placement}
-                        </Badge>
+                        {pagesOf(b).map(p => (
+                          <Badge key={p} variant="outline" className="shrink-0 text-[10px]">
+                            {p.replace(/_/g, ' ')}
+                          </Badge>
+                        ))}
                       </div>
                       <div className="flex items-center gap-4 text-xs text-gray-500">
                         <span>{b.impression_count.toLocaleString()} impressions</span>
                         <span>{b.click_count.toLocaleString()} clicks</span>
                         <span className="font-medium text-violet-600">CTR: {ctr}</span>
-                        {b.start_date && (
+                        {/* Show the end date even with no start date — otherwise a
+                            campaign with only an expiry shows no dates at all. */}
+                        {(b.start_date || b.end_date) && (
                           <span>
-                            {new Date(b.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
-                            {b.end_date && ` — ${new Date(b.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`}
+                            {b.start_date
+                              ? new Date(b.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                              : 'Until'}
+                            {b.end_date && `${b.start_date ? ' — ' : ' '}${new Date(b.end_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`}
                           </span>
                         )}
                       </div>

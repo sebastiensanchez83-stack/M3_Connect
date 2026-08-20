@@ -1062,10 +1062,10 @@ export function AdminSM26Detail() {
                     <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
                       <div className="text-[11px] uppercase tracking-wide text-gray-400">Required from participant</div>
                       {reqs.some(r => r.is_asset) && (
-                        <button type="button" onClick={() => setUploadFor(uploadFor === role.id ? null : role.id)}
-                          className="text-[11px] text-primary hover:underline inline-flex items-center gap-1">
-                          <Upload className="h-3 w-3" /> {uploadFor === role.id ? 'Done' : 'Upload a file for them'}
-                        </button>
+                        <Button size="sm" variant={uploadFor === role.id ? 'default' : 'outline'} className="h-8 gap-1.5"
+                          onClick={() => setUploadFor(uploadFor === role.id ? null : role.id)}>
+                          <Upload className="h-3.5 w-3.5" /> {uploadFor === role.id ? 'Done uploading' : 'Upload a file for them'}
+                        </Button>
                       )}
                     </div>
                     <div className="space-y-1.5">

@@ -7,7 +7,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { SM26AssetGallery, type SM26Asset } from '@/components/sm26/SM26AssetGallery';
+
+// Entrants are capped at the brief's 10 MB in their own form; staff uploading on
+// someone's behalf are capped only by what the store accepts.
+const STAFF_MAX_BYTES = 50 * 1024 * 1024;
 
 // Admin hub for the architecture competition: the shared download pack, the
 // (separate) submission deadline, and a tracker of who has uploaded. Files live in
@@ -75,6 +80,7 @@ const dlName = (e: Entry, label: string, fallback: string) => {
 };
 
 export function AdminSM26Architecture() {
+  const { user } = useAuth();
   const [eventId, setEventId] = useState<string | null>(null);
   const [resources, setResources] = useState<Resource[]>([]);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -91,6 +97,11 @@ export function AdminSM26Architecture() {
   const [filesError, setFilesError] = useState<Record<string, boolean>>({});
   const [entryAssets, setEntryAssets] = useState<Record<string, SM26Asset[]>>({});
   const [dlBusy, setDlBusy] = useState<string | null>(null);
+  const [uploadBusy, setUploadBusy] = useState<string | null>(null);
+  // One hidden input per kind, retargeted at whichever entry is open.
+  const staffPanelRef = useRef<HTMLInputElement | null>(null);
+  const staffNoticeRef = useRef<HTMLInputElement | null>(null);
+  const [uploadFor, setUploadFor] = useState<Entry | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [label, setLabel] = useState('');
@@ -280,6 +291,34 @@ export function AdminSM26Architecture() {
     if (!entryFiles[id]) await loadFiles(id);
   };
 
+  // Upload a board on an architect's behalf. Entrants are held to the brief's
+  // 10 MB in their own form; staff are not, because the reason to be here is
+  // precisely the file that would not go through — the bucket takes 50 MB.
+  // sm_architecture_file_add already accepts staff for any entry and skips the
+  // deadline, so a late fix does not need the deadline moved for everyone.
+  const staffUpload = async (e: Entry, file: File, kind: string) => {
+    if (!user) return;
+    if (file.size > STAFF_MAX_BYTES) {
+      toast({ title: 'Too large even for staff', description: `${fmtSize(file.size)} — the store accepts 50 MB. Compress it first.`, variant: 'destructive' });
+      return;
+    }
+    const id = e.role_assignment_id;
+    setUploadBusy(id);
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${user.id}/architecture/${id}/${kind}-${Date.now()}-${safe}`;
+    const { error: upErr } = await supabase.storage.from('event-media').upload(path, file, { upsert: false });
+    if (upErr) { setUploadBusy(null); toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' }); return; }
+    const { error } = await supabase.rpc('sm_architecture_file_add', {
+      p_role_assignment_id: id, p_path: path, p_filename: file.name,
+      p_content_type: file.type || null, p_size: file.size, p_kind: kind,
+    });
+    setUploadBusy(null);
+    if (error) { toast({ title: 'Could not record the file', description: error.message, variant: 'destructive' }); return; }
+    toast({ title: `Added on behalf of ${e.company}`, description: 'It is now in front of the jury.' });
+    await loadFiles(id);
+    load();
+  };
+
   const reviewerLink = (r: Reviewer) => `${window.location.origin}/sm26/jury/architecture?token=${r.token}`;
 
   // The link is the deliverable, so it goes straight to the clipboard: a token
@@ -387,6 +426,11 @@ export function AdminSM26Architecture() {
             <datalist id="arch-folders">{existingFolders.map(f => <option key={f} value={f} />)}</datalist>
             <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (optional)" className="h-9 flex-1 min-w-[140px]" />
             <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }} />
+            {/* Staff uploads on an architect's behalf — retargeted at whichever row is open. */}
+            <input ref={staffPanelRef} type="file" accept="application/pdf,image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f && uploadFor) staffUpload(uploadFor, f, 'panel'); e.target.value = ''; }} />
+            <input ref={staffNoticeRef} type="file" accept="application/pdf,image/*" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f && uploadFor) staffUpload(uploadFor, f, 'notice'); e.target.value = ''; }} />
             <Button size="sm" variant="outline" className="gap-1.5 shrink-0" disabled={busy} onClick={() => fileRef.current?.click()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Add file
             </Button>
@@ -439,12 +483,24 @@ export function AdminSM26Architecture() {
                             <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500 flex items-center gap-1.5">
                               <FileText className="h-3.5 w-3.5 text-primary" /> Competition submission{savedDeadline ? ` · closes ${prettyDate(savedDeadline)}, 23:59 Monaco` : ''}
                             </div>
-                            {files.length > 0 && (
-                              <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={dlBusy === e.role_assignment_id}
-                                onClick={ev => { ev.stopPropagation(); downloadAll(e); }}>
-                                {dlBusy === e.role_assignment_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download all ({files.length})
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {/* For the file an architect could not get through: their
+                                  own form stops at the brief's 10 MB, this does not. */}
+                              <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={uploadBusy === e.role_assignment_id}
+                                onClick={ev => { ev.stopPropagation(); setUploadFor(e); staffPanelRef.current?.click(); }}>
+                                {uploadBusy === e.role_assignment_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Add a panel
                               </Button>
-                            )}
+                              <Button size="sm" variant="ghost" className="h-8 gap-1.5 text-gray-500" disabled={uploadBusy === e.role_assignment_id}
+                                onClick={ev => { ev.stopPropagation(); setUploadFor(e); staffNoticeRef.current?.click(); }}>
+                                <Upload className="h-3.5 w-3.5" /> Notice
+                              </Button>
+                              {files.length > 0 && (
+                                <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={dlBusy === e.role_assignment_id}
+                                  onClick={ev => { ev.stopPropagation(); downloadAll(e); }}>
+                                  {dlBusy === e.role_assignment_id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download all ({files.length})
+                                </Button>
+                              )}
+                            </div>
                           </div>
                           {/* "Nothing submitted" is only ever said about a list that
                               actually came back — never about one still loading or failed. */}

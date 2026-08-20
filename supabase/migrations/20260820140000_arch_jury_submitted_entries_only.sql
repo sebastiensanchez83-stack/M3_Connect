@@ -1,0 +1,10 @@
+-- Applied to the remote project via the Supabase MCP; kept here for traceability.
+-- Refine what the architecture panel judges:
+--  (a) only entries that actually SUBMITTED — a project is submitted once its A2
+--      panels are in (sm_architecture_file kind='panel'). Registered-but-never-
+--      submitted entries, and a firm whose project was submitted under a
+--      collaborator's entry, stop appearing on jurors' scorecards.
+--  (b) one judging pool: with a single student entry a separate student ranking
+--      would be a list of one, so every architecture entry is judged as
+--      'architecture_pro'. Reverse by restoring the role-derived CASE.
+-- Full function body is in 20260820130000; this migration replaces it.

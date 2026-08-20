@@ -33,6 +33,10 @@ interface PreviewItem { path: string; label: string; kind: string }
 
 interface Criterion { id: string; label: string; description: string | null; weight: number; critical: boolean; display_order: number; }
 interface Template { id: string; competition: string; key: string; name: string; scale_max: number; criteria: Criterion[]; }
+interface Scope { scope: string; innovation_assigned: number; architecture_assigned: number; }
+type Family = 'innovation' | 'architecture';
+const familyOf = (competition: string): Family =>
+  competition.startsWith('architecture') ? 'architecture' : 'innovation';
 type Draft = Record<string, { score: number | null; comment: string }>;
 interface AllInnovation {
   entry_id: string; company: string | null; website: string | null; stage: string | null;
@@ -58,10 +62,21 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
   const [reviewStatus, setReviewStatus] = useState<string | null>(null);
   const [loadingEntry, setLoadingEntry] = useState(false);
   const [saving, setSaving] = useState(false);
+  // A juror can sit on one competition or both. Those who judge both get a
+  // switch; everyone else keeps a single plain list with no extra chrome.
+  const [scope, setScope] = useState<Scope | null>(null);
+  const [comp, setComp] = useState<Family>('innovation');
   // The panel currently open in the lightbox; url is null while it is being signed.
   const [preview, setPreview] = useState<{ items: PreviewItem[]; index: number; url: string | null } | null>(null);
 
   useEffect(() => { if (user) load(); }, [user]);
+
+  // Open on the side that actually has something waiting, so a juror who has
+  // only been given architecture projects doesn't land on an empty Innovation tab.
+  useEffect(() => {
+    if (!scope) return;
+    if (scope.innovation_assigned === 0 && scope.architecture_assigned > 0) setComp('architecture');
+  }, [scope]);
 
   const load = async () => {
     setLoading(true);
@@ -69,13 +84,15 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     if (!ev) { setLoading(false); return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
-    const [{ data: ents }, { data: tpls }, { data: allInn }] = await Promise.all([
+    const [{ data: ents }, { data: tpls }, { data: allInn }, { data: sc }] = await Promise.all([
       supabase.rpc('sm_jury_my_entries', { p_event_id: eid }),
       supabase.from('sm_scorecard_template').select('*, criteria:sm_criterion(*)').eq('event_id', eid).eq('is_active', true),
       supabase.rpc('sm_jury_all_innovations', { p_event_id: eid }),
+      supabase.rpc('sm_jury_my_scope', { p_event_id: eid }),
     ]);
     setEntries((ents || []) as Entry[]);
     setAllInnovations((allInn || []) as AllInnovation[]);
+    setScope(((sc || [])[0] as Scope) || null);
     const t = ((tpls || []) as Template[]).map(x => ({ ...x, criteria: [...x.criteria].sort((a, b) => a.display_order - b.display_order) }));
     setTemplates(t);
     setLoading(false);
@@ -459,8 +476,21 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
   }
 
   // ---- List view ----
-  const mandatory = entries.filter(e => e.mandatory);
-  const optional = entries.filter(e => !e.mandatory);
+  // Show the switch to anyone M3 put on both competitions, and to anyone who
+  // actually holds entries in both (the declared scope and the allocation can
+  // disagree while entries are still being handed out).
+  const judgesBoth = scope?.scope === 'both'
+    || (!!scope && scope.innovation_assigned > 0 && scope.architecture_assigned > 0);
+  const visible = judgesBoth ? entries.filter(e => familyOf(e.competition) === comp) : entries;
+  const mandatory = visible.filter(e => e.mandatory);
+  const optional = visible.filter(e => !e.mandatory);
+  // The read-only innovation browse is context for judging innovations, so it
+  // stays out of the way while the architecture side is open.
+  const showAllInnovations = !judgesBoth || comp === 'innovation';
+  const TABS: { key: Family; label: string; n: number }[] = [
+    { key: 'innovation', label: 'Innovation', n: entries.filter(e => familyOf(e.competition) === 'innovation').length },
+    { key: 'architecture', label: 'Architecture', n: entries.filter(e => familyOf(e.competition) === 'architecture').length },
+  ];
   const Row = (e: Entry) => (
     <Card key={e.entry_id} className="border-0 shadow-sm hover:shadow-md transition-all cursor-pointer group" onClick={() => openEntry(e)}>
       <CardContent className="p-4 flex items-center gap-4">
@@ -510,11 +540,28 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
         {/* When do I judge, whom, and am I confirmed — before the scorecards. */}
         <SM26MyJurySchedule eventId={eventId} />
 
-        {entries.length === 0 ? (
+        {/* Only the jurors who sit on both competitions get a choice; for
+            everyone else this would be a switch with one side permanently empty. */}
+        {judgesBoth && (
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden w-full max-w-sm">
+            {TABS.map(t => (
+              <button key={t.key} type="button" onClick={() => setComp(t.key)}
+                className={`flex-1 px-3 h-9 text-sm font-medium transition-colors ${comp === t.key ? 'bg-primary text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                {t.label}{t.n > 0 && <span className={comp === t.key ? 'text-white/70' : 'text-gray-400'}> ({t.n})</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {visible.length === 0 ? (
           <Card><CardContent className="py-10 text-center text-gray-400">
-            Nothing to score yet — Yachting Ventures will invite you to a jury session, and the startups
-            you hear will appear here for scoring afterwards.
-            {allInnovations.length > 0 && <span className="block mt-1">You can already read every innovation below.</span>}
+            {judgesBoth && comp === 'architecture' ? (
+              <>No architecture entries have been assigned to you yet — M3 allocates the projects, and they'll appear here to score.</>
+            ) : (
+              <>Nothing to score yet — Yachting Ventures will invite you to a jury session, and the startups
+              you hear will appear here for scoring afterwards.</>
+            )}
+            {showAllInnovations && allInnovations.length > 0 && <span className="block mt-1">You can already read every innovation below.</span>}
           </CardContent></Card>
         ) : (
           <>
@@ -532,7 +579,7 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
         )}
 
         {/* (d) Read-only browse of every innovation — for context/fairness. Scoring stays limited to assigned entries above. */}
-        {allInnovations.length > 0 && (
+        {showAllInnovations && allInnovations.length > 0 && (
           <div className="space-y-2">
             <h2 className="text-sm font-semibold text-gray-700">All innovations · read-only ({allInnovations.length})</h2>
             <p className="text-xs text-gray-500 -mt-1">Open any entry to read it. You can only score the ones assigned to you above.</p>

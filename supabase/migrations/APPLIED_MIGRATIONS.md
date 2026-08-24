@@ -832,3 +832,32 @@ Undo:
 -- clause added back to the sm_jury_session_juror delete):
 --   and j.invited_at is null and j.status = 'invited'
 ```
+
+## yv_per_session_juror_and_entry — 24 August 2026
+
+Full SQL in [`20260824160000_yv_per_session_juror_and_entry.sql`](./20260824160000_yv_per_session_juror_and_entry.sql).
+
+A session is a panel meeting a batch, and that was the only way to put anyone in
+one: adding a juror to a single slot meant adding them to the panel, which added
+them to every slot that panel sits in. The real cases are smaller — one juror who
+can only make the Tuesday, one startup moved to the session with the investor who
+asked to see them — and each meant a one-off panel or leaving it wrong.
+
+`sm_yv_session_juror_add` / `_remove` and `sm_yv_session_entry_add` / `_remove`
+edit one session's roster. They keep `sm_jury_assignment` in step, which is the
+part that is easy to forget by hand: a juror added to a session gets that
+session's innovations to score, and one removed loses them unless they have
+already scored, or still meet that innovation in another live session.
+
+Overrides, not a second source of truth: the panel and the batch still drive the
+sessions, so editing that person's group membership afterwards re-applies the
+group's answer to this session. Anything else needs a third table saying which
+wins; the timetable says it in one line instead.
+
+Undo:
+```sql
+drop function if exists public.sm_yv_session_juror_add(uuid, uuid);
+drop function if exists public.sm_yv_session_juror_remove(uuid, uuid);
+drop function if exists public.sm_yv_session_entry_add(uuid, uuid);
+drop function if exists public.sm_yv_session_entry_remove(uuid, uuid);
+```

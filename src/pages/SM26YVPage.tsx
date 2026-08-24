@@ -12,7 +12,7 @@ import {
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
 import { toast } from '@/hooks/use-toast';
 import { Pill, Funnel, ConsoleTile, ConsoleDrawer } from '@/components/sm26/SM26ConsoleUI';
-import { SM26YVTimetable, type Cell, type GroupRef, fmtDay, slotRange } from '@/components/sm26/SM26YVTimetable';
+import { SM26YVTimetable, type Cell, type GroupRef, type JurorRef, type EntryRef, fmtDay, slotRange } from '@/components/sm26/SM26YVTimetable';
 
 // Yachting Ventures console. Gabbi does not assign one juror to one startup: she
 // builds jury panels (balanced by juror type), startup batches, and a rotation
@@ -152,6 +152,13 @@ export function SM26YVPage() {
   // ---- derived ---------------------------------------------------------------
   const panelRefs: GroupRef[] = useMemo(() => panels.map(p => ({ id: p.id, code: p.code, name: p.name, size: p.members.length })), [panels]);
   const batchRefs: GroupRef[] = useMemo(() => batches.map(b => ({ id: b.id, code: b.code, name: b.name, size: b.members.length })), [batches]);
+  // Who the timetable can put on a single slot by hand. Jurors come from the
+  // assignable pool (confirmed, with an account — a seat is held by the account
+  // because they sign in to score); innovations are every live entry.
+  const jurorPool: JurorRef[] = useMemo(
+    () => pool.map(j => ({ user_id: j.user_id, name: j.name, email: j.email, company: j.company })), [pool]);
+  const entryPool: EntryRef[] = useMemo(
+    () => innovations.map(i => ({ role_assignment_id: i.role_assignment_id, company: i.company })), [innovations]);
 
   const counts = useMemo((): Record<FilterKey, number> => ({
     ungrouped: innovations.filter(i => !i.group_id).length,
@@ -355,6 +362,7 @@ export function SM26YVPage() {
         {/* ---- Timetable ---- */}
         {tab === 'timetable' && eventId && (
           <SM26YVTimetable eventId={eventId} cells={shownCells} panels={panelRefs} batches={batchRefs}
+            jurorPool={jurorPool} entryPool={entryPool}
             testEmail={user?.email || null} onChanged={() => load(true)} />
         )}
 

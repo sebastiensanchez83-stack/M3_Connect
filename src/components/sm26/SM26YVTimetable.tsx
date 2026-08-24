@@ -104,16 +104,23 @@ const isoToMonacoLocal = (iso: string) => {
   return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`;
 };
 
+// Everyone who could be put on a slot by hand: the confirmed jurors with an
+// account, and the innovation entries. Both come from the console's own lists.
+export interface JurorRef { user_id: string; name: string | null; email: string; company: string | null }
+export interface EntryRef { role_assignment_id: string; company: string }
+
 interface Props {
   eventId: string;
   cells: Cell[];
   panels: GroupRef[];
   batches: GroupRef[];
+  jurorPool: JurorRef[];
+  entryPool: EntryRef[];
   testEmail: string | null;
   onChanged: () => void;
 }
 
-export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, onChanged }: Props) {
+export function SM26YVTimetable({ eventId, cells, panels, batches, jurorPool, entryPool, testEmail, onChanged }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [showAuto, setShowAuto] = useState(false);
@@ -271,6 +278,57 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
     if (!asTest && !confirm("Email every juror on this panel a link to score the session's startups?")) return;
     invoke('eval', 'notify_evaluate', c, {}, asTest);
   };
+  // ── One slot's roster, edited by hand ──────────────────────────────────────
+  //
+  // The panel and the batch still drive the sessions; this is the exception to
+  // them, for the juror who can only make the Tuesday or the startup somebody
+  // asked to see. Adding gives them that slot's innovations to score and taking
+  // them off gives them back, so the scorecards never drift from the room.
+  //
+  // Because the groups remain the source, editing THIS person's panel or batch
+  // membership afterwards re-applies the group's answer here — which the note
+  // under the controls says out loud rather than leaving to be discovered.
+  const rosterEdit = async (label: string, fn: string, args: Record<string, string>, c: Cell, what: string, verb: 'added' | 'removed') => {
+    if (c.zoom_sent && !confirm(
+      `The Zoom invitation for "${c.title}" has already gone out.\n\n${verb === 'added'
+        ? `${what} will not receive it automatically — send them the link by hand.`
+        : `${what} will still hold the calendar invitation — remove them in Zoom as well.`}\n\nContinue?`)) return;
+    setBusy(label);
+    const { data, error } = await supabase.rpc(fn, args);
+    setBusy(null);
+    if (error) { toast({ title: `Could not update the panel`, description: error.message, variant: 'destructive' }); return; }
+    const r = data as string;
+    toast({
+      title: r === 'already_on' ? `${what} is already on this slot`
+        : r === 'not_on' ? `${what} was not on this slot`
+          : `${what} ${verb}`,
+      description: r === 'added' ? 'They have this slot’s innovations to score.'
+        : r === 'removed' ? 'Their scorecards for this slot are gone, unless already submitted or owed elsewhere.'
+          : undefined,
+    });
+    onChanged();
+  };
+  const addJuror = (c: Cell, userId: string) => {
+    const j = jurorPool.find(x => x.user_id === userId);
+    return rosterEdit(`rj:${c.id}`, 'sm_yv_session_juror_add',
+      { p_session_id: c.id, p_juror_user_id: userId }, c, j?.name || j?.email || 'That juror', 'added');
+  };
+  const removeJuror = (c: Cell, j: CellJuror) => {
+    if (!confirm(`Take ${j.name} off "${c.title}"?\n\nThis slot only — their panel is unchanged.`)) return;
+    return rosterEdit(`rj:${c.id}`, 'sm_yv_session_juror_remove',
+      { p_session_id: c.id, p_juror_user_id: j.user_id }, c, j.name, 'removed');
+  };
+  const addEntry = (c: Cell, ra: string) => {
+    const e = entryPool.find(x => x.role_assignment_id === ra);
+    return rosterEdit(`re:${c.id}`, 'sm_yv_session_entry_add',
+      { p_session_id: c.id, p_entry_role_assignment_id: ra }, c, e?.company || 'That innovation', 'added');
+  };
+  const removeEntry = (c: Cell, e: CellEntry) => {
+    if (!confirm(`Take ${e.company} off "${c.title}"?\n\nThis slot only — their batch is unchanged.`)) return;
+    return rosterEdit(`re:${c.id}`, 'sm_yv_session_entry_remove',
+      { p_session_id: c.id, p_entry_role_assignment_id: e.role_assignment_id }, c, e.company, 'removed');
+  };
+
   // Guests exist for jurors who were recruited by email and will never sign in.
   // They are added to the Zoom invitation only — deliberately no RSVP and no
   // scorecard, because both of those key on a user account.
@@ -528,29 +586,39 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                     )}
                   </div>
 
-                  {c.entries.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-2">
+                  {!cancelled && (
+                    <div className="flex flex-wrap items-center gap-1 mt-2">
                       {c.entries.map(e => {
                         const m = entryMeta(e.rsvp);
                         // Before anyone has been asked there is no answer to
                         // report, so the chip stays the plain company name it
                         // has always been.
-                        if (!c.last_startup_email_at && e.rsvp === 'invited') {
-                          return <span key={e.role_assignment_id} className="text-[11px] bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">{e.company}</span>;
-                        }
+                        const plain = !c.last_startup_email_at && e.rsvp === 'invited';
                         return (
                           <span key={e.role_assignment_id}
-                                className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-0.5 ${m.cls}`}
+                                className={`inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 ${plain ? 'bg-gray-100 text-gray-600' : `border ${m.cls}`}`}
                                 title={e.invited_at ? `Asked ${new Date(e.invited_at).toLocaleString('en-GB', { timeZone: TZ })}` : 'Never emailed about this slot'}>
-                            {e.rsvp === 'declined' ? <AlertTriangle className="h-3 w-3" /> : e.rsvp === 'invited' ? <Clock className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-                            {e.company} <span className="opacity-60">· {m.label}{e.rsvp === 'invited' ? ` ${silenceLabel(e.invited_at)}` : ''}</span>
+                            {!plain && (e.rsvp === 'declined' ? <AlertTriangle className="h-3 w-3" /> : e.rsvp === 'invited' ? <Clock className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />)}
+                            {e.company}{!plain && <span className="opacity-60">· {m.label}{e.rsvp === 'invited' ? ` ${silenceLabel(e.invited_at)}` : ''}</span>}
+                            <button className="ml-0.5 opacity-50 hover:opacity-100" disabled={!!busy}
+                                    onClick={() => removeEntry(c, e)} title="Take off this slot (the batch is unchanged)">
+                              <X className="h-3 w-3" />
+                            </button>
                           </span>
                         );
                       })}
+                      <select className="text-[11px] border border-dashed border-gray-300 rounded-full px-2 py-0.5 bg-white text-gray-500 hover:border-primary/50"
+                              disabled={busy === `re:${c.id}`} value=""
+                              onChange={ev => { const v = ev.target.value; ev.target.value = ''; if (v) addEntry(c, v); }}>
+                        <option value="">+ innovation</option>
+                        {entryPool
+                          .filter(e => !c.entries.some(x => x.role_assignment_id === e.role_assignment_id))
+                          .map(e => <option key={e.role_assignment_id} value={e.role_assignment_id}>{e.company}</option>)}
+                      </select>
                     </div>
                   )}
-                  {c.jurors.length > 0 && !cancelled && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
+                  {!cancelled && (
+                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
                       {c.jurors.map(j => {
                         const m = rsvpMeta(j.rsvp);
                         // Taking somebody off the panel now takes them off its
@@ -565,10 +633,28 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                                   : j.invited_at ? `Asked ${new Date(j.invited_at).toLocaleString('en-GB', { timeZone: TZ })}` : 'Never emailed about this slot'}>
                             {j.rsvp === 'unavailable' ? <AlertTriangle className="h-3 w-3" /> : j.rsvp === 'invited' ? <Clock className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
                             {j.name} <span className="opacity-60">· {off ? 'off panel — already invited' : `${m.label}${j.rsvp === 'invited' ? ` ${silenceLabel(j.invited_at)}` : ''}`}</span>
+                            <button className="ml-0.5 opacity-50 hover:opacity-100" disabled={!!busy}
+                                    onClick={() => removeJuror(c, j)} title="Take off this slot (their panel is unchanged)">
+                              <X className="h-3 w-3" />
+                            </button>
                           </span>
                         );
                       })}
+                      <select className="text-[11px] border border-dashed border-gray-300 rounded-full px-2 py-0.5 bg-white text-gray-500 hover:border-primary/50"
+                              disabled={busy === `rj:${c.id}`} value=""
+                              onChange={ev => { const v = ev.target.value; ev.target.value = ''; if (v) addJuror(c, v); }}>
+                        <option value="">+ juror</option>
+                        {jurorPool
+                          .filter(j => !c.jurors.some(x => x.user_id === j.user_id))
+                          .map(j => <option key={j.user_id} value={j.user_id}>{j.name || j.email}{j.company ? ` — ${j.company}` : ''}</option>)}
+                      </select>
                     </div>
+                  )}
+                  {!cancelled && (
+                    <p className="text-[10px] text-gray-400 mt-1">
+                      Adding or removing here changes this slot only. The panel and the batch still drive it, so
+                      editing that person’s panel or batch afterwards puts the group’s answer back.
+                    </p>
                   )}
 
                   {!cancelled && (

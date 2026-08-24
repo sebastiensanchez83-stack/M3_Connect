@@ -319,6 +319,34 @@ export function AdminSM26Architecture() {
     load();
   };
 
+  // Take a board back off an entry.
+  //
+  // Staff could put a file in for an entrant and never take one out, so
+  // "replace these panels with the final ones" was not something the console
+  // could do: eight finals uploaded over eight drafts leaves sixteen boards in
+  // front of the jury with nothing saying which eight count. `sm_architecture_-
+  // file_remove` already accepted staff and skipped the deadline — only the
+  // button was missing.
+  //
+  // The row goes first, because the row is what the jury reads from: if the
+  // object delete then fails, the worst case is an unreferenced file in the
+  // bucket rather than a listing pointing at nothing.
+  const staffRemove = async (e: Entry, f: SubFile, label: string) => {
+    if (!confirm(`Remove ${label} — ${nameOf(f)} — from ${e.company}'s entry?\n\nIt comes off the jury's list. This cannot be undone: if it is the only copy, download it first.`)) return;
+    const id = e.role_assignment_id;
+    setUploadBusy(id);
+    const { error } = await supabase.rpc('sm_architecture_file_remove', { p_id: f.id });
+    if (error) { setUploadBusy(null); toast({ title: 'Could not remove it', description: error.message, variant: 'destructive' }); return; }
+    const { error: stErr } = await supabase.storage.from('event-media').remove([f.file_path]);
+    setUploadBusy(null);
+    toast({
+      title: `${label} removed from ${e.company}`,
+      description: stErr ? 'Off the jury’s list — the stored copy could not be deleted, which is harmless.' : undefined,
+    });
+    await loadFiles(id);
+    load();
+  };
+
   const reviewerLink = (r: Reviewer) => `${window.location.origin}/sm26/jury/architecture?token=${r.token}`;
 
   // The link is the deliverable, so it goes straight to the clipboard: a token
@@ -521,6 +549,8 @@ export function AdminSM26Architecture() {
                                     {f.size_bytes != null && <span className="text-xs text-gray-400 shrink-0">{fmtSize(f.size_bytes)}</span>}
                                   </button>
                                   <button onClick={ev => { ev.stopPropagation(); saveOne(e, f, fl); }} title="Download this file" className="text-gray-400 hover:text-primary p-1 shrink-0"><Download className="h-4 w-4" /></button>
+                                  <button onClick={ev => { ev.stopPropagation(); staffRemove(e, f, fl); }} disabled={uploadBusy === e.role_assignment_id}
+                                    title="Take this file off the entry" className="text-gray-400 hover:text-red-600 p-1 shrink-0"><Trash2 className="h-4 w-4" /></button>
                                 </div>
                               ))}
                         </div>

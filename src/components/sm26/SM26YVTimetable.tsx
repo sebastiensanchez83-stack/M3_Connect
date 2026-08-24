@@ -26,7 +26,7 @@ export function tzLabel(iso: string): string {
 export const slotRange = (iso: string, minutes: number) =>
   `${fmtTime(iso)}–${fmtTime(new Date(new Date(iso).getTime() + minutes * 60000).toISOString())} ${tzLabel(iso)}`;
 
-export interface CellJuror { user_id: string; name: string; rsvp: string; responded_at: string | null; invited_at: string | null }
+export interface CellJuror { user_id: string; name: string; rsvp: string; responded_at: string | null; invited_at: string | null; on_panel?: boolean }
 // Startups now carry their own RSVP, at the same grain and with the same three
 // fields as the jurors — so the chips, the counts and the chase read the same
 // on both sides of the session.
@@ -553,11 +553,18 @@ export function SM26YVTimetable({ eventId, cells, panels, batches, testEmail, on
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {c.jurors.map(j => {
                         const m = rsvpMeta(j.rsvp);
+                        // Taking somebody off the panel now takes them off its
+                        // sessions too — except one already invited, where the
+                        // Zoom meeting and everybody's calendar already say they
+                        // are coming. Then they stay, and say why they stayed.
+                        const off = j.on_panel === false;
                         return (
-                          <span key={j.user_id} className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-0.5 ${m.cls}`}
-                                title={j.invited_at ? `Asked ${new Date(j.invited_at).toLocaleString('en-GB', { timeZone: TZ })}` : 'Never emailed about this slot'}>
+                          <span key={j.user_id} className={`inline-flex items-center gap-1 text-[11px] rounded-full border px-2 py-0.5 ${off ? 'bg-gray-50 text-gray-500 border-gray-300 border-dashed' : m.cls}`}
+                                title={off
+                                  ? 'No longer on this panel, but the Zoom invitation was already sent with them on it — remove them in Zoom if they should not attend.'
+                                  : j.invited_at ? `Asked ${new Date(j.invited_at).toLocaleString('en-GB', { timeZone: TZ })}` : 'Never emailed about this slot'}>
                             {j.rsvp === 'unavailable' ? <AlertTriangle className="h-3 w-3" /> : j.rsvp === 'invited' ? <Clock className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-                            {j.name} <span className="opacity-60">· {m.label}{j.rsvp === 'invited' ? ` ${silenceLabel(j.invited_at)}` : ''}</span>
+                            {j.name} <span className="opacity-60">· {off ? 'off panel — already invited' : `${m.label}${j.rsvp === 'invited' ? ` ${silenceLabel(j.invited_at)}` : ''}`}</span>
                           </span>
                         );
                       })}

@@ -794,3 +794,41 @@ drop function if exists public.sm_admin_workshop_bookings(uuid);
 drop function if exists public.sm_admin_book_workshop(uuid, uuid, boolean, boolean);
 drop function if exists public.sm_admin_cancel_workshop(uuid, uuid, boolean);
 ```
+
+## jury_panel_move_takes_the_answer_with_it — 24 August 2026
+
+Full SQL in [`20260824140000_jury_panel_move_takes_the_answer_with_it.sql`](./20260824140000_jury_panel_move_takes_the_answer_with_it.sql).
+
+Panel membership drives the sessions — `sm_jury_group_member` is the truth, and
+two triggers push it into `sm_jury_session_juror`. Both guarded the DELETE half
+with `and j.invited_at is null and j.status = 'invited'`: only take somebody off
+a session if they were never asked and never answered.
+
+That is the exact opposite of when it is needed. The reason a juror gets moved
+is that they answered — the slot does not work for them — so answering was what
+made them impossible to move. They stayed on the original session for good:
+in the roster, in the juror count, in "ask all again", and in the Zoom
+invitation, which `sm26-jury-session` sends to every juror on the session whose
+RSVP is `available` or `confirmed`. Reassigning them to another panel added a
+second row and never removed the first.
+
+The startup half of the same feature (`sm_sync_session_roster` /
+`sm_sync_sessions_from_batch`) carries no such guard and behaves correctly.
+Zero stale entries there; seven stale jurors here, including two `available` on
+panels they had left.
+
+`not s.zoom_sent` stays: once the calendar invitation is out, the attendee list
+lives in Zoom and in other people's calendars, and editing only our copy would
+make the two disagree. `sm_yv_timetable` now returns `on_panel` per juror so the
+timetable labels that case ("off panel — already invited") instead of showing a
+name with no explanation.
+
+Removing somebody from a panel does forget what they answered about that panel's
+slots — the answer is per (session, juror), and re-adding them asks again.
+
+Undo:
+```sql
+-- restore the guard in both trigger functions (the same bodies with this
+-- clause added back to the sm_jury_session_juror delete):
+--   and j.invited_at is null and j.status = 'invited'
+```

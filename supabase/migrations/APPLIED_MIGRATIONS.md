@@ -756,3 +756,41 @@ begin
   );
 end $function$;
 ```
+
+## sm26_admin_workshop_roster — 24 August 2026
+
+Full SQL in [`20260824100000_sm26_admin_workshop_roster.sql`](./20260824100000_sm26_admin_workshop_roster.sql).
+
+`sm_book_workshop` books `auth.uid()`, `sm_workshop_booking` is readable only by
+its own owner and by staff through RLS, and the only place the admin console ever
+rendered a booking was the `3/10` counter on the programme list. So the six SM26
+workshops had attendees in the database and no attendee list anywhere on the
+platform — nothing to print, nothing to hand a facilitator, and nowhere to seat
+the person who books by replying to an email.
+
+Three staff-only RPCs, mirroring the participant ones because the invariants are
+the participant's: `sm_admin_workshop_bookings` (read the roster, with the person
+behind the `user_id`), `sm_admin_book_workshop`, `sm_admin_cancel_workshop`.
+
+`day_date` is computed as `date(starts_at)` — exactly the expression
+`sm_book_workshop` uses, because the one-workshop-per-day unique constraint is on
+that value and a different expression here would let one person hold two.
+
+The two decisions only staff can make are explicit arguments rather than silent
+behaviour, and the UI turns each into a question:
+
+- `p_replace` — move somebody who already holds a workshop that day. Without it
+  the call raises `BOOKED_THAT_DAY: <title>`.
+- `p_overbook` — seat somebody past the stated capacity. Without it a full
+  workshop yields a waitlist row, and promoting off the waitlist into a full room
+  raises `FULL: …`.
+
+Cancelling promotes the top of the waitlist and notifies, as the participant path
+does; the participant is also told when M3 books, waitlists or removes them.
+
+Undo:
+```sql
+drop function if exists public.sm_admin_workshop_bookings(uuid);
+drop function if exists public.sm_admin_book_workshop(uuid, uuid, boolean, boolean);
+drop function if exists public.sm_admin_cancel_workshop(uuid, uuid, boolean);
+```

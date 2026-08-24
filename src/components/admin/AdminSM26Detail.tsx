@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   RefreshCw, ArrowLeft, Mail, Phone, Globe, Building2, MapPin, Briefcase,
   Check, X, Calendar, Plus, Trash2, Paperclip, FileText, Copy, KeyRound, Target, Download,
-  ChevronLeft, ChevronRight, UserPlus, Eye, AlertTriangle, Users, Upload,
+  ChevronLeft, ChevronRight, UserPlus, Eye, AlertTriangle, Users, Upload, CalendarDays,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ import { SM26CompanyLink } from './SM26CompanyLink';
 import { SM26ProvisionDialog, suggestProvision } from './SM26ProvisionDialog';
 import { SM26RequestInfo } from './SM26RequestInfo';
 import { SM26RequestFields } from './SM26RequestFields';
+import { SM26ParticipantWorkshops } from './SM26Workshops';
 import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
 import { useAuth } from '@/contexts/AuthContext';
 import { startImpersonation, PendingRecoveryError } from '@/lib/impersonation';
@@ -835,6 +836,23 @@ export function AdminSM26Detail() {
             )}
           </div>
           <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit variant="admin" registrantUserId={reg.user_id} />
+        </CardContent>
+      </Card>
+
+      {/* Their programme.
+          The published programme is the same for everybody; the only part that
+          differs per person is which workshop they chose, one per day — and that
+          was readable nowhere in the console, so "what is this participant doing
+          on the Monday?" had no answer here. Staff can also set it, for the
+          people who tell us by email rather than booking themselves. */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2"><CalendarDays className="h-4 w-4 text-primary" /> Workshops</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 pt-0">
+          <SM26ParticipantWorkshops
+            eventId={reg.event_id} userId={reg.user_id}
+            name={[reg.first_name, reg.last_name].filter(Boolean).join(' ') || reg.company_name || 'This participant'} />
         </CardContent>
       </Card>
 

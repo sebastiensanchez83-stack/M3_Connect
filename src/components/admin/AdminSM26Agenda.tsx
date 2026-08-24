@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, ArrowLeft, CalendarDays, Plus, Pencil, Trash2, Eye, EyeOff, Users, Paperclip, MessageSquare } from 'lucide-react';
+import { RefreshCw, ArrowLeft, CalendarDays, Plus, Pencil, Trash2, Eye, EyeOff, Users, Paperclip, MessageSquare, Download } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26SessionQA } from '@/components/sm26/SM26SessionQA';
+import {
+  useWorkshopData, downloadWorkshopCsv, SM26WorkshopSeatsDialog,
+} from './SM26Workshops';
 
 // Admin agenda management — CRUD over sm_session (single-track timeline +
 // workshops). Times are stored at the Monaco (+02:00) offset for the event.
@@ -45,7 +48,6 @@ export function AdminSM26Agenda() {
   const navigate = useNavigate();
   const [eventId, setEventId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -58,6 +60,11 @@ export function AdminSM26Agenda() {
   const [speakers, setSpeakers] = useState<string[]>([]);
   const [dayTab, setDayTab] = useState<string>('all');
   const [published, setPublished] = useState(false);
+  // Who is actually in each workshop — the seat lists, and the people who can be
+  // put in one. Kept alongside the sessions rather than inside the seats dialog
+  // so the "3/10" counters on the list are the same numbers the dialog shows.
+  const { bookings, candidates, reload: reloadSeats } = useWorkshopData(eventId);
+  const [seatsForId, setSeatsForId] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -72,13 +79,6 @@ export function AdminSM26Agenda() {
       .order('starts_at', { ascending: true, nullsFirst: false }).order('display_order');
     const ss = (data || []) as Session[];
     setSessions(ss);
-    const wsIds = ss.filter(s => s.type === 'workshop').map(s => s.id);
-    if (wsIds.length) {
-      const { data: bk } = await supabase.from('sm_workshop_booking').select('session_id,status').in('session_id', wsIds).eq('status', 'booked');
-      const c: Record<string, number> = {};
-      for (const b of (bk || []) as { session_id: string }[]) c[b.session_id] = (c[b.session_id] || 0) + 1;
-      setCounts(c);
-    }
     // Registered speakers — offered as quick-picks in the session form.
     const { data: spk } = await supabase.from('sm_role_assignment')
       .select('registration:sm_registration(first_name,last_name)')
@@ -207,6 +207,11 @@ export function AdminSM26Agenda() {
   }
   const publishedCount = sessions.filter(s => s.published).length;
   const workshopCount = sessions.filter(s => s.type === 'workshop').length;
+  const seatsTaken = (id: string) => bookings.filter(b => b.session_id === id && b.status === 'booked').length;
+  const waiting = (id: string) => bookings.filter(b => b.session_id === id && b.status !== 'booked').length;
+  // Read the open workshop back out of `sessions` rather than holding a copy, so
+  // editing its capacity while the seat list is open is reflected straight away.
+  const seatsFor = sessions.find(s => s.id === seatsForId) || null;
 
   return (
     <div className="space-y-4">
@@ -217,6 +222,12 @@ export function AdminSM26Agenda() {
           <p className="text-sm text-gray-500 mt-0.5">{sessions.length} session{sessions.length !== 1 ? 's' : ''} · {publishedCount} published · {workshopCount} workshop{workshopCount !== 1 ? 's' : ''}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {bookings.length > 0 && (
+            <Button variant="outline" className="gap-1.5" title="Every workshop booking, one row per person"
+              onClick={() => downloadWorkshopCsv(bookings, 'sm26-workshop-attendees.csv')}>
+              <Download className="h-4 w-4" /> Workshop lists (CSV)
+            </Button>
+          )}
           <Button variant="outline" className="gap-1.5" onClick={togglePublished}>
             {published ? <><EyeOff className="h-4 w-4" /> Unpublish programme</> : <><Eye className="h-4 w-4" /> Publish programme</>}
           </Button>
@@ -258,8 +269,15 @@ export function AdminSM26Agenda() {
                       <span className="text-sm font-semibold text-gray-900">{s.title}</span>
                       <Badge variant="secondary" className="text-[10px] capitalize">{s.type}</Badge>
                       {!s.published && <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">Draft</Badge>}
-                      {s.type === 'workshop' && s.capacity != null && (
-                        <span className="text-[11px] text-gray-500 inline-flex items-center gap-1"><Users className="h-3 w-3" /> {counts[s.id] || 0}/{s.capacity}</span>
+                      {s.type === 'workshop' && (
+                        // The seat count is the way in to the seat list: staff who
+                        // want to know "3 of 10 — which 3?" reach for the number.
+                        <button type="button" onClick={() => setSeatsForId(s.id)}
+                          title="See and edit who is in this workshop"
+                          className="text-[11px] text-gray-500 hover:text-primary inline-flex items-center gap-1 rounded border border-gray-200 hover:border-primary/50 px-1.5 py-0.5 transition-colors">
+                          <Users className="h-3 w-3" /> {seatsTaken(s.id)}{s.capacity != null ? `/${s.capacity}` : ''}
+                          {waiting(s.id) > 0 && <span className="text-amber-600">+{waiting(s.id)} waiting</span>}
+                        </button>
                       )}
                       {s.deck_path && <span title={s.share_with_audience ? 'Slides attached & shared' : 'Slides attached (not shared)'} className={s.share_with_audience ? 'text-primary' : 'text-gray-300'}><Paperclip className="h-3 w-3" /></span>}
                     </div>
@@ -340,6 +358,10 @@ export function AdminSM26Agenda() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SM26WorkshopSeatsDialog
+        session={seatsFor} bookings={bookings} candidates={candidates}
+        onChange={reloadSeats} onClose={() => setSeatsForId(null)} />
 
       <Dialog open={!!qaSession} onOpenChange={o => { if (!o) setQaSession(null); }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">

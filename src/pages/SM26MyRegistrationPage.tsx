@@ -111,8 +111,34 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   // previews AND to recognise assets that live in profile tables under a
   // different key than the requirement checklist expects (logo vs logo_url).
   const [hubAssets, setHubAssets] = useState<SM26Asset[]>([]);
+  // Just enough of the programme to signpost it. The hub opens on "To do", and
+  // "My programme" lives under Your event — so once the programme was published
+  // there was still nothing on the landing view that said so, and a participant
+  // who never pressed the second button never saw it. The workshop choice is the
+  // one part of the programme that is theirs to make, so it belongs in the list
+  // of things we are waiting on, like any other.
+  const [programme, setProgramme] = useState<{ days: number; chosen: number } | null>(null);
 
   useEffect(() => { if (user) load(); }, [user]);
+
+  useEffect(() => {
+    const eid = reg?.event_id;
+    if (!eid) { setProgramme(null); return; }
+    let active = true;
+    (async () => {
+      const { data } = await supabase.rpc('sm_agenda', { p_event_id: eid });
+      if (!active) return;
+      const rows = (data || []) as { type: string; starts_at: string | null; my_status: string | null }[];
+      if (rows.length === 0) { setProgramme(null); return; }   // nothing published yet
+      const ws = rows.filter(s => s.type === 'workshop');
+      const dayOf = (s: string | null) => (s || '').slice(0, 10);
+      setProgramme({
+        days: new Set(ws.map(s => dayOf(s.starts_at))).size,
+        chosen: new Set(ws.filter(s => s.my_status).map(s => dayOf(s.starts_at))).size,
+      });
+    })();
+    return () => { active = false; };
+  }, [reg?.event_id]);
 
   // Load the per-registration details (drafts, e-catalogue, payment) for one reg.
   const selectReg = async (r: Registration) => {
@@ -504,6 +530,15 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
       label: 'Your e-catalogue page',
       hint: ecatToApprove > 0 ? 'Waiting for your approval' : 'Nothing to approve right now',
       done: ecatToApprove === 0, go: 'visibility' as HubGroup,
+    }] : []),
+    ...(programme ? [{
+      key: 'programme',
+      label: programme.days > 0 ? `Your workshops (${programme.chosen}/${programme.days})` : 'The programme',
+      hint: programme.days === 0 ? 'Published — see what is on'
+        : programme.chosen >= programme.days ? 'Chosen — your schedule is in Your event'
+          : `Choose one workshop per day — seats are limited`,
+      done: programme.chosen >= programme.days,
+      go: 'event' as HubGroup,
     }] : []),
     ...(invoices.length > 0 || paidDone ? [{
       key: 'pay',

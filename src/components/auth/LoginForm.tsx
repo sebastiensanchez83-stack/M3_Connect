@@ -24,6 +24,8 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner }: Logi
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
+  const [magicLoading, setMagicLoading] = useState(false);
+  const [magicSent, setMagicSent] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +68,27 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner }: Logi
     }
   };
 
+  // Sign in with a one-time link instead of a password. Same email machinery as
+  // the reset, but it drops you straight in — no password to choose, remember or
+  // get wrong — which is what most people stuck at this screen actually want.
+  const handleMagicLink = async () => {
+    if (!email) {
+      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your email address'), variant: 'destructive' });
+      return;
+    }
+    setMagicLoading(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/welcome` },
+    });
+    setMagicLoading(false);
+    if (error) {
+      toast({ title: t('common.error'), description: error.message, variant: 'destructive' });
+      return;
+    }
+    setMagicSent(true);
+  };
+
   if (forgotMode) {
     return (
       <form onSubmit={handleForgotPassword} className="space-y-4">
@@ -80,18 +103,36 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner }: Logi
             required
           />
         </div>
-        {forgotSent ? (
-          <div className="text-center space-y-2">
-            <p className="text-sm text-green-600 font-medium">{t('auth.resetEmailSent', 'Reset email sent! Check your inbox.')}</p>
-            <Button type="button" variant="ghost" size="sm" onClick={() => { setForgotMode(false); setForgotSent(false); }}>
+        {forgotSent || magicSent ? (
+          <div className="space-y-2 text-center">
+            <p className="text-sm text-green-600 font-medium">
+              {magicSent
+                ? t('auth.signInLinkSent', 'Sign-in link sent — check your inbox.')
+                : t('auth.resetEmailSent', 'Reset email sent! Check your inbox.')}
+            </p>
+            <p className="text-xs text-gray-500">
+              {t('auth.linkAnyDevice', 'The link opens on any device — phone or computer. If it is not there in a minute, check your spam folder.')}
+            </p>
+            <Button type="button" variant="ghost" size="sm" onClick={() => { setForgotMode(false); setForgotSent(false); setMagicSent(false); }}>
               {t('auth.backToLogin', 'Back to login')}
             </Button>
           </div>
         ) : (
           <div className="space-y-2">
-            <Button type="submit" className="w-full" disabled={forgotLoading}>
+            <Button type="submit" className="w-full" disabled={forgotLoading || magicLoading}>
               {forgotLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('common.loading')}</> : t('auth.sendResetLink', 'Send reset link')}
             </Button>
+            {/* The way out for anyone who has already fought the password twice. */}
+            <div className="relative py-1 text-center">
+              <span className="text-[11px] uppercase tracking-wide text-gray-400 bg-white px-2 relative z-10">{t('auth.or', 'or')}</span>
+              <span className="absolute left-0 right-0 top-1/2 border-t border-gray-100" />
+            </div>
+            <Button type="button" variant="outline" className="w-full" disabled={forgotLoading || magicLoading} onClick={handleMagicLink}>
+              {magicLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('common.loading')}</> : t('auth.emailSignInLink', 'Email me a sign-in link instead')}
+            </Button>
+            <p className="text-[11px] text-gray-500 text-center">
+              {t('auth.signInLinkHint', 'Signs you straight in — no password needed.')}
+            </p>
             <Button type="button" variant="ghost" className="w-full" size="sm" onClick={() => setForgotMode(false)}>
               {t('auth.backToLogin', 'Back to login')}
             </Button>

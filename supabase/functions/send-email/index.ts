@@ -68,7 +68,35 @@ Deno.serve(async (req: Request) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
     const redirectTarget = redirect_to || site_url;
-    const confirmUrl = `${supabaseUrl}/auth/v1/verify?token=${token_hash}&type=${email_action_type}&redirect_to=${encodeURIComponent(redirectTarget)}`;
+
+    // Two ways to land someone back in the app, and the difference is why people
+    // could not reset their password.
+    //
+    // The GoTrue /auth/v1/verify link spends its token on the FIRST GET. Corporate
+    // mail scanners (Outlook ATP and friends) fetch every link before the recipient
+    // ever sees it, so the token is already spent by the time they click: the
+    // platform says "email link has expired" on the very first attempt, for ever.
+    // It also redirects back with a PKCE code, which only resolves in the browser
+    // that asked for the reset — so a link requested on a laptop and opened on a
+    // phone cannot work either.
+    //
+    // Handing the token_hash to a page that redeems it itself fixes both: a scanner
+    // fetching the page runs no JavaScript and so spends nothing, and verifyOtp is
+    // checked server-side, so any device can complete it. Only pages that actually
+    // call verifyOtp may be sent the hash — everything else keeps the old link.
+    const REDEEMING_PATHS = new Set(["/reset-password", "/welcome"]);
+    let confirmUrl =
+      `${supabaseUrl}/auth/v1/verify?token=${token_hash}&type=${email_action_type}&redirect_to=${encodeURIComponent(redirectTarget)}`;
+    try {
+      const target = new URL(redirectTarget);
+      if (REDEEMING_PATHS.has(target.pathname.replace(/\/+$/, "") || "/")) {
+        target.searchParams.set("token_hash", token_hash);
+        target.searchParams.set("type", email_action_type);
+        confirmUrl = target.toString();
+      }
+    } catch {
+      /* unparseable redirect target — keep the GoTrue link */
+    }
 
     const firstName = user.user_metadata?.first_name || "";
     const greeting = firstName ? `Hello ${firstName},` : "Hello,";
@@ -96,7 +124,7 @@ Deno.serve(async (req: Request) => {
           body: "We received a request to reset your password. Click the button below to choose a new password.",
           buttonText: "Reset Password",
           buttonUrl: confirmUrl,
-          footer: "If you did not request a password reset, you can safely ignore this email. This link will expire in 24 hours.",
+          footer: "If you did not request a password reset, you can safely ignore this email. The link works on any device, and stays valid until you use it or request another one.",
         });
         break;
       case "email_change":

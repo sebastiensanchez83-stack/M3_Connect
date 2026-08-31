@@ -1,0 +1,6 @@
+-- Applied to the remote project via the Supabase MCP; kept here for traceability.
+-- The Yacht Club console listed every kind of participant except the press: the
+-- role whitelist in sm_partner_entries never had 'media' in it, so journalists
+-- who had registered were invisible to the team hosting them while M3 could see
+-- them perfectly well. Press attend, need badges and a catalogue listing like
+-- anyone else. Only the role list changed; the body is otherwise identical.

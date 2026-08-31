@@ -4,7 +4,7 @@ import {
   RefreshCw, FileText, ExternalLink, Building2, Mic, BookOpen, CalendarDays, Lock, MapPin,
   Lightbulb, Scale, Image as ImageIcon, ChevronRight, ChevronDown, Download, AlertTriangle,
   CheckCircle2, Upload, Loader2, MessageSquare, Eye, Ruler, Trash2, Bell, Search, X, Clock,
-  CreditCard, Palette, Send, CheckSquare, Square, ClipboardCheck, UserCheck, Newspaper,
+  CreditCard, Palette, Send, CheckSquare, Square, ClipboardCheck, UserCheck, Megaphone, Newspaper,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -182,6 +182,7 @@ const CATEGORIES: { key: string; label: string; icon: ComponentType<{ className?
   { key: 'jury', label: 'Jury', icon: Scale, roles: ['jury'] },
   { key: 'sponsor', label: 'Sponsors', icon: Building2, roles: ['sponsor'] },
   { key: 'speaker', label: 'Speakers', icon: Mic, roles: ['speaker'] },
+  { key: 'media', label: 'Presse', icon: Megaphone, roles: ['media'] },
 ];
 const CATEGORY_LABEL: Record<string, string> = { ...Object.fromEntries(CATEGORIES.map(c => [c.key, c.label])), other: 'Autres' };
 const CATEGORY_ICON: Record<string, ComponentType<{ className?: string }>> = { ...Object.fromEntries(CATEGORIES.map(c => [c.key, c.icon])), other: Building2 };

@@ -409,6 +409,13 @@ export function SM26RegisterPage() {
     setSubmitting(true);
     try {
       const assetsB64 = await assetsToB64();
+      // Base64 costs a third on top, and the whole registration travels as one
+      // JSON request — so oversized files fail in transit, before any of our code
+      // runs. Knowing that here is what lets the error below say something useful.
+      const payloadBytes = Object.values(assetsB64)
+        .flat()
+        .reduce((n, a) => n + (a.data?.length || 0), 0);
+      const tooHeavy = payloadBytes > 5 * 1024 * 1024;
       const { data, error } = await supabase.functions.invoke('sm26-register', {
         body: {
           honeypot,
@@ -443,11 +450,17 @@ export function SM26RegisterPage() {
       });
 
       if (error) {
-        let msg = 'Please try again in a moment.';
+        // The server explains itself when it can. When it cannot, the failure is
+        // almost always the request never arriving — and "try again in a moment"
+        // sends people round the same loop for days. Name the two things they can
+        // actually do something about.
+        let msg = tooHeavy
+          ? 'Your files may be too large to send. Remove the photo or logo, register without them, and add them from your account afterwards.'
+          : 'We could not reach the server. Check your connection and try again — if it keeps failing, email events@m3monaco.com and we will register you by hand.';
         try {
           const body = await (error as { context?: Response }).context?.json();
           if (body?.error) msg = body.error;
-        } catch { /* keep generic message */ }
+        } catch { /* the response carried no explanation — keep ours */ }
         toast({ title: 'Registration failed', description: msg, variant: 'destructive' });
         return;
       }

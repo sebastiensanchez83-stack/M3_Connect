@@ -12,6 +12,11 @@ import { toast } from '@/hooks/use-toast';
 const IMG_RE = /^image\//i;
 const MAX_DIM = 1600;
 const MAX_BYTES = 12 * 1024 * 1024; // hard cap on any single source file
+// A guest's files are base64'd into the registration request (+33%), so anything
+// much bigger than this is refused in transit rather than by us — which surfaces
+// as an unexplained failure. A resized 1600px JPEG is a few hundred KB, so this
+// only ever catches a file the shrink could not handle.
+const SAFE_UPLOAD_BYTES = 4 * 1024 * 1024;
 
 // Downscale an image File to <= MAX_DIM on its longest side, re-encoded as JPEG.
 // Non-images (PDF, etc.) pass through untouched.
@@ -63,7 +68,31 @@ export function SM26RegUpload({ label, hint, value, onChange, accept = 'image/*'
     const out: File[] = [];
     for (const f of files.slice(0, room)) {
       if (f.size > MAX_BYTES) { toast({ title: `${f.name} is too large`, description: 'Max 12 MB per file.', variant: 'destructive' }); continue; }
-      out.push(await resizeImage(f));
+      // iPhone photos are HEIC, which browsers cannot decode — the resize below
+      // would silently hand back the original, and a 12 MB headshot base64'd into
+      // the registration payload is refused before it ever reaches the server.
+      // The registrant then sees "please try again in a moment" for ever, with
+      // nothing to act on. Say what is wrong while they can still fix it.
+      if (/\.(heic|heif)$/i.test(f.name) || /heic|heif/i.test(f.type)) {
+        toast({
+          title: 'iPhone HEIC photos aren’t supported',
+          description: 'Please upload a JPG or PNG — on iPhone: share the photo and choose "Most Compatible", or Settings → Camera → Formats → Most Compatible.',
+          variant: 'destructive',
+        });
+        continue;
+      }
+      const resized = await resizeImage(f);
+      // Whatever the reason the shrink did not happen, an oversized file must not
+      // reach the payload — it fails as an unexplained network error later.
+      if (resized.size > SAFE_UPLOAD_BYTES) {
+        toast({
+          title: `${f.name} is too large to send`,
+          description: 'Please save it as a JPG or PNG under 4 MB and try again.',
+          variant: 'destructive',
+        });
+        continue;
+      }
+      out.push(resized);
     }
     setBusy(false);
     if (out.length) onChange(multiple ? [...value, ...out] : out.slice(0, 1));

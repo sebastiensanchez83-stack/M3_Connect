@@ -16,11 +16,39 @@ interface Props {
   description?: ReactNode;
   /** Open on first render. Pass false for anything already complete. */
   defaultOpen?: boolean;
+  /**
+   * For sections whose content already draws its own Card. Renders just the
+   * header bar, so folding never puts a card inside a card.
+   */
+  bare?: boolean;
   children: ReactNode;
 }
 
-export function SM26Foldable({ title, meta, description, defaultOpen = true, children }: Props) {
+export function SM26Foldable({ title, meta, description, defaultOpen = true, bare = false, children }: Props) {
   const [open, setOpen] = useState(defaultOpen);
+
+  if (bare) {
+    return (
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() => setOpen(o => !o)}
+          aria-expanded={open}
+          className="w-full text-left flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3 hover:border-primary/40 transition-colors group"
+        >
+          <span className="font-semibold text-gray-900 flex items-center gap-2 flex-wrap group-hover:text-primary transition-colors">
+            {title}
+          </span>
+          <span className="flex items-center gap-2 shrink-0">
+            {meta}
+            <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          </span>
+        </button>
+        {open && children}
+      </div>
+    );
+  }
+
   return (
     <Card>
       <button

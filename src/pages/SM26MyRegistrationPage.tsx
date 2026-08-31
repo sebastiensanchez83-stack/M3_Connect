@@ -782,28 +782,37 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
 
         {/* Media kit — visuals + caption to announce your participation (its own tab; shown only when a kit exists) */}
         {shows('mediakit') && reg && (
-          <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} companyName={reg.company_name} />
+          <SM26Foldable bare title={<><Megaphone className="h-4 w-4 text-primary" /> Your media kit</>}>
+            <SM26MediaKit registrationId={reg.id} eventId={reg.event_id} companyName={reg.company_name} />
+          </SM26Foldable>
         )}
 
         {shows('attendees') && reg && (
-          <Card>
-            <CardContent className="pt-6">
-              <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit={reg.status !== 'declined'} variant="hub" />
-            </CardContent>
-          </Card>
+          <SM26Foldable bare title={<><UserCheck className="h-4 w-4 text-primary" /> Who is coming</>}>
+            <Card>
+              <CardContent className="pt-6">
+                <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit={reg.status !== 'declined'} variant="hub" />
+              </CardContent>
+            </Card>
+          </SM26Foldable>
         )}
 
         {shows('programme') && (
+          <SM26Foldable bare title={<><Calendar className="h-4 w-4 text-primary" /> My programme</>}>
           <Card>
             <CardContent className="pt-6">
-              <div className="text-sm font-semibold text-gray-900 mb-1 flex items-center gap-2"><Calendar className="h-4 w-4 text-primary" /> My programme</div>
               <p className="text-xs text-gray-500 mb-3">Your personal schedule — the main programme plus the workshops you've chosen. <Link to="/sm26/agenda" className="text-primary hover:underline">View the full programme</Link> to add or change.</p>
               <SM26Agenda mineOnly />
             </CardContent>
           </Card>
+          </SM26Foldable>
         )}
 
-        {shows('connections') && reg && <SM26MyConnections eventId={reg.event_id} />}
+        {shows('connections') && reg && (
+          <SM26Foldable bare title={<><Users className="h-4 w-4 text-primary" /> Your connections</>}>
+            <SM26MyConnections eventId={reg.event_id} />
+          </SM26Foldable>
+        )}
 
         {/* A startup's jury panel and the audience vote are things you do for
             the event, not things M3 is waiting on — so they sit here rather
@@ -813,10 +822,10 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         {group === 'event' && <SM26VotePage embedded />}
 
         {shows('catalogue') && ecat.length > 0 && (
+          <SM26Foldable bare title={<><BookOpen className="h-4 w-4 text-primary" /> Your e-catalogue page</>}>
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <CardTitle className="flex items-center gap-2"><BookOpen className="h-5 w-5 text-primary" /> Your e-catalogue page</CardTitle>
+              <div className="flex items-center justify-end gap-2 flex-wrap">
                 <Badge className={`text-[11px] ${payStatus === 'paid' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
                   <CreditCard className="h-3 w-3 mr-1" /> {payStatus === 'paid' ? 'Paid' : payStatus === 'invoiced' ? 'Invoiced' : 'Payment pending'}
                 </Badge>
@@ -887,6 +896,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
               ))}
             </CardContent>
           </Card>
+          </SM26Foldable>
         )}
 
         {shows('participation') && (rolesWithReqs.length === 0 ? (

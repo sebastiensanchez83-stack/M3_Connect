@@ -25,6 +25,7 @@ import { SM26MyConnections } from '@/components/sm26/SM26MyConnections';
 import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
 import { SM26MyJuryPanel } from '@/components/sm26/SM26MyJuryPanel';
 import { SM26MyPitchSessions } from '@/components/sm26/SM26MyPitchSessions';
+import { SM26Foldable } from '@/components/sm26/SM26Foldable';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
 import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
 import { SM26AssetGallery, SM26Asset } from '@/components/sm26/SM26AssetGallery';
@@ -911,20 +912,23 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
             // (e.g. a missing text field like "domain") — render a box for each.
             const extraRequested = [...requested].filter(k => !reqs.some(r => r.field_key === k));
             return (
-              <Card key={role.id}>
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <CardTitle className="flex items-center gap-2">
-                      {SM26_ROLE_LABELS[role.role] || role.role}
-                      <Badge className={`text-[10px] ${roleStatusBadgeClass(role.status)}`}>{prettyStatus(role.status)}</Badge>
-                    </CardTitle>
-                    <span className={`text-xs font-medium ${complete ? 'text-green-600' : 'text-amber-600'}`}>
-                      {doneCount}/{requiredItems.length} required complete
-                    </span>
-                  </div>
-                  <CardDescription>Provide the items below. Your answers are saved to your registration.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
+              <SM26Foldable
+                key={role.id}
+                // A role with everything in starts folded: the scroll should be
+                // about what is still owed, not what is already done.
+                defaultOpen={!complete || outstanding.length > 0 || extraRequested.length > 0}
+                title={<>
+                  {SM26_ROLE_LABELS[role.role] || role.role}
+                  <Badge className={`text-[10px] ${roleStatusBadgeClass(role.status)}`}>{prettyStatus(role.status)}</Badge>
+                </>}
+                meta={
+                  <span className={`text-xs font-medium ${complete ? 'text-green-600' : 'text-amber-600'}`}>
+                    {doneCount}/{requiredItems.length} required complete
+                  </span>
+                }
+                description="Provide the items below. Your answers are saved to your registration."
+              >
+                <div className="space-y-4">
                   {role.role === 'jury' && (
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-center justify-between gap-3 flex-wrap">
                       <div className="min-w-0">
@@ -1016,8 +1020,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                       Save
                     </Button>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </SM26Foldable>
             );
           })
         ))}

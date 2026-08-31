@@ -1,0 +1,7 @@
+-- Applied to the remote project via the Supabase MCP; kept here for traceability.
+-- A startup's own view of the jury sessions it pitches in, and its answer to the
+-- slot. Mirrors sm_jury_my_sessions, scoped the other way round — by the
+-- registration the caller can access, so a colleague on the same organisation
+-- sees it too, exactly like the rest of the participant hub.
+-- Full bodies were applied via the MCP; see sm_startup_my_sessions and
+-- sm_startup_set_attendance in the database.

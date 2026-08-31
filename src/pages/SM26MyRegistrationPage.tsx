@@ -24,6 +24,7 @@ import { SM26Agenda } from '@/components/sm26/SM26Agenda';
 import { SM26MyConnections } from '@/components/sm26/SM26MyConnections';
 import { SM26AssetUpload } from '@/components/sm26/SM26AssetUpload';
 import { SM26MyJuryPanel } from '@/components/sm26/SM26MyJuryPanel';
+import { SM26MyPitchSessions } from '@/components/sm26/SM26MyPitchSessions';
 import { SM26StatusTimeline } from '@/components/sm26/SM26StatusTimeline';
 import { SM26AttendeeRoster } from '@/components/sm26/SM26AttendeeRoster';
 import { SM26AssetGallery, SM26Asset } from '@/components/sm26/SM26AssetGallery';
@@ -806,6 +807,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         {/* A startup's jury panel and the audience vote are things you do for
             the event, not things M3 is waiting on — so they sit here rather
             than in the to-do list where they used to be buried. */}
+        {group === 'event' && visibleRoles.some(r => r.role === 'startup') && <SM26MyPitchSessions eventId={reg.event_id} />}
         {group === 'event' && visibleRoles.some(r => r.role === 'startup') && <SM26MyJuryPanel eventId={reg.event_id} />}
         {group === 'event' && <SM26VotePage embedded />}
 

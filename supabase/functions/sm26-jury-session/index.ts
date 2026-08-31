@@ -481,7 +481,13 @@ Deno.serve(async (req: Request) => {
       }
       const invitedJurors = force ? jurors : availableJurors;
 
-      const entryIds = await sessionEntryIds(s);
+      // Only the startups still coming. A slot someone has turned down should
+      // not put their name in front of the panel as if they were pitching.
+      const attending = (await sessionStartups(sessionId)).filter(x => x.status !== "declined");
+      const allEntryIds = await sessionEntryIds(s);
+      const entryIds = attending.length
+        ? attending.map(x => x.entry_role_assignment_id)
+        : allEntryIds;
       const start = new Date(s.scheduled_at);
 
       // Recipients: confirmed panel jurors + the batch's startups + guests +
@@ -495,14 +501,10 @@ Deno.serve(async (req: Request) => {
         add(testEmail, "Test run");
       } else {
         for (const j of invitedJurors) add(j.email, j.name);
-        if (entryIds.length) {
-          const { data: ras } = await admin.from("sm_role_assignment").select("registration_id").in("id", entryIds);
-          const regIds = ((ras || []) as { registration_id?: string }[]).map(x => x.registration_id).filter(Boolean) as string[];
-          if (regIds.length) {
-            const { data: rr } = await admin.from("sm_registration").select("email, first_name, last_name").in("id", regIds);
-            for (const x of (rr || []) as { email?: string; first_name?: string; last_name?: string }[]) add(x.email, `${x.first_name || ""} ${x.last_name || ""}`.trim());
-          }
-        }
+        // A startup that has said it cannot make this slot is left off the
+        // invitation — the jurors are already filtered this way, and inviting
+        // someone to a call they declined is how a "no" gets quietly ignored.
+        for (const st of attending) add(st.email, st.company);
         // Jurors recruited by email who will never sign in. They get the
         // calendar invitation and nothing else -- no availability request, no
         // scorecard -- because they are an address, not an account.

@@ -11,6 +11,11 @@ import { PressResourcesEditor } from '@/components/media/PressResourcesEditor';
 // the caller is the yacht_club partner of that event and that the role really is
 // `media` — the table itself stays closed to direct writes, and M3 keeps
 // supervision + veto from the admin registration sheet.
+//
+// Reads go through sm_partner_media_requests for the same reason: RLS on
+// sm_role_assignment only lets through the registrant, their org and M3 staff,
+// so a direct select returned nothing here and the Yacht Club saw an empty list
+// while requests were waiting.
 
 interface PressRow {
   id: string;                 // role_assignment id
@@ -35,19 +40,21 @@ const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null
 export function SM26PartnerPressRequests({ eventId }: { eventId: string }) {
   const [rows, setRows] = useState<PressRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [coverage, setCoverage] = useState<{ id: string; url: string; outlet: string | null; title: string | null; published_at: string | null }[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     const [ra, cov] = await Promise.all([
-      supabase.from('sm_role_assignment')
-        .select('id, status, module_data, registration:sm_registration(id, first_name, last_name, email, company_name, country)')
-        .eq('event_id', eventId).eq('role', 'media'),
+      supabase.rpc('sm_partner_media_requests', { p_event_id: eventId }),
       supabase.from('media_coverage')
         .select('id, url, outlet, title, published_at').eq('event_id', eventId)
         .order('published_at', { ascending: false, nullsFirst: false }),
     ]);
+    // A failed read used to fall through to "no requests yet", which is how an
+    // empty list went unnoticed. Say so instead.
+    setLoadError(ra.error ? ra.error.message : null);
     setRows(((ra.data || []) as unknown as PressRow[]).filter(r => r.registration));
     setCoverage((cov.data || []) as typeof coverage);
     setLoading(false);
@@ -128,7 +135,12 @@ export function SM26PartnerPressRequests({ eventId }: { eventId: string }) {
 
   return (
     <div className="space-y-4">
-      {rows.length === 0 && (
+      {loadError && (
+        <p className="text-sm text-red-600">
+          Impossible de charger les demandes d'accréditation. Prévenez M3 en citant ce message : {loadError}
+        </p>
+      )}
+      {!loadError && rows.length === 0 && (
         <p className="text-sm text-gray-400">Aucune demande d'accréditation presse pour le moment.</p>
       )}
 

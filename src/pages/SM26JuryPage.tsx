@@ -45,6 +45,40 @@ interface AllInnovation {
 
 const CONFIDENCE = [{ v: 1, label: 'Low' }, { v: 2, label: 'Medium' }, { v: 3, label: 'High' }];
 
+// ── Local draft cache ────────────────────────────────────────────────────────
+// A scorecard used to live only in React state, so anything that unmounted the
+// page — a session blip redirecting to the home page, a browser discarding the
+// tab to save memory, a stray click on "Back to my entries" — took an hour of
+// judgement with it. Everything typed is now mirrored to this device as it is
+// typed, and removed again the moment the server has it.
+//
+// Keyed per juror so two people sharing a laptop cannot see each other's work,
+// and holds ids and numbers only: never a company name, which would break the
+// anonymity architecture judging depends on.
+const DRAFT_NS = 'sm26-jury-draft:v1';
+const draftKey = (uid: string, entryId: string) => `${DRAFT_NS}:u.${uid}:${entryId}`;
+interface CachedDraft { v: 1; scores: Draft; confidence: number | null; coi: boolean; savedAt: number }
+
+const readCached = (uid: string, entryId: string): CachedDraft | null => {
+  try {
+    const raw = localStorage.getItem(draftKey(uid, entryId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedDraft;
+    return parsed && parsed.v === 1 && parsed.scores ? parsed : null;
+  } catch { return null; }
+};
+const writeCached = (uid: string, entryId: string, value: CachedDraft) => {
+  // Private mode and a full quota both throw. Losing the mirror is survivable;
+  // breaking scoring because of it is not.
+  try { localStorage.setItem(draftKey(uid, entryId), JSON.stringify(value)); } catch { /* ignore */ }
+};
+const clearCached = (uid: string, entryId: string) => {
+  try { localStorage.removeItem(draftKey(uid, entryId)); } catch { /* ignore */ }
+};
+
+const clockTime = (ms: number) =>
+  new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
 export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { user, loading: authLoading } = useAuth();
   const [eventId, setEventId] = useState<string | null>(null);
@@ -78,6 +112,20 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
   // Guards against a slow entry load landing its scores on whichever entry the
   // juror has opened since.
   const reqRef = useRef(0);
+
+  // Has the juror changed anything since this card was hydrated? Drives the save
+  // chip, and stops a card that was merely opened for reading from overwriting a
+  // good cached draft with the server copy.
+  const [dirty, setDirty] = useState(false);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [localAt, setLocalAt] = useState<number | null>(null);
+  const [restored, setRestored] = useState(false);
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const [justSubmitted, setJustSubmitted] = useState<number | null>(null);
+  const hydratedRef = useRef(false);
+  // Listeners fire outside the render that closed over the state, so they read
+  // the latest values from here rather than from a stale closure.
+  const latestRef = useRef({ draft: {} as Draft, confidence: null as number | null, coi: false, dirty: false });
 
   useEffect(() => { if (user) load(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -125,6 +173,9 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     // answered last wrote its scores into the form, and the next save posted
     // them onto the other company. Only the newest request may touch state.
     const my = ++reqRef.current;
+    // Nothing may be mirrored to this device until the server copy has landed,
+    // or the empty form below would overwrite a good cached draft.
+    hydratedRef.current = false;
     setSelected(e);
     setLoadingEntry(true);
     setPayload(null);
@@ -132,6 +183,11 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     setConfidence(e.confidence ?? null);
     setCoi(!!e.coi_flag);
     setReviewStatus(e.review_status ?? null);
+    setDirty(false);
+    setRestored(false);
+    setSavedAt(null);
+    setLocalAt(null);
+    setJustSubmitted(null);
     const [{ data: detail }, { data: review }] = await Promise.all([
       supabase.rpc('sm_jury_entry_detail', { p_entry_id: e.entry_id }),
       supabase.from('sm_review').select('*, scores:sm_criterion_score(criterion_id,score,comment)')
@@ -144,13 +200,64 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     if (rev?.scores) for (const s of rev.scores) d[s.criterion_id] = { score: s.score, comment: s.comment || '' };
     setDraft(d);
     if (rev) { setConfidence(rev.confidence ?? null); setCoi(!!rev.coi_flag); setReviewStatus(rev.status ?? null); }
+
+    // The cache is cleared on every successful server save, so anything still
+    // here is by definition work the server never received. Prefer it, and say
+    // so rather than restoring it behind the juror's back.
+    const cached = readCached(user!.id, e.entry_id);
+    if (cached) {
+      setDraft(cached.scores);
+      setConfidence(cached.confidence);
+      setCoi(cached.coi);
+      setLocalAt(cached.savedAt);
+      setRestored(true);
+      setDirty(true);
+    }
+    hydratedRef.current = true;
     setLoadingEntry(false);
   };
 
-  const setScore = (cid: string, score: number) =>
+  // Mirror locally 400ms after the last keystroke, and immediately if the tab is
+  // being hidden or torn down — the two moments the work was being lost.
+  useEffect(() => { latestRef.current = { draft, confidence, coi, dirty }; });
+
+  useEffect(() => {
+    if (!selected || !user || !dirty || !hydratedRef.current || reviewStatus === 'locked') return;
+    const t = setTimeout(() => {
+      writeCached(user.id, selected.entry_id, { v: 1, scores: draft, confidence, coi, savedAt: Date.now() });
+      setLocalAt(Date.now());
+    }, 400);
+    return () => clearTimeout(t);
+  }, [draft, confidence, coi, dirty, selected, user, reviewStatus]);
+
+  useEffect(() => {
+    if (!selected || !user) return;
+    const flush = () => {
+      const cur = latestRef.current;
+      if (!cur.dirty || !hydratedRef.current || reviewStatus === 'locked') return;
+      writeCached(user.id, selected.entry_id, {
+        v: 1, scores: cur.draft, confidence: cur.confidence, coi: cur.coi, savedAt: Date.now(),
+      });
+    };
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flush(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    // pagehide, not beforeunload: beforeunload does not fire when a browser
+    // discards a background tab, and registering one disables the back/forward cache.
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, [selected, user, reviewStatus]);
+
+  const setScore = (cid: string, score: number) => {
+    setDirty(true);
     setDraft(prev => ({ ...prev, [cid]: { score: prev[cid]?.score === score ? null : score, comment: prev[cid]?.comment || '' } }));
-  const setComment = (cid: string, comment: string) =>
+  };
+  const setComment = (cid: string, comment: string) => {
+    setDirty(true);
     setDraft(prev => ({ ...prev, [cid]: { score: prev[cid]?.score ?? null, comment } }));
+  };
 
   // Weighted percentage of the WHOLE scorecard. Dividing by only the criteria
   // scored so far made a half-finished draft read 100/100, which is misleading
@@ -168,18 +275,46 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     return scoredWeight > 0 && fullWeight > 0 ? Math.round((weighted / fullWeight) * 1000) / 10 : null;
   };
 
+  // Everything standing between this card and a valid submission, computed the
+  // same way for the checklist on screen and for the submit button — so what the
+  // juror reads and what the button enforces cannot drift apart. This used to be
+  // three sequential red toasts that vanished after five seconds, which is how a
+  // juror ends up saving four complete cards as drafts and believing they are done.
+  const blockersFor = (tpl: Template | null): { id: string; label: string }[] => {
+    if (!tpl) return [];
+    const out: { id: string; label: string }[] = [];
+    tpl.criteria.forEach((c, i) => {
+      if (draft[c.id]?.score == null) out.push({ id: c.id, label: `Score ${i + 1}. ${c.label}` });
+    });
+    const threshold = 0.4 * tpl.scale_max;
+    tpl.criteria.forEach((c, i) => {
+      const s = draft[c.id]?.score;
+      if (c.critical && s != null && s < threshold && !(draft[c.id]?.comment || '').trim()) {
+        out.push({ id: c.id, label: `Justify the low score on ${i + 1}. ${c.label}` });
+      }
+    });
+    if (!confidence) out.push({ id: 'confidence', label: 'Set your confidence' });
+    return out;
+  };
+
+  const goToBlocker = (id: string) => {
+    setFlashId(id);
+    window.setTimeout(() => setFlashId(null), 1400);
+    document.getElementById(id === 'confidence' ? 'jury-confidence' : `crit-${id}`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   const saveReview = async (submit: boolean) => {
     if (!selected || !eventId) return;
     const tpl = templateFor(selected);
     if (!tpl) { toast({ title: 'No scorecard found for this entry', variant: 'destructive' }); return; }
 
     if (submit) {
-      const unscored = tpl.criteria.filter(c => draft[c.id]?.score == null);
-      if (unscored.length) { toast({ title: 'Score every criterion before submitting', description: `${unscored.length} left.`, variant: 'destructive' }); return; }
-      if (!confidence) { toast({ title: 'Set your confidence level before submitting', variant: 'destructive' }); return; }
-      const threshold = 0.4 * tpl.scale_max;
-      const missingComment = tpl.criteria.find(c => c.critical && (draft[c.id]?.score ?? 0) < threshold && !(draft[c.id]?.comment || '').trim());
-      if (missingComment) { toast({ title: 'A comment is required', description: `Low score on a critical criterion ("${missingComment.label}") needs a justification.`, variant: 'destructive' }); return; }
+      // The checklist above the buttons already names every one of these; take
+      // the juror to the first rather than describing it in a toast they will
+      // have to remember while they scroll.
+      const blocking = blockersFor(tpl);
+      if (blocking.length) { goToBlocker(blocking[0].id); return; }
     }
 
     const uid = await requireFreshSession();
@@ -237,7 +372,15 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     setSaving(false);
     if (scErr) { toast({ title: 'Scores could not be saved', description: scErr.message, variant: 'destructive' }); return; }
 
+    // The server has it: the local mirror has no further job, and keeping it
+    // would let it win over a fresher server copy on the next open.
+    clearCached(user!.id, selected.entry_id);
+    setDirty(false);
+    setRestored(false);
+    setLocalAt(null);
+    setSavedAt(Date.now());
     setReviewStatus(nextStatus);
+    if (submit) setJustSubmitted(total);
     toast({
       title: submit ? 'Review submitted'
         : nextStatus === 'submitted' ? 'Saved — your review stays submitted'
@@ -302,11 +445,44 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     const total = tpl ? computeTotal(tpl) : null;
     const locked = reviewStatus === 'locked';
     const fields = (payload?.fields || {}) as Record<string, string>;
+    const blockers = blockersFor(tpl);
+    const mine = entries.filter(x => x.competition.startsWith('architecture') === selected.competition.startsWith('architecture'));
+    const position = mine.findIndex(x => x.entry_id === selected.entry_id);
+    // One state at a time, and never silent: the old screen said nothing at all
+    // between "Draft saved" fading after five seconds and the next save.
+    const chip = locked ? { text: 'Locked', cls: 'bg-gray-100 text-gray-500 border-gray-200' }
+      : saving ? { text: 'Saving…', cls: 'bg-gray-50 text-gray-500 border-gray-200' }
+      : dirty && localAt ? { text: `Kept on this device ${clockTime(localAt)} — not sent to M3 yet`, cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+      : dirty ? { text: 'Unsaved changes', cls: 'bg-amber-50 text-amber-700 border-amber-200' }
+      : reviewStatus === 'submitted' ? { text: savedAt ? `Submitted ${clockTime(savedAt)}` : 'Submitted', cls: 'bg-green-50 text-green-700 border-green-200' }
+      : savedAt ? { text: `Draft saved ${clockTime(savedAt)}`, cls: 'bg-gray-50 text-gray-500 border-gray-200' }
+      : reviewStatus === 'draft' ? { text: 'Draft saved', cls: 'bg-gray-50 text-gray-500 border-gray-200' }
+      : null;
     return (
       <div className={embedded ? '' : 'min-h-screen bg-gray-50'}>
         {!embedded && <Helmet><title>Score entry — SM26 Jury</title></Helmet>}
         <div className={embedded ? 'space-y-4' : 'container mx-auto px-4 py-6 max-w-3xl space-y-4'}>
-          <Button variant="ghost" size="sm" onClick={() => setSelected(null)} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to my entries</Button>
+          <div className={`sticky ${embedded ? 'top-0' : 'top-16'} z-20 -mx-4 px-4 py-2 bg-gray-50/95 backdrop-blur border-b border-gray-100 flex items-center justify-between gap-2 flex-wrap`}>
+            <Button variant="ghost" size="sm" onClick={() => setSelected(null)} className="gap-1.5"><ArrowLeft className="h-4 w-4" /> Back to my entries</Button>
+            <div className="flex items-center gap-2">
+              {position >= 0 && mine.length > 1 && (
+                <span className="text-xs text-gray-500">Entry {position + 1} of {mine.length}</span>
+              )}
+              {chip && <span className={`text-xs rounded-full border px-2 py-0.5 ${chip.cls}`}>{chip.text}</span>}
+            </div>
+          </div>
+
+          {restored && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-start justify-between gap-3 flex-wrap">
+              <span>
+                We kept what you typed{localAt ? ` at ${clockTime(localAt)}` : ''}. It has not been saved to M3 yet.
+              </span>
+              <button type="button" className="text-xs underline shrink-0"
+                onClick={() => { clearCached(user!.id, selected.entry_id); setRestored(false); openEntry(selected); }}>
+                Discard it and reload the saved version
+              </button>
+            </div>
+          )}
 
           {loadingEntry ? (
             <div className="flex items-center justify-center h-40"><RefreshCw className="h-7 w-7 animate-spin text-gray-400" /></div>
@@ -407,18 +583,29 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
                     <CardDescription>Score each criterion 0–{tpl.scale_max}. A comment is required for a low score on a critical criterion.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-5">
-                    {tpl.criteria.map(c => {
+                    {tpl.criteria.map((c, i) => {
                       const cur = draft[c.id]?.score ?? null;
                       const lowCritical = c.critical && cur != null && cur < 0.4 * tpl.scale_max;
                       return (
-                        <div key={c.id} className="space-y-1.5">
+                        <div key={c.id} id={`crit-${c.id}`}
+                          className={`space-y-1.5 scroll-mt-28 rounded-lg transition-shadow ${flashId === c.id ? 'ring-2 ring-amber-300 ring-offset-4' : ''}`}>
                           <div className="flex items-center justify-between gap-2">
                             <Label className="flex items-center gap-1.5">
-                              {c.label}
+                              {/* Numbered so the checklist above the buttons can name one. */}
+                              {i + 1}. {c.label}
                               {c.critical && <span title="Critical criterion" className="text-amber-500"><AlertTriangle className="h-3.5 w-3.5" /></span>}
                             </Label>
-                            <span className="text-[11px] text-gray-400">weight {c.weight}</span>
+                            <span className="text-[11px] text-gray-400">
+                              {/* Clicking a chosen score clears it; without this the card
+                                  goes quietly back to incomplete. */}
+                              {cur == null && <span className="text-amber-600 mr-2">not scored</span>}
+                              weight {c.weight}
+                            </span>
                           </div>
+                          {/* Already fetched and thrown away, while the token scorecard
+                              shows it — so two jurors were scoring the same criterion
+                              against different information. */}
+                          {c.description && <p className="text-xs text-gray-500 -mt-0.5">{c.description}</p>}
                           <div className="flex flex-wrap gap-1">
                             {Array.from({ length: tpl.scale_max + 1 }, (_, i) => i).map(n => (
                               <button
@@ -439,30 +626,70 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
                     })}
 
                     <div className="border-t pt-4 space-y-3">
-                      <div>
+                      <div id="jury-confidence"
+                        className={`scroll-mt-28 rounded-lg transition-shadow ${flashId === 'confidence' ? 'ring-2 ring-amber-300 ring-offset-4' : ''}`}>
                         <Label className="mb-1.5 block">Your confidence</Label>
                         {/* Not a toggle: a second click on the level you meant used to
                             clear it, silently re-blocking submit. */}
                         <div className="flex gap-1.5">
                           {CONFIDENCE.map(cf => (
-                            <button key={cf.v} type="button" disabled={locked} onClick={() => setConfidence(cf.v)}
+                            <button key={cf.v} type="button" disabled={locked} onClick={() => { setDirty(true); setConfidence(cf.v); }}
                               className={`px-3 h-8 rounded-lg border text-sm transition-colors ${confidence === cf.v ? 'border-primary bg-primary/5 text-primary font-medium' : 'border-gray-200 text-gray-600 hover:border-primary/40'}`}>{cf.label}</button>
                           ))}
                         </div>
                       </div>
                       <div className="flex items-start gap-2">
-                        <Checkbox id="coi" checked={coi} disabled={locked} onCheckedChange={v => setCoi(v as boolean)} />
+                        <Checkbox id="coi" checked={coi} disabled={locked} onCheckedChange={v => { setDirty(true); setCoi(v as boolean); }} />
                         <Label htmlFor="coi" className="font-normal text-sm">I have a potential conflict of interest with this entry (M3 will exclude my review from the official score).</Label>
                       </div>
                     </div>
 
                     {locked ? (
                       <div className="flex items-center gap-2 text-sm text-gray-500"><Lock className="h-4 w-4" /> This review is locked. Contact M3 to reopen it.</div>
+                    ) : justSubmitted != null ? (
+                      // Submitting used to leave the juror on the card with a toast that
+                      // faded, and no way onward but scrolling up and hunting the list.
+                      (() => {
+                        const next = entries.find(x => x.entry_id !== selected.entry_id && x.review_status !== 'submitted');
+                        return (
+                          <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 space-y-2">
+                            <div className="text-sm font-medium text-green-800 flex items-center gap-1.5">
+                              <CheckCircle className="h-4 w-4" /> Review submitted — {justSubmitted?.toFixed(1)}/100
+                            </div>
+                            <p className="text-xs text-green-700">You can still change it until M3 locks scoring.</p>
+                            <div className="flex gap-2 pt-1 flex-wrap">
+                              {next
+                                ? <Button size="sm" onClick={() => openEntry(next)}>Score the next entry — {next.title}</Button>
+                                : <span className="text-sm text-green-800">That is everything assigned to you. Thank you.</span>}
+                              <Button size="sm" variant="outline" onClick={() => setSelected(null)}>Back to my entries</Button>
+                            </div>
+                          </div>
+                        );
+                      })()
                     ) : (
-                      <div className="flex justify-end gap-2">
-                        <Button variant="outline" onClick={() => saveReview(false)} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Save draft</Button>
-                        <Button onClick={() => saveReview(true)} disabled={saving}>Submit review</Button>
-                      </div>
+                      <>
+                        {blockers.length > 0 && (
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                            <div className="text-sm font-medium text-amber-800">
+                              {blockers.length} thing{blockers.length > 1 ? 's' : ''} still to do before you can submit
+                            </div>
+                            <ul className="mt-1.5 space-y-1">
+                              {blockers.map(b => (
+                                <li key={b.id + b.label}>
+                                  <button type="button" onClick={() => goToBlocker(b.id)}
+                                    className="text-sm text-amber-800 underline underline-offset-2 hover:text-amber-900 text-left">
+                                    {b.label}
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <Button variant="outline" onClick={() => saveReview(false)} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}{reviewStatus === 'submitted' ? 'Save changes' : 'Save draft'}</Button>
+                          <Button onClick={() => saveReview(true)} disabled={saving}>{reviewStatus === 'submitted' ? 'Update my review' : 'Submit review'}</Button>
+                        </div>
+                      </>
                     )}
                   </CardContent>
                 </Card>

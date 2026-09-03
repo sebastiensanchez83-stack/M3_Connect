@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
 import {
   RefreshCw, ArrowLeft, Scale, CheckCircle, Loader2, AlertTriangle, Lock, ChevronRight, ChevronLeft, ExternalLink, Lightbulb, Download, Languages, X, Maximize2,
@@ -69,7 +69,17 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
   // The panel currently open in the lightbox; url is null while it is being signed.
   const [preview, setPreview] = useState<{ items: PreviewItem[]; index: number; url: string | null } | null>(null);
 
-  useEffect(() => { if (user) load(); }, [user]);
+  // Only the first load blanks the page. Supabase re-emits SIGNED_IN with a
+  // freshly parsed session every time the tab regains focus, so keying this on
+  // the user OBJECT re-ran load() on every return from another window — the
+  // scorecard vanished behind a spinner and the juror was thrown back to the top
+  // of the page, mid-review. Key on the id, and never blank a card that is open.
+  const firstLoadRef = useRef(true);
+  // Guards against a slow entry load landing its scores on whichever entry the
+  // juror has opened since.
+  const reqRef = useRef(0);
+
+  useEffect(() => { if (user) load(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Open on the side that actually has something waiting, so a juror who has
   // only been given architecture projects doesn't land on an empty Innovation tab.
@@ -79,9 +89,9 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
   }, [scope]);
 
   const load = async () => {
-    setLoading(true);
+    if (firstLoadRef.current) setLoading(true);
     const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
-    if (!ev) { setLoading(false); return; }
+    if (!ev) { setLoading(false); firstLoadRef.current = false; return; }
     const eid = (ev as { id: string }).id;
     setEventId(eid);
     const [{ data: ents }, { data: tpls }, { data: allInn }, { data: sc }] = await Promise.all([
@@ -96,6 +106,7 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     const t = ((tpls || []) as Template[]).map(x => ({ ...x, criteria: [...x.criteria].sort((a, b) => a.display_order - b.display_order) }));
     setTemplates(t);
     setLoading(false);
+    firstLoadRef.current = false;
   };
 
   // An assignment carries the granular competition (architecture_pro /
@@ -110,6 +121,10 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
   };
 
   const openEntry = async (e: Entry) => {
+    // Two entries opened in quick succession used to race: whichever query
+    // answered last wrote its scores into the form, and the next save posted
+    // them onto the other company. Only the newest request may touch state.
+    const my = ++reqRef.current;
     setSelected(e);
     setLoadingEntry(true);
     setPayload(null);
@@ -122,6 +137,7 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
       supabase.from('sm_review').select('*, scores:sm_criterion_score(criterion_id,score,comment)')
         .eq('entry_role_assignment_id', e.entry_id).eq('juror_user_id', user!.id).maybeSingle(),
     ]);
+    if (reqRef.current !== my) return;
     setPayload((detail || null) as Record<string, unknown> | null);
     const d: Draft = {};
     const rev = review as { scores?: { criterion_id: string; score: number | null; comment: string | null }[]; confidence?: number; coi_flag?: boolean; status?: string } | null;
@@ -171,6 +187,22 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
 
     setSaving(true);
     const total = computeTotal(tpl);
+    const allScored = tpl.criteria.every(c => draft[c.id]?.score != null);
+    const nextStatus = submit || reviewStatus === 'submitted' ? 'submitted' : 'draft';
+
+    // Clicking an already-selected score clears it. On a review that is already
+    // submitted, saving in that state would leave a submitted row with no total
+    // in the rankings. Refuse, and say which criterion to put back.
+    if (nextStatus === 'submitted' && !allScored) {
+      const missing = tpl.criteria.filter(c => draft[c.id]?.score == null).map(c => c.label);
+      setSaving(false);
+      toast({
+        title: 'Your review is submitted — every criterion needs a score',
+        description: `Score ${missing.join(', ')} again before saving.`,
+        variant: 'destructive',
+      });
+      return;
+    }
     const { data: rv, error: rvErr } = await supabase.from('sm_review').upsert({
       juror_user_id: user!.id,
       entry_role_assignment_id: selected.entry_id,
@@ -179,9 +211,19 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
       template_id: tpl.id,
       confidence,
       coi_flag: coi,
-      status: submit ? 'submitted' : 'draft',
-      total_score: total,
-      submitted_at: submit ? new Date().toISOString() : null,
+      // A juror who had submitted, reopened the card to fix a comment and pressed
+      // "Save draft" used to have their finished review silently demoted back to
+      // draft — dropping it out of the submitted count and out of the awards
+      // score, while the toast said "Draft saved". A draft save never downgrades
+      // a submitted review.
+      status: nextStatus,
+      // A partial card has no meaningful total: publishing one lets a half-scored
+      // draft sit in the rankings looking like a verdict. Only a complete card
+      // carries a number.
+      total_score: allScored ? total : null,
+      // Omitted rather than nulled on a draft save: the upsert only writes the
+      // keys present, so an existing submitted_at survives.
+      ...(submit ? { submitted_at: new Date().toISOString() } : {}),
       updated_at: new Date().toISOString(),
     }, { onConflict: 'juror_user_id,entry_role_assignment_id' }).select('id').single();
 
@@ -195,10 +237,14 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     setSaving(false);
     if (scErr) { toast({ title: 'Scores could not be saved', description: scErr.message, variant: 'destructive' }); return; }
 
-    setReviewStatus(submit ? 'submitted' : 'draft');
-    toast({ title: submit ? 'Review submitted' : 'Draft saved' });
+    setReviewStatus(nextStatus);
+    toast({
+      title: submit ? 'Review submitted'
+        : nextStatus === 'submitted' ? 'Saved — your review stays submitted'
+        : 'Draft saved',
+    });
     // refresh list state
-    setEntries(prev => prev.map(e => e.entry_id === selected.entry_id ? { ...e, review_status: submit ? 'submitted' : 'draft', review_total: total, confidence, coi_flag: coi } : e));
+    setEntries(prev => prev.map(e => e.entry_id === selected.entry_id ? { ...e, review_status: nextStatus, review_total: allScored ? total : null, confidence, coi_flag: coi } : e));
   };
 
   // Scoring eight A2 panels used to mean eight downloads, then eight windows to
@@ -244,7 +290,9 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview?.index, preview?.items.length]);
 
-  if (authLoading || loading) return (
+  // Never replace an open scorecard with a spinner: a background refresh must
+  // not cost the juror their place, their scroll position or their caret.
+  if ((authLoading || loading) && !selected) return (
     <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>
   );
 
@@ -393,9 +441,11 @@ export function SM26JuryPage({ embedded = false }: { embedded?: boolean } = {}) 
                     <div className="border-t pt-4 space-y-3">
                       <div>
                         <Label className="mb-1.5 block">Your confidence</Label>
+                        {/* Not a toggle: a second click on the level you meant used to
+                            clear it, silently re-blocking submit. */}
                         <div className="flex gap-1.5">
                           {CONFIDENCE.map(cf => (
-                            <button key={cf.v} type="button" disabled={locked} onClick={() => setConfidence(confidence === cf.v ? null : cf.v)}
+                            <button key={cf.v} type="button" disabled={locked} onClick={() => setConfidence(cf.v)}
                               className={`px-3 h-8 rounded-lg border text-sm transition-colors ${confidence === cf.v ? 'border-primary bg-primary/5 text-primary font-medium' : 'border-gray-200 text-gray-600 hover:border-primary/40'}`}>{cf.label}</button>
                           ))}
                         </div>

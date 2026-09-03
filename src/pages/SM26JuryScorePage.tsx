@@ -38,6 +38,9 @@ const ERRORS: Record<string, string> = {
 
 type Draft = Record<string, { score: number | null; comment: string }>;
 
+// Must stay identical to CONFIDENCE in SM26JuryPage: both write the same column.
+const CONFIDENCE = [{ v: 1, label: 'Low' }, { v: 2, label: 'Medium' }, { v: 3, label: 'High' }];
+
 export function SM26JuryScorePage() {
   const [params] = useSearchParams();
   const token = params.get('token') || '';
@@ -46,6 +49,7 @@ export function SM26JuryScorePage() {
   const [openEntry, setOpenEntry] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>({});
   const [confidence, setConfidence] = useState<number | null>(null);
+  const [coi, setCoi] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -75,10 +79,18 @@ export function SM26JuryScorePage() {
     }
     setDraft(d);
     setConfidence(e.review?.confidence ?? null);
+    setCoi(!!e.review?.coi_flag);
     setOpenEntry(e.entry_role_assignment_id);
   };
 
   const save = async (e: Entry, submit: boolean) => {
+    // The logged-in scorecard requires this before submitting and the rankings
+    // average the column, so a submission without it skews the average of
+    // everyone who did answer.
+    if (submit && !confidence) {
+      toast({ title: 'Set your confidence level before submitting', variant: 'destructive' });
+      return;
+    }
     setSaving(e.entry_role_assignment_id);
     const scores: Record<string, { score: number | null; comment: string }> = {};
     for (const [cid, v] of Object.entries(draft)) scores[cid] = { score: v.score, comment: v.comment };
@@ -87,7 +99,7 @@ export function SM26JuryScorePage() {
       p_entry_role_assignment_id: e.entry_role_assignment_id,
       p_scores: scores,
       p_confidence: confidence,
-      p_coi: false,
+      p_coi: coi,
       p_submit: submit,
     });
     setSaving(null);
@@ -201,16 +213,31 @@ export function SM26JuryScorePage() {
                           </div>
                         ))}
 
+                        {/* Low/Medium/High = 1/2/3, the same scale as the signed-in
+                            scorecard. This row used to offer 1 to 5 and wrote into the
+                            same sm_review.confidence column the rankings average, so a
+                            "4" here and a "High" there were indistinguishable numbers
+                            meaning different things. */}
                         <div>
                           <label className="text-sm font-medium text-gray-900">How confident are you in this assessment?</label>
                           <div className="flex gap-1.5 mt-2">
-                            {[1, 2, 3, 4, 5].map(n => (
-                              <button key={n}
-                                className={`h-9 w-9 rounded-md border text-sm font-medium ${confidence === n ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'}`}
-                                onClick={() => setConfidence(n)}>{n}</button>
+                            {CONFIDENCE.map(cf => (
+                              <button key={cf.v} type="button"
+                                className={`px-3 h-9 rounded-md border text-sm font-medium ${confidence === cf.v ? 'bg-primary text-white border-primary' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'}`}
+                                onClick={() => setConfidence(cf.v)}>{cf.label}</button>
                             ))}
                           </div>
                         </div>
+
+                        {/* Off-platform jurors are the likeliest to know a company
+                            personally, and were the only ones with no way to say so. */}
+                        <label className="flex items-start gap-2 cursor-pointer">
+                          <input type="checkbox" className="mt-0.5 h-4 w-4 rounded border-gray-300 accent-[#0b2653]"
+                            checked={coi} onChange={ev => setCoi(ev.target.checked)} />
+                          <span className="text-sm text-gray-700">
+                            I have a potential conflict of interest with this company (M3 will exclude my score from the official result).
+                          </span>
+                        </label>
 
                         <div className="flex gap-2 pt-1">
                           <Button variant="outline" className="flex-1" disabled={saving === e.entry_role_assignment_id}

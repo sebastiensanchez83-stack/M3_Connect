@@ -362,11 +362,13 @@ export function SM26ArchitectureReviewPage() {
                           <div className="border-t border-gray-100 pt-4 space-y-3">
                             <div>
                               <label className="text-sm font-medium text-gray-900">Your confidence in this assessment</label>
+                              {/* Not a toggle: a second click on the level you meant used to
+                                  clear it and silently re-block submit. */}
                               <div className="flex gap-1.5 mt-2">
                                 {CONFIDENCE.map(cf => (
                                   <button key={cf.v} type="button"
                                     className={`px-3 h-8 rounded-lg border text-sm transition-colors ${confidence === cf.v ? 'border-primary bg-primary/5 text-primary font-medium' : 'border-gray-200 text-gray-600 hover:border-primary/40'}`}
-                                    onClick={() => { setDirty(true); setConfidence(confidence === cf.v ? null : cf.v); }}>
+                                    onClick={() => { setDirty(true); setConfidence(cf.v); }}>
                                     {cf.label}
                                   </button>
                                 ))}

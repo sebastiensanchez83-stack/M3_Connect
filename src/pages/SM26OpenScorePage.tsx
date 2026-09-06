@@ -16,11 +16,10 @@ import { toast } from '@/hooks/use-toast';
 // the link can score as any juror in the list — it only keeps the page off the
 // open web. M3 sees every review in the admin console and can remove one.
 
-interface Juror { user_id: string; name: string }
 interface Entry { entry_id: string; company: string; stage: string; template_key: string }
 interface Criterion { id: string; label: string; description: string | null; weight: number; critical: boolean }
 interface Template { key: string; name: string; scale_max: number; criteria: Criterion[] }
-interface Context { ok: boolean; error?: string; jurors?: Juror[]; entries?: Entry[]; templates?: Template[] }
+interface Context { ok: boolean; error?: string; entries?: Entry[]; templates?: Template[] }
 
 type Draft = Record<string, { score: number | null; comment: string }>;
 
@@ -31,12 +30,16 @@ export function SM26OpenScorePage() {
   const code = params.get('code') || '';
   const [ctx, setCtx] = useState<Context | null>(null);
   const [loading, setLoading] = useState(true);
-  const [jurorId, setJurorId] = useState('');
+  const [name, setName] = useState('');
   const [entryId, setEntryId] = useState('');
   const [draft, setDraft] = useState<Draft>({});
   const [confidence, setConfidence] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
-  const [done, setDone] = useState<{ company: string; total: number } | null>(null);
+  const [done, setDone] = useState<{ company: string; total: number; matched: boolean } | null>(null);
+  // Whether the typed name resolves to a juror we know. Checked as they type so
+  // a typo is caught before they spend ten minutes on the card, not after.
+  const [known, setKnown] = useState<{ recognised: boolean; display_name: string | null } | null>(null);
+  const [checking, setChecking] = useState(false);
 
   const load = useCallback(async () => {
     if (!code) { setCtx({ ok: false, error: 'missing_code' }); setLoading(false); return; }
@@ -46,15 +49,28 @@ export function SM26OpenScorePage() {
   }, [code]);
   useEffect(() => { load(); }, [load]);
 
-  // The juror's name is remembered on their own device so scoring a second
-  // company does not mean finding themselves in the list again.
+  // Remembered on their own device, so scoring a second company does not mean
+  // typing your name again.
   useEffect(() => {
-    try { const s = localStorage.getItem('sm26-open-score-juror'); if (s) setJurorId(s); } catch { /* ignore */ }
+    try { const s = localStorage.getItem('sm26-open-score-name'); if (s) setName(s); } catch { /* ignore */ }
   }, []);
   useEffect(() => {
-    if (!jurorId) return;
-    try { localStorage.setItem('sm26-open-score-juror', jurorId); } catch { /* ignore */ }
-  }, [jurorId]);
+    if (!name.trim()) return;
+    try { localStorage.setItem('sm26-open-score-name', name); } catch { /* ignore */ }
+  }, [name]);
+
+  useEffect(() => {
+    const n = name.trim();
+    if (n.length < 3) { setKnown(null); return; }
+    setChecking(true);
+    const t = setTimeout(async () => {
+      const { data } = await supabase.rpc('sm_open_score_check_name', { p_code: code, p_name: n });
+      const r = (data || {}) as { recognised?: boolean; display_name?: string | null };
+      setKnown({ recognised: !!r.recognised, display_name: r.display_name ?? null });
+      setChecking(false);
+    }, 450);
+    return () => { clearTimeout(t); setChecking(false); };
+  }, [name, code]);
 
   const entry = (ctx?.entries || []).find(e => e.entry_id === entryId) || null;
   const tpl = entry ? (ctx?.templates || []).find(t => t.key === entry.template_key) || null : null;
@@ -83,7 +99,7 @@ export function SM26OpenScorePage() {
   // Named, standing, and clickable — not a toast that fades while you scroll.
   const blockers: { id: string; label: string }[] = (() => {
     const out: { id: string; label: string }[] = [];
-    if (!jurorId) out.push({ id: 'juror', label: 'Choose your name' });
+    if (name.trim().length < 3) out.push({ id: 'juror', label: 'Enter your name' });
     if (!entryId) out.push({ id: 'entry', label: 'Choose the innovation' });
     if (!tpl) return out;
     tpl.criteria.forEach((c, i) => {
@@ -109,16 +125,16 @@ export function SM26OpenScorePage() {
     const scores: Record<string, { score: number | null; comment: string }> = {};
     for (const [cid, v] of Object.entries(draft)) scores[cid] = { score: v.score, comment: v.comment };
     const { data, error } = await supabase.rpc('sm_open_score_submit', {
-      p_code: code, p_juror_user_id: jurorId, p_entry_id: entryId,
+      p_code: code, p_juror_name: name.trim(), p_entry_id: entryId,
       p_scores: scores, p_confidence: confidence,
     });
     setSaving(false);
-    const r = (data || {}) as { ok?: boolean; error?: string; total_score?: number };
+    const r = (data || {}) as { ok?: boolean; error?: string; total_score?: number; matched?: boolean };
     if (error || !r.ok) {
       toast({ title: 'Could not save your score', description: error?.message || r.error, variant: 'destructive' });
       return;
     }
-    setDone({ company: entry?.company || '', total: r.total_score ?? 0 });
+    setDone({ company: entry?.company || '', total: r.total_score ?? 0, matched: !!r.matched });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -155,19 +171,33 @@ export function SM26OpenScorePage() {
             <div className="flex items-center gap-2 text-green-800 font-semibold">
               <CheckCircle2 className="h-5 w-5" /> Thank you — {done.company} scored {done.total.toFixed(1)}/100
             </div>
-            <p className="text-sm text-green-700 mt-1">Your score has been recorded. You can score another company below.</p>
+            <p className="text-sm text-green-700 mt-1">
+              {done.matched
+                ? 'Your score has been recorded with the jury\'s. You can score another company below.'
+                : 'Your score has been recorded, but we could not match your name to a jury member, so M3 will attribute it by hand. You can score another company below.'}
+            </p>
             <Button className="mt-3" size="sm" onClick={() => { setDone(null); pickEntry(''); }}>Score another innovation</Button>
           </div>
         )}
 
         <div className="bg-white rounded-xl border shadow-sm p-5 space-y-4">
-          <div id="juror">
+          <div id="juror" className="scroll-mt-6">
             <label className="text-sm font-medium text-gray-900 mb-1.5 block">Your name</label>
-            <select className={select} value={jurorId} onChange={e => setJurorId(e.target.value)}>
-              <option value="">Choose your name…</option>
-              {(ctx.jurors || []).map(j => <option key={j.user_id} value={j.user_id}>{j.name}</option>)}
-            </select>
-            <p className="text-[11px] text-gray-400 mt-1">Not in the list? Reply to our email and we will add you.</p>
+            <input className={select} value={name} autoComplete="name" placeholder="First name and surname"
+              onChange={e => setName(e.target.value)} />
+            {/* Said before they spend ten minutes on the card, not after. */}
+            {checking && <p className="text-[11px] text-gray-400 mt-1">Checking…</p>}
+            {!checking && known?.recognised && (
+              <p className="text-[11px] text-green-700 mt-1 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Recognised as {known.display_name}. Your score will count with the jury's.
+              </p>
+            )}
+            {!checking && known && !known.recognised && (
+              <p className="text-[11px] text-amber-700 mt-1">
+                We do not recognise this name. You can still submit — your score will be held for M3 to attribute.
+                If you are on the jury, check the spelling.
+              </p>
+            )}
           </div>
           <div id="entry">
             <label className="text-sm font-medium text-gray-900 mb-1.5 block">The innovation you are scoring</label>

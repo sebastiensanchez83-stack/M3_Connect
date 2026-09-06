@@ -59,6 +59,7 @@ const SM26JuryPage = lazyWithRetry(() => import('@/pages/SM26JuryPage').then(m =
 const SM26JuryRsvpPage = lazyWithRetry(() => import('@/pages/SM26JuryRsvpPage').then(m => ({ default: m.SM26JuryRsvpPage })));
 const SM26StartupRsvpPage = lazyWithRetry(() => import('@/pages/SM26StartupRsvpPage').then(m => ({ default: m.SM26StartupRsvpPage })));
 const SM26JuryScorePage = lazyWithRetry(() => import('@/pages/SM26JuryScorePage').then(m => ({ default: m.SM26JuryScorePage })));
+const SM26OpenScorePage = lazyWithRetry(() => import('@/pages/SM26OpenScorePage').then(m => ({ default: m.SM26OpenScorePage })));
 const SM26ArchitectureReviewPage = lazyWithRetry(() => import('@/pages/SM26ArchitectureReviewPage').then(m => ({ default: m.SM26ArchitectureReviewPage })));
 const SM26AgendaPage = lazyWithRetry(() => import('@/pages/SM26AgendaPage').then(m => ({ default: m.SM26AgendaPage })));
 const SM26VotePage = lazyWithRetry(() => import('@/pages/SM26VotePage').then(m => ({ default: m.SM26VotePage })));
@@ -119,6 +120,8 @@ function App() {
                       token as the availability link, so it can only ever reach
                       that juror's own scorecards for that one session. */}
                   <Route path="/sm26/jury/score" element={<SM26JuryScorePage />} />
+                  {/* No account, no token: the juror names themselves from a list. */}
+                  <Route path="/sm26/score" element={<SM26OpenScorePage />} />
                   {/* Architecture jury for the external architects, who will
                       most probably never join the platform: a per-reviewer
                       token instead of an account, and a printable scoresheet

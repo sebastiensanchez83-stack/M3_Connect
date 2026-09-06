@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { Loader2, XCircle, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Loader2, XCircle, CheckCircle2, AlertTriangle, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
@@ -20,6 +20,11 @@ interface Entry { entry_id: string; company: string; stage: string; template_key
 interface Criterion { id: string; label: string; description: string | null; weight: number; critical: boolean }
 interface Template { key: string; name: string; scale_max: number; criteria: Criterion[] }
 interface Context { ok: boolean; error?: string; entries?: Entry[]; templates?: Template[] }
+interface EntryDetail {
+  ok: boolean; company?: string; country?: string | null; website?: string | null;
+  stage?: string | null; startup_or_scaleup?: string | null; categories?: string[] | null;
+  fields?: Record<string, string>;
+}
 
 type Draft = Record<string, { score: number | null; comment: string }>;
 
@@ -44,6 +49,10 @@ export function SM26OpenScorePage() {
   // loses track otherwise, and the page used to forget them the moment it said
   // thank you.
   const [scored, setScored] = useState<string[]>([]);
+  // The company's own file, alongside the marks. A juror scoring three weeks
+  // after the pitch does not remember which one was which.
+  const [detail, setDetail] = useState<EntryDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const load = useCallback(async () => {
     if (!code) { setCtx({ ok: false, error: 'missing_code' }); setLoading(false); return; }
@@ -85,6 +94,19 @@ export function SM26OpenScorePage() {
 
   // Changing company can change the scorecard, so the marks start clean.
   const pickEntry = (id: string) => { setEntryId(id); setDraft({}); setConfidence(null); setDone(null); };
+
+  useEffect(() => {
+    if (!entryId) { setDetail(null); return; }
+    let cancelled = false;
+    setDetailLoading(true);
+    (async () => {
+      const { data } = await supabase.rpc('sm_open_score_entry', { p_code: code, p_entry_id: entryId });
+      if (cancelled) return;
+      setDetail((data || null) as EntryDetail | null);
+      setDetailLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [entryId, code]);
 
   const setScore = (cid: string, score: number) =>
     setDraft(p => ({ ...p, [cid]: { score, comment: p[cid]?.comment || '' } }));
@@ -174,7 +196,7 @@ export function SM26OpenScorePage() {
         </div>
       </section>
 
-      <div className="container mx-auto px-4 py-6 max-w-2xl space-y-4">
+      <div className="container mx-auto px-4 py-6 max-w-6xl space-y-4">
         {done && (
           <div className="rounded-xl border border-green-200 bg-green-50 p-5">
             <div className="flex items-center gap-2 text-green-800 font-semibold">
@@ -240,6 +262,52 @@ export function SM26OpenScorePage() {
         {entry && !tpl && (
           <div className="bg-white rounded-xl border shadow-sm p-6 text-center text-gray-400 text-sm">
             No scorecard is configured for this company yet.
+          </div>
+        )}
+
+        {/* The company's file beside the marks, not above them: on a laptop the
+            juror reads and scores without scrolling between the two, and the
+            file follows as they work down the criteria. */}
+        <div className="grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-4 items-start">
+        {entry && (
+          <div className="bg-white rounded-xl border shadow-sm p-5 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+            {detailLoading ? (
+              <div className="py-8 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-gray-300" /></div>
+            ) : detail?.ok ? (
+              <div className="space-y-3">
+                <div>
+                  <div className="font-semibold text-gray-900">{detail.company}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {[detail.stage, detail.startup_or_scaleup, detail.country].filter(Boolean).join(' · ')}
+                  </div>
+                  {detail.website && (
+                    <a href={/^https?:\/\//i.test(detail.website) ? detail.website : `https://${detail.website}`}
+                      target="_blank" rel="noreferrer"
+                      className="text-xs text-primary inline-flex items-center gap-1 mt-1">
+                      {detail.website.replace(/^https?:\/\//, '')} <ExternalLink className="h-3 w-3" />
+                    </a>
+                  )}
+                </div>
+                {Array.isArray(detail.categories) && detail.categories.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {detail.categories.map(c => (
+                      <span key={c} className="text-[10px] rounded-full bg-gray-100 text-gray-600 px-2 py-0.5">{c}</span>
+                    ))}
+                  </div>
+                )}
+                {Object.entries(detail.fields || {}).map(([k, v]) => (
+                  <div key={k}>
+                    <div className="text-[11px] uppercase tracking-wide text-gray-400">{k}</div>
+                    <div className="text-sm text-gray-800 whitespace-pre-wrap">{v}</div>
+                  </div>
+                ))}
+                {Object.keys(detail.fields || {}).length === 0 && (
+                  <p className="text-sm text-gray-400">This company did not fill in a written file.</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">We could not load this company's file.</p>
+            )}
           </div>
         )}
 
@@ -328,6 +396,7 @@ export function SM26OpenScorePage() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

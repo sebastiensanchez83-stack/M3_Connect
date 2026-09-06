@@ -86,9 +86,16 @@ export function dossierBlocks(p: DossierPayload): ReportBlock[] {
 
   // Grouped by need, because the venue orders sockets and runs cables per need
   // and reads one column down to count them.
-  if (p.technical.length) {
+  //
+  // Wired internet and water are dropped: the venue provides neither, so listing
+  // them here would ask for something nobody can deliver. The requests are not
+  // lost — they stay visible in the admin logistics list so M3 can tell the
+  // exhibitors who ticked them before the question was withdrawn.
+  const WITHDRAWN = new Set(['internet', 'water']);
+  const technical = p.technical.filter(t => !WITHDRAWN.has(t.need));
+  if (technical.length) {
     const byNeed = new Map<string, DossierPayload['technical']>();
-    p.technical.forEach(t => byNeed.set(t.need, [...(byNeed.get(t.need) || []), t]));
+    technical.forEach(t => byNeed.set(t.need, [...(byNeed.get(t.need) || []), t]));
     blocks.push({
       kind: 'table', heading: 'À prévoir dans la salle',
       note: 'Une ligne par exposant l’ayant demandé, regroupé par besoin.',

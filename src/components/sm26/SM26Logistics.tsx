@@ -239,14 +239,15 @@ export function SM26Logistics({ registrationId, eventId }: { registrationId: str
                 <Input placeholder="What will you plug in? (laptop, screen, lights…)"
                   defaultValue={log.power_details || ''} onBlur={e => set({ power_details: e.target.value })} />
               )}
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <Checkbox checked={log.internet_needed} onCheckedChange={c => set({ internet_needed: !!c })} className="mt-0.5" />
-                <span className="text-sm text-gray-700">I need a wired internet connection</span>
-              </label>
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <Checkbox checked={log.water_needed} onCheckedChange={c => set({ water_needed: !!c })} className="mt-0.5" />
-                <span className="text-sm text-gray-700">I need a water supply</span>
-              </label>
+              {/* Wired internet and a water supply were offered here and neither
+                  exists at the venue: wifi only, no water on the stands. Asking
+                  the question was setting people up to plan around something
+                  they would never get. Said plainly instead of silently dropped,
+                  so nobody wonders where the option went. */}
+              <p className="text-xs text-gray-500 pt-1">
+                Wifi is provided throughout the venue, so there is no wired connection to request.
+                There is no water supply to the stands.
+              </p>
             </div>
 
             {/* ── Access ── */}

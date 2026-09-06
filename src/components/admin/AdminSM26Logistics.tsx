@@ -308,8 +308,12 @@ export function AdminSM26Logistics() {
                   ) : (
                     <div className="hidden sm:flex items-center gap-1 shrink-0">
                       <Need on={r.power_needed} icon={Zap} label="Electrical outlets" />
-                      <Need on={r.internet_needed} icon={Wifi} label="Wired internet" />
-                      <Need on={r.water_needed} icon={Droplet} label="Water supply" />
+                      {/* No longer askable — the venue has wifi only and no water
+                          to the stands. Still shown where somebody ticked it
+                          before we removed the question, because those people
+                          are expecting something and need to be told. */}
+                      {r.internet_needed && <Need on icon={Wifi} label="Asked for wired internet — not available, tell them" />}
+                      {r.water_needed && <Need on icon={Droplet} label="Asked for water — not available, tell them" />}
                       <Need on={r.vehicle_access} icon={Car} label="Vehicle access" />
                     </div>
                   )}
@@ -333,8 +337,8 @@ export function AdminSM26Logistics() {
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Coming on site</dt><dd className="text-gray-800">{r.coming_on_site ? 'Yes' : 'No'}</dd></div>
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">People</dt><dd className="text-gray-800">{r.num_attendees}</dd></div>
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Electrical outlets</dt><dd className="text-gray-800">{r.power_needed ? (r.power_details || 'Yes') : 'No'}</dd></div>
-                          <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Wired internet</dt><dd className="text-gray-800">{r.internet_needed ? 'Yes' : 'No'}</dd></div>
-                          <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Water supply</dt><dd className="text-gray-800">{r.water_needed ? 'Yes' : 'No'}</dd></div>
+                          {r.internet_needed && <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Wired internet</dt><dd className="text-amber-700">Asked before we withdrew the option — wifi only</dd></div>}
+                          {r.water_needed && <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Water supply</dt><dd className="text-amber-700">Asked before we withdrew the option — none on site</dd></div>}
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Vehicle access</dt><dd className="text-gray-800">{r.vehicle_access ? (r.vehicle_details || 'Yes') : 'No'}</dd></div>
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Brunch covers</dt><dd className="text-gray-800">{r.brunch_covers || '—'}</dd></div>
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Last saved</dt><dd className="text-gray-800">{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</dd></div>

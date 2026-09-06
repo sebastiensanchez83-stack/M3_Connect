@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Truck, Loader2, Download, Check, X, RotateCcw, ImageOff, AlertTriangle, ArrowLeft,
-  RefreshCw, Search, Zap, Wifi, Droplet, Car, UtensilsCrossed, Users, ChevronDown, ChevronRight, FileText,
+  RefreshCw, Search, Zap, Car, UtensilsCrossed, Users, ChevronDown, ChevronRight, FileText,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { Card, CardContent } from '@/components/ui/card';
@@ -169,14 +169,14 @@ export function AdminSM26Logistics() {
 
   const exportCsv = () => {
     const header = ['Company', 'Contact', 'Email', 'Country', 'Roles', 'Answered', 'Coming on site',
-      'People', 'Power', 'Power details', 'Internet', 'Water', 'Vehicle', 'Vehicle details',
+      'People', 'Power', 'Power details', 'Vehicle', 'Vehicle details',
       'Brunch covers', 'Items', 'Awaiting decision', 'Notes', 'Last saved'];
     const yn = (v: boolean | null) => (v === null ? '' : v ? 'yes' : 'no');
     const body = rows.map(r => [
       r.company, r.contact || '', r.email || '', r.country || '',
       r.roles.map(x => SM26_ROLE_LABELS[x] || x).join(' / '),
       r.filled ? 'yes' : 'no', yn(r.coming_on_site), String(r.num_attendees),
-      yn(r.power_needed), r.power_details || '', yn(r.internet_needed), yn(r.water_needed),
+      yn(r.power_needed), r.power_details || '',
       yn(r.vehicle_access), r.vehicle_details || '', String(r.brunch_covers),
       String(r.items.length), String(r.items.filter(i => i.needs_approval && i.approval_status === 'pending').length),
       r.notes || '', r.submitted_at ? new Date(r.submitted_at).toISOString().slice(0, 10) : '',
@@ -308,12 +308,6 @@ export function AdminSM26Logistics() {
                   ) : (
                     <div className="hidden sm:flex items-center gap-1 shrink-0">
                       <Need on={r.power_needed} icon={Zap} label="Electrical outlets" />
-                      {/* No longer askable — the venue has wifi only and no water
-                          to the stands. Still shown where somebody ticked it
-                          before we removed the question, because those people
-                          are expecting something and need to be told. */}
-                      {r.internet_needed && <Need on icon={Wifi} label="Asked for wired internet — not available, tell them" />}
-                      {r.water_needed && <Need on icon={Droplet} label="Asked for water — not available, tell them" />}
                       <Need on={r.vehicle_access} icon={Car} label="Vehicle access" />
                     </div>
                   )}
@@ -337,8 +331,6 @@ export function AdminSM26Logistics() {
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Coming on site</dt><dd className="text-gray-800">{r.coming_on_site ? 'Yes' : 'No'}</dd></div>
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">People</dt><dd className="text-gray-800">{r.num_attendees}</dd></div>
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Electrical outlets</dt><dd className="text-gray-800">{r.power_needed ? (r.power_details || 'Yes') : 'No'}</dd></div>
-                          {r.internet_needed && <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Wired internet</dt><dd className="text-amber-700">Asked before we withdrew the option — wifi only</dd></div>}
-                          {r.water_needed && <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Water supply</dt><dd className="text-amber-700">Asked before we withdrew the option — none on site</dd></div>}
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Vehicle access</dt><dd className="text-gray-800">{r.vehicle_access ? (r.vehicle_details || 'Yes') : 'No'}</dd></div>
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Brunch covers</dt><dd className="text-gray-800">{r.brunch_covers || '—'}</dd></div>
                           <div className="flex gap-2"><dt className="text-gray-400 w-32 shrink-0">Last saved</dt><dd className="text-gray-800">{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</dd></div>

@@ -87,10 +87,9 @@ export function dossierBlocks(p: DossierPayload): ReportBlock[] {
   // Grouped by need, because the venue orders sockets and runs cables per need
   // and reads one column down to count them.
   //
-  // Wired internet and water are dropped: the venue provides neither, so listing
-  // them here would ask for something nobody can deliver. The requests are not
-  // lost — they stay visible in the admin logistics list so M3 can tell the
-  // exhibitors who ticked them before the question was withdrawn.
+  // The venue has wifi only and no water to the stands, so neither is offered
+  // any more. Guarded here as well as in the form, because this dossier is the
+  // sheet the Yacht Club works from.
   const WITHDRAWN = new Set(['internet', 'water']);
   const technical = p.technical.filter(t => !WITHDRAWN.has(t.need));
   if (technical.length) {

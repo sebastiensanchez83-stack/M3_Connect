@@ -40,6 +40,10 @@ export function SM26OpenScorePage() {
   // a typo is caught before they spend ten minutes on the card, not after.
   const [known, setKnown] = useState<{ recognised: boolean; display_name: string | null } | null>(null);
   const [checking, setChecking] = useState(false);
+  // What this name has already scored. A juror working through a dozen companies
+  // loses track otherwise, and the page used to forget them the moment it said
+  // thank you.
+  const [scored, setScored] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     if (!code) { setCtx({ ok: false, error: 'missing_code' }); setLoading(false); return; }
@@ -64,9 +68,13 @@ export function SM26OpenScorePage() {
     if (n.length < 3) { setKnown(null); return; }
     setChecking(true);
     const t = setTimeout(async () => {
-      const { data } = await supabase.rpc('sm_open_score_check_name', { p_code: code, p_name: n });
+      const [{ data }, { data: mine }] = await Promise.all([
+        supabase.rpc('sm_open_score_check_name', { p_code: code, p_name: n }),
+        supabase.rpc('sm_open_score_mine', { p_code: code, p_name: n }),
+      ]);
       const r = (data || {}) as { recognised?: boolean; display_name?: string | null };
       setKnown({ recognised: !!r.recognised, display_name: r.display_name ?? null });
+      setScored(((mine || {}) as { scored?: string[] }).scored || []);
       setChecking(false);
     }, 450);
     return () => { clearTimeout(t); setChecking(false); };
@@ -135,6 +143,7 @@ export function SM26OpenScorePage() {
       return;
     }
     setDone({ company: entry?.company || '', total: r.total_score ?? 0, matched: !!r.matched });
+    setScored(prev => (prev.includes(entryId) ? prev : [...prev, entryId]));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -176,7 +185,13 @@ export function SM26OpenScorePage() {
                 ? 'Your score has been recorded with the jury\'s. You can score another company below.'
                 : 'Your score has been recorded, but we could not match your name to a jury member, so M3 will attribute it by hand. You can score another company below.'}
             </p>
-            <Button className="mt-3" size="sm" onClick={() => { setDone(null); pickEntry(''); }}>Score another innovation</Button>
+            <p className="text-xs text-green-700 mt-2">
+              {scored.length} scored so far. Your name stays filled in — just pick the next company.
+            </p>
+            <Button className="mt-3" size="sm" onClick={() => {
+              setDone(null); pickEntry('');
+              document.getElementById('entry')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}>Score another innovation</Button>
           </div>
         )}
 
@@ -199,14 +214,26 @@ export function SM26OpenScorePage() {
               </p>
             )}
           </div>
-          <div id="entry">
-            <label className="text-sm font-medium text-gray-900 mb-1.5 block">The innovation you are scoring</label>
+          <div id="entry" className="scroll-mt-6">
+            <div className="flex items-baseline justify-between gap-2 mb-1.5">
+              <label className="text-sm font-medium text-gray-900">The innovation you are scoring</label>
+              {scored.length > 0 && (
+                <span className="text-xs text-gray-500">{scored.length} already scored by you</span>
+              )}
+            </div>
             <select className={select} value={entryId} onChange={e => pickEntry(e.target.value)}>
               <option value="">Choose a company…</option>
               {(ctx.entries || []).map(e => (
-                <option key={e.entry_id} value={e.entry_id}>{e.company}{e.stage ? ` — ${e.stage}` : ''}</option>
+                <option key={e.entry_id} value={e.entry_id}>
+                  {scored.includes(e.entry_id) ? '✓ ' : ''}{e.company}{e.stage ? ` — ${e.stage}` : ''}
+                </option>
               ))}
             </select>
+            {entryId && scored.includes(entryId) && (
+              <p className="text-[11px] text-amber-700 mt-1">
+                You have already scored this one. Submitting again replaces your previous score.
+              </p>
+            )}
           </div>
         </div>
 

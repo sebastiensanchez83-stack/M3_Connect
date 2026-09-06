@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { Pill } from '@/components/sm26/SM26ConsoleUI';
 import { cellState, fmtDay, slotRange, type Cell } from '@/components/sm26/SM26YVTimetable';
+import { AdminSM26OpenScores } from '@/components/admin/AdminSM26OpenScores';
 
 // Admin jury management: assign jurors to entries, see the panels/batches/
 // timetable Yachting Ventures built, and read the official rankings.
@@ -305,6 +306,16 @@ export function AdminSM26Jury({ embedded = false }: { embedded?: boolean } = {})
           )}
         </CardContent>
       </Card>
+
+      {/* Scores left through the no-account link under an unrecognised name.
+          Next to the jurors, because attributing one is a juror decision. */}
+      {eventId && competition === 'innovation' && (
+        <Card className="border-0 shadow-sm">
+          <CardContent className="p-4">
+            <AdminSM26OpenScores eventId={eventId} jurors={jurors} onChanged={load} />
+          </CardContent>
+        </Card>
+      )}
 
       {tab === 'panels' ? (
         <div className="space-y-4">

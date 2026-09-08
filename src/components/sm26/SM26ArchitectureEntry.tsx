@@ -94,9 +94,16 @@ export function SM26ArchitectureEntry({ roleAssignmentId }: { roleAssignmentId: 
     setSavingText(true);
     const patch: Record<string, unknown> = {};
     for (const f of CATALOGUE_FIELDS) patch[f.key] = vals[f.key]?.trim() || null;
-    const { error } = await supabase.from('sm_architecture_entry').update(patch).eq('role_assignment_id', roleAssignmentId);
+    // An update matching no row returns success with nothing written. Entries
+    // are never seeded blind here — a blank one would reach the jury as a
+    // phantom submission — so the save reports the truth instead.
+    const { data: saved, error } = await supabase.from('sm_architecture_entry').update(patch).eq('role_assignment_id', roleAssignmentId).select('id');
     setSavingText(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
+    if (!saved?.length) {
+      toast({ title: 'Nothing was saved', description: 'Your entry is missing on the server. Copy your text somewhere safe and tell M3 — do not retype it here.', variant: 'destructive' });
+      return;
+    }
     toast({ title: 'Saved' });
   };
 

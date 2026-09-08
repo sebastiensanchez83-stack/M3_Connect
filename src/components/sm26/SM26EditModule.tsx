@@ -37,6 +37,26 @@ const SKIP_KEYS = new Set(['ecat_consent', 'social_consent', 'onsite_attendance'
 const isEditableText = (k: string, v: unknown) =>
   typeof v === 'string' && !k.startsWith('_') && !k.endsWith('_consent') && !ASSET_KEYS.has(k) && !BASE_KEYS.has(k) && !SKIP_KEYS.has(k);
 
+// Every editor below saves with `update … where role_assignment_id = $1`. With
+// no row to match, PostgREST updates nothing and returns no error — so the
+// participant was told "saved" while their text went nowhere. Two startups whose
+// role M3 granted by hand (no row is created on that path) retyped their pitch
+// several times into that void before anyone noticed.
+//
+// Two guards, because either alone leaves a hole: make the row exist before
+// editing, and refuse to claim success unless a row actually came back.
+const ensureRow = async (roleAssignmentId: string) => {
+  // Best-effort: an older client or a role with no companion table just carries
+  // on to the update, which now reports honestly if there is nothing to update.
+  try { await supabase.rpc('sm_ensure_module_row', { p_role_assignment_id: roleAssignmentId }); } catch { /* noop */ }
+};
+
+const NOTHING_SAVED = {
+  title: 'Nothing was saved',
+  description: 'Your entry is missing on the server. Copy your text somewhere safe and tell M3 — do not retype it here.',
+  variant: 'destructive' as const,
+};
+
 // Marina prose fields (category / assets / flags excluded). Architecture has its
 // own full competition-entry component (SM26ArchitectureEntry) instead.
 const MARINA_FIELDS: { key: string; label: string }[] = [
@@ -91,6 +111,7 @@ function TableTextEditor({ roleAssignmentId, table, fields, imageFields, title, 
 
   const load = async () => {
     setLoading(true);
+    await ensureRow(roleAssignmentId);
     const cols = [...fields.map(f => f.key), ...imgKeys];
     const { data } = await supabase.from(table).select(cols.join(',')).eq('role_assignment_id', roleAssignmentId).maybeSingle();
     const d = (data || {}) as Record<string, unknown>;
@@ -112,9 +133,10 @@ function TableTextEditor({ roleAssignmentId, table, fields, imageFields, title, 
     setSaving(true);
     const patch: Record<string, unknown> = {};
     for (const f of fields) patch[f.key] = vals[f.key]?.trim() || null;
-    const { error } = await supabase.from(table).update(patch).eq('role_assignment_id', roleAssignmentId);
+    const { data: saved, error } = await supabase.from(table).update(patch).eq('role_assignment_id', roleAssignmentId).select('id');
     setSaving(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
+    if (!saved?.length) { toast(NOTHING_SAVED); return; }
     toast({ title: 'Details saved' });
   };
 
@@ -136,8 +158,11 @@ function TableTextEditor({ roleAssignmentId, table, fields, imageFields, title, 
     const path = `${user.id}/sm26/marina/${roleAssignmentId}/${key}-${Date.now()}-${safe}`;
     const { error: upErr } = await supabase.storage.from('event-media').upload(path, file, { upsert: false });
     if (upErr) { setBusyImg(null); toast({ title: 'Upload failed', description: upErr.message, variant: 'destructive' }); return; }
-    const { error } = await supabase.from(table).update({ [key]: path }).eq('role_assignment_id', roleAssignmentId);
+    const { data: saved, error } = await supabase.from(table).update({ [key]: path }).eq('role_assignment_id', roleAssignmentId).select('id');
     if (error) { setBusyImg(null); toast({ title: 'Could not save image', description: error.message, variant: 'destructive' }); return; }
+    // The file reached storage but nothing points at it — say so rather than
+    // showing a picture that will not be there on the next load.
+    if (!saved?.length) { setBusyImg(null); toast(NOTHING_SAVED); return; }
     if (prev && !/^https?:\/\//i.test(prev)) await supabase.storage.from('event-media').remove([prev]).catch(() => {});
     setImgs(p => ({ ...p, [key]: path }));
     setBusyImg(null);
@@ -150,8 +175,9 @@ function TableTextEditor({ roleAssignmentId, table, fields, imageFields, title, 
     if (!uid) return;
     setBusyImg(key);
     const prev = imgs[key];
-    const { error } = await supabase.from(table).update({ [key]: null }).eq('role_assignment_id', roleAssignmentId);
+    const { data: saved, error } = await supabase.from(table).update({ [key]: null }).eq('role_assignment_id', roleAssignmentId).select('id');
     if (error) { setBusyImg(null); toast({ title: 'Could not remove', description: error.message, variant: 'destructive' }); return; }
+    if (!saved?.length) { setBusyImg(null); toast(NOTHING_SAVED); return; }
     if (prev && !/^https?:\/\//i.test(prev)) await supabase.storage.from('event-media').remove([prev]).catch(() => {});
     setImgs(p => ({ ...p, [key]: '' }));
     setBusyImg(null);
@@ -227,6 +253,7 @@ function StartupEditor({ roleAssignmentId, locked, prettyDate }: { roleAssignmen
 
   const load = async () => {
     setLoading(true);
+    await ensureRow(roleAssignmentId);
     const { data } = await supabase.from('sm_startup_profile')
       .select('startup_or_scaleup,stage,categories,organization_activity,problem,solution,differentiation,usp,target_markets,business_model,competitive_positioning,collaboration_expected,investment_seeking,investment_stage,investment_type,funds_needed,references_text')
       .eq('role_assignment_id', roleAssignmentId).maybeSingle();
@@ -266,9 +293,13 @@ function StartupEditor({ roleAssignmentId, locked, prettyDate }: { roleAssignmen
       investment_stage: startup.investment_stage || null, investment_type: startup.investment_type || null,
       funds_needed: startup.funds_needed || null, references_text: startup.references_text || null,
     };
-    const { error } = await supabase.from('sm_startup_profile').update(patch).eq('role_assignment_id', roleAssignmentId);
+    // ensureRow again, not only on load: a session that opened the editor before
+    // the row existed would otherwise still be writing into nothing.
+    await ensureRow(roleAssignmentId);
+    const { data: saved, error } = await supabase.from('sm_startup_profile').update(patch).eq('role_assignment_id', roleAssignmentId).select('id');
     setSaving(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
+    if (!saved?.length) { toast(NOTHING_SAVED); return; }
     toast({ title: 'Innovation details saved' });
   };
 

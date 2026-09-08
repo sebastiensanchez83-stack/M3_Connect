@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -123,24 +123,23 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
 
   useEffect(() => { if (user) load(); }, [user]);
 
-  useEffect(() => {
+  // Also handed to the programme card, so booking a workshop down the page
+  // updates the count at the top of it rather than waiting for a reload.
+  const refreshProgramme = useCallback(async () => {
     const eid = reg?.event_id;
     if (!eid) { setProgramme(null); return; }
-    let active = true;
-    (async () => {
-      const { data } = await supabase.rpc('sm_agenda', { p_event_id: eid });
-      if (!active) return;
-      const rows = (data || []) as { type: string; starts_at: string | null; my_status: string | null }[];
-      if (rows.length === 0) { setProgramme(null); return; }   // nothing published yet
-      const ws = rows.filter(s => s.type === 'workshop');
-      const dayOf = (s: string | null) => (s || '').slice(0, 10);
-      setProgramme({
-        days: new Set(ws.map(s => dayOf(s.starts_at))).size,
-        chosen: new Set(ws.filter(s => s.my_status).map(s => dayOf(s.starts_at))).size,
-      });
-    })();
-    return () => { active = false; };
+    const { data } = await supabase.rpc('sm_agenda', { p_event_id: eid });
+    const rows = (data || []) as { type: string; starts_at: string | null; my_status: string | null }[];
+    if (rows.length === 0) { setProgramme(null); return; }   // nothing published yet
+    const ws = rows.filter(s => s.type === 'workshop');
+    const dayOf = (s: string | null) => (s || '').slice(0, 10);
+    setProgramme({
+      days: new Set(ws.map(s => dayOf(s.starts_at))).size,
+      chosen: new Set(ws.filter(s => s.my_status).map(s => dayOf(s.starts_at))).size,
+    });
   }, [reg?.event_id]);
+
+  useEffect(() => { refreshProgramme(); }, [refreshProgramme]);
 
   // Load the per-registration details (drafts, e-catalogue, payment) for one reg.
   const selectReg = async (r: Registration) => {
@@ -801,8 +800,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           <SM26Foldable bare title={<><Calendar className="h-4 w-4 text-primary" /> My programme</>}>
           <Card>
             <CardContent className="pt-6">
-              <p className="text-xs text-gray-500 mb-3">Your personal schedule — the main programme plus the workshops you've chosen. <Link to="/sm26/agenda" className="text-primary hover:underline">View the full programme</Link> to add or change.</p>
-              <SM26Agenda mineOnly />
+              <p className="text-xs text-gray-500 mb-3">Your personal schedule, with the workshops you've chosen. Book or change a workshop right here, one per day. <Link to="/sm26/agenda" className="text-primary hover:underline">See the full programme</Link>.</p>
+              <SM26Agenda mineOnly onBookingsChange={refreshProgramme} />
             </CardContent>
           </Card>
           </SM26Foldable>

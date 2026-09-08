@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { MapPin, Users, Check, Clock3, Download, Loader2, RefreshCw, CalendarPlus, MessageSquare } from 'lucide-react';
+import { MapPin, Users, Check, Clock3, Download, Loader2, RefreshCw, CalendarPlus, MessageSquare, ArrowRightLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +11,11 @@ import { SM26SessionQA } from '@/components/sm26/SM26SessionQA';
 // Shared SM26 programme renderer. Used full (public agenda + the event page) and
 // in "mine" mode (the participant's personalised schedule on /sm26/me). Workshops
 // are the only attendee choice: 1 per day, capacity-enforced with a waitlist.
+//
+// "Mine" mode shows the day's workshops under that day's schedule, so the choice
+// is made where the participant already is. It used to send them off to the full
+// programme to book, which meant leaving their account to do the one thing the
+// account exists for.
 
 interface Session {
   id: string; title: string; description: string | null; type: string;
@@ -65,20 +69,33 @@ function downloadIcs(filename: string, ics: string) {
 
 // A participant's personal calendar = the common programme (everything that isn't
 // an optional workshop or a meal break) plus the workshops they actually chose.
-const personalSet = (sessions: Session[]) =>
-  sessions.filter(s => s.type !== 'meal' && (s.type !== 'workshop' || s.my_status === 'booked' || s.my_status === 'waitlisted'));
+const isMine = (s: Session) => s.my_status === 'booked' || s.my_status === 'waitlisted';
+const isPersonal = (s: Session) => s.type !== 'meal' && (s.type !== 'workshop' || isMine(s));
+const personalSet = (sessions: Session[]) => sessions.filter(isPersonal);
 
-export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId?: string; mineOnly?: boolean }) {
+// Postgres raises 'FULL: …' / 'NO_BOOKING: …' so the client can tell the cases
+// apart; the sentence after the tag is already written for the participant.
+const plainError = (msg: string) => msg.replace(/^[A-Z_]+:\s*/, '');
+
+export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsChange }: {
+  eventId?: string; mineOnly?: boolean;
+  /** Fired after a booking changes, so a host page can refresh what it counts. */
+  onBookingsChange?: () => void;
+}) {
   const { user } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [dayTab, setDayTab] = useState('all');
   const [published, setPublished] = useState(false);
+  const [changingDay, setChangingDay] = useState<string | null>(null);
   const [qaOpen, setQaOpen] = useState<Set<string>>(new Set());
   const toggleQa = (id: string) => setQaOpen(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user, eventIdProp]);
+  // Keyed on the id, not the user object: coming back to the tab hands us a
+  // fresh object for the same person, and reloading on that would blank the
+  // programme into a spinner every time someone switches windows.
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id, eventIdProp]);
 
   const load = async () => {
     setLoading(true);
@@ -106,7 +123,22 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
     setBusy(null);
     if (error) { toast({ title: 'Could not book', description: error.message, variant: 'destructive' }); return; }
     toast({ title: data === 'waitlisted' ? 'Added to the waitlist' : 'Workshop booked' });
-    load();
+    load(); onBookingsChange?.();
+  };
+  // Moving to another workshop the same day is one call, not cancel-then-book:
+  // the seat you hold is only released once the new one is secured.
+  const switchTo = async (s: Session, dayK: string) => {
+    setBusy(s.id);
+    const { error } = await supabase.rpc('sm_switch_workshop', { p_session_id: s.id });
+    setBusy(null);
+    if (error) {
+      toast({ title: 'Could not change workshop', description: plainError(error.message), variant: 'destructive' });
+      load(); onBookingsChange?.();   // whatever happened, show the truth
+      return;
+    }
+    toast({ title: 'Workshop changed', description: `You now have a place in ${s.title}.` });
+    setChangingDay(prev => (prev === dayK ? null : prev));
+    load(); onBookingsChange?.();
   };
   const cancel = async (s: Session) => {
     setBusy(s.id);
@@ -114,7 +146,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
     setBusy(null);
     if (error) { toast({ title: 'Could not cancel', description: error.message, variant: 'destructive' }); return; }
     toast({ title: 'Booking cancelled' });
-    load();
+    load(); onBookingsChange?.();
   };
   const downloadDeck = async (path: string) => {
     const { data } = await supabase.storage.from('event-media').createSignedUrl(path, 300);
@@ -158,24 +190,92 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
 
   if (loading) return <div className="flex items-center justify-center py-10"><RefreshCw className="h-6 w-6 animate-spin text-gray-300" /></div>;
 
-  const shown = mineOnly ? personalSet(sessions) : sessions;
-  const myWorkshopCount = mineOnly
-    ? sessions.filter(s => s.type === 'workshop' && (s.my_status === 'booked' || s.my_status === 'waitlisted')).length
-    : 0;
+  const myWorkshopCount = mineOnly ? sessions.filter(s => s.type === 'workshop' && isMine(s)).length : 0;
 
-  // group by day, preserving order
-  const days: { key: string; items: Session[] }[] = [];
-  for (const s of shown) {
+  // Group by day, preserving order. A day in "mine" mode carries two lists: the
+  // participant's own schedule, and every workshop running that day so the
+  // choice can be made here rather than on the full programme.
+  const days: { key: string; items: Session[]; workshops: Session[] }[] = [];
+  for (const s of sessions) {
     const k = dayKey(s.starts_at);
     let d = days.find(x => x.key === k);
-    if (!d) { d = { key: k, items: [] }; days.push(d); }
-    d.items.push(s);
+    if (!d) { d = { key: k, items: [], workshops: [] }; days.push(d); }
+    if (!mineOnly || isPersonal(s)) d.items.push(s);
+    if (mineOnly && s.type === 'workshop') d.workshops.push(s);
   }
-  if (days.length === 0) {
+  const dayList = days.filter(d => d.items.length > 0 || d.workshops.length > 0);
+  if (dayList.length === 0) {
     return <p className="text-sm text-gray-400 py-4 text-center">The programme will be published soon.</p>;
   }
 
-  const visibleDays = (mineOnly || dayTab === 'all') ? days : days.filter(d => d.key === dayTab);
+  const visibleDays = (mineOnly || dayTab === 'all') ? dayList : dayList.filter(d => d.key === dayTab);
+
+  // The day's workshops, in the participant's own account: book one, or move to
+  // another. Shown open when nothing is booked yet, folded away once it is.
+  const workshopChooser = (day: { key: string; workshops: Session[] }) => {
+    const mine = day.workshops.find(isMine);
+    const open = !mine || changingDay === day.key;
+    const options = mine ? day.workshops.filter(w => w.id !== mine.id) : day.workshops;
+    return (
+      <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50/40 p-3 space-y-2.5">
+        {mine ? (
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-sm text-gray-700">
+              Your workshop: <span className="font-semibold text-gray-900">{mine.title}</span>
+              {mine.my_status === 'waitlisted' && <span className="text-amber-700"> — waitlisted</span>}
+            </p>
+            {options.length > 0 && (
+              <Button variant="outline" size="sm" className="h-8 gap-1.5 bg-white"
+                onClick={() => setChangingDay(changingDay === day.key ? null : day.key)}>
+                {changingDay === day.key ? 'Keep this one' : <><ArrowRightLeft className="h-3.5 w-3.5" /> Change</>}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div>
+            <p className="text-sm font-semibold text-gray-900">Choose your workshop</p>
+            <p className="text-xs text-gray-500">One per day, and seats are limited. You can change it here later.</p>
+          </div>
+        )}
+        {open && options.map(w => {
+          const full = w.capacity != null && w.booked_count >= w.capacity;
+          const left = w.capacity != null ? Math.max(0, w.capacity - w.booked_count) : null;
+          return (
+            <div key={w.id} className="flex items-start justify-between gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-gray-900">{w.title}</div>
+                {w.description && <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{w.description}</p>}
+                <div className="flex items-center gap-3 text-xs text-gray-500 mt-1 flex-wrap">
+                  <span>{fmtTime(w.starts_at)}</span>
+                  {w.room && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {w.room}</span>}
+                  {left != null && (
+                    <span className={`flex items-center gap-1 ${full ? 'text-amber-700' : ''}`}>
+                      <Users className="h-3 w-3" /> {full ? 'Full' : `${left} seat${left === 1 ? '' : 's'} left`}
+                    </span>
+                  )}
+                </div>
+              </div>
+              {mine ? (
+                // Switching into a full room would mean giving up a seat for a
+                // waitlist place, so it is simply not offered.
+                <Button size="sm" variant="outline" className="h-8 shrink-0 gap-1.5 bg-white"
+                  disabled={full || busy === w.id} onClick={() => switchTo(w, day.key)}>
+                  {busy === w.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {full ? 'Full' : 'Switch to this'}
+                </Button>
+              ) : (
+                <Button size="sm" variant={full ? 'outline' : 'default'} className="h-8 shrink-0 gap-1.5"
+                  disabled={busy === w.id} onClick={() => book(w)}>
+                  {busy === w.id && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {full ? 'Join waitlist' : 'Book'}
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -191,7 +291,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
         <div className="space-y-3">
           {myWorkshopCount === 0 && (
             <p className="text-sm text-gray-500">
-              You haven't booked a workshop yet. <Link to="/sm26/agenda" className="text-primary hover:underline">Browse the programme</Link> to choose one per day — it will appear here.
+              You haven't chosen a workshop yet — pick one for each day below and it will join your schedule.
             </p>
           )}
           <div className="flex justify-end">
@@ -201,10 +301,10 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
           </div>
         </div>
       )}
-      {!mineOnly && days.length > 1 && (
+      {!mineOnly && dayList.length > 1 && (
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={() => setDayTab('all')} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${dayTab === 'all' ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>Both days</button>
-          {days.map(d => (
+          {dayList.map(d => (
             <button key={d.key} onClick={() => setDayTab(d.key)} className={`text-sm px-3 py-1.5 rounded-lg border transition-colors ${dayTab === d.key ? 'bg-primary text-white border-primary' : 'bg-white text-gray-600 border-gray-200 hover:border-primary/40'}`}>{d.key}</button>
           ))}
         </div>
@@ -288,6 +388,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false }: { eventId
               );
             })}
           </div>
+          {mineOnly && day.workshops.length > 0 && workshopChooser(day)}
         </div>
       ))}
     </div>

@@ -493,7 +493,7 @@ export function AdminSM26Detail() {
     const scope = ORG_SCOPE_ROLES.has(role) ? 'org' : 'user';
     const reqs = reqsForRole(role);
     const needsInfo = reqs.some(r => r.required);
-    const { error } = await supabase.from('sm_role_assignment').insert({
+    const { data: created, error } = await supabase.from('sm_role_assignment').insert({
       registration_id: reg.id,
       event_id: reg.event_id,
       organization_id: scope === 'org' ? reg.organization_id : null,
@@ -503,11 +503,30 @@ export function AdminSM26Detail() {
       source: 'admin',
       status: needsInfo ? 'needs_info' : 'admin_added',
       module_data: autofillFor(role),
-    });
+    }).select('id').single();
     if (error) {
       setRoleSaving(false);
       toast({ title: 'Could not add role', description: error.message, variant: 'destructive' });
       return;
+    }
+    // A module-table role is nothing without its companion row. The participant's
+    // editor saves with `update … where role_assignment_id = $1`, so a role granted
+    // here — the one creation path that never seeded that row — left them typing
+    // into a form that reported success and kept nothing. Two startups lost their
+    // pitch that way before anyone noticed.
+    //
+    // Architecture is deliberately not seeded: a blank sm_architecture_entry is a
+    // phantom submission in front of the jury, so that row is created when the
+    // architect actually saves something.
+    if (created && MODULE_TABLE_ROLES.has(role)) {
+      const { data: seeded, error: seedErr } = await supabase.rpc('sm_ensure_module_row', { p_role_assignment_id: created.id });
+      if (seedErr) {
+        toast({
+          title: 'Role added, but its entry row was not created',
+          description: `${seedErr.message} — ask an engineer before requesting their details, or their save will have nothing to write to.`,
+          variant: 'destructive',
+        });
+      }
     }
     if (needsInfo && reg.user_id) {
       const labels = reqs.filter(r => r.required).map(r => r.label).join(', ');

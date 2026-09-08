@@ -309,11 +309,19 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
       : role.status;
     const uid = await requireFreshSession();
     if (!uid) return false;
-    const { error } = await supabase
+    // This one write carries every participant's files and consents. An update
+    // that matches no row is not an error — it returns success having written
+    // nothing — so read back what landed rather than assume it did.
+    const { data: saved, error } = await supabase
       .from('sm_role_assignment')
       .update({ module_data: moduleData, status: nextStatus })
-      .eq('id', role.id);
+      .eq('id', role.id)
+      .select('id');
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return false; }
+    if (!saved?.length) {
+      toast({ title: 'Nothing was saved', description: 'Your entry is missing on the server. Keep what you typed and tell M3 — do not enter it again.', variant: 'destructive' });
+      return false;
+    }
     // update local state
     setReg(prev => prev ? { ...prev, roles: prev.roles.map(r => r.id === role.id ? { ...r, module_data: moduleData, status: nextStatus } : r) } : prev);
     // Alert M3 when the participant has just completed a requested-info checklist.

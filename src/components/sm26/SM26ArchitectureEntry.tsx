@@ -94,9 +94,11 @@ export function SM26ArchitectureEntry({ roleAssignmentId }: { roleAssignmentId: 
     setSavingText(true);
     const patch: Record<string, unknown> = {};
     for (const f of CATALOGUE_FIELDS) patch[f.key] = vals[f.key]?.trim() || null;
-    // An update matching no row returns success with nothing written. Entries
-    // are never seeded blind here — a blank one would reach the jury as a
-    // phantom submission — so the save reports the truth instead.
+    // An update matching no row returns success with nothing written. An entry
+    // is never seeded on merely opening this page — a blank one would reach the
+    // jury as a phantom submission — but pressing save is the moment it becomes
+    // real, so the row is created here and the write is checked either way.
+    try { await supabase.rpc('sm_ensure_module_row', { p_role_assignment_id: roleAssignmentId, p_allow_architecture: true }); } catch { /* noop */ }
     const { data: saved, error } = await supabase.from('sm_architecture_entry').update(patch).eq('role_assignment_id', roleAssignmentId).select('id');
     setSavingText(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }

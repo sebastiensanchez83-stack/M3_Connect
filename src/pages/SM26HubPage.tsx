@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { CalendarDays, UserRound, Vote, MessageSquare, MapPin, ChevronRight, LogIn, Loader2, type LucideIcon } from 'lucide-react';
+import { CalendarDays, UserRound, Vote, MessageSquare, MapPin, ChevronRight, LogIn, Loader2, QrCode, type LucideIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LoginForm } from '@/components/auth/LoginForm';
+import { SM26NetworkingPass } from '@/components/sm26/SM26NetworkingPass';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 
@@ -62,6 +63,10 @@ export function SM26HubPage() {
   const [now, setNow] = useState(() => new Date());
   const [loginFor, setLoginFor] = useState<string | null>(null);
   const [goAfterLogin, setGoAfterLogin] = useState<string | null>(null);
+  // ?pass=1 opens the networking QR straight away (linked from the connect page).
+  const [passOpen, setPassOpen] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('pass') === '1'; } catch { return false; }
+  });
 
   // Programme: on load, then quietly every 5 minutes so a time or room change
   // on the day reaches phones that keep the page open. Never back to a spinner,
@@ -180,6 +185,10 @@ export function SM26HubPage() {
           {voteOpen && <Tile to="/sm26/vote" icon={Vote} title="Vote" text="Voting is open — choose your favourites" highlight />}
           {showFeedback && <Tile {...needsAccount('/sm26/feedback')} icon={MessageSquare} title="Your feedback" text="Tell us how it went — it shapes the next edition" highlight={phase === 'after'} />}
           <Tile to="/sm26/agenda" icon={CalendarDays} title="Programme" text="The full programme, and the workshops to book" />
+          {phase !== 'after' && (
+            <Tile onClick={() => setPassOpen(true)} icon={QrCode} title="Meet people"
+              text="Your networking QR — or scan someone else's, or an exhibitor's table, to be introduced" />
+          )}
           {user
             ? <Tile to="/sm26/me" icon={UserRound} title="My event" text="Your registration, your workshops and your connections" />
             : <Tile onClick={() => setLoginFor('/sm26/me')} icon={LogIn} title="My event" text="Sign in to see your registration, workshops and connections" />}
@@ -197,6 +206,20 @@ export function SM26HubPage() {
           <p className="text-sm text-gray-500 mt-4 pt-4 border-t border-gray-100">A question on site? Ask the team at the welcome desk.</p>
         </div>
       </div>
+
+      <Dialog open={passOpen} onOpenChange={open => {
+        setPassOpen(open);
+        // Drop ?pass=1 so a reload or Back doesn't pop the QR open again.
+        if (!open && new URLSearchParams(window.location.search).has('pass')) navigate({ search: '' }, { replace: true });
+      }}>
+        <DialogContent className="rounded-2xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle>My networking QR</DialogTitle>
+            <DialogDescription>Connect with people you meet — no business cards needed.</DialogDescription>
+          </DialogHeader>
+          {passOpen && <SM26NetworkingPass />}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!loginFor} onOpenChange={open => { if (!open) setLoginFor(null); }}>
         <DialogContent className="rounded-2xl">

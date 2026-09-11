@@ -55,13 +55,17 @@ export function AdminSM26Networking() {
     setLoading(false);
   };
 
-  // Collapse A->B and B->A into one row.
+  // Collapse every row of a pair (A->B, B->A, the same person via badge, pass or
+  // typed details) into one. The server lists the most trustworthy row of each
+  // pair first; that row's names and note are what the introduction email uses,
+  // so that is what is shown. "Mutual" is the server's answer (both directions
+  // exist), not merely "more than one row".
   const pairs = (() => {
     const m = new Map<string, Conn>();
     for (const c of conns) {
       const ex = m.get(c.pair_key);
       if (!ex) m.set(c.pair_key, c);
-      else m.set(c.pair_key, { ...ex, introduced: ex.introduced || c.introduced, mutual: true, note: ex.note || c.note });
+      else m.set(c.pair_key, { ...ex, introduced: ex.introduced || c.introduced, mutual: ex.mutual || c.mutual });
     }
     return [...m.values()].sort((a, b) => Number(a.introduced) - Number(b.introduced) || b.created_at.localeCompare(a.created_at));
   })();
@@ -72,8 +76,13 @@ export function AdminSM26Networking() {
     setBusy(c.id);
     const { data, error } = await supabase.functions.invoke('sm26-connection', { body: { action: 'introduce', connection_id: c.id } });
     setBusy(null);
-    const err = error || (data as { error?: string })?.error;
-    if (err) { toast({ title: 'Could not send', description: typeof err === 'string' ? err : 'Please try again.', variant: 'destructive' }); return; }
+    let err: string | null = (data as { error?: string } | null)?.error || null;
+    if (error && !err) {
+      // A non-2xx reply carries the function's own sentence in its body.
+      try { err = ((await (error as { context?: Response }).context?.json()) as { error?: string } | undefined)?.error || null; } catch { /* not JSON */ }
+      err = err || 'Please try again.';
+    }
+    if (err) { toast({ title: 'Could not send', description: err, variant: 'destructive' }); if (/already been introduced/.test(err)) load(); return; }
     toast({ title: 'Introduction sent', description: 'Both sides have been emailed.' });
     load();
   };

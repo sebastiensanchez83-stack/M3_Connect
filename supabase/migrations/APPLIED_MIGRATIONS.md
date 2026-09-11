@@ -861,3 +861,43 @@ drop function if exists public.sm_yv_session_juror_remove(uuid, uuid);
 drop function if exists public.sm_yv_session_entry_add(uuid, uuid);
 drop function if exists public.sm_yv_session_entry_remove(uuid, uuid);
 ```
+
+## sm26_networking_pass — 11 September 2026
+
+Full SQL in [`20260911150000_sm26_networking_pass.sql`](./20260911150000_sm26_networking_pass.sql).
+Edge function `sm26-connection` v4 deployed with it (reads both sides through
+`sm_connection_party`, marks through `sm_connection_mark_introduced`).
+
+Networking codes that are not badges. A badge's `connect_token` dies whenever the
+badge is re-minted (attendance toggled, registration withdrawn and revived, roster
+row removed) or nulled by the discretion triggers — right for the door, wrong for
+anything printed. `sm_networking_pass` holds codes that never change (token, event
+and kind frozen by trigger; stands cannot be deleted, only revoked):
+- **guest** — no account; name/company/email typed once on the phone (`sm_networking_pass_create`, anon, throttled 5/address/hour and 300/minute event-wide).
+- **member** — a signed-in person's own code (`sm_my_networking_pass`).
+- **stand** — one per exhibitor, **printed on their table** (23 issued on 11 Sep from the venue list: confirmed + `sm_logistics.coming_on_site`). A stand scan stores only `to_pass_id`, never `to_registration_id` (whose FK cascades), so its leads survive the registration.
+
+`sm_connect_scan` was dropped and recreated with `p_pass` (the scanner's own guest
+pass — never a member token, which anyone can read off a screen). Pairing is by
+email; `sm_connection_parties` is the one resolver the admin list, the email and
+"mark introduced" all read. The admin list puts the most trustworthy row of each
+pair first (signed in > member > guest > typed) because the screen introduces from it.
+
+**Printed codes depend on this:** never delete `sm_networking_pass` rows of kind
+`stand`, never change a token, and keep `/sm26/connect?c=` public and outside
+`SM26_ENABLED` (App.tsx). Reverting the table orphans every printed exhibitor card.
+
+Undo (only before anything is printed or scanned):
+```sql
+drop function if exists public.sm_connect_scan(text, text, text, text, text, text);
+-- then restore the previous sm_connect_scan(text,text,text,text,text),
+-- sm_admin_connections and sm_my_connections bodies from before 11 Sep, and:
+drop function if exists public.sm_networking_pass_create(text, text, text);
+drop function if exists public.sm_my_networking_pass();
+drop function if exists public.sm_connection_mark_introduced(uuid);
+drop function if exists public.sm_connection_party(uuid);
+drop function if exists public.sm_connection_parties(uuid, uuid);
+alter table public.sm_connection drop constraint if exists sm_connection_has_target;
+alter table public.sm_connection drop column if exists to_pass_id, drop column if exists from_pass_id;
+drop table if exists public.sm_networking_pass;
+```

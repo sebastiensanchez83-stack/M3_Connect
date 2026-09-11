@@ -1,7 +1,11 @@
 // Networking introductions. Staff-only. action 'introduce': email BOTH sides of a
 // connection request (sharing each other's address) with Victor CC'd, then mark the
-// request — and its mutual reverse, if any — as introduced. test_email previews to
-// the tester only and does NOT mark introduced.
+// pair — both directions, however each side came in — as introduced. test_email
+// previews to the tester only and does NOT mark introduced.
+//
+// Who each side is comes from the DB resolver sm_connection_party (badge, exhibitor
+// stand code, networking pass or typed details), the same one the admin list reads,
+// so the email always goes to the people staff saw on screen.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -25,7 +29,10 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 const SENDER_EMAIL = Deno.env.get("SENDER_EMAIL") || "Smart Marina Connect <noreply@smartmarinaconnect.com>";
 const ORGANIZER_EMAIL = "victor@m3monaco.com";
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Quotes too: names and addresses typed by guests land inside href="mailto:…".
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+// Same rule as the DB (apostrophes are legal: o'brien@…); esc() makes them safe in HTML.
+const EMAIL_RE = /^[^\s@"<>]+@[^\s@"<>]+\.[^\s@"<>]+$/;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
@@ -49,31 +56,25 @@ Deno.serve(async (req: Request) => {
     if (!connId) return json(req, { error: "Missing connection_id" }, 400);
     const testEmail = typeof body.test_email === "string" && body.test_email.includes("@") ? body.test_email.trim().toLowerCase() : null;
 
-    const { data: cRow } = await admin.from("sm_connection").select("*").eq("id", connId).maybeSingle();
-    const c = cRow as Record<string, unknown> | null;
+    type Party = {
+      note: string | null; introduced_at: string | null;
+      from_name: string | null; from_email: string | null; from_company: string | null;
+      to_name: string | null; to_email: string | null; to_company: string | null;
+    };
+    const { data: rows, error: partyErr } = await admin.rpc("sm_connection_party", { p_connection_id: connId });
+    if (partyErr) { console.error("sm_connection_party", partyErr); return json(req, { error: "Could not load the connection" }, 500); }
+    const c = (Array.isArray(rows) ? rows[0] : rows) as Party | undefined;
     if (!c) return json(req, { error: "Connection not found" }, 404);
+    if (c.introduced_at && !testEmail) return json(req, { error: "This pair has already been introduced." }, 409);
 
     type Side = { email?: string | null; name?: string; company?: string | null };
-    const resolveReg = async (regId: string): Promise<Side> => {
-      const { data } = await admin.from("sm_registration").select("email, first_name, last_name, company_name").eq("id", regId).maybeSingle();
-      const r = data as { email?: string; first_name?: string; last_name?: string; company_name?: string } | null;
-      return r ? { email: r.email, name: `${r.first_name || ""} ${r.last_name || ""}`.trim() || (r.company_name || "Participant"), company: (r.company_name || "").trim() || null } : {};
-    };
-    const resolveProfile = async (userId: string): Promise<Side> => {
-      const { data } = await admin.from("profiles").select("email, first_name, last_name").eq("user_id", userId).maybeSingle();
-      const r = data as { email?: string; first_name?: string; last_name?: string } | null;
-      return r ? { email: r.email, name: `${r.first_name || ""} ${r.last_name || ""}`.trim() || "Participant", company: null } : {};
-    };
-
-    const to = await resolveReg(c.to_registration_id as string);
-    let from: Side;
-    if (c.from_registration_id) from = await resolveReg(c.from_registration_id as string);
-    else if (c.from_user_id) from = await resolveProfile(c.from_user_id as string);
-    else from = { email: (c.from_email as string) || null, name: (c.from_name as string) || (c.from_email as string) || "Guest", company: (c.from_company as string) || null };
+    const from: Side = { email: c.from_email, name: c.from_name || c.from_email || "Guest", company: c.from_company };
+    const to: Side = { email: c.to_email, name: c.to_name || c.to_company || "Participant", company: c.to_company };
 
     if (!to.email || !from.email) return json(req, { error: "One side has no email on file, so the introduction can't be sent." }, 400);
+    if (!EMAIL_RE.test(to.email) || !EMAIL_RE.test(from.email)) return json(req, { error: "One side's email address doesn't look valid, so the introduction can't be sent." }, 400);
 
-    const note = (c.note as string) || "";
+    const note = c.note || "";
     const line = (s: Side) => `<li><strong>${esc(s.name || "Participant")}</strong>${s.company ? `, ${esc(s.company)}` : ""} — <a href="mailto:${esc(String(s.email))}">${esc(String(s.email))}</a></li>`;
     const html = `<p>Hello,</p>
 <p>Following the <strong>Smart &amp; Sustainable Marina Rendezvous 2026</strong>, we're glad to introduce you to each other:</p>
@@ -93,16 +94,9 @@ ${note ? `<p>Context noted at the event: “${esc(note)}”.</p>` : ""}
     if (!res.ok) { console.error("resend intro error", res.status, await res.text()); return json(req, { error: "Email failed to send" }, 502); }
 
     if (!testEmail) {
-      const now = new Date().toISOString();
-      await admin.from("sm_connection").update({ introduced_at: now }).eq("id", connId);
-      // mark the mutual reverse (participant<->participant) introduced too
-      if (c.from_registration_id) {
-        await admin.from("sm_connection").update({ introduced_at: now })
-          .eq("event_id", c.event_id as string)
-          .eq("from_registration_id", c.to_registration_id as string)
-          .eq("to_registration_id", c.from_registration_id as string)
-          .is("introduced_at", null);
-      }
+      // The whole pair, both directions, matched the same way the admin list pairs them.
+      const { error: markErr } = await admin.rpc("sm_connection_mark_introduced", { p_connection_id: connId });
+      if (markErr) console.error("sm_connection_mark_introduced", markErr);
     }
     return json(req, { ok: true, test: !!testEmail });
   } catch (e) {

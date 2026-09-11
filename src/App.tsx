@@ -133,7 +133,6 @@ function App() {
                   <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
                   <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
                   <Route path="/sm26/claim" element={<SM26ClaimPage />} />
-                  <Route path="/sm26/connect" element={<SM26ConnectPage />} />
                 </>
               )}
               {/* The on-site event page. This URL is PRINTED as a QR code on every
@@ -141,6 +140,10 @@ function App() {
                   ProtectedRoute, and keep it outside the SM26_ENABLED block —
                   change what the page shows, not where it lives. */}
               <Route path="/sm26" element={<SM26HubPage />} />
+              {/* Networking codes land here, and they are PRINTED on exhibitor
+                  tables (/sm26/connect?c=<token>): same rules as /sm26 — public,
+                  outside the flag, never renamed. */}
+              <Route path="/sm26/connect" element={<SM26ConnectPage />} />
               {/* Partner consoles (Yacht Club + Yachting Ventures) stay reachable
                   pre-launch like /admin/sm26 — access is enforced server-side by
                   sm_is_event_partner / sm_is_yv, so non-partners just see "no access". */}

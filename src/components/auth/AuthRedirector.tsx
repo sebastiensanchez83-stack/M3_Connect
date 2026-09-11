@@ -25,10 +25,11 @@ function isProtectedRoute(pathname: string): boolean {
   return showLockedPrefixes.some((prefix) => pathname.startsWith(prefix))
 }
 
-// The SM26 on-site page (its URL is printed on the badges) and the programme it
-// links to. Read-only and public, so they stay reachable mid-onboarding. React
-// Router matches case-insensitively and ignores a trailing slash; so do we.
-const onsiteInfoPaths = new Set<string>(['/sm26', '/sm26/agenda'])
+// The SM26 on-site page (its URL is printed on the badges), the programme it
+// links to, and the networking landing (printed on exhibitor tables). Public, so
+// they stay reachable mid-onboarding — a redirect would drop the scanned ?c=.
+// React Router matches case-insensitively and ignores a trailing slash; so do we.
+const onsiteInfoPaths = new Set<string>(['/sm26', '/sm26/agenda', '/sm26/connect'])
 const isOnsiteInfoPage = (pathname: string) => onsiteInfoPaths.has(pathname.toLowerCase().replace(/\/+$/, ''))
 
 export function AuthRedirector() {

@@ -25,6 +25,12 @@ function isProtectedRoute(pathname: string): boolean {
   return showLockedPrefixes.some((prefix) => pathname.startsWith(prefix))
 }
 
+// The SM26 on-site page (its URL is printed on the badges) and the programme it
+// links to. Read-only and public, so they stay reachable mid-onboarding. React
+// Router matches case-insensitively and ignores a trailing slash; so do we.
+const onsiteInfoPaths = new Set<string>(['/sm26', '/sm26/agenda'])
+const isOnsiteInfoPage = (pathname: string) => onsiteInfoPaths.has(pathname.toLowerCase().replace(/\/+$/, ''))
+
 export function AuthRedirector() {
   const { user, loading, profile, profileTimedOut, isModerator } = useAuth()
   const navigate = useNavigate()
@@ -51,12 +57,14 @@ export function AuthRedirector() {
     }
 
     // Event-provisioned accounts finish the welcome step (set password) first.
-    // Exempt: the welcome page itself, claim links (auto-claim then hub), and
-    // password-recovery — everything else routes to /welcome until done.
+    // Exempt: the welcome page itself, claim links (auto-claim then hub),
+    // password-recovery, and the on-site event info — everything else routes
+    // to /welcome until done.
     if (
       user.user_metadata?.pw_pending === true &&
       pathname !== '/welcome' &&
       pathname !== '/sm26/claim' &&
+      !isOnsiteInfoPage(pathname) &&
       !pathname.startsWith('/reset-password')
     ) {
       navigate('/welcome', { replace: true })

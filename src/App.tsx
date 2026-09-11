@@ -69,6 +69,7 @@ const SM26ClaimPage = lazyWithRetry(() => import('@/pages/SM26ClaimPage').then(m
 const SM26PartnerPage = lazyWithRetry(() => import('@/pages/SM26PartnerPage').then(m => ({ default: m.SM26PartnerPage })));
 const SM26YVPage = lazyWithRetry(() => import('@/pages/SM26YVPage').then(m => ({ default: m.SM26YVPage })));
 const SM26ConnectPage = lazyWithRetry(() => import('@/pages/SM26ConnectPage').then(m => ({ default: m.SM26ConnectPage })));
+const SM26HubPage = lazyWithRetry(() => import('@/pages/SM26HubPage').then(m => ({ default: m.SM26HubPage })));
 const SponsorshipPage = lazyWithRetry(() => import('@/pages/SponsorshipPage').then(m => ({ default: m.SponsorshipPage })));
 
 function LazyFallback() {
@@ -135,6 +136,11 @@ function App() {
                   <Route path="/sm26/connect" element={<SM26ConnectPage />} />
                 </>
               )}
+              {/* The on-site event page. This URL is PRINTED as a QR code on every
+                  SM26 badge: never rename or remove it, never wrap it in
+                  ProtectedRoute, and keep it outside the SM26_ENABLED block —
+                  change what the page shows, not where it lives. */}
+              <Route path="/sm26" element={<SM26HubPage />} />
               {/* Partner consoles (Yacht Club + Yachting Ventures) stay reachable
                   pre-launch like /admin/sm26 — access is enforced server-side by
                   sm_is_event_partner / sm_is_yv, so non-partners just see "no access". */}

@@ -37,3 +37,6 @@ npm-debug.log*
 .swarm/
 .mcp.json
 CLAUDE.md
+
+# Demo branch: artwork sources, not served
+public/demo-assets/_src/

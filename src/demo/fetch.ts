@@ -86,10 +86,35 @@ export async function demoFetch(input: RequestInfo | URL, init?: RequestInit): P
 
 let installed = false;
 
+// The platform compares the clock with the event dates (20–21 Sep 2026): after
+// the event the home page drops it, the hub switches to its post-event state and
+// booking closes. So the demo never lives past 19 Sep: opened later, its clock
+// is moved back to 16 Sep at the same time of day, still ticking.
+function installClock() {
+  const RealDate = Date;
+  const realNow = RealDate.now();
+  const latestFilmable = RealDate.UTC(2026, 8, 19, 21, 59, 59);
+  if (realNow <= latestFilmable) return;
+  const target = new RealDate(realNow);
+  target.setUTCFullYear(2026, 8, 16);
+  const offset = target.getTime() - realNow;
+  class DemoDate extends RealDate {
+    constructor(...args: unknown[]) {
+      if (args.length === 0) super(RealDate.now() + offset);
+      else super(...(args as [string | number | Date]));
+    }
+    static now() { return RealDate.now() + offset; }
+  }
+  (window as unknown as { Date: DateConstructor }).Date = DemoDate as unknown as DateConstructor;
+}
+
 export function installDemo(storageKey: string) {
   if (installed) return;
   installed = true;
+  installClock();
   seedSession(storageKey);
+  // The cookie bar would sit at the bottom of every shot.
+  try { if (!localStorage.getItem('cookie_consent')) localStorage.setItem('cookie_consent', 'declined'); } catch { /* ignore */ }
 
   const original = window.fetch.bind(window);
   window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {

@@ -31,15 +31,38 @@ export function buildSeed(): Db {
     social_media_links: 'https://www.linkedin.com/company/marina-porto-velaria', marina_subtype: 'in_operation',
     auto_approve_domain_joins: false, claim_code: null, investment_geographies: null, investment_size_min: null,
     investment_size_max: null, investment_hold_period: null, investment_thesis: null, featured_partner: false,
-    gallery: [], is_event_media_partner: false, created_at: '2026-04-16T09:08:44Z', updated_at: T0,
+    gallery: ['scenes/aerial.png', 'scenes/evening.png', 'scenes/superyacht.png', 'scenes/sustainability.png'].map(assetUrl),
+    is_event_media_partner: false, created_at: '2026-04-16T09:08:44Z', updated_at: T0,
   }];
+
+  // Two colleagues on the marina's team, so the organisation and public profile
+  // show a real team and the attendee list shows people with accounts.
+  const TEAM = [
+    { id: 'usr-giulia-ferraro', first_name: 'Giulia', last_name: 'Ferraro', job_title: 'Sustainability Manager', email: 'giulia.ferraro@marinaportovelaria.com', avatar: 'avatars/avatar-15.png', joined_at: '2026-04-20T10:00:00Z' },
+    { id: 'usr-marco-bellini', first_name: 'Marco', last_name: 'Bellini', job_title: 'Harbour Master', email: 'marco.bellini@marinaportovelaria.com', avatar: 'avatars/avatar-16.png', joined_at: '2026-04-22T10:00:00Z' },
+  ];
+  for (const m of TEAM) {
+    profiles.push({
+      user_id: m.id, persona: 'marina', access_status: 'verified', onboarding_status: 'completed', first_name: m.first_name,
+      last_name: m.last_name, email: m.email, job_title: m.job_title, avatar_url: assetUrl(m.avatar), notification_prefs: {},
+      rejection_reason: null, created_at: m.joined_at, updated_at: m.joined_at,
+    });
+  }
 
   const organization_members: Row[] = [
     { id: 'om-demo-owner', organization_id: O.id, user_id: U.id, role: 'owner', joined_at: '2026-04-16T09:08:44Z' },
+    ...TEAM.map(m => ({ id: `om-${m.id}`, organization_id: O.id, user_id: m.id, role: 'collaborator', joined_at: m.joined_at })),
   ];
 
+  const organization_future_plans: Row[] = [
+    ['electrical-energy-systems', 'immediate'],
+    ['floating-structures-pontoons', '3-12months'],
+    ['ict-smart-marina-solutions', '0-3months'],
+    ['waste-management-water-treatment', '1-3years'],
+  ].map(([slug, timeline]) => ({ organization_id: O.id, sector_id: sectorId(slug), timeline }));
+
   const organization_marina_details: Row[] = [{
-    organization_id: O.id, marina_type: 'in_operation', completion_date: '1998-06-01', berths_count: 420,
+    organization_id: O.id, marina_type: 'yacht', completion_date: '1998-06-01', berths_count: 420,
     superyacht_berths: 18, longest_berth_meters: 90, fresh_water_available: true, mix_range_boats: true,
     mix_range_description: 'From 8 m day boats to 90 m superyachts', certifications: ['Blue Flag', 'ISO 14001'],
     certifications_other: null, has_yacht_club: true, yacht_club_members: 310, has_sailing_school: true,
@@ -123,8 +146,8 @@ export function buildSeed(): Db {
 
   const sm_attendee: Row[] = [
     { id: 'att-luca', registration_id: REG, event_id: EV, first_name: U.first_name, last_name: U.last_name, email: U.email, job_title: U.job_title, user_id: U.id, is_primary: true, attending: true, dietary: null, accessibility: null, created_at: '2026-06-18T08:30:00Z', updated_at: '2026-09-02T10:12:00Z' },
-    { id: 'att-giulia', registration_id: REG, event_id: EV, first_name: 'Giulia', last_name: 'Ferraro', email: 'giulia.ferraro@marinaportovelaria.com', job_title: 'Sustainability Manager', user_id: null, is_primary: false, attending: true, dietary: 'Vegetarian', accessibility: null, created_at: '2026-07-02T09:00:00Z', updated_at: '2026-09-02T10:12:00Z' },
-    { id: 'att-marco', registration_id: REG, event_id: EV, first_name: 'Marco', last_name: 'Bellini', email: 'marco.bellini@marinaportovelaria.com', job_title: 'Harbour Master', user_id: null, is_primary: false, attending: true, dietary: null, accessibility: null, created_at: '2026-07-02T09:05:00Z', updated_at: '2026-09-02T10:12:00Z' },
+    { id: 'att-giulia', registration_id: REG, event_id: EV, first_name: 'Giulia', last_name: 'Ferraro', email: 'giulia.ferraro@marinaportovelaria.com', job_title: 'Sustainability Manager', user_id: 'usr-giulia-ferraro', is_primary: false, attending: true, dietary: 'Vegetarian', accessibility: null, created_at: '2026-07-02T09:00:00Z', updated_at: '2026-09-02T10:12:00Z' },
+    { id: 'att-marco', registration_id: REG, event_id: EV, first_name: 'Marco', last_name: 'Bellini', email: 'marco.bellini@marinaportovelaria.com', job_title: 'Harbour Master', user_id: 'usr-marco-bellini', is_primary: false, attending: true, dietary: null, accessibility: null, created_at: '2026-07-02T09:05:00Z', updated_at: '2026-09-02T10:12:00Z' },
   ];
 
   const sm_payment: Row[] = [{
@@ -224,7 +247,7 @@ export function buildSeed(): Db {
     organization_members: [...organization_members, ...eco.organization_members],
     organization_interest_sectors: [...organization_interest_sectors, ...eco.organization_interest_sectors],
     organization_service_sectors: eco.organization_service_sectors,
-    organization_marina_details, organization_future_plans: [], organization_invitations: [],
+    organization_marina_details, organization_future_plans, organization_invitations: [],
     organization_tier_config: TIERS, sectors: SECTORS,
     sm_event, sm_registration, sm_role_assignment, sm_role_requirement: MARINA_REQUIREMENTS, sm_session,
     sm_workshop_booking, sm_feedback_question: FEEDBACK_QUESTIONS, sm_feedback_response: [], sm_fee_config: FEES,

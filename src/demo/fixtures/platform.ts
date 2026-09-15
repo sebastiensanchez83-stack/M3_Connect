@@ -118,6 +118,22 @@ export function platformRows() {
     { id: 'evt-webinar-shore-power', title: 'Webinar — Shore Power at Scale: Lessons from Mediterranean Marinas', description: 'Operators who electrified their outer moles share costs, grid constraints and what they would do differently.', date_time: '2026-10-14T14:00:00Z', end_date_time: '2026-10-14T15:00:00Z', location: 'Online', language: 'EN', access_level: 'members', speakers: [], replay_url: null, created_at: '2026-09-01T09:00:00Z', pdf_url: null, fees: null, max_attendance: null, location_details: {}, event_type: 'webinar', event_website_url: null, event_partners: [], brochure_url: null, invitation_only: false, is_full_day: false, published: true, meeting_url: null },
   ];
 
+  // Sector tags drive "Recommended for you" on the home page and dashboard.
+  const resource_sectors: Row[] = [
+    ['652fc78f-be3b-4631-8ad2-e09237167459', 'ict-smart-marina-solutions'],
+    ['0490b614-42c8-42eb-b1dc-8c4894adfc67', 'ict-smart-marina-solutions'],
+    ['93f75e35-ef4a-4cf5-8391-e316821de9c1', 'environmental-sustainability'],
+    ['6a35b4f1-a141-42e2-b459-39810dedc4e5', 'electrical-energy-systems'],
+  ].map(([resource_id, slug]) => ({ resource_id, sector_id: sectorId(slug) }));
+
+  const event_sectors: Row[] = [
+    ['f55f7b2f-96ac-4c5e-b620-358624e52240', 'environmental-sustainability'],
+    ['f55f7b2f-96ac-4c5e-b620-358624e52240', 'ict-smart-marina-solutions'],
+    ['evt-webinar-shore-power', 'electrical-energy-systems'],
+  ].map(([event_id, slug]) => ({ event_id, sector_id: sectorId(slug) }));
+
+  events.push({ id: 'evt-webinar-data-kpis', title: 'Webinar — Common KPIs for Smart Marinas', description: 'How a shared set of operational and environmental indicators lets marinas benchmark themselves and report to lenders.', date_time: '2026-06-10T14:00:00Z', end_date_time: '2026-06-10T15:00:00Z', location: 'Online', language: 'EN', access_level: 'public', speakers: [], replay_url: null, created_at: '2026-05-01T09:00:00Z', pdf_url: null, fees: null, max_attendance: null, location_details: {}, event_type: 'webinar', event_website_url: null, event_partners: [], brochure_url: null, invitation_only: false, is_full_day: false, published: true, meeting_url: null });
+
   const event_registrations: Row[] = [
     { id: 'er-sm26', event_id: 'f55f7b2f-96ac-4c5e-b620-358624e52240', user_id: U.id, organization_id: O.id, registration_type: 'exhibitor', payment_status: 'paid', amount_due: 1650, invoice_reference: 'SM26-0142', registered_by: U.id, amount_due_cents: 165000, guest_email: null, guest_first_name: null, guest_last_name: null, guest_company: null, reminder_sent_at: null, created_at: '2026-06-18T08:30:00Z' },
   ];
@@ -125,5 +141,6 @@ export function platformRows() {
   return {
     organizations, profiles, organization_members, organization_service_sectors, organization_interest_sectors,
     partner_requests, profile_views, rfps, consultations, marina_projects: [] as Row[], resources, events, event_registrations,
+    resource_sectors, event_sectors,
   };
 }

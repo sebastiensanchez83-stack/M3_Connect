@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback, useRef, ReactNode } from 'react'
 import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
-import { supabase, setAuthListener } from '@/lib/supabase'
+import { supabase, setAuthListener, SUPABASE_STORAGE_KEY } from '@/lib/supabase'
 import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 import { getStoredInvite } from '@/lib/invite-store'
 import { notifyAdmin } from '@/lib/notifications'
@@ -236,7 +236,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'INITIAL_SESSION') {
           initializedRef.current = true
           if (!newSession) {
-            const storageKey = `sb-${new URL(import.meta.env.VITE_SUPABASE_URL || '').hostname.split('.')[0]}-auth-token`
+            const storageKey = SUPABASE_STORAGE_KEY
             const stored = localStorage.getItem(storageKey)
             if (stored) {
               if (import.meta.env.DEV) console.warn('[AuthContext] INITIAL_SESSION null but token in storage — retrying in 2s')

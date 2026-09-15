@@ -7,7 +7,23 @@ export default defineConfig({
   // Keep Vite's dependency-optimization cache OUT of the Dropbox-synced
   // node_modules/.vite folder to avoid EBUSY file-lock errors during dev.
   cacheDir: path.join(os.tmpdir(), 'vite-m3connect'),
-  plugins: [react()],
+  // Demo branch: the artwork sources being rendered under _src must not reload the app.
+  server: { watch: { ignored: ['**/public/demo-assets/_src/**'] } },
+  plugins: [
+    react(),
+    // Demo branch: fixture images requested through the fake Storage URL are
+    // plain files under public/demo-assets (Netlify does the same with a rewrite).
+    {
+      name: 'demo-assets',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          const m = req.url?.match(/^\/__demo\/storage\/v1\/object\/(?:public|sign|authenticated)\/([^?]+)/);
+          if (m) req.url = `/demo-assets/${m[1]}`;
+          next();
+        });
+      },
+    },
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

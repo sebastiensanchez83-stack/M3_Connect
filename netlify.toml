@@ -50,6 +50,12 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
 
+# Demo branch: fake Storage URLs resolve to the fixture images shipped with the site.
+[[redirects]]
+  from = "/__demo/storage/v1/object/:kind/*"
+  to = "/demo-assets/:splat"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

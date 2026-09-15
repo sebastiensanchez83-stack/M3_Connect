@@ -11,5 +11,7 @@
 // Note: this gates the PUBLIC participant surfaces only. The admin console
 // (/admin/sm26/*) stays available to staff (it's already behind requireModerator)
 // so M3 can prepare the event before the public launch.
+import { DEMO_MODE } from '@/demo/demoMode';
+
 export const SM26_ENABLED: boolean =
-  import.meta.env.DEV || import.meta.env.VITE_SM26_ENABLED === 'true';
+  DEMO_MODE || import.meta.env.DEV || import.meta.env.VITE_SM26_ENABLED === 'true';

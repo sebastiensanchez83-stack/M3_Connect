@@ -1,23 +1,32 @@
 /// <reference types="vite/client" />
 
 import { createClient, AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { DEMO_MODE, DEMO_API_BASE } from '@/demo/demoMode';
+import { demoFetch, installDemo } from '@/demo/fetch';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Demo branch: the client talks to the in-browser fake backend (src/demo) and
+// never to the real project, whatever the build environment contains.
+const supabaseUrl = DEMO_MODE ? DEMO_API_BASE : import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = DEMO_MODE ? 'demo-anon-key' : import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be set.');
 }
 
+// Storage key for the session — clearing this key logs the user out
+export const SUPABASE_STORAGE_KEY = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`;
+
+if (DEMO_MODE) installDemo(SUPABASE_STORAGE_KEY);
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    detectSessionInUrl: true,
+    detectSessionInUrl: !DEMO_MODE,
     persistSession: true,
     autoRefreshToken: true,
     flowType: 'pkce',
-    // Storage key for the session — clearing this key logs the user out
-    storageKey: `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`,
+    storageKey: SUPABASE_STORAGE_KEY,
   },
+  ...(DEMO_MODE ? { global: { fetch: demoFetch } } : {}),
 });
 
 // ─── Module-level auth subscription ─────────────────────────────────

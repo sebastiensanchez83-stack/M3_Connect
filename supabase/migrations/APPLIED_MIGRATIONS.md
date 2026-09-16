@@ -901,3 +901,43 @@ alter table public.sm_connection drop constraint if exists sm_connection_has_tar
 alter table public.sm_connection drop column if exists to_pass_id, drop column if exists from_pass_id;
 drop table if exists public.sm_networking_pass;
 ```
+
+## sm26_public_name_vote — 16 September 2026
+
+Full SQL in [`20260916120000_sm26_public_name_vote.sql`](./20260916120000_sm26_public_name_vote.sql).
+
+The audience vote without an account. `/sm26/vote` is a **static QR in the event
+presentation**: public, outside `SM26_ENABLED`, never renamed. A voter types first
+and last name; `sm_public_cast_votes` matches it (`sm_vote_match`: accent/case/order
+blind, unique matches only) against **frozen, staff-owned lists** —
+`sm_vote_voter` (attending people on confirmed registrations, plus names added at
+the desk) and `sm_vote_entry` (the ballot). Both are copies: a registrant editing
+their roster, or a new 'submitted' startup registration, changes nothing until
+staff preview and apply `sm_admin_vote_sync` (Admin → Awards → Voter list & ballot).
+**Re-sync after importing the final attendee list.**
+
+Rules the server enforces: one vote per name per prize; a phone (random key in
+localStorage, stored hashed) and a name bind to each other on the first vote,
+across prizes; choices are validated before the name is looked up, so probing
+names costs a real vote; 8 misses per phone / 300 per network per 10 minutes
+(`sm_admin_vote_reset_limits` clears them). Staff can cancel all of a person's
+votes and block the phone (`sm_admin_vote_void`), add a missing voter, and record
+a vote for someone without a phone (`sm_admin_vote_cast_for`).
+
+Results stay with staff: `sm_vote_tally` is staff-only, attendees read only
+confirmed `sm_award` rows, `sm_award_results` skips parked awards. The
+account-based `sm_cast_vote` and the live `sm_vote_ballot` now raise.
+
+Undo (only before anyone votes):
+```sql
+drop function if exists public.sm_public_cast_votes(text, text, text, jsonb), public.sm_public_ballot(text),
+  public.sm_public_vote_status(), public.sm_vote_is_live(uuid, text), public.sm_admin_vote_sync(boolean),
+  public.sm_admin_vote_check_name(text, text), public.sm_admin_vote_add_voter(text, text, text),
+  public.sm_admin_vote_desk_list(), public.sm_admin_vote_remove_voter(uuid),
+  public.sm_admin_vote_cast_for(text, text, jsonb), public.sm_admin_vote_reset_limits(),
+  public.sm_vote_ip_hash(uuid), public.sm_vote_match(uuid, text, text), public.sm_vote_tokens(text);
+-- then restore sm_cast_vote, sm_vote_ballot, sm_vote_tally, sm_award_results,
+-- sm_admin_vote_voters, sm_admin_vote_void(uuid) and the sm_award_read policy from
+-- before 16 Sep, drop the added sm_public_vote columns/indexes, and:
+drop table if exists public.sm_vote_blocked_device, public.sm_vote_attempt, public.sm_vote_entry, public.sm_vote_voter;
+```

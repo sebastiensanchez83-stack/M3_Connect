@@ -129,7 +129,6 @@ function App() {
                       for the ones who score on paper and post it back. */}
                   <Route path="/sm26/jury/architecture" element={<SM26ArchitectureReviewPage />} />
                   <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
-                  <Route path="/sm26/vote" element={<ProtectedRoute><SM26VotePage /></ProtectedRoute>} />
                   <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
                   <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
                   <Route path="/sm26/claim" element={<SM26ClaimPage />} />
@@ -144,6 +143,10 @@ function App() {
                   tables (/sm26/connect?c=<token>): same rules as /sm26 — public,
                   outside the flag, never renamed. */}
               <Route path="/sm26/connect" element={<SM26ConnectPage />} />
+              {/* The audience vote. This URL is a STATIC QR in the event
+                  presentation: public (no account — voters type their name),
+                  outside the flag, never renamed. */}
+              <Route path="/sm26/vote" element={<SM26VotePage />} />
               {/* Partner consoles (Yacht Club + Yachting Ventures) stay reachable
                   pre-launch like /admin/sm26 — access is enforced server-side by
                   sm_is_event_partner / sm_is_yv, so non-partners just see "no access". */}

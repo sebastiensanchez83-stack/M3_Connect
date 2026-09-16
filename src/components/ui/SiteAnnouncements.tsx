@@ -80,7 +80,7 @@ export function AnnouncementPopup() {
   const [visible, setVisible] = useState(false);
   // /sm26 is the page behind the badge QR: nothing should cover it on arrival.
   const skip = pathname.startsWith('/admin') || pathname.startsWith('/welcome') || pathname.startsWith('/reset-password') || pathname.startsWith('/sm26/connect')
-    || pathname.toLowerCase().replace(/\/+$/, '') === '/sm26';
+    || pathname.startsWith('/sm26/vote') || pathname.toLowerCase().replace(/\/+$/, '') === '/sm26';
   const ann = useAnnouncement('announcement_popup', !skip);
 
   // Small delay so the popup doesn't compete with the page paint.

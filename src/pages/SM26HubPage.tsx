@@ -89,20 +89,19 @@ export function SM26HubPage() {
     return () => { alive = false; clearInterval(t); };
   }, []);
 
-  // Voting needs an account (sm_vote_config is readable by signed-in users only),
-  // so the tile appears for them, and only while a competition is open.
-  // Keyed on the id so returning to the tab doesn't refetch.
+  // The audience vote needs no account: the tile shows for everyone while staff
+  // have a prize open, checked every minute so it appears soon after opening.
   useEffect(() => {
-    if (!user?.id || !eventId) { setVoteOpen(false); return; }
     let alive = true;
     const check = async () => {
-      const { data } = await supabase.from('sm_vote_config').select('competition').eq('event_id', eventId).eq('is_open', true).limit(1);
-      if (alive) setVoteOpen(!!data && data.length > 0);
+      const { data } = await supabase.rpc('sm_public_vote_status');
+      const open = (data as { open?: string[] } | null)?.open;
+      if (alive && Array.isArray(open)) setVoteOpen(open.length > 0);
     };
     check();
-    const t = setInterval(check, 2 * 60_000);
+    const t = setInterval(check, 60_000);
     return () => { alive = false; clearInterval(t); };
-  }, [user?.id, eventId]);
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30_000);

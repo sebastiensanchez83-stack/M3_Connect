@@ -322,12 +322,12 @@ export function AdminBannerDetail() {
                   <div className="flex flex-col items-center gap-2">
                     <ImageIcon className="h-8 w-8 text-gray-400" />
                     <span className="text-sm text-gray-600">Click to upload banner image</span>
-                    <span className="text-xs text-gray-400">JPEG, PNG, WebP — Max 10MB — Recommended: 1200×300 (4:1 ratio) — All placements</span>
+                    <span className="text-xs text-gray-400">JPEG, PNG, WebP, GIF (animated OK) — Max 10MB — Recommended: 1200×300 (4:1 ratio) — All placements</span>
                   </div>
                 )}
                 <input
                   type="file"
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
                   className="hidden"
                   onChange={async (e) => {
                     const file = e.target.files?.[0];

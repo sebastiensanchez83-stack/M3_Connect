@@ -12,7 +12,10 @@ import QRCode from "https://esm.sh/qrcode@1.5.4";
 // door behind a free third party AND behind the recipient's remote-image
 // setting -- which most mail clients block by default. It is now generated here
 // and attached to the message, so it travels with the mail and shows offline.
-// The token is also printed as text, so staff can type it in if an image fails.
+// It goes out twice: once inline (content_id) to render in the body, once as a
+// plain attachment — an inline part alone is not listed as a file by most
+// clients. The raw token is NOT printed: the check-in console has no field to
+// type it into, so it only puzzled people. The fallback is a name at the desk.
 //
 // Every send is written to sm_email_log (kind 'entry_qr'), so it is possible to
 // answer "who has their pass" and to chase only the people who do not.
@@ -74,8 +77,15 @@ function badgeHtml(firstName, company, checkinUrl, token) {
       <p style="text-align:center;margin:24px 0">
         <img src="cid:entryqr" alt="Entry QR code" width="240" height="240" style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff" />
       </p>
-      <p style="font-size:13px;color:#6b7280;text-align:center">Keep this handy on your phone — you can screenshot it. It's unique to you.</p>
-      <p style="font-size:12px;color:#9ca3af;text-align:center;margin-top:18px">If the code does not appear, show this reference to our team instead:<br><span style="font-family:monospace;font-size:13px;color:#374151;letter-spacing:1px">${token}</span></p>
+      <p style="font-size:13px;color:#6b7280;text-align:center">Keep this handy on your phone — you can screenshot it, or open the attached <strong>entry-pass.png</strong>. It's unique to you.</p>
+
+      <div style="margin:24px 0 4px;padding:16px 18px;background:#f1f5f9;border-left:4px solid #0b2653;border-radius:6px">
+        <div style="font-size:15px;font-weight:700;color:#0b2653;margin-bottom:8px">No QR? Just give your name at the entrance.</div>
+        <p style="margin:0 0 10px;font-size:14px;color:#334155">Our team has the full guest list — giving your first and last name at the desk works exactly the same as scanning.</p>
+        <p style="margin:0 0 6px;font-size:14px;color:#334155"><strong>Where:</strong> 3rd floor, Yacht Club de Monaco.</p>
+        <p style="margin:0 0 6px;font-size:14px;color:#334155"><strong>Doors open at 2 pm</strong> on Sunday 20 September — you are very welcome to arrive earlier.</p>
+        <p style="margin:0;font-size:14px;color:#334155"><strong>Exhibitors:</strong> stand set-up is from 8 am to 11 am.</p>
+      </div>
     </div>
   </div>`;
 }
@@ -157,9 +167,18 @@ Deno.serve(async (req) => {
         body: JSON.stringify({
           from: SENDER_EMAIL,
           to: [email],
+          reply_to: "contact@smartmarinaconnect.com",
           subject: `Your entry pass — ${EVENT}`,
           html: badgeHtml(r.first_name || "", reg?.company_name || "", checkinUrl, tok),
-          attachments: [{ filename: "entry-pass.png", content: png, content_type: "image/png", content_id: "entryqr" }],
+          // Twice on purpose. A part carrying a content_id is INLINE: it renders
+          // inside the body but most clients then do not list it as an attachment
+          // (that is why the first test mail looked like it had no file). So the
+          // same PNG is sent again without a content_id, as a real attachment
+          // people can open, save or show at the door.
+          attachments: [
+            { filename: "qr-inline.png", content: png, content_type: "image/png", content_id: "entryqr" },
+            { filename: "entry-pass.png", content: png, content_type: "image/png" },
+          ],
         }),
       });
       if (resp.ok) {

@@ -275,7 +275,10 @@ export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) 
                             className={`text-left rounded-xl border p-3 flex items-center justify-between gap-3 transition-all ${selected ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'border-gray-200 bg-white hover:border-primary/40'}`}>
                             <span className="min-w-0">
                               <span className="block font-semibold text-gray-900">{e.title}</span>
-                              {e.subtitle && <span className="block text-[11px] uppercase tracking-wide text-gray-400">{e.subtitle}</span>}
+                              {/* What the entry actually does, so a voter who did not catch every
+                                  pitch can still choose. Two lines: enough to recognise, short
+                                  enough that 32 of them stay scrollable on a phone. */}
+                              {e.subtitle && <span className="block text-xs text-gray-500 mt-0.5 leading-snug line-clamp-2">{e.subtitle}</span>}
                             </span>
                             {selected && <Check className="h-5 w-5 text-primary shrink-0" />}
                           </button>

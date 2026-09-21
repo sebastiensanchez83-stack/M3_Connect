@@ -13,10 +13,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 //    can land on the form itself, which is what a reader expects from "Give my
 //    feedback".
 //
-// 2. Answering needs an account, and on SM26 about 40% of the people on site
-//    were added from the organiser's own list and never had one. They cannot
-//    be silently dropped, so the mail offers the reply-to as a way in: a
-//    human reads it. reply_to is set for exactly that reason.
+// 2. Answering no longer needs an account (sm_feedback_submit_public): about
+//    40% of the people on site were added from the organiser's own list and
+//    never had one, so the form takes a name and an email instead. The mail
+//    says so, and still offers reply-to for anyone who would rather just
+//    write back — a human reads it.
 //
 // Recipients are ATTENDEES (each named person), not registration contacts —
 // the same list the entry passes went to, minus the organising team, whose
@@ -68,8 +69,8 @@ function feedbackHtml(firstName) {
       <p style="text-align:center;margin:28px 0">
         <a href="${SITE_URL}/sm26/feedback" style="background:#0b2653;color:#fff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:700;display:inline-block">Give my feedback</a>
       </p>
-      <p style="font-size:13px;color:#6b7280">The button opens the form directly. You will be asked to sign in with this email address — the one this message was sent to.</p>
-      <p style="font-size:13px;color:#6b7280">No account, or would rather not create one? Just <strong>reply to this email</strong> and tell us in your own words — someone reads every answer.</p>
+      <p style="font-size:13px;color:#6b7280">The button opens the form directly. <strong>No account needed</strong> — you can either sign in, or simply give your name and email and start answering.</p>
+      <p style="font-size:13px;color:#6b7280">Prefer to tell us in your own words? Just <strong>reply to this email</strong> — someone reads every answer.</p>
       <p style="margin-top:22px">Thank you,<br>The M3 Monaco team</p>
     </div>
   </div>`;

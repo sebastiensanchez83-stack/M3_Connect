@@ -30,6 +30,9 @@ interface Response {
   user_id: string | null; name: string; company: string; email: string | null;
   country: string | null; roles: string | null; paid: boolean | null; attended: boolean | null;
   answers: Record<string, AnswerValue>; submitted_at: string;
+  // Answered with a name and an email instead of signing in — most of the
+  // people on site had no account, so this is the majority path, not an edge.
+  no_account?: boolean;
 }
 
 export function AdminSM26Feedback() {

@@ -4,6 +4,7 @@ import { Star, Loader2, CheckCircle, RefreshCw, ChevronLeft, ChevronRight } from
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/contexts/AuthContext';
@@ -59,9 +60,15 @@ export function SM26FeedbackPage({ preview = false }: { preview?: boolean } = {}
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
+  // Answering without an account: who they say they are. Set once, from the
+  // card below, and from then on the page behaves exactly as for a signed-in
+  // participant — same questions, same steps, same submit button.
+  const [guest, setGuest] = useState<{ first: string; last: string; email: string } | null>(null);
+  const [guestMode, setGuestMode] = useState(false);
+  const [guestForm, setGuestForm] = useState({ first: '', last: '', email: '' });
   const [step, setStep] = useState(0);
 
-  useEffect(() => { if (user) load(); /* eslint-disable-next-line */ }, [user]);
+  useEffect(() => { if (user || guest) load(); /* eslint-disable-next-line */ }, [user, guest]);
 
   const load = async () => {
     setLoading(true);
@@ -74,9 +81,9 @@ export function SM26FeedbackPage({ preview = false }: { preview?: boolean } = {}
         .select('key,label,kind,required,display_order,section,help,options').eq('event_id', eid).order('display_order'),
       // A preview starts blank — showing the admin their own answers would be
       // a rehearsal of the wrong play.
-      preview
+      preview || !user
         ? Promise.resolve({ data: null })
-        : supabase.from('sm_feedback_response').select('answers').eq('event_id', eid).eq('user_id', user!.id).maybeSingle(),
+        : supabase.from('sm_feedback_response').select('answers').eq('event_id', eid).eq('user_id', user.id).maybeSingle(),
       // The programme itself, so "remarks on the sessions" never lists last
       // year's conference titles.
       supabase.rpc('sm_agenda', { p_event_id: eid }),
@@ -111,7 +118,36 @@ export function SM26FeedbackPage({ preview = false }: { preview?: boolean } = {}
       toast({ title: 'One question still needs an answer', description: missing[0].label, variant: 'destructive' });
       return;
     }
-    if (!eventId || !user) return;
+    if (!eventId) return;
+
+    // Answering without an account: the row is keyed on the email, so coming
+    // back with the same address revises rather than doubles.
+    if (!user && guest) {
+      setSaving(true);
+      const { data, error } = await supabase.rpc('sm_feedback_submit_public', {
+        p_first: guest.first, p_last: guest.last, p_email: guest.email, p_answers: answers,
+      });
+      setSaving(false);
+      if (error) { toast({ title: 'Could not submit', description: error.message, variant: 'destructive' }); return; }
+      const r = data as { ok: boolean; error?: string };
+      if (!r?.ok) {
+        toast({
+          title: 'Could not submit',
+          description: r?.error === 'already_answered_signed_in'
+            ? 'This address already answered from a signed-in account — sign in to change that answer.'
+            : r?.error === 'bad_email' ? 'Please check the email address.'
+            : r?.error === 'need_first_and_last_name' ? 'Please give both your first and last name.'
+            : 'Please try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      setDone(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+
+    if (!user) return;
     const uid = await requireFreshSession();
     if (!uid) return;
     setSaving(true);
@@ -132,19 +168,63 @@ export function SM26FeedbackPage({ preview = false }: { preview?: boolean } = {}
   // signs people in itself instead of being wrapped in ProtectedRoute — that
   // bounced a logged-out reader to the home page and dropped the destination.
   // Signing in here re-runs the load effect and the form appears in place.
-  if (!user && !preview) return (
+  const startAsGuest = () => {
+    const first = guestForm.first.trim(), last = guestForm.last.trim(), email = guestForm.email.trim();
+    if (!first || !last) { toast({ title: 'Please give both your first and last name', variant: 'destructive' }); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast({ title: 'Please check the email address', variant: 'destructive' }); return; }
+    setGuest({ first, last, email });
+  };
+
+  // Most of the people who were on site were added from the organiser's list
+  // and have no account at all. Two doors, then: sign in, or give a name and an
+  // email. Both land on the same questionnaire.
+  if (!user && !guest && !preview) return (
     <div className="container mx-auto px-4 py-10 max-w-md">
       <SM26BackLink />
       <Card className="mt-4">
         <CardHeader>
           <CardTitle>Your feedback</CardTitle>
-          <CardDescription>Sign in with the email address the invitation was sent to, and the form opens straight away.</CardDescription>
+          <CardDescription>
+            {guestMode
+              ? 'Tell us who you are and the form opens straight away.'
+              : 'Sign in with the email address the invitation was sent to — or answer without an account.'}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <LoginForm onSuccess={() => { /* the auth change reloads the form below */ }} />
-          <p className="text-xs text-gray-500 border-t pt-3">
-            No account? Simply reply to the email we sent you and tell us in your own words — someone reads every answer.
-          </p>
+          {guestMode ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">First name</Label>
+                  <Input className="mt-1 h-11" autoComplete="given-name" value={guestForm.first}
+                    onChange={e => setGuestForm(f => ({ ...f, first: e.target.value }))} />
+                </div>
+                <div>
+                  <Label className="text-xs">Last name</Label>
+                  <Input className="mt-1 h-11" autoComplete="family-name" value={guestForm.last}
+                    onChange={e => setGuestForm(f => ({ ...f, last: e.target.value }))} />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Email</Label>
+                <Input className="mt-1 h-11" type="email" autoComplete="email" value={guestForm.email}
+                  onChange={e => setGuestForm(f => ({ ...f, email: e.target.value }))} />
+                <p className="text-[11px] text-gray-400 mt-1">Only so we can tell answers apart and come back to you if you ask us to.</p>
+              </div>
+              <Button className="w-full h-11" onClick={startAsGuest}>Start the form</Button>
+              <button type="button" className="w-full text-xs text-gray-500 underline underline-offset-2" onClick={() => setGuestMode(false)}>
+                I have an account — sign in instead
+              </button>
+            </>
+          ) : (
+            <>
+              <LoginForm onSuccess={() => { /* the auth change reloads the form below */ }} />
+              <div className="border-t pt-3 space-y-2">
+                <p className="text-xs text-gray-500">No account? You can answer with your name and email.</p>
+                <Button variant="outline" className="w-full" onClick={() => setGuestMode(true)}>Answer without an account</Button>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -160,7 +240,12 @@ export function SM26FeedbackPage({ preview = false }: { preview?: boolean } = {}
         <CheckCircle className="h-8 w-8 text-green-600" />
       </div>
       <h1 className="text-2xl font-bold mb-2">Thank you</h1>
-      <p className="text-gray-600">Your feedback shapes the next Rendezvous. You can come back to this page and change your answers any time.</p>
+      <p className="text-gray-600">
+        Your feedback shapes the next Rendezvous.{' '}
+        {user
+          ? 'You can come back to this page and change your answers any time.'
+          : 'To change something, come back and answer again with the same email address — it replaces this one.'}
+      </p>
     </div>
   );
 

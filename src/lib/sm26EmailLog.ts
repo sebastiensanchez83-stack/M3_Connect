@@ -14,6 +14,8 @@ export const SM26_EMAIL_KIND_LABEL: Record<string, string> = {
   ecat_review_reminder: 'E-catalogue approval reminder',
   ecat_published: 'E-catalogue published',
   media_kit_ready: 'Media kit ready',
+  entry_qr: 'Entry pass (QR)',
+  feedback: 'Feedback form',
 };
 
 export interface LastEmail { kind: string; sent_at: string }

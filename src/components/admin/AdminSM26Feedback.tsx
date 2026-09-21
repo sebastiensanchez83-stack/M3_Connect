@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Plus, Trash2, Save, Star, MessageSquare, Loader2, Download, Eye, EyeOff } from 'lucide-react';
+import { RefreshCw, Plus, Trash2, Save, Star, MessageSquare, Loader2, Download, Eye, EyeOff, Send, Mail } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,8 @@ export function AdminSM26Feedback() {
   const [saving, setSaving] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendMsg, setSendMsg] = useState<string | null>(null);
   // Session remarks are stored by id; titles make them readable.
   const [sessionTitles, setSessionTitles] = useState<Record<string, string>>({});
 
@@ -289,6 +291,33 @@ export function AdminSM26Feedback() {
   const matrixQs = questions.filter(q => q.kind === 'matrix');
   const perSessionQs = questions.filter(q => q.kind === 'per_session');
 
+  // Nothing sends this on a schedule: the form goes out when staff decide the
+  // event is over. Every send is logged, so pressing it again chases only the
+  // people who have not been asked yet — which is also the recovery path if the
+  // run stops early on a long list.
+  const sendTest = async () => {
+    const { data: auth } = await supabase.auth.getUser();
+    const email = auth?.user?.email;
+    if (!email) { toast({ title: 'Your account has no email address', variant: 'destructive' }); return; }
+    setSendBusy(true); setSendMsg(null);
+    const { error } = await supabase.functions.invoke('sm26-feedback-email', { body: { test_email: email } });
+    setSendBusy(false);
+    if (error) { toast({ title: 'Test failed', description: error.message, variant: 'destructive' }); return; }
+    setSendMsg(`Test sent to ${email} — open it before sending to everyone. Nothing was logged.`);
+  };
+
+  const sendAll = async () => {
+    if (!eventId) return;
+    if (!window.confirm('Email the feedback form to every attending participant?\n\nThe M3 team is excluded, and anyone already emailed is skipped.')) return;
+    setSendBusy(true); setSendMsg(null);
+    const { data, error } = await supabase.functions.invoke('sm26-feedback-email', { body: { event_id: eventId } });
+    setSendBusy(false);
+    if (error) { toast({ title: 'Send failed', description: `${error.message} — press again, already-sent people are skipped`, variant: 'destructive' }); return; }
+    const r = data as { sent: number; failed: number; skipped: { already_sent: number; no_email: number; organising_team: number; not_confirmed: number } };
+    setSendMsg(`${r.sent} sent${r.failed ? `, ${r.failed} failed` : ''} · skipped: ${r.skipped.already_sent} already asked, ${r.skipped.no_email} with no address, ${r.skipped.organising_team} from the M3 team.`);
+    toast({ title: `Feedback form sent to ${r.sent} participant${r.sent === 1 ? '' : 's'}` });
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -300,6 +329,26 @@ export function AdminSM26Feedback() {
           </Button>
         )}
       </div>
+
+      <Card className="border-0 shadow-sm">
+        <CardContent className="p-4 space-y-3">
+          <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Send className="h-4 w-4 text-gray-400" /> Send the form to participants</div>
+          <p className="text-xs text-gray-500">
+            Goes to every attending person on a confirmed registration who has an email — the same list as the entry passes, minus the M3 team, whose ratings would otherwise land in the published averages.
+            The link opens the event page (/sm26) and its “Your feedback” tile rather than the form itself, so a signed-out reader gets a sign-in that returns them to the right place instead of a bounce to the home page.
+            Already-emailed people are skipped: if the run stops early, press it again and it picks up where it left off.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={sendBusy} onClick={sendTest}>
+              {sendBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Send a test to me
+            </Button>
+            <Button size="sm" className="gap-1.5" disabled={sendBusy} onClick={sendAll}>
+              {sendBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to all participants
+            </Button>
+          </div>
+          {sendMsg && <p className="text-xs text-gray-600">{sendMsg}</p>}
+        </CardContent>
+      </Card>
 
       {/* Charts before tables. Two cuts are here that a paper survey could never
           produce, because the answers are joined to the registration: how the

@@ -6,12 +6,12 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 //
 // Two things shape this mail:
 //
-// 1. It links to /sm26, NOT to /sm26/feedback. The form is behind
-//    ProtectedRoute, and a logged-out visitor opening it is bounced to the
-//    home page with the destination forgotten. /sm26 is public (it is the
-//    address printed on every badge QR), and its "Your feedback" tile opens a
-//    sign-in that returns to the form. Same click count for people who are
-//    signed in, no dead end for those who are not.
+// 1. It links straight to /sm26/feedback. That route used to sit behind
+//    ProtectedRoute, which bounced a logged-out reader to the home page and
+//    forgot where they were going — so the first version of this mail pointed
+//    at the hub instead. The page now handles its own sign-in, so the button
+//    can land on the form itself, which is what a reader expects from "Give my
+//    feedback".
 //
 // 2. Answering needs an account, and on SM26 about 40% of the people on site
 //    were added from the organiser's own list and never had one. They cannot
@@ -66,11 +66,11 @@ function feedbackHtml(firstName) {
       <p>Thank you for being with us at the <strong>${EVENT}</strong>, at the Yacht Club de Monaco.</p>
       <p>We would like to know how it went for you — the sessions, the people you met, what was missing. It takes about five minutes, and it genuinely shapes the next edition.</p>
       <p style="text-align:center;margin:28px 0">
-        <a href="${SITE_URL}/sm26" style="background:#0b2653;color:#fff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:700;display:inline-block">Give my feedback</a>
+        <a href="${SITE_URL}/sm26/feedback" style="background:#0b2653;color:#fff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:700;display:inline-block">Give my feedback</a>
       </p>
-      <p style="font-size:13px;color:#6b7280">The button opens the event page — the same address as the QR code on your badge. Tap <strong>Your feedback</strong> there and sign in with this email address.</p>
+      <p style="font-size:13px;color:#6b7280">The button opens the form directly. You will be asked to sign in with this email address — the one this message was sent to.</p>
       <p style="font-size:13px;color:#6b7280">No account, or would rather not create one? Just <strong>reply to this email</strong> and tell us in your own words — someone reads every answer.</p>
-      <p style="margin-top:22px">Thank you,<br>The Monaco Marina Management team</p>
+      <p style="margin-top:22px">Thank you,<br>The M3 Monaco team</p>
     </div>
   </div>`;
 }

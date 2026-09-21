@@ -130,7 +130,11 @@ function App() {
                   <Route path="/sm26/jury/architecture" element={<SM26ArchitectureReviewPage />} />
                   <Route path="/sm26/agenda" element={<SM26AgendaPage />} />
                   <Route path="/sm26/portfolio" element={<ProtectedRoute><SM26PortfolioPage /></ProtectedRoute>} />
-                  <Route path="/sm26/feedback" element={<ProtectedRoute><SM26FeedbackPage /></ProtectedRoute>} />
+                  {/* Public on purpose: the feedback email links straight here,
+                      and the page signs people in itself. Behind ProtectedRoute
+                      a logged-out reader was thrown to the home page and lost
+                      the destination. */}
+                  <Route path="/sm26/feedback" element={<SM26FeedbackPage />} />
                   <Route path="/sm26/claim" element={<SM26ClaimPage />} />
                 </>
               )}

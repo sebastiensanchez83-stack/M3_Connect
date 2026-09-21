@@ -29,7 +29,7 @@ function isProtectedRoute(pathname: string): boolean {
 // links to, and the networking landing (printed on exhibitor tables). Public, so
 // they stay reachable mid-onboarding — a redirect would drop the scanned ?c=.
 // React Router matches case-insensitively and ignores a trailing slash; so do we.
-const onsiteInfoPaths = new Set<string>(['/sm26', '/sm26/agenda', '/sm26/connect', '/sm26/vote'])
+const onsiteInfoPaths = new Set<string>(['/sm26', '/sm26/agenda', '/sm26/connect', '/sm26/vote', '/sm26/feedback'])
 const isOnsiteInfoPage = (pathname: string) => onsiteInfoPaths.has(pathname.toLowerCase().replace(/\/+$/, ''))
 
 export function AuthRedirector() {

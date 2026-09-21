@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAuth } from '@/contexts/AuthContext';
+import { LoginForm } from '@/components/auth/LoginForm';
 import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
@@ -123,7 +124,33 @@ export function SM26FeedbackPage({ preview = false }: { preview?: boolean } = {}
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  if (authLoading || loading) return (
+  if (authLoading) return (
+    <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>
+  );
+
+  // The feedback email says "Give my feedback" and lands here, so this page
+  // signs people in itself instead of being wrapped in ProtectedRoute — that
+  // bounced a logged-out reader to the home page and dropped the destination.
+  // Signing in here re-runs the load effect and the form appears in place.
+  if (!user && !preview) return (
+    <div className="container mx-auto px-4 py-10 max-w-md">
+      <SM26BackLink />
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Your feedback</CardTitle>
+          <CardDescription>Sign in with the email address the invitation was sent to, and the form opens straight away.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <LoginForm onSuccess={() => { /* the auth change reloads the form below */ }} />
+          <p className="text-xs text-gray-500 border-t pt-3">
+            No account? Simply reply to the email we sent you and tell us in your own words — someone reads every answer.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  if (loading) return (
     <div className="flex items-center justify-center h-[60vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>
   );
 

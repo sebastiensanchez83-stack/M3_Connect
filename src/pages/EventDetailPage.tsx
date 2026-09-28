@@ -114,6 +114,14 @@ export function EventDetailPage() {
       });
   }, [id]);
 
+  // Invitation-only events run on a guest list (e.g. /wys26) take requests there, with no account.
+  const [guestListPath, setGuestListPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (!id) { setGuestListPath(null); return; }
+    supabase.rpc('gl_event_slug_for', { p_event_id: id })
+      .then(({ data }) => setGuestListPath(typeof data === 'string' && data ? `/${data}` : null));
+  }, [id]);
+
   // Check if the logged-in user already has a registration for this event
   // (covers both direct registrations and guest → account upgrades via email match)
   useEffect(() => {
@@ -698,6 +706,10 @@ export function EventDetailPage() {
                   {smRegisterPath ? (
                     <Button className="w-full" onClick={() => navigate(smRegisterPath)}>
                       {t('events.register', 'Register')}
+                    </Button>
+                  ) : guestListPath ? (
+                    <Button className="w-full" onClick={() => navigate(guestListPath)}>
+                      <Lock className="h-4 w-4 mr-2" /> Request an invitation
                     </Button>
                   ) : isFull && !isUserRegistered ? (
                     <div className="flex items-center gap-2 text-amber-600 bg-amber-50 p-3 rounded-lg">

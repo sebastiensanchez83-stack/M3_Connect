@@ -30,6 +30,8 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 const AccountPage = lazyWithRetry(() => import('@/pages/AccountPage').then(m => ({ default: m.AccountPage })));
 const OnboardingPage = lazyWithRetry(() => import('@/pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })));
 const AdminPage = lazyWithRetry(() => import('@/pages/AdminPage').then(m => ({ default: m.AdminPage })));
+const GuestEventPage = lazyWithRetry(() => import('@/pages/GuestEventPage').then(m => ({ default: m.GuestEventPage })));
+const GuestInvitationPage = lazyWithRetry(() => import('@/pages/GuestInvitationPage').then(m => ({ default: m.GuestInvitationPage })));
 const MarketplacePage = lazyWithRetry(() => import('@/pages/MarketplacePage').then(m => ({ default: m.MarketplacePage })));
 const DealFlowPage = lazyWithRetry(() => import('@/pages/DealFlowPage').then(m => ({ default: m.DealFlowPage })));
 const OrganizationPublicPage = lazyWithRetry(() => import('@/pages/OrganizationPublicPage').then(m => ({ default: m.OrganizationPublicPage })));
@@ -151,6 +153,11 @@ function App() {
                   presentation: public (no account — voters type their name),
                   outside the flag, never renamed. */}
               <Route path="/sm26/vote" element={<SM26VotePage />} />
+              {/* World Yachting Summit 2026 — invitation-only guest-list event (gl_event slug wys26).
+                  Public, no account. /wys26/guest?t=<token> is the personal link in
+                  every guest email: never rename either. */}
+              <Route path="/wys26" element={<GuestEventPage slug="wys26" />} />
+              <Route path="/wys26/guest" element={<GuestInvitationPage />} />
               {/* Partner consoles (Yacht Club + Yachting Ventures) stay reachable
                   pre-launch like /admin/sm26 — access is enforced server-side by
                   sm_is_event_partner / sm_is_yv, so non-partners just see "no access". */}

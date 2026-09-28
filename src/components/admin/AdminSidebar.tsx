@@ -153,6 +153,8 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
                     ))}
                   </div>
                 )}
+                {/* Guest-list events (invitation-only) */}
+                <Item l={{ to: '/admin/guest-list/wys26', label: 'WYS 2026', icon: <Mail className="h-4 w-4" /> }} />
                 {/* Add another on-site event */}
                 <Link to="/admin/events" onClick={onNavigate} className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-primary hover:bg-gray-100 transition-colors">
                   <Plus className="h-4 w-4" /> Add on-site event

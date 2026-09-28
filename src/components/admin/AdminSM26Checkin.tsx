@@ -156,7 +156,7 @@ function tone(kind: DoorSignal): boolean {
 // can say something true instead of something hopeful. navigator.vibrate is
 // checked by its RETURN VALUE, not its existence: desktop Chrome defines it and
 // returns false, having nothing to vibrate.
-function doorSignal(kind: DoorSignal): { sound: boolean; buzz: boolean } {
+export function doorSignal(kind: DoorSignal): { sound: boolean; buzz: boolean } {
   const sound = tone(kind);
   let buzz = false;
   try { buzz = typeof navigator.vibrate === 'function' && navigator.vibrate(BUZZ[kind]); } catch { buzz = false; }
@@ -211,7 +211,7 @@ function readFrame(
 // Safari only grants getUserMedia within the user-gesture window. Debounce keeps
 // the scanner open for back-to-back scans. If the live read still fails (dim
 // light, glare on a screen), "Take a photo" decodes a full-resolution still.
-function QrScanner({ onToken, onClose, paused }: { onToken: (token: string) => void; onClose: () => void; paused?: boolean }) {
+export function QrScanner({ onToken, onClose, paused }: { onToken: (token: string) => void; onClose: () => void; paused?: boolean }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [err, setErr] = useState<string | null>(null);

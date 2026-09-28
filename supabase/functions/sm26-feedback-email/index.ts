@@ -76,6 +76,29 @@ function feedbackHtml(firstName) {
   </div>`;
 }
 
+// The reminder is deliberately shorter and does not re-explain the event: the
+// only people who receive it already had the first mail and did not answer.
+function reminderHtml(firstName) {
+  const hi = firstName ? `Dear ${firstName},` : "Hello,";
+  return `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto">
+    <div style="background:#0b2653;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0">
+      <div style="font-size:13px;opacity:.7;text-transform:uppercase;letter-spacing:.5px">${EVENT}</div>
+      <div style="font-size:20px;font-weight:700;margin-top:4px">Five minutes for the next edition?</div>
+    </div>
+    <div style="border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 8px 8px;color:#111827">
+      <p>${hi}</p>
+      <p>We are putting together what worked and what did not at the <strong>${EVENT}</strong>, and your view is still missing.</p>
+      <p>Five minutes, and it shapes the programme, the format and the venue of the next one.</p>
+      <p style="text-align:center;margin:28px 0">
+        <a href="${SITE_URL}/sm26/feedback" style="background:#0b2653;color:#fff;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:700;display:inline-block">Give my feedback</a>
+      </p>
+      <p style="font-size:13px;color:#6b7280"><strong>No account needed</strong> — give your name and email and start answering. Or simply <strong>reply to this email</strong> in your own words.</p>
+      <p style="margin-top:22px">Thank you,<br>The M3 Monaco team</p>
+    </div>
+  </div>`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors(req) });
   if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
@@ -95,6 +118,9 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return json(req, { error: "Invalid JSON" }, 400); }
   if (!RESEND_API_KEY) return json(req, { error: "Email is not configured (no RESEND_API_KEY)" }, 500);
 
+  const isReminder = body.reminder === true;
+  const kind = isReminder ? "feedback_reminder" : KIND;
+
   const send = async (to: string, firstName: string) => {
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -103,8 +129,8 @@ Deno.serve(async (req) => {
         from: SENDER_EMAIL,
         to: [to],
         reply_to: REPLY_TO,
-        subject: `How was it? — ${EVENT}`,
-        html: feedbackHtml(firstName),
+        subject: isReminder ? `Five minutes for the next edition? — ${EVENT}` : `How was it? — ${EVENT}`,
+        html: isReminder ? reminderHtml(firstName) : feedbackHtml(firstName),
       }),
     });
     if (!resp.ok) throw new Error(await resp.text());
@@ -123,28 +149,51 @@ Deno.serve(async (req) => {
   if (!body.event_id) return json(req, { error: "event_id required" }, 400);
 
   const { data, error } = await admin.from("sm_attendee")
-    .select("id, registration_id, event_id, first_name, email, registration:sm_registration!inner(status)")
+    .select("id, registration_id, event_id, first_name, email, user_id, registration:sm_registration!inner(status)")
     .eq("event_id", body.event_id)
     .eq("attending", true);
   if (error) return json(req, { error: error.message }, 500);
   const rows = data || [];
 
+  // A reminder goes to the people who have NOT answered — the point of chasing.
+  // An answer can be attached three ways: to the attendee row, to an account, or
+  // to a bare email typed on the form, so all three are collected here.
+  const answeredEmails = new Set<string>();
+  const answeredAttendees = new Set<string>();
+  const answeredUsers = new Set<string>();
+  if (isReminder) {
+    const { data: resp } = await admin.from("sm_feedback_response")
+      .select("user_id, respondent_email, attendee_id").eq("event_id", body.event_id);
+    for (const a of resp || []) {
+      if (a.respondent_email) answeredEmails.add(String(a.respondent_email).toLowerCase().trim());
+      if (a.attendee_id) answeredAttendees.add(a.attendee_id);
+      if (a.user_id) answeredUsers.add(a.user_id);
+    }
+    const ids = [...answeredUsers];
+    if (ids.length) {
+      const { data: profs } = await admin.from("profiles").select("user_id, email").in("user_id", ids);
+      for (const p of profs || []) if (p.email) answeredEmails.add(String(p.email).toLowerCase().trim());
+    }
+  }
+
   const resend = body.resend === true;
   const already = new Set<string>();
   if (!resend && rows.length) {
     const { data: log } = await admin.from("sm_email_log")
-      .select("registration_id, to_email").eq("kind", KIND)
+      .select("registration_id, to_email").eq("kind", kind)
       .in("registration_id", [...new Set(rows.map((r) => r.registration_id))]);
     for (const l of log || []) already.add(`${l.registration_id}|${(l.to_email || "").toLowerCase()}`);
   }
 
-  let sent = 0, noEmail = 0, notConfirmed = 0, staff = 0, skippedSent = 0, failed = 0;
+  let sent = 0, noEmail = 0, notConfirmed = 0, staff = 0, skippedSent = 0, answered = 0, failed = 0;
   for (const r of rows) {
     const reg = one(r.registration);
     if (reg?.status !== "confirmed") { notConfirmed++; continue; }
     const email = (r.email || "").trim();
     if (!email) { noEmail++; continue; }
     if (email.toLowerCase().endsWith(STAFF_DOMAIN)) { staff++; continue; }
+    if (isReminder && (answeredEmails.has(email.toLowerCase()) || answeredAttendees.has(r.id)
+        || (r.user_id && answeredUsers.has(r.user_id)))) { answered++; continue; }
     if (!resend && already.has(`${r.registration_id}|${email.toLowerCase()}`)) { skippedSent++; continue; }
 
     try {
@@ -152,14 +201,15 @@ Deno.serve(async (req) => {
       sent++;
       await admin.from("sm_email_log").insert({
         event_id: r.event_id, registration_id: r.registration_id,
-        kind: KIND, to_email: email, sent_by: uid,
+        kind, to_email: email, sent_by: uid,
       }).then(() => {}, (e) => console.error("feedback log failed", e));
     } catch (e) { failed++; console.error("send error", String(e)); }
   }
 
   return json(req, {
-    ok: true, sent,
-    skipped: { no_email: noEmail, not_confirmed: notConfirmed, organising_team: staff, already_sent: skippedSent },
+    ok: true, sent, reminder: isReminder,
+    skipped: { no_email: noEmail, not_confirmed: notConfirmed, organising_team: staff,
+               already_sent: skippedSent, already_answered: answered },
     failed,
   });
 });

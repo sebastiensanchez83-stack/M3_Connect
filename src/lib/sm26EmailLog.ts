@@ -16,6 +16,7 @@ export const SM26_EMAIL_KIND_LABEL: Record<string, string> = {
   media_kit_ready: 'Media kit ready',
   entry_qr: 'Entry pass (QR)',
   feedback: 'Feedback form',
+  feedback_reminder: 'Feedback reminder',
 };
 
 export interface LastEmail { kind: string; sent_at: string }

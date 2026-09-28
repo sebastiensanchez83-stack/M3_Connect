@@ -321,6 +321,21 @@ export function AdminSM26Feedback() {
     toast({ title: `Feedback form sent to ${r.sent} participant${r.sent === 1 ? '' : 's'}` });
   };
 
+  // The chase: only the people who did not answer. The first-mail log is not the
+  // right filter for that — someone can have received it and answered, or
+  // answered without ever getting it — so the function matches on answers.
+  const sendReminder = async () => {
+    if (!eventId) return;
+    if (!window.confirm('Send a reminder to the participants who have not answered yet?\n\nPeople who already replied, and the M3 team, are excluded.')) return;
+    setSendBusy(true); setSendMsg(null);
+    const { data, error } = await supabase.functions.invoke('sm26-feedback-email', { body: { event_id: eventId, reminder: true } });
+    setSendBusy(false);
+    if (error) { toast({ title: 'Reminder failed', description: `${error.message} — press again, already-reminded people are skipped`, variant: 'destructive' }); return; }
+    const r = data as { sent: number; failed: number; skipped: { already_answered: number; already_sent: number; no_email: number; organising_team: number } };
+    setSendMsg(`${r.sent} reminder${r.sent === 1 ? '' : 's'} sent${r.failed ? `, ${r.failed} failed` : ''} · skipped: ${r.skipped.already_answered} who already answered, ${r.skipped.already_sent} already reminded, ${r.skipped.no_email} with no address.`);
+    toast({ title: `Reminder sent to ${r.sent} participant${r.sent === 1 ? '' : 's'}` });
+  };
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -339,7 +354,7 @@ export function AdminSM26Feedback() {
           <p className="text-xs text-gray-500">
             Goes to every attending person on a confirmed registration who has an email — the same list as the entry passes, minus the M3 team, whose ratings would otherwise land in the published averages.
             The link opens the event page (/sm26) and its “Your feedback” tile rather than the form itself, so a signed-out reader gets a sign-in that returns them to the right place instead of a bounce to the home page.
-            Already-emailed people are skipped: if the run stops early, press it again and it picks up where it left off.
+            Already-emailed people are skipped: if the run stops early, press it again and it picks up where it left off. The reminder button chases only the people who have not answered yet.
           </p>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" variant="outline" className="gap-1.5" disabled={sendBusy} onClick={sendTest}>
@@ -347,6 +362,9 @@ export function AdminSM26Feedback() {
             </Button>
             <Button size="sm" className="gap-1.5" disabled={sendBusy} onClick={sendAll}>
               {sendBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send to all participants
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={sendBusy} onClick={sendReminder}>
+              {sendBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send a reminder to those who haven’t answered
             </Button>
           </div>
           {sendMsg && <p className="text-xs text-gray-600">{sendMsg}</p>}

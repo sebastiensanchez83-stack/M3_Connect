@@ -53,7 +53,8 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     return path.startsWith(c.to);
   };
   const onSm26 = path.startsWith('/admin/sm26');
-  const onWebinars = path.startsWith('/admin/webinars');
+  const onWebinarList = path === '/admin/events' && new URLSearchParams(location.search).get('type') === 'webinar';
+  const onWebinars = path.startsWith('/admin/webinars') || onWebinarList;
 
   // ---- Condensed bottom groups ----
   interface Group { key: string; label: string; icon: ReactNode; items: NavItem[] }
@@ -156,7 +157,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
                 {/* Guest-list events (invitation-only) */}
                 <Item l={{ to: '/admin/guest-list/wys26', label: 'WYS 2026', icon: <Mail className="h-4 w-4" /> }} />
                 {/* Add another on-site event */}
-                <Link to="/admin/events" onClick={onNavigate} className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-primary hover:bg-gray-100 transition-colors">
+                <Link to="/admin/events/new?type=on_site" onClick={onNavigate} className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-primary hover:bg-gray-100 transition-colors">
                   <Plus className="h-4 w-4" /> Add on-site event
                 </Link>
               </div>
@@ -169,7 +170,13 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
             </button>
             {open.webinars && (
               <div className="ml-2 pl-2 border-l border-gray-100 space-y-1">
+                <Link to="/admin/events?type=webinar" onClick={onNavigate} className={linkClass(onWebinarList)}>
+                  <Calendar className="h-4 w-4" />All webinars
+                </Link>
                 <Item l={{ to: '/admin/webinars', label: 'Webinar requests', icon: <Radio className="h-4 w-4" /> }} />
+                <Link to="/admin/events/new?type=webinar" onClick={onNavigate} className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-primary hover:bg-gray-100 transition-colors">
+                  <Plus className="h-4 w-4" /> Create webinar
+                </Link>
               </div>
             )}
           </>

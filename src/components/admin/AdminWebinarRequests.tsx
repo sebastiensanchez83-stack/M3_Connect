@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Plus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -172,6 +172,11 @@ export function AdminWebinarRequests() {
           {isAdmin ? t('admin.webinarRequests.title') : 'Webinar Proposals'}
           {' '}({requests.length})
         </h1>
+        {isAdmin && (
+          <Button onClick={() => navigate('/admin/events/new?type=webinar')} className="gap-1.5 ml-auto">
+            <Plus className="h-4 w-4" /> Create webinar
+          </Button>
+        )}
         {isMod && (
           <Badge variant="outline" className="text-xs">
             {t('admin.webinarRequests.filteredBySectors')}

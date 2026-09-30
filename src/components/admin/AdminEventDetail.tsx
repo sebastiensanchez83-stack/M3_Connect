@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, Save, Trash2, Loader2, Calendar, MapPin, Globe, Users,
@@ -58,6 +58,9 @@ export function AdminEventDetail() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const isNew = id === 'new';
+  // "Create webinar" / "Add on-site event" links preselect the type via ?type=.
+  const [searchParams] = useSearchParams();
+  const initialType: string = searchParams.get('type') === 'on_site' ? 'on_site' : 'webinar';
 
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
@@ -66,7 +69,7 @@ export function AdminEventDetail() {
   // Form
   const [form, setForm] = useState({
     title: '', description: '', date_time: '', end_date_time: '', location: '',
-    language: 'EN', access_level: 'public', event_type: 'webinar', replay_url: '', meeting_url: '',
+    language: 'EN', access_level: 'public', event_type: initialType, replay_url: '', meeting_url: '',
     invitation_only: false, is_full_day: false, published: true,
   });
   const [speakers, setSpeakers] = useState<{ name: string; title: string }[]>([]);
@@ -387,7 +390,7 @@ export function AdminEventDetail() {
             <ArrowLeft className="h-4 w-4" /> Events
           </Button>
           <Separator orientation="vertical" className="h-6" />
-          <h1 className="text-xl font-bold text-gray-900">{isNew ? 'Create Event' : form.title || 'Edit Event'}</h1>
+          <h1 className="text-xl font-bold text-gray-900">{isNew ? (isWebinar ? 'Create Webinar' : 'Create Event') : form.title || 'Edit Event'}</h1>
           {!isNew && event && (
             <>
               <Badge variant={isOnSite ? 'info' : 'secondary'}>

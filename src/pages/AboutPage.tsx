@@ -4,6 +4,9 @@ import { Helmet } from 'react-helmet-async';
 import { Anchor, Globe, Users, Link2, Building2, Target, Lightbulb, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { PageHero } from '@/components/ui/PageHero';
+import { MomentsStrip } from '@/components/ui/MomentsStrip';
+import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
 
 export function AboutPage() {
   const { t } = useTranslation();
@@ -14,23 +17,19 @@ export function AboutPage() {
         <title>About — Smart Marina Connect</title>
         <meta name="description" content="Learn about Smart Marina Connect, the B2B platform connecting marinas, ports and service providers in the yachting industry." />
       </Helmet>
-      {/* Hero Section */}
-      <section className="bg-gradient-to-br from-primary to-primary/80 text-white py-20">
-        <div className="container mx-auto px-4 max-w-5xl">
-          <div className="flex items-center space-x-3 mb-6">
-            <Anchor className="h-12 w-12" />
-            <h1 className="text-4xl md:text-5xl font-bold">
-              {t('about.title', 'About Smart Marina Connect')}
-            </h1>
-          </div>
-          <p className="text-xl text-white/90 max-w-3xl leading-relaxed">
-            {t(
-              'about.hero',
-              'The B2B platform dedicated to the global marina industry. We connect marinas with qualified partners and media professionals to foster collaboration, knowledge sharing, and business growth across the sector.'
-            )}
-          </p>
-        </div>
-      </section>
+      {/* Hero — the SM26 community under the event's own screen */}
+      <PageHero
+        image={SITE_IMAGES.aboutHero}
+        seed="about-hero"
+        containerClassName="max-w-5xl"
+        icon={Anchor}
+        eyebrow="Monaco Marina Management"
+        title={t('about.title', 'About Smart Marina Connect')}
+        subtitle={t(
+          'about.hero',
+          'The B2B platform dedicated to the global marina industry. We connect marinas with qualified partners and media professionals to foster collaboration, knowledge sharing, and business growth across the sector.'
+        )}
+      />
 
       {/* Mission Section */}
       <section className="py-16 bg-white">
@@ -123,50 +122,66 @@ export function AboutPage() {
               {t('about.whoWeServeTitle', 'Who We Serve')}
             </h2>
           </div>
+          {/* Photo cards: who the platform is for, shown with the people and work it serves. */}
           <div className="grid gap-8 md:grid-cols-3">
-            <div className="text-center p-6">
-              <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Anchor className="h-8 w-8 text-primary" />
+            <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
+              <div className="relative aspect-[3/2] bg-primary/5">
+                <img src={PERSONA_IMAGES.marinas} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                <span className="absolute left-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-primary shadow-sm">
+                  <Anchor className="h-5 w-5" aria-hidden="true" />
+                </span>
               </div>
-              <h3 className="text-xl font-semibold mb-3">
-                {t('about.audience1Title', 'Marinas')}
-              </h3>
-              <p className="text-gray-600">
-                {t(
-                  'about.audience1Desc',
-                  'Marina operators and managers looking for qualified partners, industry knowledge, and proven solutions to improve their operations and services.'
-                )}
-              </p>
+              <div className="p-6">
+                <h3 className="text-xl font-semibold mb-3">
+                  {t('about.audience1Title', 'Marinas')}
+                </h3>
+                <p className="text-gray-600">
+                  {t(
+                    'about.audience1Desc',
+                    'Marina operators and managers looking for qualified partners, industry knowledge, and proven solutions to improve their operations and services.'
+                  )}
+                </p>
+              </div>
             </div>
 
-            <div className="text-center p-6">
-              <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Building2 className="h-8 w-8 text-primary" />
+            <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
+              <div className="relative aspect-[3/2] bg-primary/5">
+                <img src={PERSONA_IMAGES.suppliers} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                <span className="absolute left-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-primary shadow-sm">
+                  <Building2 className="h-5 w-5" aria-hidden="true" />
+                </span>
               </div>
-              <h3 className="text-xl font-semibold mb-3">
-                {t('about.audience2Title', 'Partners')}
-              </h3>
-              <p className="text-gray-600">
-                {t(
-                  'about.audience2Desc',
-                  'Technology providers, consultants, and service companies serving the marina industry. Gain visibility, connect with marinas, and grow your business.'
-                )}
-              </p>
+              <div className="p-6">
+                <h3 className="text-xl font-semibold mb-3">
+                  {t('about.audience2Title', 'Partners')}
+                </h3>
+                <p className="text-gray-600">
+                  {t(
+                    'about.audience2Desc',
+                    'Technology providers, consultants, and service companies serving the marina industry. Gain visibility, connect with marinas, and grow your business.'
+                  )}
+                </p>
+              </div>
             </div>
 
-            <div className="text-center p-6">
-              <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Globe className="h-8 w-8 text-primary" />
+            <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
+              <div className="relative aspect-[3/2] bg-primary/5">
+                <img src={PERSONA_IMAGES.media} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                <span className="absolute left-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/95 text-primary shadow-sm">
+                  <Globe className="h-5 w-5" aria-hidden="true" />
+                </span>
               </div>
-              <h3 className="text-xl font-semibold mb-3">
-                {t('about.audience3Title', 'Media Professionals')}
-              </h3>
-              <p className="text-gray-600">
-                {t(
-                  'about.audience3Desc',
-                  'Journalists, content creators, and industry publications covering the marina and nautical sector. Access press releases, expert insights, and event coverage.'
-                )}
-              </p>
+              <div className="p-6">
+                <h3 className="text-xl font-semibold mb-3">
+                  {t('about.audience3Title', 'Media Professionals')}
+                </h3>
+                <p className="text-gray-600">
+                  {t(
+                    'about.audience3Desc',
+                    'Journalists, content creators, and industry publications covering the marina and nautical sector. Access press releases, expert insights, and event coverage.'
+                  )}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -195,6 +210,9 @@ export function AboutPage() {
           </p>
         </div>
       </section>
+
+      {/* Relive SM26 — the network in person */}
+      <MomentsStrip className="bg-white" />
 
       {/* CTA Section */}
       <section className="py-16 bg-primary text-white">

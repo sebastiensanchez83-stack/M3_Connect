@@ -1,17 +1,48 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Instagram } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { accountHref } from '@/lib/accountNav';
 
+/**
+ * The footer repeats the navigation's own names — Directory, Opportunities,
+ * Resources, Events, Partners — so a visitor who scrolls to the bottom finds
+ * the same map as at the top. The second column follows who is reading: a
+ * member gets their own area, a visitor gets the way in.
+ */
 export function Footer() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+
+  const linkClass = 'text-gray-300 hover:text-white transition-colors';
+
+  const platform = [
+    { to: '/directory', label: t('nav.directory', 'Directory') },
+    { to: '/opportunities', label: t('nav.opportunities', 'Opportunities') },
+    { to: '/resources', label: t('nav.resources') },
+    { to: '/events', label: t('nav.events') },
+    { to: '/partners', label: t('nav.partners') },
+  ];
+
+  const yours = user
+    ? [
+        { to: accountHref('dashboard'), label: t('nav.dashboard', 'Dashboard') },
+        { to: accountHref('registrations'), label: t('accountNav.registrations', 'My events') },
+        { to: accountHref('organization'), label: t('accountNav.organization', 'Organization & team') },
+        { to: accountHref('inbox'), label: t('accountNav.inbox', 'Inbox') },
+      ]
+    : [
+        { to: '/become-partner', label: t('nav.becomePartner') },
+        { to: '/tiers', label: t('footer.membershipTiers', 'Membership tiers') },
+      ];
 
   return (
     <footer className="bg-primary text-white">
       <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-8">
+        <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-6">
           {/* Logo & Tagline */}
           <div className="col-span-1 sm:col-span-2">
-            <div className="flex items-center gap-2.5 mb-4">
+            <div className="mb-4 flex items-center gap-2.5">
               <img src="/logo-white.png" alt="" aria-hidden="true" className="h-11 w-auto" />
               <span
                 className="text-xl tracking-tight"
@@ -20,96 +51,69 @@ export function Footer() {
                 Smart Marina Connect
               </span>
             </div>
-            <p className="text-gray-300 mb-4">{t('footer.tagline')}</p>
+            <p className="mb-4 text-gray-300">{t('footer.tagline')}</p>
             <div className="flex space-x-4">
               {/* LinkedIn link removed pre-launch — pending correct Smart Marina Connect company page URL */}
-              <a href="https://www.instagram.com/monacomarinamanagement/" target="_blank" rel="noopener noreferrer" className="text-gray-300 hover:text-white transition-colors" aria-label="Instagram">
+              <a href="https://www.instagram.com/monacomarinamanagement/" target="_blank" rel="noopener noreferrer" className={linkClass} aria-label="Instagram">
                 <Instagram className="h-5 w-5" />
               </a>
             </div>
           </div>
 
-          {/* Links */}
-          <div>
-            <h3 className="font-semibold mb-4">{t('footer.platform')}</h3>
-            <ul className="space-y-2">
-              <li>
-                <Link to="/resources" className="text-gray-300 hover:text-white transition-colors">
-                  {t('nav.resources')}
-                </Link>
-              </li>
-              <li>
-                <Link to="/events" className="text-gray-300 hover:text-white transition-colors">
-                  {t('nav.events')}
-                </Link>
-              </li>
-              <li>
-                <Link to="/partners" className="text-gray-300 hover:text-white transition-colors">
-                  {t('nav.partners')}
-                </Link>
-              </li>
-              <li>
-                <Link to="/become-partner" className="text-gray-300 hover:text-white transition-colors">
-                  {t('nav.becomePartner')}
-                </Link>
-              </li>
-            </ul>
-          </div>
-
-          {/* Company */}
-          <div>
-            <h3 className="font-semibold mb-4">{t('footer.company', 'Company')}</h3>
-            <ul className="space-y-2">
-              <li>
-                <Link to="/about" className="text-gray-300 hover:text-white transition-colors">
-                  {t('footer.about')}
-                </Link>
-              </li>
-              <li>
-                <Link to="/contact" className="text-gray-300 hover:text-white transition-colors">
-                  {t('footer.contact')}
-                </Link>
-              </li>
-            </ul>
-          </div>
-
-          {/* Legal */}
-          <div>
-            <h3 className="font-semibold mb-4">{t('footer.legal')}</h3>
-            <ul className="space-y-2">
-              <li>
-                <Link to="/terms" className="text-gray-300 hover:text-white transition-colors">
-                  {t('footer.terms')}
-                </Link>
-              </li>
-              <li>
-                <Link to="/privacy" className="text-gray-300 hover:text-white transition-colors">
-                  {t('footer.privacy')}
-                </Link>
-              </li>
-              <li>
-                <Link to="/mentions-legales" className="text-gray-300 hover:text-white transition-colors">
-                  {t('footer.legalNotice')}
-                </Link>
-              </li>
-              <li>
-                <Link to="/conditions-commerciales" className="text-gray-300 hover:text-white transition-colors">
-                  {t('footer.commercialTerms')}
-                </Link>
-              </li>
-              <li>
-                <Link to="/cookies" className="text-gray-300 hover:text-white transition-colors">
-                  {t('footer.cookiePolicy')}
-                </Link>
-              </li>
-            </ul>
-          </div>
+          <FooterColumn title={t('footer.platform')} links={platform} linkClass={linkClass} />
+          <FooterColumn
+            title={user ? t('footer.yourSpace', 'Your space') : t('footer.join', 'Join')}
+            links={yours}
+            linkClass={linkClass}
+          />
+          <FooterColumn
+            title={t('footer.company', 'Company')}
+            links={[
+              { to: '/about', label: t('footer.about') },
+              { to: '/contact', label: t('footer.contact') },
+            ]}
+            linkClass={linkClass}
+          />
+          <FooterColumn
+            title={t('footer.legal')}
+            links={[
+              { to: '/terms', label: t('footer.terms') },
+              { to: '/privacy', label: t('footer.privacy') },
+              { to: '/mentions-legales', label: t('footer.legalNotice') },
+              { to: '/conditions-commerciales', label: t('footer.commercialTerms') },
+              { to: '/cookies', label: t('footer.cookiePolicy') },
+            ]}
+            linkClass={linkClass}
+          />
         </div>
 
-        <div className="border-t border-gray-700 mt-8 pt-8 text-center text-gray-400 text-sm">
+        <div className="mt-8 border-t border-white/15 pt-8 text-center text-sm text-gray-300">
           {t('footer.copyright')}
         </div>
       </div>
     </footer>
+  );
+}
+
+function FooterColumn({
+  title,
+  links,
+  linkClass,
+}: {
+  title: string;
+  links: { to: string; label: string }[];
+  linkClass: string;
+}) {
+  return (
+    <nav aria-label={title}>
+      <h3 className="mb-4 font-semibold">{title}</h3>
+      <ul className="space-y-2">
+        {links.map((l) => (
+          <li key={l.to}>
+            <Link to={l.to} className={linkClass}>{l.label}</Link>
+          </li>
+        ))}
+      </ul>
+    </nav>
   );
 }

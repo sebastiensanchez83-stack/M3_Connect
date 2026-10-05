@@ -23,7 +23,7 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import {
   Menu, X, Globe, ChevronDown, Plus, Inbox,
-  Building2, UserPlus, LogOut, Settings, Shield, Ticket, Check,
+  Building2, UserPlus, LogOut, Settings, Shield, Check, LayoutDashboard,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -31,6 +31,14 @@ import {
   PUBLIC_NAV, MEMBER_NAV, DEAL_FLOW_ITEM, JOIN_ITEM, CREATE_ACTIONS,
   isNavItemActive, canCreate, type NavItem,
 } from '@/lib/nav';
+import { ACCOUNT_SECTIONS, accountHref, type AccountTab } from '@/lib/accountNav';
+import { SITE_IMAGES } from '@/lib/siteMedia';
+
+/** The avatar menu's shortcuts into the member area — the everyday ones only; the full map is the account menu. */
+const AVATAR_TABS: AccountTab[] = ['registrations', 'organization', 'profile', 'notifications'];
+const AVATAR_SECTIONS = AVATAR_TABS
+  .map((tab) => ACCOUNT_SECTIONS.find((s) => s.value === tab))
+  .filter((s): s is (typeof ACCOUNT_SECTIONS)[number] => !!s);
 
 export function Navbar() {
   const { t, i18n } = useTranslation();
@@ -277,25 +285,23 @@ export function Navbar() {
                     </>
                   )}
 
+                  {/* The same names and icons as the account menu (src/lib/accountNav.ts),
+                      so "My events" is "My events" everywhere. */}
                   <DropdownMenuGroup>
                     <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                      <Link to="/account?tab=organization" className="flex items-center gap-2.5">
-                        <Building2 className="h-4 w-4 text-gray-400" />
-                        {t('nav.myOrganization', 'My organization')}
+                      <Link to={accountHref('dashboard')} className="flex items-center gap-2.5">
+                        <LayoutDashboard className="h-4 w-4 text-gray-400" />
+                        {t('nav.dashboard', 'Dashboard')}
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                      <Link to="/account?tab=registrations" className="flex items-center gap-2.5">
-                        <Ticket className="h-4 w-4 text-gray-400" />
-                        {t('nav.myRegistrations')}
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                      <Link to="/account?tab=profile" className="flex items-center gap-2.5">
-                        <Settings className="h-4 w-4 text-gray-400" />
-                        {t('nav.myAccount')}
-                      </Link>
-                    </DropdownMenuItem>
+                    {AVATAR_SECTIONS.map((s) => (
+                      <DropdownMenuItem key={s.value} asChild className="rounded-lg cursor-pointer">
+                        <Link to={accountHref(s.value)} className="flex items-center gap-2.5">
+                          <s.icon className="h-4 w-4 text-gray-400" />
+                          {t(s.labelKey, s.fallback)}
+                        </Link>
+                      </DropdownMenuItem>
+                    ))}
                   </DropdownMenuGroup>
 
                   {/* Admin / Moderator Panel */}
@@ -458,6 +464,7 @@ export function Navbar() {
       {/* Login Dialog */}
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
         <DialogContent className="rounded-2xl">
+          <DialogPhoto src={SITE_IMAGES.homeHero.src} focusY={SITE_IMAGES.homeHero.focusY} />
           <DialogHeader>
             <DialogTitle>{t('auth.login')}</DialogTitle>
             <DialogDescription>
@@ -478,6 +485,7 @@ export function Navbar() {
       {/* Signup Dialog */}
       <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
         <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto rounded-2xl">
+          <DialogPhoto src={SITE_IMAGES.joinHero.src} focusY={SITE_IMAGES.joinHero.focusY} />
           <DialogHeader>
             <DialogTitle>{t('auth.signup')}</DialogTitle>
             <DialogDescription>
@@ -491,5 +499,26 @@ export function Navbar() {
         </DialogContent>
       </Dialog>
     </header>
+  );
+}
+
+/**
+ * A photo band across the top of the sign-in and sign-up dialogs: the SM26
+ * hall for coming back, a stand conversation for joining. It bleeds to the
+ * dialog's edges (the content has 24 px padding) and is purely decorative.
+ */
+function DialogPhoto({ src, focusY }: { src: string | null; focusY: number }) {
+  if (!src) return null;
+  return (
+    <div aria-hidden="true" className="relative -mx-6 -mt-6 mb-1 h-28 overflow-hidden rounded-t-2xl bg-primary/10">
+      <img
+        src={src}
+        alt=""
+        className="h-full w-full object-cover"
+        style={{ objectPosition: `50% ${Math.round(focusY * 100)}%` }}
+      />
+      {/* Lightens the top-right corner so the dialog's dark close (×) stays visible on the photo. */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_100%_0%,rgba(255,255,255,0.9)_0,rgba(255,255,255,0)_70px)]" />
+    </div>
   );
 }

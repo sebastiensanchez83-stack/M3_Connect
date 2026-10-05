@@ -21,6 +21,8 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { PersonaType } from '@/types/database';
 import { supabase } from '@/lib/supabase';
+import { PageHero } from '@/components/ui/PageHero';
+import { SITE_IMAGES } from '@/lib/siteMedia';
 import {
   Anchor, Building2, Newspaper, CheckCircle, ArrowRight,
   Globe, Users, Award, Shield, UserPlus, FileText, ShieldCheck, Unlock,
@@ -187,15 +189,15 @@ export function BecomePartnerPage() {
         <meta property="og:description" content="Join the B2B platform connecting marina professionals worldwide." />
       </Helmet>
 
-      {/* Hero */}
-      <section className="gradient-hero text-white py-20">
-        <div className="container mx-auto px-4 text-center">
-          <h1 className="text-4xl md:text-5xl font-bold mb-4">{t('join.heroTitle')}</h1>
-          <p className="text-xl text-gray-200 max-w-2xl mx-auto mb-8">
-            {t('join.heroSubtitle')}
-          </p>
-        </div>
-      </section>
+      {/* Hero — a conversation at an SM26 stand: the network, in person */}
+      <PageHero
+        image={SITE_IMAGES.joinHero}
+        seed="join-hero"
+        icon={UserPlus}
+        title={t('join.heroTitle')}
+        subtitle={t('join.heroSubtitle')}
+        align="center"
+      />
 
       {/* How It Works — Process Steps */}
       <section className="py-16 bg-white">

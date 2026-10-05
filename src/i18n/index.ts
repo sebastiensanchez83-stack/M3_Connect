@@ -1146,9 +1146,26 @@ const resources = {
         notifications: 'Notifications',
         notificationsDesc: 'Which emails you receive',
       },
+      // "Relive SM26" photo strip (src/components/ui/MomentsStrip.tsx)
+      sm26Moments: {
+        eyebrow: '20–21 September 2026 · Yacht Club de Monaco',
+        title: 'Relive the Smart & Sustainable Marina Rendezvous',
+        cta: 'See upcoming events',
+        alt: {
+          community: 'The SM26 community gathered under the event screen',
+          workshop: 'A round-table workshop under the Workshops banner',
+          sensors: 'Berth occupancy sensors showing free and occupied',
+          seabedModel: 'An architectural model of an underwater garden',
+          aquarium: 'A floating-structure mooring demo in an aquarium',
+          trophies: 'The SM26 award trophies',
+        },
+      },
       // Footer
       footer: {
         tagline: 'Connecting the Marina Industry',
+        yourSpace: 'Your space',
+        join: 'Join',
+        membershipTiers: 'Membership tiers',
         platform: 'Platform',
         company: 'Company',
         legal: 'Legal',
@@ -2328,9 +2345,26 @@ const resources = {
         notifications: 'Notifications',
         notificationsDesc: 'Les emails que vous recevez',
       },
+      // Bande photo « Revivez SM26 » (src/components/ui/MomentsStrip.tsx)
+      sm26Moments: {
+        eyebrow: '20–21 septembre 2026 · Yacht Club de Monaco',
+        title: 'Revivez le Smart & Sustainable Marina Rendezvous',
+        cta: 'Voir les prochains événements',
+        alt: {
+          community: "La communauté SM26 réunie sous l'écran de l'événement",
+          workshop: 'Un atelier autour d’une table ronde, sous la bannière Workshops',
+          sensors: "Capteurs d'occupation des postes affichant libre et occupé",
+          seabedModel: "Maquette d'architecture d'un jardin sous-marin",
+          aquarium: "Démonstration d'amarrage d'une structure flottante en aquarium",
+          trophies: 'Les trophées SM26',
+        },
+      },
       // Footer
       footer: {
         tagline: "Connecter l'Industrie Marina",
+        yourSpace: 'Votre espace',
+        join: 'Rejoindre',
+        membershipTiers: "Niveaux d'adhésion",
         platform: 'Plateforme',
         company: 'Entreprise',
         legal: 'Juridique',

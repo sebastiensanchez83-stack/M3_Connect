@@ -25,6 +25,7 @@ export function PageHero({
   children,
   align = 'left',
   className,
+  containerClassName,
 }: {
   image: SiteImage | null;
   /** Stable per page: picks the fallback gradient. */
@@ -38,6 +39,8 @@ export function PageHero({
   children?: React.ReactNode;
   align?: 'left' | 'center';
   className?: string;
+  /** Match the page's own content width (e.g. max-w-5xl) so the title lines up with the sections below. */
+  containerClassName?: string;
 }) {
   const centered = align === 'center';
   return (
@@ -54,7 +57,7 @@ export function PageHero({
         className="absolute inset-0"
       />
       <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/95 via-[#0b2653]/80 to-[#0b2653]/60" />
-      <div className="relative container mx-auto px-4 py-12 sm:py-16">
+      <div className={cn('relative container mx-auto px-4 py-12 sm:py-16', containerClassName)}>
         <div className={cn('max-w-2xl', centered && 'mx-auto text-center')}>
           {eyebrow && (
             <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">

@@ -1,25 +1,25 @@
-import { useState, useEffect } from 'react';
-import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Helmet } from 'react-helmet-async';
+import type { LucideIcon } from 'lucide-react';
+import {
+  AlertCircle, CalendarDays, CalendarClock, FileText, CheckCircle2, XCircle, Clock, Anchor, Building2,
+  Newspaper, ExternalLink, ClipboardList, Radio, Plus, MessageSquare, Eye, ArrowLeft, ArrowRight, Check, X,
+  Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Ship, Video, MapPin, Play,
+  Ticket, Compass, TrendingUp, UserCircle, Users, ImageIcon, Palette, History, KeyRound, Globe,
+} from 'lucide-react';
 import { MediaArticles } from '@/components/media/MediaArticles';
 import { MediaPressRoom } from '@/components/media/MediaPressRoom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
-import { SM26PartnerConsoleCard } from '@/components/sm26/SM26PartnerConsoleCard';
-import { SM26MyRegistrationPage } from '@/pages/SM26MyRegistrationPage';
-import { SponsorPortal } from '@/components/sponsorship/SponsorPortal';
-import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
-import { LoadingSkeleton } from '@/components/LoadingSkeleton';
-import { AlertCircle, Calendar, FileText, CheckCircle, XCircle, Clock, Anchor, Building2, Newspaper, ExternalLink, ClipboardList, Radio, Plus, Link2, MessageSquare, BarChart3, Eye, Users, ArrowRight, Check, X, Camera, Upload, Loader2, Pencil, Save, ChevronDown, ChevronRight, ShieldCheck, Bell, Star, Inbox, Ship, Award } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Link } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { Organization } from '@/types/database';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { CoverImage, LogoBadge, gradientForSeed } from '@/components/ui/CoverImage';
+import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
+import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
+import { SM26MyRegistrationPage } from '@/pages/SM26MyRegistrationPage';
+import { SponsorPortal } from '@/components/sponsorship/SponsorPortal';
 import { OrganizationTab } from '@/components/organization/OrganizationTab';
 // PaymentForm removed — payment integration deferred
 // PreAuditTab archived — will be deployed later
@@ -29,10 +29,48 @@ import { TiersPage } from '@/pages/TiersPage';
 import { NotificationPreferencesTab } from '@/components/notifications/NotificationPreferencesTab';
 import { ShortlistTab } from '@/components/shortlist/ShortlistTab';
 import { InboxTab } from '@/components/inbox/InboxTab';
+import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { useAuth } from '@/contexts/AuthContext';
+import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { resizeImage, fileMeta } from '@/lib/image';
 import { requireFreshSession } from '@/lib/session';
+import {
+  ACCOUNT_GROUPS, ACCOUNT_SECTIONS, accountHref, getAccountSection, type AccountTab,
+} from '@/lib/accountNav';
+import { cn, type CalendarEventInput } from '@/lib/utils';
+
+/**
+ * The member area: /account?tab=…, and /inbox (served here through `forceTab`).
+ *
+ * Before: one flat sidebar of up to 17 tabs, a horizontal pill strip on phones
+ * that ran three screens wide, and every tab dressed differently. Now the menu
+ * is the shared model in src/lib/accountNav.ts — four groups, each answering
+ * one question (what I take part in, what I asked for, who I represent, how my
+ * account is set up) — and every section opens with the same header.
+ *
+ * What did NOT move: tab values are URLs (notification emails deep-link to
+ * /account?tab=<value>), the per-tab visibility rules, the onboarding mode
+ * ('complete-registration'), the bare /account → /dashboard redirect, and every
+ * read and write below. This is a presentation change.
+ */
+
+/* ------------------------------------------------------------------ types */
+
+interface RegisteredEvent {
+  id: string;
+  title: string;
+  description: string | null;
+  date_time: string | null;
+  end_date_time: string | null;
+  is_full_day: boolean | null;
+  location: string | null;
+  event_type: string | null;
+  replay_url: string | null;
+  meeting_url: string | null;
+  published: boolean | null;
+}
 
 interface EventRegistration {
   id: string;
@@ -41,7 +79,7 @@ interface EventRegistration {
   payment_status: string;
   registration_type: string;
   amount_due_cents: number | null;
-  events: { title: string; date_time: string } | null;
+  events: RegisteredEvent | null;
 }
 
 interface MarinaProject {
@@ -97,9 +135,28 @@ interface PartnerRequestItem {
   created_at: string;
 }
 
+/** One entry of the member menu, already resolved for this member. */
+interface MenuItem {
+  value: string;
+  href: string;
+  group: string;
+  label: string;
+  desc: string;
+  icon: LucideIcon;
+  notifDot?: boolean;
+  notifCount?: number;
+}
+
+interface MenuGroup {
+  key: string;
+  label: string;
+}
+
+/* ------------------------------------------------------------------ helpers */
+
 /** Format raw budget_range DB values into human-readable labels */
-function formatBudgetRange(raw: string): string {
-  if (raw === 'under_10k') return 'Under €10k';
+function formatBudgetRange(raw: string, under10kLabel: string): string {
+  if (raw === 'under_10k') return under10kLabel;
   // Numeric ranges like "50000-100000"
   const m = raw.match(/^(\d+)-(\d+)$/);
   if (m) {
@@ -107,8 +164,61 @@ function formatBudgetRange(raw: string): string {
     return `${fmt(Number(m[1]))} – ${fmt(Number(m[2]))}`;
   }
   // Fallback: replace underscores and capitalize
+  return humanize(raw);
+}
+
+/** snake_case → "Snake Case", for raw values that have no label of their own. */
+function humanize(raw: string): string {
   return raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+/** As the calendar links assume: an event without an end time lasts an hour. */
+const DEFAULT_DURATION_MS = 60 * 60 * 1000;
+
+/** When an event starts and ends, in ms. A full day without an end runs 24 h. */
+function eventWindow(e: Pick<RegisteredEvent, 'date_time' | 'end_date_time' | 'is_full_day'>): { start: number; end: number } | null {
+  if (!e.date_time) return null;
+  const start = new Date(e.date_time).getTime();
+  const end = e.end_date_time
+    ? new Date(e.end_date_time).getTime()
+    : start + (e.is_full_day ? 24 * 3600 * 1000 : DEFAULT_DURATION_MS);
+  return { start, end };
+}
+
+const PERSONA_META: Record<string, { key: string; fallback: string; icon: LucideIcon }> = {
+  marina: { key: 'accountArea.persona.marina', fallback: 'Marina / Port', icon: Anchor },
+  developer: { key: 'accountArea.persona.developer', fallback: 'Marina developer', icon: Anchor },
+  partner: { key: 'accountArea.persona.partner', fallback: 'Partner', icon: Building2 },
+  media_partner: { key: 'accountArea.persona.media_partner', fallback: 'Media Partner', icon: Newspaper },
+  investor: { key: 'accountArea.persona.investor', fallback: 'Investor', icon: TrendingUp },
+  individual: { key: 'accountArea.persona.individual', fallback: 'Individual', icon: UserCircle },
+  moderator: { key: 'accountArea.persona.moderator', fallback: 'Moderator', icon: ShieldCheck },
+  admin: { key: 'accountArea.persona.admin', fallback: 'Administrator', icon: ShieldCheck },
+};
+
+const ACCESS_META: Record<string, { key: string; fallback: string; icon: LucideIcon; className: string }> = {
+  verified: { key: 'accountArea.access.verified', fallback: 'Verified', icon: CheckCircle2, className: 'bg-green-100 text-green-800 ring-green-200' },
+  pending: { key: 'accountArea.access.pending', fallback: 'Pending', icon: Clock, className: 'bg-yellow-100 text-yellow-800 ring-yellow-200' },
+  rejected: { key: 'accountArea.access.rejected', fallback: 'Rejected', icon: XCircle, className: 'bg-red-100 text-red-800 ring-red-200' },
+  suspended: { key: 'accountArea.access.suspended', fallback: 'Suspended', icon: XCircle, className: 'bg-gray-100 text-gray-800 ring-gray-200' },
+};
+
+const REGISTRATION_TYPE_LABELS: Record<string, { key: string; fallback: string }> = {
+  visitor: { key: 'accountArea.events.regType.visitor', fallback: 'Visitor' },
+  sponsor_included: { key: 'accountArea.events.regType.sponsor_included', fallback: 'Sponsor seat' },
+  member_discount: { key: 'accountArea.events.regType.member_discount', fallback: 'Member rate' },
+  package: { key: 'accountArea.events.regType.package', fallback: 'Package' },
+  marina_package: { key: 'accountArea.events.regType.marina_package', fallback: 'Marina package' },
+  invitation_request: { key: 'accountArea.events.regType.invitation_request', fallback: 'Invitation request' },
+  exhibitor: { key: 'accountArea.events.regType.exhibitor', fallback: 'Exhibitor' },
+};
+
+/** Card look shared by every block of the member area. */
+const CARD = 'rounded-2xl bg-white shadow-sm ring-1 ring-gray-100';
+/** A 40 px button: the touch-target floor for the whole area. */
+const BTN = 'h-10 rounded-xl';
+
+/* ------------------------------------------------------------------ page */
 
 /**
  * `forceTab` lets a tab be served at a clean URL of its own: the Inbox is a
@@ -118,7 +228,7 @@ function formatBudgetRange(raw: string): string {
  * deep-link, so those links keep working untouched.
  */
 export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user, profile, organization, orgRole, loading: authLoading, refreshProfile } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -128,12 +238,16 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const [rfps, setRfps] = useState<RFPItem[]>([]);
   const [consultations, setConsultations] = useState<ConsultationItem[]>([]);
   const [partnerRequests, setPartnerRequests] = useState<PartnerRequestItem[]>([]);
-  const [referenceCount, setReferenceCount] = useState<number>(0);
-  const [dataLoading, setDataLoading] = useState(false);
+  // Informational only (kept in step with ReferenceRequestForm's callbacks).
+  const [, setReferenceCount] = useState<number>(0);
+  const [dataLoading, setDataLoading] = useState(true);
+  const firstDataLoad = useRef(true);
 
   // Submissions tab
-  const [submissionsLoading, setSubmissionsLoading] = useState(false);
-  const [submissionsFetched, setSubmissionsFetched] = useState(false);
+  // Starts true so a first visit shows a skeleton, never an empty list.
+  const [submissionsLoading, setSubmissionsLoading] = useState(true);
+  // The rights (fetchKey below) the lists were last fetched with; null = never.
+  const [submissionsFetchedKey, setSubmissionsFetchedKey] = useState<string | null>(null);
   const [subProjects, setSubProjects] = useState<MarinaProject[]>([]);
   const [subRfps, setSubRfps] = useState<RFPItem[]>([]);
   const [subConsultations, setSubConsultations] = useState<ConsultationItem[]>([]);
@@ -145,61 +259,108 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   // Event payment dialog
   // eventPaymentReg removed — payment integration deferred
 
-  const [hasSM26, setHasSM26] = useState(false);
+  // The three sections whose visibility is decided by a query. `null` means
+  // "not known yet", so a deep link to one of them waits instead of flashing
+  // "not available".
+  const [hasSM26, setHasSM26] = useState<boolean | null>(null);
   // Press room is open to any media on the platform: the media_partner persona,
   // a member of a media organisation, or press accredited for an event. That
   // rule lives in is_media_user() so the UI and the data agree.
-  const [isMedia, setIsMedia] = useState(false);
-  const [sponsorIds, setSponsorIds] = useState<string[]>([]);
+  const [isMedia, setIsMedia] = useState<boolean | null>(null);
+  const [sponsorIds, setSponsorIds] = useState<string[] | null>(null);
 
-  const { isFeatureEnabled } = useEntitlements();
+  const { isFeatureEnabled, isLoading: entLoading } = useEntitlements();
 
   const activeTab = forceTab ?? (searchParams.get('tab') || 'dashboard');
 
   // One canonical URL per destination: the two promoted tabs go to their own
-  // routes, so the sidebar, the mobile pills and the nav bar can never
-  // disagree about where "Inbox" lives.
+  // routes, so the menu, the mobile switcher and the nav bar can never
+  // disagree about where "Inbox" lives. (Same mapping as accountHref.)
   const tabHref = (value: string) =>
     value === 'dashboard' ? '/dashboard'
       : value === 'inbox' ? '/inbox'
         : `/account?tab=${value}`;
 
-  // Show the "Event" tab (the SM26 participant hub) if the signed-in user can
-  // access an SM26 registration — their own, or their organisation's.
+  // Effects below are keyed on ids and primitives, never on the user / profile
+  // / organization objects: auth-js hands over a new user object on every tab
+  // refocus, and re-running a load on each one blanked the screen.
+  const uid = user?.id;
+  const hasUser = !!user;
+  const hasProfile = !!profile;
+  const persona = profile?.persona as string | undefined;
+  const orgId = organization?.id;
+  const entProject = isFeatureEnabled('submit_project');
+  const entRfp = isFeatureEnabled('submit_rfp');
+  const entConsult = isFeatureEnabled('submit_consultation');
+  const personaMarinaLike = persona === 'marina' || persona === 'developer';
+
+  // Feature grants load after the organization, so for anyone who is not a
+  // marina they are "not known yet" for a moment. While they are, sections
+  // that depend on them wait instead of saying "not available" or showing an
+  // empty list. The hook's isLoading can still read false for the one render
+  // in which the organization arrives (its fetch starts in an effect), so we
+  // also remember which organization the grants were last settled for.
+  const [entSettledOrg, setEntSettledOrg] = useState<string | null | undefined>(undefined);
   useEffect(() => {
-    if (!user) { setHasSM26(false); return; }
+    if (!entLoading) setEntSettledOrg(orgId ?? null);
+  }, [entLoading, orgId]);
+  const entPending = !personaMarinaLike && (entLoading || entSettledOrg !== (orgId ?? null));
+
+  // Which kinds of request this account can see, as one primitive: the data
+  // loads below record the key they ran with, so a list fetched before the
+  // grants arrived is never shown as final.
+  const fetchKey = `${personaMarinaLike || entProject ? 1 : 0}${personaMarinaLike || entRfp ? 1 : 0}${personaMarinaLike || entConsult ? 1 : 0}`;
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+
+  // Show the "Event hub" section if the signed-in user can access an SM26
+  // registration — their own, or their organisation's.
+  useEffect(() => {
+    if (!uid) { setHasSM26(false); return; }
     let active = true;
     (async () => {
-      const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
-      if (!ev || !active) return;
-      const { data } = await supabase.from('sm_registration').select('id').eq('event_id', (ev as { id: string }).id).limit(1);
-      if (active) setHasSM26(!!(data && data.length));
+      try {
+        const { data: ev } = await supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle();
+        if (!active) return;
+        if (!ev) { setHasSM26(false); return; }
+        const { data } = await supabase.from('sm_registration').select('id').eq('event_id', (ev as { id: string }).id).limit(1);
+        if (active) setHasSM26(!!(data && data.length));
+      } catch {
+        if (active) setHasSM26(false);
+      }
     })();
     return () => { active = false; };
-  }, [user]);
+  }, [uid]);
 
   // Press room visibility — the server decides who counts as media.
   useEffect(() => {
-    if (!user) { setIsMedia(false); return; }
+    if (!uid) { setIsMedia(false); return; }
     let active = true;
     (async () => {
-      const { data } = await supabase.rpc('is_media_user');
-      if (active) setIsMedia(data === true);
+      try {
+        const { data } = await supabase.rpc('is_media_user');
+        if (active) setIsMedia(data === true);
+      } catch {
+        if (active) setIsMedia(false);
+      }
     })();
     return () => { active = false; };
-  }, [user]);
+  }, [uid]);
 
-  // Show the "Sponsorship" tab if this account has been linked to a sponsor
+  // Show the "Sponsorship" section if this account has been linked to a sponsor
   // (per-person, via sp_sponsor_user — set by an admin/YCM manager).
   useEffect(() => {
-    if (!user) { setSponsorIds([]); return; }
+    if (!uid) { setSponsorIds([]); return; }
     let active = true;
     (async () => {
-      const { data } = await supabase.from('sp_sponsor_user').select('sponsor_id').eq('user_id', user.id);
-      if (active) setSponsorIds(((data || []) as { sponsor_id: string }[]).map(x => x.sponsor_id));
+      try {
+        const { data } = await supabase.from('sp_sponsor_user').select('sponsor_id').eq('user_id', uid);
+        if (active) setSponsorIds(((data || []) as { sponsor_id: string }[]).map(x => x.sponsor_id));
+      } catch {
+        if (active) setSponsorIds([]);
+      }
     })();
     return () => { active = false; };
-  }, [user]);
+  }, [uid]);
 
   // Redirect deprecated tab URLs to the new Inbox so old email links / bookmarks
   // still land in a meaningful place.
@@ -213,7 +374,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const isOnboarding = profile?.onboarding_status === 'draft';
 
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [, setUploadingLogo] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
 
   // Profile editing
@@ -221,21 +382,20 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', jobTitle: '' });
 
-  // Initialize profile form when profile loads or editing starts
+  // Initialize the profile form when the profile loads or its values change —
+  // keyed on the values, so a refocus can't wipe what is being typed.
+  const pFirst = profile?.first_name || '';
+  const pLast = profile?.last_name || '';
+  const pJob = profile?.job_title || '';
   useEffect(() => {
-    if (profile) {
-      setProfileForm({
-        firstName: profile.first_name || '',
-        lastName: profile.last_name || '',
-        jobTitle: profile.job_title || '',
-      });
-    }
-  }, [profile]);
+    if (!hasProfile) return;
+    setProfileForm({ firstName: pFirst, lastName: pLast, jobTitle: pJob });
+  }, [hasProfile, pFirst, pLast, pJob]);
 
   const handleSaveProfile = async () => {
     if (!user) return;
-    const uid = await requireFreshSession();
-    if (!uid) return;
+    const freshUid = await requireFreshSession();
+    if (!freshUid) return;
     setSavingProfile(true);
     try {
       const { error: updateError } = await supabase
@@ -249,11 +409,11 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
 
       if (updateError) throw updateError;
 
-      toast({ title: 'Profile updated', description: 'Your personal information has been saved.' });
+      toast({ title: t('accountArea.toast.profileUpdated', 'Profile updated'), description: t('accountArea.toast.profileUpdatedDesc', 'Your personal information has been saved.') });
       setEditingProfile(false);
       await refreshProfile();
     } catch (err: unknown) {
-      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed to update profile.', variant: 'destructive' });
+      toast({ title: t('accountArea.toast.error', 'Error'), description: err instanceof Error ? err.message : t('accountArea.toast.profileUpdateFailed', 'Failed to update profile.'), variant: 'destructive' });
     } finally {
       setSavingProfile(false);
     }
@@ -261,15 +421,15 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
 
   const uploadImage = async (file: File, type: 'avatar' | 'logo') => {
     if (!file.type.startsWith('image/')) {
-      toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP)', variant: 'destructive' });
+      toast({ title: t('accountArea.toast.invalidFile', 'Invalid file type'), description: t('accountArea.toast.invalidFileDesc', 'Please upload an image (JPEG, PNG, WebP)'), variant: 'destructive' });
       return;
     }
     if (file.size > 25 * 1024 * 1024) {
-      toast({ title: 'File too large', description: 'Maximum 25 MB', variant: 'destructive' });
+      toast({ title: t('accountArea.toast.fileTooLarge', 'File too large'), description: t('accountArea.toast.fileTooLargeDesc', 'Maximum 25 MB'), variant: 'destructive' });
       return;
     }
-    const uid = await requireFreshSession();
-    if (!uid) return;
+    const freshUid = await requireFreshSession();
+    if (!freshUid) return;
     const setter = type === 'avatar' ? setUploadingAvatar : setUploadingLogo;
     setter(true);
     try {
@@ -288,27 +448,27 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
 
       if (type === 'avatar') {
         await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('user_id', user!.id);
-        toast({ title: 'Profile image updated', description: meta });
+        toast({ title: t('accountArea.toast.avatarUpdated', 'Profile image updated'), description: meta });
       } else {
         // Update logo on organization
         if (organization) {
           await supabase.rpc('update_org_branding', { p_org_id: organization.id, p_field: 'logo', p_url: publicUrl });
         }
-        toast({ title: 'Company logo updated', description: meta });
+        toast({ title: t('accountArea.toast.logoUpdated', 'Company logo updated'), description: meta });
       }
       await refreshProfile();
     } catch (err: unknown) {
-      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : 'An unexpected error occurred.', variant: 'destructive' });
+      toast({ title: t('accountArea.toast.uploadFailed', 'Upload failed'), description: err instanceof Error ? err.message : t('accountArea.toast.unexpected', 'An unexpected error occurred.'), variant: 'destructive' });
     }
     setter(false);
   };
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) { navigate('/'); return; }
+    if (!hasUser) { navigate('/'); return; }
     // User logged in but no profile → could be new user or a fetch timeout.
     // Don't redirect immediately; the render below shows a retry option.
-  }, [user, authLoading, navigate]);
+  }, [hasUser, authLoading, navigate]);
 
   // Default to 'complete-registration' tab during onboarding if no tab param is set
   useEffect(() => {
@@ -318,85 +478,101 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   }, [profile?.onboarding_status, searchParams, navigate]);
 
   useEffect(() => {
-    if (!user || !profile) return;
-    setDataLoading(true);
+    if (!uid || !hasProfile) return;
+    let alive = true;
+    const runKey = `${persona === 'marina' || persona === 'developer' || entProject ? 1 : 0}${persona === 'marina' || persona === 'developer' || entRfp ? 1 : 0}${persona === 'marina' || persona === 'developer' || entConsult ? 1 : 0}`;
+    // Only the first load shows a skeleton; later refreshes swap data in place.
+    if (firstDataLoad.current) setDataLoading(true);
 
     const fetchData = async () => {
       try {
         const { data: regs } = await supabase
           .from('event_registrations')
-          .select('id, event_id, created_at, payment_status, registration_type, amount_due_cents, events(title, date_time)')
-          .eq('user_id', user.id)
+          .select('id, event_id, created_at, payment_status, registration_type, amount_due_cents, events(id, title, description, date_time, end_date_time, is_full_day, location, event_type, replay_url, meeting_url, published)')
+          .eq('user_id', uid)
           .order('created_at', { ascending: false });
+        if (!alive) return;
         if (regs) setRegistrations(regs as unknown as EventRegistration[]);
 
-        if (profile?.persona === 'marina' || profile?.persona === 'developer' || isFeatureEnabled('submit_project')) {
+        if (persona === 'marina' || persona === 'developer' || entProject) {
           const { data: proj } = await supabase
             .from('marina_projects')
             .select('id, project_type, budget_range, timeline, status, created_at')
-            .eq('user_id', user.id)
+            .eq('user_id', uid)
             .order('created_at', { ascending: false });
-          if (proj) setProjects(proj as MarinaProject[]);
+          if (alive && proj) setProjects(proj as MarinaProject[]);
         }
 
         const { data: webinars } = await supabase
           .from('webinar_requests')
           .select('id, title, description, preferred_language, preferred_timeframe, status, moderator_notes, created_at')
-          .eq('user_id', user.id)
+          .eq('user_id', uid)
           .order('created_at', { ascending: false });
-        if (webinars) setWebinarRequests(webinars as WebinarRequest[]);
+        if (alive && webinars) setWebinarRequests(webinars as WebinarRequest[]);
 
         // Fetch RFPs (marina/developer or entitlement-granted)
-        if (profile?.persona === 'marina' || profile?.persona === 'developer' || isFeatureEnabled('submit_rfp')) {
+        if (persona === 'marina' || persona === 'developer' || entRfp) {
           const { data: rfpData } = await supabase
             .from('rfps')
             .select('id, title, scope, sector_id, deadline_date, is_open, status, rejection_reason, created_at')
-            .eq('marina_user_id', user.id)
+            .eq('marina_user_id', uid)
             .order('created_at', { ascending: false });
-          if (rfpData) setRfps(rfpData as RFPItem[]);
+          if (alive && rfpData) setRfps(rfpData as RFPItem[]);
         }
 
-        if (profile?.persona === 'marina' || profile?.persona === 'developer' || isFeatureEnabled('submit_consultation')) {
+        if (persona === 'marina' || persona === 'developer' || entConsult) {
           const { data: consultData } = await supabase
             .from('consultations')
             .select('id, title, description, sector_id, is_open, status, rejection_reason, created_at')
-            .eq('marina_user_id', user.id)
+            .eq('marina_user_id', uid)
             .order('created_at', { ascending: false });
-          if (consultData) setConsultations(consultData as ConsultationItem[]);
+          if (alive && consultData) setConsultations(consultData as ConsultationItem[]);
         }
 
         // Fetch partner requests received (for any user)
         const { data: prData } = await supabase
           .from('partner_requests')
           .select('id, partner_user_id, marina_user_id, sector_id, message, status, created_at')
-          .or(`partner_user_id.eq.${user.id},marina_user_id.eq.${user.id}`)
+          .or(`partner_user_id.eq.${uid},marina_user_id.eq.${uid}`)
           .order('created_at', { ascending: false });
-        if (prData) setPartnerRequests(prData as PartnerRequestItem[]);
+        if (alive && prData) setPartnerRequests(prData as PartnerRequestItem[]);
 
         // Fetch recommendation count for partners (informational only)
-        if ((profile?.persona === 'partner' || profile?.persona === 'media_partner') && organization?.id) {
+        if ((persona === 'partner' || persona === 'media_partner') && orgId) {
           const { count } = await supabase
             .from('reference_requests')
             .select('id', { count: 'exact' })
-            .eq('partner_organization_id', organization.id);
-          setReferenceCount(count || 0);
+            .eq('partner_organization_id', orgId);
+          if (alive) setReferenceCount(count || 0);
         }
       } catch (err) {
         if (import.meta.env.DEV) console.error('Error fetching account data:', err);
       } finally {
-        setDataLoading(false);
+        if (alive) {
+          firstDataLoad.current = false;
+          setDataLoading(false);
+          setLoadedKey(runKey);
+        }
       }
     };
 
     fetchData();
-  }, [user, profile, organization, isFeatureEnabled]);
+    return () => { alive = false; };
+  }, [uid, hasProfile, persona, orgId, entProject, entRfp, entConsult]);
 
-  // Fetch submissions data when tab is active
+  // Fetch submissions data when tab is active. The three kinds follow the
+  // same rule as the menu (developers count as marinas), so a section that is
+  // shown is never silently empty. It runs once per set of rights: it waits
+  // for feature grants to settle, and runs again if they change afterwards,
+  // so a grant that arrives late is never left with an empty list.
   useEffect(() => {
-    if (activeTab !== 'submissions' || !user || !profile || submissionsFetched) return;
-    const hasProjects = profile.persona === 'marina' || isFeatureEnabled('submit_project');
-    const hasRFPs = profile.persona === 'marina' || isFeatureEnabled('submit_rfp');
-    const hasConsultations = profile.persona === 'marina' || isFeatureEnabled('submit_consultation');
+    if (activeTab !== 'submissions' || !uid || !hasProfile || entPending) return;
+    if (submissionsFetchedKey === fetchKey) return;
+    const runKey = fetchKey;
+    const hasProjects = runKey[0] === '1';
+    const hasRFPs = runKey[1] === '1';
+    const hasConsultations = runKey[2] === '1';
+    let alive = true;
 
     setSubmissionsLoading(true);
     const fetchSubmissions = async () => {
@@ -406,84 +582,59 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
             ? supabase
                 .from('marina_projects')
                 .select('id, project_type, budget_range, timeline, status, created_at')
-                .eq('user_id', user.id)
+                .eq('user_id', uid)
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: null }),
           hasRFPs
             ? supabase
                 .from('rfps')
                 .select('id, title, scope, sector_id, deadline_date, is_open, status, rejection_reason, created_at')
-                .eq('marina_user_id', user.id)
+                .eq('marina_user_id', uid)
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: null }),
           hasConsultations
             ? supabase
                 .from('consultations')
                 .select('id, title, description, sector_id, is_open, status, rejection_reason, created_at')
-                .eq('marina_user_id', user.id)
+                .eq('marina_user_id', uid)
                 .order('created_at', { ascending: false })
             : Promise.resolve({ data: null }),
           supabase
             .from('webinar_requests')
             .select('id, title, description, preferred_language, preferred_timeframe, status, moderator_notes, created_at')
-            .eq('user_id', user.id)
+            .eq('user_id', uid)
             .order('created_at', { ascending: false }),
         ]);
 
-        if (projRes.data) setSubProjects(projRes.data as MarinaProject[]);
-        if (rfpRes.data) setSubRfps(rfpRes.data as RFPItem[]);
-        if (consultRes.data) setSubConsultations(consultRes.data as ConsultationItem[]);
+        if (!alive) return;
+        if (!hasProjects) setSubProjects([]);
+        else if (projRes.data) setSubProjects(projRes.data as MarinaProject[]);
+        if (!hasRFPs) setSubRfps([]);
+        else if (rfpRes.data) setSubRfps(rfpRes.data as RFPItem[]);
+        if (!hasConsultations) setSubConsultations([]);
+        else if (consultRes.data) setSubConsultations(consultRes.data as ConsultationItem[]);
         if (webinarRes.data) setSubWebinars(webinarRes.data as WebinarRequest[]);
-        setSubmissionsFetched(true);
+        setSubmissionsFetchedKey(runKey);
       } catch (err) {
         if (import.meta.env.DEV) console.error('Error fetching submissions:', err);
       } finally {
-        setSubmissionsLoading(false);
+        if (alive) setSubmissionsLoading(false);
       }
     };
 
     fetchSubmissions();
-  }, [activeTab, user, profile, submissionsFetched]);
+    return () => { alive = false; };
+  }, [activeTab, uid, hasProfile, entPending, submissionsFetchedKey, fetchKey]);
 
   const toggleSection = (section: string) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
-  const getAccessBadge = () => {
-    if (!profile) return null;
-    switch (profile.access_status) {
-      case 'verified':
-        return <Badge className="bg-green-100 text-green-800 border-green-200"><CheckCircle className="h-3 w-3 mr-1" />Verified</Badge>;
-      case 'pending':
-        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
-      case 'rejected':
-        return <Badge className="bg-red-100 text-red-800 border-red-200"><XCircle className="h-3 w-3 mr-1" />Rejected</Badge>;
-      case 'suspended':
-        return <Badge className="bg-gray-100 text-gray-800 border-gray-200"><XCircle className="h-3 w-3 mr-1" />Suspended</Badge>;
-      default:
-        return null;
-    }
-  };
+  const locale = i18n.language?.startsWith('fr') ? 'fr-FR' : 'en-GB';
+  const fmtDate = (iso: string, opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }) =>
+    new Date(iso).toLocaleDateString(locale, opts);
 
-  const getPersonaIcon = () => {
-    switch (profile?.persona) {
-      case 'marina': return <Anchor className="h-5 w-5" />;
-      case 'partner': return <Building2 className="h-5 w-5" />;
-      case 'media_partner': return <Newspaper className="h-5 w-5" />;
-      default: return null;
-    }
-  };
-
-  const getPersonaLabel = () => {
-    switch (profile?.persona) {
-      case 'marina': return 'Marina / Port';
-      case 'partner': return 'Partner';
-      case 'media_partner': return 'Media Partner';
-      case 'moderator': return 'Moderator';
-      case 'admin': return 'Administrator';
-      default: return '';
-    }
-  };
+  /* ------------------------------------------------------------ early exits */
 
   if (authLoading) {
     return <LoadingSkeleton variant="page" />;
@@ -493,17 +644,19 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
 
   if (!profile) {
     return (
-      <div className="container mx-auto px-4 py-16 text-center">
-        <AlertCircle className="h-10 w-10 mx-auto text-amber-500 mb-3" />
-        <p className="text-gray-600 mb-2">Could not load your profile.</p>
-        <p className="text-sm text-gray-400 mb-4">This may be due to a slow connection. Please try again.</p>
-        <div className="flex gap-3 justify-center">
-          <Button onClick={() => refreshProfile()}>
-            Retry
-          </Button>
-          <Button variant="outline" onClick={() => navigate('/onboarding')}>
-            Go to Onboarding
-          </Button>
+      <div className="min-h-[60vh] bg-gray-50 px-4 py-16">
+        <div className={cn(CARD, 'mx-auto max-w-md p-8 text-center')}>
+          <AlertCircle className="mx-auto mb-3 h-10 w-10 text-amber-500" aria-hidden="true" />
+          <p className="font-medium text-gray-900">{t('accountArea.loadError.title', 'Could not load your profile.')}</p>
+          <p className="mt-1 text-sm text-gray-600">{t('accountArea.loadError.body', 'This may be due to a slow connection. Please try again.')}</p>
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
+            <Button className={BTN} onClick={() => refreshProfile()}>
+              {t('accountArea.loadError.retry', 'Retry')}
+            </Button>
+            <Button variant="outline" className={BTN} onClick={() => navigate('/onboarding')}>
+              {t('accountArea.loadError.onboarding', 'Go to Onboarding')}
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -517,6 +670,8 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
     const tab = searchParams.get('tab');
     if (!tab || tab === 'dashboard') return <Navigate to="/dashboard" replace />;
   }
+
+  /* ------------------------------------------------------------ derived */
 
   const isMarina = profile.persona === 'marina';
   const isDeveloper = profile.persona === 'developer';
@@ -538,8 +693,10 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const canProjects = isMarinaLike || isFeatureEnabled('submit_project');
   const canRFPs = isMarinaLike || isFeatureEnabled('submit_rfp');
   const canConsultations = isMarinaLike || isFeatureEnabled('submit_consultation');
-  const canWebinars = true; // always visible, gated inside
-  const canB2B = true; // always visible
+  // The project / RFP / consultation lists come from the main data load; they
+  // are only final once that load ran with the current rights (a feature
+  // grant that arrives late triggers a second load).
+  const requestListsLoading = dataLoading || loadedKey !== fetchKey;
 
   // Refresh recommendation count (called from ReferenceRequestForm callbacks)
   const refreshOnboardingState = async () => {
@@ -554,1195 +711,1173 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   // Onboarding wizard step calculation
   // Step 1: Organization Details — complete when org exists
   // Step 2: Admin Review — waiting for admin approval
-  const currentOnboardingStep = !org ? 1 : 2;
+  // A member whose registration was just submitted (and is not yet reviewed)
+  // is past step 1 whatever the organization state.
+  const awaitingReview = profile.onboarding_status === 'submitted' && profile.access_status === 'pending';
+  const currentOnboardingStep = isOnboarding && !org ? 1 : 2;
 
-  // Notification badge counts for tabs
+  // Notification badge counts for the menu
   const orgNeedsAction = profile.onboarding_status === 'draft' || !org;
   const pendingB2B = partnerRequests.filter(r => r.status === 'pending').length;
 
-  const NotifDot = ({ show }: { show: boolean }) => show ? (
-    <span className="ml-auto inline-flex items-center justify-center w-2 h-2 rounded-full bg-red-500" />
-  ) : null;
-  const NotifBadge = ({ count }: { count: number }) => count > 0 ? (
-    <span className="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-red-500 text-white leading-none">{count}</span>
-  ) : null;
+  const personaMeta = PERSONA_META[profile.persona as string];
+  const personaLabel = personaMeta ? t(personaMeta.key, personaMeta.fallback) : '';
+  const PersonaIcon = personaMeta?.icon ?? null;
+  const accessMeta = ACCESS_META[profile.access_status];
+  const displayName = profile.first_name || profile.last_name
+    ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
+    : '';
+  const initials = `${(profile.first_name?.[0] || '').toUpperCase()}${(profile.last_name?.[0] || '').toUpperCase()}`
+    || (user.email?.[0] || '?').toUpperCase();
 
-  // Sidebar nav items
-  const navItems: { value: string; label: string; icon: React.ReactNode; show?: boolean; notifDot?: boolean; notifCount?: number }[] = isOnboarding
-    ? [{ value: 'complete-registration', label: 'Complete Registration', icon: <ClipboardList className="h-4 w-4" />, notifDot: true }]
-    : [
-        { value: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
-        { value: 'event', label: 'Event hub', icon: <Ship className="h-4 w-4" />, show: hasSM26 },
-        { value: 'press', label: 'Press room', icon: <Newspaper className="h-4 w-4" />, show: isMedia },
-        { value: 'sponsorship', label: 'Sponsorship', icon: <Award className="h-4 w-4" />, show: sponsorIds.length > 0 },
-        { value: 'organization', label: t('org.tabTitle'), icon: <Building2 className="h-4 w-4" />, notifDot: orgNeedsAction },
-        { value: 'profile', label: 'Profile', icon: <Users className="h-4 w-4" /> },
-        { value: 'registrations', label: 'Registrations', icon: <Calendar className="h-4 w-4" /> },
-        { value: 'projects', label: 'Projects', icon: <Anchor className="h-4 w-4" />, show: canProjects },
-        { value: 'webinars', label: 'Webinars', icon: <Radio className="h-4 w-4" /> },
-        { value: 'rfps', label: 'RFPs', icon: <ClipboardList className="h-4 w-4" />, show: canRFPs },
-        { value: 'consultations', label: 'Consultations', icon: <MessageSquare className="h-4 w-4" />, show: canConsultations },
-        { value: 'references', label: 'Recommendations', icon: <FileText className="h-4 w-4" />, show: isPartnerOrg },
-        { value: 'submissions', label: 'My Submissions', icon: <FileText className="h-4 w-4" />, show: canProjects || canRFPs || canConsultations || isPartner },
-        { value: 'inbox', label: 'Inbox', icon: <Inbox className="h-4 w-4" />, notifCount: pendingB2B },
-        { value: 'shortlist', label: 'Shortlist', icon: <Star className="h-4 w-4" />, show: isMarinaLike || isInvestor },
-        { value: 'pricing', label: 'Pricing', icon: <ArrowRight className="h-4 w-4" /> },
-        { value: 'notifications', label: 'Notifications', icon: <Bell className="h-4 w-4" /> },
-      ].filter(item => item.show !== false);
+  /* ------------------------------------------------------------ menu */
 
-  return (
-    <div className="container mx-auto px-4 py-8 max-w-6xl">
-      {/* Account Header */}
-      <div className="rounded-xl bg-gradient-to-r from-[#0b2653] to-[#143a6b] p-4 sm:p-6 text-white mb-8">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-4 min-w-0 flex-1">
-            {/* Avatar */}
-            <div className="relative group">
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="" className="w-14 h-14 rounded-full object-cover border-2 border-white/30" />
-              ) : (
-                <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center text-xl font-bold">
-                  {(profile?.first_name?.[0] || user?.email?.[0] || '?').toUpperCase()}
-                </div>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  const input = document.createElement('input');
-                  input.type = 'file';
-                  input.accept = 'image/jpeg,image/png,image/webp';
-                  input.onchange = (e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadImage(f, 'avatar'); };
-                  input.click();
-                }}
-                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
-              >
-                {uploadingAvatar ? <Loader2 className="h-5 w-5 animate-spin text-white" /> : <Camera className="h-5 w-5 text-white" />}
-              </button>
+  // Who sees which section. Same rules as the old flat sidebar, one per tab.
+  const sectionVisible: Record<AccountTab, boolean> = {
+    registrations: true,
+    event: hasSM26 === true,
+    inbox: true,
+    shortlist: isMarinaLike || isInvestor,
+    projects: canProjects,
+    rfps: canRFPs,
+    consultations: canConsultations,
+    webinars: true,
+    submissions: canProjects || canRFPs || canConsultations || isPartner,
+    organization: true,
+    references: isPartnerOrg,
+    sponsorship: (sponsorIds?.length ?? 0) > 0,
+    press: isMedia === true,
+    pricing: true,
+    profile: true,
+    notifications: true,
+  };
+
+  const onboardingMeta = {
+    icon: ClipboardList,
+    label: t('accountArea.onboarding.navLabel', 'Complete registration'),
+    desc: t('accountArea.onboarding.navDesc', 'Two steps to join the network'),
+    groupLabel: t('accountArea.menu.gettingStarted', 'Getting started'),
+  };
+
+  const menuItems: MenuItem[] = isOnboarding
+    ? [{
+        value: 'complete-registration', href: accountHref('complete-registration'), group: 'onboarding',
+        label: onboardingMeta.label, desc: onboardingMeta.desc, icon: ClipboardList, notifDot: true,
+      }]
+    : ACCOUNT_SECTIONS.filter((s) => sectionVisible[s.value]).map((s) => ({
+        value: s.value,
+        href: accountHref(s.value),
+        group: s.group,
+        label: t(s.labelKey, s.fallback),
+        desc: t(s.descKey, s.descFallback),
+        icon: s.icon,
+        notifDot: s.value === 'organization' && orgNeedsAction,
+        notifCount: s.value === 'inbox' ? pendingB2B : 0,
+      }));
+
+  const menuGroups: MenuGroup[] = isOnboarding
+    ? [{ key: 'onboarding', label: onboardingMeta.groupLabel }]
+    : ACCOUNT_GROUPS
+        .filter((g) => menuItems.some((i) => i.group === g.key))
+        .map((g) => ({ key: g.key, label: t(g.labelKey, g.fallback) }));
+
+  // What the header and the mobile switcher say about the open section.
+  const accountSection = getAccountSection(activeTab);
+  const currentMeta: { icon: LucideIcon; label: string; desc: string; groupLabel: string } | null =
+    activeTab === 'complete-registration'
+      ? onboardingMeta
+      : accountSection
+        ? {
+            icon: accountSection.icon,
+            label: t(accountSection.labelKey, accountSection.fallback),
+            desc: t(accountSection.descKey, accountSection.descFallback),
+            groupLabel: (() => {
+              const g = ACCOUNT_GROUPS.find((x) => x.key === accountSection.group);
+              return g ? t(g.labelKey, g.fallback) : '';
+            })(),
+          }
+        : null;
+
+  /* ------------------------------------------------------------ actions */
+
+  // Allow self-cancel for everything except registrations that were actually
+  // paid for (those need a refund flow) — the condition lives on the card.
+  const handleUnregister = async (reg: EventRegistration) => {
+    if (!confirm(t('accountArea.events.unregisterConfirm', 'Are you sure you want to unregister from this event?'))) return;
+    const { error } = await supabase
+      .from('event_registrations')
+      .delete()
+      .eq('id', reg.id);
+    if (error) {
+      toast({ title: t('accountArea.events.unregisterFailed', 'Failed to unregister'), description: error.message, variant: 'destructive' });
+    } else {
+      toast({ title: t('accountArea.events.unregistered', 'Unregistered from event') });
+      setRegistrations(prev => prev.filter(r => r.id !== reg.id));
+    }
+  };
+
+  const pickAvatar = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/jpeg,image/png,image/webp';
+    input.onchange = (e) => { const f = (e.target as HTMLInputElement).files?.[0]; if (f) uploadImage(f, 'avatar'); };
+    input.click();
+  };
+
+  const langLabel = (code: string) => code === 'EN'
+    ? t('accountArea.lang.en', 'English')
+    : t('accountArea.lang.fr', 'French');
+  const under10k = t('accountArea.budgetUnder10k', 'Under €10k');
+
+  /* ------------------------------------------------------------ sections */
+
+  const unavailable = (
+    <Panel>
+      <EmptyState
+        icon={Compass}
+        title={t('accountArea.unavailable.title', "This section isn't available")}
+        body={t('accountArea.unavailable.body', 'It may not apply to your account, or the link you followed is out of date.')}
+        action={(
+          <Button asChild className={BTN}>
+            <Link to={isOnboarding ? accountHref('complete-registration') : '/dashboard'}>
+              {isOnboarding
+                ? t('accountArea.unavailable.toOnboarding', 'Continue my registration')
+                : t('accountArea.unavailable.toDashboard', 'Back to the dashboard')}
+            </Link>
+          </Button>
+        )}
+      />
+    </Panel>
+  );
+  const waiting = <Panel><RowSkeleton rows={2} /></Panel>;
+
+  let content: ReactNode = null;
+  let headerActions: ReactNode = null;
+  let showHeader = true;
+
+  switch (activeTab) {
+    /* ── COMPLETE REGISTRATION (onboarding step-by-step wizard) ── */
+    case 'complete-registration': {
+      // Saving the organization during the wizard turns the draft into
+      // 'submitted' while the URL stays here. That member has just finished
+      // signing up, so they get the wizard's own "submitted for review" step,
+      // not an error. Anyone else (verified, rejected) has nothing left to do
+      // here and goes to the dashboard, which handles each status.
+      if (!isOnboarding && !awaitingReview) {
+        content = <Navigate to="/dashboard" replace />;
+        showHeader = false;
+        break;
+      }
+      content = (
+        <div className="space-y-6">
+          {/* Step indicator — always visible */}
+          <Panel>
+            <div className="p-5 sm:p-6">
+              <p className="text-sm text-gray-600">
+                {currentOnboardingStep === 1 && t('accountArea.onboarding.step1Intro', 'Fill in your organization details to get started.')}
+                {currentOnboardingStep === 2 && t('accountArea.onboarding.step2Intro', 'Your profile is submitted for review.')}
+              </p>
+              <ol className="mt-5 flex items-center gap-3">
+                {/* Step 1: Organization */}
+                <li className="flex items-center gap-2">
+                  <span className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold',
+                    currentOnboardingStep > 1 ? 'bg-green-100 text-green-700' : 'bg-primary text-white',
+                  )}>
+                    {currentOnboardingStep > 1 ? <Check className="h-4 w-4" aria-hidden="true" /> : '1'}
+                  </span>
+                  <span className={cn('text-sm font-medium', currentOnboardingStep > 1 ? 'text-green-700' : 'text-primary')}>
+                    {t('accountArea.onboarding.stepOrganization', 'Organization')}
+                  </span>
+                </li>
+                <li aria-hidden="true" className={cn('h-px flex-1', currentOnboardingStep > 1 ? 'bg-green-300' : 'bg-gray-200')} />
+                {/* Step 2: Admin Review */}
+                <li className="flex items-center gap-2" aria-current={currentOnboardingStep === 2 ? 'step' : undefined}>
+                  <span className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold',
+                    currentOnboardingStep === 2 ? 'bg-primary text-white' : 'bg-gray-100 text-gray-500',
+                  )}>
+                    2
+                  </span>
+                  <span className={cn('text-sm font-medium', currentOnboardingStep === 2 ? 'text-primary' : 'text-gray-500')}>
+                    {t('accountArea.onboarding.stepReview', 'Admin review')}
+                  </span>
+                </li>
+              </ol>
             </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-xl sm:text-2xl font-bold truncate">
-                {profile?.first_name || profile?.last_name
-                  ? `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim()
-                  : 'My Account'}
-              </h1>
-              <div className="flex items-center gap-2 mt-1 text-white/80 text-sm flex-wrap">
-                {getPersonaIcon()}
-                <span>{getPersonaLabel()}</span>
-                {org && <span className="truncate">• {org.name}</span>}
+          </Panel>
+
+          {/* ── Step 1: Organization Details ── */}
+          {currentOnboardingStep === 1 && (
+            <OrganizationTab />
+          )}
+
+          {/* ── Step 2: Admin Review ── */}
+          {currentOnboardingStep === 2 && (
+            <Panel>
+              <div className="px-5 py-10 text-center">
+                <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+                  <ShieldCheck className="h-8 w-8 text-green-600" aria-hidden="true" />
+                </span>
+                <h3 className="mt-4 text-xl font-bold text-gray-900">{t('accountArea.onboarding.submittedTitle', 'Profile submitted for review')}</h3>
+                <p className="mx-auto mt-2 max-w-md text-gray-600">
+                  {t('accountArea.onboarding.submittedBody', 'Thank you for completing your registration! Our team reviews profiles very quickly — you will receive a confirmation email as soon as your account is approved.')}
+                </p>
+                <p className="mt-3 flex items-center justify-center gap-2 text-sm text-gray-600">
+                  <Clock className="h-4 w-4" aria-hidden="true" />
+                  {t('accountArea.onboarding.reviewTime', 'Typical review time: less than 24 hours')}
+                </p>
+                <div className="flex flex-col items-center gap-2 pt-5">
+                  <Button
+                    variant="outline"
+                    className={cn(BTN, 'gap-2')}
+                    onClick={() => navigate('/account?tab=organization', { replace: true })}
+                  >
+                    <Pencil className="h-4 w-4" aria-hidden="true" />
+                    {t('accountArea.onboarding.editRegistration', 'Edit my registration')}
+                  </Button>
+                  {/* The amber "being reviewed" banner is folded into this
+                      step on this view, so its support link moves here. */}
+                  {awaitingReview && (
+                    <Link to="/contact" className="inline-flex min-h-10 items-center rounded text-sm font-medium text-primary underline underline-offset-2 hover:text-primary/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
+                      {t('accountArea.banner.contactSupport', 'Questions? Contact support')}
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </Panel>
+          )}
+        </div>
+      );
+      break;
+    }
+
+    /* ── ORGANIZATION ── */
+    case 'organization':
+      content = <OrganizationWorkspace />;
+      break;
+
+    /* ── PROFILE ── */
+    case 'profile': {
+      content = (
+        <div className="space-y-6">
+          {/* Photo + identity */}
+          <Panel>
+            <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:p-6">
+              <div className="group relative w-fit shrink-0">
+                {profile.avatar_url ? (
+                  <img src={profile.avatar_url} alt={t('accountArea.profile.avatarAlt', 'Your profile photo')} className="h-20 w-20 rounded-full border-2 border-gray-200 object-cover" />
+                ) : (
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-gray-200 bg-primary/10 text-xl font-bold text-primary">
+                    {(profile.first_name?.[0] || '').toUpperCase()}{(profile.last_name?.[0] || '').toUpperCase()}
+                  </div>
+                )}
+                <label className="absolute inset-0 flex cursor-pointer items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                  {uploadingAvatar ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-white" aria-hidden="true" />
+                  ) : (
+                    <Camera className="h-5 w-5 text-white" aria-hidden="true" />
+                  )}
+                  <span className="sr-only">{t('accountArea.profile.changePhoto', 'Change photo')}</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'avatar'); }} disabled={uploadingAvatar} />
+                </label>
+              </div>
+              <div className="min-w-0">
+                <p className="text-lg font-semibold text-gray-900">
+                  {displayName || user.email?.split('@')[0] || t('accountArea.profile.myProfile', 'My Profile')}
+                </p>
+                <p className="break-all text-sm text-gray-600">{user.email}</p>
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  {profile.job_title && <span className="text-sm text-gray-600">{profile.job_title}</span>}
+                  {personaLabel && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary">
+                      {PersonaIcon && <PersonaIcon className="h-3.5 w-3.5" aria-hidden="true" />}
+                      {personaLabel}
+                    </span>
+                  )}
+                </div>
+                <label className="mt-3 inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 hover:bg-gray-50 focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2">
+                  {uploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />}
+                  {profile.avatar_url ? t('accountArea.profile.changePhoto', 'Change photo') : t('accountArea.profile.uploadPhoto', 'Upload photo')}
+                  <input type="file" accept="image/*" className="sr-only" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'avatar'); }} disabled={uploadingAvatar} />
+                </label>
+                <p className="mt-1.5 text-xs text-gray-500">{t('accountArea.profile.photoHelp', 'Square JPG, PNG or WebP · up to 25 MB. Large photos are optimised automatically.')}</p>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {getAccessBadge()}
-          </div>
-        </div>
-      </div>
+          </Panel>
 
-      {/* Incomplete onboarding banner — hidden during onboarding since complete-registration tab has guidance */}
-      {!isOnboarding && profile.onboarding_status === 'draft' && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-start sm:items-center gap-3 min-w-0">
-            <ClipboardList className="h-5 w-5 text-blue-600 shrink-0 mt-0.5 sm:mt-0" />
-            <p className="text-blue-800 text-sm sm:text-base">Your profile is incomplete. Complete your organization details to be validated by our team.</p>
-          </div>
-          <Button size="sm" className="shrink-0 w-full sm:w-auto" onClick={() => navigate('/account?tab=complete-registration', { replace: true })}>Complete my profile</Button>
-        </div>
-      )}
+          {/* Personal Information */}
+          <Panel
+            title={t('accountArea.profile.personalInfo', 'Personal information')}
+            icon={UserCircle}
+            actions={!editingProfile ? (
+              <Button variant="outline" size="sm" onClick={() => setEditingProfile(true)} className={cn(BTN, 'gap-2')}>
+                <Pencil className="h-4 w-4" aria-hidden="true" />
+                {t('accountArea.profile.edit', 'Edit profile')}
+              </Button>
+            ) : (
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className={BTN} onClick={() => {
+                  setEditingProfile(false);
+                  // Reset form to current profile values
+                  if (profile) {
+                    setProfileForm({
+                      firstName: profile.first_name || '',
+                      lastName: profile.last_name || '',
+                      jobTitle: profile.job_title || '',
+                    });
+                  }
+                }}>
+                  {t('common.cancel', 'Cancel')}
+                </Button>
+                <Button size="sm" onClick={handleSaveProfile} disabled={savingProfile} className={cn(BTN, 'gap-2')}>
+                  {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
+                  {t('common.save', 'Save')}
+                </Button>
+              </div>
+            )}
+          >
+            <div className="p-5">
+              {editingProfile ? (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-firstName">{t('accountArea.profile.firstName', 'First name')}</Label>
+                    <Input
+                      id="edit-firstName"
+                      value={profileForm.firstName}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, firstName: e.target.value }))}
+                      placeholder={t('accountArea.profile.firstName', 'First name')}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-lastName">{t('accountArea.profile.lastName', 'Last name')}</Label>
+                    <Input
+                      id="edit-lastName"
+                      value={profileForm.lastName}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, lastName: e.target.value }))}
+                      placeholder={t('accountArea.profile.lastName', 'Last name')}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-email">{t('accountArea.profile.email', 'Email')}</Label>
+                    <Input id="edit-email" value={user.email || ''} disabled className="bg-gray-50" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-jobTitle">{t('accountArea.profile.jobTitle', 'Job title')}</Label>
+                    <Input
+                      id="edit-jobTitle"
+                      value={profileForm.jobTitle}
+                      onChange={(e) => setProfileForm(prev => ({ ...prev, jobTitle: e.target.value }))}
+                      placeholder={t('accountArea.profile.jobTitle', 'Job title')}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label={t('accountArea.profile.firstName', 'First name')}>{profile.first_name || '—'}</Field>
+                  <Field label={t('accountArea.profile.lastName', 'Last name')}>{profile.last_name || '—'}</Field>
+                  <Field label={t('accountArea.profile.email', 'Email')}>{user.email}</Field>
+                  {profile.job_title && (
+                    <Field label={t('accountArea.profile.jobTitle', 'Job title')}>{profile.job_title}</Field>
+                  )}
+                </dl>
+              )}
+            </div>
+          </Panel>
 
-      {/* Pending validation banner */}
-      {profile.onboarding_status === 'submitted' && profile.access_status === 'pending' && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6 flex items-start gap-3">
-          <AlertCircle className="h-5 w-5 text-yellow-600 shrink-0 mt-0.5" />
-          <p className="text-yellow-800">
-            Your profile is being reviewed by our team. You will receive a confirmation email.{' '}
-            <Link to="/contact" className="underline font-medium hover:text-yellow-900">Contact support</Link>{' '}
-            if you have questions.
-          </p>
-        </div>
-      )}
+          {/* Account Details */}
+          <Panel title={t('accountArea.profile.accountDetails', 'Account details')} icon={ShieldCheck}>
+            <dl className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+              <Field label={t('accountArea.profile.persona', 'Profile type')}>{personaLabel || '—'}</Field>
+              <Field label={t('accountArea.profile.status', 'Status')}>
+                {accessMeta ? t(accessMeta.key, accessMeta.fallback) : humanize(profile.access_status)}
+              </Field>
+              {orgRole && (
+                <Field label={t('accountArea.profile.orgRole', 'Organization role')}>{t(`org.${orgRole}`, humanize(orgRole))}</Field>
+              )}
+              <Field label={t('accountArea.profile.registered', 'Member since')}>
+                {fmtDate(profile.created_at, { year: 'numeric', month: 'long', day: 'numeric' })}
+              </Field>
+            </dl>
+          </Panel>
 
-      {/* Payment banners removed — member tier is free, sponsor upgrades handled via contact */}
-
-      {/* Rejected account banner */}
-      {profile.access_status === 'rejected' && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6 space-y-2">
-          <div className="flex items-center gap-3">
-            <XCircle className="h-5 w-5 text-red-600 shrink-0" />
-            <p className="text-red-800 font-medium">Your access request has been rejected.</p>
-          </div>
-          {profile.rejection_reason && (
-            <p className="text-red-700 text-sm ml-8">Reason: {profile.rejection_reason}</p>
+          {/* Organization details (from org context) */}
+          {org && (
+            <Panel
+              title={t('accountArea.profile.organization', 'Organization')}
+              icon={Building2}
+              actions={(
+                <Link to="/account?tab=organization" className="inline-flex min-h-10 items-center gap-1 text-sm font-medium text-primary hover:underline underline-offset-2">
+                  {t('accountArea.profile.manageOrg', 'Manage organization')}
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              )}
+            >
+              <div className="space-y-4 p-5">
+                <div className="flex items-center gap-3">
+                  <LogoBadge src={org.logo_url} name={org.name || '—'} size="lg" />
+                  <p className="font-semibold text-gray-900">{org.name || '—'}</p>
+                </div>
+                {(org.country || org.city || org.headquarters_country) && (
+                  <dl className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    {org.country && <Field label={t('accountArea.profile.country', 'Country')}>{org.country}</Field>}
+                    {org.city && <Field label={t('accountArea.profile.city', 'City')}>{org.city}</Field>}
+                    {org.headquarters_country && <Field label={t('accountArea.profile.hqCountry', 'Headquarters country')}>{org.headquarters_country}</Field>}
+                  </dl>
+                )}
+                {org.description && (
+                  <div className="text-sm">
+                    <p className="mb-1 text-xs font-medium text-gray-500">{t('accountArea.profile.description', 'Description')}</p>
+                    <p className="text-gray-700">{org.description}</p>
+                  </div>
+                )}
+                {org.audience_description && (
+                  <div className="text-sm">
+                    <p className="mb-1 text-xs font-medium text-gray-500">{t('accountArea.profile.audience', 'Audience')}</p>
+                    <p className="text-gray-700">{org.audience_description}</p>
+                  </div>
+                )}
+                {org.website && (
+                  <a href={org.website} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex min-h-10 items-center gap-1.5 break-all text-sm text-primary hover:underline">
+                    <Globe className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {org.website}
+                  </a>
+                )}
+              </div>
+            </Panel>
           )}
-          <div className="ml-8">
-            <Button size="sm" variant="outline" onClick={() => navigate('/onboarding')}>
-              Edit and Resubmit
+
+          {profile.onboarding_status === 'draft' && (
+            <div>
+              <Button onClick={() => navigate('/account?tab=organization', { replace: true })} variant="outline" className={BTN}>
+                {t('accountArea.banner.completeProfile', 'Complete my profile')}
+              </Button>
+            </div>
+          )}
+
+          {/* Security */}
+          <Panel title={t('accountArea.profile.security', 'Security')} icon={KeyRound}>
+            <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-gray-600">{t('accountArea.profile.securityHelp', "We'll email you a link to choose a new password.")}</p>
+              <Button
+                variant="outline"
+                className={cn(BTN, 'shrink-0 gap-2')}
+                onClick={async () => {
+                  if (!user?.email) return;
+                  const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+                    redirectTo: `${window.location.origin}/account?tab=profile`,
+                  });
+                  if (error) {
+                    toast({ title: t('accountArea.toast.error', 'Error'), description: error.message, variant: 'destructive' });
+                  } else {
+                    toast({ title: t('accountArea.toast.passwordReset', 'Password reset email sent'), description: t('accountArea.toast.passwordResetDesc', 'Check your inbox for a link to reset your password.') });
+                  }
+                }}
+              >
+                <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+                {t('accountArea.profile.changePassword', 'Change password')}
+              </Button>
+            </div>
+          </Panel>
+
+          {/* Preview profile button */}
+          <div>
+            <Button variant="outline" onClick={() => setPreviewOpen(true)} className={cn(BTN, 'gap-2')}>
+              <Eye className="h-4 w-4" aria-hidden="true" />
+              {t('accountArea.profile.preview', 'Preview my profile')}
             </Button>
           </div>
         </div>
-      )}
+      );
+      break;
+    }
 
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* ── Sidebar Navigation ── */}
-        <aside className="hidden md:block w-56 shrink-0">
-          <nav className="sticky top-24 space-y-1">
-            {navItems.map((item) => (
-              <button
-                key={item.value}
-                onClick={() => navigate(tabHref(item.value), { replace: true })}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  activeTab === item.value
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                }`}
-              >
-                <span className={activeTab === item.value ? 'text-white' : 'text-gray-400'}>{item.icon}</span>
-                <span className="truncate">{item.label}</span>
-                {item.notifDot && <NotifDot show />}
-                {(item.notifCount ?? 0) > 0 && <NotifBadge count={item.notifCount!} />}
-              </button>
-            ))}
-          </nav>
-        </aside>
+    /* ── MY EVENTS ── */
+    case 'registrations':
+      headerActions = (
+        <Button asChild variant="outline" className={cn(BTN, 'gap-2')}>
+          <Link to="/events">
+            <CalendarDays className="h-4 w-4" aria-hidden="true" />
+            {t('accountArea.events.browse', 'Browse events')}
+          </Link>
+        </Button>
+      );
+      content = (
+        <MyEvents
+          uid={uid ?? null}
+          registrations={registrations}
+          loading={dataLoading}
+          locale={locale}
+          onUnregister={handleUnregister}
+        />
+      );
+      break;
 
-        {/* Mobile tabs (visible on small screens only) */}
-        <div className="md:hidden w-full mb-4 overflow-x-auto">
-          <div className="flex gap-1 pb-2">
-            {navItems.map((item) => (
-              <button
-                key={item.value}
-                onClick={() => navigate(tabHref(item.value), { replace: true })}
-                className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  activeTab === item.value
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {item.label}
-                {(item.notifCount ?? 0) > 0 && <NotifBadge count={item.notifCount!} />}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Main Content ── */}
-        <div className="flex-1 min-w-0">
-      <Tabs value={activeTab} onValueChange={(val) => navigate(tabHref(val), { replace: true })}>
-        <TabsList className="hidden">
-          {navItems.map((item) => (
-            <TabsTrigger key={item.value} value={item.value}>{item.label}</TabsTrigger>
-          ))}
-        </TabsList>
-
-        {/* ── COMPLETE REGISTRATION (onboarding step-by-step wizard) ── */}
-        {isOnboarding && (
-          <TabsContent value="complete-registration">
-            <div className="space-y-6">
-              {/* Step indicator — always visible */}
-              <Card>
-                <CardContent className="p-6">
-                  <h2 className="text-lg font-bold mb-4">Complete Your Registration</h2>
-                  <p className="text-sm text-gray-500 mb-6">
-                    {currentOnboardingStep === 1 && 'Fill in your organization details to get started.'}
-                    {currentOnboardingStep === 2 && 'Your profile is submitted for review.'}
-                  </p>
-                  <div className="flex items-center gap-3 mb-2">
-                    {/* Step 1: Organization */}
-                    <div className="flex items-center gap-2">
-                      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        currentOnboardingStep > 1 ? 'bg-green-100 text-green-700' : 'bg-primary/10 text-primary'
-                      }`}>
-                        {currentOnboardingStep > 1 ? <Check className="h-4 w-4" /> : '1'}
-                      </div>
-                      <span className={`text-sm font-medium ${
-                        currentOnboardingStep > 1 ? 'text-green-700' : 'text-primary'
-                      }`}>Organization</span>
-                    </div>
-                    <div className={`h-px flex-1 ${currentOnboardingStep > 1 ? 'bg-green-300' : 'bg-gray-200'}`} />
-                    {/* Step 2: Admin Review */}
-                    <div className="flex items-center gap-2">
-                      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        currentOnboardingStep === 2 ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400'
-                      }`}>
-                        2
-                      </div>
-                      <span className={`text-sm font-medium ${
-                        currentOnboardingStep === 2 ? 'text-primary' : 'text-gray-400'
-                      }`}>Admin Review</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* ── Step 1: Organization Details ── */}
-              {currentOnboardingStep === 1 && (
-                <OrganizationTab />
-              )}
-
-              {/* ── Step 2: Admin Review ── */}
-              {currentOnboardingStep === 2 && (
-                <Card className="border-primary/20">
-                  <CardContent className="pt-8 pb-8">
-                    <div className="text-center space-y-4">
-                      <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mx-auto">
-                        <ShieldCheck className="h-8 w-8 text-green-600" />
-                      </div>
-                      <h3 className="text-xl font-bold text-gray-900">Profile Submitted for Review</h3>
-                      <p className="text-gray-600 max-w-md mx-auto">
-                        Thank you for completing your registration! Our team reviews profiles very quickly —
-                        you will receive a confirmation email as soon as your account is approved.
-                      </p>
-                      <div className="flex items-center justify-center gap-3 text-sm text-gray-500 mt-2">
-                        <Clock className="h-4 w-4" />
-                        <span>Typical review time: less than 24 hours</span>
-                      </div>
-                      <div className="pt-4">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-2"
-                          onClick={() => navigate('/account?tab=organization', { replace: true })}
-                        >
-                          <Pencil className="h-4 w-4" />
-                          Edit my registration
+    /* ── PROJECTS (marina or entitlement-granted) ── */
+    case 'projects':
+      if (!canProjects) {
+        if (entPending) content = waiting;
+        else { content = unavailable; showHeader = false; }
+        break;
+      }
+      headerActions = (
+        <Button className={cn(BTN, 'gap-2')} onClick={() => navigate('/submit-project')}>
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {t('accountArea.projects.submit', 'Submit a project')}
+        </Button>
+      );
+      content = (
+        <Panel>
+          {requestListsLoading ? (
+            <RowSkeleton rows={2} />
+          ) : projects.length === 0 ? (
+            <EmptyState icon={Anchor} title={t('accountArea.projects.empty', 'No projects submitted yet.')} body={t('accountArea.projects.emptyBody', 'Describe a need and the right suppliers come to you.')} />
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {projects.map((project) => (
+                <ItemRow
+                  key={project.id}
+                  icon={Anchor}
+                  title={humanize(project.project_type)}
+                  meta={[
+                    fmtDate(project.created_at),
+                    project.budget_range ? formatBudgetRange(project.budget_range, under10k) : null,
+                  ]}
+                  aside={(
+                    <>
+                      {project.status === 'new' && (
+                        <Button variant="outline" size="sm" className={BTN} onClick={() => navigate(`/submit-project/${project.id}`)}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />{t('common.edit', 'Edit')}
                         </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-        )}
-
-        {/* ── ORGANIZATION ── */}
-        <TabsContent value="organization">
-          <OrganizationTab />
-        </TabsContent>
-
-        {/* ── PROFILE ── */}
-        <TabsContent value="profile">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    {profile.first_name || profile.last_name
-                      ? `${profile.first_name || ''} ${profile.last_name || ''}`.trim()
-                      : user.email?.split('@')[0] || 'My Profile'}
-                  </CardTitle>
-                  <div className="flex items-center gap-2 mt-1">
-                    {profile.job_title && <span className="text-sm text-gray-500">{profile.job_title}</span>}
-                    {profile.job_title && <span className="text-gray-300">·</span>}
-                    <Badge variant="outline" className="text-xs">{getPersonaIcon()} <span className="ml-1">{getPersonaLabel()}</span></Badge>
-                  </div>
-                </div>
-                {!editingProfile ? (
-                  <Button variant="outline" size="sm" onClick={() => setEditingProfile(true)} className="gap-2">
-                    <Pencil className="h-4 w-4" />
-                    Edit Profile
-                  </Button>
-                ) : (
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => {
-                      setEditingProfile(false);
-                      // Reset form to current profile values
-                      if (profile) {
-                        setProfileForm({
-                          firstName: profile.first_name || '',
-                          lastName: profile.last_name || '',
-                          jobTitle: profile.job_title || '',
-                        });
-                      }
-                    }}>
-                      Cancel
-                    </Button>
-                    <Button size="sm" onClick={handleSaveProfile} disabled={savingProfile} className="gap-2">
-                      {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      Save
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Profile Image Upload */}
-              <div className="flex items-center gap-4">
-                <div className="relative group">
-                  {profile.avatar_url ? (
-                    <img src={profile.avatar_url} alt="Avatar" className="w-20 h-20 rounded-full object-cover border-2 border-gray-200" />
-                  ) : (
-                    <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl border-2 border-gray-200">
-                      {(profile.first_name?.[0] || '').toUpperCase()}{(profile.last_name?.[0] || '').toUpperCase()}
-                    </div>
+                      )}
+                      <SubmissionStatusBadge status={project.status} />
+                    </>
                   )}
-                  <label className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
-                    {uploadingAvatar ? (
-                      <Loader2 className="h-5 w-5 animate-spin text-white" />
-                    ) : (
-                      <Camera className="h-5 w-5 text-white" />
-                    )}
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'avatar'); }} disabled={uploadingAvatar} />
-                  </label>
-                </div>
-                <div className="min-w-0">
-                  <div className="font-semibold text-gray-900">{profile.first_name} {profile.last_name}</div>
-                  <div className="text-sm text-gray-500">{user.email}</div>
-                  <label className="mt-2 inline-flex items-center gap-1.5 cursor-pointer rounded-md border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                    {uploadingAvatar ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-                    {profile.avatar_url ? 'Change photo' : 'Upload photo'}
-                    <input type="file" accept="image/*" className="hidden" onChange={(e) => { if (e.target.files?.[0]) uploadImage(e.target.files[0], 'avatar'); }} disabled={uploadingAvatar} />
-                  </label>
-                  <div className="text-[11px] text-gray-400 mt-1">Square JPG, PNG or WebP · up to 25&nbsp;MB. Large photos are optimised automatically.</div>
-                </div>
-              </div>
+                />
+              ))}
+            </ul>
+          )}
+        </Panel>
+      );
+      break;
 
-              {/* Personal Information */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Personal Information</h3>
-                {editingProfile ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="edit-firstName">First Name</Label>
-                      <Input
-                        id="edit-firstName"
-                        value={profileForm.firstName}
-                        onChange={(e) => setProfileForm(prev => ({ ...prev, firstName: e.target.value }))}
-                        placeholder="First name"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="edit-lastName">Last Name</Label>
-                      <Input
-                        id="edit-lastName"
-                        value={profileForm.lastName}
-                        onChange={(e) => setProfileForm(prev => ({ ...prev, lastName: e.target.value }))}
-                        placeholder="Last name"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="edit-email">Email</Label>
-                      <Input id="edit-email" value={user.email || ''} disabled className="bg-gray-50" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="edit-jobTitle">Job Title</Label>
-                      <Input
-                        id="edit-jobTitle"
-                        value={profileForm.jobTitle}
-                        onChange={(e) => setProfileForm(prev => ({ ...prev, jobTitle: e.target.value }))}
-                        placeholder="Job title"
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500 block">First Name</span>
-                      <span className="font-medium">{profile.first_name || '—'}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Last Name</span>
-                      <span className="font-medium">{profile.last_name || '—'}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Email</span>
-                      <span className="font-medium">{user.email}</span>
-                    </div>
-                    {profile.job_title && (
-                      <div>
-                        <span className="text-gray-500 block">Job Title</span>
-                        <span className="font-medium">{profile.job_title}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Account Details */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Account Details</h3>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-gray-500 block">Persona</span>
-                    <span className="font-medium">{getPersonaLabel()}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-500 block">Status</span>
-                    <span className="font-medium capitalize">{profile.access_status}</span>
-                  </div>
-                  {orgRole && (
-                    <div>
-                      <span className="text-gray-500 block">Organization Role</span>
-                      <span className="font-medium capitalize">{orgRole}</span>
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-gray-500 block">Registered</span>
-                    <span className="font-medium">{new Date(profile.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Organization details (from org context) */}
-              {org && (
-                <div className="pt-4 border-t space-y-3">
-                  {/* Org Info */}
-                  <div className="flex items-center gap-3">
-                    {org.logo_url ? (
-                      <img src={org.logo_url} alt="Organization logo" className="w-14 h-14 rounded-lg object-cover border" />
-                    ) : (
-                      <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center border">
-                        {isMarina ? <Anchor className="h-6 w-6 text-gray-300" /> : profile.persona === 'partner' ? <Building2 className="h-6 w-6 text-gray-300" /> : <Newspaper className="h-6 w-6 text-gray-300" />}
-                      </div>
-                    )}
-                    <div className="text-sm">
-                      <div className="font-medium text-gray-900">{org.name || '—'}</div>
-                      <Link to="/account?tab=organization" className="text-xs text-primary hover:underline">Manage organization &rarr;</Link>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    {org.country && (
-                      <div>
-                        <span className="text-gray-500 block">Country</span>
-                        <span className="font-medium">{org.country}</span>
-                      </div>
-                    )}
-                    {org.city && (
-                      <div>
-                        <span className="text-gray-500 block">City</span>
-                        <span className="font-medium">{org.city}</span>
-                      </div>
-                    )}
-                    {org.headquarters_country && (
-                      <div>
-                        <span className="text-gray-500 block">Headquarters Country</span>
-                        <span className="font-medium">{org.headquarters_country}</span>
-                      </div>
-                    )}
-                  </div>
-                  {org.description && (
-                    <div className="text-sm">
-                      <span className="text-gray-500 block mb-1">Description</span>
-                      <p className="text-gray-700">{org.description}</p>
-                    </div>
-                  )}
-                  {org.audience_description && (
-                    <div className="text-sm">
-                      <span className="text-gray-500 block mb-1">Audience</span>
-                      <p className="text-gray-700">{org.audience_description}</p>
-                    </div>
-                  )}
-                  {org.website && (
-                    <a href={org.website} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                      <ExternalLink className="h-3 w-3" />
-                      {org.website}
-                    </a>
-                  )}
-                </div>
-              )}
-
-              {profile.onboarding_status === 'draft' && (
-                <div className="pt-4">
-                  <Button onClick={() => navigate('/account?tab=organization', { replace: true })} variant="outline">
-                    Complete my profile
-                  </Button>
-                </div>
-              )}
-
-              {/* Security */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 mb-3 uppercase tracking-wide">Security</h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={async () => {
-                    if (!user?.email) return;
-                    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-                      redirectTo: `${window.location.origin}/account?tab=profile`,
-                    });
-                    if (error) {
-                      toast({ title: 'Error', description: error.message, variant: 'destructive' });
-                    } else {
-                      toast({ title: 'Password reset email sent', description: 'Check your inbox for a link to reset your password.' });
-                    }
-                  }}
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                  Change Password
-                </Button>
-              </div>
-
-              {/* Preview profile button */}
-              <div className="pt-4 border-t">
-                <Button variant="outline" onClick={() => setPreviewOpen(true)} className="gap-2">
-                  <Eye className="h-4 w-4" />
-                  Preview my profile
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── REGISTRATIONS ── */}
-        <TabsContent value="registrations">
-          {user && <SM26ParticipationCard userId={user.id} variant="self" />}
-          <Card className="mt-6">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>My Event Registrations</CardTitle>
-              <Link to="/events">
-                <Button variant="outline" size="sm">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Browse Events
-                </Button>
-              </Link>
-            </CardHeader>
-            <CardContent>
-              {dataLoading ? (
-                <LoadingSkeleton variant="inline" />
-              ) : registrations.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Calendar className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                  <p>No registrations yet.</p>
-                  <p className="text-sm mt-1">Browse upcoming events and register to attend.</p>
-                  <Link to="/events" className="inline-block mt-3">
-                    <Button variant="outline" size="sm">Browse Events</Button>
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {registrations.map((reg) => {
-                    const isPaid = reg.payment_status === 'paid' || reg.payment_status === 'free';
-                    const needsPayment = reg.payment_status === 'pending_payment';
-                    const isPendingApproval = reg.payment_status === 'pending_approval';
-                    return (
-                      <div key={reg.id} className={`flex items-center gap-4 p-4 border rounded-lg hover:bg-gray-50 transition-colors ${needsPayment ? 'border-amber-300 bg-amber-50/30' : ''}`}>
-                        <Link to={`/events/${reg.event_id}`} className="flex items-center gap-4 flex-1 min-w-0">
-                          <Calendar className="h-5 w-5 text-gray-400 shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate">{reg.events?.title ?? '—'}</div>
-                            {reg.events?.date_time && (
-                              <div className="text-sm text-gray-500">
-                                {new Date(reg.events.date_time).toLocaleDateString('en-US', {
-                                  year: 'numeric', month: 'long', day: 'numeric',
-                                })}
-                              </div>
-                            )}
-                          </div>
-                          {/* Payment status badge */}
-                          {isPaid && <Badge className="bg-green-100 text-green-800 border-green-200 text-xs shrink-0"><CheckCircle className="h-3 w-3 mr-1" />Confirmed</Badge>}
-                          {isPendingApproval && <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-xs shrink-0"><Clock className="h-3 w-3 mr-1" />Pending Approval</Badge>}
-                          {needsPayment && <Badge className="bg-amber-100 text-amber-800 border-amber-200 text-xs shrink-0"><AlertCircle className="h-3 w-3 mr-1" />Payment Due</Badge>}
-                        </Link>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {/* Event payment button removed — payment integration deferred */}
-                          {/* Allow self-cancel for everything except registrations that
-                              were actually paid for (those need a refund flow). */}
-                          {reg.payment_status !== 'paid' && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                if (!confirm('Are you sure you want to unregister from this event?')) return;
-                                const { error } = await supabase
-                                  .from('event_registrations')
-                                  .delete()
-                                  .eq('id', reg.id);
-                                if (error) {
-                                  toast({ title: 'Failed to unregister', description: error.message, variant: 'destructive' });
-                                } else {
-                                  toast({ title: 'Unregistered from event' });
-                                  setRegistrations(prev => prev.filter(r => r.id !== reg.id));
-                                }
-                              }}
-                            >
-                              <X className="h-4 w-4 mr-1" />
-                              Unregister
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── PROJECTS (marina or entitlement-granted) ── */}
-        {canProjects && (
-          <TabsContent value="projects">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>My Projects</CardTitle>
-                <Button size="sm" onClick={() => navigate('/submit-project')}>
-                  Submit a Project
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {dataLoading ? (
-                  <LoadingSkeleton variant="inline" />
-                ) : projects.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No projects submitted yet.</p>
-                ) : (
-                  <div className="space-y-4">
-                    {projects.map((project) => (
-                      <div key={project.id} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center gap-4">
-                          <FileText className="h-5 w-5 text-gray-400 shrink-0" />
-                          <div>
-                            <div className="font-medium">{project.project_type}</div>
-                            <div className="text-sm text-gray-500">
-                              {new Date(project.created_at).toLocaleDateString('en-US')}
-                              {project.budget_range && ` • ${formatBudgetRange(project.budget_range)}`}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {project.status === 'new' && (
-                            <Button variant="outline" size="sm" onClick={() => navigate(`/submit-project/${project.id}`)}>
-                              <Pencil className="h-3 w-3 mr-1" />Edit
-                            </Button>
-                          )}
-                          <SubmissionStatusBadge status={project.status} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
-        {/* ── WEBINAR REQUESTS ── */}
-        <TabsContent value="webinars">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>My Webinar Requests</CardTitle>
-              {profile?.access_status === 'verified' && (organization?.tier !== 'member' || profile?.persona !== 'partner') && (
-                <Button size="sm" onClick={() => navigate('/request-webinar')}>
-                  <Plus className="h-4 w-4 mr-2" />Propose a Webinar
+    /* ── WEBINAR REQUESTS ── */
+    case 'webinars':
+      if (profile?.access_status === 'verified' && (organization?.tier !== 'member' || profile?.persona !== 'partner')) {
+        headerActions = (
+          <Button className={cn(BTN, 'gap-2')} onClick={() => navigate('/request-webinar')}>
+            <Plus className="h-4 w-4" aria-hidden="true" />{t('accountArea.webinars.propose', 'Propose a webinar')}
+          </Button>
+        );
+      }
+      content = (
+        <Panel>
+          {profile?.access_status !== 'verified' ? (
+            <EmptyState
+              icon={Clock}
+              tone="amber"
+              title={t('accountArea.webinars.pendingTitle', 'Account pending approval')}
+              body={t('accountArea.webinars.pendingBody', "You'll be able to propose webinars once your profile is verified by our team.")}
+            />
+          ) : (organization?.tier === 'member' && profile?.persona === 'partner') ? (
+            <EmptyState
+              icon={Radio}
+              title={t('accountArea.webinars.upgradeTitle', 'Upgrade required')}
+              body={t('accountArea.webinars.upgradeBody', 'Webinar proposals are available starting from the Innovation Partner tier. Upgrade your membership to unlock this feature.')}
+              action={(
+                <Button className={BTN} variant="outline" onClick={() => navigate('/tiers')}>
+                  {t('accountArea.webinars.viewPlans', 'View membership plans')}
                 </Button>
               )}
-            </CardHeader>
-            <CardContent>
-              {profile?.access_status !== 'verified' ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Clock className="h-8 w-8 mx-auto mb-3 text-amber-400" />
-                  <p className="font-medium text-gray-700">Account Pending Approval</p>
-                  <p className="text-sm mt-1">You'll be able to propose webinars once your profile is verified by our team.</p>
-                </div>
-              ) : (organization?.tier === 'member' && profile?.persona === 'partner') ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Radio className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                  <p className="font-medium text-gray-700">Upgrade Required</p>
-                  <p className="text-sm mt-1 max-w-md mx-auto">Webinar proposals are available starting from the Innovation Partner tier. Upgrade your membership to unlock this feature.</p>
-                  <Button className="mt-4" size="sm" variant="outline" onClick={() => navigate('/tiers')}>
-                    View Membership Plans
-                  </Button>
-                </div>
-              ) : dataLoading ? (
-                <LoadingSkeleton variant="inline" />
-              ) : webinarRequests.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <Radio className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                  <p>No webinar requests submitted.</p>
-                  <Button className="mt-4" size="sm" onClick={() => navigate('/request-webinar')}>
-                    Propose a Topic
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {webinarRequests.map((req) => (
-                    <div key={req.id} className="p-4 border rounded-lg space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="font-medium">{req.title}</div>
-                        <WebinarStatusBadge status={req.status} />
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {req.preferred_language === 'EN' ? 'English' : 'Français'}
-                        {req.preferred_timeframe && ` · ${req.preferred_timeframe}`}
-                        {' · '}{new Date(req.created_at).toLocaleDateString('en-US')}
-                      </div>
+            />
+          ) : dataLoading ? (
+            <RowSkeleton rows={2} />
+          ) : webinarRequests.length === 0 ? (
+            <EmptyState
+              icon={Radio}
+              title={t('accountArea.webinars.empty', 'No webinar requests submitted.')}
+              action={(
+                <Button className={BTN} onClick={() => navigate('/request-webinar')}>
+                  {t('accountArea.webinars.proposeTopic', 'Propose a topic')}
+                </Button>
+              )}
+            />
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {webinarRequests.map((req) => (
+                <ItemRow
+                  key={req.id}
+                  icon={Radio}
+                  title={req.title}
+                  meta={[langLabel(req.preferred_language), req.preferred_timeframe, fmtDate(req.created_at)]}
+                  aside={<WebinarStatusBadge status={req.status} />}
+                  footer={(
+                    <>
                       {req.moderator_notes && (
-                        <div className="text-sm bg-blue-50 border border-blue-100 rounded p-3 text-blue-800">
-                          <span className="font-medium">Team Note:</span>
+                        <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+                          <span className="font-medium">{t('accountArea.webinars.teamNote', 'Team note:')}</span>{' '}
                           {req.moderator_notes}
                         </div>
                       )}
                       {req.status === 'submitted' && (
-                        <div className="flex gap-2 pt-1">
-                          <Button variant="outline" size="sm" onClick={() => navigate(`/request-webinar?edit=${req.id}`)}>
-                            Edit
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" className={BTN} onClick={() => navigate(`/request-webinar?edit=${req.id}`)}>
+                            <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />{t('common.edit', 'Edit')}
                           </Button>
-                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
-                            if (!confirm('Withdraw this webinar request?')) return;
+                          <Button variant="ghost" size="sm" className={cn(BTN, 'text-red-600 hover:bg-red-50 hover:text-red-700')} onClick={async () => {
+                            if (!confirm(t('accountArea.webinars.withdrawConfirm', 'Withdraw this webinar request?'))) return;
                             await supabase.from('webinar_requests').delete().eq('id', req.id);
                             setWebinarRequests(prev => prev.filter(r => r.id !== req.id));
-                            toast({ title: 'Request deleted' });
+                            toast({ title: t('accountArea.webinars.deleted', 'Request deleted') });
                           }}>
-                            <X className="h-4 w-4 mr-1" />Withdraw
+                            <X className="mr-1 h-4 w-4" aria-hidden="true" />{t('accountArea.webinars.withdraw', 'Withdraw')}
                           </Button>
                         </div>
                       )}
-                    </div>
-                  ))}
-                </div>
+                    </>
+                  )}
+                />
+              ))}
+            </ul>
+          )}
+        </Panel>
+      );
+      break;
+
+    /* ── RFPs (marina or entitlement-granted) ── */
+    case 'rfps':
+      if (!canRFPs) {
+        if (entPending) content = waiting;
+        else { content = unavailable; showHeader = false; }
+        break;
+      }
+      headerActions = (
+        <Button className={cn(BTN, 'gap-2')} onClick={() => navigate('/submit-rfp')}>
+          <Plus className="h-4 w-4" aria-hidden="true" />{t('accountArea.rfps.submit', 'Submit an RFP')}
+        </Button>
+      );
+      content = (
+        <Panel>
+          {requestListsLoading ? (
+            <RowSkeleton rows={2} />
+          ) : rfps.length === 0 ? (
+            <EmptyState
+              icon={ClipboardList}
+              title={t('accountArea.rfps.empty', 'No RFPs submitted.')}
+              action={(
+                <Button className={BTN} onClick={() => navigate('/submit-rfp')}>
+                  {t('accountArea.rfps.create', 'Create an RFP')}
+                </Button>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── RFPs (marina or entitlement-granted) ── */}
-        {canRFPs && (
-          <TabsContent value="rfps">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <ClipboardList className="h-5 w-5" />
-                  My RFPs
-                </CardTitle>
-                <Button size="sm" onClick={() => navigate('/submit-rfp')}>
-                  <Plus className="h-4 w-4 mr-2" />Submit an RFP
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {dataLoading ? (
-                  <LoadingSkeleton variant="inline" />
-                ) : rfps.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <ClipboardList className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                    <p>No RFPs submitted.</p>
-                    <Button className="mt-4" size="sm" onClick={() => navigate('/submit-rfp')}>
-                      Create an RFP
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {rfps.map((rfp) => (
-                      <div key={rfp.id} className="p-4 border rounded-lg space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="font-medium">{rfp.title}</div>
-                          <SubmissionStatusBadge status={rfp.status || (rfp.is_open ? 'open' : 'closed')} />
-                        </div>
-                        {rfp.rejection_reason && rfp.status === 'rejected' && (
-                          <p className="text-sm text-red-600 mt-1">
-                            <span className="font-medium">Reason:</span> {rfp.rejection_reason}
-                          </p>
-                        )}
-                        <p className="text-sm text-gray-600 line-clamp-2">{rfp.scope}</p>
-                        <div className="text-sm text-gray-500">
-                          {rfp.deadline_date && `Deadline:${new Date(rfp.deadline_date).toLocaleDateString('en-US')} · `}
-                          Created {new Date(rfp.created_at).toLocaleDateString('en-US')}
-                        </div>
-                        <div className="flex gap-2 pt-1">
-                          {(rfp.status === 'submitted' || rfp.status === 'rejected') && (
-                            <Button variant="outline" size="sm" onClick={() => navigate(`/submit-rfp/${rfp.id}`)}>
-                              <Pencil className="h-3 w-3 mr-1" />Edit
-                            </Button>
-                          )}
-                          <Button variant="outline" size="sm" onClick={async () => {
-                            const newOpen = !rfp.is_open;
-                            await supabase.from('rfps').update({ is_open: newOpen }).eq('id', rfp.id);
-                            setRfps(prev => prev.map(r => r.id === rfp.id ? { ...r, is_open: newOpen } : r));
-                            toast({ title: newOpen ? 'RFP reopened' : 'RFP closed' });
-                          }}>
-                            {rfp.is_open ? 'Close' : 'Reopen'}
-                          </Button>
-                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
-                            if (!confirm('Delete this RFP?')) return;
-                            await supabase.from('rfps').delete().eq('id', rfp.id);
-                            setRfps(prev => prev.filter(r => r.id !== rfp.id));
-                            toast({ title: 'RFP deleted' });
-                          }}>
-                            <X className="h-4 w-4 mr-1" />Delete
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
-
-        {/* ── CONSULTATIONS (marina or entitlement-granted) ── */}
-        {canConsultations && (
-          <TabsContent value="consultations">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <MessageSquare className="h-5 w-5" />
-                  My Consultations
-                </CardTitle>
-                <Button size="sm" onClick={() => navigate('/submit-consultation')}>
-                  <Plus className="h-4 w-4 mr-2" />New Consultation
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {dataLoading ? (
-                  <LoadingSkeleton variant="inline" />
-                ) : consultations.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
-                    <MessageSquare className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-                    <p>No consultations submitted.</p>
-                    <Button className="mt-4" size="sm" onClick={() => navigate('/submit-consultation')}>
-                      Ask a Question
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {consultations.map((c) => (
-                      <div key={c.id} className="p-4 border rounded-lg space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="font-medium">{c.title}</div>
-                          <SubmissionStatusBadge status={c.status || (c.is_open ? 'open' : 'closed')} />
-                        </div>
-                        {c.rejection_reason && c.status === 'rejected' && (
-                          <p className="text-sm text-red-600 mt-1">
-                            <span className="font-medium">Reason:</span> {c.rejection_reason}
-                          </p>
-                        )}
-                        <p className="text-sm text-gray-600 line-clamp-2">{c.description}</p>
-                        <div className="text-sm text-gray-500">
-                          Created {new Date(c.created_at).toLocaleDateString('en-US')}
-                        </div>
-                        <div className="flex gap-2 pt-1">
-                          {(c.status === 'submitted' || c.status === 'rejected') && (
-                            <Button variant="outline" size="sm" onClick={() => navigate(`/submit-consultation/${c.id}`)}>
-                              <Pencil className="h-3 w-3 mr-1" />Edit
-                            </Button>
-                          )}
-                          <Button variant="outline" size="sm" onClick={async () => {
-                            const newOpen = !c.is_open;
-                            await supabase.from('consultations').update({ is_open: newOpen }).eq('id', c.id);
-                            setConsultations(prev => prev.map(x => x.id === c.id ? { ...x, is_open: newOpen } : x));
-                            toast({ title: newOpen ? 'Consultation reopened' : 'Consultation closed' });
-                          }}>
-                            {c.is_open ? 'Close' : 'Reopen'}
-                          </Button>
-                          <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={async () => {
-                            if (!confirm('Delete this consultation?')) return;
-                            await supabase.from('consultations').delete().eq('id', c.id);
-                            setConsultations(prev => prev.filter(x => x.id !== c.id));
-                            toast({ title: 'Consultation deleted' });
-                          }}>
-                            <X className="h-4 w-4 mr-1" />Delete
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
-
-        {/* S3 Pre-Audit archived — will be deployed later */}
-
-        {/* ── RECOMMENDATIONS (gated on org type, not user persona, so
-            admin/moderator/owner of a partner org all have access) ── */}
-        {isPartnerOrg && (
-          <TabsContent value="references">
-            <ReferenceRequestForm onReferenceSubmitted={refreshOnboardingState} />
-          </TabsContent>
-        )}
-
-        {/* ── MY SUBMISSIONS ── */}
-        {(isMarina || isPartner) && (
-          <TabsContent value="submissions">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  My Submissions
-                </CardTitle>
-                <p className="text-sm text-gray-500">Track the status of everything you have submitted across the platform.</p>
-              </CardHeader>
-              <CardContent>
-                {submissionsLoading ? (
-                  <LoadingSkeleton variant="inline" />
-                ) : (
-                  <div className="space-y-4">
-                    {/* ── Projects Section ── */}
-                    {canProjects && (
-                      <div className="border rounded-lg">
-                        <button
-                          type="button"
-                          onClick={() => toggleSection('projects')}
-                          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-2 font-medium">
-                            <Anchor className="h-4 w-4 text-gray-500" />
-                            My Projects
-                            <Badge variant="secondary" className="ml-1 text-xs">{subProjects.length}</Badge>
-                          </div>
-                          {expandedSections.projects ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
-                        </button>
-                        {expandedSections.projects && (
-                          <div className="border-t px-4 pb-4">
-                            {subProjects.length === 0 ? (
-                              <div className="text-center py-6 text-gray-500">
-                                <p className="text-sm">No projects submitted yet.</p>
-                                <Link to="/submit-project" className="text-sm text-primary hover:underline mt-1 inline-block">Submit a project</Link>
-                              </div>
-                            ) : (
-                              <div className="divide-y">
-                                {subProjects.map((p) => (
-                                  <div key={p.id} className="py-3 flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="font-medium text-sm">{p.project_type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
-                                      <div className="text-xs text-gray-500">
-                                        {new Date(p.created_at).toLocaleDateString('en-US')}
-                                        {p.budget_range && ` · ${formatBudgetRange(p.budget_range)}`}
-                                        {p.timeline && ` · ${p.timeline.replace(/_/g, ' ')}`}
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      {p.status === 'new' && (
-                                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => navigate(`/submit-project/${p.id}`)}>
-                                          <Pencil className="h-3 w-3" />
-                                        </Button>
-                                      )}
-                                      <SubmissionStatusBadge status={p.status} />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* ── RFPs Section ── */}
-                    {canRFPs && (
-                      <div className="border rounded-lg">
-                        <button
-                          type="button"
-                          onClick={() => toggleSection('rfps')}
-                          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-2 font-medium">
-                            <ClipboardList className="h-4 w-4 text-gray-500" />
-                            My RFPs
-                            <Badge variant="secondary" className="ml-1 text-xs">{subRfps.length}</Badge>
-                          </div>
-                          {expandedSections.rfps ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
-                        </button>
-                        {expandedSections.rfps && (
-                          <div className="border-t px-4 pb-4">
-                            {subRfps.length === 0 ? (
-                              <div className="text-center py-6 text-gray-500">
-                                <p className="text-sm">No RFPs submitted yet.</p>
-                                <Link to="/submit-rfp" className="text-sm text-primary hover:underline mt-1 inline-block">Submit an RFP</Link>
-                              </div>
-                            ) : (
-                              <div className="divide-y">
-                                {subRfps.map((r) => (
-                                  <div key={r.id} className="py-3 flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="font-medium text-sm">{r.title}</div>
-                                      <p className="text-xs text-gray-500 line-clamp-1">{r.scope}</p>
-                                      <div className="text-xs text-gray-400">
-                                        {r.deadline_date && `Deadline: ${new Date(r.deadline_date).toLocaleDateString('en-US')} · `}
-                                        Created {new Date(r.created_at).toLocaleDateString('en-US')}
-                                      </div>
-                                      {r.rejection_reason && r.status === 'rejected' && (
-                                        <p className="text-xs text-red-600 mt-1">
-                                          <span className="font-medium">Reason:</span> {r.rejection_reason}
-                                        </p>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      {(r.status === 'submitted' || r.status === 'rejected') && (
-                                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => navigate(`/submit-rfp/${r.id}`)}>
-                                          <Pencil className="h-3 w-3" />
-                                        </Button>
-                                      )}
-                                      <SubmissionStatusBadge status={r.status || (r.is_open ? 'open' : 'closed')} />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* ── Consultations Section ── */}
-                    {canConsultations && (
-                      <div className="border rounded-lg">
-                        <button
-                          type="button"
-                          onClick={() => toggleSection('consultations')}
-                          className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-2 font-medium">
-                            <MessageSquare className="h-4 w-4 text-gray-500" />
-                            My Consultations
-                            <Badge variant="secondary" className="ml-1 text-xs">{subConsultations.length}</Badge>
-                          </div>
-                          {expandedSections.consultations ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
-                        </button>
-                        {expandedSections.consultations && (
-                          <div className="border-t px-4 pb-4">
-                            {subConsultations.length === 0 ? (
-                              <div className="text-center py-6 text-gray-500">
-                                <p className="text-sm">No consultations submitted yet.</p>
-                                <Link to="/submit-consultation" className="text-sm text-primary hover:underline mt-1 inline-block">Start a consultation</Link>
-                              </div>
-                            ) : (
-                              <div className="divide-y">
-                                {subConsultations.map((c) => (
-                                  <div key={c.id} className="py-3 flex items-center justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="font-medium text-sm">{c.title}</div>
-                                      <p className="text-xs text-gray-500 line-clamp-1">{c.description}</p>
-                                      <div className="text-xs text-gray-400">
-                                        Created {new Date(c.created_at).toLocaleDateString('en-US')}
-                                      </div>
-                                      {c.rejection_reason && c.status === 'rejected' && (
-                                        <p className="text-xs text-red-600 mt-1">
-                                          <span className="font-medium">Reason:</span> {c.rejection_reason}
-                                        </p>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      {(c.status === 'submitted' || c.status === 'rejected') && (
-                                        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => navigate(`/submit-consultation/${c.id}`)}>
-                                          <Pencil className="h-3 w-3" />
-                                        </Button>
-                                      )}
-                                      <SubmissionStatusBadge status={c.status || (c.is_open ? 'open' : 'closed')} />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* ── Webinar Requests Section (all users) ── */}
-                    <div className="border rounded-lg">
-                      <button
-                        type="button"
-                        onClick={() => toggleSection('webinars')}
-                        className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 font-medium">
-                          <Radio className="h-4 w-4 text-gray-500" />
-                          My Webinar Requests
-                          <Badge variant="secondary" className="ml-1 text-xs">{subWebinars.length}</Badge>
-                        </div>
-                        {expandedSections.webinars ? <ChevronDown className="h-4 w-4 text-gray-400" /> : <ChevronRight className="h-4 w-4 text-gray-400" />}
-                      </button>
-                      {expandedSections.webinars && (
-                        <div className="border-t px-4 pb-4">
-                          {subWebinars.length === 0 ? (
-                            <div className="text-center py-6 text-gray-500">
-                              <p className="text-sm">No webinar requests submitted yet.</p>
-                              <Link to="/request-webinar" className="text-sm text-primary hover:underline mt-1 inline-block">Propose a webinar</Link>
-                            </div>
-                          ) : (
-                            <div className="divide-y">
-                              {subWebinars.map((w) => (
-                                <div key={w.id} className="py-3 flex items-center justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="font-medium text-sm">{w.title}</div>
-                                    <div className="text-xs text-gray-500">
-                                      {w.preferred_language === 'EN' ? 'English' : 'Francais'}
-                                      {' · '}{new Date(w.created_at).toLocaleDateString('en-US')}
-                                    </div>
-                                  </div>
-                                  <SubmissionStatusBadge status={w.status} />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+            />
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {rfps.map((rfp) => (
+                <ItemRow
+                  key={rfp.id}
+                  icon={ClipboardList}
+                  title={rfp.title}
+                  description={rfp.scope}
+                  meta={[
+                    rfp.deadline_date ? t('accountArea.rfps.deadline', { date: fmtDate(rfp.deadline_date), defaultValue: 'Deadline: {{date}}' }) : null,
+                    t('accountArea.common.created', { date: fmtDate(rfp.created_at), defaultValue: 'Created {{date}}' }),
+                  ]}
+                  rejection={rfp.status === 'rejected' ? rfp.rejection_reason : null}
+                  aside={<SubmissionStatusBadge status={rfp.status || (rfp.is_open ? 'open' : 'closed')} />}
+                  footer={(
+                    <div className="flex flex-wrap gap-2">
+                      {(rfp.status === 'submitted' || rfp.status === 'rejected') && (
+                        <Button variant="outline" size="sm" className={BTN} onClick={() => navigate(`/submit-rfp/${rfp.id}`)}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />{t('common.edit', 'Edit')}
+                        </Button>
                       )}
+                      <Button variant="outline" size="sm" className={BTN} onClick={async () => {
+                        const newOpen = !rfp.is_open;
+                        await supabase.from('rfps').update({ is_open: newOpen }).eq('id', rfp.id);
+                        setRfps(prev => prev.map(r => r.id === rfp.id ? { ...r, is_open: newOpen } : r));
+                        toast({ title: newOpen ? t('accountArea.rfps.reopened', 'RFP reopened') : t('accountArea.rfps.closed', 'RFP closed') });
+                      }}>
+                        {rfp.is_open ? t('accountArea.common.close', 'Close') : t('accountArea.common.reopen', 'Reopen')}
+                      </Button>
+                      <Button variant="ghost" size="sm" className={cn(BTN, 'text-red-600 hover:bg-red-50 hover:text-red-700')} onClick={async () => {
+                        if (!confirm(t('accountArea.rfps.deleteConfirm', 'Delete this RFP?'))) return;
+                        await supabase.from('rfps').delete().eq('id', rfp.id);
+                        setRfps(prev => prev.filter(r => r.id !== rfp.id));
+                        toast({ title: t('accountArea.rfps.deleted', 'RFP deleted') });
+                      }}>
+                        <X className="mr-1 h-4 w-4" aria-hidden="true" />{t('common.delete', 'Delete')}
+                      </Button>
                     </div>
+                  )}
+                />
+              ))}
+            </ul>
+          )}
+        </Panel>
+      );
+      break;
 
-                    {/* Summary if everything is empty */}
-                    {subProjects.length === 0 && subRfps.length === 0 && subConsultations.length === 0 && subWebinars.length === 0 && (
-                      <div className="text-center py-6 text-gray-500">
-                        <FileText className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-                        <p className="font-medium">No submissions yet</p>
-                        <p className="text-sm mt-1">Start by submitting a project, RFP, consultation, or webinar request.</p>
-                      </div>
-                    )}
-                  </div>
+    /* ── CONSULTATIONS (marina or entitlement-granted) ── */
+    case 'consultations':
+      if (!canConsultations) {
+        if (entPending) content = waiting;
+        else { content = unavailable; showHeader = false; }
+        break;
+      }
+      headerActions = (
+        <Button className={cn(BTN, 'gap-2')} onClick={() => navigate('/submit-consultation')}>
+          <Plus className="h-4 w-4" aria-hidden="true" />{t('accountArea.consultations.new', 'New consultation')}
+        </Button>
+      );
+      content = (
+        <Panel>
+          {requestListsLoading ? (
+            <RowSkeleton rows={2} />
+          ) : consultations.length === 0 ? (
+            <EmptyState
+              icon={MessageSquare}
+              title={t('accountArea.consultations.empty', 'No consultations submitted.')}
+              action={(
+                <Button className={BTN} onClick={() => navigate('/submit-consultation')}>
+                  {t('accountArea.consultations.ask', 'Ask a question')}
+                </Button>
+              )}
+            />
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {consultations.map((c) => (
+                <ItemRow
+                  key={c.id}
+                  icon={MessageSquare}
+                  title={c.title}
+                  description={c.description}
+                  meta={[t('accountArea.common.created', { date: fmtDate(c.created_at), defaultValue: 'Created {{date}}' })]}
+                  rejection={c.status === 'rejected' ? c.rejection_reason : null}
+                  aside={<SubmissionStatusBadge status={c.status || (c.is_open ? 'open' : 'closed')} />}
+                  footer={(
+                    <div className="flex flex-wrap gap-2">
+                      {(c.status === 'submitted' || c.status === 'rejected') && (
+                        <Button variant="outline" size="sm" className={BTN} onClick={() => navigate(`/submit-consultation/${c.id}`)}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden="true" />{t('common.edit', 'Edit')}
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" className={BTN} onClick={async () => {
+                        const newOpen = !c.is_open;
+                        await supabase.from('consultations').update({ is_open: newOpen }).eq('id', c.id);
+                        setConsultations(prev => prev.map(x => x.id === c.id ? { ...x, is_open: newOpen } : x));
+                        toast({ title: newOpen ? t('accountArea.consultations.reopened', 'Consultation reopened') : t('accountArea.consultations.closed', 'Consultation closed') });
+                      }}>
+                        {c.is_open ? t('accountArea.common.close', 'Close') : t('accountArea.common.reopen', 'Reopen')}
+                      </Button>
+                      <Button variant="ghost" size="sm" className={cn(BTN, 'text-red-600 hover:bg-red-50 hover:text-red-700')} onClick={async () => {
+                        if (!confirm(t('accountArea.consultations.deleteConfirm', 'Delete this consultation?'))) return;
+                        await supabase.from('consultations').delete().eq('id', c.id);
+                        setConsultations(prev => prev.filter(x => x.id !== c.id));
+                        toast({ title: t('accountArea.consultations.deleted', 'Consultation deleted') });
+                      }}>
+                        <X className="mr-1 h-4 w-4" aria-hidden="true" />{t('common.delete', 'Delete')}
+                      </Button>
+                    </div>
+                  )}
+                />
+              ))}
+            </ul>
+          )}
+        </Panel>
+      );
+      break;
+
+    /* S3 Pre-Audit archived — will be deployed later */
+
+    /* ── RECOMMENDATIONS (gated on org type, not user persona, so
+        admin/moderator/owner of a partner org all have access) ── */
+    case 'references':
+      if (!isPartnerOrg) { content = unavailable; showHeader = false; break; }
+      content = <ReferenceRequestForm onReferenceSubmitted={refreshOnboardingState} />;
+      break;
+
+    /* ── MY SUBMISSIONS ── */
+    case 'submissions': {
+      if (!sectionVisible.submissions) {
+        if (entPending) content = waiting;
+        else { content = unavailable; showHeader = false; }
+        break;
+      }
+      const nothingYet = subProjects.length === 0 && subRfps.length === 0 && subConsultations.length === 0 && subWebinars.length === 0;
+      content = submissionsLoading || entPending ? waiting : (
+        <div className="space-y-4">
+          {/* Summary if everything is empty */}
+          {nothingYet && (
+            <Panel>
+              <EmptyState
+                icon={FileText}
+                title={t('accountArea.submissions.emptyTitle', 'No submissions yet')}
+                body={t('accountArea.submissions.emptyBody', 'Start by submitting a project, RFP, consultation, or webinar request.')}
+              />
+            </Panel>
+          )}
+
+          {/* ── Projects Section ── */}
+          {canProjects && (
+            <SubmissionGroup
+              id="projects"
+              icon={Anchor}
+              title={t('accountArea.submissions.projects', 'My projects')}
+              count={subProjects.length}
+              open={expandedSections.projects}
+              onToggle={() => toggleSection('projects')}
+            >
+              {subProjects.length === 0 ? (
+                <GroupEmpty text={t('accountArea.submissions.noProjects', 'No projects submitted yet.')} linkTo="/submit-project" linkLabel={t('accountArea.projects.submit', 'Submit a project')} />
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {subProjects.map((p) => (
+                    <CompactRow
+                      key={p.id}
+                      title={humanize(p.project_type)}
+                      meta={[
+                        fmtDate(p.created_at),
+                        p.budget_range ? formatBudgetRange(p.budget_range, under10k) : null,
+                        p.timeline ? p.timeline.replace(/_/g, ' ') : null,
+                      ]}
+                      editLabel={t('common.edit', 'Edit')}
+                      onEdit={p.status === 'new' ? () => navigate(`/submit-project/${p.id}`) : undefined}
+                      status={p.status}
+                    />
+                  ))}
+                </ul>
+              )}
+            </SubmissionGroup>
+          )}
+
+          {/* ── RFPs Section ── */}
+          {canRFPs && (
+            <SubmissionGroup
+              id="rfps"
+              icon={ClipboardList}
+              title={t('accountArea.submissions.rfps', 'My RFPs')}
+              count={subRfps.length}
+              open={expandedSections.rfps}
+              onToggle={() => toggleSection('rfps')}
+            >
+              {subRfps.length === 0 ? (
+                <GroupEmpty text={t('accountArea.submissions.noRfps', 'No RFPs submitted yet.')} linkTo="/submit-rfp" linkLabel={t('accountArea.rfps.submit', 'Submit an RFP')} />
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {subRfps.map((r) => (
+                    <CompactRow
+                      key={r.id}
+                      title={r.title}
+                      description={r.scope}
+                      meta={[
+                        r.deadline_date ? t('accountArea.rfps.deadline', { date: fmtDate(r.deadline_date), defaultValue: 'Deadline: {{date}}' }) : null,
+                        t('accountArea.common.created', { date: fmtDate(r.created_at), defaultValue: 'Created {{date}}' }),
+                      ]}
+                      rejection={r.status === 'rejected' ? r.rejection_reason : null}
+                      editLabel={t('common.edit', 'Edit')}
+                      onEdit={(r.status === 'submitted' || r.status === 'rejected') ? () => navigate(`/submit-rfp/${r.id}`) : undefined}
+                      status={r.status || (r.is_open ? 'open' : 'closed')}
+                    />
+                  ))}
+                </ul>
+              )}
+            </SubmissionGroup>
+          )}
+
+          {/* ── Consultations Section ── */}
+          {canConsultations && (
+            <SubmissionGroup
+              id="consultations"
+              icon={MessageSquare}
+              title={t('accountArea.submissions.consultations', 'My consultations')}
+              count={subConsultations.length}
+              open={expandedSections.consultations}
+              onToggle={() => toggleSection('consultations')}
+            >
+              {subConsultations.length === 0 ? (
+                <GroupEmpty text={t('accountArea.submissions.noConsultations', 'No consultations submitted yet.')} linkTo="/submit-consultation" linkLabel={t('accountArea.submissions.startConsultation', 'Start a consultation')} />
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {subConsultations.map((c) => (
+                    <CompactRow
+                      key={c.id}
+                      title={c.title}
+                      description={c.description}
+                      meta={[t('accountArea.common.created', { date: fmtDate(c.created_at), defaultValue: 'Created {{date}}' })]}
+                      rejection={c.status === 'rejected' ? c.rejection_reason : null}
+                      editLabel={t('common.edit', 'Edit')}
+                      onEdit={(c.status === 'submitted' || c.status === 'rejected') ? () => navigate(`/submit-consultation/${c.id}`) : undefined}
+                      status={c.status || (c.is_open ? 'open' : 'closed')}
+                    />
+                  ))}
+                </ul>
+              )}
+            </SubmissionGroup>
+          )}
+
+          {/* ── Webinar Requests Section (all users) ── */}
+          <SubmissionGroup
+            id="webinars"
+            icon={Radio}
+            title={t('accountArea.submissions.webinars', 'My webinar requests')}
+            count={subWebinars.length}
+            open={expandedSections.webinars}
+            onToggle={() => toggleSection('webinars')}
+          >
+            {subWebinars.length === 0 ? (
+              <GroupEmpty text={t('accountArea.submissions.noWebinars', 'No webinar requests submitted yet.')} linkTo="/request-webinar" linkLabel={t('accountArea.webinars.propose', 'Propose a webinar')} />
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {subWebinars.map((w) => (
+                  <CompactRow
+                    key={w.id}
+                    title={w.title}
+                    meta={[langLabel(w.preferred_language), fmtDate(w.created_at)]}
+                    status={w.status}
+                  />
+                ))}
+              </ul>
+            )}
+          </SubmissionGroup>
+        </div>
+      );
+      break;
+    }
+
+    /* ── INBOX (unified) ── */
+    case 'inbox':
+      content = <InboxTab />;
+      break;
+
+    /* ── PLAN & BILLING ── */
+    case 'pricing':
+      content = <div className={cn(CARD, 'overflow-hidden')}><TiersPage embedded /></div>;
+      break;
+
+    /* ── SHORTLIST (marina + developer + investor) ── */
+    case 'shortlist':
+      if (!(isMarinaLike || isInvestor)) { content = unavailable; showHeader = false; break; }
+      content = <ShortlistTab />;
+      break;
+
+    /* ── NOTIFICATIONS ── */
+    case 'notifications':
+      content = <NotificationPreferencesTab />;
+      break;
+
+    /* ── PRESS ROOM ── */
+    case 'press':
+      content = (
+        <div className="space-y-6">
+          <MediaPressRoom />
+          <MediaArticles />
+        </div>
+      );
+      break;
+
+    /* ── EVENT HUB (SM26) ── */
+    case 'event':
+      if (hasSM26 === null) { content = waiting; break; }
+      if (!hasSM26) { content = unavailable; showHeader = false; break; }
+      content = <SM26MyRegistrationPage embedded />;
+      break;
+
+    /* ── SPONSORSHIP ── */
+    case 'sponsorship':
+      if (sponsorIds === null) { content = waiting; break; }
+      if (sponsorIds.length === 0) { content = unavailable; showHeader = false; break; }
+      content = <SponsorPortal sponsorIds={sponsorIds} />;
+      break;
+
+    /* ── Deprecated: the effect above forwards it to /inbox ── */
+    case 'b2b-requests':
+      showHeader = false;
+      break;
+
+    default:
+      showHeader = false;
+      // A draft with no tab yet is being forwarded to complete-registration.
+      content = isOnboarding && !forceTab && !searchParams.get('tab') ? null : unavailable;
+  }
+
+  const pageTitle = currentMeta && showHeader ? currentMeta.label : t('accountArea.title', 'My account');
+
+  /* ------------------------------------------------------------ render */
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-16">
+      <Helmet>
+        <title>{`${pageTitle} — Smart Marina Connect`}</title>
+      </Helmet>
+
+      {/* ── Header band: the organization's cover when it has one, its gradient otherwise ── */}
+      <section className="relative overflow-hidden text-white">
+        <CoverImage
+          src={org?.banner_url ?? null}
+          alt=""
+          seed={orgId ?? uid ?? 'member'}
+          icon={Ship}
+          aspect="fill"
+          tone="sea"
+          eager
+          className="absolute inset-0"
+        />
+        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/95 via-[#0b2653]/85 to-[#0b2653]/65" />
+        <div className="relative container mx-auto max-w-6xl px-4 py-6 sm:py-8">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 flex-1 items-center gap-4">
+              {/* Avatar — the whole circle is the upload button */}
+              <button
+                type="button"
+                onClick={pickAvatar}
+                className="group relative h-16 w-16 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-secondary focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b2653]"
+                aria-label={t('accountArea.header.changePhoto', 'Change your profile photo')}
+              >
+                {profile.avatar_url ? (
+                  <img src={profile.avatar_url} alt="" className="h-16 w-16 rounded-full border-2 border-white/40 object-cover" />
+                ) : (
+                  <span className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-white/30 bg-white/15 text-xl font-bold">
+                    {initials}
+                  </span>
                 )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
-
-        {/* ── INBOX (unified) ── */}
-        <TabsContent value="inbox">
-          <InboxTab />
-        </TabsContent>
-
-        {/* ── PRICING ── */}
-        <TabsContent value="pricing">
-          <TiersPage embedded />
-        </TabsContent>
-
-        {/* ── SHORTLIST (marina + developer + investor) ── */}
-        {(isMarinaLike || isInvestor) && (
-          <TabsContent value="shortlist">
-            <ShortlistTab />
-          </TabsContent>
-        )}
-
-        {/* ── NOTIFICATIONS ── */}
-        <TabsContent value="notifications">
-          <NotificationPreferencesTab />
-        </TabsContent>
-
-        <TabsContent value="press">
-          <div className="space-y-6">
-            <MediaPressRoom />
-            <MediaArticles />
+                <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center rounded-full bg-black/50 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  {uploadingAvatar ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+                </span>
+                <span aria-hidden="true" className="absolute -bottom-0.5 -right-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-white text-primary shadow ring-2 ring-[#0b2653]">
+                  {uploadingAvatar ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                </span>
+              </button>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium uppercase tracking-wider text-white/75">{t('accountArea.header.eyebrow', 'Member area')}</p>
+                <h1 className="truncate text-xl font-bold tracking-tight drop-shadow-sm sm:text-2xl">
+                  {displayName || t('accountArea.title', 'My account')}
+                </h1>
+                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-white/85">
+                  {personaLabel && (
+                    <span className="inline-flex items-center gap-1.5">
+                      {PersonaIcon && <PersonaIcon className="h-4 w-4 shrink-0" aria-hidden="true" />}
+                      {personaLabel}
+                    </span>
+                  )}
+                  {org && (
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Building2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <span className="truncate">{org.name}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            {accessMeta && (
+              <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1', accessMeta.className)}>
+                <accessMeta.icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {t(accessMeta.key, accessMeta.fallback)}
+              </span>
+            )}
           </div>
-        </TabsContent>
+        </div>
+      </section>
 
-        <TabsContent value="event">
-          {hasSM26 && <SM26MyRegistrationPage embedded />}
-        </TabsContent>
+      <div className="container mx-auto max-w-6xl px-4 pt-6 sm:pt-8">
+        {/* Incomplete onboarding banner — hidden during onboarding since complete-registration tab has guidance */}
+        {!isOnboarding && profile.onboarding_status === 'draft' && (
+          <StatusBanner
+            tone="blue"
+            icon={ClipboardList}
+            title={t('accountArea.banner.incomplete', 'Your profile is incomplete. Complete your organization details to be validated by our team.')}
+            action={(
+              <Button size="sm" className={cn(BTN, 'w-full sm:w-auto')} onClick={() => navigate('/account?tab=complete-registration', { replace: true })}>
+                {t('accountArea.banner.completeProfile', 'Complete my profile')}
+              </Button>
+            )}
+          />
+        )}
 
-        <TabsContent value="sponsorship">
-          {sponsorIds.length > 0 && <SponsorPortal sponsorIds={sponsorIds} />}
-        </TabsContent>
+        {/* Pending validation banner — on the registration view the
+            "submitted for review" step says the same thing, so it is not repeated */}
+        {awaitingReview && activeTab !== 'complete-registration' && (
+          <StatusBanner
+            tone="amber"
+            icon={AlertCircle}
+            title={t('accountArea.banner.pendingTitle', 'Your profile is being reviewed by our team.')}
+            body={t('accountArea.banner.pendingBody', 'You will receive a confirmation email.')}
+            action={(
+              <Link to="/contact" className="inline-flex min-h-10 items-center font-medium underline underline-offset-2 hover:text-yellow-950">
+                {t('accountArea.banner.contactSupport', 'Questions? Contact support')}
+              </Link>
+            )}
+          />
+        )}
 
-      </Tabs>
-        </div>{/* end main content */}
-      </div>{/* end flex sidebar layout */}
+        {/* Payment banners removed — member tier is free, sponsor upgrades handled via contact */}
+
+        {/* Rejected account banner */}
+        {profile.access_status === 'rejected' && (
+          <StatusBanner
+            tone="red"
+            icon={XCircle}
+            title={t('accountArea.banner.rejectedTitle', 'Your access request has been rejected.')}
+            body={profile.rejection_reason ? t('accountArea.banner.rejectedReason', { reason: profile.rejection_reason, defaultValue: 'Reason: {{reason}}' }) : undefined}
+            action={(
+              <Button size="sm" variant="outline" className={BTN} onClick={() => navigate('/onboarding')}>
+                {t('accountArea.banner.resubmit', 'Edit and resubmit')}
+              </Button>
+            )}
+          />
+        )}
+
+        {/* The sidebar starts at lg: below that, a 240 px column would squeeze
+            the embedded forms (organization, plans), so tablets get the same
+            compact switcher as phones and the full width. */}
+        <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-8">
+          {/* ── Desktop menu ── */}
+          <aside className="hidden lg:block">
+            <nav
+              aria-label={t('accountArea.menu.label', 'Member area')}
+              className={cn(CARD, 'sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto p-2')}
+            >
+              {!isOnboarding && <BackToDashboard />}
+              <MenuList groups={menuGroups} items={menuItems} activeTab={activeTab} />
+            </nav>
+          </aside>
+
+          <div className="min-w-0">
+            {/* ── Phone & tablet: current section + the grouped list behind one button ── */}
+            <div className="mb-5 lg:hidden">
+              {!isOnboarding && <BackToDashboard compact />}
+              <MobileSectionSwitcher
+                current={currentMeta && showHeader ? currentMeta : null}
+                groups={menuGroups}
+                items={menuItems}
+                activeTab={activeTab}
+              />
+            </div>
+
+            {showHeader && currentMeta && (
+              <SectionHeader icon={currentMeta.icon} title={currentMeta.label} description={currentMeta.desc} actions={headerActions} />
+            )}
+
+            {content}
+          </div>
+        </div>
+      </div>
 
       {/* ── PROFILE PREVIEW DIALOG ── */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-center">Profile Preview</DialogTitle>
-            <p className="text-xs text-gray-500 text-center">This is how other users see your profile</p>
+            <DialogTitle className="text-center">{t('accountArea.previewDialog.title', 'Profile preview')}</DialogTitle>
+            <p className="text-center text-xs text-gray-500">{t('accountArea.previewDialog.subtitle', 'This is how other users see your profile')}</p>
           </DialogHeader>
 
           <div className="space-y-6 pt-2">
             {/* Avatar + Name + Persona */}
-            <div className="flex flex-col items-center text-center gap-3">
+            <div className="flex flex-col items-center gap-3 text-center">
               {profile.avatar_url ? (
-                <img src={profile.avatar_url} alt="Avatar" className="w-24 h-24 rounded-full object-cover border-2 border-primary/20 shadow" />
+                <img src={profile.avatar_url} alt="" className="h-24 w-24 rounded-full border-2 border-primary/20 object-cover shadow" />
               ) : (
-                <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-2xl border-2 border-primary/20 shadow">
+                <div className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-primary/20 bg-primary/10 text-2xl font-bold text-primary shadow">
                   {(profile.first_name?.[0] || '').toUpperCase()}{(profile.last_name?.[0] || '').toUpperCase()}
                 </div>
               )}
@@ -1750,24 +1885,20 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                 <h3 className="text-lg font-semibold text-gray-900">
                   {profile.first_name} {profile.last_name}
                 </h3>
-                <Badge variant="outline" className="mt-1 gap-1">
-                  {getPersonaIcon()} {getPersonaLabel()}
-                </Badge>
+                {personaLabel && (
+                  <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                    {PersonaIcon && <PersonaIcon className="h-3.5 w-3.5" aria-hidden="true" />} {personaLabel}
+                  </span>
+                )}
               </div>
             </div>
 
             {/* Organization Card */}
             {org && (
-              <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <div className="space-y-3 rounded-2xl bg-gray-50 p-4">
                 {/* Logo + Org Name */}
                 <div className="flex items-center gap-3">
-                  {org.logo_url ? (
-                    <img src={org.logo_url} alt="Logo" className="w-12 h-12 rounded-lg object-contain border bg-white p-0.5" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-lg bg-white flex items-center justify-center border">
-                      {isMarina ? <Anchor className="h-5 w-5 text-gray-300" /> : profile.persona === 'partner' ? <Building2 className="h-5 w-5 text-gray-300" /> : <Newspaper className="h-5 w-5 text-gray-300" />}
-                    </div>
-                  )}
+                  <LogoBadge src={org.logo_url} name={org.name || '—'} size="md" />
                   <div className="font-semibold text-gray-900">{org.name}</div>
                 </div>
 
@@ -1775,19 +1906,19 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   {(org.city || org.country) && (
                     <div>
-                      <span className="text-gray-500 text-xs">Location</span>
+                      <span className="text-xs text-gray-500">{t('accountArea.previewDialog.location', 'Location')}</span>
                       <div className="text-gray-800">{[org.city, org.country].filter(Boolean).join(', ')}</div>
                     </div>
                   )}
                   {org.headquarters_country && (
                     <div>
-                      <span className="text-gray-500 text-xs">Headquarters</span>
+                      <span className="text-xs text-gray-500">{t('accountArea.previewDialog.headquarters', 'Headquarters')}</span>
                       <div className="text-gray-800">{org.headquarters_country}</div>
                     </div>
                   )}
                   {profile.job_title && (
                     <div>
-                      <span className="text-gray-500 text-xs">Position</span>
+                      <span className="text-xs text-gray-500">{t('accountArea.previewDialog.position', 'Position')}</span>
                       <div className="text-gray-800">{profile.job_title}</div>
                     </div>
                   )}
@@ -1796,22 +1927,22 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                 {/* Description / Audience */}
                 {org.description && (
                   <div className="text-sm">
-                    <span className="text-gray-500 text-xs block mb-1">About</span>
-                    <p className="text-gray-700 line-clamp-3">{org.description}</p>
+                    <span className="mb-1 block text-xs text-gray-500">{t('accountArea.previewDialog.about', 'About')}</span>
+                    <p className="line-clamp-3 text-gray-700">{org.description}</p>
                   </div>
                 )}
                 {org.audience_description && (
                   <div className="text-sm">
-                    <span className="text-gray-500 text-xs block mb-1">Audience</span>
-                    <p className="text-gray-700 line-clamp-3">{org.audience_description}</p>
+                    <span className="mb-1 block text-xs text-gray-500">{t('accountArea.profile.audience', 'Audience')}</span>
+                    <p className="line-clamp-3 text-gray-700">{org.audience_description}</p>
                   </div>
                 )}
 
                 {/* Website */}
                 {org.website && (
                   <a href={org.website} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
-                    <ExternalLink className="h-3 w-3" />
+                    className="inline-flex items-center gap-1 break-all text-sm text-primary hover:underline">
+                    <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
                     {org.website}
                   </a>
                 )}
@@ -1819,8 +1950,8 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
             )}
 
             <div className="flex justify-center pt-2">
-              <Button variant="outline" size="sm" onClick={() => setPreviewOpen(false)}>
-                Close preview
+              <Button variant="outline" className={BTN} onClick={() => setPreviewOpen(false)}>
+                {t('accountArea.previewDialog.close', 'Close preview')}
               </Button>
             </div>
           </div>
@@ -1832,40 +1963,1070 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   );
 }
 
-function WebinarStatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; className: string }> = {
-    submitted: { label: 'Submitted', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    under_review: { label: 'Under Review', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-    accepted: { label: 'Accepted', className: 'bg-green-100 text-green-800 border-green-200' },
-    rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-200' },
-  };
-  const s = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-800' };
+/* ================================================================== menu */
+
+function BackToDashboard({ compact = false }: { compact?: boolean }) {
+  const { t } = useTranslation();
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${s.className}`}>
+    <Link
+      to="/dashboard"
+      className={cn(
+        'inline-flex min-h-10 items-center gap-2 rounded-xl px-3 text-sm font-medium text-primary transition-colors hover:bg-primary/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+        compact ? '-ml-3 mb-2' : 'mb-1 w-full',
+      )}
+    >
+      <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+      {t('nav.dashboard', 'Dashboard')}
+    </Link>
+  );
+}
+
+function NotifMarks({ item, inverted = false }: { item: MenuItem; inverted?: boolean }) {
+  const { t } = useTranslation();
+  const count = item.notifCount ?? 0;
+  return (
+    <>
+      {item.notifDot && (
+        <>
+          <span aria-hidden="true" className={cn('h-2 w-2 shrink-0 rounded-full bg-red-500', inverted && 'ring-2 ring-white')} />
+          <span className="sr-only">{t('accountArea.menu.needsAttention', '(needs your attention)')}</span>
+        </>
+      )}
+      {count > 0 && (
+        <>
+          <span aria-hidden="true" className="inline-flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[11px] font-bold leading-none text-white">
+            {count}
+          </span>
+          <span className="sr-only">{t('accountArea.menu.pending', { count, defaultValue: '({{count}} pending)' })}</span>
+        </>
+      )}
+    </>
+  );
+}
+
+/** The grouped list — compact in the sidebar, with one-line descriptions on phones. */
+function MenuList({
+  groups,
+  items,
+  activeTab,
+  detailed = false,
+  onPick,
+}: {
+  groups: MenuGroup[];
+  items: MenuItem[];
+  activeTab: string;
+  detailed?: boolean;
+  onPick?: () => void;
+}) {
+  return (
+    <div className="space-y-1">
+      {groups.map((g) => {
+        const groupItems = items.filter((i) => i.group === g.key);
+        if (groupItems.length === 0) return null;
+        const headingId = `account-menu-${detailed ? 'm' : 'd'}-${g.key}`;
+        return (
+          <div key={g.key}>
+            <p id={headingId} className="px-3 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+              {g.label}
+            </p>
+            <ul aria-labelledby={headingId} className="space-y-0.5">
+              {groupItems.map((item) => {
+                const active = activeTab === item.value;
+                const Icon = item.icon;
+                return (
+                  <li key={item.value}>
+                    <Link
+                      to={item.href}
+                      onClick={onPick}
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(
+                        'group flex min-h-10 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
+                        active ? 'bg-primary text-white shadow-sm' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900',
+                      )}
+                    >
+                      <span className={cn(
+                        'flex shrink-0 items-center justify-center',
+                        detailed && 'h-9 w-9 rounded-lg',
+                        detailed && (active ? 'bg-white/15' : 'bg-primary/5'),
+                      )}>
+                        <Icon className={cn('h-4 w-4', active ? 'text-white' : 'text-gray-500 group-hover:text-primary')} aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{item.label}</span>
+                        {detailed && (
+                          <span className={cn('block truncate text-xs font-normal', active ? 'text-white/80' : 'text-gray-500')}>
+                            {item.desc}
+                          </span>
+                        )}
+                      </span>
+                      <NotifMarks item={item} inverted={active} />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Phones: one button naming the open section; it unfolds the grouped list in
+ * place (no overlay to dismiss, nothing to scroll sideways). A red dot on the
+ * button says something is waiting elsewhere.
+ */
+function MobileSectionSwitcher({
+  current,
+  groups,
+  items,
+  activeTab,
+}: {
+  current: { icon: LucideIcon; label: string; groupLabel: string } | null;
+  groups: MenuGroup[];
+  items: MenuItem[];
+  activeTab: string;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  // A new section closes the list.
+  useEffect(() => { setOpen(false); }, [activeTab]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  const Icon = current?.icon ?? Compass;
+  const elsewhere = items.some((i) => i.value !== activeTab && (i.notifDot || (i.notifCount ?? 0) > 0));
+
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls="account-section-list"
+        onClick={() => setOpen((o) => !o)}
+        className={cn(CARD, 'flex min-h-14 w-full items-center gap-3 px-3 py-2.5 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary')}
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+            {current?.groupLabel || t('accountArea.menu.label', 'Member area')}
+          </span>
+          <span className="block truncate text-sm font-semibold text-gray-900">
+            {current?.label ?? t('accountArea.menu.choose', 'Choose a section')}
+          </span>
+        </span>
+        {elsewhere && (
+          <>
+            <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />
+            <span className="sr-only">{t('accountArea.menu.somethingWaiting', 'Something needs your attention in another section')}</span>
+          </>
+        )}
+        <span className="shrink-0 text-xs font-medium text-primary">{t('accountArea.menu.switch', 'Sections')}</span>
+        <ChevronDown className={cn('h-4 w-4 shrink-0 text-gray-500 transition-transform', open && 'rotate-180')} aria-hidden="true" />
+      </button>
+      {open && (
+        <nav
+          id="account-section-list"
+          aria-label={t('accountArea.menu.label', 'Member area')}
+          className={cn(CARD, 'mt-2 max-h-[70vh] overflow-y-auto p-2 shadow-lg')}
+        >
+          <MenuList groups={groups} items={items} activeTab={activeTab} detailed onPick={() => setOpen(false)} />
+        </nav>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================== building blocks */
+
+function SectionHeader({
+  icon: Icon,
+  title,
+  description,
+  actions,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string;
+  actions?: ReactNode;
+}) {
+  return (
+    <header className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-xl font-semibold tracking-tight text-gray-900">{title}</h2>
+          {description && <p className="mt-0.5 text-sm text-gray-600">{description}</p>}
+        </div>
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
+    </header>
+  );
+}
+
+function Panel({
+  title,
+  icon: Icon,
+  count,
+  actions,
+  children,
+  className,
+}: {
+  title?: string;
+  icon?: LucideIcon;
+  count?: number;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={cn(CARD, 'overflow-hidden', className)}>
+      {title && (
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-3">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            {Icon && <Icon className="h-4 w-4 text-primary" aria-hidden="true" />}
+            {title}
+            {count !== undefined && (
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium tabular-nums text-gray-700">{count}</span>
+            )}
+          </h3>
+          {actions}
+        </header>
+      )}
+      {children}
+    </section>
+  );
+}
+
+function EmptyState({
+  icon: Icon,
+  title,
+  body,
+  action,
+  tone = 'navy',
+}: {
+  icon: LucideIcon;
+  title: string;
+  body?: string;
+  action?: ReactNode;
+  tone?: 'navy' | 'amber';
+}) {
+  return (
+    <div className="px-5 py-10 text-center">
+      <span className={cn(
+        'mx-auto flex h-12 w-12 items-center justify-center rounded-2xl',
+        tone === 'amber' ? 'bg-amber-50 text-amber-600' : 'bg-primary/5 text-primary',
+      )}>
+        <Icon className="h-6 w-6" aria-hidden="true" />
+      </span>
+      <p className="mt-3 font-medium text-gray-900">{title}</p>
+      {body && <p className="mx-auto mt-1 max-w-md text-sm text-gray-600">{body}</p>}
+      {action && <div className="mt-4">{action}</div>}
+    </div>
+  );
+}
+
+function StatusBanner({
+  tone,
+  icon: Icon,
+  title,
+  body,
+  action,
+}: {
+  tone: 'blue' | 'amber' | 'red';
+  icon: LucideIcon;
+  title: string;
+  body?: string;
+  action?: ReactNode;
+}) {
+  const tones = {
+    blue: 'bg-blue-50 text-blue-900 ring-blue-200',
+    amber: 'bg-yellow-50 text-yellow-900 ring-yellow-200',
+    red: 'bg-red-50 text-red-900 ring-red-200',
+  };
+  return (
+    <div className={cn('mb-6 flex flex-col gap-3 rounded-2xl p-4 ring-1 sm:flex-row sm:items-center sm:justify-between', tones[tone])}>
+      <div className="flex min-w-0 items-start gap-3">
+        <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+        <div className="text-sm">
+          <p className="font-medium">{title}</p>
+          {body && <p className="mt-0.5 opacity-90">{body}</p>}
+        </div>
+      </div>
+      {action && <div className="shrink-0 sm:pl-4">{action}</div>}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium text-gray-500">{label}</dt>
+      <dd className="mt-0.5 break-words text-sm font-medium text-gray-900">{children}</dd>
+    </div>
+  );
+}
+
+function RowSkeleton({ rows }: { rows: number }) {
+  return (
+    <div className="divide-y divide-gray-100" aria-hidden="true">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 px-5 py-4">
+          <div className="h-10 w-10 animate-pulse rounded-xl bg-gray-100" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3 w-2/3 animate-pulse rounded bg-gray-100" />
+            <div className="h-2.5 w-1/3 animate-pulse rounded bg-gray-100" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** One request in a list (project, RFP, consultation, webinar proposal). */
+function ItemRow({
+  icon: Icon,
+  title,
+  description,
+  meta,
+  rejection,
+  aside,
+  footer,
+}: {
+  icon: LucideIcon;
+  title: string;
+  description?: string | null;
+  meta: (string | null | undefined)[];
+  rejection?: string | null;
+  aside?: ReactNode;
+  footer?: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const metaLine = meta.filter(Boolean).join(' · ');
+  return (
+    <li className="p-4 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary">
+            <Icon className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="font-medium text-gray-900">{title}</p>
+            {rejection && (
+              <p className="mt-1 text-sm text-red-700">
+                <span className="font-medium">{t('accountArea.common.reason', 'Reason:')}</span> {rejection}
+              </p>
+            )}
+            {description && <p className="mt-1 line-clamp-2 text-sm text-gray-600">{description}</p>}
+            {metaLine && <p className="mt-1 text-xs text-gray-500">{metaLine}</p>}
+          </div>
+        </div>
+        {aside && <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">{aside}</div>}
+      </div>
+      {footer && <div className="mt-3 space-y-3 sm:pl-[52px]">{footer}</div>}
+    </li>
+  );
+}
+
+/** A collapsible block of the "All submissions" view. */
+function SubmissionGroup({
+  id,
+  icon: Icon,
+  title,
+  count,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  icon: LucideIcon;
+  title: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const panelId = `submissions-${id}`;
+  return (
+    <section className={cn(CARD, 'overflow-hidden')}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        aria-controls={panelId}
+        className="flex min-h-14 w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+      >
+        <span className="flex items-center gap-3 font-medium text-gray-900">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/5 text-primary">
+            <Icon className="h-4 w-4" aria-hidden="true" />
+          </span>
+          {title}
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium tabular-nums text-gray-700">{count}</span>
+        </span>
+        {open
+          ? <ChevronDown className="h-4 w-4 text-gray-500" aria-hidden="true" />
+          : <ChevronRight className="h-4 w-4 text-gray-500" aria-hidden="true" />}
+      </button>
+      {open && <div id={panelId} className="border-t border-gray-100">{children}</div>}
+    </section>
+  );
+}
+
+function GroupEmpty({ text, linkTo, linkLabel }: { text: string; linkTo: string; linkLabel: string }) {
+  return (
+    <div className="px-5 py-6 text-center">
+      <p className="text-sm text-gray-600">{text}</p>
+      <Link to={linkTo} className="mt-1 inline-flex min-h-10 items-center text-sm font-medium text-primary hover:underline underline-offset-2">
+        {linkLabel}
+      </Link>
+    </div>
+  );
+}
+
+function CompactRow({
+  title,
+  description,
+  meta,
+  rejection,
+  onEdit,
+  editLabel,
+  status,
+}: {
+  title: string;
+  description?: string | null;
+  meta: (string | null | undefined)[];
+  rejection?: string | null;
+  onEdit?: () => void;
+  editLabel?: string;
+  status: string;
+}) {
+  const { t } = useTranslation();
+  const metaLine = meta.filter(Boolean).join(' · ');
+  return (
+    <li className="flex items-center justify-between gap-3 px-5 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-900">{title}</p>
+        {description && <p className="line-clamp-1 text-xs text-gray-600">{description}</p>}
+        {metaLine && <p className="text-xs text-gray-500">{metaLine}</p>}
+        {rejection && (
+          <p className="mt-1 text-xs text-red-700">
+            <span className="font-medium">{t('accountArea.common.reason', 'Reason:')}</span> {rejection}
+          </p>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {onEdit && (
+          <Button variant="ghost" size="sm" className="h-10 w-10 p-0" onClick={onEdit} aria-label={`${editLabel ?? 'Edit'} — ${title}`}>
+            <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+        )}
+        <SubmissionStatusBadge status={status} />
+      </div>
+    </li>
+  );
+}
+
+/* ================================================================== my events */
+
+/**
+ * The member's own participation: what is coming (with the calendar and, for
+ * a webinar, the joining link) and what is over (with the replay). The SM26
+ * card and the self-cancel action are unchanged from the old list.
+ */
+function MyEvents({
+  uid,
+  registrations,
+  loading,
+  locale,
+  onUnregister,
+}: {
+  uid: string | null;
+  registrations: EventRegistration[];
+  loading: boolean;
+  locale: string;
+  onUnregister: (reg: EventRegistration) => void;
+}) {
+  const { t } = useTranslation();
+  const now = Date.now();
+  const FAR = 8.64e15;
+
+  const upcoming: EventRegistration[] = [];
+  const past: EventRegistration[] = [];
+  for (const reg of registrations) {
+    const w = reg.events ? eventWindow(reg.events) : null;
+    // No date (or the event can't be read) stays with "upcoming": it isn't over.
+    if (w && w.end < now) past.push(reg); else upcoming.push(reg);
+  }
+  const startOf = (r: EventRegistration) => (r.events?.date_time ? new Date(r.events.date_time).getTime() : FAR);
+  upcoming.sort((a, b) => startOf(a) - startOf(b));
+  past.sort((a, b) => startOf(b) - startOf(a));
+
+  return (
+    <div className="space-y-6">
+      {uid && <SM26ParticipationCard userId={uid} variant="self" />}
+
+      <p className="sr-only" aria-live="polite">
+        {loading ? '' : t('accountArea.events.summary', {
+          upcoming: upcoming.length,
+          past: past.length,
+          defaultValue: '{{upcoming}} upcoming, {{past}} past',
+        })}
+      </p>
+
+      {loading ? (
+        <Panel><RowSkeleton rows={2} /></Panel>
+      ) : registrations.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={CalendarDays}
+            title={t('accountArea.events.emptyTitle', 'No registrations yet.')}
+            body={t('accountArea.events.emptyBody', 'Browse upcoming events and register to attend.')}
+            action={(
+              <Button asChild className={BTN}>
+                <Link to="/events">{t('accountArea.events.browse', 'Browse events')}</Link>
+              </Button>
+            )}
+          />
+        </Panel>
+      ) : (
+        <>
+          <Panel title={t('accountArea.events.upcomingTitle', 'Upcoming')} icon={CalendarClock} count={upcoming.length}>
+            {upcoming.length === 0 ? (
+              <div className="flex flex-wrap items-center gap-x-2 px-5 py-6 text-sm text-gray-600">
+                <span>{t('accountArea.events.noUpcoming', 'You have no upcoming events.')}</span>
+                <Link to="/events" className="inline-flex min-h-10 items-center font-medium text-primary hover:underline underline-offset-2">
+                  {t('accountArea.events.browse', 'Browse events')}
+                </Link>
+              </div>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {upcoming.map((reg) => (
+                  <RegistrationCard key={reg.id} reg={reg} past={false} now={now} locale={locale} onUnregister={onUnregister} />
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          {past.length > 0 && (
+            <Panel title={t('accountArea.events.pastTitle', 'Past events')} icon={History} count={past.length}>
+              <ul className="divide-y divide-gray-100">
+                {past.map((reg) => (
+                  <RegistrationCard key={reg.id} reg={reg} past now={now} locale={locale} onUnregister={onUnregister} />
+                ))}
+              </ul>
+            </Panel>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function formatWhen(ev: RegisteredEvent, locale: string, allDay: string, tbc: string): string {
+  if (!ev.date_time) return tbc;
+  const start = new Date(ev.date_time);
+  const end = ev.end_date_time ? new Date(ev.end_date_time) : null;
+  const multiDay = !!end && end.toDateString() !== start.toDateString();
+  const day = (d: Date) => d.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  const time = (d: Date, zone = false) => d.toLocaleTimeString(locale, {
+    hour: '2-digit', minute: '2-digit', ...(zone ? { timeZoneName: 'short' as const } : {}),
+  });
+  if (multiDay) return `${day(start)} – ${day(end!)}${ev.is_full_day ? '' : ` · ${time(start, true)}`}`;
+  // A full-day event has no meaningful start time — "00:00" would read as midnight.
+  if (ev.is_full_day) return `${day(start)} · ${allDay}`;
+  return end ? `${day(start)} · ${time(start)} – ${time(end, true)}` : `${day(start)} · ${time(start, true)}`;
+}
+
+/** The date as a tile: the event's own brand gradient while it is ahead, grey once it is over. */
+function DateChip({ ev, seed, locale, past }: { ev: RegisteredEvent | null; seed: string; locale: string; past: boolean }) {
+  if (!ev?.date_time) {
+    return (
+      <span aria-hidden="true" className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-gray-100 text-gray-500">
+        <CalendarClock className="h-6 w-6" />
+      </span>
+    );
+  }
+  const start = new Date(ev.date_time);
+  const end = ev.end_date_time ? new Date(ev.end_date_time) : null;
+  const multi = !!end && end.toDateString() !== start.toDateString();
+  const sameMonth = !!end && end.getMonth() === start.getMonth() && end.getFullYear() === start.getFullYear();
+  const day = multi && sameMonth ? `${start.getDate()}–${end!.getDate()}` : String(start.getDate());
+  const month = start.toLocaleDateString(locale, { month: 'short' }).replace('.', '');
+  const { from, to } = gradientForSeed(seed);
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        'flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-2xl text-center shadow-sm',
+        past ? 'bg-gray-100 text-gray-700' : 'text-white',
+      )}
+      // Weighted to the dark end of the pair so white text keeps its contrast.
+      style={past ? undefined : { backgroundImage: `linear-gradient(160deg, ${from} 0%, ${from} 45%, ${to} 130%)` }}
+    >
+      <span className="text-[11px] font-semibold uppercase tracking-wide">{month}</span>
+      <span className={cn('font-bold leading-tight', day.length > 2 ? 'text-base' : 'text-xl')}>{day}</span>
+    </span>
+  );
+}
+
+function PaymentStatusPill({ status }: { status: string }) {
+  const { t } = useTranslation();
+  const map: Record<string, { label: string; className: string; icon: LucideIcon }> = {
+    free: { label: t('accountArea.events.payment.free', 'Confirmed'), className: 'bg-green-50 text-green-800 ring-green-200', icon: CheckCircle2 },
+    paid: { label: t('accountArea.events.payment.paid', 'Confirmed · paid'), className: 'bg-green-50 text-green-800 ring-green-200', icon: CheckCircle2 },
+    pending_approval: { label: t('accountArea.events.payment.pending_approval', 'Pending approval'), className: 'bg-yellow-50 text-yellow-800 ring-yellow-200', icon: Clock },
+    pending_payment: { label: t('accountArea.events.payment.pending_payment', 'Payment due'), className: 'bg-amber-50 text-amber-800 ring-amber-200', icon: AlertCircle },
+    rejected: { label: t('accountArea.events.payment.rejected', 'Declined'), className: 'bg-red-50 text-red-700 ring-red-200', icon: XCircle },
+  };
+  const s = map[status] ?? { label: humanize(status || ''), className: 'bg-gray-100 text-gray-700 ring-gray-200', icon: Ticket };
+  if (!s.label) return null;
+  return (
+    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1', s.className)}>
+      <s.icon className="h-3 w-3" aria-hidden="true" />
+      {s.label}
+    </span>
+  );
+}
+
+function RegistrationCard({
+  reg,
+  past,
+  now,
+  locale,
+  onUnregister,
+}: {
+  reg: EventRegistration;
+  past: boolean;
+  now: number;
+  locale: string;
+  onUnregister: (reg: EventRegistration) => void;
+}) {
+  const { t } = useTranslation();
+  const ev = reg.events;
+  const w = ev ? eventWindow(ev) : null;
+  const live = !!w && w.start <= now && now <= w.end;
+  const isWebinar = ev?.event_type === 'webinar';
+  const declined = reg.payment_status === 'rejected';
+  const needsPayment = reg.payment_status === 'pending_payment';
+  // Same rule as the event page: a registered attendee sees the joining link
+  // of a webinar that hasn't ended. (A declined registration is not one.)
+  const joinUrl = !past && isWebinar && !declined ? ev?.meeting_url ?? null : null;
+  const calendarEvent: CalendarEventInput | null = !past && !declined && ev?.date_time ? {
+    title: ev.title,
+    description: ev.description,
+    date_time: ev.date_time,
+    end_date_time: ev.end_date_time,
+    location: ev.location,
+    url: ev.meeting_url,
+  } : null;
+
+  const typeInfo = REGISTRATION_TYPE_LABELS[reg.registration_type];
+  const typeLabel = typeInfo
+    ? t(typeInfo.key, typeInfo.fallback)
+    : reg.registration_type ? humanize(reg.registration_type) : t('accountArea.events.regType.standard', 'Standard');
+  const amountDue = (reg.payment_status === 'pending_payment' || reg.payment_status === 'pending_approval') && (reg.amount_due_cents ?? 0) > 0
+    ? new Intl.NumberFormat(locale, { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format((reg.amount_due_cents ?? 0) / 100)
+    : null;
+
+  const title = ev?.title ?? t('accountArea.events.untitled', 'Event details unavailable');
+
+  return (
+    <li className={cn('p-4 sm:p-5', needsPayment && 'bg-amber-50/40')}>
+      <div className="flex gap-4">
+        <DateChip ev={ev} seed={reg.event_id} locale={locale} past={past} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {ev && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/5 px-2 py-0.5 text-xs font-medium text-primary">
+                {isWebinar ? <Video className="h-3 w-3" aria-hidden="true" /> : <MapPin className="h-3 w-3" aria-hidden="true" />}
+                {isWebinar ? t('accountArea.events.typeWebinar', 'Webinar') : t('accountArea.events.typeOnSite', 'On-site')}
+              </span>
+            )}
+            {live && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-xs font-semibold text-white">
+                <Radio className="h-3 w-3" aria-hidden="true" />
+                {t('accountArea.events.live', 'Happening now')}
+              </span>
+            )}
+            <PaymentStatusPill status={reg.payment_status} />
+          </div>
+          <h4 className="mt-1.5 text-base font-semibold leading-snug text-gray-900">
+            <Link to={`/events/${reg.event_id}`} className="rounded hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+              {title}
+            </Link>
+          </h4>
+          <ul className="mt-1.5 space-y-1 text-sm text-gray-600">
+            {ev && (
+              <li className="flex items-start gap-1.5">
+                <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span>{formatWhen(ev, locale, t('accountArea.events.allDay', 'All day'), t('accountArea.events.dateTbc', 'Date to be announced'))}</span>
+              </li>
+            )}
+            {ev && (
+              <li className="flex items-start gap-1.5">
+                {isWebinar
+                  ? <Video className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  : <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
+                <span>{isWebinar ? t('accountArea.events.online', 'Online') : (ev.location || t('accountArea.events.venueTbc', 'Venue to be confirmed'))}</span>
+              </li>
+            )}
+            <li className="flex items-start gap-1.5">
+              <Ticket className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>
+                {t('accountArea.events.registeredAs', { type: typeLabel, defaultValue: 'Registered as {{type}}' })}
+                {amountDue && ` · ${t('accountArea.events.amountDue', { amount: amountDue, defaultValue: '{{amount}} due' })}`}
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-3 sm:pl-20">
+        {joinUrl && (
+          <Button asChild className={cn(BTN, 'w-full sm:w-auto')}>
+            <a href={joinUrl} target="_blank" rel="noopener noreferrer">
+              <Video className="mr-2 h-4 w-4" aria-hidden="true" />
+              {live ? t('accountArea.events.joinNow', 'Join now') : t('accountArea.events.joinWebinar', 'Join the webinar')}
+            </a>
+          </Button>
+        )}
+        {!past && isWebinar && !declined && !ev?.meeting_url && (
+          <p className="text-xs text-gray-600">{t('accountArea.events.joinLater', 'The joining link will appear here before the webinar starts.')}</p>
+        )}
+
+        {calendarEvent && !live && (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">{t('events.addToCalendar', 'Add to calendar')}</p>
+            <AddToCalendarButtons event={calendarEvent} />
+          </div>
+        )}
+
+        {past && (ev?.replay_url ? (
+          <Button asChild className={cn(BTN, 'w-full sm:w-auto')}>
+            <a href={ev.replay_url} target="_blank" rel="noopener noreferrer">
+              <Play className="mr-2 h-4 w-4" aria-hidden="true" />
+              {t('events.watchReplay', 'Watch replay')}
+            </a>
+          </Button>
+        ) : isWebinar ? (
+          <p className="text-xs text-gray-600">{t('accountArea.events.noReplay', 'No replay has been published for this webinar yet.')}</p>
+        ) : null)}
+
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm" className={BTN}>
+            <Link to={`/events/${reg.event_id}`}>
+              {t('accountArea.events.eventPage', 'Event page')}
+              <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
+          {/* Event payment button removed — payment integration deferred */}
+          {/* Allow self-cancel for everything except registrations that
+              were actually paid for (those need a refund flow). */}
+          {reg.payment_status !== 'paid' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(BTN, 'text-red-600 hover:bg-red-50 hover:text-red-700')}
+              onClick={(e) => {
+                e.stopPropagation();
+                onUnregister(reg);
+              }}
+            >
+              <X className="mr-1 h-4 w-4" aria-hidden="true" />
+              {t('accountArea.events.unregister', 'Unregister')}
+            </Button>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
+/* ================================================================== organization */
+
+/**
+ * The organization tab is one long component (OrganizationTab) with no
+ * anchors of its own, so this wraps it with a jump bar: logo & cover, product
+ * images, company details, team & invitations (where the domain auto-join
+ * setting lives), documents, and capital raise / investment thesis.
+ *
+ * Nothing is hidden or reordered — the bar only scrolls — so every existing
+ * control stays exactly where it was. Sections are found by explicit
+ * `data-org-section="<key>"` markers when OrganizationTab carries them, and
+ * otherwise by its current headings; a section that can't be found simply
+ * gets no chip. `?section=<key>` deep-links to one (e.g. from a dashboard
+ * nudge); an unknown value is ignored.
+ */
+type OrgSectionKey = 'branding' | 'gallery' | 'details' | 'team' | 'documents' | 'capital' | 'thesis';
+const ORG_SECTION_ORDER: OrgSectionKey[] = ['branding', 'gallery', 'details', 'team', 'documents', 'capital', 'thesis'];
+/** The site navbar the bar sticks under (h-16). */
+const NAVBAR_HEIGHT = 64;
+
+function findOrgSections(host: HTMLElement, labels: { members: string[]; details: string[] }): Map<OrgSectionKey, HTMLElement> {
+  const found = new Map<OrgSectionKey, HTMLElement>();
+
+  // 1. Explicit markers win.
+  host.querySelectorAll<HTMLElement>('[data-org-section]').forEach((el) => {
+    const key = el.dataset.orgSection as OrgSectionKey;
+    if (ORG_SECTION_ORDER.includes(key) && !found.has(key)) found.set(key, el);
+  });
+  if (found.size > 0) return found;
+
+  // 2. OrganizationTab's current markup: a stack of cards.
+  const stack = host.firstElementChild;
+  if (!stack) return found;
+  const blocks = Array.from(stack.children).filter((el): el is HTMLElement => el instanceof HTMLElement);
+  const textOf = (el: Element) => (el.textContent ?? '').replace(/\s+/g, ' ').trim();
+  const blockTitled = (titles: string[]) =>
+    blocks.find((b) => Array.from(b.querySelectorAll('h3')).some((h) => titles.includes(textOf(h))));
+
+  // The team card only exists once there is an organization; without it the
+  // tab shows the creation form and there is nothing to navigate.
+  const team = blockTitled(labels.members);
+  if (!team) return found;
+
+  const profileCard = blocks[0];
+  if (profileCard && profileCard !== team) {
+    found.set('branding', profileCard);
+    const h4s = Array.from(profileCard.querySelectorAll('h4'));
+    const galleryHeading = h4s.find((h) => textOf(h) === 'Product images');
+    const gallery = galleryHeading?.parentElement?.parentElement ?? null;
+    if (gallery && gallery !== profileCard && profileCard.contains(gallery)) found.set('gallery', gallery);
+    // Read-only details or the edit form, whichever is open, follow the gallery.
+    const detailsHeading = h4s.find((h) => labels.details.includes(textOf(h)));
+    const details = (gallery?.nextElementSibling as HTMLElement | null) ?? detailsHeading?.parentElement ?? null;
+    if (details && profileCard.contains(details)) found.set('details', details);
+  }
+  found.set('team', team);
+  const docs = blockTitled(['Documents']);
+  if (docs) found.set('documents', docs);
+  const capital = blockTitled(['Capital raise']);
+  if (capital) found.set('capital', capital);
+  const thesis = blockTitled(['Investment thesis']);
+  if (thesis) found.set('thesis', thesis);
+  return found;
+}
+
+function OrganizationWorkspace() {
+  const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const hostRef = useRef<HTMLDivElement>(null);
+  const targetsRef = useRef<Map<OrgSectionKey, HTMLElement>>(new Map());
+  const appliedRef = useRef<string | null>(null);
+  const [keys, setKeys] = useState<OrgSectionKey[]>([]);
+  const [active, setActive] = useState<OrgSectionKey | null>(null);
+  const requested = searchParams.get('section');
+  const navRef = useRef<HTMLElement>(null);
+  // Where a section's top should land: under the navbar and under this bar,
+  // whatever height it wraps to.
+  const stickyOffset = useCallback(() => NAVBAR_HEIGHT + (navRef.current?.offsetHeight ?? 56) + 12, []);
+
+  const membersLabel = t('org.members', 'Members');
+  const detailsLabel = t('org.generalDetails', 'General Details');
+
+  // The same element across renders, so a scroll-spy update never re-renders
+  // the (large) organization form.
+  const organizationTab = useMemo(() => <OrganizationTab />, []);
+
+  // Find the sections, and find them again whenever the tab's DOM changes
+  // (it loads, the edit form opens, a section appears).
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    let frame = 0;
+    const detect = () => {
+      frame = 0;
+      const found = findOrgSections(host, {
+        members: Array.from(new Set([membersLabel, 'Members'])),
+        details: Array.from(new Set([detailsLabel, 'General Details'])),
+      });
+      targetsRef.current = found;
+      const next = ORG_SECTION_ORDER.filter((k) => found.has(k));
+      setKeys((prev) => (prev.join() === next.join() ? prev : next));
+    };
+    detect();
+    const observer = new MutationObserver(() => { if (!frame) frame = requestAnimationFrame(detect); });
+    observer.observe(host, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [membersLabel, detailsLabel]);
+
+  // Scroll-spy: the chip of the section under the bar is the current one.
+  useEffect(() => {
+    if (keys.length === 0) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      let current: OrgSectionKey = keys[0];
+      const line = stickyOffset() + 8;
+      const atBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+      if (atBottom) {
+        current = keys[keys.length - 1];
+      } else {
+        for (const k of keys) {
+          const el = targetsRef.current.get(k);
+          if (el && el.getBoundingClientRect().top <= line) current = k;
+        }
+      }
+      setActive(current);
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(update); };
+    update();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [keys, stickyOffset]);
+
+  // On a phone the bar scrolls sideways: keep the current chip in view.
+  const chipsRef = useRef<HTMLUListElement>(null);
+  useEffect(() => {
+    const list = chipsRef.current;
+    if (!list || !active || list.scrollWidth <= list.clientWidth) return;
+    const chip = list.querySelector<HTMLElement>(`[data-org-chip="${active}"]`);
+    if (!chip) return;
+    // The list is `relative`, so offsetLeft is measured from its own edge.
+    const left = chip.offsetLeft;
+    if (left < list.scrollLeft || left + chip.offsetWidth > list.scrollLeft + list.clientWidth) {
+      list.scrollTo({ left: Math.max(0, left - 16) });
+    }
+  }, [active]);
+
+  const jumpTo = useCallback((key: OrgSectionKey, behavior: ScrollBehavior) => {
+    const el = targetsRef.current.get(key);
+    if (!el) return;
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const top = el.getBoundingClientRect().top + window.scrollY - stickyOffset();
+    window.scrollTo({ top: Math.max(0, top), behavior: reduce ? 'auto' : behavior });
+    setActive(key);
+  }, [stickyOffset]);
+
+  // A deep link (?section=team) is honoured once its section exists.
+  useEffect(() => {
+    if (!requested || appliedRef.current === requested) return;
+    if (!keys.includes(requested as OrgSectionKey)) return;
+    appliedRef.current = requested;
+    jumpTo(requested as OrgSectionKey, 'auto');
+  }, [requested, keys, jumpTo]);
+
+  const pick = (key: OrgSectionKey) => {
+    appliedRef.current = key;
+    jumpTo(key, 'smooth');
+    // Shareable, but a scroll position is not worth a history entry.
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('section', key);
+      return next;
+    }, { replace: true });
+  };
+
+  const meta: Record<OrgSectionKey, { label: string; icon: LucideIcon }> = {
+    branding: { label: t('accountArea.org.branding', 'Logo & cover'), icon: Palette },
+    gallery: { label: t('accountArea.org.gallery', 'Product images'), icon: ImageIcon },
+    details: { label: t('accountArea.org.details', 'Company details'), icon: Building2 },
+    team: { label: t('accountArea.org.team', 'Team & invitations'), icon: Users },
+    documents: { label: t('accountArea.org.documents', 'Documents'), icon: FileText },
+    capital: { label: t('accountArea.org.capital', 'Capital raise'), icon: TrendingUp },
+    thesis: { label: t('accountArea.org.thesis', 'Investment thesis'), icon: TrendingUp },
+  };
+
+  return (
+    <div>
+      {keys.length > 1 && (
+        <nav
+          ref={navRef}
+          aria-label={t('accountArea.org.subnavLabel', 'Organization sections')}
+          className="sticky top-16 z-20 -mx-4 mb-4 border-b border-gray-200 bg-gray-50/95 px-3 py-1 backdrop-blur md:mx-0 md:rounded-2xl md:border md:border-gray-100 md:bg-white/95 md:px-1 md:shadow-sm"
+        >
+          {/* One scrolling row on touch screens; wraps from lg, where a mouse
+              can't easily scroll a row sideways. The padding keeps focus rings
+              from being clipped by the scroll box. */}
+          <ul ref={chipsRef} className="no-scrollbar relative flex gap-2 overflow-x-auto p-1 lg:flex-wrap lg:overflow-visible">
+            {keys.map((k) => {
+              const Icon = meta[k].icon;
+              const isActive = active === k;
+              return (
+                <li key={k} data-org-chip={k} className="shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => pick(k)}
+                    aria-current={isActive ? 'true' : undefined}
+                    className={cn(
+                      'inline-flex min-h-10 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-sm font-medium transition-colors',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+                      isActive ? 'bg-primary text-white shadow-sm' : 'bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-100 md:bg-gray-100 md:ring-0 md:hover:bg-gray-200',
+                    )}
+                  >
+                    {/* Decorative; dropped where the sidebar leaves the bar narrow, so it stays one row. */}
+                    <Icon className="h-3.5 w-3.5 shrink-0 lg:hidden xl:block" aria-hidden="true" />
+                    {meta[k].label}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      )}
+      <div ref={hostRef}>{organizationTab}</div>
+    </div>
+  );
+}
+
+/* ================================================================== status badges */
+
+function WebinarStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
+  const map: Record<string, { label: string; className: string }> = {
+    submitted: { label: t('accountArea.status.submitted', 'Submitted'), className: 'bg-yellow-50 text-yellow-800 ring-yellow-200' },
+    under_review: { label: t('accountArea.status.under_review', 'Under review'), className: 'bg-blue-50 text-blue-800 ring-blue-200' },
+    accepted: { label: t('accountArea.status.accepted', 'Accepted'), className: 'bg-green-50 text-green-800 ring-green-200' },
+    rejected: { label: t('accountArea.status.rejected', 'Rejected'), className: 'bg-red-50 text-red-700 ring-red-200' },
+  };
+  const s = map[status] ?? { label: status, className: 'bg-gray-100 text-gray-800 ring-gray-200' };
+  return (
+    <span className={cn('inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1', s.className)}>
       {s.label}
     </span>
   );
 }
 
 function SubmissionStatusBadge({ status }: { status: string }) {
+  const { t } = useTranslation();
   const map: Record<string, { label: string; className: string }> = {
     // Project / generic statuses
-    submitted: { label: 'Submitted', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    pending: { label: 'Pending', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
-    under_review: { label: 'Under Review', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-    in_progress: { label: 'In Progress', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-    accepted: { label: 'Accepted', className: 'bg-green-100 text-green-800 border-green-200' },
-    approved: { label: 'Approved', className: 'bg-green-100 text-green-800 border-green-200' },
-    completed: { label: 'Completed', className: 'bg-green-100 text-green-800 border-green-200' },
-    active: { label: 'Active', className: 'bg-green-100 text-green-800 border-green-200' },
-    open: { label: 'Open', className: 'bg-green-100 text-green-800 border-green-200' },
-    rejected: { label: 'Rejected', className: 'bg-red-100 text-red-800 border-red-200' },
-    closed: { label: 'Closed', className: 'bg-gray-100 text-gray-700 border-gray-200' },
-    cancelled: { label: 'Cancelled', className: 'bg-gray-100 text-gray-700 border-gray-200' },
+    new: { label: t('accountArea.status.new', 'New'), className: 'bg-gray-100 text-gray-800 ring-gray-200' },
+    submitted: { label: t('accountArea.status.submitted', 'Submitted'), className: 'bg-yellow-50 text-yellow-800 ring-yellow-200' },
+    pending: { label: t('accountArea.status.pending', 'Pending'), className: 'bg-yellow-50 text-yellow-800 ring-yellow-200' },
+    under_review: { label: t('accountArea.status.under_review', 'Under review'), className: 'bg-blue-50 text-blue-800 ring-blue-200' },
+    in_progress: { label: t('accountArea.status.in_progress', 'In progress'), className: 'bg-blue-50 text-blue-800 ring-blue-200' },
+    accepted: { label: t('accountArea.status.accepted', 'Accepted'), className: 'bg-green-50 text-green-800 ring-green-200' },
+    approved: { label: t('accountArea.status.approved', 'Approved'), className: 'bg-green-50 text-green-800 ring-green-200' },
+    completed: { label: t('accountArea.status.completed', 'Completed'), className: 'bg-green-50 text-green-800 ring-green-200' },
+    active: { label: t('accountArea.status.active', 'Active'), className: 'bg-green-50 text-green-800 ring-green-200' },
+    open: { label: t('accountArea.status.open', 'Open'), className: 'bg-green-50 text-green-800 ring-green-200' },
+    rejected: { label: t('accountArea.status.rejected', 'Rejected'), className: 'bg-red-50 text-red-700 ring-red-200' },
+    closed: { label: t('accountArea.status.closed', 'Closed'), className: 'bg-gray-100 text-gray-700 ring-gray-200' },
+    cancelled: { label: t('accountArea.status.cancelled', 'Cancelled'), className: 'bg-gray-100 text-gray-700 ring-gray-200' },
   };
-  const s = map[status] ?? { label: status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), className: 'bg-gray-100 text-gray-800' };
+  const s = map[status] ?? { label: humanize(status), className: 'bg-gray-100 text-gray-800 ring-gray-200' };
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border shrink-0 ${s.className}`}>
+    <span className={cn('inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1', s.className)}>
       {s.label}
     </span>
   );

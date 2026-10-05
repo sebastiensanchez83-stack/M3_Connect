@@ -93,3 +93,18 @@ export const SM26_MOMENTS: { key: string; src: string; altFallback: string }[] =
   { key: 'aquarium', src: '/images/site/moment-aquarium.jpg', altFallback: 'A floating-structure mooring demo in an aquarium' },
   { key: 'trophies', src: '/images/site/moment-trophies.jpg', altFallback: 'The SM26 award trophies' },
 ];
+
+/**
+ * Covers for events that have photos of their own. Events have no image column
+ * yet, so every other event draws a gradient. The SM26 photos belong to one
+ * event — Monaco Smart & Sustainable Marina, 6th edition (20–21 Sept 2026) —
+ * so only that event's card and page may use them. Keyed by events.id, which
+ * does not change when the title is edited.
+ */
+const EVENT_COVERS: Record<string, SiteImage> = {
+  'f55f7b2f-96ac-4c5e-b620-358624e52240': SITE_IMAGES.homeHero,
+};
+
+export function eventCover(eventId: string | null | undefined): SiteImage | null {
+  return (eventId && EVENT_COVERS[eventId]) || null;
+}

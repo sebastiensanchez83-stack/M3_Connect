@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { PAGE_STRINGS } from './pages';
 
 const resources = {
   en: {
@@ -2391,5 +2392,11 @@ i18n
       escapeValue: false,
     },
   });
+
+// Strings of the pages rebuilt in October 2026 live in their own module so this
+// file stays editable by hand. Deep merge, no overwrite: a key defined above wins.
+for (const lng of ['en', 'fr'] as const) {
+  i18n.addResourceBundle(lng, 'translation', PAGE_STRINGS[lng], true, false);
+}
 
 export default i18n;

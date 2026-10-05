@@ -33,7 +33,8 @@ const OnboardingPage = lazyWithRetry(() => import('@/pages/OnboardingPage').then
 const AdminPage = lazyWithRetry(() => import('@/pages/AdminPage').then(m => ({ default: m.AdminPage })));
 const GuestEventPage = lazyWithRetry(() => import('@/pages/GuestEventPage').then(m => ({ default: m.GuestEventPage })));
 const GuestInvitationPage = lazyWithRetry(() => import('@/pages/GuestInvitationPage').then(m => ({ default: m.GuestInvitationPage })));
-const MarketplacePage = lazyWithRetry(() => import('@/pages/MarketplacePage').then(m => ({ default: m.MarketplacePage })));
+const DirectoryPage = lazyWithRetry(() => import('@/pages/DirectoryPage').then(m => ({ default: m.DirectoryPage })));
+const OpportunitiesPage = lazyWithRetry(() => import('@/pages/OpportunitiesPage').then(m => ({ default: m.OpportunitiesPage })));
 const DealFlowPage = lazyWithRetry(() => import('@/pages/DealFlowPage').then(m => ({ default: m.DealFlowPage })));
 const OrganizationPublicPage = lazyWithRetry(() => import('@/pages/OrganizationPublicPage').then(m => ({ default: m.OrganizationPublicPage })));
 const UserProfilePage = lazyWithRetry(() => import('@/pages/UserProfilePage').then(m => ({ default: m.UserProfilePage })));
@@ -184,11 +185,8 @@ function App() {
               {/* "Network" was two products on one screen; they are now two
                   destinations. The old URLs land on the directory, which is
                   what the first tab of /network always was. */}
-              {/* The keys matter: without them React keeps the same instance when
-                  moving between these two routes, the tabs keep the directory's
-                  selection, and /opportunities opens on a blank, unselected strip. */}
-              <Route path="/directory" element={<MarketplacePage key="directory" section="directory" />} />
-              <Route path="/opportunities" element={<MarketplacePage key="opportunities" section="opportunities" />} />
+              <Route path="/directory" element={<DirectoryPage />} />
+              <Route path="/opportunities" element={<OpportunitiesPage />} />
               <Route path="/network" element={<Navigate to="/directory" replace />} />
               <Route path="/marketplace" element={<Navigate to="/directory" replace />} />
               <Route path="/investments" element={<ProtectedRoute><DealFlowPage /></ProtectedRoute>} />

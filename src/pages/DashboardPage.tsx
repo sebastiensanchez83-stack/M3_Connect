@@ -191,7 +191,8 @@ export function DashboardPage() {
           .gte('date_time', since).order('date_time', { ascending: true }).limit(6),
         supabase.from('resources')
           .select('id, title, summary, type, thumbnail_url, published_at, resource_sectors(sector_id)')
-          .eq('published', true).order('published_at', { ascending: false, nullsFirst: false }).limit(12),
+          .eq('published', true).order('published_at', { ascending: false, nullsFirst: false })
+          .order('created_at', { ascending: false }).limit(12),
       ]);
       if (!alive) return;
 

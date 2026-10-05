@@ -1,140 +1,234 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Search, Lock, FileText, Calendar, Clock, ArrowRight, BookOpen, Tag, Users, X, Filter,
+  Search, Lock, FileText, Calendar, Clock, ArrowRight, BookOpen, Users, X, LayoutGrid, Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
 import { AdBanner } from '@/components/ui/AdBanner';
+import { CoverImage } from '@/components/ui/CoverImage';
+import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
+import { SITE_IMAGES } from '@/lib/siteMedia';
+import { cn } from '@/lib/utils';
+import { readMinutes } from '@/lib/readTime';
+
+/**
+ * The resource library, browsed by theme.
+ *
+ * Before: a row of five format pills (four of which matched nothing — every
+ * published resource is an article), a sidebar of 17 sector checkboxes, and
+ * the visitor's organization sectors pre-ticked without saying so — and ticked
+ * again on every tab refocus, wiping whatever the visitor had chosen.
+ *
+ * Now: six theme tiles with pictures are the way in (src/lib/themes.ts); once a
+ * theme is open its sectors become chips to narrow it down. "For your sectors"
+ * is a visible chip, never a hidden default. Every filter lives in the URL
+ * (?theme=&sector=&format=&mine=1&q=), so a filtered view can be shared and
+ * the back button undoes the last choice.
+ */
 
 interface Sector {
   id: string;
+  slug: string;
   label: string;
 }
 
 interface Resource {
   id: string;
   title: string;
-  summary: string;
+  summary: string | null;
   content: string | null;
   type: string;
-  topic: string;
-  language: string;
   access_level: string;
   thumbnail_url: string | null;
-  file_url: string | null;
-  published: boolean;
   created_at: string;
   published_at: string | null;
-  tags: string[];
-  resource_speakers?: { id: string; full_name: string; profile_id: string | null; display_order: number }[];
+  tags: string[] | null;
+  resource_speakers?: { id: string; full_name: string; display_order: number }[];
   resource_sectors?: { sector_id: string }[];
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  article: 'bg-blue-100 text-blue-700 border-blue-200',
-  whitepaper: 'bg-purple-100 text-purple-700 border-purple-200',
-  guide: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  replay: 'bg-red-100 text-red-700 border-red-200',
-  case_study: 'bg-amber-100 text-amber-700 border-amber-200',
-};
+/** A resource with its sectors and themes resolved once, not on every render. */
+interface Indexed extends Resource {
+  sectorSlugs: string[];
+  themes: ThemeKey[];
+  haystack: string;
+}
+
+/** Navbar (64 px) + filter toolbar (~57 px): where the list should start when scrolled to. */
+const STICKY_OFFSET = 64 + 57;
+
+/** Speakers in display order — on a copy, never sorting the fetched array in place. */
+function speakerNames(r: Resource): string {
+  return [...(r.resource_speakers ?? [])]
+    .sort((a, b) => a.display_order - b.display_order)
+    .map((s) => s.full_name)
+    .join(', ');
+}
 
 export function ResourcesPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user, profile, isVerified, isModerator, organization } = useAuth();
+  const [params, setParams] = useSearchParams();
   const [resources, setResources] = useState<Resource[]>([]);
+  const [sectors, setSectors] = useState<Sector[]>([]);
+  const [mySectorIds, setMySectorIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
-  const [activeType, setActiveType] = useState('all');
-  const [languageFilter, setLanguageFilter] = useState('all');
-  const [accessFilter, setAccessFilter] = useState('all');
-  const [allSectors, setAllSectors] = useState<Sector[]>([]);
-  const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const types = ['article', 'whitepaper', 'guide', 'replay', 'case_study'];
+  // ---------------------------------------------------------------- URL state
+  const theme = getTheme(params.get('theme'));
+  const sectorSlug = params.get('sector');
+  const format = params.get('format');
+  const mine = params.get('mine') === '1';
+  const query = params.get('q') ?? '';
 
-  // Fetch available sectors
+  /** Change some filters, keep the rest. Search typing replaces history; clicks push. */
+  const update = (changes: Record<string, string | null>, replace = false) => {
+    const next = new URLSearchParams(params);
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null || value === '') next.delete(key);
+      else next.set(key, value);
+    }
+    setParams(next, { replace });
+  };
+
+  // ---------------------------------------------------------------- data
   useEffect(() => {
-    const fetchSectors = async () => {
-      const { data } = await supabase.from('sectors').select('id, label').eq('is_active', true).order('label');
-      if (data) setAllSectors(data as Sector[]);
-    };
-    fetchSectors();
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      const [resRes, secRes] = await Promise.all([
+        supabase
+          .from('resources')
+          .select('id, title, summary, content, type, access_level, thumbnail_url, created_at, published_at, tags, resource_speakers(id, full_name, display_order), resource_sectors(sector_id)')
+          .eq('published', true)
+          .order('published_at', { ascending: false, nullsFirst: false })
+          // published_at is never set by the admin publish flows (all 30 are NULL
+          // today), so creation date is what actually orders the library.
+          .order('created_at', { ascending: false }),
+        supabase.from('sectors').select('id, slug, label').eq('is_active', true).order('label'),
+      ]);
+      if (!alive) return;
+      if (resRes.error && import.meta.env.DEV) console.error('Error fetching resources:', resRes.error);
+      setResources((resRes.data ?? []) as Resource[]);
+      setSectors((secRes.data ?? []) as Sector[]);
+      setLoading(false);
+    })();
+    return () => { alive = false; };
   }, []);
 
-  // Pre-select sectors based on user's organization (like marketplace)
+  // The member's own sectors, for the "For your sectors" chip. Keyed on the
+  // organization's id and type — never on the user object, which auth-js
+  // replaces on every tab refocus.
+  const orgId = organization?.id;
+  const orgType = organization?.organization_type;
+  const signedIn = !!user;
   useEffect(() => {
-    if (!user || !organization) return;
-    const ot = organization.organization_type;
-    const table = (ot === 'marina' || ot === 'developer' || ot === 'investor')
+    if (!signedIn || !orgId) { setMySectorIds([]); return; }
+    const table = (orgType === 'marina' || orgType === 'developer' || orgType === 'investor')
       ? 'organization_interest_sectors'
       : 'organization_service_sectors';
-    supabase
-      .from(table)
-      .select('sector_id')
-      .eq('organization_id', organization.id)
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setSelectedSectors(data.map((d: { sector_id: string }) => d.sector_id));
-        }
-      });
-  }, [user, organization]);
-
-  useEffect(() => {
-    const fetchResources = async () => {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('resources')
-          .select('*, resource_speakers(id, full_name, profile_id, display_order), resource_sectors(sector_id)')
-          .eq('published', true)
-          .order('published_at', { ascending: false, nullsFirst: false });
-
-        if (error) throw error;
-        setResources((data || []) as Resource[]);
-      } catch (err) {
-        if (import.meta.env.DEV) console.error('Error fetching resources:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchResources();
-  }, []);
-
-  const filteredResources = useMemo(() => {
-    return resources.filter((r) => {
-      const matchesSearch =
-        r.title.toLowerCase().includes(search.toLowerCase()) ||
-        r.summary.toLowerCase().includes(search.toLowerCase()) ||
-        (r.tags || []).some((tag) => tag.toLowerCase().includes(search.toLowerCase()));
-      const matchesType = activeType === 'all' || r.type === activeType;
-      const matchesLang = languageFilter === 'all' || r.language === languageFilter;
-      const matchesAccess = accessFilter === 'all' || r.access_level === accessFilter;
-      const matchesSectors = selectedSectors.length === 0 ||
-        (r.resource_sectors || []).some((rs) => selectedSectors.includes(rs.sector_id));
-      return matchesSearch && matchesType && matchesLang && matchesAccess && matchesSectors;
+    let alive = true;
+    supabase.from(table).select('sector_id').eq('organization_id', orgId).then(({ data }) => {
+      if (alive) setMySectorIds(((data ?? []) as { sector_id: string }[]).map((d) => d.sector_id));
     });
-  }, [resources, search, activeType, languageFilter, accessFilter, selectedSectors]);
+    return () => { alive = false; };
+  }, [orgId, orgType, signedIn]);
 
-  const featuredResource = filteredResources[0] || null;
-  const remainingResources = filteredResources.slice(1);
+  // ---------------------------------------------------------------- derived
+  const sectorById = useMemo(() => new Map(sectors.map((s) => [s.id, s])), [sectors]);
+
+  const indexed: Indexed[] = useMemo(() => resources.map((r) => {
+    const sectorSlugs = (r.resource_sectors ?? [])
+      .map((rs) => sectorById.get(rs.sector_id)?.slug)
+      .filter((s): s is string => !!s);
+    return {
+      ...r,
+      sectorSlugs,
+      themes: themesForSectors(sectorSlugs),
+      haystack: [r.title, r.summary ?? '', ...(r.tags ?? []), speakerNames(r)].join(' ').toLowerCase(),
+    };
+  }), [resources, sectorById]);
+
+  const themeCounts = useMemo(() => {
+    const counts = {} as Record<ThemeKey, number>;
+    for (const th of THEMES) counts[th.key] = 0;
+    for (const r of indexed) for (const k of r.themes) counts[k] += 1;
+    return counts;
+  }, [indexed]);
+
+  // Formats actually present. Today that is "article" only, and a filter with
+  // one option is noise — the chips appear the day a second format exists.
+  const formats = useMemo(() => [...new Set(indexed.map((r) => r.type))], [indexed]);
+
+  const mySectorSlugs = useMemo(
+    () => new Set(mySectorIds.map((id) => sectorById.get(id)?.slug).filter(Boolean) as string[]),
+    [mySectorIds, sectorById],
+  );
+
+  // The open theme's sectors, in the order the theme lists them, with counts.
+  const themeSectors = useMemo(() => {
+    if (!theme) return [];
+    return theme.sectors
+      .map((slug) => ({
+        slug,
+        label: t(`sectorNames.${slug}`, sectors.find((s) => s.slug === slug)?.label ?? slug),
+        count: indexed.filter((r) => r.sectorSlugs.includes(slug)).length,
+      }))
+      .filter((s) => s.count > 0);
+  }, [theme, sectors, indexed, t]);
+
+  // Every filter that narrows the list must show as a chip that can undo it.
+  // So a URL value with no chip to show it — a sector outside the open theme, a
+  // format that no longer exists, "mine" for someone without sectors (or whose
+  // sectors are still loading) — is ignored rather than applied invisibly, and
+  // a shared link never opens on an unexplained empty list.
+  const activeSector = theme && sectorSlug && themeSectors.length > 1 && themeSectors.some((s) => s.slug === sectorSlug)
+    ? sectorSlug
+    : null;
+  const activeFormat = format && formats.length > 1 && formats.includes(format) ? format : null;
+  const activeMine = mine && mySectorSlugs.size > 0;
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return indexed.filter((r) =>
+      (!theme || r.themes.includes(theme.key)) &&
+      (!activeSector || r.sectorSlugs.includes(activeSector)) &&
+      (!activeFormat || r.type === activeFormat) &&
+      (!activeMine || r.sectorSlugs.some((s) => mySectorSlugs.has(s))) &&
+      (!q || r.haystack.includes(q)),
+    );
+  }, [indexed, theme, activeSector, activeFormat, activeMine, mySectorSlugs, query]);
+
+  const anyFilter = !!(theme || activeSector || activeFormat || activeMine || query.trim());
+
+  // Changing a filter from the sticky toolbar deep in the list would leave the
+  // reader looking at the middle of the new results. Bring the top of the list
+  // back under the toolbar — only when they are below it, never on load.
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const filterKey = `${theme?.key ?? ''}|${activeSector ?? ''}|${activeFormat ?? ''}|${activeMine}`;
+  const lastFilterKey = useRef(filterKey);
+  useEffect(() => {
+    if (filterKey === lastFilterKey.current) return;
+    lastFilterKey.current = filterKey;
+    const el = resultsRef.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - STICKY_OFFSET;
+    if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
+  }, [filterKey]);
+
+  const scrollToResults = () => {
+    const el = resultsRef.current;
+    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - STICKY_OFFSET, behavior: 'smooth' });
+  };
+  // "Featured" only means something on the untouched library.
+  const featured = !anyFilter ? filtered[0] ?? null : null;
+  const grid = featured ? filtered.slice(1) : filtered;
 
   const canAccess = (level: string) => {
     if (level === 'public') return true;
@@ -147,432 +241,467 @@ export function ResourcesPage() {
     return false;
   };
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
+  const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-GB';
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' });
 
-  const estimateReadTime = (content: string | null) => {
-    if (!content) return 1;
-    const words = content.replace(/<[^>]+>/g, '').split(/\s+/).length;
-    return Math.max(1, Math.ceil(words / 200));
-  };
+  const themeLabel = (th: Theme) => t(th.labelKey, th.fallback);
+  const sectorLabel = (slug: string) => t(`sectorNames.${slug}`, sectors.find((s) => s.slug === slug)?.label ?? slug);
 
-  const clearFilters = () => {
-    setSearch('');
-    setActiveType('all');
-    setLanguageFilter('all');
-    setAccessFilter('all');
-    setSelectedSectors([]);
-  };
-
-  const toggleSector = (sectorId: string) => {
-    setSelectedSectors((prev) =>
-      prev.includes(sectorId)
-        ? prev.filter((s) => s !== sectorId)
-        : [...prev, sectorId]
-    );
-  };
-
-  const clearAllSectors = () => setSelectedSectors([]);
-  const selectAllSectors = () => setSelectedSectors(allSectors.map((s) => s.id));
-
-  // Count resources per sector (from unfiltered resource list)
-  const sectorResourceCounts: Record<string, number> = {};
-  for (const r of resources) {
-    for (const rs of r.resource_sectors || []) {
-      sectorResourceCounts[rs.sector_id] = (sectorResourceCounts[rs.sector_id] || 0) + 1;
-    }
-  }
-
+  // ---------------------------------------------------------------- render
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Resources — Smart Marina Connect</title>
-        <meta name="description" content="Browse articles, whitepapers, guides and case studies about the marina industry on Smart Marina Connect." />
+        <title>{theme ? `${themeLabel(theme)} — ${t('resources.title')}` : `${t('resources.title')} — Smart Marina Connect`}</title>
+        <meta name="description" content="Articles, guides and replays on marina design, energy, digital, operations and regulation — the Smart Marina Connect knowledge library." />
         <meta property="og:title" content="Resources — Smart Marina Connect" />
-        <meta property="og:description" content="Explore marina industry resources: articles, whitepapers, guides and case studies." />
+        <meta property="og:description" content="The marina industry knowledge library, browsed by theme." />
       </Helmet>
-      {/* Hero Section */}
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-        <div className="container mx-auto px-4 py-14 lg:py-20">
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-1.5 text-sm mb-6">
-              <BookOpen className="h-4 w-4" />
-              <span>{t('resources.heroTag')}</span>
-            </div>
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 leading-tight">
-              {t('resources.title')}
-            </h1>
-            <p className="text-lg text-white/80 mb-8 max-w-2xl mx-auto">
-              {t('resources.subtitle')}
-            </p>
-            {/* Search Bar */}
-            <div className="relative max-w-xl mx-auto">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-              <Input
-                placeholder={t('resources.search')}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-12 pr-4 py-3 h-12 bg-white text-gray-800 border-0 rounded-full shadow-lg text-base placeholder:text-gray-400"
-              />
-            </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Filters Bar */}
-      <section className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
-        <div className="container mx-auto px-4">
-          <div className="flex items-center gap-3 py-2.5 overflow-x-auto no-scrollbar">
-            {/* Type pills */}
-            <div className="flex items-center gap-1.5 flex-shrink-0">
-              <button
-                onClick={() => setActiveType('all')}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-                  activeType === 'all'
-                    ? 'bg-primary text-white shadow-sm'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {t('resources.filters.all')}
-              </button>
-              {types.map((type) => (
-                <button
-                  key={type}
-                  onClick={() => setActiveType(type)}
-                  className={`px-4 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-                    activeType === type
-                      ? 'bg-primary text-white shadow-sm'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {t(`resources.types.${type}`)}
-                </button>
-              ))}
-            </div>
-            <div className="flex-1" />
-            {/* Mobile: toggle sector sidebar button */}
-            <Button
-              variant="outline"
-              className="sm:hidden h-9 gap-2 text-sm"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
+      {/* ── Hero: the photo sits behind, the content sets the height, so a long
+          French title or enlarged text never gets clipped. ── */}
+      <section className="relative overflow-hidden text-white">
+        <CoverImage
+          src={SITE_IMAGES.resourcesHero.src}
+          focusY={SITE_IMAGES.resourcesHero.focusY}
+          alt=""
+          seed="resources-hero"
+          icon={BookOpen}
+          aspect="fill"
+          tone="sea"
+          eager
+          className="absolute inset-0"
+        />
+        {/* A wash over the whole band, not just a bottom scrim: the pill and the
+            title sit high, over the brightest part of a stage photo. */}
+        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/95 via-[#0b2653]/80 to-[#0b2653]/60" />
+        <div className="relative container mx-auto px-4 py-12 sm:py-16">
+          <div className="max-w-2xl">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">
+              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('resources.heroTag')}
+            </span>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight drop-shadow-sm sm:text-4xl">{t('resources.title')}</h1>
+            <p className="mt-2 max-w-xl text-white/85">{t('resources.subtitle')}</p>
+            {/* A real form, so Enter on a phone keyboard closes it and shows the results. */}
+            <form
+              role="search"
+              className="relative mt-5 max-w-xl"
+              onSubmit={(e) => {
+                e.preventDefault();
+                (document.activeElement as HTMLElement | null)?.blur();
+                scrollToResults();
+              }}
             >
-              <Filter className="h-4 w-4" />
-              {t('resources.filters.sector', 'Sectors')}
-              {selectedSectors.length > 0 && (
-                <Badge variant="secondary" className="ml-1 text-xs">{selectedSectors.length}</Badge>
-              )}
-            </Button>
-            {/* Additional filters — hide access filter for verified users (they see all) and logged-out users */}
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {user && !isVerified && (
-                <Select value={accessFilter} onValueChange={setAccessFilter}>
-                  <SelectTrigger className="h-8 w-full sm:w-[120px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t('resources.filters.accessLevel')}</SelectItem>
-                    <SelectItem value="public">{t('resources.accessLevels.public')}</SelectItem>
-                    <SelectItem value="members">{t('resources.accessLevels.members')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
+              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+              <Input
+                type="search"
+                enterKeyHint="search"
+                aria-label={t('resources.search')}
+                placeholder={t('resources.search')}
+                value={query}
+                onChange={(e) => update({ q: e.target.value }, true)}
+                className="h-12 rounded-full border-0 bg-white pl-12 pr-4 text-base text-gray-800 shadow-lg placeholder:text-gray-500"
+              />
+            </form>
           </div>
         </div>
       </section>
 
-      {/* Sponsor Banner */}
+      {/* ── Themes: the way in ── */}
+      <section className="container mx-auto px-4 pt-8" aria-labelledby="themes-heading">
+        <h2 id="themes-heading" className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">
+          {t('resources.browseByTheme')}
+        </h2>
+        {/* py-2 keeps the selection ring from being clipped by the scroller;
+            scroll-px-4 keeps the 16 px gutter after a swipe snaps a tile. */}
+        <div className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 py-2 lg:mx-0 lg:grid lg:grid-cols-7 lg:overflow-visible lg:px-0">
+          <ThemeTile
+            label={t('resources.allThemes')}
+            hint={t('resources.allThemesDesc')}
+            count={indexed.length}
+            active={!theme}
+            seed="all-themes"
+            icon={LayoutGrid}
+            image={null}
+            // Already showing everything: a second click must not stack a
+            // duplicate history entry that makes Back look broken.
+            onClick={() => { if (theme) update({ theme: null, sector: null }); }}
+          />
+          {THEMES.map((th) => (
+            <ThemeTile
+              key={th.key}
+              label={themeLabel(th)}
+              hint={t(th.descKey, th.descFallback)}
+              count={themeCounts[th.key]}
+              active={theme?.key === th.key}
+              seed={`theme-${th.key}`}
+              icon={th.icon}
+              image={th.image}
+              focusY={th.imageFocusY}
+              // Clicking the open theme closes it, like a tab you can untick.
+              onClick={() => update({ theme: theme?.key === th.key ? null : th.key, sector: null })}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* ── Toolbar: refine within the current view. Sticks under the 64 px navbar. ── */}
+      <section className="sticky top-16 z-30 mt-6 border-y border-gray-200 bg-white/95 backdrop-blur">
+        {/* Phones scroll the chips sideways; from md up they wrap, so nothing hides off-screen. */}
+        <div className="no-scrollbar container mx-auto flex items-center gap-2 overflow-x-auto px-4 py-2.5 md:flex-wrap md:overflow-visible">
+          {/* aria-live: a screen-reader user hears the new count after each filter. */}
+          <span className="shrink-0 text-sm font-medium text-gray-900" aria-live="polite">
+            {loading ? '…' : t('resources.results', { count: filtered.length })}
+          </span>
+
+          {/* Right after the count, so it can never end up scrolled off-screen. */}
+          {anyFilter && (
+            <button
+              type="button"
+              onClick={() => setParams(new URLSearchParams(), { replace: false })}
+              className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full px-3 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('resources.clearFilters')}
+            </button>
+          )}
+
+          {(themeSectors.length > 1 || formats.length > 1 || mySectorSlugs.size > 0) && (
+            <span className="mx-1 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+          )}
+
+          {/* Sectors of the open theme — only when there is a choice to make. */}
+          {themeSectors.length > 1 && themeSectors.map((s) => (
+            <Chip
+              key={s.slug}
+              active={activeSector === s.slug}
+              onClick={() => update({ sector: activeSector === s.slug ? null : s.slug })}
+            >
+              {s.label}
+              <span className={cn('tabular-nums', activeSector === s.slug ? 'text-white/80' : 'text-gray-500')}>{s.count}</span>
+            </Chip>
+          ))}
+
+          {formats.length > 1 && formats.map((f) => (
+            <Chip key={f} active={activeFormat === f} onClick={() => update({ format: activeFormat === f ? null : f })}>
+              {t(`resources.types.${f}`, f)}
+            </Chip>
+          ))}
+
+          {mySectorSlugs.size > 0 && (
+            <Chip active={activeMine} onClick={() => update({ mine: activeMine ? null : '1' })} icon={Sparkles}>
+              {t('resources.forYourSectors')}
+            </Chip>
+          )}
+        </div>
+      </section>
+
       <div className="container mx-auto px-4 pt-6">
         <AdBanner placement="resources" className="mb-2" />
       </div>
 
-      {/* Content */}
-      <div className="container mx-auto px-4 py-8 lg:py-12">
-        <div className="flex gap-6">
-          {/* ---- Sector Sidebar (desktop: always visible, mobile: toggled) ---- */}
-          <aside className={`${sidebarOpen ? 'block' : 'hidden'} sm:block w-full sm:w-64 shrink-0`}>
-            <Card className="sm:sticky sm:top-16">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-semibold text-sm text-gray-900 flex items-center gap-1.5">
-                    <Filter className="h-4 w-4 text-primary" />
-                    {t('resources.filters.sector', 'Sectors')}
-                  </h3>
-                  {/* Mobile close button */}
-                  <Button variant="ghost" size="sm" className="sm:hidden h-7 w-7 p-0" onClick={() => setSidebarOpen(false)}>
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-
-                <div className="flex gap-2 mb-3">
-                  <Button variant="outline" size="sm" className="text-xs h-7 flex-1" onClick={selectAllSectors}>
-                    {t('marketplace.selectAll', 'Select All')}
-                  </Button>
-                  <Button variant="outline" size="sm" className="text-xs h-7 flex-1" onClick={clearAllSectors}>
-                    {t('marketplace.clearAll', 'Clear All')}
-                  </Button>
-                </div>
-
-                <div className="space-y-1 max-h-[60vh] overflow-y-auto pr-1">
-                  {allSectors.map((sector) => (
-                    <label
-                      key={sector.id}
-                      className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-gray-50 cursor-pointer transition-colors"
-                    >
-                      <Checkbox
-                        id={`sector-${sector.id}`}
-                        checked={selectedSectors.includes(sector.id)}
-                        onCheckedChange={() => toggleSector(sector.id)}
-                      />
-                      <span className="text-sm text-gray-700 flex-1 truncate">{sector.label}</span>
-                      <span className="text-xs text-gray-400 tabular-nums">{sectorResourceCounts[sector.id] || 0}</span>
-                    </label>
-                  ))}
-                </div>
-
-                {selectedSectors.length > 0 && (
-                  <p className="text-xs text-gray-500 mt-3 pt-2 border-t">
-                    {selectedSectors.length} {t('marketplace.sectorsSelected', 'sector(s) selected')}
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </aside>
-
-          {/* ---- Main Content ---- */}
-          <div className="flex-1 min-w-0">
+      {/* ── Results ── */}
+      <div ref={resultsRef} className="container mx-auto px-4 pb-16 pt-6">
         {loading ? (
           <LoadingSkeleton variant="card" count={6} />
-        ) : filteredResources.length === 0 ? (
-          <div className="text-center py-24">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gray-100 mb-4">
-              <FileText className="h-10 w-10 text-gray-300" />
+        ) : filtered.length === 0 ? (
+          <div className="py-24 text-center">
+            <div className="mb-4 inline-flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
+              <FileText className="h-10 w-10 text-gray-300" aria-hidden="true" />
             </div>
-            <p className="text-gray-500 text-lg mb-2">
-              {resources.length === 0
-                ? t('resources.noResources')
-                : t('resources.noMatch')}
+            <p className="mb-2 text-lg text-gray-500">
+              {resources.length === 0 ? t('resources.noResources') : t('resources.noMatch')}
             </p>
             {resources.length > 0 && (
-              <Button variant="outline" size="sm" onClick={clearFilters}>
+              <Button variant="outline" size="sm" onClick={() => setParams(new URLSearchParams())}>
                 {t('resources.clearFilters')}
               </Button>
             )}
           </div>
         ) : (
           <>
-            {/* Featured Article (first result) */}
-            {featuredResource && (
-              <Link
-                to={`/resources/${featuredResource.id}`}
-                className="group block mb-10"
-              >
-                <div className="relative bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-lg transition-all duration-300">
-                  <div className="grid lg:grid-cols-2">
-                    {/* Image */}
-                    <div className="relative h-64 lg:h-80">
-                      {featuredResource.thumbnail_url ? (
-                        <img
-                          src={featuredResource.thumbnail_url}
-                          alt={featuredResource.title}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-primary/10 flex items-center justify-center">
-                          <FileText className="h-16 w-16 text-primary/20" />
-                        </div>
-                      )}
-                      {!canAccess(featuredResource.access_level) && (
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                          <Lock className="h-10 w-10 text-white/80" />
-                        </div>
-                      )}
-                      <div className="absolute top-4 left-4">
-                        <span className="px-3 py-1 bg-secondary text-white text-xs font-bold rounded-full uppercase tracking-wide">
-                          {t('resources.featured')}
-                        </span>
-                      </div>
-                    </div>
-                    {/* Content */}
-                    <div className="p-6 lg:p-8 flex flex-col justify-center">
-                      <div className="flex flex-wrap items-center gap-2 mb-3">
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${TYPE_COLORS[featuredResource.type] || ''}`}>
-                          {t(`resources.types.${featuredResource.type}`)}
-                        </span>
-                        {featuredResource.access_level !== 'public' && (
-                          <Badge variant={featuredResource.access_level === 'members' ? 'info' : 'purple'} className="text-xs">
-                            {t(`resources.accessLevels.${featuredResource.access_level}`)}
-                          </Badge>
-                        )}
-                      </div>
-                      <h2 className="text-xl lg:text-2xl font-bold text-gray-900 mb-3 group-hover:text-primary transition-colors leading-tight">
-                        {featuredResource.title}
-                      </h2>
-                      <p className="text-gray-600 line-clamp-3 mb-4 leading-relaxed">
-                        {featuredResource.summary}
-                      </p>
-                      <div className="flex items-center gap-4 text-sm text-gray-400 mb-4">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3.5 w-3.5" />
-                          {formatDate(featuredResource.published_at || featuredResource.created_at)}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5" />
-                          {estimateReadTime(featuredResource.content)} {t('resourceDetail.minRead')}
-                        </span>
-                      </div>
-                      {featuredResource.resource_speakers && featuredResource.resource_speakers.length > 0 && (
-                        <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-                          <Users className="h-4 w-4 shrink-0" />
-                          <span>
-                            {featuredResource.resource_speakers
-                              .sort((a, b) => a.display_order - b.display_order)
-                              .map(s => s.full_name)
-                              .join(', ')}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-1 text-primary font-semibold text-sm group-hover:gap-2 transition-all">
-                        {t('resources.readMore')} <ArrowRight className="h-4 w-4" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </Link>
+            {featured && (
+              <FeaturedCard
+                resource={featured}
+                locked={!canAccess(featured.access_level)}
+                formatDate={formatDate}
+              />
             )}
 
-            {/* Results count */}
-            {filteredResources.length > 0 && (
-              <div className="flex items-center justify-between mb-6">
-                <p className="text-sm text-gray-500">
-                  {filteredResources.length} {t('resources.resultsCount')}
-                </p>
+            {theme && (
+              <div className="mb-6 flex items-center gap-3">
+                <theme.icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                <div>
+                  <h2 className="text-lg font-semibold text-gray-900">{themeLabel(theme)}</h2>
+                  <p className="text-sm text-gray-500">{t(theme.descKey, theme.descFallback)}</p>
+                </div>
               </div>
             )}
 
-            {/* Resources Grid */}
-            {remainingResources.length > 0 && (
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {remainingResources.map((resource) => (
+            {grid.length > 0 && (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {grid.map((r) => (
                   <ResourceCard
-                    key={resource.id}
-                    resource={resource}
-                    canAccess={canAccess(resource.access_level)}
+                    key={r.id}
+                    resource={r}
+                    locked={!canAccess(r.access_level)}
                     formatDate={formatDate}
-                    estimateReadTime={estimateReadTime}
-                    t={t}
+                    showFormat={formats.length > 1}
+                    openTheme={theme}
+                    activeSector={activeSector}
+                    sectorLabel={sectorLabel}
                   />
                 ))}
               </div>
             )}
           </>
         )}
-          </div>{/* end main content */}
-        </div>{/* end flex wrapper */}
       </div>
     </div>
   );
 }
 
-/* ─── Resource Card ─────────────────────────────────────────────── */
+/* ─── Pieces ─────────────────────────────────────────────────────── */
+
+function ThemeTile({
+  label, hint, count, active, seed, icon, image, focusY = 0.5, onClick,
+}: {
+  label: string;
+  hint: string;
+  count: number;
+  active: boolean;
+  seed: string;
+  icon: Theme['icon'];
+  image: string | null;
+  focusY?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={hint}
+      className={cn(
+        'group relative w-44 shrink-0 snap-start overflow-hidden rounded-xl text-left transition lg:w-auto',
+        // Navy on the light page reads; the old gold ring was 2:1 and looked like focus.
+        'focus:outline-none focus-visible:ring-[3px] focus-visible:ring-secondary-dark focus-visible:ring-offset-2',
+        active ? 'ring-[3px] ring-primary ring-offset-2 ring-offset-gray-50' : 'hover:-translate-y-0.5 hover:shadow-md',
+      )}
+    >
+      <CoverImage
+        src={image}
+        focusY={focusY}
+        alt=""
+        seed={seed}
+        icon={icon}
+        aspect="wide"
+        tone="sea"
+        imageClassName="group-hover:scale-105"
+      >
+        {/* Navy wash rising from the label: a white label must read on a bright
+            photo at ~180 px wide, which the generic black scrim did not manage. */}
+        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/95 via-[#0b2653]/45 to-[#0b2653]/5" />
+        <div className="absolute inset-x-0 bottom-0 p-3 text-white">
+          <span className="block text-sm font-semibold leading-tight drop-shadow-sm">{label}</span>
+          <span className="mt-0.5 block text-xs text-white/80 tabular-nums">{count}</span>
+        </div>
+      </CoverImage>
+    </button>
+  );
+}
+
+function Chip({
+  active, onClick, icon: Icon, children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon?: Theme['icon'];
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        // 40 px tall: a comfortable thumb target without towering over the bar.
+        'inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-sm font-medium transition-colors',
+        active ? 'bg-primary text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
+      )}
+    >
+      {Icon && <Icon className="h-3.5 w-3.5" aria-hidden="true" />}
+      {children}
+    </button>
+  );
+}
+
+function LockOverlay({ level }: { level: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+      <div className="p-3 text-center text-white">
+        <Lock className="mx-auto mb-1 h-6 w-6" aria-hidden="true" />
+        <p className="text-xs font-medium">
+          {level === 'members' ? t('resources.signupToAccess') : t('resources.verifyMarinaToAccess')}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What the card is about, in one chip. In the whole library that is its theme;
+ * inside an open theme every card would repeat the same name, so the chip
+ * names the resource's sector within that theme instead.
+ */
+function ThemeBadge({
+  resource, openTheme, activeSector, sectorLabel,
+}: {
+  resource: Indexed;
+  openTheme: Theme | null;
+  activeSector: string | null;
+  sectorLabel: (slug: string) => string;
+}) {
+  const { t } = useTranslation();
+  let icon: Theme['icon'] | null = null;
+  let text = '';
+  if (openTheme) {
+    // The chip the reader picked wins, so the card agrees with the filter.
+    const slug = activeSector && resource.sectorSlugs.includes(activeSector)
+      ? activeSector
+      : resource.sectorSlugs.find((s) => openTheme.sectors.includes(s));
+    if (slug) { icon = openTheme.icon; text = sectorLabel(slug); }
+  } else {
+    const th = getTheme(resource.themes[0]);
+    if (th) { icon = th.icon; text = t(th.labelKey, th.fallback); }
+  }
+  if (!icon || !text) return null;
+  const Icon = icon;
+  return (
+    <span className="absolute left-3 top-3 inline-flex max-w-[85%] items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-xs font-medium text-gray-800 backdrop-blur-sm">
+      <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
+      <span className="truncate">{text}</span>
+    </span>
+  );
+}
+
+function FeaturedCard({
+  resource, locked, formatDate,
+}: {
+  resource: Indexed;
+  locked: boolean;
+  formatDate: (iso: string) => string;
+}) {
+  const { t } = useTranslation();
+  const speakers = speakerNames(resource);
+  return (
+    <Link to={`/resources/${resource.id}`} state={{ fromList: true }} className="group mb-10 block">
+      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:shadow-lg">
+        <div className="grid lg:grid-cols-2">
+          <CoverImage
+            src={resource.thumbnail_url}
+            alt=""
+            seed={resource.id}
+            icon={getTheme(resource.themes[0])?.icon ?? BookOpen}
+            aspect="fill"
+            tone="sea"
+            eager
+            className="h-64 lg:h-80"
+            imageClassName="group-hover:scale-105"
+          >
+            {locked && <LockOverlay level={resource.access_level} />}
+            <span className="absolute left-4 top-4 rounded-full bg-secondary px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+              {t('resources.latest')}
+            </span>
+          </CoverImage>
+          <div className="flex flex-col justify-center p-6 lg:p-8">
+            {resource.themes.length > 0 && (
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-secondary-dark">
+                {resource.themes.map((k) => { const th = getTheme(k)!; return t(th.labelKey, th.fallback); }).join(' · ')}
+              </p>
+            )}
+            <h2 className="mb-3 text-xl font-bold leading-tight text-gray-900 transition-colors group-hover:text-primary lg:text-2xl">
+              {resource.title}
+            </h2>
+            {resource.summary && <p className="mb-4 line-clamp-3 leading-relaxed text-gray-600">{resource.summary}</p>}
+            <div className="mb-4 flex items-center gap-4 text-sm text-gray-500">
+              <span className="flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
+                {formatDate(resource.published_at || resource.created_at)}
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('resources.minRead', { count: readMinutes(resource.content) })}
+              </span>
+            </div>
+            {speakers && (
+              <div className="mb-2 flex items-center gap-2 text-sm text-gray-500">
+                <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span>{speakers}</span>
+              </div>
+            )}
+            <span className="flex items-center gap-1 text-sm font-semibold text-primary transition-all group-hover:gap-2">
+              {t('resources.readMore')} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </span>
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
 
 function ResourceCard({
-  resource,
-  canAccess,
-  formatDate,
-  estimateReadTime,
-  t,
+  resource, locked, formatDate, showFormat, openTheme, activeSector, sectorLabel,
 }: {
-  resource: Resource;
-  canAccess: boolean;
-  formatDate: (d: string) => string;
-  estimateReadTime: (c: string | null) => number;
-  t: ReturnType<typeof useTranslation>['t'];
+  resource: Indexed;
+  locked: boolean;
+  formatDate: (iso: string) => string;
+  showFormat: boolean;
+  openTheme: Theme | null;
+  activeSector: string | null;
+  sectorLabel: (slug: string) => string;
 }) {
+  const { t } = useTranslation();
+  const speakers = speakerNames(resource);
   return (
     <Link
       to={`/resources/${resource.id}`}
-      className="group block bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 hover:-translate-y-0.5"
+      state={{ fromList: true }}
+      className="group block overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
     >
-      {/* Image */}
-      <div className="relative aspect-[16/10] overflow-hidden">
-        {resource.thumbnail_url ? (
-          <img
-            src={resource.thumbnail_url}
-            alt={resource.title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full bg-primary/10 flex items-center justify-center">
-            <FileText className="h-10 w-10 text-primary/20" />
-          </div>
-        )}
-        {!canAccess && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-            <div className="text-center text-white p-3">
-              <Lock className="h-6 w-6 mx-auto mb-1" />
-              <p className="text-xs font-medium">
-                {resource.access_level === 'members'
-                  ? t('resources.signupToAccess')
-                  : t('resources.verifyMarinaToAccess')}
-              </p>
-            </div>
-          </div>
-        )}
-        {/* Type badge on image */}
-        <div className="absolute top-3 left-3">
-          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border backdrop-blur-sm bg-white/90 ${TYPE_COLORS[resource.type] || ''}`}>
-            {t(`resources.types.${resource.type}`)}
-          </span>
-        </div>
-      </div>
-
-      {/* Content */}
+      <CoverImage
+        src={resource.thumbnail_url}
+        alt=""
+        seed={resource.id}
+        icon={getTheme(resource.themes[0])?.icon ?? BookOpen}
+        aspect="wide"
+        imageClassName="group-hover:scale-105"
+      >
+        {locked && <LockOverlay level={resource.access_level} />}
+        <ThemeBadge resource={resource} openTheme={openTheme} activeSector={activeSector} sectorLabel={sectorLabel} />
+      </CoverImage>
       <div className="p-4">
-        <div className="flex items-center gap-3 text-xs text-gray-400 mb-2">
+        <div className="mb-2 flex items-center gap-3 text-xs text-gray-500">
           <span className="flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
+            <Calendar className="h-3 w-3" aria-hidden="true" />
             {formatDate(resource.published_at || resource.created_at)}
           </span>
           <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            {estimateReadTime(resource.content)} min
+            <Clock className="h-3 w-3" aria-hidden="true" />
+            {t('resources.minRead', { count: readMinutes(resource.content) })}
           </span>
+          {showFormat && <span>{t(`resources.types.${resource.type}`, resource.type)}</span>}
         </div>
-        <h3 className="font-semibold text-gray-800 line-clamp-2 mb-2 group-hover:text-primary transition-colors leading-snug">
+        <h3 className="mb-2 line-clamp-2 font-semibold leading-snug text-gray-800 transition-colors group-hover:text-primary">
           {resource.title}
         </h3>
-        <p className="text-gray-500 text-sm line-clamp-2 leading-relaxed">
-          {resource.summary}
-        </p>
-
-        {/* Speakers */}
-        {resource.resource_speakers && resource.resource_speakers.length > 0 && (
-          <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-2">
-            <Users className="h-3 w-3 shrink-0" />
-            <span className="truncate">
-              {resource.resource_speakers
-                .sort((a, b) => a.display_order - b.display_order)
-                .map(s => s.full_name)
-                .join(', ')}
-            </span>
-          </div>
-        )}
-
-        {/* Tags */}
-        {resource.tags && resource.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {resource.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="flex items-center gap-0.5 text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">
-                <Tag className="h-2.5 w-2.5" />{tag}
-              </span>
-            ))}
+        {resource.summary && <p className="line-clamp-2 text-sm leading-relaxed text-gray-500">{resource.summary}</p>}
+        {speakers && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
+            <Users className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">{speakers}</span>
           </div>
         )}
       </div>

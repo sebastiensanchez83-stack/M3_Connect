@@ -87,6 +87,12 @@ interface CoverImageProps {
   aspect?: CoverAspect;
   /** 'sea' keeps the fallback out of the gold family — use it for wide bands. */
   tone?: CoverTone;
+  /**
+   * Where the subject sits vertically in the photo, 0 = top, 1 = bottom. The same
+   * picture fills a 6:1 desktop band and a near-square phone header, so the
+   * crop is decided by object-position at display time, not baked into the file.
+   */
+  focusY?: number;
   /** Dark scrim at the bottom, for when text is laid over the picture. */
   scrim?: boolean;
   /** Above the fold: skips lazy loading so the hero doesn't pop in. */
@@ -104,6 +110,7 @@ export function CoverImage({
   icon: Icon,
   aspect = 'video',
   tone = 'any',
+  focusY = 0.5,
   scrim = false,
   eager = false,
   className,
@@ -131,6 +138,7 @@ export function CoverImage({
           loading={eager ? 'eager' : 'lazy'}
           decoding="async"
           onError={() => setFailed(true)}
+          style={{ objectPosition: `50% ${Math.round(Math.min(1, Math.max(0, focusY)) * 100)}%` }}
           className={cn(
             'h-full w-full object-cover transition-transform duration-500',
             imageClassName,

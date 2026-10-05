@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { readMinutes } from '@/lib/readTime';
 import { Helmet } from 'react-helmet-async';
 import DOMPurify from 'dompurify';
 import { Badge } from '@/components/ui/badge';
@@ -49,6 +50,10 @@ interface ResourceSpeaker {
 export function ResourceDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  // Opened from the library list: going back returns to that exact filtered
+  // view (theme, sector, search, scroll). Opened any other way (a shared link,
+  // the dashboard), "Back to Resources" means the library itself.
+  const cameFromList = (useLocation().state as { fromList?: boolean } | null)?.fromList === true;
   const { t } = useTranslation();
   const { user, profile, isVerified } = useAuth();
   const [resource, setResource] = useState<Resource | null>(null);
@@ -92,6 +97,7 @@ export function ResourceDetailPage() {
           .neq('id', id)
           .or(`type.eq.${data.type},topic.eq.${data.topic}`)
           .order('published_at', { ascending: false, nullsFirst: false })
+          .order('created_at', { ascending: false })
           .limit(3);
 
         setRelatedResources((related || []) as Resource[]);
@@ -134,12 +140,8 @@ export function ResourceDetailPage() {
     });
   };
 
-  const estimateReadTime = (content: string | null) => {
-    if (!content) return 1;
-    const plainText = content.replace(/<[^>]+>/g, '');
-    const words = plainText.split(/\s+/).length;
-    return Math.max(1, Math.ceil(words / 200));
-  };
+  // Same helper as the library cards, so both show the same duration.
+  const estimateReadTime = readMinutes;
 
   const getInitials = (name: string) =>
     name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
@@ -184,7 +186,7 @@ export function ResourceDetailPage() {
         )}
 
         <div className="absolute top-4 left-4 z-10">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/resources')}
+          <Button variant="ghost" size="sm" onClick={() => (cameFromList ? navigate(-1) : navigate('/resources'))}
             className="bg-white/90 backdrop-blur-sm hover:bg-white text-gray-800 shadow-sm">
             <ChevronLeft className="h-4 w-4 mr-1" />
             {t('resourceDetail.backToResources')}

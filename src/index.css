@@ -168,3 +168,16 @@
 .article-content pre code {
   @apply bg-transparent p-0 text-inherit;
 }
+
+/*
+ * App root: stop sideways scrolling without breaking position: sticky.
+ * overflow-x: hidden turns the root into a scroll container, so the sticky
+ * navbar (and every sticky toolbar) stuck to a box that never scrolls — i.e.
+ * nothing stuck at all. overflow-x: clip cuts the overflow without creating a
+ * scroll container; browsers that don't know clip (Safari before 16) keep the
+ * hidden fallback on the line above.
+ */
+.app-root {
+  overflow-x: hidden;
+  overflow-x: clip;
+}

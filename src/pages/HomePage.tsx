@@ -9,6 +9,9 @@ import { Anchor, ArrowRight, FileText, Calendar, Users, Clock, MapPin, Building2
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { AdBanner } from '@/components/ui/AdBanner';
+import { CoverImage } from '@/components/ui/CoverImage';
+import { TeaserVideo } from '@/components/home/TeaserVideo';
+import { SITE_IMAGES } from '@/lib/siteMedia';
 
 interface FeaturedResource {
   id: string;
@@ -256,10 +259,58 @@ export function HomePage() {
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://smartmarinaconnect.com/" />
       </Helmet>
-      {/* Hero Section */}
+      {/* Hero — visitors: the SM26 hall behind, the platform teaser beside the pitch */}
+      {!user && (
+        <section className="relative overflow-hidden text-white">
+          <CoverImage
+            src={SITE_IMAGES.homeHero.src}
+            focusY={SITE_IMAGES.homeHero.focusY}
+            alt=""
+            seed="home-hero"
+            aspect="fill"
+            tone="sea"
+            eager
+            className="absolute inset-0"
+          />
+          {/* Navy wash, heavier on the text side, so the copy reads on any crop. */}
+          <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-b from-[#0b2653]/90 via-[#0b2653]/80 to-[#0b2653]/90 lg:bg-gradient-to-r lg:from-[#0b2653]/95 lg:via-[#0b2653]/80 lg:to-[#0b2653]/55" />
+          <div className="relative container mx-auto grid items-center gap-10 px-4 py-14 md:py-20 lg:grid-cols-[1fr_1.1fr] lg:gap-14 lg:py-24">
+            <div className="text-center lg:text-left">
+              <h1 className="mb-5 text-4xl font-bold leading-tight md:text-5xl xl:text-6xl">
+                {t('home.heroTitle', 'The B2B Network for the Marina & Yachting Industry')}
+              </h1>
+              <p className="mx-auto mb-8 max-w-2xl text-lg text-gray-200 md:text-xl lg:mx-0">
+                {t('home.heroSubtitle', 'Connect marinas, service providers, and media partners. Share expertise, find solutions, grow your business.')}
+              </p>
+              <div className="flex flex-col justify-center gap-4 sm:flex-row lg:justify-start">
+                <Button size="lg" variant="secondary" asChild>
+                  <Link to="/become-partner">
+                    {t('home.joinNowFree', 'Join Now — It\'s Free')}
+                    <ArrowRight className="ml-2 h-5 w-5" />
+                  </Link>
+                </Button>
+                <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10" asChild>
+                  <Link to="/directory">
+                    {t('home.exploreDirectory', 'Explore the directory')}
+                  </Link>
+                </Button>
+              </div>
+              {/* Trust indicators */}
+              <div className="mt-8 flex flex-wrap justify-center gap-3 text-xs text-gray-200 sm:gap-6 sm:text-sm lg:justify-start">
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustFree', 'Free for Marinas')}</span>
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustVerified', 'Verified Partners')}</span>
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustEvents', 'Industry Events & Resources')}</span>
+              </div>
+            </div>
+            <TeaserVideo />
+          </div>
+        </section>
+      )}
+
+      {/* Hero — signed-in members */}
+      {user && (
       <section className="gradient-hero text-white py-20 md:py-32">
         <div className="container mx-auto px-4 text-center">
-          {user ? (
             <>
               <h1 className="text-3xl md:text-5xl font-bold mb-4">
                 {t('home.welcomeBack', 'Welcome back')}{profile?.first_name ? `, ${profile.first_name}` : ''}!
@@ -288,43 +339,15 @@ export function HomePage() {
                   </Link>
                 </Button>
                 <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10" asChild>
-                  <Link to="/account">
-                    {t('home.myAccount', 'My Account')}
+                  <Link to="/dashboard">
+                    {t('nav.dashboard', 'Dashboard')}
                   </Link>
                 </Button>
               </div>
             </>
-          ) : (
-            <>
-              <h1 className="text-4xl md:text-6xl font-bold mb-6">
-                {t('home.heroTitle', 'The B2B Network for the Marina & Yachting Industry')}
-              </h1>
-              <p className="text-xl md:text-2xl text-gray-200 mb-8 max-w-3xl mx-auto">
-                {t('home.heroSubtitle', 'Connect marinas, service providers, and media partners. Share expertise, find solutions, grow your business.')}
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Button size="lg" variant="secondary" asChild>
-                  <Link to="/become-partner">
-                    {t('home.joinNowFree', 'Join Now — It\'s Free')}
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Link>
-                </Button>
-                <Button size="lg" variant="outline" className="bg-transparent border-white text-white hover:bg-white/10" asChild>
-                  <Link to="/marketplace">
-                    {t('home.exploreMarketplace', 'Explore the Marketplace')}
-                  </Link>
-                </Button>
-              </div>
-              {/* Trust indicators */}
-              <div className="flex flex-wrap justify-center gap-3 sm:gap-6 mt-8 text-xs sm:text-sm text-gray-200">
-                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustFree', 'Free for Marinas')}</span>
-                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustVerified', 'Verified Partners')}</span>
-                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustEvents', 'Industry Events & Resources')}</span>
-              </div>
-            </>
-          )}
         </div>
       </section>
+      )}
 
       {/* "Why Join?" Section — only for logged-out visitors */}
       {!user && (

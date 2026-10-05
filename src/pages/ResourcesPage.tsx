@@ -12,9 +12,11 @@ import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { CoverImage } from '@/components/ui/CoverImage';
+import { PageHero } from '@/components/ui/PageHero';
+import { FilterBar, FilterChip } from '@/components/ui/FilterChip';
+import { ThemeTile, ThemeTileRow } from '@/components/ui/ThemeTile';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { SITE_IMAGES } from '@/lib/siteMedia';
-import { cn } from '@/lib/utils';
 import { readMinutes } from '@/lib/readTime';
 
 /**
@@ -258,64 +260,43 @@ export function ResourcesPage() {
         <meta property="og:description" content="The marina industry knowledge library, browsed by theme." />
       </Helmet>
 
-      {/* ── Hero: the photo sits behind, the content sets the height, so a long
-          French title or enlarged text never gets clipped. ── */}
-      <section className="relative overflow-hidden text-white">
-        <CoverImage
-          src={SITE_IMAGES.resourcesHero.src}
-          focusY={SITE_IMAGES.resourcesHero.focusY}
-          alt=""
-          seed="resources-hero"
-          icon={BookOpen}
-          aspect="fill"
-          tone="sea"
-          eager
-          className="absolute inset-0"
-        />
-        {/* A wash over the whole band, not just a bottom scrim: the pill and the
-            title sit high, over the brightest part of a stage photo. */}
-        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/95 via-[#0b2653]/80 to-[#0b2653]/60" />
-        <div className="relative container mx-auto px-4 py-12 sm:py-16">
-          <div className="max-w-2xl">
-            <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-medium backdrop-blur-sm">
-              <BookOpen className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('resources.heroTag')}
-            </span>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight drop-shadow-sm sm:text-4xl">{t('resources.title')}</h1>
-            <p className="mt-2 max-w-xl text-white/85">{t('resources.subtitle')}</p>
-            {/* A real form, so Enter on a phone keyboard closes it and shows the results. */}
-            <form
-              role="search"
-              className="relative mt-5 max-w-xl"
-              onSubmit={(e) => {
-                e.preventDefault();
-                (document.activeElement as HTMLElement | null)?.blur();
-                scrollToResults();
-              }}
-            >
-              <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
-              <Input
-                type="search"
-                enterKeyHint="search"
-                aria-label={t('resources.search')}
-                placeholder={t('resources.search')}
-                value={query}
-                onChange={(e) => update({ q: e.target.value }, true)}
-                className="h-12 rounded-full border-0 bg-white pl-12 pr-4 text-base text-gray-800 shadow-lg placeholder:text-gray-500"
-              />
-            </form>
-          </div>
-        </div>
-      </section>
+      <PageHero
+        image={SITE_IMAGES.resourcesHero}
+        seed="resources-hero"
+        icon={BookOpen}
+        eyebrow={t('resources.heroTag')}
+        title={t('resources.title')}
+        subtitle={t('resources.subtitle')}
+      >
+        {/* A real form, so Enter on a phone keyboard closes it and shows the results. */}
+        <form
+          role="search"
+          className="relative max-w-xl"
+          onSubmit={(e) => {
+            e.preventDefault();
+            (document.activeElement as HTMLElement | null)?.blur();
+            scrollToResults();
+          }}
+        >
+          <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+          <Input
+            type="search"
+            enterKeyHint="search"
+            aria-label={t('resources.search')}
+            placeholder={t('resources.search')}
+            value={query}
+            onChange={(e) => update({ q: e.target.value }, true)}
+            className="h-12 rounded-full border-0 bg-white pl-12 pr-4 text-base text-gray-800 shadow-lg placeholder:text-gray-500"
+          />
+        </form>
+      </PageHero>
 
       {/* ── Themes: the way in ── */}
       <section className="container mx-auto px-4 pt-8" aria-labelledby="themes-heading">
         <h2 id="themes-heading" className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">
           {t('resources.browseByTheme')}
         </h2>
-        {/* py-2 keeps the selection ring from being clipped by the scroller;
-            scroll-px-4 keeps the 16 px gutter after a swipe snaps a tile. */}
-        <div className="no-scrollbar -mx-4 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 py-2 lg:mx-0 lg:grid lg:grid-cols-7 lg:overflow-visible lg:px-0">
+        <ThemeTileRow>
           <ThemeTile
             label={t('resources.allThemes')}
             hint={t('resources.allThemesDesc')}
@@ -343,13 +324,11 @@ export function ResourcesPage() {
               onClick={() => update({ theme: theme?.key === th.key ? null : th.key, sector: null })}
             />
           ))}
-        </div>
+        </ThemeTileRow>
       </section>
 
       {/* ── Toolbar: refine within the current view. Sticks under the 64 px navbar. ── */}
-      <section className="sticky top-16 z-30 mt-6 border-y border-gray-200 bg-white/95 backdrop-blur">
-        {/* Phones scroll the chips sideways; from md up they wrap, so nothing hides off-screen. */}
-        <div className="no-scrollbar container mx-auto flex items-center gap-2 overflow-x-auto px-4 py-2.5 md:flex-wrap md:overflow-visible">
+      <FilterBar sticky className="mt-6">
           {/* aria-live: a screen-reader user hears the new count after each filter. */}
           <span className="shrink-0 text-sm font-medium text-gray-900" aria-live="polite">
             {loading ? '…' : t('resources.results', { count: filtered.length })}
@@ -373,29 +352,28 @@ export function ResourcesPage() {
 
           {/* Sectors of the open theme — only when there is a choice to make. */}
           {themeSectors.length > 1 && themeSectors.map((s) => (
-            <Chip
+            <FilterChip
               key={s.slug}
               active={activeSector === s.slug}
+              count={s.count}
               onClick={() => update({ sector: activeSector === s.slug ? null : s.slug })}
             >
               {s.label}
-              <span className={cn('tabular-nums', activeSector === s.slug ? 'text-white/80' : 'text-gray-500')}>{s.count}</span>
-            </Chip>
+            </FilterChip>
           ))}
 
           {formats.length > 1 && formats.map((f) => (
-            <Chip key={f} active={activeFormat === f} onClick={() => update({ format: activeFormat === f ? null : f })}>
+            <FilterChip key={f} active={activeFormat === f} onClick={() => update({ format: activeFormat === f ? null : f })}>
               {t(`resources.types.${f}`, f)}
-            </Chip>
+            </FilterChip>
           ))}
 
           {mySectorSlugs.size > 0 && (
-            <Chip active={activeMine} onClick={() => update({ mine: activeMine ? null : '1' })} icon={Sparkles}>
+            <FilterChip active={activeMine} onClick={() => update({ mine: activeMine ? null : '1' })} icon={Sparkles}>
               {t('resources.forYourSectors')}
-            </Chip>
+            </FilterChip>
           )}
-        </div>
-      </section>
+      </FilterBar>
 
       <div className="container mx-auto px-4 pt-6">
         <AdBanner placement="resources" className="mb-2" />
@@ -464,79 +442,6 @@ export function ResourcesPage() {
 }
 
 /* ─── Pieces ─────────────────────────────────────────────────────── */
-
-function ThemeTile({
-  label, hint, count, active, seed, icon, image, focusY = 0.5, onClick,
-}: {
-  label: string;
-  hint: string;
-  count: number;
-  active: boolean;
-  seed: string;
-  icon: Theme['icon'];
-  image: string | null;
-  focusY?: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      title={hint}
-      className={cn(
-        'group relative w-44 shrink-0 snap-start overflow-hidden rounded-xl text-left transition lg:w-auto',
-        // Navy on the light page reads; the old gold ring was 2:1 and looked like focus.
-        'focus:outline-none focus-visible:ring-[3px] focus-visible:ring-secondary-dark focus-visible:ring-offset-2',
-        active ? 'ring-[3px] ring-primary ring-offset-2 ring-offset-gray-50' : 'hover:-translate-y-0.5 hover:shadow-md',
-      )}
-    >
-      <CoverImage
-        src={image}
-        focusY={focusY}
-        alt=""
-        seed={seed}
-        icon={icon}
-        aspect="wide"
-        tone="sea"
-        imageClassName="group-hover:scale-105"
-      >
-        {/* Navy wash rising from the label: a white label must read on a bright
-            photo at ~180 px wide, which the generic black scrim did not manage. */}
-        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/95 via-[#0b2653]/45 to-[#0b2653]/5" />
-        <div className="absolute inset-x-0 bottom-0 p-3 text-white">
-          <span className="block text-sm font-semibold leading-tight drop-shadow-sm">{label}</span>
-          <span className="mt-0.5 block text-xs text-white/80 tabular-nums">{count}</span>
-        </div>
-      </CoverImage>
-    </button>
-  );
-}
-
-function Chip({
-  active, onClick, icon: Icon, children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon?: Theme['icon'];
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        // 40 px tall: a comfortable thumb target without towering over the bar.
-        'inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-sm font-medium transition-colors',
-        active ? 'bg-primary text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200',
-      )}
-    >
-      {Icon && <Icon className="h-3.5 w-3.5" aria-hidden="true" />}
-      {children}
-    </button>
-  );
-}
 
 function LockOverlay({ level }: { level: string }) {
   const { t } = useTranslation();

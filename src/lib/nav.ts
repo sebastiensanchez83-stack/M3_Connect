@@ -192,6 +192,27 @@ export const CREATE_ACTIONS: CreateAction[] = [
   },
 ];
 
+export interface CreateContext {
+  isVerified: boolean;
+  orgVerified: boolean;
+  persona: string | null | undefined;
+  isFeatureEnabled: (featureKey: string) => boolean;
+}
+
+/**
+ * Who may create what. Shared by the navbar's Create menu and the dashboard's
+ * empty states, so the two can never offer different things. The routes keep
+ * their own guards (ProtectedRoute) — this only decides what to show.
+ */
+export function canCreate(capability: CreateCapability, ctx: CreateContext): boolean {
+  if (!ctx.isVerified || !ctx.orgVerified) return false;
+  // Proposing a webinar is open to every verified member; the three marina
+  // submissions need either a marina-like persona or a bought entitlement.
+  if (capability === 'request_webinar') return true;
+  const isMarinaLike = ctx.persona === 'marina' || ctx.persona === 'developer';
+  return isMarinaLike || ctx.isFeatureEnabled(capability);
+}
+
 /**
  * Whether a nav item should read as current. Exact match for the roots that
  * would otherwise swallow everything; prefix match elsewhere so

@@ -29,7 +29,7 @@ import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import {
   PUBLIC_NAV, MEMBER_NAV, DEAL_FLOW_ITEM, JOIN_ITEM, CREATE_ACTIONS,
-  isNavItemActive, type NavItem, type CreateCapability,
+  isNavItemActive, canCreate, type NavItem,
 } from '@/lib/nav';
 
 export function Navbar() {
@@ -100,20 +100,14 @@ export function Navbar() {
   };
 
   // ---------------------------------------------------------------- capabilities
-  const orgVerified = organization?.access_status === 'verified';
-  const isMarinaLike = profile?.persona === 'marina' || profile?.persona === 'developer';
   const isInvestor = profile?.persona === 'investor';
-  const baseAllowed = isVerified && orgVerified;
-
-  const can = (capability: CreateCapability): boolean => {
-    if (!baseAllowed) return false;
-    // Proposing a webinar is open to every verified member; the three marina
-    // submissions need either a marina-like persona or a bought entitlement.
-    if (capability === 'request_webinar') return true;
-    return isMarinaLike || isFeatureEnabled(capability);
+  const createCtx = {
+    isVerified,
+    orgVerified: organization?.access_status === 'verified',
+    persona: profile?.persona,
+    isFeatureEnabled,
   };
-
-  const createActions = CREATE_ACTIONS.filter((a) => can(a.capability));
+  const createActions = CREATE_ACTIONS.filter((a) => canCreate(a.capability, createCtx));
 
   // ---------------------------------------------------------------- nav model
   const navItems: NavItem[] = user
@@ -297,7 +291,7 @@ export function Navbar() {
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                      <Link to="/account" className="flex items-center gap-2.5">
+                      <Link to="/account?tab=profile" className="flex items-center gap-2.5">
                         <Settings className="h-4 w-4 text-gray-400" />
                         {t('nav.myAccount')}
                       </Link>
@@ -430,7 +424,7 @@ export function Navbar() {
                     <Inbox className="h-4 w-4 text-gray-400" />
                     {t('nav.inbox', 'Inbox')}
                   </Link>
-                  <Link to="/account" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
+                  <Link to="/account?tab=profile" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
                     <Settings className="h-4 w-4 text-gray-400" />
                     {t('nav.myAccount')}
                   </Link>

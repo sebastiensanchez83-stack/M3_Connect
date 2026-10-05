@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { MediaArticles } from '@/components/media/MediaArticles';
 import { MediaPressRoom } from '@/components/media/MediaPressRoom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -111,11 +111,11 @@ function formatBudgetRange(raw: string): string {
 }
 
 /**
- * `forceTab` lets the same page be served at a clean URL of its own: the
- * Dashboard and the Inbox are top-level destinations in the navigation now
- * (/dashboard, /inbox), not tabs 1 and 14 of /account. Every other tab still
- * lives at /account?tab=…, which is where the 44 notification emails deep-link,
- * so those links keep working untouched.
+ * `forceTab` lets a tab be served at a clean URL of its own: the Inbox is a
+ * top-level destination in the navigation now (/inbox), not tab 14 of
+ * /account. (The Dashboard went further and became its own page.) Every other
+ * tab still lives at /account?tab=…, which is where the notification emails
+ * deep-link, so those links keep working untouched.
  */
 export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const { t } = useTranslation();
@@ -145,18 +145,12 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   // Event payment dialog
   // eventPaymentReg removed — payment integration deferred
 
-  // Dashboard analytics state
-  const [profileViewCount, setProfileViewCount] = useState(0);
-  const [connectionRequestCount, setConnectionRequestCount] = useState(0);
-  const [pendingRequestCount, setPendingRequestCount] = useState(0);
   const [hasSM26, setHasSM26] = useState(false);
   // Press room is open to any media on the platform: the media_partner persona,
   // a member of a media organisation, or press accredited for an event. That
   // rule lives in is_media_user() so the UI and the data agree.
   const [isMedia, setIsMedia] = useState(false);
   const [sponsorIds, setSponsorIds] = useState<string[]>([]);
-  const [feedResources, setFeedResources] = useState<{ id: string; title: string; type: string; summary: string }[]>([]);
-  const [feedEvents, setFeedEvents] = useState<{ id: string; title: string; date_time: string }[]>([]);
 
   const { isFeatureEnabled } = useEntitlements();
 
@@ -387,86 +381,6 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
             .eq('partner_organization_id', organization.id);
           setReferenceCount(count || 0);
         }
-
-        // Dashboard analytics
-        // Profile views count
-        const { count: viewCount } = await supabase
-          .from('profile_views')
-          .select('id', { count: 'exact' })
-          .eq('viewed_user_id', user.id);
-        setProfileViewCount(viewCount || 0);
-
-        // Connection requests
-        const allRequests = prData || [];
-        setConnectionRequestCount(allRequests.length);
-        setPendingRequestCount(allRequests.filter((r) => r.status === 'pending').length);
-
-        // Personalized feed: get user's sectors from org-level tables.
-        // Interest-side personas (marina, developer, investor) use interest sectors.
-        // Service-side personas (partner, media_partner) use service sectors.
-        const orgSectorTable = (profile.persona === 'marina' || profile.persona === 'developer' || profile.persona === 'investor')
-          ? 'organization_interest_sectors'
-          : (profile.persona === 'partner' || profile.persona === 'media_partner')
-          ? 'organization_service_sectors'
-          : null;
-
-        // Get org ID from context or membership
-        const feedOrgId = organization?.id;
-
-        if (orgSectorTable && feedOrgId) {
-          const { data: userSectors } = await supabase
-            .from(orgSectorTable)
-            .select('sector_id')
-            .eq('organization_id', feedOrgId);
-
-          const sectorIds = (userSectors || []).map((s: { sector_id: string }) => s.sector_id);
-
-          if (sectorIds.length > 0) {
-            // Resources matching sectors
-            const { data: feedRes } = await supabase
-              .from('resource_sectors')
-              .select('resource_id, resources!inner(id, title, type, summary, published)')
-              .in('sector_id', sectorIds)
-              .eq('resources.published', true)
-              .limit(6);
-
-            if (feedRes) {
-              const uniqueResources = new Map<string, { id: string; title: string; type: string; summary: string }>();
-              for (const r of feedRes as unknown as { resource_id: string; resources: { id: string; title: string; type: string; summary: string; published: boolean } }[]) {
-                if (r.resources && !uniqueResources.has(r.resources.id)) {
-                  uniqueResources.set(r.resources.id, {
-                    id: r.resources.id,
-                    title: r.resources.title,
-                    type: r.resources.type,
-                    summary: r.resources.summary,
-                  });
-                }
-              }
-              setFeedResources(Array.from(uniqueResources.values()).slice(0, 4));
-            }
-
-            // Events matching sectors
-            const { data: feedEvt } = await supabase
-              .from('event_sectors')
-              .select('event_id, events!inner(id, title, date_time)')
-              .in('sector_id', sectorIds)
-              .limit(6);
-
-            if (feedEvt) {
-              const uniqueEvents = new Map<string, { id: string; title: string; date_time: string }>();
-              for (const e of feedEvt as unknown as { event_id: string; events: { id: string; title: string; date_time: string } }[]) {
-                if (e.events && !uniqueEvents.has(e.events.id)) {
-                  uniqueEvents.set(e.events.id, {
-                    id: e.events.id,
-                    title: e.events.title,
-                    date_time: e.events.date_time,
-                  });
-                }
-              }
-              setFeedEvents(Array.from(uniqueEvents.values()).slice(0, 4));
-            }
-          }
-        }
       } catch (err) {
         if (import.meta.env.DEV) console.error('Error fetching account data:', err);
       } finally {
@@ -593,6 +507,15 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
         </div>
       </div>
     );
+  }
+
+  // The dashboard is a page of its own now (DashboardPage). A bare /account —
+  // which two notification emails link to — and old ?tab=dashboard bookmarks
+  // land there. Drafts are left alone: the effect above sends them to
+  // complete-registration, and finishing signup comes first.
+  if (!forceTab && profile.onboarding_status !== 'draft') {
+    const tab = searchParams.get('tab');
+    if (!tab || tab === 'dashboard') return <Navigate to="/dashboard" replace />;
   }
 
   const isMarina = profile.persona === 'marina';
@@ -809,170 +732,6 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
             <TabsTrigger key={item.value} value={item.value}>{item.label}</TabsTrigger>
           ))}
         </TabsList>
-
-        {/* ── DASHBOARD ── */}
-        <TabsContent value="dashboard">
-          <div className="space-y-6">
-            {/* Payment banners removed — member tier is free */}
-
-            {/* SM26 event participation — single source (sm_registration), so any status change shows here automatically */}
-            {user && <SM26ParticipationCard userId={user.id} variant="self" />}
-
-            {/* Event partner console access (Yacht Club / Yachting Ventures) — shows only for event partners */}
-            <SM26PartnerConsoleCard />
-
-            {/* Analytics Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Link to="/account?tab=inbox" className="block">
-                <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-blue-500">
-                  <CardContent className="pt-5 pb-5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Profile Views</p>
-                        <p className="text-3xl font-bold text-gray-900">{profileViewCount}</p>
-                      </div>
-                      <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center">
-                        <Eye className="h-6 w-6 text-blue-600" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-              <Link to="/account?tab=inbox" className="block">
-                <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-green-500">
-                  <CardContent className="pt-5 pb-5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Connection Requests</p>
-                        <p className="text-3xl font-bold text-gray-900">{connectionRequestCount}</p>
-                      </div>
-                      <div className="h-12 w-12 rounded-full bg-green-50 flex items-center justify-center">
-                        <Users className="h-6 w-6 text-green-600" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-              <Link to="/account?tab=inbox" className="block">
-                <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-amber-500">
-                  <CardContent className="pt-5 pb-5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500">Pending Requests</p>
-                        <p className="text-3xl font-bold text-gray-900">{pendingRequestCount}</p>
-                      </div>
-                      <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center">
-                        <Clock className="h-6 w-6 text-amber-600" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            </div>
-
-            {/* Personalized Feed */}
-            <div className="grid md:grid-cols-2 gap-6">
-              {/* Recommended Resources */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-primary" />
-                    Recommended Resources
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {feedResources.length === 0 ? (
-                    <p className="text-sm text-gray-400 py-4 text-center">No resources matching your sectors yet.</p>
-                  ) : (
-                    <div className="divide-y">
-                      {feedResources.map(r => (
-                        <Link key={r.id} to={`/resources/${r.id}`} className="block py-3 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors">
-                          <div className="flex items-start gap-2">
-                            <Badge variant="outline" className="text-xs shrink-0 mt-0.5">{r.type}</Badge>
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium text-gray-900 truncate">{r.title}</div>
-                              <div className="text-xs text-gray-500 truncate">{r.summary}</div>
-                            </div>
-                          </div>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                  <Link to="/resources" className="text-xs text-primary hover:underline flex items-center gap-1 mt-3">
-                    View all resources <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </CardContent>
-              </Card>
-
-              {/* Upcoming Events */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-primary" />
-                    Upcoming Events for You
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {feedEvents.length === 0 ? (
-                    <p className="text-sm text-gray-400 py-4 text-center">No events matching your sectors yet.</p>
-                  ) : (
-                    <div className="divide-y">
-                      {feedEvents.map(e => (
-                        <Link key={e.id} to={`/events/${e.id}`} className="block py-3 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors">
-                          <div className="flex items-center gap-3">
-                            <div className="bg-primary/10 rounded-lg p-2 text-center min-w-[48px] shrink-0">
-                              <div className="text-lg font-bold text-primary leading-none">{new Date(e.date_time).getDate()}</div>
-                              <div className="text-[10px] text-gray-600">{new Date(e.date_time).toLocaleString('default', { month: 'short' })}</div>
-                            </div>
-                            <div className="text-sm font-medium text-gray-900 truncate">{e.title}</div>
-                          </div>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                  <Link to="/events" className="text-xs text-primary hover:underline flex items-center gap-1 mt-3">
-                    View all events <ArrowRight className="h-3 w-3" />
-                  </Link>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Quick Activity */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4 text-primary" />
-                  Quick Summary
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-0">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-                  <Link to="/account?tab=registrations" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
-                    <div className="text-xl font-bold text-primary">{registrations.length}</div>
-                    <div className="text-xs text-gray-500">Event Registrations</div>
-                  </Link>
-                  <Link to="/account?tab=webinars" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
-                    <div className="text-xl font-bold text-primary">{webinarRequests.length}</div>
-                    <div className="text-xs text-gray-500">Webinar Requests</div>
-                  </Link>
-                  {canProjects && (
-                    <Link to="/account?tab=projects" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
-                      <div className="text-xl font-bold text-primary">{projects.length}</div>
-                      <div className="text-xs text-gray-500">Projects</div>
-                    </Link>
-                  )}
-                  {(canRFPs || canConsultations) && (
-                    <Link to="/account?tab=rfps" className="p-3 bg-gray-50 rounded-lg hover:bg-primary/5 transition-colors cursor-pointer">
-                      <div className="text-xl font-bold text-primary">{rfps.length + consultations.length}</div>
-                      <div className="text-xs text-gray-500">RFPs & Consultations</div>
-                    </Link>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-          </div>
-        </TabsContent>
 
         {/* ── COMPLETE REGISTRATION (onboarding step-by-step wizard) ── */}
         {isOnboarding && (

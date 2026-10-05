@@ -22,16 +22,27 @@ import { cn } from '@/lib/utils';
  * these has to look curated, so every pair stays inside navy → teal → gold.
  * `from`/`to` are raw hex because these go into an inline gradient, not Tailwind.
  */
-const GRADIENTS: { from: string; to: string }[] = [
+const SEA_GRADIENTS: { from: string; to: string }[] = [
   { from: '#0b2653', to: '#1c4b86' }, // brand navy
   { from: '#0f3557', to: '#2a7196' }, // harbour blue
   { from: '#10404a', to: '#2b8a86' }, // lagoon teal
   { from: '#13314f', to: '#5a7fa8' }, // horizon
-  { from: '#3a2f14', to: '#9a7520' }, // dark gold
-  { from: '#0b2653', to: '#8a6a2a' }, // navy to brass
   { from: '#15263a', to: '#49697f' }, // slate sea
   { from: '#0d3a3f', to: '#1f6b72' }, // deep green water
 ];
+
+/**
+ * Gold reads as an accent on a logo or a card, but stretched across a full-width
+ * band under a dark scrim it turns khaki. Large surfaces ask for `tone="sea"`.
+ */
+const GOLD_GRADIENTS: { from: string; to: string }[] = [
+  { from: '#3a2f14', to: '#9a7520' }, // dark gold
+  { from: '#0b2653', to: '#8a6a2a' }, // navy to brass
+];
+
+const ALL_GRADIENTS = [...SEA_GRADIENTS, ...GOLD_GRADIENTS];
+
+export type CoverTone = 'any' | 'sea';
 
 /** Stable 32-bit string hash — same seed always lands on the same gradient. */
 function hashSeed(seed: string): number {
@@ -43,8 +54,9 @@ function hashSeed(seed: string): number {
   return Math.abs(h);
 }
 
-export function gradientForSeed(seed: string): { from: string; to: string } {
-  return GRADIENTS[hashSeed(seed || 'm3') % GRADIENTS.length];
+export function gradientForSeed(seed: string, tone: CoverTone = 'any'): { from: string; to: string } {
+  const set = tone === 'sea' ? SEA_GRADIENTS : ALL_GRADIENTS;
+  return set[hashSeed(seed || 'm3') % set.length];
 }
 
 export type CoverAspect = 'video' | 'wide' | 'square' | 'portrait' | 'banner' | 'fill';
@@ -73,6 +85,8 @@ interface CoverImageProps {
   /** Watermarked into the fallback; skip it for a plain gradient. */
   icon?: LucideIcon;
   aspect?: CoverAspect;
+  /** 'sea' keeps the fallback out of the gold family — use it for wide bands. */
+  tone?: CoverTone;
   /** Dark scrim at the bottom, for when text is laid over the picture. */
   scrim?: boolean;
   /** Above the fold: skips lazy loading so the hero doesn't pop in. */
@@ -89,6 +103,7 @@ export function CoverImage({
   seed,
   icon: Icon,
   aspect = 'video',
+  tone = 'any',
   scrim = false,
   eager = false,
   className,
@@ -99,7 +114,7 @@ export function CoverImage({
   // the gradient instead of a torn-image glyph.
   const [failed, setFailed] = useState(false);
   const showPhoto = Boolean(src) && !failed;
-  const { from, to } = gradientForSeed(seed);
+  const { from, to } = gradientForSeed(seed, tone);
 
   return (
     <div

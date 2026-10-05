@@ -28,6 +28,7 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 // Lazy loaded pages (behind auth or lower traffic).
 // lazyWithRetry auto-recovers from stale-chunk errors after a new deploy.
 const AccountPage = lazyWithRetry(() => import('@/pages/AccountPage').then(m => ({ default: m.AccountPage })));
+const DashboardPage = lazyWithRetry(() => import('@/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const OnboardingPage = lazyWithRetry(() => import('@/pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })));
 const AdminPage = lazyWithRetry(() => import('@/pages/AdminPage').then(m => ({ default: m.AdminPage })));
 const GuestEventPage = lazyWithRetry(() => import('@/pages/GuestEventPage').then(m => ({ default: m.GuestEventPage })));
@@ -169,8 +170,8 @@ function App() {
               <Route path="/become-partner" element={<BecomePartnerPage />} />
               <Route path="/tiers" element={<TiersPage />} />
               <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
-              {/* Promoted out of /account: the two places a member goes first. */}
-              <Route path="/dashboard" element={<ProtectedRoute><AccountPage forceTab="dashboard" /></ProtectedRoute>} />
+              {/* The two places a member goes first, promoted out of /account. */}
+              <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
               <Route path="/inbox" element={<ProtectedRoute><AccountPage forceTab="inbox" /></ProtectedRoute>} />
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
               <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marina organizations can submit projects."><SubmitProjectPage /></ProtectedRoute>} />

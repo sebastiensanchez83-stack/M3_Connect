@@ -110,11 +110,18 @@ function formatBudgetRange(raw: string): string {
   return raw.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function AccountPage() {
+/**
+ * `forceTab` lets the same page be served at a clean URL of its own: the
+ * Dashboard and the Inbox are top-level destinations in the navigation now
+ * (/dashboard, /inbox), not tabs 1 and 14 of /account. Every other tab still
+ * lives at /account?tab=…, which is where the 44 notification emails deep-link,
+ * so those links keep working untouched.
+ */
+export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const { t } = useTranslation();
   const { user, profile, organization, orgRole, loading: authLoading, refreshProfile } = useAuth();
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
   const [projects, setProjects] = useState<MarinaProject[]>([]);
   const [webinarRequests, setWebinarRequests] = useState<WebinarRequest[]>([]);
@@ -153,7 +160,15 @@ export function AccountPage() {
 
   const { isFeatureEnabled } = useEntitlements();
 
-  const activeTab = searchParams.get('tab') || 'dashboard';
+  const activeTab = forceTab ?? (searchParams.get('tab') || 'dashboard');
+
+  // One canonical URL per destination: the two promoted tabs go to their own
+  // routes, so the sidebar, the mobile pills and the nav bar can never
+  // disagree about where "Inbox" lives.
+  const tabHref = (value: string) =>
+    value === 'dashboard' ? '/dashboard'
+      : value === 'inbox' ? '/inbox'
+        : `/account?tab=${value}`;
 
   // Show the "Event" tab (the SM26 participant hub) if the signed-in user can
   // access an SM26 registration — their own, or their organisation's.
@@ -196,9 +211,9 @@ export function AccountPage() {
   // still land in a meaningful place.
   useEffect(() => {
     if (activeTab === 'b2b-requests') {
-      setSearchParams({ tab: 'inbox' }, { replace: true });
+      navigate('/inbox', { replace: true });
     }
-  }, [activeTab, setSearchParams]);
+  }, [activeTab, navigate]);
 
   // During onboarding (draft), only show completion-related tabs
   const isOnboarding = profile?.onboarding_status === 'draft';
@@ -750,7 +765,7 @@ export function AccountPage() {
             {navItems.map((item) => (
               <button
                 key={item.value}
-                onClick={() => navigate(`/account?tab=${item.value}`, { replace: true })}
+                onClick={() => navigate(tabHref(item.value), { replace: true })}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                   activeTab === item.value
                     ? 'bg-primary text-white shadow-sm'
@@ -772,7 +787,7 @@ export function AccountPage() {
             {navItems.map((item) => (
               <button
                 key={item.value}
-                onClick={() => navigate(`/account?tab=${item.value}`, { replace: true })}
+                onClick={() => navigate(tabHref(item.value), { replace: true })}
                 className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                   activeTab === item.value
                     ? 'bg-primary text-white'
@@ -788,7 +803,7 @@ export function AccountPage() {
 
         {/* ── Main Content ── */}
         <div className="flex-1 min-w-0">
-      <Tabs value={activeTab} onValueChange={(val) => navigate(`/account?tab=${val}`, { replace: true })}>
+      <Tabs value={activeTab} onValueChange={(val) => navigate(tabHref(val), { replace: true })}>
         <TabsList className="hidden">
           {navItems.map((item) => (
             <TabsTrigger key={item.value} value={item.value}>{item.label}</TabsTrigger>

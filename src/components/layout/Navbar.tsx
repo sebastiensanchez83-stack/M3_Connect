@@ -22,13 +22,15 @@ import {
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import {
-  Menu, X, User, Globe, ChevronDown,
-  CalendarDays, BookOpen, Building2, Users,
-  UserPlus, LogOut, Settings, FileText, Mic2,
-  Ship, MessageSquare, Shield, LayoutDashboard, Ticket, TrendingUp, Check,
+  Menu, X, Globe, ChevronDown, Plus, Inbox,
+  Building2, UserPlus, LogOut, Settings, Shield, Ticket, Check,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import {
+  PUBLIC_NAV, MEMBER_NAV, DEAL_FLOW_ITEM, JOIN_ITEM, CREATE_ACTIONS,
+  isNavItemActive, type NavItem, type CreateCapability,
+} from '@/lib/nav';
 
 export function Navbar() {
   const { t, i18n } = useTranslation();
@@ -40,7 +42,7 @@ export function Navbar() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [emailFromConfirmation, setEmailFromConfirmation] = useState('');
+  const [emailFromConfirmation] = useState('');
   const [showConfirmedBanner, setShowConfirmedBanner] = useState(false);
 
   // Track scroll for subtle shadow effect
@@ -76,6 +78,16 @@ export function Navbar() {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
+  // The drawer is full-height on small screens, so the page behind it must not
+  // scroll underneath. Always released on unmount, or a stuck drawer would
+  // leave the whole site unscrollable.
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [mobileMenuOpen]);
+
   const toggleLanguage = () => {
     const newLang = i18n.language === 'en' ? 'fr' : 'en';
     i18n.changeLanguage(newLang);
@@ -87,29 +99,26 @@ export function Navbar() {
     navigate('/', { replace: true });
   };
 
-  const isInvestor = profile?.persona === 'investor';
-  const navLinks = [
-    { href: '/', label: t('nav.home'), icon: LayoutDashboard },
-    { href: '/resources', label: t('nav.resources'), icon: BookOpen },
-    { href: '/events', label: t('nav.events'), icon: CalendarDays },
-    { href: '/partners', label: t('nav.partners'), icon: Building2 },
-    { href: '/network', label: t('nav.marketplace'), icon: Users },
-    ...(isInvestor ? [{ href: '/investments', label: t('nav.dealFlow', 'Deal flow'), icon: TrendingUp }] : []),
-    { href: '/become-partner', label: t('nav.becomePartner'), icon: UserPlus },
-  ];
-
+  // ---------------------------------------------------------------- capabilities
   const orgVerified = organization?.access_status === 'verified';
   const isMarinaLike = profile?.persona === 'marina' || profile?.persona === 'developer';
-  const canSubmitProject = (isMarinaLike || isFeatureEnabled('submit_project')) && isVerified && orgVerified;
-  const canSubmitRFP = (isMarinaLike || isFeatureEnabled('submit_rfp')) && isVerified && orgVerified;
-  const canSubmitConsultation = (isMarinaLike || isFeatureEnabled('submit_consultation')) && isVerified && orgVerified;
-  const canRequestWebinar = (isVerified && orgVerified) && (true || isFeatureEnabled('request_webinar'));
-  const hasActions = canSubmitProject || canSubmitRFP || canSubmitConsultation || canRequestWebinar;
+  const isInvestor = profile?.persona === 'investor';
+  const baseAllowed = isVerified && orgVerified;
 
-  const isActive = (href: string) => {
-    if (href === '/') return location.pathname === '/';
-    return location.pathname.startsWith(href);
+  const can = (capability: CreateCapability): boolean => {
+    if (!baseAllowed) return false;
+    // Proposing a webinar is open to every verified member; the three marina
+    // submissions need either a marina-like persona or a bought entitlement.
+    if (capability === 'request_webinar') return true;
+    return isMarinaLike || isFeatureEnabled(capability);
   };
+
+  const createActions = CREATE_ACTIONS.filter((a) => can(a.capability));
+
+  // ---------------------------------------------------------------- nav model
+  const navItems: NavItem[] = user
+    ? [...MEMBER_NAV, ...(isInvestor ? [DEAL_FLOW_ITEM] : [])]
+    : PUBLIC_NAV;
 
   const displayName = profile?.first_name && profile?.last_name
     ? `${profile.first_name} ${profile.last_name}`
@@ -119,15 +128,22 @@ export function Navbar() {
     ? `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase()
     : displayName.slice(0, 2).toUpperCase();
 
+  const active = (href: string) => isNavItemActive(href, location.pathname);
+
   return (
     <header className={`sticky top-0 z-50 w-full bg-white/80 backdrop-blur-xl border-b transition-all duration-300 ${
       scrolled ? 'border-gray-200/80 shadow-sm' : 'border-transparent'
     }`}>
       <nav aria-label="Main navigation">
       <div className="container mx-auto px-4">
-        <div className="flex h-16 items-center justify-between">
-          {/* Logo */}
-          <Link to="/" className="flex items-center gap-2.5 group" aria-label="Smart Marina Connect — home">
+        <div className="flex h-16 items-center justify-between gap-2">
+          {/* Logo — signed-in members land on their dashboard, visitors on the
+              marketing homepage. */}
+          <Link
+            to={user ? '/dashboard' : '/'}
+            className="flex items-center gap-2.5 group shrink-0"
+            aria-label="Smart Marina Connect — home"
+          >
             <img
               src="/logo-color.png"
               alt=""
@@ -135,27 +151,28 @@ export function Navbar() {
               className="h-10 w-auto transition-transform group-hover:scale-105"
             />
             <span
-              className="text-xl text-primary hidden sm:inline tracking-tight"
+              className="text-xl text-primary hidden sm:inline xl:inline tracking-tight"
               style={{ fontFamily: "'Outfit', system-ui, sans-serif", fontWeight: 600, letterSpacing: '-0.01em' }}
             >
               Smart Marina Connect
             </span>
           </Link>
 
-          {/* Desktop Navigation */}
-          <div className="hidden lg:flex lg:items-center lg:gap-1">
-            {navLinks.map((link) => (
+          {/* Desktop navigation */}
+          <div className="hidden lg:flex lg:items-center lg:gap-0.5">
+            {navItems.map((link) => (
               <Link
                 key={link.href}
                 to={link.href}
+                aria-current={active(link.href) ? 'page' : undefined}
                 className={`relative px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
-                  isActive(link.href)
+                  active(link.href)
                     ? 'text-primary bg-primary/5'
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                 }`}
               >
-                {link.label}
-                {isActive(link.href) && (
+                {t(link.labelKey, link.fallback)}
+                {active(link.href) && (
                   <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-primary rounded-full" />
                 )}
               </Link>
@@ -163,7 +180,56 @@ export function Navbar() {
           </div>
 
           {/* Right side */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* Create — the submissions that used to hide under "Actions" in the
+                avatar menu. Only drawn when the member can actually do one. */}
+            {user && createActions.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    className="hidden md:flex items-center gap-1.5 rounded-xl shadow-sm bg-primary hover:bg-primary/90"
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                    <span>{t('nav.create', 'Create')}</span>
+                    <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72 rounded-xl shadow-lg border border-gray-200/80 p-1">
+                  {createActions.map((a) => {
+                    const Icon = a.icon;
+                    return (
+                      <DropdownMenuItem key={a.href} asChild className="rounded-lg cursor-pointer">
+                        <Link to={a.href} className="flex items-start gap-3 py-2">
+                          <Icon className="h-4 w-4 mt-0.5 text-primary shrink-0" aria-hidden="true" />
+                          <span className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-900">{t(a.labelKey, a.fallback)}</span>
+                            <span className="text-xs text-gray-500">{t(a.descKey, a.descFallback)}</span>
+                          </span>
+                        </Link>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {/* Inbox — a first-class destination now, not tab 14 of the account page. */}
+            {user && (
+              <Button
+                variant="ghost"
+                size="sm"
+                asChild
+                className={`hidden sm:flex h-9 w-9 p-0 rounded-xl ${
+                  active('/inbox') ? 'text-primary bg-primary/5' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
+                }`}
+              >
+                <Link to="/inbox" aria-label={t('nav.inbox', 'Inbox')}>
+                  <Inbox className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              </Button>
+            )}
+
             {/* Language toggle */}
             <Button
               variant="ghost"
@@ -187,11 +253,11 @@ export function Navbar() {
                         {userInitials}
                       </div>
                     )}
-                    <span className="hidden sm:inline text-sm font-medium text-gray-700 max-w-[120px] truncate">{displayName}</span>
+                    <span className="hidden xl:inline text-sm font-medium text-gray-700 max-w-[120px] truncate">{displayName}</span>
                     <ChevronDown className="h-3.5 w-3.5 text-gray-400" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56 rounded-xl shadow-lg border border-gray-200/80 p-1">
+                <DropdownMenuContent align="end" className="w-60 rounded-xl shadow-lg border border-gray-200/80 p-1">
                   {/* User info header */}
                   <div className="px-3 py-2.5 mb-1">
                     <p className="text-sm font-semibold text-gray-900 truncate">{displayName}</p>
@@ -203,7 +269,7 @@ export function Navbar() {
                   {organizations.length > 1 && (
                     <>
                       <DropdownMenuLabel className="text-xs text-gray-400 font-normal uppercase tracking-wider px-3 flex items-center gap-1.5">
-                        <Building2 className="h-3 w-3" /> Company
+                        <Building2 className="h-3 w-3" /> {t('nav.company', 'Company')}
                       </DropdownMenuLabel>
                       <DropdownMenuGroup>
                         {organizations.map(m => (
@@ -219,9 +285,9 @@ export function Navbar() {
 
                   <DropdownMenuGroup>
                     <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                      <Link to="/account" className="flex items-center gap-2.5">
-                        <Settings className="h-4 w-4 text-gray-400" />
-                        {t('nav.myAccount')}
+                      <Link to="/account?tab=organization" className="flex items-center gap-2.5">
+                        <Building2 className="h-4 w-4 text-gray-400" />
+                        {t('nav.myOrganization', 'My organization')}
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
@@ -230,51 +296,13 @@ export function Navbar() {
                         {t('nav.myRegistrations')}
                       </Link>
                     </DropdownMenuItem>
+                    <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
+                      <Link to="/account" className="flex items-center gap-2.5">
+                        <Settings className="h-4 w-4 text-gray-400" />
+                        {t('nav.myAccount')}
+                      </Link>
+                    </DropdownMenuItem>
                   </DropdownMenuGroup>
-
-                  {/* Actions section */}
-                  {hasActions && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuLabel className="text-xs text-gray-400 font-normal uppercase tracking-wider px-3">
-                        Actions
-                      </DropdownMenuLabel>
-                      <DropdownMenuGroup>
-                        {canSubmitProject && (
-                          <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                            <Link to="/submit-project" className="flex items-center gap-2.5">
-                              <FileText className="h-4 w-4 text-gray-400" />
-                              {t('nav.submitProject')}
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                        {canSubmitRFP && (
-                          <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                            <Link to="/submit-rfp" className="flex items-center gap-2.5">
-                              <Ship className="h-4 w-4 text-gray-400" />
-                              {t('nav.submitRfp')}
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                        {canSubmitConsultation && (
-                          <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                            <Link to="/submit-consultation" className="flex items-center gap-2.5">
-                              <MessageSquare className="h-4 w-4 text-gray-400" />
-                              {t('nav.requestConsultation')}
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                        {canRequestWebinar && (
-                          <DropdownMenuItem asChild className="rounded-lg cursor-pointer">
-                            <Link to="/request-webinar" className="flex items-center gap-2.5">
-                              <Mic2 className="h-4 w-4 text-gray-400" />
-                              {t('nav.proposeWebinar')}
-                            </Link>
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuGroup>
-                    </>
-                  )}
 
                   {/* Admin / Moderator Panel */}
                   {isModerator && (
@@ -322,62 +350,75 @@ export function Navbar() {
           </div>
         </div>
 
-        {/* Mobile menu - slide down with animation */}
+        {/* Mobile drawer. Every entry carries a one-line description, because on
+            a phone the label alone is what made people guess wrong between
+            Partners, Network and Become a Member. */}
         <div id="mobile-menu" aria-hidden={!mobileMenuOpen} className={`lg:hidden transition-all duration-300 ease-in-out ${
           mobileMenuOpen ? 'max-h-[calc(100vh-4rem)] opacity-100 overflow-y-auto' : 'max-h-0 opacity-0 overflow-hidden'
         }`}>
           <div className="py-4 border-t border-gray-100 space-y-1 pb-8">
-            {navLinks.map((link) => {
+            {navItems.map((link) => {
               const Icon = link.icon;
               return (
                 <Link
                   key={link.href}
                   to={link.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
-                    isActive(link.href)
+                  aria-current={active(link.href) ? 'page' : undefined}
+                  className={`flex items-start gap-3 px-3 py-2.5 rounded-xl transition-colors ${
+                    active(link.href)
                       ? 'text-primary bg-primary/5'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                      : 'text-gray-700 hover:bg-gray-50'
                   }`}
                   onClick={() => setMobileMenuOpen(false)}
                 >
-                  <Icon className="h-4.5 w-4.5" />
-                  {link.label}
+                  <Icon className="h-5 w-5 mt-0.5 shrink-0 opacity-80" aria-hidden="true" />
+                  <span className="flex flex-col">
+                    <span className="text-sm font-medium">{t(link.labelKey, link.fallback)}</span>
+                    <span className="text-xs text-gray-500">{t(link.descKey, link.descFallback)}</span>
+                  </span>
                 </Link>
               );
             })}
 
-            {/* Mobile user actions */}
-            {user && hasActions && (
+            {/* Signed out: the call to action belongs here, not in the bar. */}
+            {!user && (
+              <Link
+                to={JOIN_ITEM.href}
+                className="flex items-start gap-3 px-3 py-2.5 rounded-xl text-gray-700 hover:bg-gray-50"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                <UserPlus className="h-5 w-5 mt-0.5 shrink-0 opacity-80" aria-hidden="true" />
+                <span className="flex flex-col">
+                  <span className="text-sm font-medium">{t(JOIN_ITEM.labelKey, JOIN_ITEM.fallback)}</span>
+                  <span className="text-xs text-gray-500">{t(JOIN_ITEM.descKey, JOIN_ITEM.descFallback)}</span>
+                </span>
+              </Link>
+            )}
+
+            {/* Create actions */}
+            {user && createActions.length > 0 && (
               <div className="pt-3 mt-3 border-t border-gray-100">
-                <p className="px-3 text-xs text-gray-400 uppercase tracking-wider font-medium mb-2">Actions</p>
-                {canSubmitProject && (
-                  <Link to="/submit-project" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
-                    <FileText className="h-4 w-4 text-gray-400" />
-                    {t('nav.submitProject')}
-                  </Link>
-                )}
-                {canSubmitRFP && (
-                  <Link to="/submit-rfp" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
-                    <Ship className="h-4 w-4 text-gray-400" />
-                    {t('nav.submitRfp')}
-                  </Link>
-                )}
-                {canSubmitConsultation && (
-                  <Link to="/submit-consultation" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
-                    <MessageSquare className="h-4 w-4 text-gray-400" />
-                    {t('nav.requestConsultation')}
-                  </Link>
-                )}
-                {canRequestWebinar && (
-                  <Link to="/request-webinar" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
-                    <Mic2 className="h-4 w-4 text-gray-400" />
-                    {t('nav.proposeWebinar')}
-                  </Link>
-                )}
+                <p className="px-3 text-xs text-gray-400 uppercase tracking-wider font-medium mb-2">
+                  {t('nav.create', 'Create')}
+                </p>
+                {createActions.map((a) => {
+                  const Icon = a.icon;
+                  return (
+                    <Link
+                      key={a.href}
+                      to={a.href}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-700 hover:bg-gray-50"
+                      onClick={() => setMobileMenuOpen(false)}
+                    >
+                      <Icon className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />
+                      {t(a.labelKey, a.fallback)}
+                    </Link>
+                  );
+                })}
               </div>
             )}
 
-            {/* Mobile auth & settings */}
+            {/* Account & settings */}
             <div className="pt-3 mt-3 border-t border-gray-100 space-y-1">
               <button onClick={toggleLanguage} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50 w-full text-left">
                 <Globe className="h-4 w-4 text-gray-400" />
@@ -385,6 +426,10 @@ export function Navbar() {
               </button>
               {user ? (
                 <>
+                  <Link to="/inbox" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
+                    <Inbox className="h-4 w-4 text-gray-400" />
+                    {t('nav.inbox', 'Inbox')}
+                  </Link>
                   <Link to="/account" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 hover:bg-gray-50" onClick={() => setMobileMenuOpen(false)}>
                     <Settings className="h-4 w-4 text-gray-400" />
                     {t('nav.myAccount')}

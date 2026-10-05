@@ -169,6 +169,9 @@ function App() {
               <Route path="/become-partner" element={<BecomePartnerPage />} />
               <Route path="/tiers" element={<TiersPage />} />
               <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
+              {/* Promoted out of /account: the two places a member goes first. */}
+              <Route path="/dashboard" element={<ProtectedRoute><AccountPage forceTab="dashboard" /></ProtectedRoute>} />
+              <Route path="/inbox" element={<ProtectedRoute><AccountPage forceTab="inbox" /></ProtectedRoute>} />
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
               <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marina organizations can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
               <Route path="/submit-project/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marina organizations can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
@@ -177,8 +180,16 @@ function App() {
               <Route path="/submit-rfp/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_rfp" showLocked lockedMessage="Only verified marina organizations can submit RFPs."><SubmitRFPPage /></ProtectedRoute>} />
               <Route path="/submit-consultation" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
               <Route path="/submit-consultation/:id" element={<ProtectedRoute requireVerified requirePersona={['marina']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
-              <Route path="/network" element={<MarketplacePage />} />
-              <Route path="/marketplace" element={<Navigate to="/network" replace />} />
+              {/* "Network" was two products on one screen; they are now two
+                  destinations. The old URLs land on the directory, which is
+                  what the first tab of /network always was. */}
+              {/* The keys matter: without them React keeps the same instance when
+                  moving between these two routes, the tabs keep the directory's
+                  selection, and /opportunities opens on a blank, unselected strip. */}
+              <Route path="/directory" element={<MarketplacePage key="directory" section="directory" />} />
+              <Route path="/opportunities" element={<MarketplacePage key="opportunities" section="opportunities" />} />
+              <Route path="/network" element={<Navigate to="/directory" replace />} />
+              <Route path="/marketplace" element={<Navigate to="/directory" replace />} />
               <Route path="/investments" element={<ProtectedRoute><DealFlowPage /></ProtectedRoute>} />
               <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
               <Route path="/users/:id" element={<UserProfilePage />} />

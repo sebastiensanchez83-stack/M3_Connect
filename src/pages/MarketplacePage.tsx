@@ -22,6 +22,7 @@ import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { Sector, OrgTier } from '@/types/database';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
+import { LogoBadge } from '@/components/ui/CoverImage';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
@@ -101,13 +102,20 @@ function formatDate(iso: string | null, locale: string): string {
   return new Date(iso).toLocaleDateString(locale === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-function getInitials(name: string) {
-  return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-}
-
 /* ========== component ========== */
 
-export function MarketplacePage() {
+/**
+ * This page used to be "Network": one screen holding two unrelated products —
+ * a directory of who is on the platform, and a marketplace of open business.
+ * `section` splits them without forking the file:
+ *   - 'directory'     → organizations only, served at /directory
+ *   - 'opportunities' → RFPs, consultations and projects, served at /opportunities
+ *   - 'all'           → the original four-tab screen, kept for the legacy /network URL
+ */
+export function MarketplacePage({ section = 'all' }: { section?: 'directory' | 'opportunities' | 'all' } = {}) {
+  const showDirectory = section !== 'opportunities';
+  const showOpportunities = section !== 'directory';
+  const defaultTab = section === 'opportunities' ? 'rfps' : 'partners';
   const { t, i18n } = useTranslation();
   const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
 
@@ -747,12 +755,24 @@ export function MarketplacePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Helmet>
-        <title>Network — Smart Marina Connect</title>
-        <meta name="description" content="Find marina industry partners, service providers and experts. Browse open RFPs and consultation requests." />
-        <meta property="og:title" content="Network — Smart Marina Connect" />
+        <title>
+          {section === 'opportunities'
+            ? 'Opportunities — Smart Marina Connect'
+            : section === 'directory'
+              ? 'Directory — Smart Marina Connect'
+              : 'Network — Smart Marina Connect'}
+        </title>
+        <meta name="description" content={section === 'opportunities'
+          ? 'Open RFPs, consultation requests and marina projects looking for suppliers and partners.'
+          : 'Marinas, suppliers, experts and media outlets on the Smart Marina Connect network.'} />
+        <meta property="og:title" content={section === 'opportunities'
+          ? 'Opportunities — Smart Marina Connect'
+          : 'Directory — Smart Marina Connect'} />
         <meta property="og:description" content="B2B network connecting marina operators with service providers." />
       </Helmet>
-      {/* Search Bar Section */}
+      {/* Organization search. Belongs to the directory only — searching company
+          names while browsing open RFPs never made sense. */}
+      {showDirectory && (
       <section className="bg-white/80 backdrop-blur-xl border-b">
         <div className="container mx-auto px-4 py-4">
           <div className="flex flex-col sm:flex-row gap-3 items-center">
@@ -804,16 +824,23 @@ export function MarketplacePage() {
           </div>
         </div>
       </section>
+      )}
 
       <div className="container mx-auto px-4 py-6">
         <AdBanner placement="marketplace" className="mb-6" />
-        <Tabs defaultValue="partners" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+        <Tabs defaultValue={defaultTab} className="space-y-6">
+          {/* On the split screens there is nothing to switch between: the
+              directory is one list, and opportunities are three kinds of the
+              same thing. Only the legacy /network keeps the four-way strip. */}
+          {section !== 'directory' && (
+          <TabsList className={`grid w-full ${section === 'opportunities' ? 'grid-cols-3' : 'grid-cols-4'}`}>
+            {section === 'all' && (
             <TabsTrigger value="partners" className="flex items-center gap-2">
               <Briefcase className="h-4 w-4" />
               <span className="hidden sm:inline">{t('marketplace.partnerDirectory')}</span>
               <span className="sm:hidden">{t('marketplace.partners')}</span>
             </TabsTrigger>
+            )}
             <TabsTrigger value="rfps" className="flex items-center gap-2">
               <FileText className="h-4 w-4" />
               <span className="hidden sm:inline">{t('marketplace.openRfps')}</span>
@@ -830,8 +857,10 @@ export function MarketplacePage() {
               <span className="sm:hidden">{t('marketplace.projects', 'Projects')}</span>
             </TabsTrigger>
           </TabsList>
+          )}
 
           {/* ====== TAB 1: Organization Directory ====== */}
+          {showDirectory && (
           <TabsContent value="partners">
             <div className="flex gap-6">
               {/* ---- Sector Sidebar (desktop: always visible, mobile: toggled) ---- */}
@@ -937,13 +966,7 @@ export function MarketplacePage() {
                         <Card className="card-hover cursor-pointer flex flex-col h-full rounded-2xl border-0 shadow-sm hover:shadow-md transition-all duration-200">
                           <CardContent className="p-5 flex flex-col flex-1">
                             <div className="flex items-center gap-3 mb-3">
-                              {orgCard.logo_url ? (
-                                <img src={orgCard.logo_url} alt={orgCard.name} className="w-14 h-14 rounded-xl object-contain border bg-white p-1 shrink-0" />
-                              ) : (
-                                <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center text-primary font-bold text-lg shrink-0">
-                                  {getInitials(orgCard.name)}
-                                </div>
-                              )}
+                              <LogoBadge src={orgCard.logo_url} name={orgCard.name} className="h-14 w-14 text-lg" />
                               <div className="min-w-0">
                                 <div className="flex items-center gap-2">
                                   <h3 className="font-semibold text-gray-900 truncate">{orgCard.name}</h3>
@@ -1007,8 +1030,10 @@ export function MarketplacePage() {
               </div>
             </div>
           </TabsContent>
+          )}
 
           {/* ====== TAB 2: Open RFPs ====== */}
+          {showOpportunities && (
           <TabsContent value="rfps" className="space-y-6">
             {!isVerified ? (
               <div className="py-12 text-center">
@@ -1083,8 +1108,10 @@ export function MarketplacePage() {
               </div>
             )}
           </TabsContent>
+          )}
 
           {/* ====== TAB 3: Open Consultations ====== */}
+          {showOpportunities && (
           <TabsContent value="consultations" className="space-y-6">
             {!isVerified ? (
               <div className="py-12 text-center">
@@ -1152,7 +1179,10 @@ export function MarketplacePage() {
             )}
           </TabsContent>
 
+          )}
+
           {/* ====== TAB 4: Marina Projects ====== */}
+          {showOpportunities && (
           <TabsContent value="projects" className="space-y-6">
             {!isVerified ? (
               <div className="py-12 text-center">
@@ -1220,6 +1250,7 @@ export function MarketplacePage() {
               </div>
             )}
           </TabsContent>
+          )}
         </Tabs>
       </div>
 

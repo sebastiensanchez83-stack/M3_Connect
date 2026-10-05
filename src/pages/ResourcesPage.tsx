@@ -5,7 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
-  Search, Lock, FileText, Calendar, Clock, ArrowRight, BookOpen, Users, X, LayoutGrid, Sparkles,
+  Search, Lock, FileText, Calendar, Clock, ArrowRight, BookOpen, Users, X, LayoutGrid, Sparkles, Tag,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
@@ -450,6 +450,7 @@ export function ResourcesPage() {
                     showFormat={formats.length > 1}
                     openTheme={theme}
                     activeSector={activeSector}
+                    query={query}
                     sectorLabel={sectorLabel}
                   />
                 ))}
@@ -653,7 +654,7 @@ function FeaturedCard({
 }
 
 function ResourceCard({
-  resource, locked, formatDate, showFormat, openTheme, activeSector, sectorLabel,
+  resource, locked, formatDate, showFormat, openTheme, activeSector, sectorLabel, query,
 }: {
   resource: Indexed;
   locked: boolean;
@@ -662,9 +663,14 @@ function ResourceCard({
   openTheme: Theme | null;
   activeSector: string | null;
   sectorLabel: (slug: string) => string;
+  query: string;
 }) {
   const { t } = useTranslation();
   const speakers = speakerNames(resource);
+  // Tags are searched but no longer printed on every card. When a search hits
+  // one, show it — otherwise the card is in the results with no visible reason.
+  const q = query.trim().toLowerCase();
+  const matchedTags = q ? (resource.tags ?? []).filter((tag) => tag.toLowerCase().includes(q)).slice(0, 3) : [];
   return (
     <Link
       to={`/resources/${resource.id}`}
@@ -702,6 +708,15 @@ function ResourceCard({
           <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
             <Users className="h-3 w-3 shrink-0" aria-hidden="true" />
             <span className="truncate">{speakers}</span>
+          </div>
+        )}
+        {matchedTags.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {matchedTags.map((tag) => (
+              <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2 py-0.5 text-xs font-medium text-secondary-dark">
+                <Tag className="h-3 w-3" aria-hidden="true" />{tag}
+              </span>
+            ))}
           </div>
         )}
       </div>

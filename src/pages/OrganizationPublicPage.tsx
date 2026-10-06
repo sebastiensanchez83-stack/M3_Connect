@@ -833,8 +833,8 @@ export function OrganizationPublicPage() {
 
               {/* Actions — same permission checks as before. The connect button
                   also needs an owner to send the request to: an unclaimed
-                  organization (no owner_user_id) can never receive one, and the
-                  send handler returned silently there. */}
+                  organization (no owner_user_id) can never receive one, so
+                  nothing about connecting is shown there at all. */}
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 {canConnect && org.owner_user_id && (
                   <Button className="rounded-xl" onClick={() => setConnectOpen(true)}>
@@ -873,12 +873,6 @@ export function OrganizationPublicPage() {
                   </Button>
                 )}
               </div>
-              {canConnect && !org.owner_user_id && (
-                <p className="mt-2 flex items-start gap-1.5 text-sm text-gray-600">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />
-                  {t('orgProfile.unclaimed', '{{name}} has not claimed this profile yet, so it cannot receive connection requests.', { name: org.name })}
-                </p>
-              )}
               {canEdit && (
                 <p className="mt-2 text-xs text-gray-500">{t('orgProfile.ownPage', "This is your organization's public page.")}</p>
               )}

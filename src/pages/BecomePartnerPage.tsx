@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
@@ -20,7 +20,7 @@ import {
 import { SignupForm } from '@/components/auth/SignupForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { PersonaType } from '@/types/database';
-import { supabase } from '@/lib/supabase';
+import { useNetworkFigures, formatFigure } from '@/lib/networkStats';
 import { PageHero } from '@/components/ui/PageHero';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import {
@@ -30,27 +30,24 @@ import {
 } from 'lucide-react';
 
 export function BecomePartnerPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { user, profile } = useAuth();
   const [signupOpen, setSignupOpen] = useState(false);
   const [selectedPersonaType, setSelectedPersonaType] = useState<PersonaType | undefined>(undefined);
-  const [stats, setStats] = useState({ marinas: 0, partners: 0, countries: 0 });
 
-  // Fetch admin-editable display stats from platform_settings
-  useEffect(() => {
-    supabase
-      .from('platform_settings')
-      .select('value')
-      .eq('key', 'display_stats')
-      .single()
-      .then(({ data }) => {
-        if (data?.value) {
-          const v = data.value as Record<string, number>;
-          setStats({ marinas: v.marinas || 0, partners: v.partners || 0, countries: v.countries || 0 });
-        }
-      });
-  }, []);
+  // Same figures as the homepage: live counts, unless an admin has set
+  // display_stats.override. The copy quotes them too, so no sentence promises
+  // "500+ marinas" while the band below says 180.
+  const { figures, loading: figuresLoading } = useNetworkFigures();
+  const fig = (n: number | null) => (n !== null ? formatFigure(n, figures.manual, i18n.language) : null);
+  const marinasFig = fig(figures.marinas);
+  const countriesFig = fig(figures.countries);
+  const statItems = [
+    { key: 'marinas', icon: Anchor, value: marinasFig, label: t('home.stats.marinas', 'Marinas') },
+    { key: 'countries', icon: Globe, value: countriesFig, label: t('becomePartner.stats.countries', 'Countries') },
+    { key: 'partners', icon: Building2, value: fig(figures.partners), label: t('home.stats.partners', 'Partners') },
+  ];
 
   const memberTypes = [
     {
@@ -74,7 +71,9 @@ export function BecomePartnerPage() {
       title: t('join.partner.title'),
       desc: t('join.partner.desc'),
       benefits: [
-        t('join.partner.benefits.0'),
+        marinasFig
+          ? t('join.partner.benefitLive', 'Visibility to {{marinas}} marinas', { marinas: marinasFig })
+          : t('join.partner.benefits.0'),
         t('join.partner.benefits.1'),
         t('join.partner.benefits.2'),
         t('join.partner.benefits.3'),
@@ -126,7 +125,13 @@ export function BecomePartnerPage() {
   ];
 
   const platformBenefits = [
-    { icon: <Globe className="h-8 w-8" />, title: t('join.benefit1Title'), desc: t('join.benefit1Desc') },
+    {
+      icon: <Globe className="h-8 w-8" />,
+      title: t('join.benefit1Title'),
+      desc: countriesFig
+        ? t('join.benefit1DescLive', 'Connect with marina industry professionals in {{countries}} countries.', { countries: countriesFig })
+        : t('join.benefit1Desc'),
+    },
     { icon: <Users className="h-8 w-8" />, title: t('join.benefit2Title'), desc: t('join.benefit2Desc') },
     { icon: <Award className="h-8 w-8" />, title: t('join.benefit3Title'), desc: t('join.benefit3Desc') },
     { icon: <Shield className="h-8 w-8" />, title: t('join.benefit4Title'), desc: t('join.benefit4Desc') },
@@ -290,21 +295,17 @@ export function BecomePartnerPage() {
       <section className="py-12 bg-primary text-white">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-3 gap-8 text-center max-w-3xl mx-auto">
-            <div>
-              <Anchor className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">{stats.marinas ? `${stats.marinas}+` : '—'}</div>
-              <div className="text-gray-300">{t('home.stats.marinas', 'Marinas')}</div>
-            </div>
-            <div>
-              <Globe className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">{stats.countries ? `${stats.countries}+` : '—'}</div>
-              <div className="text-gray-300">{t('becomePartner.stats.countries', 'Countries')}</div>
-            </div>
-            <div>
-              <Building2 className="h-8 w-8 mx-auto mb-2" />
-              <div className="text-3xl font-bold">{stats.partners ? `${stats.partners}+` : '—'}</div>
-              <div className="text-gray-300">{t('home.stats.partners', 'Partners')}</div>
-            </div>
+            {statItems.map((s) => (
+              <div key={s.key}>
+                <s.icon className="h-8 w-8 mx-auto mb-2" aria-hidden="true" />
+                {figuresLoading ? (
+                  <div className="mx-auto h-9 w-16 animate-pulse rounded bg-white/20" aria-hidden="true" />
+                ) : (
+                  <div className="text-3xl font-bold tabular-nums">{s.value ?? '—'}</div>
+                )}
+                <div className="text-gray-300">{s.label}</div>
+              </div>
+            ))}
           </div>
         </div>
       </section>

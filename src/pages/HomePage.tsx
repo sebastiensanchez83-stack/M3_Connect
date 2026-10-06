@@ -19,6 +19,7 @@ import { TeaserVideo } from '@/components/home/TeaserVideo';
 import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { accountHref } from '@/lib/accountNav';
+import { networkFigures, formatFigure, type OrgFigureRow } from '@/lib/networkStats';
 import type { OrgTier } from '@/types/database';
 import { cn } from '@/lib/utils';
 
@@ -130,47 +131,6 @@ function toHomeEvent(e: EventRow): HomeEvent {
     invitation_only: !!e.invitation_only,
     replay_url: e.replay_url,
   };
-}
-
-/**
- * The country field is free text: "UK" and "United Kingdom", "Italia" and
- * "Italy", "Spain/France". Counting raw values would claim ~56 countries for
- * what is really ~45, so values are folded to one key before counting.
- */
-const COUNTRY_ALIASES: Record<string, string> = {
-  uk: 'united kingdom', 'great britain': 'united kingdom', england: 'united kingdom', scotland: 'united kingdom', 'royaume-uni': 'united kingdom',
-  usa: 'united states', us: 'united states', 'united states of america': 'united states', 'etats-unis': 'united states',
-  uae: 'united arab emirates', emirates: 'united arab emirates', 'emirats arabes unis': 'united arab emirates',
-  italia: 'italy', italie: 'italy', suomi: 'finland', tunisie: 'tunisia', espana: 'spain', espagne: 'spain',
-  deutschland: 'germany', allemagne: 'germany', turkiye: 'turkey', turquie: 'turkey', grece: 'greece',
-  croatie: 'croatia', hrvatska: 'croatia', holland: 'netherlands', 'pays-bas': 'netherlands',
-  bresil: 'brazil', suisse: 'switzerland', mexique: 'mexico',
-};
-
-function countryKey(raw: string): string {
-  const k = raw
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/\./g, '')
-    .trim()
-    .replace(/^the\s+/, '');
-  return COUNTRY_ALIASES[k] ?? k;
-}
-
-function countCountries(rows: { country: string | null; headquarters_country: string | null }[]): number {
-  const seen = new Set<string>();
-  for (const r of rows) {
-    const raw = r.country?.trim() || r.headquarters_country?.trim() || '';
-    if (!raw) continue;
-    // "Spain/France", "Spain -UAE": one organization, two countries. A bare
-    // hyphen inside a name ("Pays-Bas", "Guinea-Bissau") is left alone.
-    for (const part of raw.split(/\s*[/,;&]\s*|\s+-\s*|\s*-\s+/)) {
-      const k = countryKey(part);
-      if (k.length > 1) seen.add(k);
-    }
-  }
-  return seen.size;
 }
 
 /** Day (or day range) and month for the chip on an event card. */
@@ -433,24 +393,21 @@ export function HomePage() {
       const ok = <T extends { error: unknown }>(r: PromiseSettledResult<T>): T | null =>
         r.status === 'fulfilled' && !r.value.error ? r.value : null;
 
-      // ── Figures ──
-      const display = ((ok(settingsRes)?.data as { value?: unknown } | null)?.value ?? {}) as Record<string, unknown>;
-      // An explicit admin choice wins: with `override: true` the hand-typed
-      // figures are shown as before ("85+", 0 hides a figure as "—").
-      const manual = display.override === true;
-      const typed = (v: unknown) => (typeof v === 'number' && v > 0 ? v : null);
-      const pick = (live: number | null, fallback: unknown) =>
-        manual ? typed(fallback) : (live !== null && live > 0 ? live : typed(fallback));
-
-      const orgRows = (ok(orgStatsRes)?.data ?? null) as { organization_type: string | null; country: string | null; headquarters_country: string | null }[] | null;
+      // ── Figures (shared with the Join page: live counts unless an admin overrides) ──
+      const orgRows = (ok(orgStatsRes)?.data ?? null) as OrgFigureRow[] | null;
       const resIndex = (ok(resIndexRes)?.data ?? null) as { id: string; resource_sectors: { sector_id: string }[] | null }[] | null;
+      const figures = networkFigures(
+        (ok(settingsRes)?.data as { value?: unknown } | null)?.value,
+        orgRows,
+        resIndex ? resIndex.length : null,
+      );
 
       setStats({
-        marinas: pick(orgRows ? orgRows.filter((o) => o.organization_type === 'marina').length : null, display.marinas),
-        suppliers: pick(orgRows ? orgRows.filter((o) => o.organization_type === 'partner').length : null, display.partners),
-        countries: pick(orgRows ? countCountries(orgRows) : null, display.countries),
-        resources: pick(resIndex ? resIndex.length : null, display.resources),
-        manual,
+        marinas: figures.marinas,
+        suppliers: figures.partners,
+        countries: figures.countries,
+        resources: figures.resources,
+        manual: figures.manual,
       });
       setOrgCount(orgRows ? orgRows.length : null);
 
@@ -744,9 +701,7 @@ function StatsBand({ stats, loading }: { stats: HomeStats; loading: boolean }) {
                     <span className="block h-8 w-16 animate-pulse rounded bg-gray-200" aria-hidden="true" />
                   ) : (
                     <span className="block text-2xl font-bold leading-none tabular-nums text-primary sm:text-3xl">
-                      {item.value !== null
-                        ? `${item.value.toLocaleString(i18n.language === 'fr' ? 'fr-FR' : 'en-GB')}${stats.manual ? '+' : ''}`
-                        : '—'}
+                      {item.value !== null ? formatFigure(item.value, stats.manual, i18n.language) : '—'}
                     </span>
                   )}
                   <span className="mt-1 block text-xs font-medium text-gray-600 sm:text-sm">{item.label}</span>

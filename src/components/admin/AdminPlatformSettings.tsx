@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
@@ -14,6 +15,8 @@ interface DisplayStats {
   resources: number;
   events: number;
   countries: number;
+  /** true: the site shows these typed numbers (as "N+") instead of live counts. */
+  override?: boolean;
 }
 
 const DEFAULT_STATS: DisplayStats = {
@@ -24,7 +27,9 @@ const DEFAULT_STATS: DisplayStats = {
   countries: 0,
 };
 
-const STAT_LABELS: { key: keyof DisplayStats; label: string }[] = [
+type StatKey = Exclude<keyof DisplayStats, 'override'>;
+
+const STAT_LABELS: { key: StatKey; label: string }[] = [
   { key: 'marinas', label: 'Marinas Worldwide' },
   { key: 'partners', label: 'Verified Partners' },
   { key: 'resources', label: 'Resources' },
@@ -61,7 +66,7 @@ export function AdminPlatformSettings() {
     setLoading(false);
   };
 
-  const handleChange = (key: keyof DisplayStats, value: string) => {
+  const handleChange = (key: StatKey, value: string) => {
     const num = parseInt(value, 10);
     setStats((prev) => ({ ...prev, [key]: isNaN(num) ? 0 : num }));
   };
@@ -105,8 +110,24 @@ export function AdminPlatformSettings() {
           <div>
             <h2 className="text-lg font-semibold">Homepage Display Stats</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              Edit the numbers displayed on the homepage and Become a Partner page.
+              The homepage and Become a Member page show live counts: verified marinas, verified partners,
+              their countries and published resources. The numbers below are only used when the switch is on,
+              or as a stand-in if a live count fails to load.
             </p>
+          </div>
+
+          <div className="flex items-start gap-3 rounded-lg border p-4 max-w-xl">
+            <Switch
+              id="stats-override"
+              checked={stats.override === true}
+              onCheckedChange={(on) => setStats((prev) => ({ ...prev, override: on }))}
+            />
+            <div>
+              <Label htmlFor="stats-override" className="text-sm font-medium">Show these numbers instead of the live counts</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Off (recommended): figures update by themselves. On: the site shows the numbers below as "N+".
+              </p>
+            </div>
           </div>
 
           <div className="grid gap-4 max-w-md">
@@ -132,7 +153,7 @@ export function AdminPlatformSettings() {
           </div>
 
           <p className="text-xs text-muted-foreground">
-            These numbers are displayed as marketing stats on the homepage and Become a Partner page. Set to 0 to hide a stat.
+            With the switch on, set a number to 0 to hide that figure.
           </p>
 
           <div>

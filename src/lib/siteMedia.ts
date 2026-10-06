@@ -62,7 +62,7 @@ export const SITE_IMAGES: Record<
  * that fails — upload or replace the file and it appears on its own.
  */
 export const TEASER = {
-  src: 'https://djjbgzasuomhyfvtlidi.supabase.co/storage/v1/object/public/site-media/teaser/smart-marina-connect-teaser.mp4',
+  src: 'https://djjbgzasuomhyfvtlidi.supabase.co/storage/v1/object/public/site-media/smart-marina-connect-teaser.mp4',
   /** Frame at 41 s: the ecosystem wheel — every stakeholder around the platform. */
   poster: '/images/site/teaser-poster.jpg',
   duration: '1:43',

@@ -119,11 +119,14 @@ export function EventRegistrationFlow({
         .from('event_registrations').select('id, registration_type, payment_status')
         .eq('event_id', eventId).eq('user_id', userId).maybeSingle();
 
+      // Other people's registrations are not readable from the browser: the
+      // event total and this organization's seat count come from the server.
       const countRes = await supabase
-        .from('event_registrations').select('id', { count: 'exact' })
-        .eq('event_id', eventId);
+        .rpc('get_event_registration_counts', { p_event_id: eventId, p_organization_id: organization?.id ?? null })
+        .maybeSingle();
+      const counts = countRes.data as { total: number | null; organization_total: number | null } | null;
 
-      setRegistrationCount(countRes.count || 0);
+      setRegistrationCount(counts?.total ?? 0);
 
       // Fetch pricing for this tier
       const pricingRes = await supabase
@@ -139,11 +142,7 @@ export function EventRegistrationFlow({
           .from('exposition_requests').select('id, status')
           .eq('event_id', eventId).eq('organization_id', organization.id).maybeSingle();
 
-        const orgCountRes = await supabase
-          .from('event_registrations').select('id', { count: 'exact' })
-          .eq('event_id', eventId).eq('organization_id', organization.id);
-
-        setOrgRegistrationCount(orgCountRes.count || 0);
+        setOrgRegistrationCount(counts?.organization_total ?? 0);
 
         if (regRes.data) {
           // Check if it was an invitation request
@@ -218,12 +217,16 @@ export function EventRegistrationFlow({
           ? pkg.price_cents
           : (pricing?.price_cents ?? 0);
       const isFree = costCents === 0;
+      // An invitation request always waits for the organisers, even for a free
+      // event: the database only accepts it on an invitation-only event as
+      // 'invitation_request' + 'pending_approval'.
+      const isInvitationRequest = type === 'invitation_request';
       const insertData: Record<string, any> = {
         event_id: eventId,
         user_id: user.id,
         organization_id: organization?.id || null,
         registration_type: type,
-        payment_status: isFree ? 'free' : 'pending_approval',
+        payment_status: isInvitationRequest || !isFree ? 'pending_approval' : 'free',
         registered_by: user.id,
       };
       if (packageId) {
@@ -236,14 +239,21 @@ export function EventRegistrationFlow({
         if (import.meta.env.DEV) console.error('Event registration failed:', error);
         toast({
           title: t('eventsPage.registrationFailed', 'Registration failed'),
-          description: error.code === '23505' ? t('eventsPage.alreadyRegistered', 'Already registered') : t('eventsPage.unexpectedError', 'An unexpected error occurred.'),
+          description: error.code === '23505'
+            ? t('eventsPage.alreadyRegistered', 'Already registered')
+            // 42501 = refused by the row rules: event not published, or by invitation only.
+            : error.code === '42501'
+              ? t('eventsShared.registrationFlow.notOpen', 'Registration is not open for this event.')
+              : t('eventsPage.unexpectedError', 'An unexpected error occurred.'),
           variant: 'destructive',
         });
       } else {
-        if (isFree) {
-          sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventTitle || eventId } });
+        if (isFree && !isInvitationRequest) {
+          // For members the server reads the event's title, date and place itself
+          // from event_id; event_title only serves staff accounts, whose data is used as sent.
+          sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_id: eventId, event_title: eventTitle || '' } });
         }
-        const resolvedStatus: RegistrationStatus = invitationOnly && !isFree ? 'invitation_requested' : 'registered';
+        const resolvedStatus: RegistrationStatus = isInvitationRequest || (invitationOnly && !isFree) ? 'invitation_requested' : 'registered';
         setStatus(resolvedStatus);
         setRegistrationCount(c => c + 1);
         setOrgRegistrationCount(c => c + 1);
@@ -254,13 +264,14 @@ export function EventRegistrationFlow({
           // with calendar buttons instead of a transient toast.
           setConfirmOpen(true);
         } else {
+          const requested = resolvedStatus === 'invitation_requested';
           toast({
-            title: invitationOnly
+            title: requested
               ? t('eventsShared.registrationFlow.invitationRequested', 'Invitation requested')
               : isFree
                 ? t('eventsShared.registrationFlow.registeredIncluded', 'Registered (included in your sponsorship)')
                 : t('eventsShared.registrationFlow.registrationSubmitted', 'Registration submitted'),
-            description: invitationOnly
+            description: requested
               ? t('eventsShared.registrationFlow.invitationRequestedDesc', 'Your invitation request has been sent. You will be notified once approved.')
               : !isFree
                 ? t('eventsShared.registrationFlow.registrationSubmittedDesc', 'Your registration has been submitted. You will be notified when payment is due.')

@@ -1,10 +1,14 @@
 import { ReactNode, useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { PersonaType } from '@/types/database';
 import { RefreshCw, Lock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import { Card, CardContent } from '@/components/ui/card';
+import { LoginForm } from '@/components/auth/LoginForm';
+import { readAuthLanding, scrubAuthLandingUrl, type AuthLanding } from '@/components/auth/AuthRedirector';
 
 /** Show a toast once per redirect reason */
 function RedirectWithToast({ to, message }: { to: string; message: string }) {
@@ -60,7 +64,13 @@ export function ProtectedRoute({
   const { user, loading, profile, isVerified, isAdmin, isModerator } = useAuth();
   const { isFeatureEnabled, isLoading: entitlementsLoading } = useEntitlements();
 
-  if (loading || (bypassEntitlement && entitlementsLoading)) {
+  // Signed out, back from a confirmation link that could not sign in here.
+  const landing = user ? null : readAuthLanding();
+  // A sign-in from the notice's form flips `loading` on; keep the form mounted
+  // through it, or a failed attempt would come back as an empty form.
+  const landingShown = useRef(false);
+
+  if ((loading || (bypassEntitlement && entitlementsLoading)) && !(landing && landingShown.current)) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <RefreshCw className="h-8 w-8 animate-spin text-primary" />
@@ -70,6 +80,10 @@ export function ProtectedRoute({
 
   // Check auth
   if (requireAuth && !user) {
+    if (landing) {
+      landingShown.current = true;
+      return <AuthLandingNotice landing={landing} />;
+    }
     return showLocked ? <LockedState message={lockedMessage || 'Please log in to access this page.'} /> : <RedirectWithToast to={redirectTo} message="Please log in to access this page." />;
   }
 
@@ -98,6 +112,26 @@ export function ProtectedRoute({
   }
 
   return <>{children}</>;
+}
+
+/**
+ * A sign-up confirmation link opened where it cannot sign in — another browser
+ * or device (PKCE: no code verifier there), or expired / already used. Say what
+ * happened and offer the login in place; once signed in, the page itself renders.
+ */
+function AuthLandingNotice({ landing }: { landing: AuthLanding }) {
+  const { t } = useTranslation();
+  useEffect(() => { scrubAuthLandingUrl(); }, []);
+  return (
+    <div className="flex items-center justify-center min-h-[60vh] px-4 py-8">
+      <Card className="w-full max-w-md">
+        <CardContent className="pt-6 space-y-4">
+          <h1 className="text-xl font-semibold text-gray-900">{t('auth.login')}</h1>
+          <LoginForm showConfirmedBanner={landing === 'confirmed'} linkError={landing === 'link-error'} />
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 function LockedState({ message }: { message: string }) {

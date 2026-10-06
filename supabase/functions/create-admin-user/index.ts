@@ -48,9 +48,12 @@ Deno.serve(async (req: Request) => {
     global: { headers: { Authorization: authHeader } },
   });
 
-  const { data: callerData, error: callerError } = await userClient.rpc("is_moderator");
+  // Admins only. This used to accept is_moderator(), so a verified moderator
+  // could mint a verified admin -- a straight privilege escalation.
+  // is_admin() = a verified profile with persona 'admin' (SECURITY DEFINER).
+  const { data: callerData, error: callerError } = await userClient.rpc("is_admin");
   if (callerError || !callerData) {
-    return new Response(JSON.stringify({ error: "Access denied. Admin/moderator role required." }), {
+    return new Response(JSON.stringify({ error: "Access denied. Admin role required." }), {
       status: 403,
       headers: { "Content-Type": "application/json", ...corsHeaders(req) },
     });

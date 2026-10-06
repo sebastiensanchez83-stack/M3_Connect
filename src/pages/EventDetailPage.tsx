@@ -94,7 +94,6 @@ interface EventDetail {
   published: boolean;
   speakers: { name: string; title: string; profile_id?: string }[] | null;
   replay_url: string | null;
-  meeting_url: string | null;
   pdf_url: string | null;
   brochure_url: string | null;
   event_website_url: string | null;
@@ -107,6 +106,7 @@ interface EventDetail {
   image_url: string | null;
 }
 
+/** A row of get_event_participants: member registrants the viewer may see, safe columns only. */
 interface EventParticipant {
   user_id: string;
   first_name: string | null;
@@ -116,6 +116,19 @@ interface EventParticipant {
   org_name: string | null;
   org_logo_url: string | null;
 }
+
+/** A row of get_my_event_access: the join link is only ever handed to a registrant or to staff. */
+interface EventAccess {
+  event_id: string;
+  is_registered: boolean;
+  meeting_url: string | null;
+}
+
+/**
+ * Every column the page shows. Not select('*'): the webinar join link
+ * (meeting_url) is read through get_my_event_access, never with the event.
+ */
+const EVENT_COLUMNS = 'id, title, description, date_time, end_date_time, is_full_day, location, language, access_level, event_type, invitation_only, published, speakers, replay_url, pdf_url, brochure_url, event_website_url, event_partners, location_details, fees, max_attendance, created_at, image_url';
 
 /** As the calendar links assume: an event without an end time lasts an hour. */
 const DEFAULT_DURATION_MS = 60 * 60 * 1000;
@@ -224,7 +237,6 @@ export function EventDetailPage() {
 
   // Primitives only — auth-js hands a new user object on every tab refocus.
   const userId = user?.id ?? null;
-  const userEmail = user?.email?.toLowerCase() ?? null;
   const locale = i18n.language?.startsWith('fr') ? 'fr-FR' : 'en-GB';
 
   const profileComplete = profile?.access_status === 'verified' && profile?.onboarding_status === 'completed';
@@ -247,26 +259,38 @@ export function EventDetailPage() {
       .then(({ data }) => setGuestListPath(typeof data === 'string' && data ? `/${data}` : null));
   }, [id]);
 
-  // Check if the logged-in user already has a registration for this event
-  // (covers both direct registrations and guest → account upgrades via email match)
+  // Whether the logged-in user holds a registration for this event (their own
+  // row, or a guest row made with their confirmed e-mail before they had an
+  // account), and the webinar join link — which the server hands only to a
+  // registrant or to staff. An invitation request still waiting for the
+  // organisers is not a registration: the member flow below shows it as such.
+  const [meetingUrl, setMeetingUrl] = useState<string | null>(null);
   useEffect(() => {
     if (!id || !userId) {
       setIsUserRegistered(false);
+      setMeetingUrl(null);
       return;
     }
     let alive = true;
-    const filter = userEmail
-      ? `user_id.eq.${userId},guest_email.eq.${userEmail}`
-      : `user_id.eq.${userId}`;
     supabase
-      .from('event_registrations')
-      .select('id')
-      .eq('event_id', id)
-      .or(filter)
-      .limit(1)
-      .then(({ data }) => { if (alive) setIsUserRegistered(!!(data && data.length > 0)); });
+      .rpc('get_my_event_access', { p_event_ids: [id] })
+      .then(({ data }) => {
+        if (!alive) return;
+        const access = ((data ?? []) as EventAccess[])[0];
+        setIsUserRegistered(!!access?.is_registered);
+        setMeetingUrl(access?.meeting_url ?? null);
+      });
     return () => { alive = false; };
-  }, [id, userId, userEmail]);
+  }, [id, userId]);
+
+  // After registering or cancelling on this page, fetch the link again. Only
+  // the link: the panel keeps showing the flow (and its confirmation) until reload.
+  const refreshMeetingUrl = () => {
+    if (!id || !userId) return;
+    supabase
+      .rpc('get_my_event_access', { p_event_ids: [id] })
+      .then(({ data }) => setMeetingUrl(((data ?? []) as EventAccess[])[0]?.meeting_url ?? null));
+  };
 
   // The event itself. Only the first load of a given event shows the skeleton.
   const loadedIdRef = useRef<string | null>(null);
@@ -277,7 +301,7 @@ export function EventDetailPage() {
     (async () => {
       const { data, error } = await supabase
         .from('events')
-        .select('*')
+        .select(EVENT_COLUMNS)
         .eq('id', id)
         .single();
       if (!alive) return;
@@ -326,65 +350,32 @@ export function EventDetailPage() {
       });
   }, [id]);
 
-  // Fetch registration count
+  // Registration count (members + guests). Registrations are private rows, so
+  // the number comes from the server, for signed-in visitors as before.
   useEffect(() => {
-    if (!id) return;
+    if (!id || !userId) { setRegistrationCount(0); return; }
+    let alive = true;
     supabase
-      .from('event_registrations')
-      .select('id', { count: 'exact' })
-      .eq('event_id', id)
-      .then(({ count }) => setRegistrationCount(count || 0));
-  }, [id]);
+      .rpc('get_event_registration_counts', { p_event_id: id })
+      .maybeSingle()
+      .then(({ data }) => {
+        if (alive) setRegistrationCount((data as { total: number | null } | null)?.total ?? 0);
+      });
+    return () => { alive = false; };
+  }, [id, userId]);
 
-  // Fetch participants for logged-in users
+  // Participants for logged-in users: names, titles and companies of the
+  // member registrants they may see — never guest contact details.
   useEffect(() => {
     if (!id || !userId) return;
     let alive = true;
-    const fetchParticipants = async () => {
-      const { data: regs, error: regsError } = await supabase
-        .from('event_registrations')
-        .select('user_id, profiles!inner(first_name, last_name, avatar_url, job_title, user_id)')
-        .eq('event_id', id);
-
-      if (!alive) return;
-      if (regsError || !regs) { setParticipantsLoaded(true); return; }
-
-      const userIds = regs.map((r: any) => r.user_id as string);
-      const orgMap: Record<string, { name: string; logo_url: string | null }> = {};
-      if (userIds.length > 0) {
-        const { data: orgMembers } = await supabase
-          .from('organization_members')
-          .select('user_id, organizations(name, logo_url)')
-          .in('user_id', userIds);
-        if (orgMembers) {
-          for (const om of orgMembers as any[]) {
-            if (om.organizations) {
-              orgMap[om.user_id] = { name: om.organizations.name, logo_url: om.organizations.logo_url };
-            }
-          }
-        }
-      }
-      if (!alive) return;
-
-      // One card per person, even if someone holds two registration rows.
-      const seenUsers = new Set<string>();
-      const uniqueRegs = (regs as any[]).filter((r) => !seenUsers.has(r.user_id) && !!seenUsers.add(r.user_id));
-      setParticipants(uniqueRegs.map((r: any) => {
-        const p = r.profiles;
-        const org = orgMap[r.user_id];
-        return {
-          user_id: r.user_id,
-          first_name: p?.first_name || null,
-          last_name: p?.last_name || null,
-          avatar_url: p?.avatar_url || null,
-          job_title: p?.job_title || null,
-          org_name: org?.name || null,
-          org_logo_url: org?.logo_url || null,
-        };
-      }));
-      setParticipantsLoaded(true);
-    };
-    fetchParticipants();
+    supabase
+      .rpc('get_event_participants', { p_event_id: id })
+      .then(({ data, error }) => {
+        if (!alive) return;
+        if (!error && data) setParticipants(data as EventParticipant[]);
+        setParticipantsLoaded(true);
+      });
     return () => { alive = false; };
   }, [id, userId, profileComplete]);
 
@@ -413,6 +404,7 @@ export function EventDetailPage() {
         setIsUserRegistered(false);
         setJustSignedUp(false);
         setRegistrationCount((c) => Math.max(0, c - 1));
+        refreshMeetingUrl();
         toast({ title: t('eventsPage.cancelled', 'Registration cancelled') });
       }
     } catch (err) {
@@ -491,7 +483,7 @@ export function EventDetailPage() {
     date_time: event.date_time,
     end_date_time: event.end_date_time,
     location: event.location,
-    url: event.meeting_url,
+    url: meetingUrl,
   } : null;
 
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString(locale, {
@@ -537,9 +529,9 @@ export function EventDetailPage() {
     </Button>
   );
 
-  const joinButton = isWebinar && event.meeting_url ? (
+  const joinButton = isWebinar && meetingUrl ? (
     <Button asChild className="h-11 w-full rounded-xl">
-      <a href={event.meeting_url} target="_blank" rel="noopener noreferrer">
+      <a href={meetingUrl} target="_blank" rel="noopener noreferrer">
         <Video className="mr-2 h-4 w-4" aria-hidden="true" />
         {t('eventsPage.joinWebinar', 'Join the webinar')}
       </a>
@@ -642,7 +634,7 @@ export function EventDetailPage() {
               <li className="flex gap-2">
                 <Video className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
                 <span>
-                  {event.meeting_url
+                  {meetingUrl
                     ? t('eventsPage.nextJoinReady', 'At the start time, join from this page with the button below.')
                     : t('eventsPage.nextJoinLater', 'The joining link will appear on this page before the webinar starts.')}
                 </span>
@@ -710,10 +702,12 @@ export function EventDetailPage() {
         eventDateTime={event.date_time}
         eventEndDateTime={event.end_date_time}
         eventLocation={event.location}
-        eventMeetingUrl={event.meeting_url}
+        eventMeetingUrl={meetingUrl}
         onRegistrationChange={(reg, count) => {
           setRegistrationCount(count);
           setJustSignedUp(reg);
+          // The join link is handed out once registered (and withdrawn on cancel).
+          refreshMeetingUrl();
         }}
       />
     );
@@ -788,7 +782,7 @@ export function EventDetailPage() {
     if (isUserRegistered && joinButton) {
       barAction = (
         <Button asChild className={barBtn}>
-          <a href={event.meeting_url!} target="_blank" rel="noopener noreferrer"><Video className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.joinNow', 'Join now')}</a>
+          <a href={meetingUrl ?? undefined} target="_blank" rel="noopener noreferrer"><Video className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.joinNow', 'Join now')}</a>
         </Button>
       );
     }
@@ -799,9 +793,9 @@ export function EventDetailPage() {
   } else if (isFull && !isUserRegistered) {
     barAction = <span className="shrink-0 text-sm font-medium text-amber-800">{t('eventsPage.fullTitle', 'Fully booked')}</span>;
   } else if (user && isUserRegistered) {
-    barAction = isWebinar && event.meeting_url ? (
+    barAction = isWebinar && meetingUrl ? (
       <Button asChild className={barBtn}>
-        <a href={event.meeting_url} target="_blank" rel="noopener noreferrer"><Video className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.joinShort', 'Join')}</a>
+        <a href={meetingUrl} target="_blank" rel="noopener noreferrer"><Video className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.joinShort', 'Join')}</a>
       </Button>
     ) : calendarEvent ? (
       <Button className={barBtn} onClick={() => downloadICS(calendarEvent)}>

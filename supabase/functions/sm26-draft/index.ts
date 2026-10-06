@@ -2,6 +2,18 @@
 // token and email the registrant a resume link; load it back on return. Public
 // (no account needed) — the token is the secret. Drafts live in
 // sm_registration_draft, separate from real registrations.
+//
+// Audit S9 (two fixes):
+//  * Drafts close with registrations. Both actions answer 403
+//    { error, code: "registrations_closed" } unless sm_registrations_open(event)
+//    is true (closed by default; refused too if the check cannot be made).
+//  * A save used to hand back the EXISTING draft's token for any email typed in,
+//    so anyone could save under someone else's address, keep the link, and read
+//    whatever that person saved afterwards. Now a save for an email that already
+//    has a draft gives that draft a NEW token, emails the new link to the address
+//    only, and returns no link to the caller. Earlier links for that email stop
+//    working (only the latest email's link opens it). A brand-new draft still
+//    returns its link, as before, for the bounced-email case.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -71,13 +83,25 @@ Deno.serve(async (req: Request) => {
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
   const action = body.action;
+  if (action !== "load" && action !== "save") return json(req, { error: "Unknown action" }, 400);
+
+  const { data: ev } = await admin.from("sm_event").select("id").eq("slug", "sm26").maybeSingle();
+  if (!ev) return json(req, { error: "Event not available" }, 400);
+  const eventId = (ev as { id: string }).id;
+
+  // Drafts live and die with registrations (closed by default).
+  const { data: isOpen, error: openErr } = await admin.rpc("sm_registrations_open", { p_event_id: eventId });
+  if (openErr) console.error("sm_registrations_open failed -- refusing", openErr);
+  if (openErr || isOpen !== true) {
+    return json(req, { error: "Registrations are closed", code: "registrations_closed" }, 403);
+  }
 
   if (action === "load") {
     // trim(): a token copied out of an email arrives with whitespace often enough,
     // and an untrimmed one answers 404 — indistinguishable from an expired link.
     const token = typeof body.token === "string" ? body.token.trim() : "";
     if (!token) return json(req, { error: "Missing token" }, 400);
-    const { data } = await admin.from("sm_registration_draft").select("data, email").eq("token", token).maybeSingle();
+    const { data } = await admin.from("sm_registration_draft").select("data, email").eq("token", token).eq("event_id", eventId).maybeSingle();
     if (!data) return json(req, { error: "not_found" }, 404);
     const d = data as { data: unknown; email: string };
     return json(req, { data: d.data, email: d.email });
@@ -89,17 +113,19 @@ Deno.serve(async (req: Request) => {
     const payload = (body.data ?? {}) as Record<string, unknown>;
     const origin = typeof body.origin === "string" ? body.origin : "";
 
-    const { data: ev } = await admin.from("sm_event").select("id").eq("slug", "sm26").maybeSingle();
-    if (!ev) return json(req, { error: "Event not available" }, 400);
-    const eventId = (ev as { id: string }).id;
-
+    // The unique index is on (event_id, lower(email)) and email is stored
+    // lower-cased, so this finds the one draft for this address if there is one.
     const { data: existing } = await admin.from("sm_registration_draft")
       .select("token").eq("event_id", eventId).eq("email", email).maybeSingle();
-    let token = (existing as { token?: string } | null)?.token;
-    if (token) {
-      await admin.from("sm_registration_draft").update({ data: payload, updated_at: new Date().toISOString() }).eq("token", token);
+    const oldToken = (existing as { token?: string } | null)?.token;
+    // Fresh token on EVERY save: a token someone else obtained earlier stops
+    // working the moment the owner saves again.
+    const token = crypto.randomUUID();
+    if (oldToken) {
+      const { error } = await admin.from("sm_registration_draft")
+        .update({ token, data: payload, updated_at: new Date().toISOString() }).eq("token", oldToken);
+      if (error) { console.error("draft update failed", error); return json(req, { error: "Could not save" }, 500); }
     } else {
-      token = crypto.randomUUID();
       const { error } = await admin.from("sm_registration_draft").insert({ token, event_id: eventId, email, data: payload });
       if (error) { console.error("draft insert failed", error); return json(req, { error: "Could not save" }, 500); }
     }
@@ -110,10 +136,11 @@ Deno.serve(async (req: Request) => {
     const firstName = typeof reg.first_name === "string" ? reg.first_name : "";
     let emailed = false;
     try { emailed = await sendResumeEmail(email, firstName, link); } catch (e) { console.error("resume email failed", e); }
-    // The link goes back to the caller too, so a registrant whose email bounced
-    // still has a way to return rather than being told to check an inbox that
-    // will never receive anything.
-    return json(req, { ok: true, emailed, link });
+    // A brand-new draft: the link goes back to the caller too, so a registrant
+    // whose email bounced still has a way to return. A draft that already existed
+    // for this address may not be the caller's: its link goes to the inbox only
+    // (the page then says "this browser will remember your answers").
+    return json(req, { ok: true, emailed, link: oldToken ? null : link });
   }
 
   return json(req, { error: "Unknown action" }, 400);

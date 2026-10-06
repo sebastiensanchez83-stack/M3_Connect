@@ -299,9 +299,12 @@ export function OrganizationPublicPage() {
       setConfirmedReferences([]);
       setLightbox(null);
       try {
+        // Explicit columns, never '*': claim_code is readable by nobody but
+        // staff (audit S2), and select=* on organizations is then refused for
+        // anon and signed-in visitors alike.
         const { data: orgData, error: orgError } = await supabase
           .from('organizations')
-          .select('*')
+          .select('id, name, slug, primary_domain, organization_type, tier, max_seats, created_by_user_id, owner_user_id, logo_url, description, website, country, city, created_at, updated_at, access_status, onboarding_status, rejection_reason, audience_description, headquarters_country, social_media_links, marina_subtype, auto_approve_domain_joins, banner_url, investment_geographies, investment_size_min, investment_size_max, investment_hold_period, investment_thesis, featured_partner, gallery, is_event_media_partner')
           .eq('slug', slug)
           .single();
         if (!alive) return;

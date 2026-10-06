@@ -1165,8 +1165,11 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                 className={cn(BTN, 'shrink-0 gap-2')}
                 onClick={async () => {
                   if (!user?.email) return;
+                  // /reset-password is the page that redeems the e-mailed link (any
+                  // device) and shows the new-password form; `next` brings them back
+                  // here afterwards, still signed in.
                   const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-                    redirectTo: `${window.location.origin}/account?tab=profile`,
+                    redirectTo: `${window.location.origin}/reset-password?next=${encodeURIComponent('/account?tab=profile')}`,
                   });
                   if (error) {
                     toast({ title: t('accountArea.toast.error', 'Error'), description: error.message, variant: 'destructive' });

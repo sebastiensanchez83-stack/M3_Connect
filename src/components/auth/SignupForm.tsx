@@ -8,15 +8,85 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { PersonaType } from '@/types/database';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Anchor, Building2, Newspaper, Loader2, ChevronLeft, Eye, EyeOff, Info, HardHat, TrendingUp } from 'lucide-react';
+import { Anchor, Building2, Newspaper, Loader2, ChevronLeft, Eye, EyeOff, Info, HardHat, TrendingUp, Mail } from 'lucide-react';
 
 interface SignupFormProps {
   onSuccess?: () => void;
   defaultPersona?: PersonaType;
 }
 
+// No password: claim-code-signup creates the account with a random one, and the
+// person chooses theirs on /welcome once the address is confirmed.
+type ClaimSignupBody = {
+  email: string;
+  first_name: string;
+  last_name: string;
+  persona: PersonaType;
+  claim_code: string;
+  lang: 'fr' | 'en';
+};
+
+// An account waiting for its activation link, and how to send that link again:
+// 'auth' = a GoTrue signup (supabase.auth.resend), 'claim' = claim-code-signup,
+// which re-sends the link when called again for a not-yet-confirmed account.
+type PendingConfirmation =
+  | { email: string; via: 'auth'; redirectTo: string }
+  | { email: string; via: 'claim'; body: ClaimSignupBody };
+
+// GoTrue and claim-code-signup both refuse a second confirmation mail to the
+// same address within ~60 s.
+const RESEND_COOLDOWN_S = 60;
+
+// What claim-code-signup answers, on success and on error alike.
+type ClaimSignupPayload = {
+  success?: boolean;
+  error?: string;
+  code?: string; // 'already_exists' | 'too_soon' | 'email_send_failed' | 'invalid_code' | 'rate_limited'
+  needs_confirmation?: boolean;
+};
+
+// supabase-js turns any non-2xx answer into a FunctionsHttpError and leaves `data`
+// null, so the function's own JSON body has to be read off the response.
+async function readFunctionPayload(error: unknown): Promise<ClaimSignupPayload | null> {
+  try {
+    const ctx = (error as { context?: Response } | null)?.context;
+    if (ctx && typeof ctx.json === 'function') {
+      const payload = await ctx.json();
+      if (payload && typeof payload === 'object') return payload as ClaimSignupPayload;
+    }
+  } catch { /* not JSON */ }
+  return null;
+}
+
+// The deployed v9 sends only the English text, the newer function also a code.
+const isAlreadyExists = (payload: ClaimSignupPayload | null) =>
+  payload?.code === 'already_exists' || !!payload?.error?.toLowerCase().includes('already exists');
+
+const isInvalidCode = (payload: ClaimSignupPayload | null) =>
+  payload?.code === 'invalid_code' || !!payload?.error?.toLowerCase().includes('invalid organization code');
+
+// The organisation code in the address, but only on the link the "Send Connect
+// Link" e-mail carries (send-notification org_claim_code):
+// /?signup=true&email=…&code=…. Other pages use ?code= for other things
+// (/sm26/claim?code=SM26-…, /sm26/open-score?code=…) and also show this form.
+function readUrlClaimCode(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('signup') === 'true' ? params.get('code') : null;
+}
+
+// That code, or the one kept from it earlier in this tab. Read while the first
+// render is built, so the password fields that path does without never flash up
+// first.
+function readIncomingClaimCode(): string | null {
+  try {
+    return readUrlClaimCode() || sessionStorage.getItem('pending_claim_code');
+  } catch {
+    return null;
+  }
+}
+
 export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { signUp } = useAuth();
   const [step, setStep] = useState<1 | 2>(defaultPersona ? 2 : 1);
   const [loading, setLoading] = useState(false);
@@ -27,7 +97,66 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
   const [errors, setErrors] = useState<{ passwordMismatch?: boolean; termsRequired?: boolean; passwordWeak?: boolean }>({});
-  const [incomingClaimCode, setIncomingClaimCode] = useState<string | null>(null);
+  // Set: sign-up goes through claim-code-signup and asks for no password.
+  const [incomingClaimCode, setIncomingClaimCode] = useState<string | null>(readIncomingClaimCode);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [mailSent, setMailSent] = useState(true);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resending, setResending] = useState(false);
+  const [resendFeedback, setResendFeedback] = useState<'sent' | 'error' | 'active' | null>(null);
+
+  // Count the resend cooldown down, one second at a time.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  // Swap the form for the "check your inbox" panel. `sent` is false when the first
+  // mail could not be sent; the button still waits out the cooldown, since a retry
+  // inside it is refused anyway.
+  const showCheckInbox = (pending: PendingConfirmation, sent = true) => {
+    setPendingConfirmation(pending);
+    setMailSent(sent);
+    setResendFeedback(null);
+    setResendCooldown(RESEND_COOLDOWN_S);
+  };
+
+  const handleResend = async () => {
+    if (!pendingConfirmation || resending || resendCooldown > 0) return;
+    setResending(true);
+    setResendFeedback(null);
+    let feedback: 'sent' | 'error' | 'active' = 'error';
+    try {
+      if (pendingConfirmation.via === 'claim') {
+        const { data, error } = await supabase.functions.invoke('claim-code-signup', { body: pendingConfirmation.body });
+        const payload: ClaimSignupPayload | null = error ? await readFunctionPayload(error) : data;
+        if (!error && payload?.success) {
+          feedback = 'sent';
+        } else if (isAlreadyExists(payload)) {
+          // Already confirmed in the meantime (link opened in another tab/device).
+          feedback = 'active';
+        } else {
+          console.error('Claim-code resend error:', payload?.error || error?.message);
+        }
+      } else {
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: pendingConfirmation.email,
+          options: { emailRedirectTo: pendingConfirmation.redirectTo },
+        });
+        if (!error) feedback = 'sent';
+        else console.error('Signup resend error:', error.message);
+      }
+    } catch (err) {
+      console.error('Resend error:', err);
+    }
+    setResending(false);
+    setResendFeedback(feedback);
+    if (feedback === 'sent') setMailSent(true);
+    // A failure is usually the 60 s limit itself ("too soon"): wait it out too.
+    if (feedback !== 'active') setResendCooldown(RESEND_COOLDOWN_S);
+  };
 
   const validatePasswordStrength = (pwd: string) => {
     return pwd.length >= 8 && /[A-Z]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd);
@@ -65,7 +194,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const emailParam = params.get('email');
-    const codeParam = params.get('code');
+    const codeParam = readUrlClaimCode();
     if (emailParam) {
       setFormData(prev => ({ ...prev, email: emailParam }));
       // Marina persona is most common for claim codes; auto-advance to step 2
@@ -105,17 +234,19 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     if (!selectedPersona) return;
     if (!acceptTerms) {
       setErrors(prev => ({ ...prev, termsRequired: true }));
-      toast({ title: t('auth.error'), description: t('auth.acceptTermsRequired', 'Please accept the Terms and Conditions'), variant: 'destructive' });
+      toast({ title: t('auth.error'), description: t('auth.acceptTermsRequired', 'Please accept the Terms and Conditions to continue'), variant: 'destructive' });
       return;
     }
-    if (formData.password !== formData.confirmPassword) {
+    // The claim-code path asks for no password (see below).
+    const claimCode = incomingClaimCode;
+    if (!claimCode && formData.password !== formData.confirmPassword) {
       setErrors(prev => ({ ...prev, passwordMismatch: true }));
       toast({ title: t('auth.error'), description: t('auth.passwordMismatch'), variant: 'destructive' });
       return;
     }
-    if (!validatePasswordStrength(formData.password)) {
+    if (!claimCode && !validatePasswordStrength(formData.password)) {
       setErrors(prev => ({ ...prev, passwordWeak: true }));
-      toast({ title: t('auth.error'), description: 'Password must be at least 8 characters with one uppercase letter and one symbol.', variant: 'destructive' });
+      toast({ title: t('auth.error'), description: t('auth.passwordWeak', 'Password must be at least 8 characters and include one uppercase letter and one symbol.'), variant: 'destructive' });
       return;
     }
     setLoading(true);
@@ -130,68 +261,148 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         return;
       }
     }
-    // If the user arrived via a valid claim-code link, bypass email confirmation
-    // (they already proved email ownership by clicking the invitation link).
-    let pendingClaimCode: string | null = null;
-    try { pendingClaimCode = sessionStorage.getItem('pending_claim_code'); } catch { /* ignore */ }
-
-    if (pendingClaimCode) {
+    // Arrived through a claim-code link: sign up through claim-code-signup, which
+    // e-mails the activation link itself. That link ends on /onboarding with the
+    // code, where the organization is claimed once the address is confirmed,
+    // never before. No password is asked for or sent on this path:
+    // whoever fills in this form is not proven to own the address, and a password
+    // they chose would keep working after the real owner confirmed it. The
+    // function sets a random one; the person chooses theirs on /welcome, which
+    // the activation link opens.
+    if (claimCode) {
+      const claimBody: ClaimSignupBody = {
+        email: formData.email,
+        first_name: formData.firstName.trim(),
+        last_name: formData.lastName.trim(),
+        persona: selectedPersona,
+        claim_code: claimCode,
+        lang: i18n.language?.startsWith('fr') ? 'fr' : 'en',
+      };
+      let claimPayload: ClaimSignupPayload | null = null;
       try {
         const { data: claimResult, error: claimError } = await supabase.functions.invoke('claim-code-signup', {
-          body: {
-            email: formData.email,
-            password: formData.password,
-            first_name: formData.firstName.trim(),
-            last_name: formData.lastName.trim(),
-            persona: selectedPersona,
-            claim_code: pendingClaimCode,
-          },
+          body: claimBody,
         });
-
-        if (claimError || !claimResult?.success) {
-          // If claim-code signup fails, fall back to normal signup below
-          // (this covers the case of a typo'd code, already-used email, etc.)
-          const errMsg = claimResult?.error || claimError?.message || 'Claim code signup failed';
-          // Only fall through to normal signup if it was an invalid code;
-          // existing-email errors should be surfaced to the user directly.
-          if (errMsg.toLowerCase().includes('already exists')) {
-            setLoading(false);
-            toast({ title: t('auth.error'), description: errMsg, variant: 'destructive' });
-            return;
-          }
-          // fall through to normal signup
-        } else {
-          // Success \u2014 sign the user in immediately (skips email confirmation)
-          const { error: signInError } = await supabase.auth.signInWithPassword({
-            email: formData.email,
-            password: formData.password,
-          });
-          setLoading(false);
-          if (signInError) {
-            toast({ title: t('auth.error'), description: signInError.message, variant: 'destructive' });
-            return;
-          }
-          toast({ title: t('auth.signupSuccess'), description: 'Account created! Completing setup...' });
-          // sessionStorage claim code will be read by OnboardingPage and auto-claim
-          onSuccess?.();
-          return;
-        }
+        claimPayload = claimError ? await readFunctionPayload(claimError) : claimResult;
+        if (claimError && !claimPayload) console.error('Claim-code signup error:', claimError.message);
       } catch (err) {
-        // fall through to normal signup on unexpected error
         console.error('Claim-code signup error:', err);
       }
+      setLoading(false);
+
+      if (claimPayload?.needs_confirmation) {
+        // The account exists and waits for its activation link: just sent (2xx),
+        // sent under a minute ago (429 too_soon), or not sent (502
+        // email_send_failed). The normal signup below must not run: with
+        // "Confirm email" OFF, GoTrue would confirm this existing account with
+        // no proof that the mailbox is theirs.
+        showCheckInbox({ email: formData.email, via: 'claim', body: claimBody }, claimPayload.code !== 'email_send_failed');
+        return;
+      }
+      if (isAlreadyExists(claimPayload)) {
+        toast({ title: t('auth.error'), description: t('auth.accountAlreadyExists', 'An account with this email already exists. Please log in instead.'), variant: 'destructive' });
+        return;
+      }
+      if (isInvalidCode(claimPayload)) {
+        // Not a code we know (any more). Drop it, from the address too so that
+        // reopening the dialog cannot bring it back: the password fields come
+        // back and the next submit is a normal sign-up. A code can still be
+        // entered during onboarding.
+        try { sessionStorage.removeItem('pending_claim_code'); } catch { /* ignore */ }
+        try {
+          const url = new URL(window.location.href);
+          if (url.searchParams.has('code')) {
+            url.searchParams.delete('code');
+            window.history.replaceState(window.history.state, '', url.toString());
+          }
+        } catch { /* ignore */ }
+        setIncomingClaimCode(null);
+        toast({ title: t('auth.error'), description: t('auth.claimCodeInvalid', 'This invitation code is not valid. Choose a password below to create your account without it; you can still enter a code after signing up.'), variant: 'destructive' });
+        return;
+      }
+      if (claimPayload?.code === 'rate_limited') {
+        toast({ title: t('auth.error'), description: t('auth.claimSignupRateLimited', 'Too many attempts from this network. Please try again later.'), variant: 'destructive' });
+        return;
+      }
+      // Anything else must not fall through to the normal sign-up: this path has
+      // no password to give it. That includes the 400 "Email, password, and
+      // claim_code are required" of the previous function (v9), which this page
+      // gets until the new claim-code-signup is deployed.
+      console.error('Claim-code signup failed:', claimPayload?.error);
+      toast({ title: t('auth.error'), description: t('auth.claimSignupRetry', "We couldn't create your account just now. Please try again in a minute."), variant: 'destructive' });
+      return;
     }
 
-    // Normal signup path (requires email confirmation)
-    const { error } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim(), detectedOrg?.id, formData.jobTitle.trim());
+    // Normal signup path
+    const { error, needsConfirmation, emailRedirectTo } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim(), detectedOrg?.id, formData.jobTitle.trim());
     setLoading(false);
     if (error) {
       toast({ title: t('auth.error'), description: error.message, variant: 'destructive' });
+    } else if (needsConfirmation) {
+      // "Confirm email" ON: no session until the link is opened. onSuccess would
+      // send callers to /onboarding, which bounces a signed-out visitor.
+      showCheckInbox({ email: formData.email, via: 'auth', redirectTo: emailRedirectTo });
     } else {
       toast({ title: t('auth.signupSuccess'), description: t('auth.signupSuccessDesc') });
       onSuccess?.();
     }
   };
+
+  if (pendingConfirmation) {
+    return (
+      <div className="space-y-4 text-center">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-green-100 mx-auto">
+          <Mail className="h-7 w-7 text-green-600" />
+        </div>
+        {mailSent ? (
+          <>
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-gray-900">{t('auth.checkInboxTitle', 'Check your inbox')}</h3>
+              <p className="text-sm text-gray-600">{t('auth.checkInboxSentTo', 'We sent an activation link to:')}</p>
+              <p className="text-sm font-semibold text-gray-900 break-all">{pendingConfirmation.email}</p>
+            </div>
+            <p className="text-sm text-gray-600">
+              {t('auth.checkInboxOpenLink', 'Open the link in that e-mail to activate your account. It stays inactive until you do.')}
+            </p>
+            <p className="text-xs text-gray-500">
+              {t('auth.checkInboxSpam', 'Nothing after a few minutes? Check your spam or junk folder. If you already have an account with this address, log in instead.')}
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-gray-900">{t('auth.activateAccountTitle', 'Activate your account')}</h3>
+              <p className="text-sm text-gray-600">{t('auth.checkInboxCreatedFor', 'Your account has been created for:')}</p>
+              <p className="text-sm font-semibold text-gray-900 break-all">{pendingConfirmation.email}</p>
+            </div>
+            <p className="text-sm text-gray-600">
+              {t('auth.checkInboxNotSent', "We couldn't send the activation e-mail just now. When the countdown ends, use the button below to send it, then open its link to activate your account.")}
+            </p>
+          </>
+        )}
+        {pendingConfirmation.via === 'claim' && (
+          <p className="text-sm text-gray-600">{t('auth.claimPasswordLater', 'You will choose your password after confirming your e-mail address.')}</p>
+        )}
+        <div className="space-y-2">
+          <Button type="button" variant="outline" className="w-full" disabled={resending || resendCooldown > 0} onClick={handleResend}>
+            {resending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {resendCooldown > 0
+              ? t('auth.resendEmailIn', 'Resend the e-mail ({{seconds}} s)', { seconds: resendCooldown })
+              : t('auth.resendEmail', 'Resend the e-mail')}
+          </Button>
+          {resendFeedback === 'sent' && (
+            <p className="text-sm text-green-600" role="status">{t('auth.resendEmailSent', 'A new e-mail is on its way.')}</p>
+          )}
+          {resendFeedback === 'active' && (
+            <p className="text-sm text-gray-700" role="status">{t('auth.resendAlreadyActive', 'This account is already activated. You can log in.')}</p>
+          )}
+          {resendFeedback === 'error' && (
+            <p className="text-sm text-red-600" role="alert">{t('auth.resendEmailError', "We couldn't send the e-mail just now. Please wait a minute and try again.")}</p>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (step === 1) {
     return (
@@ -224,8 +435,11 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
           <Info className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
           <div className="text-sm">
-            <div className="font-medium text-green-900">You've been invited to join an organization</div>
-            <div className="text-xs text-green-700 mt-0.5">Code <span className="font-mono font-semibold">{incomingClaimCode}</span> will be applied automatically. No email confirmation needed.</div>
+            <div className="font-medium text-green-900">{t('auth.claimInviteTitle', "You've been invited to join an organization")}</div>
+            <div className="text-xs text-green-700 mt-0.5">
+              {t('auth.claimInviteCodeLabel', 'Invitation code:')} <span className="font-mono font-semibold">{incomingClaimCode}</span>
+            </div>
+            <div className="text-xs text-green-700">{t('auth.claimInviteApplied', 'It will be applied to your account automatically.')}</div>
           </div>
         </div>
       )}
@@ -263,58 +477,67 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         <Label htmlFor="companyWebsite">{t('auth.companyWebsite')}</Label>
         <Input id="companyWebsite" type="url" value={formData.companyWebsite} onChange={(e) => setFormData({ ...formData, companyWebsite: e.target.value })} placeholder={t('auth.companyWebsitePlaceholder')} />
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="password">{t('auth.password')} *</Label>
-        <div className="relative">
-          <Input
-            id="password"
-            type={showPassword ? 'text' : 'password'}
-            value={formData.password}
-            onChange={(e) => {
-              const pwd = e.target.value;
-              setFormData({ ...formData, password: pwd });
-              if (pwd.length > 0) {
-                setErrors(prev => ({ ...prev, passwordWeak: !validatePasswordStrength(pwd) }));
-              } else {
-                setErrors(prev => ({ ...prev, passwordWeak: false }));
-              }
-            }}
-            required
-            minLength={8}
-            placeholder={t('auth.passwordPlaceholder')}
-            className="pr-10"
-            aria-invalid={errors.passwordWeak || undefined}
-          />
-          <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors" tabIndex={-1}>
-            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        {errors.passwordWeak ? (
-          <p className="text-sm text-red-600 mt-1">Password must be at least 8 characters and include one uppercase letter and one symbol.</p>
-        ) : (
-          <p className="text-xs text-gray-400">Min. 8 characters, 1 uppercase letter, 1 symbol</p>
-        )}
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="confirmPassword">{t('auth.confirmPassword')} *</Label>
-        <div className="relative">
-          <Input id="confirmPassword" type={showConfirmPassword ? 'text' : 'password'} value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} required className="pr-10"
-            onBlur={() => {
-              if (formData.confirmPassword && formData.password !== formData.confirmPassword) {
-                setErrors(prev => ({ ...prev, passwordMismatch: true }));
-              } else {
-                setErrors(prev => ({ ...prev, passwordMismatch: false }));
-              }
-            }}
-          />
-          <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors" tabIndex={-1}>
-            {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
-        {errors.passwordMismatch && (
-          <p className="text-sm text-red-600 mt-1">{t('auth.passwordMismatch', 'Passwords do not match')}</p>
-        )}
-      </div>
+      {incomingClaimCode ? (
+        <p className="flex items-start gap-2 text-sm text-gray-600">
+          <Info className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
+          {t('auth.claimPasswordLater', 'You will choose your password after confirming your e-mail address.')}
+        </p>
+      ) : (
+        <>
+          <div className="space-y-2">
+            <Label htmlFor="password">{t('auth.password')} *</Label>
+            <div className="relative">
+              <Input
+                id="password"
+                type={showPassword ? 'text' : 'password'}
+                value={formData.password}
+                onChange={(e) => {
+                  const pwd = e.target.value;
+                  setFormData({ ...formData, password: pwd });
+                  if (pwd.length > 0) {
+                    setErrors(prev => ({ ...prev, passwordWeak: !validatePasswordStrength(pwd) }));
+                  } else {
+                    setErrors(prev => ({ ...prev, passwordWeak: false }));
+                  }
+                }}
+                required
+                minLength={8}
+                placeholder={t('auth.passwordPlaceholder')}
+                className="pr-10"
+                aria-invalid={errors.passwordWeak || undefined}
+              />
+              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors" tabIndex={-1}>
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            {errors.passwordWeak ? (
+              <p className="text-sm text-red-600 mt-1">{t('auth.passwordWeak', 'Password must be at least 8 characters and include one uppercase letter and one symbol.')}</p>
+            ) : (
+              <p className="text-xs text-gray-400">{t('auth.passwordRules', 'Min. 8 characters, 1 uppercase letter, 1 symbol')}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">{t('auth.confirmPassword')} *</Label>
+            <div className="relative">
+              <Input id="confirmPassword" type={showConfirmPassword ? 'text' : 'password'} value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} required className="pr-10"
+                onBlur={() => {
+                  if (formData.confirmPassword && formData.password !== formData.confirmPassword) {
+                    setErrors(prev => ({ ...prev, passwordMismatch: true }));
+                  } else {
+                    setErrors(prev => ({ ...prev, passwordMismatch: false }));
+                  }
+                }}
+              />
+              <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors" tabIndex={-1}>
+                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+            {errors.passwordMismatch && (
+              <p className="text-sm text-red-600 mt-1">{t('auth.passwordMismatch', 'Passwords do not match')}</p>
+            )}
+          </div>
+        </>
+      )}
       <div className="flex items-start gap-2.5">
         <Checkbox
           id="acceptTerms"

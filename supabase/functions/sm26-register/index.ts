@@ -7,6 +7,21 @@
 // no-account guest path. It is intentionally public (verify_jwt = false);
 // abuse is mitigated by a honeypot + required-field checks + the natural
 // idempotency of "email already exists". TODO before prod: add Turnstile.
+//
+// Every branch that answers success WITHOUT writing a registration logs loudly
+// first. The frontend shows the same confirmation screen for each of them, so
+// an unlogged early return means a real person believes they registered while
+// nothing exists and nobody is alerted.
+//
+// Closed by default (audit S9). Before anything else -- account creation,
+// uploads, emails -- the endpoint asks sm_registrations_open(event), which is
+// true only when staff set sm_event.settings.registrations_open = true (and
+// settings.registrations_close_at, if set, has not passed). Otherwise it answers
+// 403 { error, code: "registrations_closed" }. If that check cannot be made (the
+// migration is missing, the database is unreachable) it also refuses: a closed
+// form that wrongly stays closed costs an email to events@, a wrongly open one
+// creates accounts. The member path (direct insert from SM26RegisterPage) is
+// closed by the RLS policy sm_registration_insert_while_open on the same flag.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -145,7 +160,7 @@ async function sendAccessEmail(email: string, firstName: string, link: string) {
 <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);">
 <tr><td style="background:#0b2653;padding:32px 40px;text-align:center;">
 <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;">Smart &amp; Sustainable Marina Rendezvous 2026</h1>
-<p style="margin:6px 0 0;color:#93c5fd;font-size:13px;">20-21 September 2026 · Yacht Club de Monaco</p></td></tr>
+<p style="margin:6px 0 0;color:#93c5fd;font-size:13px;">20-21 September 2026 &middot; Yacht Club de Monaco</p></td></tr>
 <tr><td style="padding:40px;">
 <p style="margin:0 0 8px;color:#374151;font-size:16px;">${greeting}</p>
 <h2 style="margin:0 0 16px;color:#111827;font-size:20px;font-weight:600;">Your registration is received</h2>
@@ -215,6 +230,23 @@ Deno.serve(async (req: Request) => {
     return json(req, { error: "Invalid JSON" }, 400);
   }
 
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+
+  const { data: ev } = await admin.from("sm_event").select("id").eq("slug", "sm26").maybeSingle();
+  if (!ev) return json(req, { error: "Event not available" }, 400);
+  const eventId = (ev as { id: string }).id;
+
+  // Registrations closed (the default): refuse before touching anything.
+  const { data: isOpen, error: openErr } = await admin.rpc("sm_registrations_open", { p_event_id: eventId });
+  if (openErr) console.error("sm_registrations_open failed -- refusing", openErr);
+  if (openErr || isOpen !== true) {
+    return json(req, { error: "Registrations are closed", code: "registrations_closed" }, 403);
+  }
+
   const honeypot = payload.honeypot;
   const origin = typeof payload.origin === "string" ? payload.origin : "";
   const r = (payload.registration ?? {}) as Record<string, unknown>;
@@ -241,16 +273,6 @@ Deno.serve(async (req: Request) => {
   if (!email || !first || !last) return json(req, { error: "Name and email are required" }, 400);
   if (!role) return json(req, { error: "Please choose how you want to participate" }, 400);
   if (!r.terms_accepted) return json(req, { error: "Terms must be accepted" }, 400);
-
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const admin = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
-
-  const { data: ev } = await admin.from("sm_event").select("id").eq("slug", "sm26").maybeSingle();
-  if (!ev) return json(req, { error: "Event not available" }, 400);
-  const eventId = (ev as { id: string }).id;
 
   // Don't create a second registration when a LIVE one already exists for this
   // email -- typically an imported Jotform row not yet claimed (user_id still

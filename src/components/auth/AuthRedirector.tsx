@@ -3,6 +3,9 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { getStoredInvite } from '@/lib/invite-store'
 import { toast } from '@/hooks/use-toast'
+// The i18next instance rather than useTranslation(): `t` would have to join the
+// redirect effect's dependencies and re-run it on every language switch.
+import i18n from '@/i18n'
 
 // Routes that should hard-redirect when logged out (no showLocked behavior)
 const hardRedirectExactRoutes = new Set<string>([
@@ -32,6 +35,41 @@ function isProtectedRoute(pathname: string): boolean {
 const onsiteInfoPaths = new Set<string>(['/sm26', '/sm26/agenda', '/sm26/connect', '/sm26/vote', '/sm26/feedback'])
 const isOnsiteInfoPage = (pathname: string) => onsiteInfoPaths.has(pathname.toLowerCase().replace(/\/+$/, ''))
 
+export type AuthLanding = 'confirmed' | 'link-error'
+
+/**
+ * Arrival from a sign-up confirmation link — every one carries ?email_confirmed=true
+ * (see AuthContext.signUp). Only meaningful while signed out: with PKCE the link
+ * signs in only the browser that signed up, so opened on another device or
+ * browser it confirms the address but leaves nobody logged in ('confirmed').
+ * GoTrue reports a failed link (expired, already used) as error_code /
+ * error_description in the query and/or the #hash ('link-error').
+ */
+export function readAuthLanding(): AuthLanding | null {
+  const query = new URLSearchParams(window.location.search)
+  if (query.get('email_confirmed') !== 'true') return null
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const failed = ['error_code', 'error_description'].some((k) => query.has(k) || hash.has(k))
+  return failed ? 'link-error' : 'confirmed'
+}
+
+/**
+ * Strip what such a landing left in the URL that no longer serves: an auth code
+ * this browser cannot exchange (OnboardingPage and SignupForm would read ?code=
+ * as a claim code), and tokens in the #hash (a re-sent link arrives
+ * implicit-style, which the PKCE client refuses). Call only once auth has
+ * settled signed out — supabase-js reads the URL at start-up.
+ */
+export function scrubAuthLandingUrl() {
+  const url = new URL(window.location.href)
+  const hash = new URLSearchParams(url.hash.replace(/^#/, ''))
+  const hasTokens = hash.has('access_token') || hash.has('refresh_token')
+  if (!url.searchParams.has('code') && !hasTokens) return
+  url.searchParams.delete('code')
+  if (hasTokens) url.hash = ''
+  window.history.replaceState(window.history.state, '', url.toString())
+}
+
 export function AuthRedirector() {
   const { user, loading, profile, profileTimedOut, isModerator } = useAuth()
   const navigate = useNavigate()
@@ -50,7 +88,10 @@ export function AuthRedirector() {
     // Logged out: hard-redirect protected routes (but let showLocked routes render their own locked state)
     if (!user) {
       if (isHardRedirectRoute(pathname)) {
-        toast({ title: 'Please log in to access this page.', variant: 'destructive' })
+        // A confirmation link that could not sign in here: ProtectedRoute explains
+        // it and offers the login in place, rather than an unexplained bounce home.
+        if (readAuthLanding()) return
+        toast({ title: i18n.t('auth.loginRequired', 'Please log in to access this page.'), variant: 'destructive' })
         navigate('/', { replace: true })
       }
       // showLocked routes (/submit-project, /submit-rfp, etc.) are handled by ProtectedRoute
@@ -74,7 +115,7 @@ export function AuthRedirector() {
 
     // Admin: only verified moderators
     if (isAdminRoute && !isModerator) {
-      toast({ title: 'Admin access required.', variant: 'destructive' })
+      toast({ title: i18n.t('auth.adminRequired', 'Admin access required.'), variant: 'destructive' })
       navigate('/account', { replace: true })
       return
     }

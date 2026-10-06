@@ -1,15 +1,40 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabase';
+import { safeNext } from '@/lib/safeNext';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 
 const OTP_TYPES = ['recovery', 'invite', 'magiclink', 'signup', 'email_change'];
 
+type AuthErrorLike = { code?: string; status?: number; name?: string; message?: string };
+
+/** GoTrue's own (English) wording never reaches the page; in development it goes to the console. */
+function logAuthError(context: string, error: unknown) {
+  if (import.meta.env.DEV) console.error(context, error);
+}
+
+function isRateLimited(error: AuthErrorLike): boolean {
+  return error.status === 429 || error.code === 'over_email_send_rate_limit' || error.code === 'over_request_rate_limit';
+}
+
+// This session can no longer save a password: the link's session has expired
+// or been revoked, or ("Secure password change" ON) it is too old. Retrying
+// cannot help — a fresh link can.
+const SESSION_GONE_CODES = new Set([
+  'otp_expired', 'reauthentication_needed', 'session_not_found', 'session_expired',
+  'bad_jwt', 'refresh_token_not_found', 'refresh_token_already_used',
+]);
+function isSessionGone(error: AuthErrorLike): boolean {
+  return error.name === 'AuthSessionMissingError' || SESSION_GONE_CODES.has(error.code ?? '') || error.status === 401;
+}
+
 export function ResetPasswordPage() {
+  const { t, i18n } = useTranslation();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,11 +43,24 @@ export function ResetPasswordPage() {
   const [sessionReady, setSessionReady] = useState(false);
   const [checking, setChecking] = useState(true);
   // Only set when the link came from an in-app flow that wants the user back on
-  // a particular page (the account page's "change my password" button).
-  const [next, setNext] = useState<string | null>(null);
+  // a particular page (the account page's "change my password" button, the
+  // welcome step's e-mailed fallback). Read once, before the address bar is
+  // scrubbed, and only ever a path on this site — see safeNext.
+  const [next] = useState(() =>
+    safeNext(new URLSearchParams(window.location.search).get('next'), { deny: ['/reset-password'] }),
+  );
   const [resendEmail, setResendEmail] = useState('');
   const [resendBusy, setResendBusy] = useState(false);
   const [resent, setResent] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
+  // The session went stale between opening the link and saving the password.
+  const [sessionLost, setSessionLost] = useState(false);
+  const lost = useRef(false);
+  // The account the link signed in, to pre-fill the request for a fresh one.
+  const accountEmail = useRef('');
+  const redirectTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(redirectTimer.current), []);
 
   useEffect(() => {
     let mounted = true;
@@ -31,35 +69,32 @@ export function ResetPasswordPage() {
     const tokenHash = url.searchParams.get('token_hash');
     const typeParam = url.searchParams.get('type');
     const code = url.searchParams.get('code');
-    // Where to land afterwards. Supabase substitutes an absolute URL here, so
-    // accept both forms — but resolve against our own origin and keep only the
-    // path, so an email can never bounce someone off-site.
-    const nextParam = url.searchParams.get('next');
-    if (nextParam) {
-      try {
-        const target = new URL(nextParam, window.location.origin);
-        if (target.origin === window.location.origin && target.pathname !== '/reset-password') {
-          setNext(target.pathname + target.search);
-        }
-      } catch {
-        /* unparseable — ignore and fall back to the default landing */
-      }
-    }
+    // GoTrue reports a link it refused (expired, already used) as error params
+    // in the query and/or the #hash; an implicit-flow link carries its tokens there.
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const linkError = ['error', 'error_code', 'error_description'].some((k) => url.searchParams.has(k) || hash.has(k));
+    const hashLink = hash.has('access_token') || hash.get('type') === 'recovery';
+    // Whether this visit came from an e-mailed link at all, good or bad.
+    const fromLink = !!tokenHash || !!code || linkError || hashLink;
 
     // Once the credential is spent, take it out of the address bar so a
     // copied or bookmarked URL carries nothing usable.
     const scrubUrl = () => window.history.replaceState({}, '', window.location.pathname);
 
-    const ready = () => {
-      if (!mounted) return;
+    const ready = (email?: string | null) => {
+      if (!mounted || lost.current) return;
+      if (email) accountEmail.current = email;
       setSessionReady(true);
       setChecking(false);
       scrubUrl();
     };
 
+    // supabase-js re-announces a session that was already here as SIGNED_IN
+    // whenever the tab regains focus. After a link, that must never stand in
+    // for the link: only the calls below (or a recovery event) decide.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!mounted) return;
-      if (session && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN')) ready();
+      if (!mounted || !session) return;
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && !fromLink)) ready(session.user?.email);
     });
 
     void (async () => {
@@ -71,8 +106,8 @@ export function ResetPasswordPage() {
           typeParam && OTP_TYPES.includes(typeParam) ? (typeParam as EmailOtpType) : 'recovery';
         const { data, error: otpError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
         if (!mounted) return;
-        if (data?.session) { ready(); return; }
-        if (otpError) console.error('verifyOtp failed:', otpError.message);
+        if (data?.session) { ready(data.session.user?.email); return; }
+        if (otpError) logAuthError('verifyOtp failed:', otpError);
       }
 
       // 2. PKCE code — resolvable ONLY in the browser that requested the link,
@@ -81,29 +116,41 @@ export function ResetPasswordPage() {
       if (code) {
         const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
         if (!mounted) return;
-        if (data?.session) { ready(); return; }
-        if (exchangeError) console.error('Code exchange failed:', exchangeError.message);
+        if (data?.session) { ready(data.session.user?.email); return; }
+        if (exchangeError) logAuthError('Code exchange failed:', exchangeError);
+        // supabase-js may have redeemed the code itself at start-up
+        // (detectSessionInUrl), which spends it before the call above and only
+        // announces SIGNED_IN — ignored here after a link. It deletes `code` from
+        // the address bar only once that exchange succeeded (the call above waits
+        // for start-up to finish), so a code that is gone means the session now
+        // stored is the link's own, not whoever was signed in before.
+        if (!new URLSearchParams(window.location.search).has('code')) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!mounted) return;
+          if (session) { ready(session.user?.email); return; }
+        }
       }
 
       // 3. An implicit-flow hash fragment needs no call here: detectSessionInUrl
       // consumes it and the session arrives through onAuthStateChange above.
 
-      // 4. Already signed in and no credential in the URL — e.g. changing the
-      // password from the account page. Deliberately NOT a fallback for a link
-      // that failed: an admin who sends a link from their own browser and then
-      // clicks it would otherwise be handed a form that changes THEIR password.
-      // A link that does not verify must fail, whoever happens to be signed in.
-      if (!tokenHash && !code) {
+      // 4. Already signed in and no link at all — e.g. changing the password from
+      // the account page. Deliberately NOT a fallback for a link that failed
+      // (GoTrue's error report included): an admin who sends a link from their
+      // own browser and then clicks it would otherwise be handed a form that
+      // changes THEIR password. A link that does not verify must fail, whoever
+      // happens to be signed in.
+      if (!fromLink) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!mounted) return;
-        if (session) { ready(); return; }
+        if (session) { ready(session.user?.email); return; }
       }
 
       // Nothing resolved outright. Give the hash-fragment listener a moment if a
       // fragment is actually present; otherwise fail fast rather than making
       // someone watch a spinner for fifteen seconds to be told no.
       const hasHash =
-        window.location.hash.includes('access_token') || window.location.hash.includes('type=recovery');
+        hashLink || window.location.hash.includes('access_token') || window.location.hash.includes('type=recovery');
       setTimeout(() => { if (mounted) setChecking(false); }, hasHash ? 6000 : 1200);
     })();
 
@@ -115,27 +162,64 @@ export function ResetPasswordPage() {
 
   const requestNewLink = async () => {
     const email = resendEmail.trim().toLowerCase();
-    if (!email) return;
+    if (!email || resendBusy) return;
     setResendBusy(true);
-    await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
+    setResendError(null);
+    // Back here, on to the same destination as the link that failed. lang= sets
+    // the e-mail's language for accounts that have none stored (send-email hook).
+    const redirect = new URL('/reset-password', window.location.origin);
+    if (next) redirect.searchParams.set('next', next);
+    redirect.searchParams.set('lang', i18n.language?.startsWith('fr') ? 'fr' : 'en');
+    let failure: AuthErrorLike | null = null;
+    try {
+      const { error: sendError } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: redirect.toString() });
+      failure = sendError;
+    } catch (err) {
+      failure = err instanceof Error ? err : { message: String(err) };
+    }
     setResendBusy(false);
+    if (failure) {
+      logAuthError('Password link could not be sent:', failure);
+      setResendError(isRateLimited(failure)
+        ? t('resetPassword.resendTooSoon', 'Please wait a minute before asking for another link.')
+        : t('resetPassword.resendFailed', "We couldn't send the link just now. Please try again in a moment."));
+      return;
+    }
     // Reported the same way whether or not the address has an account — which
-    // addresses are registered is not ours to disclose.
+    // addresses are registered is not ours to disclose (GoTrue answers both alike).
     setResent(true);
+  };
+
+  /** A translated reason for a refused update; GoTrue's own text stays in the console. */
+  const updateErrorMessage = (err: AuthErrorLike): string => {
+    if (err.code === 'weak_password') {
+      return t('resetPassword.weakPassword', 'This password is too weak or too common. Choose a longer, less predictable one.');
+    }
+    if (err.code === 'same_password' || /different from the old password/i.test(err.message || '')) {
+      return t('resetPassword.samePassword', 'This is already your password. Choose a different one.');
+    }
+    if (isRateLimited(err)) {
+      return t('resetPassword.tooManyAttempts', 'Too many attempts. Please wait a minute and try again.');
+    }
+    return t('resetPassword.updateFailed', "Your password couldn't be updated. Please try again in a moment.");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('auth.passwordMismatch', 'Passwords do not match.'));
       return;
     }
 
     if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError(t('auth.passwordTooShort', 'Password too short (min. 8 characters).'));
+      return;
+    }
+
+    // GoTrue refuses more than 72 bytes (bcrypt); say so before the round trip.
+    if (new TextEncoder().encode(password).length > 72) {
+      setError(t('resetPassword.passwordTooLong', 'Password too long (max. 72 characters).'));
       return;
     }
 
@@ -149,29 +233,45 @@ export function ResetPasswordPage() {
       // back to /welcome to "set a password" on every navigation.
       const { error: updateError } = await supabase.auth.updateUser({
         password,
-        data: { pw_pending: false },
+        data: { pw_pending: false, pw_pending_reason: null, pw_pending_next: null },
       });
 
       if (updateError) {
-        setError(updateError.message);
+        logAuthError('Password could not be updated:', updateError);
         setLoading(false);
+        if (isSessionGone(updateError)) {
+          // Nothing to retry from here: offer a fresh link instead.
+          lost.current = true;
+          setResendEmail(accountEmail.current);
+          setSessionLost(true);
+          setSessionReady(false);
+          setChecking(false);
+          return;
+        }
+        setError(updateErrorMessage(updateError));
         return;
       }
 
       setSuccess(true);
 
       if (next) {
-        // In-app change: they were already signed in, so keep them signed in and
-        // put them back where they started.
-        setTimeout(() => { window.location.href = next; }, 1500);
+        // In-app change: keep them signed in and put them back where they started.
+        // A full page load, not a router navigation: the link's session arrives as
+        // PASSWORD_RECOVERY, which AuthContext only records — it never loads that
+        // account's profile and organisations. Opened on another device, or with
+        // someone else signed in here, an in-app jump would land on a page with no
+        // profile (or the previous account's). The reload starts from the stored
+        // session. `next` is already a path on this site (safeNext).
+        redirectTimer.current = window.setTimeout(() => window.location.replace(next), 1500);
       } else {
         // Recovery from an email link: sign out so the new password gets used once,
         // which confirms to them that it works.
         await supabase.auth.signOut();
-        setTimeout(() => { window.location.href = '/'; }, 2000);
+        redirectTimer.current = window.setTimeout(() => { window.location.href = '/'; }, 2000);
       }
-    } catch {
-      setError('An error occurred. Please try again.');
+    } catch (err) {
+      logAuthError('Password update failed:', err);
+      setError(t('resetPassword.updateFailed', "Your password couldn't be updated. Please try again in a moment."));
       setLoading(false);
     }
   };
@@ -183,7 +283,7 @@ export function ResetPasswordPage() {
         <Card>
           <CardContent className="pt-6 text-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-            <p className="text-gray-600">Verifying your reset link...</p>
+            <p className="text-gray-600">{t('resetPassword.verifying', 'Verifying your reset link...')}</p>
           </CardContent>
         </Card>
       </div>
@@ -191,7 +291,8 @@ export function ResetPasswordPage() {
   }
 
   // No session — the link was already used, has expired, or was opened after a
-  // newer one replaced it. Let them fix it here instead of sending them away.
+  // newer one replaced it (or the session behind it went stale). Let them fix it
+  // here instead of sending them away.
   if (!sessionReady) {
     return (
       <div className="container mx-auto px-4 py-16 max-w-md">
@@ -200,22 +301,25 @@ export function ResetPasswordPage() {
             {resent ? (
               <div className="text-center">
                 <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold mb-2">Check your inbox</h2>
-                <p className="text-gray-600 mb-4">
-                  If {resendEmail.trim().toLowerCase()} has an account, a new link is on its way. It is
-                  good for one use — open it on this device, and check your spam folder if it hasn't
-                  arrived in a few minutes.
+                <h2 className="text-xl font-semibold mb-2">{t('resetPassword.checkInboxTitle', 'Check your inbox')}</h2>
+                <p className="text-gray-600 mb-4 break-words">
+                  {t('resetPassword.newLinkSent', 'If {{email}} has an account, a new link is on its way. It works once, on any device. Nothing after a few minutes? Check your spam folder.', { email: resendEmail.trim().toLowerCase() })}
                 </p>
-                <Button variant="outline" onClick={() => (window.location.href = '/')}>Return Home</Button>
+                <Button variant="outline" onClick={() => (window.location.href = '/')}>{t('common.goHome', 'Go to Homepage')}</Button>
               </div>
             ) : (
               <>
                 <div className="text-center">
                   <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                  <h2 className="text-xl font-semibold mb-2">This link can't be used</h2>
+                  <h2 className="text-xl font-semibold mb-2">
+                    {sessionLost
+                      ? t('resetPassword.sessionExpiredTitle', 'Your reset session has expired')
+                      : t('resetPassword.linkInvalidTitle', "This link can't be used")}
+                  </h2>
                   <p className="text-gray-600 mb-5">
-                    Password links work once and expire. This one has already been used, has run out, or
-                    was replaced by a newer link. Enter your email and we'll send a fresh one.
+                    {sessionLost
+                      ? t('resetPassword.sessionExpiredDesc', "For your security, your password can no longer be changed from this session. Enter your e-mail address and we'll send you a fresh link.")
+                      : t('resetPassword.linkInvalidDesc', "Password links work once and expire. This one has already been used, has run out, or was replaced by a newer link. Enter your e-mail address and we'll send you a fresh one.")}
                   </p>
                 </div>
                 <form
@@ -223,26 +327,30 @@ export function ResetPasswordPage() {
                   onSubmit={(e) => { e.preventDefault(); void requestNewLink(); }}
                 >
                   <div className="space-y-2">
-                    <Label htmlFor="resendEmail">Email address</Label>
+                    <Label htmlFor="resendEmail">{t('auth.email', 'Email')}</Label>
                     <Input
                       id="resendEmail"
                       type="email"
+                      autoComplete="email"
                       value={resendEmail}
                       onChange={(e) => setResendEmail(e.target.value)}
-                      placeholder="you@company.com"
+                      placeholder={t('auth.emailPlaceholder', 'you@example.com')}
                       required
                       disabled={resendBusy}
                     />
                   </div>
+                  {resendError && (
+                    <p className="text-sm text-red-600" role="alert">{resendError}</p>
+                  )}
                   <Button type="submit" className="w-full" disabled={resendBusy}>
                     {resendBusy ? (
-                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />Sending...</>
+                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('resetPassword.sending', 'Sending...')}</>
                     ) : (
-                      'Send me a new link'
+                      t('auth.sendNewLink', 'Send me a new link')
                     )}
                   </Button>
                   <Button type="button" variant="ghost" className="w-full" onClick={() => (window.location.href = '/')}>
-                    Return Home
+                    {t('common.goHome', 'Go to Homepage')}
                   </Button>
                 </form>
               </>
@@ -259,9 +367,11 @@ export function ResetPasswordPage() {
         <Card>
           <CardContent className="pt-6 text-center">
             <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Password Updated!</h2>
+            <h2 className="text-xl font-semibold mb-2">{t('resetPassword.successTitle', 'Password updated!')}</h2>
             <p className="text-gray-600">
-              {next ? 'Taking you back...' : 'Sign in with your new password — redirecting...'}
+              {next
+                ? t('resetPassword.takingYouBack', 'Taking you back...')
+                : t('resetPassword.signInAgain', 'Sign in with your new password — redirecting...')}
             </p>
           </CardContent>
         </Card>
@@ -273,35 +383,37 @@ export function ResetPasswordPage() {
     <div className="container mx-auto px-4 py-16 max-w-md">
       <Card>
         <CardHeader>
-          <CardTitle>Reset Your Password</CardTitle>
+          <CardTitle>{t('resetPassword.title', 'Reset your password')}</CardTitle>
         </CardHeader>
         <CardContent>
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
               <p className="text-red-700 text-sm">{error}</p>
             </div>
           )}
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="password">New Password</Label>
+              <Label htmlFor="password">{t('resetPassword.newPassword', 'New password')}</Label>
               <Input
                 id="password"
                 type="password"
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter new password (min 8 characters)"
+                placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
                 required
                 disabled={loading}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Label htmlFor="confirmPassword">{t('auth.confirmPassword', 'Confirm Password')}</Label>
               <Input
                 id="confirmPassword"
                 type="password"
+                autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm new password"
+                placeholder={t('resetPassword.confirmPlaceholder', 'Confirm new password')}
                 required
                 disabled={loading}
               />
@@ -310,10 +422,10 @@ export function ResetPasswordPage() {
               {loading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Updating...
+                  {t('resetPassword.updating', 'Updating...')}
                 </>
               ) : (
-                'Update Password'
+                t('resetPassword.submit', 'Update password')
               )}
             </Button>
           </form>

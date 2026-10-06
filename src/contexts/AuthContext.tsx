@@ -4,6 +4,7 @@ import { supabase, setAuthListener } from '@/lib/supabase'
 import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 import { getStoredInvite } from '@/lib/invite-store'
 import { notifyAdmin } from '@/lib/notifications'
+import i18n from '@/i18n'
 
 interface AuthContextType {
   user: User | null
@@ -21,7 +22,10 @@ interface AuthContextType {
   isModerator: boolean
   isPending: boolean
   isSponsor: boolean
-  signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => Promise<{ error: Error | null }>
+  // needsConfirmation: account created but no session until the e-mailed link is
+  // opened ("Confirm email" ON). emailRedirectTo: where that link lands — reuse it
+  // for supabase.auth.resend so a re-sent link goes to the same place.
+  signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => Promise<{ error: Error | null; needsConfirmation: boolean; emailRedirectTo: string }>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -79,9 +83,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     let memberships: Membership[] = []
     if (rows.length > 0) {
+      // Explicit columns, never '*': claim_code is not readable by signed-in
+      // users (audit S2), and select=* on organizations then fails as a whole.
       const { data: orgs } = await supabase
         .from('organizations')
-        .select('*')
+        .select('id, name, slug, primary_domain, organization_type, tier, max_seats, created_by_user_id, owner_user_id, logo_url, description, website, country, city, created_at, updated_at, access_status, onboarding_status, rejection_reason, audience_description, headquarters_country, social_media_links, marina_subtype, auto_approve_domain_joins, banner_url, investment_geographies, investment_size_min, investment_size_max, investment_hold_period, investment_thesis, featured_partner, gallery, is_event_media_partner')
         .in('id', rows.map(r => r.organization_id))
       const orgMap = new Map(((orgs as Organization[] | null) || []).map(o => [o.id, o]))
       memberships = rows
@@ -345,13 +351,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── signUp ─────────────────────────────────────────────────────────
   const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => {
-    const { error } = await supabase.auth.signUp({
+    const emailRedirectTo = getStoredInvite()
+      ? `${window.location.origin}/join/${getStoredInvite()}?email_confirmed=true`
+      : `${window.location.origin}/onboarding?email_confirmed=true`
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: getStoredInvite()
-          ? `${window.location.origin}/join/${getStoredInvite()}?email_confirmed=true`
-          : `${window.location.origin}/onboarding?email_confirmed=true`,
+        emailRedirectTo,
         data: {
           persona: persona || 'marina',
           first_name: firstName || '',
@@ -360,12 +367,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           company_website: companyWebsite || '',
           detected_org_id: detectedOrgId || '',
           job_title: jobTitle || '',
+          // Language of the auth e-mails (send-email hook), re-sends included.
+          lang: i18n.language?.startsWith('fr') ? 'fr' : 'en',
         },
       },
     })
 
+    // With "Confirm email" ON, an address that is already registered comes back
+    // without an error, as a placeholder user with no identities (GoTrue hides
+    // which addresses exist). That is not a new signup, so admins are not told.
+    const isExistingAccount = !error && data.user?.identities?.length === 0
+
     // Fire-and-forget admin notification for any new signup (does not block or affect auth result)
-    if (!error) {
+    if (!error && !isExistingAccount) {
       const fullName = [firstName, lastName].filter(Boolean).join(' ').trim() || email;
       const details = [
         `Email: ${email}`,
@@ -377,7 +391,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       notifyAdmin('new user signup', fullName, details).catch(() => { /* swallow */ });
     }
 
-    return { error: error ?? null }
+    // "Confirm email" OFF: GoTrue returns a session at once. ON: no session until
+    // the link is opened, so the caller must not route into protected pages.
+    return { error: error ?? null, needsConfirmation: !error && !data.session, emailRedirectTo }
   }
 
   // ─── signIn ─────────────────────────────────────────────────────────

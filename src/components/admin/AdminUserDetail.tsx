@@ -138,7 +138,9 @@ export function AdminUserDetail() {
     if (org?.id) {
       const orgId = org.id as string;
       const [{ data: orgDetail }, { data: sectorData }] = await Promise.all([
-        supabase.from('organizations').select('*').eq('id', orgId).maybeSingle(),
+        // Only what the Organization card shows. Never '*': claim_code is not
+        // readable by signed-in users (audit S2), and select=* then fails.
+        supabase.from('organizations').select('id, name, organization_type, country, city, website, access_status, description').eq('id', orgId).maybeSingle(),
         supabase
           .from(
             merged.persona === 'marina' || merged.persona === 'media_partner' || merged.persona === 'developer' || merged.persona === 'investor'

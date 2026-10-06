@@ -267,11 +267,9 @@ export function DashboardPage() {
       const meterOn = isOwner && !!orgId;
       const orgSectorTable = orgType === 'marina' ? 'organization_interest_sectors' : 'organization_service_sectors';
       // Same rule as the event page: my own registrations, plus any made as a
-      // guest with my email before I had an account.
-      const safeEmail = userEmail ? userEmail.replace(/["\\]/g, '') : '';
-      const myRegsFilter = safeEmail
-        ? `user_id.eq.${uid},guest_email.eq."${safeEmail}"`
-        : `user_id.eq.${uid}`;
+      // guest with my (confirmed) email before I had an account. The server
+      // answers with the event ids and, for webinars, the join link — which is
+      // never read from the events table (registrants and staff only).
 
       const [
         connRes, joinRes, sectorRes, rfpRes, consultRes,
@@ -308,9 +306,7 @@ export function DashboardPage() {
           ? supabase.from('marina_projects').select('id, project_type, status, created_at')
             .eq('user_id', uid).order('created_at', { ascending: false }).limit(5)
           : Promise.resolve({ data: [] }),
-        supabase.from('event_registrations')
-          .select('event_id, events(id, title, description, date_time, end_date_time, location, event_type, published, is_full_day, meeting_url, image_url)')
-          .or(myRegsFilter),
+        supabase.rpc('get_my_event_access', { p_event_ids: null }),
         supabase.from('events')
           .select('id, title, date_time, end_date_time, location, event_type, published, is_full_day, image_url')
           .gte('date_time', since).order('date_time', { ascending: true }).limit(6),
@@ -365,9 +361,18 @@ export function DashboardPage() {
       setMyRequests(reqs.slice(0, 4));
 
       // Events — my own upcoming registrations first, then what's next publicly.
+      const myAccess = ((myRegsRes.data ?? []) as { event_id: string; is_registered: boolean; meeting_url: string | null }[])
+        .filter((a) => a.is_registered);
+      const joinLinks = new Map(myAccess.map((a) => [a.event_id, a.meeting_url] as const));
+      const myEventRows = joinLinks.size > 0
+        ? ((await supabase.from('events')
+          .select('id, title, description, date_time, end_date_time, location, event_type, published, is_full_day, image_url')
+          .in('id', [...joinLinks.keys()])).data ?? []) as EventRow[]
+        : [];
+      if (!alive) return;
       const registered = new Map<string, EventRow>();
-      for (const row of (myRegsRes.data ?? []) as unknown as { events: EventRow | null }[]) {
-        if (row.events && isUpcoming(row.events, now)) registered.set(row.events.id, row.events);
+      for (const e of myEventRows) {
+        if (isUpcoming(e, now)) registered.set(e.id, { ...e, meeting_url: joinLinks.get(e.id) ?? null });
       }
       const merged: DashEvent[] = [];
       const push = (e: EventRow, isRegistered: boolean) => {

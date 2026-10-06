@@ -125,15 +125,6 @@ export function SubmitProjectPage() {
           organization?.name || profile?.first_name || user.id.slice(0, 8),
           `Type: ${formData.project_type}, Budget: ${formData.budget_range}, Timeline: ${formData.timeline}`,
         );
-        sendNotification({
-          type: 'rfp_submitted',
-          userId: user.id,
-          data: {
-            submission_type: 'Project',
-            title: formData.project_type,
-            details: 'Your project has been submitted and is under review.',
-          },
-        });
         toast({ title: t('submitProject.success') });
         setFormData({ project_type: '', budget_range: '', timeline: '', description: '' });
         setConsent(false);

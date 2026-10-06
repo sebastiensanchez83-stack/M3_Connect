@@ -1044,7 +1044,7 @@ export function OnboardingPage() {
                 <Input
                   value={claimCode}
                   onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. ACI-SPLIT"
+                  placeholder="e.g. ABCD-1234"
                   className="max-w-[200px] uppercase tracking-wider font-mono"
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleClaimOrg(); } }}
                 />

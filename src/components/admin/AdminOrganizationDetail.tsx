@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { SM26SectorSuggestions } from '@/components/admin/SM26SectorSuggestions';
 import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
 import {
@@ -43,7 +44,6 @@ interface OrgDetail {
   onboarding_status: string;
   rejection_reason: string | null;
   auto_approve_domain_joins: boolean;
-  claim_code: string | null;
   featured_partner: boolean;
   is_event_media_partner: boolean;
   created_at: string;
@@ -79,6 +79,13 @@ interface MarinaDetails {
   certifications: string[];
 }
 
+// Every organizations column except claim_code. Never select '*': claim_code is
+// not readable through the table by signed-in users, staff included (audit S2),
+// and select=* is then refused as a whole. The code goes through the
+// admin_get_org_claim_code / admin_set_org_claim_code RPCs instead.
+const ORG_COLUMNS =
+  'id, name, slug, primary_domain, organization_type, tier, max_seats, created_by_user_id, owner_user_id, logo_url, description, website, country, city, created_at, updated_at, access_status, onboarding_status, rejection_reason, audience_description, headquarters_country, social_media_links, marina_subtype, auto_approve_domain_joins, banner_url, investment_geographies, investment_size_min, investment_size_max, investment_hold_period, investment_thesis, featured_partner, gallery, is_event_media_partner';
+
 const STATUS_OPTIONS = ['verified', 'pending', 'rejected', 'suspended'];
 // organizations.onboarding_status is plain text (no enum, no check). These are
 // the values the app actually writes; it matters because an organization only
@@ -97,6 +104,7 @@ const STATUS_COLORS: Record<string, string> = {
 export function AdminOrganizationDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [org, setOrg] = useState<OrgDetail | null>(null);
@@ -118,6 +126,12 @@ export function AdminOrganizationDetail() {
   const [maxSeats, setMaxSeats] = useState(5);
   const [rejectionReason, setRejectionReason] = useState('');
   const [claimCode, setClaimCode] = useState('');
+  // The code as stored (from admin_get_org_claim_code). "Send Connect Link"
+  // always sends this one, never an unsaved edit.
+  const [savedClaimCode, setSavedClaimCode] = useState('');
+  // false when the code could not be read (RPC refused or not deployed yet):
+  // the editor is then locked so a save can never blank the stored code.
+  const [claimCodeReady, setClaimCodeReady] = useState(false);
   const [featured, setFeatured] = useState(false);
   const [mediaPartner, setMediaPartner] = useState(false);
 
@@ -125,10 +139,12 @@ export function AdminOrganizationDetail() {
 
   const loadOrg = async () => {
     setLoading(true);
-    const [{ data: orgData }, { data: memberData }, { data: marinaData }] = await Promise.all([
-      supabase.from('organizations').select('*').eq('id', id!).single(),
+    const [{ data: orgData }, { data: memberData }, { data: marinaData }, codeRes] = await Promise.all([
+      supabase.from('organizations').select(ORG_COLUMNS).eq('id', id!).single(),
       supabase.from('organization_members').select('id, user_id, role, joined_at').eq('organization_id', id!),
       supabase.from('organization_marina_details').select('*').eq('organization_id', id!).maybeSingle(),
+      // claim_code is staff-only (audit S2): verified admins read it here.
+      supabase.rpc('admin_get_org_claim_code', { p_org_id: id! }),
     ]);
 
     if (!orgData) { setLoading(false); return; }
@@ -160,7 +176,16 @@ export function AdminOrganizationDetail() {
     setTier(orgData.tier);
     setMaxSeats(orgData.max_seats);
     setRejectionReason(orgData.rejection_reason || '');
-    setClaimCode(orgData.claim_code || '');
+    if (codeRes.error) {
+      setClaimCodeReady(false);
+      setSavedClaimCode('');
+      setClaimCode('');
+    } else {
+      const code = typeof codeRes.data === 'string' ? codeRes.data : '';
+      setClaimCodeReady(true);
+      setSavedClaimCode(code);
+      setClaimCode(code);
+    }
     setFeatured(orgData.featured_partner || false);
     setMediaPartner(orgData.is_event_media_partner || false);
     setLoading(false);
@@ -191,7 +216,6 @@ export function AdminOrganizationDetail() {
       tier,
       max_seats: maxSeats,
       rejection_reason: status === 'rejected' ? rejectionReason : null,
-      claim_code: claimCode.trim() || null,
       featured_partner: featured,
       is_event_media_partner: mediaPartner,
       updated_at: new Date().toISOString(),
@@ -200,10 +224,32 @@ export function AdminOrganizationDetail() {
     const { error } = await supabase.from('organizations').update(updates).eq('id', org.id);
     if (error) {
       toast({ title: 'Error saving', description: error.message, variant: 'destructive' });
-    } else {
-      toast({ title: 'Organization updated' });
-      await loadOrg();
+      setSaving(false);
+      return;
     }
+
+    // The claim code is written through the admin RPC (audit S2), and only
+    // when it was actually changed.
+    const nextCode = claimCode.trim().toUpperCase();
+    if (claimCodeReady && nextCode !== savedClaimCode) {
+      const { error: codeError } = await supabase.rpc('admin_set_org_claim_code', {
+        p_org_id: org.id,
+        p_claim_code: nextCode || null,
+      });
+      if (codeError) {
+        // Keep the typed code on screen so it can be corrected.
+        toast({
+          title: t('admin.orgClaimCode.saveFailed', 'Organization updated, but the claim code was not saved'),
+          description: codeError.message,
+          variant: 'destructive',
+        });
+        setSaving(false);
+        return;
+      }
+    }
+
+    toast({ title: 'Organization updated' });
+    await loadOrg();
     setSaving(false);
   };
 
@@ -267,8 +313,13 @@ export function AdminOrganizationDetail() {
     setInvitingMember(false);
   };
 
+  // The code typed in the editor differs from the stored one: it would not work
+  // until saved, so it must not be e-mailed.
+  const claimCodeDirty = claimCode.trim().toUpperCase() !== savedClaimCode;
+
   const handleSendConnectLink = async () => {
-    if (!inviteEmail.trim() || !claimCode.trim() || !org) return;
+    // Always the stored code (from admin_get_org_claim_code), never an unsaved edit.
+    if (!inviteEmail.trim() || !savedClaimCode || claimCodeDirty || !org) return;
     setSendingInvite(true);
     try {
       await sendNotification({
@@ -276,11 +327,11 @@ export function AdminOrganizationDetail() {
         email: inviteEmail.trim(),
         data: {
           org_name: org.name,
-          claim_code: claimCode,
+          claim_code: savedClaimCode,
           email: inviteEmail.trim(),
         },
       });
-      toast({ title: 'Connect link sent', description: `Email sent to ${inviteEmail.trim()} with claim code ${claimCode}.` });
+      toast({ title: 'Connect link sent', description: `Email sent to ${inviteEmail.trim()} with claim code ${savedClaimCode}.` });
       setInviteEmail('');
     } catch {
       toast({ title: 'Failed to send', description: 'Please try again.', variant: 'destructive' });
@@ -409,7 +460,9 @@ export function AdminOrganizationDetail() {
                   <Input
                     value={claimCode}
                     onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
-                    placeholder="e.g. ACI-SPLIT"
+                    // Fake example on purpose: the bundle and the repo are public, so never put a real code here.
+                    placeholder={t('admin.orgClaimCode.placeholder', 'e.g. ABC-1234')}
+                    disabled={!claimCodeReady}
                     className="max-w-[200px] uppercase tracking-wider font-mono text-sm"
                   />
                   {claimCode && (
@@ -418,10 +471,16 @@ export function AdminOrganizationDetail() {
                     </Button>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 mt-2">Users enter this code during onboarding to join this organization.</p>
+                {claimCodeReady ? (
+                  <p className="text-xs text-gray-400 mt-2">Users enter this code during onboarding to join this organization.</p>
+                ) : (
+                  <p className="text-xs text-amber-700 mt-2">
+                    {t('admin.orgClaimCode.unavailable', 'The claim code could not be loaded. Only verified admins can see it; reload the page to try again.')}
+                  </p>
+                )}
               </div>
 
-              {claimCode && (
+              {savedClaimCode && (
                 <>
                   <Separator />
                   <div>
@@ -437,13 +496,19 @@ export function AdminOrganizationDetail() {
                       <Button
                         size="sm"
                         onClick={handleSendConnectLink}
-                        disabled={sendingInvite || !inviteEmail.trim()}
+                        disabled={sendingInvite || !inviteEmail.trim() || claimCodeDirty}
                       >
                         {sendingInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
                         {sendingInvite ? '' : 'Send'}
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1.5">Sends an email with the claim code and signup instructions.</p>
+                    {claimCodeDirty ? (
+                      <p className="text-xs text-amber-700 mt-1.5">
+                        {t('admin.orgClaimCode.saveBeforeSend', 'Save the new code first: the e-mail always carries the saved code.')}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-gray-400 mt-1.5">Sends an email with the claim code and signup instructions.</p>
+                    )}
                   </div>
                 </>
               )}

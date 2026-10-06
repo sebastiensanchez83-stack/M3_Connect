@@ -2,9 +2,20 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Invite ONE attendee (from a company's SM26 roster) to a real platform account.
 // Idempotent by email: creates the account or links an existing one, adds them
-// to the company's organization, tags sm_attendee.user_id, and emails a
-// set-password / welcome link. Callable by staff OR by the registration's
-// owner / org-member (so a company can onboard its own delegation).
+// to the company's organization as a COLLABORATOR, tags sm_attendee.user_id, and
+// emails a set-password / welcome link. Callable by staff OR by the
+// registration's owner / org-member (so a company can onboard its own delegation)
+// -- the latter only while the attendee list is open.
+//
+// Based on the DEPLOYED v4 (always 'collaborator'), not on the older repo copy
+// that made the invitee 'owner' when the company had none.
+//
+// Roster lock (audit S20). This function writes with the service role, so the
+// sm_attendee_guard trigger -- which enforces the admin-set roster deadline only
+// for current_user = 'authenticated' -- never saw it: any member of the
+// registered company could still create verified accounts after the deadline.
+// Non-staff callers are now refused once sm_roster_locked(event) is true (or if
+// that check cannot be made). Staff are not affected.
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -77,7 +88,10 @@ Deno.serve(async (req) => {
   const { data: att } = await admin.from("sm_attendee")
     .select("id, registration_id, event_id, first_name, last_name, email, job_title, user_id, is_primary")
     .eq("id", attendeeId).maybeSingle();
-  const a = att as { id: string; registration_id: string; event_id: string; first_name?: string; last_name?: string; email?: string; job_title?: string; user_id?: string } | null;
+  const a = att as {
+    id: string; registration_id: string; event_id: string; first_name?: string; last_name?: string;
+    email?: string; job_title?: string; user_id?: string; is_primary?: boolean;
+  } | null;
   if (!a) return json(req, { error: "Attendee not found" }, 404);
   const email = (a.email || "").trim().toLowerCase();
   if (!email) return json(req, { error: "This attendee has no email — add one first" }, 400);
@@ -98,6 +112,17 @@ Deno.serve(async (req) => {
     allowed = !!mem;
   }
   if (!allowed) return json(req, { error: "Forbidden" }, 403);
+
+  // Same deadline the roster UI and the sm_attendee_guard trigger apply to
+  // participants. Fail closed: if the lock cannot be read, a non-staff caller
+  // does not get to create accounts.
+  if (!isStaff) {
+    const { data: locked, error: lockErr } = await admin.rpc("sm_roster_locked", { p_event: a.event_id });
+    if (lockErr) console.error("sm_roster_locked failed", lockErr);
+    if (lockErr || locked !== false) {
+      return json(req, { error: "The attendee list is locked — the deadline has passed. Contact events@m3monaco.com." }, 403);
+    }
+  }
 
   // Idempotent account: reuse the attendee's link, else create, else find by email.
   let userId = a.user_id || null;
@@ -129,15 +154,14 @@ Deno.serve(async (req) => {
     if (profErr) console.error("profile bootstrap failed", profErr);
   }
 
-  // Add to the company organization (owner if none yet, else collaborator).
   if (reg.organization_id) {
     const { data: existingMem } = await admin.from("organization_members")
       .select("id").eq("organization_id", reg.organization_id).eq("user_id", userId).maybeSingle();
     if (!existingMem) {
-      const { data: hasOwner } = await admin.from("organization_members")
-        .select("id").eq("organization_id", reg.organization_id).eq("role", "owner").limit(1).maybeSingle();
+      // ALWAYS a collaborator. Never 'owner' — an invited attendee must not take
+      // ownership of the company record just because the org has no owner set.
       const { error: memErr } = await admin.from("organization_members")
-        .insert({ organization_id: reg.organization_id, user_id: userId, role: hasOwner ? "collaborator" : "owner" });
+        .insert({ organization_id: reg.organization_id, user_id: userId, role: "collaborator" });
       if (memErr && (memErr as { code?: string }).code !== "23505") console.error("membership failed", memErr);
     }
   }

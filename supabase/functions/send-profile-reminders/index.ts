@@ -3,13 +3,70 @@
 // enforces a per-(user, type) cooldown so repeated invocations don't
 // spam.
 //
-// Triggered by pg_cron at 08:00 UTC. Can also be invoked manually for
-// testing; the cooldown protects against accidental bursts.
+// Triggered by pg_cron at 08:00 UTC (job "nightly-profile-reminders", which
+// calls public.invoke_send_profile_reminders(); see migration
+// 20261007104218_email_functions_rate_log_and_reminders_cron.sql).
+//
+// Security (audit S9, 7 Oct 2026): the function used to be public -- anyone
+// could start a reminder round. It now runs only for a caller holding a
+// service-role key: the edge-function env key itself, or another service-role
+// JWT (the copy kept in Vault and sent by the pg_cron invoker), which GoTrue
+// must accept as service role. verify_jwt stays false: the function checks
+// its caller itself. To run it by hand, POST with
+//   Authorization: Bearer <service_role key>
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
+
+function sameSecret(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+/** Unverified read of a JWT's "role" claim -- only a pre-filter, never trusted alone. */
+function jwtRole(token: string): string | null {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+    return typeof payload?.role === "string" ? payload.role : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True for the env service-role key, or for another JWT that claims the
+ * service_role AND that GoTrue accepts on an admin-only endpoint (which
+ * verifies the signature). Anything else -- anon key, user JWTs, forged
+ * tokens -- is refused.
+ */
+async function isServiceRole(token: string): Promise<boolean> {
+  if (!token) return false;
+  if (sameSecret(token, SUPABASE_SERVICE_ROLE_KEY)) return true;
+  if (jwtRole(token) !== "service_role") return false;
+  try {
+    // apikey only gets the request through the API gateway; GoTrue authorises
+    // admin endpoints from the Authorization JWT (signature + role claim).
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1`, {
+      headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY || token },
+    });
+    await r.body?.cancel();
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
 
 interface ReminderRule {
   type: string;
@@ -55,7 +112,15 @@ interface RunResult {
   by_type: Record<string, { sent: number; skipped: number }>;
 }
 
-Deno.serve(async (_req: Request) => {
+Deno.serve(async (req: Request) => {
+  const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!(await isServiceRole(bearer))) {
+    return new Response(JSON.stringify({ ok: false, error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const result: RunResult = {
     ok: true,
     candidates_considered: 0,

@@ -368,12 +368,15 @@ export function OrganizationTab() {
         return;
       }
 
-      // Fetch org
-      const { data: orgData } = await supabase
+      // Fetch org. Explicit columns, never '*': claim_code is not readable by
+      // signed-in users (audit S2), and select=* on organizations then fails.
+      const { data: orgRow } = await supabase
         .from('organizations')
-        .select('*')
+        .select('id, name, slug, primary_domain, organization_type, tier, max_seats, created_by_user_id, owner_user_id, logo_url, description, website, country, city, created_at, updated_at, access_status, onboarding_status, rejection_reason, audience_description, headquarters_country, social_media_links, marina_subtype, auto_approve_domain_joins, banner_url, investment_geographies, investment_size_min, investment_size_max, investment_hold_period, investment_thesis, featured_partner, gallery, is_event_media_partner')
         .eq('id', membership.organization_id)
         .single();
+      // Same type as the former select('*') result gave this code.
+      const orgData = orgRow as Organization;
 
       if (orgData) {
         setOrg(orgData as Organization);

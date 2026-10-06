@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type ElementType, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +16,7 @@ import { checkSession } from '@/lib/session';
 import { COUNTRIES } from '@/lib/countries';
 import {
   CheckCircle, Loader2, Eye, Ship, Lightbulb, Compass, GraduationCap,
-  Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight, AlertTriangle,
+  Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight, AlertTriangle, CalendarX,
 } from 'lucide-react';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
@@ -114,7 +115,13 @@ interface DraftShape {
 export function SM26RegisterPage() {
   const { user, profile, organization } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [eventId, setEventId] = useState<string | null>(null);
+  // Registrations are closed unless staff opened them (sm_event.settings.
+  // registrations_open, read through sm_registrations_open). null = still asking.
+  // The server enforces the same flag (sm26-register, sm26-draft, and an RLS
+  // policy on sm_registration); this only decides what the page shows.
+  const [regOpen, setRegOpen] = useState<boolean | null>(null);
   const [fees, setFees] = useState<Record<string, number>>({});
   const [form, setForm] = useState({
     first_name: '', last_name: '', email: '', phone: '', company_name: '', website: '', country: '', job_title: '',
@@ -144,7 +151,7 @@ export function SM26RegisterPage() {
   // Load the event id + fee config
   useEffect(() => {
     supabase.from('sm_event').select('id').eq('slug', 'sm26').maybeSingle()
-      .then(({ data }) => { if (data) setEventId(data.id); });
+      .then(({ data }) => { if (data) setEventId(data.id); else setRegOpen(false); });
     supabase.from('sm_fee_config').select('fee_key, amount_cents')
       .then(({ data }) => {
         if (!data) return;
@@ -153,6 +160,15 @@ export function SM26RegisterPage() {
         setFees(m);
       });
   }, []);
+
+  // Open or closed? Any failure reads as closed: the server refuses anyway.
+  useEffect(() => {
+    if (!eventId) return;
+    let active = true;
+    supabase.rpc('sm_registrations_open', { p_event_id: eventId })
+      .then(({ data, error }) => { if (active) setRegOpen(!error && data === true); });
+    return () => { active = false; };
+  }, [eventId]);
 
   // Pre-fill known fields for logged-in members
   useEffect(() => {
@@ -248,8 +264,11 @@ export function SM26RegisterPage() {
     if (typeof d.terms === 'boolean') setTerms(d.terms);
   };
 
-  // Resume from an emailed link (?draft=token) — cross-device.
+  // Resume from an emailed link (?draft=token) — cross-device. Only once we know
+  // registrations are open: drafts close with them, and a closed page should not
+  // also toast "that link didn't work".
   useEffect(() => {
+    if (regOpen !== true) return;
     const token = new URLSearchParams(window.location.search).get('draft');
     if (!token) return;
     (async () => {
@@ -278,8 +297,9 @@ export function SM26RegisterPage() {
         });
       }
     })();
+    // regOpen goes null -> true at most once, so this still runs once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [regOpen]);
 
   // Restore the browser-local draft on first mount (unless using a ?draft link).
   useEffect(() => {
@@ -755,6 +775,63 @@ export function SM26RegisterPage() {
             </p>
           </div>
         )}
+      </div>
+    );
+  }
+
+  if (regOpen === null) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Closed (the default once SM26 is over). The route stays: it is linked from
+  // emails and the event pages, and a member who did register still needs a way
+  // to their event space.
+  if (!regOpen) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <Helmet><title>{t('sm26Register.closed.pageTitle', 'Registrations closed — Smart & Sustainable Marina Rendezvous 2026')}</title></Helmet>
+        <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
+          <div className="container mx-auto px-4 py-12">
+            <div className="mb-4"><SM26BackLink to="/events" label={t('sm26Register.closed.back', 'Back to events')} light /></div>
+            <p className="uppercase tracking-wide text-white/60 text-sm mb-2">
+              {t('sm26Register.closed.eyebrow', 'SM26 · 20–21 September 2026 · Yacht Club de Monaco')}
+            </p>
+            <h1 className="text-3xl lg:text-4xl font-bold">{t('sm26Register.closed.title', 'Registrations are closed')}</h1>
+          </div>
+        </section>
+        <div className="container mx-auto px-4 py-10 max-w-xl text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-50">
+            <CalendarX className="h-8 w-8 text-primary" />
+          </div>
+          <p className="text-gray-700">
+            {t('sm26Register.closed.body', 'Registrations for the Smart & Sustainable Marina Rendezvous 2026 are closed.')}
+          </p>
+          <p className="text-gray-600 mt-3">
+            {t('sm26Register.closed.registered', 'Already registered? Your badge, programme and documents are in your event space.')}
+          </p>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            {user ? (
+              <Button asChild className="gap-1.5">
+                <Link to="/account?tab=event">{t('sm26Register.closed.openSpace', 'Open my event space')} <ArrowRight className="h-4 w-4" /></Link>
+              </Button>
+            ) : (
+              <Button asChild className="gap-1.5">
+                <Link to="/sm26">{t('sm26Register.closed.eventPage', 'Go to the event page')} <ArrowRight className="h-4 w-4" /></Link>
+              </Button>
+            )}
+            <Button asChild variant="outline">
+              <Link to="/events">{t('sm26Register.closed.upcoming', 'See upcoming events')}</Link>
+            </Button>
+          </div>
+          <p className="text-xs text-gray-500 mt-6">
+            {t('sm26Register.closed.contact', 'A question about your registration? Write to')}{' '}
+            <a href="mailto:events@m3monaco.com" className="text-primary">events@m3monaco.com</a>
+          </p>
+        </div>
       </div>
     );
   }

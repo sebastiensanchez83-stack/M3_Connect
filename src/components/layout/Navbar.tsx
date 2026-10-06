@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
+import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
 import {
   Menu, X, Globe, ChevronDown, Plus, Inbox,
   Building2, UserPlus, LogOut, Settings, Shield, Check, LayoutDashboard,
@@ -51,7 +52,7 @@ export function Navbar() {
   const [signupOpen, setSignupOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [emailFromConfirmation] = useState('');
-  const [showConfirmedBanner, setShowConfirmedBanner] = useState(false);
+  const [confirmationLanding, setConfirmationLanding] = useState<AuthLanding | null>(null);
 
   // Track scroll for subtle shadow effect
   useEffect(() => {
@@ -68,16 +69,15 @@ export function Navbar() {
     }
   }, [location.search]);
 
-  // Detect email confirmation redirect (only on homepage — /onboarding handles its own)
+  // Detect email confirmation redirect (only on homepage — /onboarding and
+  // /join/:id handle their own), including a failed link (expired / already used)
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('email_confirmed') === 'true' && window.location.pathname === '/') {
-      setShowConfirmedBanner(true);
+    const landing = readAuthLanding();
+    if (landing && window.location.pathname === '/') {
+      setConfirmationLanding(landing);
       setLoginOpen(true);
       // Clean URL
-      const url = new URL(window.location.href);
-      url.searchParams.delete('email_confirmed');
-      window.history.replaceState({}, '', url.pathname);
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 
@@ -477,7 +477,8 @@ export function Navbar() {
           <LoginForm
             onSuccess={() => setLoginOpen(false)}
             defaultEmail={emailFromConfirmation}
-            showConfirmedBanner={showConfirmedBanner}
+            showConfirmedBanner={confirmationLanding === 'confirmed'}
+            linkError={confirmationLanding === 'link-error'}
           />
         </DialogContent>
       </Dialog>

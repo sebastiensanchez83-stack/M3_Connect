@@ -59,11 +59,16 @@ interface SendNotificationParams {
 /**
  * Send an email notification via the send-notification edge function.
  * This is fire-and-forget: errors are logged but never thrown.
+ *
+ * supabase.functions.invoke sends the signed-in user's access token. The edge
+ * function (verify_jwt false, it checks the caller itself) lets a verified
+ * admin/moderator send any type to anyone; any other member only the e-mails
+ * the app sends on their behalf, with the recipient checked against the row
+ * that justifies it (partner request, join request, invitation, or the caller
+ * themself). Call it right after writing that row.
  */
 export async function sendNotification({ type, userId, email, data }: SendNotificationParams): Promise<void> {
   try {
-    // Edge function uses verify_jwt: false with internal apikey check
-    // supabase-js automatically sends the anon key as apikey header
     await supabase.functions.invoke('send-notification', {
       body: {
         type,
@@ -77,13 +82,47 @@ export async function sendNotification({ type, userId, email, data }: SendNotifi
   }
 }
 
+/** The address of a new sign-up, from the "Email: ..." line AuthContext puts in `details`. */
+function signupEmailFrom(details?: string): string | null {
+  const m = /^Email:\s*(\S+@\S+)\s*$/m.exec(details || '');
+  return m ? m[1].trim() : null;
+}
+
+/**
+ * Tell the admin team about a brand-new sign-up. Works without a session: only
+ * the address is sent, notify-admins reads everything else from the account
+ * created in the last 30 minutes and alerts once per account.
+ */
+export async function notifyAdminsOfSignup(email: string): Promise<void> {
+  try {
+    const signupEmail = email.trim();
+    if (!signupEmail) return;
+    await supabase.functions.invoke('notify-admins', {
+      body: { signup_email: signupEmail },
+    });
+  } catch {
+    // Fire-and-forget: swallow all errors silently in production
+  }
+}
+
 /**
  * Notify the admin team about a new submission.
- * Calls the `notify-admins` edge function which fans out to every admin user
- * in the profiles table (persona = 'admin') plus the generic contact inbox.
+ * Calls the `notify-admins` edge function which fans out to every verified
+ * admin plus the generic contact inbox.
+ *
+ * - 'new user signup' (AuthContext.signUp) runs before any session exists, so
+ *   only the new address is sent; notify-admins builds the alert itself from
+ *   the account that was just created. The other arguments are not sent.
+ * - Every other submission type needs a signed-in member; the edge function
+ *   caps the text and adds the sender's sign-in address.
  */
 export async function notifyAdmin(submissionType: string, submitter: string, details?: string): Promise<void> {
   try {
+    if (submissionType.trim().toLowerCase() === 'new user signup') {
+      const signupEmail = signupEmailFrom(details);
+      if (signupEmail) await notifyAdminsOfSignup(signupEmail);
+      return;
+    }
     await supabase.functions.invoke('notify-admins', {
       body: {
         submission_type: submissionType,

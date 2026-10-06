@@ -682,102 +682,720 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
   }
 }
 
+// ──────────────────────────────────────────────
+// Who may send what (audit S9, 7 Oct 2026)
+// ──────────────────────────────────────────────
+//
+// Three kinds of caller:
+//   service  -- another edge function holding the service-role key (notify-admins,
+//               send-profile-reminders, payment-ipn once it sends that key). Trusted:
+//               any known type, recipient as given.
+//   staff    -- a signed-in VERIFIED admin or moderator (same test as sm_is_staff()).
+//               The admin consoles. Any known type, recipient as given.
+//   member   -- any other signed-in account. Before this change a member could send
+//               any type to any address with any text: a phishing relay on M3's
+//               domain for every account holder. A member may now only trigger the
+//               e-mails the app itself sends on their behalf, and the recipient is
+//               always resolved here from the row that justifies the e-mail:
+//                 event_registration_confirmed, rfp_submitted   -> the caller only
+//                 partner_request_received   -> marina of a pending partner request
+//                                               the caller created < 15 min ago
+//                 partner_request_accepted / _rejected -> partner of a request the
+//                                               caller (marina side) answered < 15 min ago
+//                 join_request_received      -> owner (organizations.owner_user_id) of
+//                                               the org the caller asked to join < 15 min ago
+//                 join_request_approved / _rejected -> requester of a join request in
+//                                               an org the caller owns, decided < 15 min ago
+//                 team_invitation (< 15 min) / team_invitation_reminder -> invitee of a
+//                                               pending invitation of an org the caller
+//                                               owns, or that the caller sent
+//               Names that appear in those e-mails (sender org, org invited to,
+//               requester e-mail) are taken from the database, not from the caller.
+//               The same e-mail for the same row goes out at most once per 10 minutes,
+//               and a member can trigger at most 30 e-mails an hour.
+//
+//               Organisation-relay rule (review of 7 Oct 2026). Any signed-in account
+//               can own an organisation (create_organization, or a direct INSERT) and
+//               insert organization_invitations rows with ANY e-mail and ANY status. So
+//               team_invitation(_reminder) and join_request_approved/_rejected could
+//               still carry an attacker-chosen organisation name, in the subject, to an
+//               address the attacker picks. Hence:
+//                 - join_request_approved/_rejected only go to a CONFIRMED registered
+//                   account with that address (a real join request always comes from
+//                   one: request_org_join uses the caller's confirmed auth e-mail), and
+//                   the row must have the self-request shape (invited_by_user_id null).
+//                 - When the organisation is not verified by M3
+//                   (organizations.access_status <> 'verified'), the subject is generic
+//                   (no organisation name), the name in the body is cut to 80
+//                   characters, and those e-mails are capped at 5 per organisation and
+//                   50 for all unverified organisations together per 24 h (logged in
+//                   email_rate_log as "org-email:<org id>"; fails CLOSED). Production
+//                   had 7 invitations in total, all from verified organisations.
+//                 - The sending organisation named in partner_request_received is used
+//                   only if the caller belongs to it (partner_requests RLS does not
+//                   check partner_organization_id), and the message is the one stored
+//                   on the request row.
+//               organizations.access_status is only trustworthy once self-service
+//               INSERTs cannot set it: see 20261007152406_org_insert_guard.sql.
+// Every caller: unknown types are refused, every data field is capped and
+// HTML-escaped before it reaches a template, the button always points at the site
+// origin, and the response no longer echoes the recipient address.
+
+const KNOWN_TYPES = new Set<string>(Object.keys(TYPE_TO_CATEGORY));
+const SITE_ORIGIN = (() => {
+  try { return new URL(SITE_URL).origin; } catch { return "https://smartmarinaconnect.com"; }
+})();
+const MAX_FIELD_CHARS = 2000;
+const MAX_FIELDS = 25;
+const MEMBER_WINDOW_MS = 15 * 60 * 1000;
+const MEMBER_DUPLICATE_MS = 10 * 60 * 1000;
+const MEMBER_HOURLY_CAP = 30;
+const UNVERIFIED_ORG_DAILY_CAP = 5;
+const UNVERIFIED_ORGS_GLOBAL_DAILY_CAP = 50;
+const ORG_NAME_CHARS = 120;
+const UNVERIFIED_ORG_NAME_CHARS = 80;
+const PERSON_NAME_CHARS = 120;
+const MESSAGE_CHARS = 1000;
+
+// deno-lint-ignore no-explicit-any
+type Db = any;
+
+function sameSecret(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Keep plain string-ish fields only, strip control characters, cap length. */
+function sanitizeData(input: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return out;
+  let n = 0;
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (n >= MAX_FIELDS) break;
+    if (!/^[a-z_]{1,40}$/.test(k)) continue;
+    if (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean") continue;
+    // deno-lint-ignore no-control-regex
+    out[k] = String(v).replace(/(?![\t\n\r])\p{Cc}/gu, "").slice(0, MAX_FIELD_CHARS);
+    n++;
+  }
+  return out;
+}
+
+/** A name read from the database: one line, no control characters, capped. */
+function cleanName(s: string | null | undefined, max: number): string {
+  // deno-lint-ignore no-control-regex
+  return (s || "").replace(/\p{Cc}+/gu, " ").replace(/\s+/g, " ").trim().slice(0, max).trim();
+}
+
+/** Free text read from the database (a request message): line breaks kept, capped. */
+function cleanText(s: string | null | undefined, max: number): string {
+  // deno-lint-ignore no-control-regex
+  return (s || "").replace(/(?![\t\n\r])\p{Cc}/gu, "").trim().slice(0, max);
+}
+
+function escapeData(d: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(d)) out[k] = escapeHtml(v);
+  return out;
+}
+
+/** Any button link is re-based onto the site origin (path + query kept). */
+function toSiteUrl(raw: string): string {
+  try {
+    const u = new URL(raw, SITE_ORIGIN);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return `${SITE_ORIGIN}/`;
+    return `${SITE_ORIGIN}${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    return `${SITE_ORIGIN}/`;
+  }
+}
+
+function isEmail(s: string): boolean {
+  return s.length <= 254 && /^[^\s@<>()",;:\\]+@[^\s@<>()",;:\\]+\.[^\s@<>()",;:\\]+$/.test(s);
+}
+
+function sameEmail(a: string | null | undefined, b: string | null | undefined): boolean {
+  return !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface Recipient {
+  recipientEmail: string;
+  recipientUserId: string | null;
+  firstName: string;
+  prefs: Record<string, boolean> | null;
+}
+
+async function recipientForUser(db: Db, userId: string): Promise<Recipient | null> {
+  const { data: profile } = await db
+    .from("profiles")
+    .select("first_name, email, notification_prefs")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (profile?.email) {
+    return {
+      recipientEmail: profile.email,
+      recipientUserId: userId,
+      firstName: profile.first_name || "",
+      prefs: (profile.notification_prefs as Record<string, boolean> | null) || null,
+    };
+  }
+  const { data: authData } = await db.auth.admin.getUserById(userId);
+  const user = authData?.user;
+  if (!user?.email) return null;
+  return {
+    recipientEmail: user.email,
+    recipientUserId: userId,
+    firstName: profile?.first_name || user.user_metadata?.first_name || "",
+    prefs: null,
+  };
+}
+
+interface Member {
+  id: string;
+  email: string;
+  fullName: string;
+  /** Names the caller may legitimately sign with: own name, e-mail local part, own orgs. */
+  names: string[];
+  /** Organisations the caller belongs to (any role). */
+  orgIds: string[];
+}
+
+async function loadMember(db: Db, id: string, email: string): Promise<Member> {
+  const { data: prof } = await db.from("profiles").select("first_name, last_name").eq("user_id", id).maybeSingle();
+  const first = cleanName(prof?.first_name, PERSON_NAME_CHARS);
+  const fullName = cleanName([prof?.first_name, prof?.last_name].filter(Boolean).join(" "), PERSON_NAME_CHARS);
+  const names: string[] = [];
+  if (fullName) names.push(fullName);
+  if (first) names.push(first);
+  if (email) names.push(email.split("@")[0]);
+  const { data: mems } = await db
+    .from("organization_members")
+    .select("organization_id, organization:organizations(name)")
+    .eq("user_id", id);
+  const orgIds: string[] = [];
+  for (const m of (mems || []) as { organization_id?: string; organization: { name?: string } | { name?: string }[] | null }[]) {
+    if (m.organization_id && UUID_RE.test(m.organization_id)) orgIds.push(m.organization_id);
+    const orgs = Array.isArray(m.organization) ? m.organization : m.organization ? [m.organization] : [];
+    for (const o of orgs) {
+      const n = cleanName(o?.name, ORG_NAME_CHARS);
+      if (n) names.push(n);
+    }
+  }
+  return { id, email, fullName, names, orgIds };
+}
+
+/** Caller-supplied display name, kept only if it is one of the caller's own names. */
+function pickName(supplied: string | undefined, allowed: string[], fallback: string): string {
+  const s = (supplied || "").trim().toLowerCase();
+  if (!s) return fallback;
+  const hit = allowed.find((a) => a.trim().toLowerCase() === s);
+  return hit || fallback;
+}
+
+async function ownedOrgIds(db: Db, userId: string): Promise<string[]> {
+  const { data } = await db
+    .from("organization_members")
+    .select("organization_id")
+    .eq("user_id", userId)
+    .eq("role", "owner");
+  return ((data || []) as { organization_id: string }[]).map((r) => r.organization_id).filter((x) => UUID_RE.test(x));
+}
+
+interface OrgInfo {
+  name: string;
+  verified: boolean;
+}
+
+/** Organisation name (cleaned; shorter when M3 has not verified the organisation). */
+async function orgInfo(db: Db, orgId: string | null | undefined): Promise<OrgInfo> {
+  if (!orgId) return { name: "", verified: false };
+  const { data } = await db.from("organizations").select("name, access_status").eq("id", orgId).maybeSingle();
+  const verified = data?.access_status === "verified";
+  return { name: cleanName(data?.name, verified ? ORG_NAME_CHARS : UNVERIFIED_ORG_NAME_CHARS), verified };
+}
+
+/**
+ * The CONFIRMED account whose sign-in address is `email`, or null. profiles.email
+ * only narrows the search; the auth record decides (a profile e-mail is
+ * self-editable, the auth e-mail and its confirmation are not).
+ */
+async function confirmedUserByEmail(db: Db, email: string): Promise<string | null> {
+  const e = email.trim();
+  if (!isEmail(e)) return null;
+  const { data: rows } = await db
+    .from("profiles")
+    .select("user_id")
+    .in("email", Array.from(new Set([e, e.toLowerCase()])))
+    .limit(5);
+  for (const row of (rows || []) as { user_id: string }[]) {
+    if (!row.user_id || !UUID_RE.test(row.user_id)) continue;
+    const { data: authData } = await db.auth.admin.getUserById(row.user_id);
+    const u = authData?.user;
+    if (u && sameEmail(u.email, e) && (u.email_confirmed_at || u.confirmed_at)) return row.user_id;
+  }
+  return null;
+}
+
+const GENERIC_ORG_SUBJECT: Partial<Record<NotificationType, string>> = {
+  team_invitation: "You've been invited to join a team on Smart Marina Connect",
+  team_invitation_reminder: "Reminder: your invitation to join a team on Smart Marina Connect",
+  join_request_approved: "Your join request was approved on Smart Marina Connect",
+  join_request_rejected: "Update on your join request on Smart Marina Connect",
+};
+
+interface MemberGrant extends Recipient {
+  data: Record<string, string>;
+  ref: string;
+  /** Set when the e-mail names an organisation M3 has not verified: capped per org. */
+  unverifiedOrgId?: string;
+  /** Replaces the template subject (no organisation name for unverified orgs). */
+  subject?: string;
+}
+
+/** Extra fields of a grant for an e-mail that names organisation `orgId`. */
+function orgFields(type: string, orgId: string, org: OrgInfo): Pick<MemberGrant, "unverifiedOrgId" | "subject"> {
+  if (org.verified) return {};
+  return { unverifiedOrgId: orgId, subject: GENERIC_ORG_SUBJECT[type as NotificationType] };
+}
+
+/**
+ * Resolve the recipient of a member-triggered e-mail from the database row that
+ * justifies it. Returns null when no such row exists (the send is refused).
+ */
+async function authorizeMemberSend(
+  db: Db,
+  m: Member,
+  type: string,
+  userId: string,
+  email: string,
+  data: Record<string, string>,
+): Promise<MemberGrant | null> {
+  const since = new Date(Date.now() - MEMBER_WINDOW_MS).toISOString();
+  const selfName = m.fullName || m.email.split("@")[0] || "A member";
+
+  switch (type) {
+    case "event_registration_confirmed": {
+      // Confirmation to the caller themself (EventRegistrationFlow). Everything in
+      // the e-mail comes from the database, never from caller text, and it goes to
+      // the caller's SIGN-IN address (m.email, from auth.getUser), never to
+      // profiles.email, which its owner can edit to any address.
+      if (userId && userId !== m.id) return null;
+      const eventId = data.event_id || "";
+      if (!UUID_RE.test(eventId) || !m.email) return null;
+      const { data: reg } = await db
+        .from("event_registrations")
+        .select("id, event:events(title, date_time, location)")
+        .eq("user_id", m.id)
+        .eq("event_id", eventId)
+        // Only a seat that is actually confirmed: never an invitation request
+        // still waiting for staff (the client only asks for free registrations).
+        .eq("payment_status", "free")
+        .neq("registration_type", "invitation_request")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!reg) return null;
+      const ev = (Array.isArray(reg.event) ? reg.event[0] : reg.event) as
+        { title?: string | null; date_time?: string | null; location?: string | null } | null;
+      const r = await recipientForUser(db, m.id);
+      if (!r) return null;
+      const when = ev?.date_time ? `${new Date(ev.date_time).toISOString().slice(0, 16).replace("T", " ")} UTC` : "";
+      return {
+        ...r,
+        recipientEmail: m.email,
+        data: {
+          event_title: cleanName(ev?.title, 200),
+          event_date: when,
+          event_location: cleanName(ev?.location, 200),
+        },
+        ref: `${type}:${reg.id}`,
+      };
+    }
+
+    case "rfp_submitted":
+      // That template is the admin one ("Hello Admin"); admins are told through
+      // notify-admins. Members never send it.
+      return null;
+
+    case "partner_request_received": {
+      // UserProfilePage, OrganizationPublicPage, OpportunitiesPage, DealFlowPage.
+      if (!UUID_RE.test(userId)) return null;
+      const { data: row } = await db
+        .from("partner_requests")
+        .select("id, partner_organization_id, message")
+        .eq("partner_user_id", m.id)
+        .eq("marina_user_id", userId)
+        .eq("status", "pending")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!row) return null;
+      const r = await recipientForUser(db, userId);
+      if (!r) return null;
+      // partner_requests RLS does not check partner_organization_id: name that
+      // organisation only if the caller really belongs to it.
+      const fromOrg = row.partner_organization_id && m.orgIds.includes(row.partner_organization_id)
+        ? (await orgInfo(db, row.partner_organization_id)).name
+        : "";
+      const out: Record<string, string> = { ...data, partner_name: fromOrg || pickName(data.partner_name, m.names, selfName) };
+      // The message is the one stored on the request (what the marina sees in the app).
+      const message = cleanText(row.message, MESSAGE_CHARS);
+      if (message) out.message = message;
+      else delete out.message;
+      return { ...r, data: out, ref: `${type}:${row.id}` };
+    }
+
+    case "partner_request_accepted":
+    case "partner_request_rejected": {
+      // InboxTab: the marina side answers a request; the requester is told.
+      if (!UUID_RE.test(userId)) return null;
+      const status = type === "partner_request_accepted" ? "accepted" : "rejected";
+      const { data: row } = await db
+        .from("partner_requests")
+        .select("id")
+        .eq("marina_user_id", m.id)
+        .eq("partner_user_id", userId)
+        .eq("status", status)
+        .gte("updated_at", since)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!row) return null;
+      const r = await recipientForUser(db, userId);
+      if (!r) return null;
+      const out: Record<string, string> = { ...data, marina_name: pickName(data.marina_name, m.names, selfName) };
+      if (status === "accepted") {
+        // The second "To" of the introduction is always the caller's own sign-in address.
+        out.acceptor_email = m.email;
+        out.acceptor_name = pickName(data.acceptor_name, m.names, out.marina_name);
+      } else {
+        delete out.acceptor_email;
+      }
+      return { ...r, data: out, ref: `${type}:${row.id}` };
+    }
+
+    case "join_request_received": {
+      // OnboardingPage: the caller just asked to join; the org owner is told.
+      // An owner can INSERT organization_members rows for ANY user with role 'owner'
+      // (org_members_insert only checks is_org_owner), so membership alone would let
+      // an attacker make any registered user the "owner" of their organisation. The
+      // recipient must also be organizations.owner_user_id, which RLS and
+      // guard_org_sensitive_columns keep out of reach (114/114 owner rows match it).
+      if (!UUID_RE.test(userId)) return null;
+      const { data: realOwned } = await db.from("organizations").select("id").eq("owner_user_id", userId);
+      const realOwnedIds = new Set(((realOwned || []) as { id: string }[]).map((o) => o.id));
+      const ownerOf = new Set((await ownedOrgIds(db, userId)).filter((id) => realOwnedIds.has(id)));
+      if (!ownerOf.size) return null;
+      const { data: rows } = await db
+        .from("organization_invitations")
+        .select("id, organization_id, email")
+        .eq("status", "join_requested")
+        .in("organization_id", Array.from(ownerOf))
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      const inv = ((rows || []) as { id: string; organization_id: string; email: string }[])
+        .find((x) => sameEmail(x.email, m.email));
+      if (!inv) return null;
+      const r = await recipientForUser(db, userId);
+      if (!r) return null;
+      return {
+        ...r,
+        data: {
+          ...data,
+          // The recipient's own organisation (owner_user_id checked above).
+          org_name: (await orgInfo(db, inv.organization_id)).name || "your organization",
+          requester_email: m.email,
+          requester_name: pickName(data.requester_name, m.names, selfName),
+        },
+        ref: `${type}:${inv.id}`,
+      };
+    }
+
+    case "join_request_approved":
+    case "join_request_rejected": {
+      // OrganizationTab: the owner decided (approve_join_request / reject_join_request);
+      // the requester is told. An owner can INSERT an invitation row with any e-mail
+      // and any status, so the row alone proves nothing: a real join request has
+      // invited_by_user_id null (request_org_join) and comes from a CONFIRMED account
+      // with that sign-in address, which is the only recipient accepted here.
+      if (!email) return null;
+      const owned = await ownedOrgIds(db, m.id);
+      if (!owned.length) return null;
+      const status = type === "join_request_approved" ? "accepted" : "rejected";
+      const { data: rows } = await db
+        .from("organization_invitations")
+        .select("id, organization_id, email, first_name, invited_by_user_id")
+        .in("organization_id", owned)
+        .eq("status", status)
+        .gte("updated_at", since)
+        .order("updated_at", { ascending: false })
+        .limit(200);
+      const inv = ((rows || []) as { id: string; organization_id: string; email: string; invited_by_user_id: string | null }[])
+        .find((x) => sameEmail(x.email, email) && !x.invited_by_user_id);
+      if (!inv) return null;
+      const requesterId = await confirmedUserByEmail(db, inv.email);
+      if (!requesterId) return null;
+      const r = await recipientForUser(db, requesterId);
+      if (!r) return null;
+      const org = await orgInfo(db, inv.organization_id);
+      return {
+        ...r,
+        data: { ...data, org_name: org.name || "the organization" },
+        ref: `${type}:${inv.id}`,
+        ...orgFields(type, inv.organization_id, org),
+      };
+    }
+
+    case "team_invitation":
+    case "team_invitation_reminder": {
+      // OrganizationTab (invite + resend), InboxTab (resend): pending invitation of an
+      // org the caller owns, or that the caller sent. The invitee usually has no
+      // account yet, so the address cannot be checked: an organisation M3 has not
+      // verified gets a generic subject and a per-organisation cap (see the header).
+      if (!email) return null;
+      const owned = await ownedOrgIds(db, m.id);
+      let q = db
+        .from("organization_invitations")
+        .select("id, organization_id, email, first_name, created_at")
+        .eq("status", "pending");
+      q = owned.length
+        ? q.or(`invited_by_user_id.eq.${m.id},organization_id.in.(${owned.join(",")})`)
+        : q.eq("invited_by_user_id", m.id);
+      if (type === "team_invitation") q = q.gte("created_at", since);
+      const { data: rows } = await q.order("created_at", { ascending: false }).limit(500);
+      const inv = ((rows || []) as { id: string; organization_id: string; email: string; first_name: string | null }[])
+        .find((x) => sameEmail(x.email, email));
+      if (!inv) return null;
+      const org = await orgInfo(db, inv.organization_id);
+      return {
+        recipientEmail: inv.email,
+        recipientUserId: null,
+        firstName: cleanName(inv.first_name, PERSON_NAME_CHARS),
+        prefs: null,
+        data: { ...data, org_name: org.name || "An organization" },
+        ref: `${type}:${inv.id}`,
+        ...orgFields(type, inv.organization_id, org),
+      };
+    }
+
+    default:
+      return null;
+  }
+}
+
+/**
+ * Per-member throttle, logged in public.email_rate_log (service role only).
+ * Fails open if the log table is unavailable: a missing table must not stop
+ * legitimate e-mails, the relationship checks above still apply.
+ */
+async function memberThrottle(db: Db, actorId: string, key: string): Promise<"ok" | "duplicate" | "limited"> {
+  try {
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count, error: countErr } = await db
+      .from("email_rate_log")
+      .select("id", { count: "exact", head: true })
+      .eq("actor_id", actorId)
+      .like("kind", "send-notification:%")
+      .gte("created_at", hourAgo);
+    if (countErr) throw countErr;
+    if ((count || 0) >= MEMBER_HOURLY_CAP) return "limited";
+
+    const dupSince = new Date(Date.now() - MEMBER_DUPLICATE_MS).toISOString();
+    const kind = `send-notification:${key}`.slice(0, 300);
+    const { data: dup, error: dupErr } = await db
+      .from("email_rate_log")
+      .select("id")
+      .eq("actor_id", actorId)
+      .eq("kind", kind)
+      .gte("created_at", dupSince)
+      .limit(1);
+    if (dupErr) throw dupErr;
+    if (dup && dup.length) return "duplicate";
+
+    const { error: insErr } = await db.from("email_rate_log").insert({ actor_id: actorId, kind });
+    if (insErr) throw insErr;
+  } catch (e) {
+    console.error("send-notification: rate log unavailable, continuing:", (e as { message?: string })?.message || String(e));
+  }
+  return "ok";
+}
+
+/**
+ * Cap on e-mails that name an organisation M3 has not verified: 5 per organisation
+ * and 50 for all of them together per 24 h, whoever triggers them (accounts and
+ * organisations are free to create, so a per-account cap alone does not bound the
+ * relay). Fails CLOSED: without the log there is no bound, and production has never
+ * sent such an e-mail (all 7 invitations so far came from verified organisations).
+ */
+async function unverifiedOrgCapReached(db: Db, orgId: string): Promise<boolean> {
+  try {
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count: perOrg, error: e1 } = await db
+      .from("email_rate_log")
+      .select("id", { count: "exact", head: true })
+      .eq("kind", `org-email:${orgId}`)
+      .gte("created_at", dayAgo);
+    if (e1) throw e1;
+    if ((perOrg || 0) >= UNVERIFIED_ORG_DAILY_CAP) return true;
+    const { count: all, error: e2 } = await db
+      .from("email_rate_log")
+      .select("id", { count: "exact", head: true })
+      .like("kind", "org-email:%")
+      .gte("created_at", dayAgo);
+    if (e2) throw e2;
+    return (all || 0) >= UNVERIFIED_ORGS_GLOBAL_DAILY_CAP;
+  } catch (e) {
+    console.error("send-notification: rate log unavailable, refusing unverified-org e-mail:", (e as { message?: string })?.message || String(e));
+    return true;
+  }
+}
+
+async function logUnverifiedOrgEmail(db: Db, actorId: string, orgId: string): Promise<void> {
+  const { error } = await db.from("email_rate_log").insert({ actor_id: actorId, kind: `org-email:${orgId}` });
+  if (error) console.error("send-notification: could not log unverified-org e-mail:", error.message || String(error));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders(req) });
   }
 
   const headers = { "Content-Type": "application/json", ...corsHeaders(req) };
+  const reply = (body: unknown, status: number) => new Response(JSON.stringify(body), { status, headers });
+
+  if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
 
   try {
-    // AUTHORIZATION. This endpoint is public (verify_jwt is false) and used to
-    // perform no check at all while accepting a caller-supplied recipient AND
-    // caller-supplied body text -- an unauthenticated open mail relay on M3's
-    // verified sending domain, usable for phishing and certain to burn the
-    // deliverability that every event email depends on.
-    //
-    // Turning verify_jwt on would NOT have closed it: the anon key is itself a
-    // valid JWT and ships inside the browser bundle. The caller must therefore be
-    // either another edge function (service role) or a genuinely signed-in user.
-    // Every client caller is an authenticated surface -- the admin consoles, the
-    // account and organisation tabs, the submit pages, onboarding, the
-    // marketplace, the event registration flow and deal flow. The one signup
-    // path that runs before a session exists goes through notify-admins, not
-    // this function, so nothing legitimate loses access here.
+    // AUTHORIZATION. verify_jwt stays false: the anon key is itself a valid JWT and
+    // ships in the browser bundle, so the gateway check would prove nothing. The
+    // caller is the service role, or a real signed-in user resolved by GoTrue.
     const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
-    if (!bearer) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
-    }
-    if (bearer !== SUPABASE_SERVICE_ROLE_KEY) {
-      const gate = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-      const { data: caller } = await gate.auth.getUser(bearer);
-      if (!caller?.user) {
-        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
-      }
-    }
-
-    if (!RESEND_API_KEY) {
-      return new Response(JSON.stringify({ error: "RESEND_API_KEY not configured" }), { status: 500, headers });
-    }
-
-    const body: NotificationRequest = await req.json();
-    const { type, user_id, email: directEmail, data: notifData } = body;
-
-    if (!type) {
-      return new Response(JSON.stringify({ error: "type is required" }), { status: 400, headers });
-    }
+    if (!bearer) return reply({ error: "Unauthorized" }, 401);
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    // Resolve recipient email + notification preferences
-    let recipientEmail = directEmail || "";
-    let firstName = notifData?.first_name || "";
-    let userPrefs: Record<string, boolean> | null = null;
-
-    if (user_id) {
-      const { data: profile } = await supabase
+    let callerKind: "service" | "staff" | "member" = "service";
+    let member: Member | null = null;
+    if (!sameSecret(bearer, SUPABASE_SERVICE_ROLE_KEY)) {
+      const { data: caller } = await supabase.auth.getUser(bearer);
+      const u = caller?.user;
+      if (!u?.id) return reply({ error: "Unauthorized" }, 401);
+      const { data: cp } = await supabase
         .from("profiles")
-        .select("first_name, last_name, email, notification_prefs")
-        .eq("user_id", user_id)
+        .select("persona, access_status")
+        .eq("user_id", u.id)
         .maybeSingle();
+      const isStaff = !!cp && ["admin", "moderator"].includes(cp.persona || "") && cp.access_status === "verified";
+      callerKind = isStaff ? "staff" : "member";
+      if (!isStaff) member = await loadMember(supabase, u.id, u.email || "");
+    }
 
-      if (profile?.email) {
-        if (!recipientEmail) recipientEmail = profile.email;
-        firstName = firstName || profile.first_name || "";
-        userPrefs = (profile.notification_prefs as Record<string, boolean> | null) || null;
-      } else if (!recipientEmail) {
-        const { data: { user } } = await supabase.auth.admin.getUserById(user_id);
-        if (user?.email) {
-          recipientEmail = user.email;
-          firstName = firstName || user.user_metadata?.first_name || "";
+    if (!RESEND_API_KEY) return reply({ error: "RESEND_API_KEY not configured" }, 500);
+
+    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") return reply({ error: "Invalid JSON body" }, 400);
+
+    const type = typeof body.type === "string" ? body.type : "";
+    if (!type) return reply({ error: "type is required" }, 400);
+    if (!KNOWN_TYPES.has(type)) return reply({ error: "Unknown notification type" }, 400);
+    const ntype = type as NotificationType;
+
+    const user_id = typeof body.user_id === "string" ? body.user_id.trim() : "";
+    const directEmail = typeof body.email === "string" ? body.email.trim() : "";
+    const notifData = sanitizeData(body.data);
+
+    // Resolve recipient email + notification preferences
+    let recipientEmail = "";
+    let firstName = "";
+    let userPrefs: Record<string, boolean> | null = null;
+    let recipientUserId: string | null = null;
+    let data: Record<string, string> = notifData;
+    let subjectOverride = "";
+
+    if (member) {
+      const grant = await authorizeMemberSend(supabase, member, type, user_id, directEmail, notifData);
+      if (!grant) return reply({ error: "This notification is not allowed for this recipient" }, 403);
+      if (grant.unverifiedOrgId && (await unverifiedOrgCapReached(supabase, grant.unverifiedOrgId))) {
+        return reply({ error: "Too many e-mails for this organization today, try again tomorrow" }, 429);
+      }
+      const verdict = await memberThrottle(supabase, member.id, grant.ref);
+      if (verdict === "limited") return reply({ error: "Too many notifications, try again later" }, 429);
+      if (verdict === "duplicate") return reply({ success: true, skipped: true, reason: "duplicate" }, 200);
+      if (grant.unverifiedOrgId) await logUnverifiedOrgEmail(supabase, member.id, grant.unverifiedOrgId);
+      subjectOverride = grant.subject || "";
+      recipientEmail = grant.recipientEmail;
+      recipientUserId = grant.recipientUserId;
+      firstName = grant.firstName; // always the recipient's own name, never the caller's
+      userPrefs = grant.prefs;
+      data = { ...grant.data };
+      delete data.first_name;
+    } else {
+      // service / staff: recipient as given (unchanged behaviour), first_name from
+      // the caller's data or the recipient profile.
+      recipientEmail = directEmail;
+      firstName = notifData.first_name || "";
+      if (user_id) {
+        if (!UUID_RE.test(user_id)) return reply({ error: "Invalid user_id" }, 400);
+        const r = await recipientForUser(supabase, user_id);
+        if (r) {
+          if (!recipientEmail) recipientEmail = r.recipientEmail;
+          firstName = firstName || r.firstName;
+          userPrefs = r.prefs;
+          recipientUserId = user_id;
         }
       }
     }
 
-    if (!recipientEmail) {
-      return new Response(JSON.stringify({ error: "Could not resolve recipient email" }), { status: 400, headers });
+    if (!recipientEmail || !isEmail(recipientEmail)) {
+      return reply({ error: "Could not resolve recipient email" }, 400);
     }
 
     // Per-user opt-out check.
     // Only applies when the recipient has a profile (user_id provided).
     // Anonymous sends (team invitations to non-users, claim codes, etc.) bypass
     // the check — they have no profile to express a preference yet.
-    const category = TYPE_TO_CATEGORY[type];
+    const category = TYPE_TO_CATEGORY[ntype];
     if (userPrefs && category && userPrefs[category] === false) {
-      console.log(`Notification [${type}] (${category}) skipped — user ${user_id} opted out`);
-      return new Response(
-        JSON.stringify({ success: true, skipped: true, reason: "user_opted_out", category }),
-        { status: 200, headers },
-      );
+      console.log(`Notification [${type}] (${category}) skipped — user ${recipientUserId} opted out`);
+      return reply({ success: true, skipped: true, reason: "user_opted_out", category }, 200);
     }
 
-    // Merge firstName into data for template
-    const templateData = { ...notifData, first_name: firstName || notifData?.first_name || "" };
-    const content = getEmailContent(type, templateData);
+    // Two renderings of the same template: raw data for the subject and the plain
+    // text part, HTML-escaped data for the HTML part. The button link is re-based
+    // onto the site origin whatever the template or the caller put there.
+    const rawData: Record<string, string> = { ...data, first_name: firstName || data.first_name || "" };
+    const textContent = getEmailContent(ntype, rawData);
+    const htmlContent = getEmailContent(ntype, escapeData(rawData));
+    const buttonUrl = toSiteUrl(textContent.buttonUrl);
+    textContent.buttonUrl = buttonUrl;
+    htmlContent.buttonUrl = escapeHtml(buttonUrl);
+    if (subjectOverride) textContent.subject = subjectOverride;
+    const subject = textContent.subject.replace(/[\r\n]+/g, " ").slice(0, 200);
+    htmlContent.subject = escapeHtml(subject);
 
     // Use plain email style for partner_request_accepted (looks like a normal business email)
-    const isPlainStyle = type === "partner_request_accepted";
-    const html = isPlainStyle ? buildPlainEmail(content) : buildEmail(content);
+    const isPlainStyle = ntype === "partner_request_accepted";
+    const html = isPlainStyle ? buildPlainEmail(htmlContent) : buildEmail(htmlContent);
 
     // Build email payload (with anti-spam improvements)
     const unsubscribeUrl = `${SITE_URL}/unsubscribe?email=${encodeURIComponent(recipientEmail)}`;
@@ -785,20 +1403,21 @@ Deno.serve(async (req: Request) => {
       from: SENDER_EMAIL,
       to: [recipientEmail],
       reply_to: "contact@smartmarinaconnect.com",
-      subject: content.subject,
+      subject,
       html,
-      text: buildPlainText(content, unsubscribeUrl),
+      text: buildPlainText(textContent, unsubscribeUrl),
       headers: {
         "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
         "X-Entity-Ref-ID": `${type}-${Date.now()}`,
       },
     };
-    // For B2B acceptance: send to BOTH parties (requester + acceptor) with victor in CC as introduction
-    if (type === "partner_request_accepted") {
-      const acceptorEmail = notifData?.acceptor_email || "";
+    // For B2B acceptance: send to BOTH parties (requester + acceptor) with victor in CC as introduction.
+    // For a member caller, acceptor_email was forced to the caller's own sign-in address above.
+    if (ntype === "partner_request_accepted") {
+      const acceptorEmail = (data.acceptor_email || "").trim();
       const recipients = [recipientEmail];
-      if (acceptorEmail && acceptorEmail !== recipientEmail) {
+      if (acceptorEmail && isEmail(acceptorEmail) && !sameEmail(acceptorEmail, recipientEmail)) {
         recipients.push(acceptorEmail);
       }
       emailPayload.to = recipients;
@@ -817,15 +1436,15 @@ Deno.serve(async (req: Request) => {
     const resBody = await res.text();
     if (!res.ok) {
       console.error("Resend API error:", res.status, resBody);
-      return new Response(JSON.stringify({ error: `Resend error: ${resBody}` }), { status: 500, headers });
+      return reply({ error: "Email provider error" }, 502);
     }
 
-    console.log(`Notification [${type}] sent to ${recipientEmail}`);
-    return new Response(JSON.stringify({ success: true, type, to: recipientEmail }), { status: 200, headers });
+    console.log(`Notification [${type}] sent by ${callerKind} to ${recipientUserId || "address"}`);
+    return reply({ success: true, type }, 200);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Error in send-notification:", message);
-    return new Response(JSON.stringify({ error: message }), { status: 500, headers });
+    return reply({ error: "Internal error" }, 500);
   }
 });
 

@@ -55,6 +55,21 @@ const timelineOptions = [
   { value: '3+years', label: '3+ years' },
 ];
 
+/**
+ * React keys for a list of strings that may repeat: free-text certifications,
+ * or gallery URLs (update_org_gallery stores whatever array it is given). Each
+ * key is the value prefixed with its occurrence number ("0:x", "1:x" for a
+ * second copy), so keys stay unique and follow the value, not its position.
+ */
+function valueKeys(values: string[]): string[] {
+  const seen = new Map<string, number>();
+  return values.map((v) => {
+    const n = seen.get(v) ?? 0;
+    seen.set(v, n + 1);
+    return `${n}:${v}`;
+  });
+}
+
 export function OrganizationTab() {
   const { t } = useTranslation();
   const { user, profile, refreshProfile } = useAuth();
@@ -784,27 +799,6 @@ export function OrganizationTab() {
     }
   };
 
-  const handleToggleAutoApprove = async () => {
-    if (!org) return;
-    const newValue = !org.auto_approve_domain_joins;
-    try {
-      const { error } = await supabase
-        .from('organizations')
-        .update({ auto_approve_domain_joins: newValue })
-        .eq('id', org.id);
-      if (error) throw error;
-      toast({
-        title: newValue ? 'Auto-approve enabled' : 'Auto-approve disabled',
-        description: newValue
-          ? 'New members with matching email domain will be automatically added to your team.'
-          : 'New members will need your approval to join the team.',
-      });
-      fetchOrg();
-    } catch (err: unknown) {
-      toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
-    }
-  };
-
   const handleRejectJoinRequest = async (invId: string, invEmail: string) => {
     if (!window.confirm(`Reject join request from ${invEmail}?`)) return;
     try {
@@ -1098,13 +1092,21 @@ export function OrganizationTab() {
   // claim code, ownership, domain settings) stay owner/admin-only — enforced by
   // RLS + the guard_org_sensitive_columns trigger.
   const canEditOrg = true;
+  const galleryKeys = valueKeys(org.gallery || []);
+  const certificationKeys = valueKeys(editForm.certifications);
 
   return (
     <div className="space-y-6">
       {/* Payment banner removed — member tier is free */}
 
+      {/* data-org-section marks the anchors of AccountPage's section bar and of
+          /account?tab=organization&section=<key> deep links (the dashboard's
+          profile nudges). Keys come from AccountPage's OrgSectionKey and must
+          stay in its order down the page: branding, gallery, details, team,
+          documents, capital / thesis. */}
+
       {/* Organization Info Card */}
-      <Card className="overflow-hidden">
+      <Card className="overflow-hidden" data-org-section="branding">
         {/* Cover banner (3:1) — full-bleed, with an always-visible upload button for owners */}
         <div className="relative aspect-[3/1] min-h-[10rem] bg-gradient-to-br from-slate-100 to-slate-200">
           {org.banner_url ? (
@@ -1291,7 +1293,7 @@ export function OrganizationTab() {
           )}
 
           {/* Product images — any member manages; shown on the public profile */}
-          <div className="border-t pt-4">
+          <div className="border-t pt-4" data-org-section="gallery">
             <div className="flex items-center justify-between gap-2 mb-1">
               <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Product images</h4>
               {canEditOrg && (
@@ -1307,8 +1309,8 @@ export function OrganizationTab() {
               <p className="text-sm text-gray-400">No product images yet.</p>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {(org.gallery || []).map((url) => (
-                  <div key={url} className="relative group aspect-square rounded-lg border border-gray-100 overflow-hidden bg-gray-50">
+                {(org.gallery || []).map((url, i) => (
+                  <div key={galleryKeys[i]} className="relative group aspect-square rounded-lg border border-gray-100 overflow-hidden bg-gray-50">
                     <img src={url} alt="" className="w-full h-full object-cover" />
                     {canEditOrg && (
                       <button type="button" onClick={() => removeGalleryImage(url)}
@@ -1324,7 +1326,7 @@ export function OrganizationTab() {
 
           {/* Detailed Organization Info (read-only) */}
           {!editing && (
-            <div className="border-t pt-4 space-y-4">
+            <div className="border-t pt-4 space-y-4" data-org-section="details">
               {/* General Details */}
               <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">{t('org.generalDetails', 'General Details')}</h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
@@ -1429,7 +1431,7 @@ export function OrganizationTab() {
                       <span className="text-gray-500 block mb-1">{t('org.certifications', 'Certifications')}</span>
                       <div className="flex flex-wrap gap-1.5">
                         {editForm.certifications.map((cert, i) => (
-                          <Badge key={i} variant="secondary" className="text-xs">{cert}</Badge>
+                          <Badge key={certificationKeys[i]} variant="secondary" className="text-xs">{cert}</Badge>
                         ))}
                       </div>
                     </div>
@@ -1504,9 +1506,9 @@ export function OrganizationTab() {
             </div>
           )}
 
-          {/* Edit form */}
+          {/* Edit form — takes the details anchor while it replaces the read-only view */}
           {editing && canEditOrg && (
-            <div className="border-t pt-4 space-y-4">
+            <div className="border-t pt-4 space-y-4" data-org-section="details">
               {/* Base fields */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -1767,7 +1769,7 @@ export function OrganizationTab() {
       </Card>
 
       {/* Members */}
-      <Card>
+      <Card data-org-section="team">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
@@ -1795,21 +1797,10 @@ export function OrganizationTab() {
                 All seats are occupied. Contact Smart Marina Connect to request additional seats.
               </p>
             )}
-            {/* Auto-approve toggle — only visible to org owners with a domain */}
-            {isOwner && org.primary_domain && (
-              <div className="mt-3 flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200">
-                <Switch
-                  checked={org.auto_approve_domain_joins}
-                  onCheckedChange={handleToggleAutoApprove}
-                  id="auto-approve-toggle"
-                />
-                <label htmlFor="auto-approve-toggle" className="text-xs text-gray-600 cursor-pointer leading-tight">
-                  <span className="font-medium text-gray-700">Auto-approve</span>
-                  <br />
-                  <span className="text-gray-500">Automatically add users with @{org.primary_domain} email</span>
-                </label>
-              </div>
-            )}
+            {/* No "auto-approve @domain" switch: domain auto-join was closed at the
+                database (migration 20261006174500) because sign-up addresses are not
+                verified on this project. Colleagues join by invitation or by a join
+                request the owner approves. */}
           </div>
           {canInvite && (
             <Button
@@ -2054,7 +2045,7 @@ export function OrganizationTab() {
       )}
 
       {/* Organization Documents */}
-      <Card>
+      <Card data-org-section="documents">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5 text-primary" />
@@ -2138,18 +2129,23 @@ export function OrganizationTab() {
         </CardContent>
       </Card>
 
-      {/* Capital raise (marina / developer / partner) */}
+      {/* Capital raise (marina / developer / partner). Wrapped only to carry the
+          anchor: the section's card is its own component. */}
       {(org.organization_type === 'marina' || org.organization_type === 'developer' || org.organization_type === 'partner') && (
-        <CapitalIntentSection organizationId={org.id} isOwner={isOwner} />
+        <div data-org-section="capital">
+          <CapitalIntentSection organizationId={org.id} isOwner={isOwner} />
+        </div>
       )}
 
       {/* Investment thesis (investor) */}
       {org.organization_type === 'investor' && (
-        <InvestmentThesisSection
-          org={org}
-          isOwner={isOwner}
-          onSaved={(updated) => setOrg(org ? ({ ...org, ...updated } as Organization) : null)}
-        />
+        <div data-org-section="thesis">
+          <InvestmentThesisSection
+            org={org}
+            isOwner={isOwner}
+            onSaved={(updated) => setOrg(org ? ({ ...org, ...updated } as Organization) : null)}
+          />
+        </div>
       )}
 
       {/* Invite Dialog */}

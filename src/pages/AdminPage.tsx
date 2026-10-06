@@ -1,5 +1,5 @@
 import { useEffect, useState, Suspense } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { RefreshCw, Menu, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -90,6 +90,17 @@ function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * One event editor per URL. Going from /admin/events/<id> to /admin/events/new?type=…
+ * (sidebar links) would otherwise reuse the instance and carry the previous event's
+ * form, pricing and cover into the new one.
+ */
+function KeyedAdminEventDetail() {
+  const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  return <AdminEventDetail key={`${id}:${searchParams.get('type') ?? ''}`} />;
+}
+
 function AdminLazyFallback() {
   return (
     <div className="flex items-center justify-center h-[50vh]">
@@ -137,7 +148,7 @@ export function AdminPage() {
             <Route path="/resources" element={<AdminResources />} />
             <Route path="/resources/:id" element={<AdminResourceDetail />} />
             <Route path="/events" element={<AdminOnlyGuard><AdminEvents /></AdminOnlyGuard>} />
-            <Route path="/events/:id" element={<AdminOnlyGuard><AdminEventDetail /></AdminOnlyGuard>} />
+            <Route path="/events/:id" element={<AdminOnlyGuard><KeyedAdminEventDetail /></AdminOnlyGuard>} />
             <Route path="/sm26" element={<AdminOnlyGuard><AdminSM26 /></AdminOnlyGuard>} />
             <Route path="/sm26/evaluation" element={<AdminOnlyGuard><AdminSM26Evaluation /></AdminOnlyGuard>} />
             <Route path="/sm26/jury" element={<AdminOnlyGuard><AdminSM26Jury /></AdminOnlyGuard>} />

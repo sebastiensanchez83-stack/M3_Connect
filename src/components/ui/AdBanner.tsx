@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '@/lib/supabase';
 
 interface AdBannerData {
@@ -16,6 +17,7 @@ interface AdBannerProps {
 }
 
 export function AdBanner({ placement, className = '', rotateInterval = 8 }: AdBannerProps) {
+  const { t } = useTranslation();
   const [banners, setBanners] = useState<AdBannerData[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [fade, setFade] = useState(true);
@@ -107,7 +109,7 @@ export function AdBanner({ placement, className = '', rotateInterval = 8 }: AdBa
         />
       </a>
       <span className="absolute top-2 right-2 bg-black/50 text-white text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm">
-        Sponsored
+        {t('sharedUi.adBanner.sponsored', 'Sponsored')}
       </span>
     </div>
   );

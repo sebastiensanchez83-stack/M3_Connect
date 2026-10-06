@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { CalendarPlus, Download } from 'lucide-react';
 import {
@@ -21,6 +22,7 @@ interface AddToCalendarButtonsProps {
  * Renders nothing if the event has no start date.
  */
 export function AddToCalendarButtons({ event, className = '' }: AddToCalendarButtonsProps) {
+  const { t } = useTranslation();
   if (!event.date_time) return null;
 
   return (
@@ -45,7 +47,7 @@ export function AddToCalendarButtons({ event, className = '' }: AddToCalendarBut
         onClick={() => downloadICS(event)}
       >
         <Download className="h-4 w-4 mr-1.5" />
-        .ics file
+        {t('eventsShared.addToCalendar.icsFile', '.ics file')}
       </Button>
     </div>
   );

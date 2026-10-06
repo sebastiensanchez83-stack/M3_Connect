@@ -110,8 +110,8 @@ export function ResourcesPage() {
           .select('id, title, summary, content, type, access_level, thumbnail_url, created_at, published_at, tags, resource_speakers(id, full_name, display_order), resource_sectors(sector_id)')
           .eq('published', true)
           .order('published_at', { ascending: false, nullsFirst: false })
-          // published_at is never set by the admin publish flows (all 30 are NULL
-          // today), so creation date is what actually orders the library.
+          // published_at is stamped by a DB trigger on first publish (and was
+          // backfilled from created_at); creation date only breaks ties.
           .order('created_at', { ascending: false }),
         supabase.from('sectors').select('id, slug, label').eq('is_active', true).order('label'),
       ]);

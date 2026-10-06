@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Star, Loader2 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -36,33 +37,36 @@ export function BookmarkButton({
   className = '',
   onChange,
 }: BookmarkButtonProps) {
+  const { t } = useTranslation();
   const { user, profile, organization: ownOrg } = useAuth();
   const [bookmarked, setBookmarked] = useState<boolean | null>(null);
   const [toggling, setToggling] = useState(false);
+  const userId = user?.id;
 
   const canBookmark = !!user
     && !!profile
     && canMaintainShortlist(profile.persona)
     && ownOrg?.id !== organizationId;
 
-  // Load current state
+  // Load current state. Keyed on ids, not the `user` object: auth-js hands us a
+  // new user object on every tab refocus, which would refire one SELECT per
+  // card on list pages. The previous target's answer is dropped up front so a
+  // click during the reload can't toggle from the wrong state.
   useEffect(() => {
-    if (!canBookmark || !user) {
-      setBookmarked(null);
-      return;
-    }
-    let cancelled = false;
+    setBookmarked(null);
+    if (!canBookmark || !userId) return;
+    let alive = true;
     (async () => {
       const { data } = await supabase
         .from('org_bookmarks')
         .select('id')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('organization_id', organizationId)
         .maybeSingle();
-      if (!cancelled) setBookmarked(!!data);
+      if (alive) setBookmarked(!!data);
     })();
-    return () => { cancelled = true; };
-  }, [canBookmark, user, organizationId]);
+    return () => { alive = false; };
+  }, [canBookmark, userId, organizationId]);
 
   const handleToggle = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -76,13 +80,16 @@ export function BookmarkButton({
         .from('org_bookmarks')
         .insert({ user_id: user.id, organization_id: organizationId });
       if (error) {
-        toast({ title: 'Could not save', description: error.message, variant: 'destructive' });
+        if (import.meta.env.DEV) console.error('Bookmark save failed:', error);
+        toast({ title: t('sharedUi.bookmarkButton.saveFailed', 'Could not save'), description: t('eventsPage.unexpectedError', 'An unexpected error occurred.'), variant: 'destructive' });
       } else {
         setBookmarked(true);
         onChange?.(true);
         toast({
-          title: 'Added to shortlist',
-          description: organizationName ? `${organizationName} is on your shortlist.` : undefined,
+          title: t('sharedUi.bookmarkButton.added', 'Added to shortlist'),
+          description: organizationName
+            ? t('sharedUi.bookmarkButton.addedDesc', '{{name}} is on your shortlist.', { name: organizationName })
+            : undefined,
         });
       }
     } else {
@@ -92,17 +99,22 @@ export function BookmarkButton({
         .eq('user_id', user.id)
         .eq('organization_id', organizationId);
       if (error) {
-        toast({ title: 'Could not remove', description: error.message, variant: 'destructive' });
+        if (import.meta.env.DEV) console.error('Bookmark remove failed:', error);
+        toast({ title: t('sharedUi.bookmarkButton.removeFailed', 'Could not remove'), description: t('eventsPage.unexpectedError', 'An unexpected error occurred.'), variant: 'destructive' });
       } else {
         setBookmarked(false);
         onChange?.(false);
-        toast({ title: 'Removed from shortlist' });
+        toast({ title: t('sharedUi.bookmarkButton.removed', 'Removed from shortlist') });
       }
     }
     setToggling(false);
-  }, [user, toggling, bookmarked, organizationId, organizationName, onChange]);
+  }, [user, toggling, bookmarked, organizationId, organizationName, onChange, t]);
 
   if (!canBookmark || bookmarked === null) return null;
+
+  const actionLabel = bookmarked
+    ? t('sharedUi.bookmarkButton.remove', 'Remove from shortlist')
+    : t('sharedUi.bookmarkButton.add', 'Add to shortlist');
 
   if (variant === 'icon') {
     return (
@@ -110,8 +122,8 @@ export function BookmarkButton({
         type="button"
         onClick={handleToggle}
         disabled={toggling}
-        title={bookmarked ? 'Remove from shortlist' : 'Add to shortlist'}
-        aria-label={bookmarked ? 'Remove from shortlist' : 'Add to shortlist'}
+        title={actionLabel}
+        aria-label={actionLabel}
         className={`inline-flex items-center justify-center rounded-full p-1.5 transition-colors hover:bg-amber-50 disabled:opacity-50 ${className}`}
       >
         {toggling ? (
@@ -138,7 +150,9 @@ export function BookmarkButton({
       ) : (
         <Star className={`h-4 w-4 mr-2 ${bookmarked ? 'fill-amber-400 text-amber-400' : ''}`} />
       )}
-      {bookmarked ? 'On your shortlist' : 'Add to shortlist'}
+      {bookmarked
+        ? t('sharedUi.bookmarkButton.onShortlist', 'On your shortlist')
+        : t('sharedUi.bookmarkButton.add', 'Add to shortlist')}
     </Button>
   );
 }

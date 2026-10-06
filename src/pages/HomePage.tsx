@@ -16,7 +16,7 @@ import { CoverImage, LogoBadge } from '@/components/ui/CoverImage';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { MomentsStrip } from '@/components/ui/MomentsStrip';
 import { TeaserVideo } from '@/components/home/TeaserVideo';
-import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
+import { SITE_IMAGES, PERSONA_IMAGES, eventCover } from '@/lib/siteMedia';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { accountHref } from '@/lib/accountNav';
 import { networkFigures, formatFigure, type OrgFigureRow } from '@/lib/networkStats';
@@ -85,6 +85,8 @@ interface HomeEvent {
   is_full_day: boolean;
   invitation_only: boolean;
   replay_url: string | null;
+  /** Uploaded cover; null falls back to the built-in photo or a gradient (eventCover). */
+  image_url: string | null;
 }
 
 interface OrgLogo {
@@ -109,6 +111,7 @@ type EventRow = {
   id: string; title: string; date_time: string | null; end_date_time: string | null;
   event_type: string | null; location: string | null; is_full_day: boolean | null;
   invitation_only: boolean | null; replay_url: string | null; published: boolean | null;
+  image_url?: string | null;
 };
 
 /* ─── Helpers ────────────────────────────────────────────────────── */
@@ -130,6 +133,7 @@ function toHomeEvent(e: EventRow): HomeEvent {
     is_full_day: !!e.is_full_day,
     invitation_only: !!e.invitation_only,
     replay_url: e.replay_url,
+    image_url: e.image_url ?? null,
   };
 }
 
@@ -369,13 +373,13 @@ export function HomePage() {
           .limit(4),
         supabase
           .from('events')
-          .select('id, title, date_time, end_date_time, event_type, location, is_full_day, invitation_only, replay_url, published')
+          .select('id, title, date_time, end_date_time, event_type, location, is_full_day, invitation_only, replay_url, published, image_url')
           .gte('date_time', since)
           .order('date_time', { ascending: true })
           .limit(8),
         supabase
           .from('events')
-          .select('id, title, date_time, end_date_time, event_type, location, is_full_day, invitation_only, replay_url, published')
+          .select('id, title, date_time, end_date_time, event_type, location, is_full_day, invitation_only, replay_url, published, image_url')
           .lt('date_time', nowIso)
           .order('date_time', { ascending: false })
           .limit(6),
@@ -1430,6 +1434,7 @@ function EventCard({ event, past, registered, lang }: { event: HomeEvent; past: 
   const isWebinar = event.event_type === 'webinar';
   const chip = dateChip(event, lang);
   const where = isWebinar ? t('homeSections.online', 'Online') : (event.location || t('homeSections.onSite', 'On site'));
+  const cover = eventCover(event);
 
   return (
     <Link
@@ -1437,7 +1442,8 @@ function EventCard({ event, past, registered, lang }: { event: HomeEvent; past: 
       className={cn('group flex h-full flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 transition hover:-translate-y-0.5 hover:shadow-md', focusRing)}
     >
       <CoverImage
-        src={null}
+        src={cover?.src ?? null}
+        focusY={cover?.focusY}
         alt=""
         seed={event.id}
         icon={isWebinar ? Video : CalendarDays}

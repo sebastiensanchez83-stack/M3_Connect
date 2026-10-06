@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { OrgTier, TIER_LABELS, TIER_COLORS, isSponsorTier } from '@/types/database';
 
 interface SponsorBadgeProps {
@@ -7,11 +8,13 @@ interface SponsorBadgeProps {
 }
 
 export function SponsorBadge({ tier, size = 'md', className = '' }: SponsorBadgeProps) {
+  const { t } = useTranslation();
+
   // Only render for sponsor tiers (not 'member')
   if (!isSponsorTier(tier)) return null;
 
   const colors = TIER_COLORS[tier];
-  const label = TIER_LABELS[tier];
+  const label = t(`sharedUi.sponsorBadge.tiers.${tier}`, TIER_LABELS[tier]);
 
   const sizeClasses = {
     sm: 'text-[10px] px-1.5 py-0.5',

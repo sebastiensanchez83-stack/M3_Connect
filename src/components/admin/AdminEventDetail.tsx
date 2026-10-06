@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   ArrowLeft, Save, Trash2, Loader2, Calendar, MapPin, Globe, Users,
   DollarSign, Eye, Radio, Film, Plus, X, Upload, FileText, Lock,
-  Tag, Package, Sun,
+  Tag, Package, Sun, Image as ImageIcon,
 } from 'lucide-react';
 import { TIER_LABELS, TIER_COLORS, OrgTier, Sector } from '@/types/database';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +20,8 @@ import {
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
+import { resizeImage, fileMeta } from '@/lib/image';
+import { eventCover } from '@/lib/siteMedia';
 import { toast } from '@/hooks/use-toast';
 import type { Event, EventPricingRow } from './types';
 import { DEFAULT_PRICING } from './types';
@@ -89,6 +91,13 @@ export function AdminEventDetail() {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
 
+  // Cover image (events.image_url) — like the PDF, it is saved with the event
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageMeta, setImageMeta] = useState('');
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageDragOver, setImageDragOver] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
   // Registrations
   const [registrations, setRegistrations] = useState<RegistrationRow[]>([]);
   const [regsLoading, setRegsLoading] = useState(false);
@@ -133,6 +142,8 @@ export function AdminEventDetail() {
     });
     setSpeakers(evt.speakers || []);
     setPdfUrl(evt.pdf_url || null);
+    setImageUrl(evt.image_url || null);
+    setImageMeta('');
     setLoading(false);
 
     // Load related data in parallel
@@ -224,6 +235,7 @@ export function AdminEventDetail() {
       is_full_day: form.is_full_day,
       published: form.published,
       pdf_url: pdfUrl,
+      image_url: imageUrl,
     };
 
     let eventId: string;
@@ -319,6 +331,42 @@ export function AdminEventDetail() {
     setUploadingPdf(false);
   };
 
+  /* ─── Cover image upload ─── */
+  // Same bucket as the resource thumbnails (ImageUpload): resource-images is
+  // public-read and moderator-write, like the events table. Covers go in events/,
+  // out of the resource image library (it lists the root only and skips folders),
+  // so its per-image delete can't remove a cover an event still uses. Nothing is
+  // deleted from storage on replace/remove — the change only lands on Save, and the
+  // live event keeps its current picture until then.
+  const handleImageUpload = async (file: File) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast({ title: 'Invalid file type', description: 'Please upload a JPEG, PNG or WebP image', variant: 'destructive' });
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      toast({ title: 'File too large', description: 'Maximum 25 MB', variant: 'destructive' });
+      return;
+    }
+    setUploadingImage(true);
+    try {
+      const meta = await fileMeta(file);
+      const blob = await resizeImage(file, 1800, 1200); // web-sized, like the site's own event photos
+      // The bucket caps files at 5 MB; only a large PNG photo can still be over it.
+      if (blob.size > 5 * 1024 * 1024) throw new Error('Still over 5 MB after resizing. Save it as a JPEG and try again.');
+      const ctype = blob.type || file.type;
+      const ext = ctype === 'image/png' ? 'png' : 'jpg';
+      const fileName = `events/event-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from('resource-images').upload(fileName, blob, { cacheControl: '3600', upsert: false, contentType: ctype });
+      if (error) throw error;
+      setImageUrl(supabase.storage.from('resource-images').getPublicUrl(fileName).data.publicUrl);
+      setImageMeta(meta);
+      toast({ title: 'Cover image uploaded', description: `${meta}. Save the event to publish it.` });
+    } catch (err: unknown) {
+      toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
+    setUploadingImage(false);
+  };
+
   /* ─── Helpers ─── */
   const updatePricingRow = (index: number, field: keyof EventPricingRow, value: number | null) => {
     setPricingRows(prev => { const u = [...prev]; u[index] = { ...u[index], [field]: value }; return u; });
@@ -380,6 +428,8 @@ export function AdminEventDetail() {
   );
 
   const isPast = form.date_time && new Date(form.date_time) < new Date();
+  // The photo the public pages fall back to when no cover is uploaded (only SM26 has one).
+  const builtInCover = event ? eventCover({ id: event.id }) : null;
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -555,6 +605,85 @@ export function AdminEventDetail() {
             </div>
             <Switch checked={form.invitation_only} onCheckedChange={v => setForm({ ...form, invitation_only: v })} />
           </div>
+        </CardContent>
+      </Card>
+
+      {/* ── COVER IMAGE ── */}
+      <Card className="border-0 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
+            <ImageIcon className="h-4 w-4 text-sky-500" /> Cover Image
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-xs text-gray-400 mb-3">
+            Shown on the event card (16:9) and behind the event page header. Use a landscape photo at least 1600 px wide
+            (JPEG, PNG or WebP, resized on upload). Without one, the card and header draw a gradient.
+          </p>
+          {imageUrl ? (
+            <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+              {/* Dropping a new picture on the current one replaces it (without these
+                  handlers the browser would open the file and lose the form). */}
+              <div
+                onDragOver={e => { e.preventDefault(); setImageDragOver(true); }}
+                onDragLeave={() => setImageDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault(); setImageDragOver(false);
+                  const f = e.dataTransfer.files?.[0];
+                  if (f && !uploadingImage) handleImageUpload(f);
+                }}
+                className={`relative w-full sm:w-80 aspect-video rounded-xl overflow-hidden border bg-gray-50 shrink-0 ${
+                  imageDragOver ? 'border-primary ring-2 ring-primary/40' : 'border-gray-200'
+                }`}>
+                <img src={imageUrl} alt="Event cover" className="w-full h-full object-cover" />
+                {imageMeta && (
+                  <span className="absolute bottom-2 left-2 text-[10px] font-medium text-white bg-black/50 rounded px-1.5 py-0.5">{imageMeta}</span>
+                )}
+              </div>
+              <div className="flex sm:flex-col gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage} className="gap-1.5">
+                  {uploadingImage ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                  {uploadingImage ? 'Uploading...' : 'Replace'}
+                </Button>
+                <Button type="button" variant="outline" size="sm" onClick={() => { setImageUrl(null); setImageMeta(''); }} disabled={uploadingImage}
+                  className="gap-1.5 text-red-600 hover:bg-red-50">
+                  <Trash2 className="h-3.5 w-3.5" /> Remove
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {builtInCover?.src && (
+                <div className="flex items-center gap-3 rounded-xl bg-gray-50 border border-gray-200 p-3">
+                  <img src={builtInCover.src} alt="" className="h-14 w-24 rounded-lg object-cover shrink-0"
+                    style={{ objectPosition: `50% ${builtInCover.focusY * 100}%` }} />
+                  <p className="text-xs text-gray-500">No cover uploaded: this event shows its built-in photo from the site. Upload a cover to replace it.</p>
+                </div>
+              )}
+              {/* Not `disabled` while uploading: a file dropped on a disabled button would open in the tab and lose the form. */}
+              <button type="button" aria-busy={uploadingImage}
+                onClick={() => { if (!uploadingImage) imageInputRef.current?.click(); }}
+                onDragOver={e => { e.preventDefault(); setImageDragOver(true); }}
+                onDragLeave={() => setImageDragOver(false)}
+                onDrop={e => {
+                  e.preventDefault(); setImageDragOver(false);
+                  const f = e.dataTransfer.files?.[0];
+                  if (f && !uploadingImage) handleImageUpload(f);
+                }}
+                className={`w-full flex items-center gap-3 p-4 border-2 border-dashed rounded-xl text-left transition-all ${
+                  imageDragOver ? 'border-primary bg-primary/5' : 'border-gray-200 hover:border-primary/40 hover:bg-primary/5'
+                }`}>
+                {uploadingImage ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Upload className="h-5 w-5 text-gray-400" />}
+                <span className="text-sm text-gray-500">{uploadingImage ? 'Uploading...' : 'Drop an image here or click to upload a cover (max 25 MB)'}</span>
+              </button>
+            </div>
+          )}
+          <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) handleImageUpload(f);
+              if (imageInputRef.current) imageInputRef.current.value = '';
+            }} />
         </CardContent>
       </Card>
 

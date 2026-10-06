@@ -62,6 +62,8 @@ interface Event {
   speakers: { name: string; title: string }[] | null;
   replay_url: string | null;
   meeting_url: string | null;
+  /** Uploaded cover; null falls back to the built-in photo or a gradient (eventCover). */
+  image_url: string | null;
 }
 
 type Phase = 'tbd' | 'upcoming' | 'live' | 'ended';
@@ -878,8 +880,8 @@ function FeaturedEvent(props: CardProps) {
     <article className="group relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 transition-shadow duration-300 hover:shadow-lg">
       <div className="grid lg:grid-cols-5">
         <CoverImage
-          src={eventCover(event.id)?.src ?? null}
-          focusY={eventCover(event.id)?.focusY}
+          src={eventCover(event)?.src ?? null}
+          focusY={eventCover(event)?.focusY}
           alt=""
           seed={event.id}
           icon={kindIcon(event.event_type)}
@@ -984,8 +986,8 @@ function EventCard(props: CardProps) {
   return (
     <article className="group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 transition duration-300 hover:-translate-y-0.5 hover:shadow-md">
       <CoverImage
-        src={eventCover(event.id)?.src ?? null}
-        focusY={eventCover(event.id)?.focusY}
+        src={eventCover(event)?.src ?? null}
+        focusY={eventCover(event)?.focusY}
         alt=""
         seed={event.id}
         icon={kindIcon(event.event_type)}

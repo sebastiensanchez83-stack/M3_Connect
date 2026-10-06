@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
@@ -47,11 +48,6 @@ interface PricingConfig {
   discount_pct: number;
 }
 
-const formatPrice = (cents: number) => {
-  if (cents === 0) return 'Free';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'EUR' }).format(cents / 100);
-};
-
 export function EventRegistrationFlow({
   eventId,
   eventType = 'on_site',
@@ -65,7 +61,11 @@ export function EventRegistrationFlow({
   eventLocation,
   eventMeetingUrl,
 }: EventRegistrationFlowProps) {
+  const { t, i18n } = useTranslation();
   const { user, profile, organization, isVerified } = useAuth();
+  // Primitives only — auth-js hands a new user object on every tab refocus.
+  const userId = user?.id;
+  const locale = i18n.language === 'fr' ? 'fr-FR' : 'en-GB';
 
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
@@ -89,10 +89,15 @@ export function EventRegistrationFlow({
   const hasSchedule = !!calendarEvent.date_time;
 
   const formatEventWhen = (iso: string) =>
-    new Date(iso).toLocaleString(undefined, {
+    new Date(iso).toLocaleString(locale, {
       weekday: 'short', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
+
+  const formatPrice = (cents: number) => {
+    if (cents === 0) return t('eventsPage.free', 'Free');
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: 'EUR' }).format(cents / 100);
+  };
 
   // Marina-like personas (marina, developer, investor) get the same event
   // registration treatment as marina — they're interest-side attendees,
@@ -106,13 +111,13 @@ export function EventRegistrationFlow({
   const hasPackages = packages.length > 0 && eventType === 'on_site';
 
   const checkStatus = useCallback(async () => {
-    if (!user || !eventId) return;
+    if (!userId || !eventId) return;
     setLoading(true);
 
     try {
       const regRes = await supabase
         .from('event_registrations').select('id, registration_type, payment_status')
-        .eq('event_id', eventId).eq('user_id', user.id).maybeSingle();
+        .eq('event_id', eventId).eq('user_id', userId).maybeSingle();
 
       const countRes = await supabase
         .from('event_registrations').select('id', { count: 'exact' })
@@ -172,7 +177,7 @@ export function EventRegistrationFlow({
       if (import.meta.env.DEV) console.error('Error checking registration status:', err);
     }
     setLoading(false);
-  }, [user, eventId, organization?.id, orgTier, invitationOnly]);
+  }, [userId, eventId, organization?.id, orgTier, invitationOnly]);
 
   useEffect(() => { checkStatus(); }, [checkStatus]);
 
@@ -184,8 +189,13 @@ export function EventRegistrationFlow({
     if (type === 'sponsor_included' && pricing?.max_included_seats != null) {
       if (orgRegistrationCount >= pricing.max_included_seats) {
         toast({
-          title: 'Included seats exhausted',
-          description: `Your ${TIER_LABELS[orgTier]} package includes ${pricing.max_included_seats} seat(s). All included seats are used. Contact Smart Marina Connect for additional seats.`,
+          title: t('eventsShared.registrationFlow.seatsExhausted', 'Included seats exhausted'),
+          description: t('eventsShared.registrationFlow.seatsExhaustedDesc', {
+            count: pricing.max_included_seats,
+            tier: TIER_LABELS[orgTier],
+            defaultValue_one: 'Your {{tier}} package includes {{count}} seat. All included seats are used. Contact Smart Marina Connect for additional seats.',
+            defaultValue_other: 'Your {{tier}} package includes {{count}} seats. All included seats are used. Contact Smart Marina Connect for additional seats.',
+          }),
           variant: 'destructive',
         });
         return;
@@ -222,7 +232,13 @@ export function EventRegistrationFlow({
 
       const { error } = await supabase.from('event_registrations').insert(insertData);
       if (error) {
-        toast({ title: 'Registration failed', description: error.message, variant: 'destructive' });
+        // Server text is English; French users get a translated message, developers the detail.
+        if (import.meta.env.DEV) console.error('Event registration failed:', error);
+        toast({
+          title: t('eventsPage.registrationFailed', 'Registration failed'),
+          description: error.code === '23505' ? t('eventsPage.alreadyRegistered', 'Already registered') : t('eventsPage.unexpectedError', 'An unexpected error occurred.'),
+          variant: 'destructive',
+        });
       } else {
         if (isFree) {
           sendNotification({ type: 'event_registration_confirmed', userId: user.id, data: { event_title: eventTitle || eventId } });
@@ -240,20 +256,20 @@ export function EventRegistrationFlow({
         } else {
           toast({
             title: invitationOnly
-              ? 'Invitation requested'
+              ? t('eventsShared.registrationFlow.invitationRequested', 'Invitation requested')
               : isFree
-                ? 'Registered (included in your sponsorship)'
-                : 'Registration submitted',
+                ? t('eventsShared.registrationFlow.registeredIncluded', 'Registered (included in your sponsorship)')
+                : t('eventsShared.registrationFlow.registrationSubmitted', 'Registration submitted'),
             description: invitationOnly
-              ? 'Your invitation request has been sent. You will be notified once approved.'
+              ? t('eventsShared.registrationFlow.invitationRequestedDesc', 'Your invitation request has been sent. You will be notified once approved.')
               : !isFree
-                ? 'Your registration has been submitted. You will be notified when payment is due.'
+                ? t('eventsShared.registrationFlow.registrationSubmittedDesc', 'Your registration has been submitted. You will be notified when payment is due.')
                 : undefined,
           });
         }
       }
     } catch (err) {
-      toast({ title: 'Registration failed', description: 'An unexpected error occurred.', variant: 'destructive' });
+      toast({ title: t('eventsPage.registrationFailed', 'Registration failed'), description: t('eventsPage.unexpectedError', 'An unexpected error occurred.'), variant: 'destructive' });
     } finally {
       setRegistering(false);
     }
@@ -268,16 +284,21 @@ export function EventRegistrationFlow({
     try {
       const { error } = await supabase.from('event_registrations').delete().eq('event_id', eventId).eq('user_id', user.id);
       if (error) {
-        toast({ title: 'Error', description: error.message, variant: 'destructive' });
+        if (import.meta.env.DEV) console.error('Event registration cancel failed:', error);
+        toast({ title: t('eventsShared.registrationFlow.error', 'Error'), description: t('eventsPage.unexpectedError', 'An unexpected error occurred.'), variant: 'destructive' });
       } else {
         setStatus('none');
         setRegistrationCount(c => Math.max(0, c - 1));
         setOrgRegistrationCount(c => Math.max(0, c - 1));
         onRegistrationChange?.(false, Math.max(0, registrationCount - 1));
-        toast({ title: invitationOnly ? 'Invitation request cancelled' : 'Registration cancelled' });
+        toast({
+          title: invitationOnly
+            ? t('eventsShared.registrationFlow.invitationRequestCancelled', 'Invitation request cancelled')
+            : t('eventsPage.cancelled', 'Registration cancelled'),
+        });
       }
     } catch (err) {
-      toast({ title: 'Error', description: 'An unexpected error occurred.', variant: 'destructive' });
+      toast({ title: t('eventsShared.registrationFlow.error', 'Error'), description: t('eventsPage.unexpectedError', 'An unexpected error occurred.'), variant: 'destructive' });
     } finally {
       setRegistering(false);
     }
@@ -290,7 +311,7 @@ export function EventRegistrationFlow({
     return (
       <div className="flex items-center gap-2 text-gray-500">
         <Loader2 className="h-4 w-4 animate-spin" />
-        <span className="text-sm">Checking registration...</span>
+        <span className="text-sm">{t('eventsShared.registrationFlow.checking', 'Checking registration...')}</span>
       </div>
     );
   }
@@ -301,28 +322,28 @@ export function EventRegistrationFlow({
       <div className="space-y-3">
         <div className="flex items-center gap-2.5 text-green-700 bg-green-50/80 backdrop-blur-sm border border-green-200 rounded-xl px-4 py-3 shadow-sm">
           <CheckCircle className="h-5 w-5" />
-          <span className="font-medium">You are registered for this event</span>
+          <span className="font-medium">{t('eventsShared.registrationFlow.registeredBanner', 'You are registered for this event')}</span>
         </div>
 
         {eventType === 'webinar' && eventMeetingUrl && (
           <Button asChild className="w-full bg-violet-600 hover:bg-violet-700 rounded-lg">
             <a href={eventMeetingUrl} target="_blank" rel="noopener noreferrer">
               <Video className="h-4 w-4 mr-2" />
-              Join the webinar
+              {t('eventsPage.joinWebinar', 'Join the webinar')}
             </a>
           </Button>
         )}
 
         {hasSchedule && (
           <div className="space-y-2">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Add to calendar</p>
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{t('eventsPage.addToCalendarShort', 'Add to calendar')}</p>
             <AddToCalendarButtons event={calendarEvent} />
           </div>
         )}
 
         <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg" onClick={handleCancel} disabled={registering}>
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-          Cancel Registration
+          {t('eventsPage.cancelMine', 'Cancel my registration')}
         </Button>
 
         {/* Success popup shown immediately after registering */}
@@ -332,12 +353,12 @@ export function EventRegistrationFlow({
               <div className="mx-auto mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
                 <CheckCircle className="h-7 w-7 text-green-600" />
               </div>
-              <DialogTitle className="text-center">You're registered!</DialogTitle>
+              <DialogTitle className="text-center">{t('eventsPage.youreRegistered', "You're registered")}</DialogTitle>
               <DialogDescription className="text-center">
                 {eventTitle
-                  ? <>You're confirmed for <span className="font-medium text-gray-700">{eventTitle}</span>.</>
-                  : 'Your registration is confirmed.'}
-                {' '}Add it to your calendar so you don't miss it.
+                  ? <>{t('eventsShared.registrationFlow.confirmedFor', "You're confirmed for")} <span className="font-medium text-gray-700">{eventTitle}</span>.</>
+                  : t('eventsShared.registrationFlow.confirmedGeneric', 'Your registration is confirmed.')}
+                {' '}{t('eventsShared.registrationFlow.calendarNudge', "Add it to your calendar so you don't miss it.")}
               </DialogDescription>
             </DialogHeader>
 
@@ -352,18 +373,18 @@ export function EventRegistrationFlow({
               <Button asChild className="w-full bg-violet-600 hover:bg-violet-700 rounded-xl">
                 <a href={eventMeetingUrl} target="_blank" rel="noopener noreferrer">
                   <Video className="h-4 w-4 mr-2" />
-                  Join the webinar
+                  {t('eventsPage.joinWebinar', 'Join the webinar')}
                 </a>
               </Button>
             )}
 
             <div className="space-y-2">
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide text-center">Add to calendar</p>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide text-center">{t('eventsPage.addToCalendarShort', 'Add to calendar')}</p>
               <AddToCalendarButtons event={calendarEvent} />
             </div>
 
             <Button variant="ghost" className="w-full" onClick={() => setConfirmOpen(false)}>
-              Done
+              {t('eventsShared.registrationFlow.done', 'Done')}
             </Button>
           </DialogContent>
         </Dialog>
@@ -378,13 +399,13 @@ export function EventRegistrationFlow({
         <div className="flex items-start gap-2.5 text-purple-700 bg-purple-50/80 backdrop-blur-sm border border-purple-200 rounded-xl px-4 py-3 shadow-sm">
           <Clock className="h-5 w-5 mt-0.5 shrink-0" />
           <div>
-            <p className="font-semibold">Invitation Requested</p>
-            <p className="text-sm mt-0.5 opacity-80">Your request is being reviewed. You will be notified once approved.</p>
+            <p className="font-semibold">{t('eventsShared.registrationFlow.invitationRequested', 'Invitation requested')}</p>
+            <p className="text-sm mt-0.5 opacity-80">{t('eventsShared.registrationFlow.invitationPendingDesc', 'Your request is being reviewed. You will be notified once approved.')}</p>
           </div>
         </div>
         <Button variant="outline" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg" onClick={handleCancel} disabled={registering}>
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-          Cancel Request
+          {t('eventsShared.registrationFlow.cancelRequest', 'Cancel request')}
         </Button>
       </div>
     );
@@ -393,11 +414,11 @@ export function EventRegistrationFlow({
   // Exposition request status
   if (status.startsWith('expo_')) {
     const expoStatusMap: Record<string, { color: string; icon: typeof Clock; label: string; desc: string }> = {
-      expo_pending: { color: 'bg-yellow-50/80 border-yellow-200 text-yellow-800', icon: Clock, label: 'Exposition Request Pending', desc: 'Your request to exhibit is being reviewed.' },
-      expo_approved: { color: 'bg-blue-50/80 border-blue-200 text-blue-800', icon: CheckCircle, label: 'Exposition Approved', desc: 'Your request has been approved. You will receive an invoice shortly.' },
-      expo_invoice_sent: { color: 'bg-indigo-50/80 border-indigo-200 text-indigo-800', icon: AlertCircle, label: 'Invoice Sent', desc: 'Please complete the payment to confirm your exhibition spot.' },
-      expo_paid: { color: 'bg-green-50/80 border-green-200 text-green-800', icon: CheckCircle, label: 'Exhibition Confirmed', desc: 'Your payment has been confirmed. You are registered as an exhibitor.' },
-      expo_rejected: { color: 'bg-red-50/80 border-red-200 text-red-800', icon: AlertCircle, label: 'Request Rejected', desc: 'Your exhibition request was not approved. Contact Smart Marina Connect for details.' },
+      expo_pending: { color: 'bg-yellow-50/80 border-yellow-200 text-yellow-800', icon: Clock, label: t('eventsShared.registrationFlow.expo.pending', 'Exposition Request Pending'), desc: t('eventsShared.registrationFlow.expo.pendingDesc', 'Your request to exhibit is being reviewed.') },
+      expo_approved: { color: 'bg-blue-50/80 border-blue-200 text-blue-800', icon: CheckCircle, label: t('eventsShared.registrationFlow.expo.approved', 'Exposition Approved'), desc: t('eventsShared.registrationFlow.expo.approvedDesc', 'Your request has been approved. You will receive an invoice shortly.') },
+      expo_invoice_sent: { color: 'bg-indigo-50/80 border-indigo-200 text-indigo-800', icon: AlertCircle, label: t('eventsShared.registrationFlow.expo.invoiceSent', 'Invoice Sent'), desc: t('eventsShared.registrationFlow.expo.invoiceSentDesc', 'Please complete the payment to confirm your exhibition spot.') },
+      expo_paid: { color: 'bg-green-50/80 border-green-200 text-green-800', icon: CheckCircle, label: t('eventsShared.registrationFlow.expo.paid', 'Exhibition Confirmed'), desc: t('eventsShared.registrationFlow.expo.paidDesc', 'Your payment has been confirmed. You are registered as an exhibitor.') },
+      expo_rejected: { color: 'bg-red-50/80 border-red-200 text-red-800', icon: AlertCircle, label: t('eventsShared.registrationFlow.expo.rejected', 'Request Rejected'), desc: t('eventsShared.registrationFlow.expo.rejectedDesc', 'Your exhibition request was not approved. Contact Smart Marina Connect for details.') },
     };
     const info = expoStatusMap[status];
     if (info) {
@@ -425,10 +446,10 @@ export function EventRegistrationFlow({
           <div className="space-y-3">
             <Button onClick={() => registerDirect('sponsor_included')} disabled={registering} className="rounded-xl shadow-sm w-full">
               {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Register (Included in {TIER_LABELS[orgTier]})
+              {t('eventsShared.registrationFlow.registerIncluded', { tier: TIER_LABELS[orgTier], defaultValue: 'Register (Included in {{tier}})' })}
             </Button>
             <p className="text-xs text-gray-500">
-              Your sponsorship includes access to invitation-only events.
+              {t('eventsShared.registrationFlow.sponsorInvitationNote', 'Your sponsorship includes access to invitation-only events.')}
             </p>
           </div>
         );
@@ -445,10 +466,10 @@ export function EventRegistrationFlow({
         >
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
           <Lock className="h-4 w-4 mr-2" />
-          Request Invitation
+          {t('eventsPage.requestInvitation', 'Request an invitation')}
         </Button>
         <p className="text-xs text-gray-500">
-          This event requires an invitation. Submit a request and you will be notified once approved.
+          {t('eventsShared.registrationFlow.invitationRequiredNote', 'This event requires an invitation. Submit a request and you will be notified once approved.')}
         </p>
       </div>
     );
@@ -461,14 +482,14 @@ export function EventRegistrationFlow({
         <Button onClick={() => setPackageSelectOpen(true)} disabled={registering} className="w-full rounded-xl shadow-sm">
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
           <Package className="h-4 w-4 mr-2" />
-          Choose a Package
+          {t('eventsShared.registrationFlow.choosePackage', 'Choose a package')}
         </Button>
 
         <Dialog open={packageSelectOpen} onOpenChange={setPackageSelectOpen}>
           <DialogContent className="max-w-md rounded-2xl">
             <DialogHeader>
-              <DialogTitle>Select a Registration Package</DialogTitle>
-              <DialogDescription>Choose your preferred registration package for this event.</DialogDescription>
+              <DialogTitle>{t('eventsShared.registrationFlow.selectPackageTitle', 'Select a registration package')}</DialogTitle>
+              <DialogDescription>{t('eventsShared.registrationFlow.selectPackageDesc', 'Choose your preferred registration package for this event.')}</DialogDescription>
             </DialogHeader>
             <div className="grid gap-3 mt-2">
               {packages.map(pkg => (
@@ -490,7 +511,7 @@ export function EventRegistrationFlow({
                         <p className="text-sm text-gray-600">{pkg.description}</p>
                       )}
                       {pkg.max_seats != null && (
-                        <p className="text-xs text-gray-400">{pkg.max_seats} seats available</p>
+                        <p className="text-xs text-gray-400">{t('eventsPage.seatsAvailable', { count: pkg.max_seats, defaultValue_one: '{{count}} seat available', defaultValue_other: '{{count}} seats available' })}</p>
                       )}
                     </div>
                     <div className="text-right">
@@ -519,10 +540,14 @@ export function EventRegistrationFlow({
           <div className="flex items-start gap-3 rounded-xl border px-4 py-3 bg-amber-50/80 border-amber-200 text-amber-800 shadow-sm backdrop-blur-sm">
             <AlertCircle className="h-5 w-5 mt-0.5 shrink-0" />
             <div>
-              <p className="font-semibold">Included seats exhausted</p>
+              <p className="font-semibold">{t('eventsShared.registrationFlow.seatsExhausted', 'Included seats exhausted')}</p>
               <p className="text-sm mt-0.5 opacity-80">
-                All {maxSeats} included seat(s) for your {TIER_LABELS[orgTier]} package are used.
-                Contact Smart Marina Connect for additional seats.
+                {t('eventsShared.registrationFlow.seatsExhaustedDesc', {
+                  count: maxSeats,
+                  tier: TIER_LABELS[orgTier],
+                  defaultValue_one: 'Your {{tier}} package includes {{count}} seat. All included seats are used. Contact Smart Marina Connect for additional seats.',
+                  defaultValue_other: 'Your {{tier}} package includes {{count}} seats. All included seats are used. Contact Smart Marina Connect for additional seats.',
+                })}
               </p>
             </div>
           </div>
@@ -530,14 +555,14 @@ export function EventRegistrationFlow({
           <>
             <Button onClick={() => registerDirect('sponsor_included')} disabled={registering} className="rounded-xl shadow-sm">
               {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              Register (Included in {TIER_LABELS[orgTier]})
+              {t('eventsShared.registrationFlow.registerIncluded', { tier: TIER_LABELS[orgTier], defaultValue: 'Register (Included in {{tier}})' })}
             </Button>
             <p className="text-xs text-gray-500">
-              Your sponsorship includes event access.
+              {t('eventsShared.registrationFlow.sponsorAccessNote', 'Your sponsorship includes event access.')}
               {maxSeats != null && (
                 <span className="ml-1">
                   <Users className="h-3 w-3 inline mr-0.5" />
-                  {orgRegistrationCount} / {maxSeats} seats used
+                  {t('eventsShared.registrationFlow.seatsUsed', { used: orgRegistrationCount, max: maxSeats, defaultValue: '{{used}} / {{max}} seats used' })}
                 </span>
               )}
             </p>
@@ -554,7 +579,7 @@ export function EventRegistrationFlow({
     return (
       <Button onClick={() => registerDirect('visitor')} disabled={registering} className="w-full sm:w-auto rounded-xl shadow-sm">
         {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-        Register for this Event
+        {t('eventsShared.registrationFlow.registerForEvent', 'Register for this event')}
       </Button>
     );
   }
@@ -570,9 +595,9 @@ export function EventRegistrationFlow({
       <div className="space-y-2">
         <Button onClick={() => registerDirect('member_discount')} disabled={registering} className="rounded-xl shadow-sm">
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-          Register (Member Rate)
+          {t('eventsShared.registrationFlow.registerMemberRate', 'Register (member rate)')}
         </Button>
-        <p className="text-xs text-gray-500">{discount}% member discount. Subject to approval — payment details will follow.</p>
+        <p className="text-xs text-gray-500">{t('eventsShared.registrationFlow.memberDiscountNote', { discount, defaultValue: '{{discount}}% member discount. Subject to approval — payment details will follow.' })}</p>
       </div>
     );
   }
@@ -581,7 +606,7 @@ export function EventRegistrationFlow({
   return (
     <Button onClick={() => registerDirect('visitor')} disabled={registering} className="rounded-xl shadow-sm">
       {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-      Register for this Event
+      {t('eventsShared.registrationFlow.registerForEvent', 'Register for this event')}
     </Button>
   );
 }

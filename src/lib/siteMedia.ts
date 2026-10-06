@@ -95,16 +95,26 @@ export const SM26_MOMENTS: { key: string; src: string; altFallback: string }[] =
 ];
 
 /**
- * Covers for events that have photos of their own. Events have no image column
- * yet, so every other event draws a gradient. The SM26 photos belong to one
- * event — Monaco Smart & Sustainable Marina, 6th edition (20–21 Sept 2026) —
- * so only that event's card and page may use them. Keyed by events.id, which
- * does not change when the title is edited.
+ * Built-in covers for events whose photos ship with the site. They only apply
+ * while the event has no uploaded cover (events.image_url, set in Admin →
+ * Events). The SM26 photos belong to one event — Monaco Smart & Sustainable
+ * Marina, 6th edition (20–21 Sept 2026) — so only that event's card and page
+ * may use them. Keyed by events.id, which does not change when the title is
+ * edited.
  */
 const EVENT_COVERS: Record<string, SiteImage> = {
   'f55f7b2f-96ac-4c5e-b620-358624e52240': SITE_IMAGES.homeHero,
 };
 
-export function eventCover(eventId: string | null | undefined): SiteImage | null {
-  return (eventId && EVENT_COVERS[eventId]) || null;
+/**
+ * The picture for an event's card and page header: the uploaded cover first,
+ * then the built-in photo above, then null — CoverImage draws the gradient.
+ * An uploaded cover has no stored focus point, so it is centred.
+ */
+export function eventCover(
+  event: { id: string; image_url?: string | null } | null | undefined,
+): SiteImage | null {
+  if (!event) return null;
+  if (event.image_url) return { src: event.image_url, focusY: 0.5 };
+  return EVENT_COVERS[event.id] || null;
 }

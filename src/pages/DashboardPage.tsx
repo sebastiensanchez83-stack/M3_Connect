@@ -13,7 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import { CoverImage, LogoBadge } from '@/components/ui/CoverImage';
-import { SITE_IMAGES } from '@/lib/siteMedia';
+import { SITE_IMAGES, eventCover } from '@/lib/siteMedia';
 import { Button } from '@/components/ui/button';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { CREATE_ACTIONS, DEAL_FLOW_ITEM, MEMBER_NAV, canCreate } from '@/lib/nav';
@@ -76,6 +76,8 @@ interface DashEvent {
   registered: boolean;
   /** Only ever filled for an event I am registered for — the event page's rule. */
   meeting_url: string | null;
+  /** Uploaded cover; null falls back to the built-in photo or a gradient (eventCover). */
+  image_url: string | null;
 }
 
 interface DashResource {
@@ -90,7 +92,7 @@ interface DashResource {
 type EventRow = {
   id: string; title: string; date_time: string | null; end_date_time: string | null;
   location: string | null; event_type: string | null; published: boolean | null; is_full_day: boolean | null;
-  description?: string | null; meeting_url?: string | null;
+  description?: string | null; meeting_url?: string | null; image_url?: string | null;
 };
 
 /** The organization's branding as stored now — the auth context's copy goes stale after an upload. */
@@ -307,10 +309,10 @@ export function DashboardPage() {
             .eq('user_id', uid).order('created_at', { ascending: false }).limit(5)
           : Promise.resolve({ data: [] }),
         supabase.from('event_registrations')
-          .select('event_id, events(id, title, description, date_time, end_date_time, location, event_type, published, is_full_day, meeting_url)')
+          .select('event_id, events(id, title, description, date_time, end_date_time, location, event_type, published, is_full_day, meeting_url, image_url)')
           .or(myRegsFilter),
         supabase.from('events')
-          .select('id, title, date_time, end_date_time, location, event_type, published, is_full_day')
+          .select('id, title, date_time, end_date_time, location, event_type, published, is_full_day, image_url')
           .gte('date_time', since).order('date_time', { ascending: true }).limit(6),
         supabase.from('resources')
           .select('id, title, summary, type, thumbnail_url, published_at, resource_sectors(sector_id)')
@@ -376,6 +378,7 @@ export function DashboardPage() {
           location: e.location, event_type: e.event_type, is_full_day: !!e.is_full_day,
           registered: isRegistered,
           meeting_url: isRegistered ? (e.meeting_url ?? null) : null,
+          image_url: e.image_url ?? null,
         });
       };
       [...registered.values()]
@@ -1079,12 +1082,14 @@ function EventCard({ event, lang, featured }: { event: DashEvent; lang: string; 
   const { t } = useTranslation();
   const start = new Date(event.date_time);
   const isWebinar = event.event_type === 'webinar';
+  const cover = eventCover(event);
 
   return (
     <Link to={`/events/${event.id}`} className={cn('group block rounded-xl', FOCUS)}>
       {featured && (
         <CoverImage
-          src={null}
+          src={cover?.src ?? null}
+          focusY={cover?.focusY}
           alt=""
           seed={event.id}
           icon={isWebinar ? Video : CalendarDays}
@@ -1200,7 +1205,8 @@ function NextEventCard({ event, lang }: { event: DashEvent; lang: string }) {
         {/* The picture repeats the title link below, so it stays out of the tab order. */}
         <Link to={`/events/${event.id}`} tabIndex={-1} aria-hidden="true" className="block md:col-span-2">
           <CoverImage
-            src={null}
+            src={eventCover(event)?.src ?? null}
+            focusY={eventCover(event)?.focusY}
             alt=""
             seed={event.id}
             icon={isWebinar ? Video : CalendarDays}

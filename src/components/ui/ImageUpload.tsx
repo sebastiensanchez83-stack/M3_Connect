@@ -149,7 +149,9 @@ export function ImageUpload({ value, onChange, label = 'Image', maxWidth = 1600,
       toast({ title: 'Error loading images', variant: 'destructive' });
     } else {
       const images: StorageImage[] = (data || [])
-        .filter(f => f.name !== '.emptyFolderPlaceholder')
+        // Folders come back as entries with no id (e.g. events/, where event
+        // covers live so this library can't delete one an event still uses).
+        .filter(f => f.id && f.name !== '.emptyFolderPlaceholder')
         .map(f => ({
           name: f.name,
           url: getPublicUrl(f.name),

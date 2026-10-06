@@ -103,6 +103,8 @@ interface EventDetail {
   fees: string | null;
   max_attendance: number | null;
   created_at: string;
+  /** Uploaded cover; null falls back to the built-in photo or a gradient (eventCover). */
+  image_url: string | null;
 }
 
 interface EventParticipant {
@@ -838,8 +840,8 @@ export function EventDetailPage() {
       {/* ── Header: what, when, where, which language, for whom ── */}
       <section className="relative overflow-hidden text-white">
         <CoverImage
-          src={eventCover(event.id)?.src ?? null}
-          focusY={eventCover(event.id)?.focusY}
+          src={eventCover(event)?.src ?? null}
+          focusY={eventCover(event)?.focusY}
           alt=""
           seed={event.id}
           icon={isWebinar ? Video : CalendarDays}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,6 +23,7 @@ interface LightweightWebinarSignupProps {
  * that this can only succeed for published, public, non-invitation-only webinars.
  */
 export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: LightweightWebinarSignupProps) {
+  const { t } = useTranslation();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -36,8 +38,9 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
     e.preventDefault();
     setInlineError(null);
     if (!firstName.trim() || !lastName.trim() || !validEmail(email)) {
-      setInlineError('Please fill in all required fields with a valid email.');
-      toast({ title: 'Please fill in all required fields with a valid email', variant: 'destructive' });
+      const msg = t('eventsShared.webinarSignup.fillRequired', 'Please fill in all required fields with a valid email.');
+      setInlineError(msg);
+      toast({ title: msg, variant: 'destructive' });
       return;
     }
     setSubmitting(true);
@@ -61,49 +64,68 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
         // Try to parse the structured error returned by the edge function
         // (supabase-js wraps 4xx/5xx into FunctionsHttpError)
         let code: string | undefined;
-        let message = error.message || 'Signup failed';
+        let status: number | undefined;
+        // Raw server / supabase-js text is English-only: kept for dev logs, never shown.
+        let serverMessage = error.message;
         try {
           const ctx = (error as unknown as { context?: Response }).context;
+          if (ctx && typeof ctx.status === 'number') status = ctx.status;
           if (ctx && typeof ctx.json === 'function') {
             const payload = await ctx.json();
-            if (payload?.error) message = payload.error;
+            if (payload?.error) serverMessage = payload.error;
             if (payload?.code) code = payload.code;
           }
         } catch {
           // ignore parse errors, fall back to generic message
         }
+        if (import.meta.env.DEV) console.error('Guest webinar signup failed:', status, code, serverMessage);
 
         if (code === 'DUPLICATE') {
-          const msg = 'This email is already signed up for this webinar.';
+          const msg = t('eventsShared.webinarSignup.duplicate', 'This email is already signed up for this webinar.');
           setInlineError(msg);
-          toast({ title: 'Already registered', description: msg, variant: 'destructive' });
+          toast({ title: t('eventsPage.alreadyRegistered', 'Already registered'), description: msg, variant: 'destructive' });
         } else if (code === 'RATE_LIMIT_IP' || code === 'RATE_LIMIT_EMAIL') {
-          setInlineError(message);
-          toast({ title: 'Too many attempts', description: message, variant: 'destructive' });
+          // The edge function's own wording, translated client-side per code.
+          const msg = code === 'RATE_LIMIT_IP'
+            ? t('eventsShared.webinarSignup.rateLimitIp', 'Too many signups from this network. Please try again later.')
+            : t('eventsShared.webinarSignup.rateLimitEmail', 'This email has reached the signup limit. Please try again later.');
+          setInlineError(msg);
+          toast({ title: t('eventsShared.webinarSignup.tooManyAttempts', 'Too many attempts'), description: msg, variant: 'destructive' });
         } else {
-          setInlineError(message);
-          toast({ title: 'Signup failed', description: message, variant: 'destructive' });
+          // Other edge-function errors carry no code: translate by HTTP status.
+          // No status (network / relay failure) falls through to the generic message.
+          const msg = status === 404
+            ? t('eventsPage.notFound', 'Event not found')
+            : status === 403
+              ? t('eventsShared.webinarSignup.notOpen', 'This event is not open for guest signup.')
+              : status === 400
+                ? t('eventsShared.webinarSignup.fillRequired', 'Please fill in all required fields with a valid email.')
+                : t('eventsPage.unexpectedError', 'An unexpected error occurred.');
+          setInlineError(msg);
+          toast({ title: t('eventsPage.registrationFailed', 'Registration failed'), description: msg, variant: 'destructive' });
         }
         return;
       }
 
       if (data && (data as { error?: string }).error) {
-        const msg = String((data as { error?: string }).error);
+        if (import.meta.env.DEV) console.error('Guest webinar signup failed:', (data as { error?: string }).error);
+        const msg = t('eventsPage.unexpectedError', 'An unexpected error occurred.');
         setInlineError(msg);
-        toast({ title: 'Signup failed', description: msg, variant: 'destructive' });
+        toast({ title: t('eventsPage.registrationFailed', 'Registration failed'), description: msg, variant: 'destructive' });
         return;
       }
 
       setDone(true);
       onRegistered?.();
       toast({
-        title: "You're signed up!",
-        description: 'Check your email for webinar details and the calendar invite.',
+        title: t('eventsShared.webinarSignup.successTitle', "You're signed up!"),
+        description: t('eventsShared.webinarSignup.successDesc', 'Check your email for webinar details and the calendar invite.'),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'An unexpected error occurred.';
+      if (import.meta.env.DEV) console.error('Guest webinar signup failed:', err);
+      const message = t('eventsPage.unexpectedError', 'An unexpected error occurred.');
       setInlineError(message);
-      toast({ title: 'Signup failed', description: message, variant: 'destructive' });
+      toast({ title: t('eventsPage.registrationFailed', 'Registration failed'), description: message, variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }
@@ -117,8 +139,8 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
         <div className="flex items-start gap-2.5 text-green-700 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
           <CheckCircle className="h-5 w-5 shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-sm">You're registered for this webinar</p>
-            <p className="text-xs text-green-600 mt-0.5">We sent webinar details to {email}</p>
+            <p className="font-medium text-sm">{t('eventsShared.webinarSignup.registeredBanner', "You're registered for this webinar")}</p>
+            <p className="text-xs text-green-600 mt-0.5">{t('eventsShared.webinarSignup.sentTo', { email, defaultValue: 'We sent webinar details to {{email}}' })}</p>
           </div>
         </div>
       </div>
@@ -129,29 +151,29 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
     <form onSubmit={handleSubmit} className="space-y-3">
       <div className="flex items-center gap-2 text-xs text-gray-600 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 mb-1">
         <Video className="h-4 w-4 text-blue-600 shrink-0" />
-        <span>Quick signup — no account needed for public webinars</span>
+        <span>{t('eventsShared.webinarSignup.quickSignup', 'Quick signup — no account needed for public webinars')}</span>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
-          <Label htmlFor="lws-fname" className="text-xs">First name *</Label>
+          <Label htmlFor="lws-fname" className="text-xs">{t('auth.firstName', 'First Name')} *</Label>
           <Input
             id="lws-fname"
             value={firstName}
             onChange={e => setFirstName(e.target.value)}
-            placeholder="John"
+            placeholder={t('auth.firstNamePlaceholder', 'John')}
             required
             disabled={submitting}
             className="h-9"
           />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="lws-lname" className="text-xs">Last name *</Label>
+          <Label htmlFor="lws-lname" className="text-xs">{t('auth.lastName', 'Last Name')} *</Label>
           <Input
             id="lws-lname"
             value={lastName}
             onChange={e => setLastName(e.target.value)}
-            placeholder="Doe"
+            placeholder={t('auth.lastNamePlaceholder', 'Doe')}
             required
             disabled={submitting}
             className="h-9"
@@ -160,13 +182,13 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="lws-email" className="text-xs">Email *</Label>
+        <Label htmlFor="lws-email" className="text-xs">{t('auth.email', 'Email')} *</Label>
         <Input
           id="lws-email"
           type="email"
           value={email}
           onChange={e => setEmail(e.target.value)}
-          placeholder="you@company.com"
+          placeholder={t('eventsShared.webinarSignup.emailPlaceholder', 'you@company.com')}
           required
           disabled={submitting}
           className="h-9"
@@ -174,12 +196,12 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="lws-company" className="text-xs">Company (optional)</Label>
+        <Label htmlFor="lws-company" className="text-xs">{t('eventsShared.webinarSignup.company', 'Company (optional)')}</Label>
         <Input
           id="lws-company"
           value={company}
           onChange={e => setCompany(e.target.value)}
-          placeholder="Your organization"
+          placeholder={t('eventsShared.webinarSignup.companyPlaceholder', 'Your organization')}
           disabled={submitting}
           className="h-9"
         />
@@ -195,19 +217,20 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
         {submitting ? (
           <>
             <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            Signing you up...
+            {t('eventsShared.webinarSignup.submitting', 'Signing you up...')}
           </>
         ) : (
           <>
             <Mail className="h-4 w-4 mr-2" />
-            Register for Webinar
+            {t('eventsPage.registerWebinar', 'Register for this webinar')}
           </>
         )}
       </Button>
 
       <p className="text-[11px] text-gray-400 text-center leading-relaxed">
-        By registering, you agree to receive webinar-related emails from Smart Marina Connect.
-        For full access to the platform, <span className="text-primary">create an account</span>.
+        {t('eventsShared.webinarSignup.consent', 'By registering, you agree to receive webinar-related emails from Smart Marina Connect.')}
+        {' '}{t('eventsShared.webinarSignup.fullAccess', 'For full access to the platform,')}{' '}
+        <span className="text-primary">{t('eventsShared.webinarSignup.createAccount', 'create an account')}</span>.
       </p>
     </form>
   );

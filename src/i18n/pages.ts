@@ -1794,6 +1794,98 @@ export const PAGE_STRINGS = {
           "gallery": "Montrez vos produits, vos sites ou vos places en images"
         }
       }
+    },
+    "eventsShared": {
+      "addToCalendar": {
+        "icsFile": "Fichier .ics"
+      },
+      "registrationFlow": {
+        "seatsExhausted": "Places incluses épuisées",
+        "seatsExhaustedDesc_one": "Votre formule {{tier}} inclut {{count}} place. Toutes les places incluses sont utilisées. Contactez Smart Marina Connect pour obtenir des places supplémentaires.",
+        "seatsExhaustedDesc_other": "Votre formule {{tier}} inclut {{count}} places. Toutes les places incluses sont utilisées. Contactez Smart Marina Connect pour obtenir des places supplémentaires.",
+        "invitationRequested": "Invitation demandée",
+        "registeredIncluded": "Inscription confirmée (incluse dans votre sponsoring)",
+        "registrationSubmitted": "Inscription envoyée",
+        "invitationRequestedDesc": "Votre demande d'invitation a été envoyée. Vous serez prévenu dès qu'elle sera approuvée.",
+        "registrationSubmittedDesc": "Votre inscription a été envoyée. Vous serez prévenu lorsque le paiement sera à effectuer.",
+        "error": "Erreur",
+        "invitationRequestCancelled": "Demande d'invitation annulée",
+        "checking": "Vérification de l'inscription...",
+        "registeredBanner": "Vous êtes inscrit à cet événement",
+        "confirmedFor": "Votre inscription est confirmée pour",
+        "confirmedGeneric": "Votre inscription est confirmée.",
+        "calendarNudge": "Ajoutez l'événement à votre agenda pour ne pas le manquer.",
+        "done": "Terminé",
+        "invitationPendingDesc": "Votre demande est en cours d'examen. Vous serez prévenu dès qu'elle sera approuvée.",
+        "cancelRequest": "Annuler la demande",
+        "expo": {
+          "pending": "Demande d'exposition en attente",
+          "pendingDesc": "Votre demande pour exposer est en cours d'examen.",
+          "approved": "Exposition approuvée",
+          "approvedDesc": "Votre demande a été approuvée. Vous recevrez une facture prochainement.",
+          "invoiceSent": "Facture envoyée",
+          "invoiceSentDesc": "Veuillez effectuer le paiement pour confirmer votre emplacement d'exposant.",
+          "paid": "Exposition confirmée",
+          "paidDesc": "Votre paiement a été confirmé. Vous êtes inscrit en tant qu'exposant.",
+          "rejected": "Demande refusée",
+          "rejectedDesc": "Votre demande d'exposition n'a pas été approuvée. Contactez Smart Marina Connect pour plus de détails."
+        },
+        "registerIncluded": "S'inscrire (inclus dans la formule {{tier}})",
+        "sponsorInvitationNote": "Votre sponsoring inclut l'accès aux événements sur invitation.",
+        "invitationRequiredNote": "Cet événement est sur invitation. Envoyez une demande : vous serez prévenu dès qu'elle sera approuvée.",
+        "choosePackage": "Choisir une formule",
+        "selectPackageTitle": "Choisissez une formule d'inscription",
+        "selectPackageDesc": "Sélectionnez la formule d'inscription qui vous convient pour cet événement.",
+        "sponsorAccessNote": "Votre sponsoring inclut l'accès à l'événement.",
+        "seatsUsed": "{{used}} / {{max}} places utilisées",
+        "registerForEvent": "S'inscrire à cet événement",
+        "registerMemberRate": "S'inscrire (tarif membre)",
+        "memberDiscountNote": "Remise membre de {{discount}} %. Sous réserve d'approbation — les modalités de paiement suivront."
+      },
+      "webinarSignup": {
+        "fillRequired": "Veuillez remplir tous les champs obligatoires avec une adresse e-mail valide.",
+        "duplicate": "Cette adresse e-mail est déjà inscrite à ce webinaire.",
+        "rateLimitIp": "Trop d'inscriptions depuis ce réseau. Veuillez réessayer plus tard.",
+        "rateLimitEmail": "Cette adresse e-mail a atteint la limite d'inscriptions. Veuillez réessayer plus tard.",
+        "tooManyAttempts": "Trop de tentatives",
+        "notOpen": "Cet événement n'est pas ouvert à l'inscription sans compte.",
+        "successTitle": "Vous êtes inscrit !",
+        "successDesc": "Consultez vos e-mails : vous y trouverez les informations du webinaire et l'invitation pour votre agenda.",
+        "registeredBanner": "Vous êtes inscrit à ce webinaire",
+        "sentTo": "Nous avons envoyé les informations du webinaire à {{email}}",
+        "quickSignup": "Inscription rapide — aucun compte requis pour les webinaires publics",
+        "emailPlaceholder": "vous@entreprise.com",
+        "company": "Entreprise (facultatif)",
+        "companyPlaceholder": "Votre organisation",
+        "submitting": "Inscription en cours...",
+        "consent": "En vous inscrivant, vous acceptez de recevoir des e-mails de Smart Marina Connect liés à ce webinaire.",
+        "fullAccess": "Pour accéder à toute la plateforme,",
+        "createAccount": "créez un compte"
+      }
+    },
+    "sharedUi": {
+      "bookmarkButton": {
+        "add": "Ajouter aux favoris",
+        "remove": "Retirer des favoris",
+        "onShortlist": "Dans vos favoris",
+        "added": "Ajouté aux favoris",
+        "addedDesc": "{{name}} fait partie de vos favoris.",
+        "removed": "Retiré des favoris",
+        "saveFailed": "Enregistrement impossible",
+        "removeFailed": "Suppression impossible"
+      },
+      "adBanner": {
+        "sponsored": "Sponsorisé"
+      },
+      "sponsorBadge": {
+        "tiers": {
+          "innovation_partner": "Innovation Partner",
+          "associate_partner": "Associate Partner",
+          "premium_partner": "Partner",
+          "premium_sponsor": "Premium Sponsor",
+          "main_sponsor": "Main Sponsor"
+        }
+      }
     }
   }
 } as const;

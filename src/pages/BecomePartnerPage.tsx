@@ -189,13 +189,12 @@ export function BecomePartnerPage() {
   const seoTitle = withSiteSuffix(t('seo.join.title', 'Join the marina industry network'));
   const seoDescription = t('seo.join.description', 'Marina, service provider, investor, developer or media: sign up for free. The M3 team checks every company, then opens the features of your profile.');
 
+  // A member who is already signed in has nothing to sign up for: a draft finishes the sign-up, everyone else goes to their space.
+  const mySpacePath = !profile || profile.onboarding_status === 'draft' ? '/onboarding' : '/dashboard';
+
   const handleJoin = (persona?: PersonaType) => {
     if (user) {
-      if (!profile || profile.onboarding_status === 'draft') {
-        navigate('/onboarding');
-      } else {
-        navigate('/account');
-      }
+      navigate(mySpacePath);
     } else {
       setSelectedPersonaType(persona);
       setSignupOpen(true);
@@ -264,7 +263,9 @@ export function BecomePartnerPage() {
                   <h3 className="text-meta-caps mt-8">{t('homePage.profiles.canTitle', 'What you can do')}</h3>
                   <CheckList items={c.can} className="mt-4 max-w-xl" />
                   <div className="mt-8 flex flex-wrap gap-3">
-                    {c.ctas.map((cta, k) => (
+                    {user ? (
+                      <Button variant="cta" onClick={() => handleJoin()}>{t('join.accessMySpace')}</Button>
+                    ) : c.ctas.map((cta, k) => (
                       <Button key={cta.persona} variant={k === 0 ? 'cta' : 'ctaOutline'} onClick={() => handleJoin(cta.persona)}>
                         {cta.label}
                       </Button>
@@ -368,7 +369,7 @@ export function BecomePartnerPage() {
             <p className="mx-auto mt-3 max-w-xl text-body md:text-body-lg text-white/80">{t('staticPages.join.ready.subtitle')}</p>
             <div className="mt-8 flex justify-center">
               {user ? (
-                <Button variant="ctaOnDark" onClick={() => navigate(profile ? '/account' : '/onboarding')}>
+                <Button variant="ctaOnDark" onClick={() => navigate(mySpacePath)}>
                   {t('join.accessMySpace')}
                 </Button>
               ) : (

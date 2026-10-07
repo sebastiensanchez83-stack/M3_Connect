@@ -16,7 +16,7 @@ import type { EventCardItem } from './EventCard';
 
 /** The 6th edition's event page (events.id, stable even if the title is edited). */
 export const RENDEZVOUS_2026_PATH = '/events/f55f7b2f-96ac-4c5e-b620-358624e52240';
-export const WEBINARS_PATH = '/events';
+export const WEBINARS_PATH = '/events?type=webinar';
 
 /**
  * Items for the hero's floating event card (EventCard), in the order they turn: the next

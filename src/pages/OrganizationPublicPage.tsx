@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import type { ReactNode, MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -643,7 +644,7 @@ export function OrganizationPublicPage() {
       if (error) throw error;
       // partner_name must be the REQUESTER's organization (the one initiating contact),
       // not the recipient's org. The email tells the marina who is reaching out.
-      const requesterOrgName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A partner';
+      const requesterOrgName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A member';
       sendNotification({ type: 'partner_request_received', userId: org.owner_user_id!, data: { partner_name: requesterOrgName, message: connectMessage.trim() } });
       toast({
         title: t('orgProfile.connectSentTitle', 'Connection request sent!'),
@@ -1014,7 +1015,7 @@ export function OrganizationPublicPage() {
               )}
               {org.website && (
                 <Button asChild variant="ctaOutline" size="sm">
-                  <a href={org.website} target="_blank" rel="noopener noreferrer">
+                  <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer">
                     {t('orgProfile.visitWebsite', 'Visit website')}
                     <span className="sr-only"> {t('orgProfile.newTab', '(opens in a new tab)')}</span>
                   </a>
@@ -1110,7 +1111,7 @@ export function OrganizationPublicPage() {
                       {org.website && (
                         <Fact icon={Globe} label={t('orgProfile.fields.website', 'Website')}>
                           <a
-                            href={org.website}
+                            href={externalUrl(org.website) ?? undefined}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="focus-ring break-all rounded-sm text-navy underline underline-offset-[3px] hover:text-teal-text"
@@ -1244,7 +1245,7 @@ export function OrganizationPublicPage() {
                       icon={Camera}
                       aspect="fill"
                       tone="sea"
-                      imageClassName="duration-[800ms] ease-out-smc group-hover:scale-105"
+                      imageClassName="[transition-duration:800ms] ease-out-smc group-hover:scale-105"
                     />
                     {moreTile && (
                       <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center bg-[#0b2653]/70 text-2xl font-semibold text-white">

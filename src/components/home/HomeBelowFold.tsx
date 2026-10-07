@@ -49,7 +49,7 @@ export default function HomeBelowFold(props: HomeBelowFoldProps) {
       {!signedIn && <ProfileCards sectionNo={next()} />}
 
       {showNeedPanel && (
-        <NeedPanel canSubmit={props.canSubmitNeed} providers={props.providers} providersLoading={props.loading} sectionNo={next()} />
+        <NeedPanel canSubmit={props.canSubmitNeed} signedIn={signedIn} providers={props.providers} providersLoading={props.loading} sectionNo={next()} />
       )}
 
       <ResourcesAgenda resources={props.resources} themeCounts={props.themeCounts} loading={props.loading} lang={props.lang} sectionNo={next()} />

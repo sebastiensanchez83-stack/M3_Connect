@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
@@ -45,6 +46,7 @@ import {
   ACCOUNT_GROUPS, ACCOUNT_SECTIONS, accountHref, getAccountSection, type AccountTab,
 } from '@/lib/accountNav';
 import { cn, type CalendarEventInput } from '@/lib/utils';
+import { canCreate } from '@/lib/nav';
 
 /**
  * The member area: /account?tab=…, and /inbox (served here through `forceTab`).
@@ -712,6 +714,27 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   const canProjects = isMarinaLike || isFeatureEnabled('submit_project');
   const canRFPs = isMarinaLike || isFeatureEnabled('submit_rfp');
   const canConsultations = isMarinaLike || isFeatureEnabled('submit_consultation');
+  // Seeing a tab is not the same as being allowed to publish from it: the forms open only once the account AND the
+  // organization are verified (the same rule as the Create menu). Until then the buttons that lead to them are
+  // replaced by a line pointing to the dashboard, where the review status is explained.
+  const createCtx = {
+    isVerified: profile.access_status === 'verified',
+    orgVerified: organization?.access_status === 'verified',
+    persona: profile.persona,
+    isFeatureEnabled,
+  };
+  const mayPublish = {
+    project: canCreate('submit_project', createCtx),
+    rfp: canCreate('submit_rfp', createCtx),
+    consultation: canCreate('submit_consultation', createCtx),
+    webinar: canCreate('request_webinar', createCtx),
+  };
+  const publishWhenVerified = t('accountArea.publishWhenVerified', 'You can publish once your organization is verified');
+  const publishPendingLink = (
+    <Link to="/dashboard" className="inline-flex min-h-10 items-center text-sm font-medium text-primary underline-offset-2 hover:underline">
+      {publishWhenVerified}
+    </Link>
+  );
   // The project / RFP / consultation lists come from the main data load; they
   // are only final once that load ran with the current rights (a feature
   // grant that arrives late triggers a second load).
@@ -1156,7 +1179,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                   </div>
                 )}
                 {org.website && (
-                  <a href={org.website} target="_blank" rel="noopener noreferrer"
+                  <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer"
                     className="inline-flex min-h-10 items-center gap-1.5 break-all text-sm text-primary hover:underline">
                     <Globe className="h-4 w-4 shrink-0" aria-hidden="true" />
                     {org.website}
@@ -1242,9 +1265,9 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
         else { content = unavailable; showHeader = false; }
         break;
       }
-      headerActions = (
+      headerActions = mayPublish.project ? (
         <Button variant="cta" size="sm" onClick={() => navigate('/submit-project')}>{t('accountArea.projects.submit', 'Submit a project')}</Button>
-      );
+      ) : publishPendingLink;
       content = (
         <Panel>
           {requestListsLoading ? (
@@ -1282,10 +1305,11 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
 
     /* ── WEBINAR REQUESTS ── */
     case 'webinars':
-      if (profile?.access_status === 'verified' && (organization?.tier !== 'member' || profile?.persona !== 'partner')) {
-        headerActions = (
+      // Every verified member can propose a webinar (the tier gating is gone, as the proposal form itself says).
+      if (profile?.access_status === 'verified') {
+        headerActions = mayPublish.webinar ? (
           <Button variant="cta" size="sm" onClick={() => navigate('/request-webinar')}>{t('accountArea.webinars.propose', 'Propose a webinar')}</Button>
-        );
+        ) : publishPendingLink;
       }
       content = (
         <Panel>
@@ -1296,24 +1320,13 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
               title={t('accountArea.webinars.pendingTitle', 'Account pending approval')}
               body={t('accountArea.webinars.pendingBody', "You'll be able to propose webinars once your profile is verified by our team.")}
             />
-          ) : (organization?.tier === 'member' && profile?.persona === 'partner') ? (
-            <EmptyState
-              icon={Radio}
-              title={t('accountArea.webinars.upgradeTitle', 'Webinars for event partners')}
-              body={t('accountArea.webinars.upgradeBody', "Webinar proposals are open to companies that sponsor M3's events, from the Innovation Partner level. Talk to the M3 team to find out more.")}
-              action={(
-                <Button className={BTN_OUTLINE} variant="outline" onClick={() => navigate('/contact?subject=partnership')}>
-                  {t('accountArea.webinars.viewPlans', 'Contact the M3 team')}
-                </Button>
-              )}
-            />
           ) : dataLoading ? (
             <RowSkeleton rows={2} />
           ) : webinarRequests.length === 0 ? (
             <EmptyState
               icon={Radio}
               title={t('accountArea.webinars.empty', 'No webinar requests submitted.')}
-              action={(
+              action={!mayPublish.webinar ? undefined : (
                 <Button variant="ctaNavy" size="sm" onClick={() => navigate('/request-webinar')}>
                   {t('accountArea.webinars.proposeTopic', 'Propose a topic')}
                 </Button>
@@ -1368,9 +1381,9 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
         else { content = unavailable; showHeader = false; }
         break;
       }
-      headerActions = (
+      headerActions = mayPublish.rfp ? (
         <Button variant="cta" size="sm" onClick={() => navigate('/submit-rfp')}>{t('accountArea.rfps.submit', 'Submit an RFP')}</Button>
-      );
+      ) : publishPendingLink;
       content = (
         <Panel>
           {requestListsLoading ? (
@@ -1379,7 +1392,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
             <EmptyState
               icon={ClipboardList}
               title={t('accountArea.rfps.empty', 'No RFPs submitted.')}
-              action={(
+              action={!mayPublish.rfp ? undefined : (
                 <Button variant="ctaNavy" size="sm" onClick={() => navigate('/submit-rfp')}>
                   {t('accountArea.rfps.create', 'Create an RFP')}
                 </Button>
@@ -1439,9 +1452,9 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
         else { content = unavailable; showHeader = false; }
         break;
       }
-      headerActions = (
+      headerActions = mayPublish.consultation ? (
         <Button variant="cta" size="sm" onClick={() => navigate('/submit-consultation')}>{t('accountArea.consultations.new', 'New consultation')}</Button>
-      );
+      ) : publishPendingLink;
       content = (
         <Panel>
           {requestListsLoading ? (
@@ -1450,7 +1463,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
             <EmptyState
               icon={MessageSquare}
               title={t('accountArea.consultations.empty', 'No consultations submitted.')}
-              action={(
+              action={!mayPublish.consultation ? undefined : (
                 <Button variant="ctaNavy" size="sm" onClick={() => navigate('/submit-consultation')}>
                   {t('accountArea.consultations.ask', 'Ask a question')}
                 </Button>
@@ -1541,7 +1554,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
               onToggle={() => toggleSection('projects')}
             >
               {subProjects.length === 0 ? (
-                <GroupEmpty text={t('accountArea.submissions.noProjects', 'No projects submitted yet.')} linkTo="/submit-project" linkLabel={t('accountArea.projects.submit', 'Submit a project')} />
+                <GroupEmpty text={t('accountArea.submissions.noProjects', 'No projects submitted yet.')} linkTo={mayPublish.project ? '/submit-project' : '/dashboard'} linkLabel={mayPublish.project ? t('accountArea.projects.submit', 'Submit a project') : publishWhenVerified} />
               ) : (
                 <ul className="divide-y divide-rule">
                   {subProjects.map((p) => (
@@ -1574,7 +1587,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
               onToggle={() => toggleSection('rfps')}
             >
               {subRfps.length === 0 ? (
-                <GroupEmpty text={t('accountArea.submissions.noRfps', 'No RFPs submitted yet.')} linkTo="/submit-rfp" linkLabel={t('accountArea.rfps.submit', 'Submit an RFP')} />
+                <GroupEmpty text={t('accountArea.submissions.noRfps', 'No RFPs submitted yet.')} linkTo={mayPublish.rfp ? '/submit-rfp' : '/dashboard'} linkLabel={mayPublish.rfp ? t('accountArea.rfps.submit', 'Submit an RFP') : publishWhenVerified} />
               ) : (
                 <ul className="divide-y divide-rule">
                   {subRfps.map((r) => (
@@ -1608,7 +1621,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
               onToggle={() => toggleSection('consultations')}
             >
               {subConsultations.length === 0 ? (
-                <GroupEmpty text={t('accountArea.submissions.noConsultations', 'No consultations submitted yet.')} linkTo="/submit-consultation" linkLabel={t('accountArea.submissions.startConsultation', 'Start a consultation')} />
+                <GroupEmpty text={t('accountArea.submissions.noConsultations', 'No consultations submitted yet.')} linkTo={mayPublish.consultation ? '/submit-consultation' : '/dashboard'} linkLabel={mayPublish.consultation ? t('accountArea.submissions.startConsultation', 'Start a consultation') : publishWhenVerified} />
               ) : (
                 <ul className="divide-y divide-rule">
                   {subConsultations.map((c) => (
@@ -1638,7 +1651,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
             onToggle={() => toggleSection('webinars')}
           >
             {subWebinars.length === 0 ? (
-              <GroupEmpty text={t('accountArea.submissions.noWebinars', 'No webinar requests submitted yet.')} linkTo="/request-webinar" linkLabel={t('accountArea.webinars.propose', 'Propose a webinar')} />
+              <GroupEmpty text={t('accountArea.submissions.noWebinars', 'No webinar requests submitted yet.')} linkTo={mayPublish.webinar ? '/request-webinar' : '/dashboard'} linkLabel={mayPublish.webinar ? t('accountArea.webinars.propose', 'Propose a webinar') : publishWhenVerified} />
             ) : (
               <ul className="divide-y divide-rule">
                 {subWebinars.map((w) => (
@@ -1929,7 +1942,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
 
                 {/* Website */}
                 {org.website && (
-                  <a href={org.website} target="_blank" rel="noopener noreferrer"
+                  <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 break-all text-sm text-primary hover:underline">
                     <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
                     {org.website}

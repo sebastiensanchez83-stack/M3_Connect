@@ -47,12 +47,15 @@ const NEED_ROUTES: Record<NeedType, string> = {
 
 export function NeedPanel({
   canSubmit,
+  signedIn = false,
   providers,
   providersLoading,
   sectionNo,
 }: {
-  /** A signed-in marina: "Publish a need" opens the real form. Otherwise it leads to the sign-up. */
+  /** A verified marina (organization verified too): "Publish a need" opens the real form. */
   canSubmit: boolean;
+  /** Signed in but not yet allowed to publish (account or organization under review): the button leads to the dashboard, where the review status is explained. Visitors are led to the marina sign-up. */
+  signedIn?: boolean;
   providers: ProviderCardData[];
   providersLoading: boolean;
   /** Section number shown before the eyebrow ("02"). */
@@ -60,7 +63,8 @@ export function NeedPanel({
 }) {
   const { t } = useTranslation();
   const [type, setType] = useState<NeedType>('rfp');
-  const href = canSubmit ? NEED_ROUTES[type] : '/become-partner';
+  const waiting = signedIn && !canSubmit;
+  const href = canSubmit ? NEED_ROUTES[type] : waiting ? '/dashboard' : '/become-partner#marina';
 
   return (
     <BgRevealPanel as="section" aria-labelledby="home-need-heading" bathy bathySeed={4} className="py-16 md:py-[104px]">
@@ -101,7 +105,7 @@ export function NeedPanel({
             </Reveal>
             <Reveal delay={200} className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
               <Button asChild variant="ctaOnDark" size="lg">
-                <Link to={href}>{t('homePage.need.cta', 'Publish a need')}</Link>
+                <Link to={href}>{waiting ? t('homePage.need.ctaWaiting', 'Check my account status') : t('homePage.need.cta', 'Publish a need')}</Link>
               </Button>
               <UnderlineLink to="/contact" tone="light">
                 {t('homePage.need.writeTeam', 'Write to the M3 team')}
@@ -109,7 +113,9 @@ export function NeedPanel({
             </Reveal>
             {!canSubmit && (
               <p className="mt-4 max-w-[600px] text-[13px] leading-[18px] text-white/70">
-                {t('homePage.need.noteVisitor', 'Signing up is free. The M3 team checks every marina before it can publish.')}
+                {waiting
+                  ? t('homePage.need.noteWaiting', 'You can publish once the M3 team has checked your marina. Your dashboard shows where the review stands.')
+                  : t('homePage.need.noteVisitor', 'Signing up is free. The M3 team checks every marina before it can publish.')}
               </p>
             )}
           </div>

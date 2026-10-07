@@ -21,7 +21,8 @@ import { PERSONA_IMAGES, SITE_IMAGES } from '@/lib/siteMedia';
 export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
   const { t } = useTranslation();
   const connect = t('homePage.profiles.connect', 'Request introductions and propose a webinar');
-  const signup = '/become-partner';
+  // One chapter per profile on the join page (ids marina, service-provider, investor-developer, media).
+  const signupTo = (chapter: string) => `/become-partner#${chapter}`;
 
   const items: AccordionItem[] = [
     {
@@ -40,7 +41,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
           ]}
         />
       ),
-      cta: { label: t('homeSections.persona.marinas.cta', 'Sign up as a marina'), to: signup },
+      cta: { label: t('homeSections.persona.marinas.cta', 'Sign up as a marina'), to: signupTo('marina') },
     },
     {
       id: 'providers',
@@ -58,7 +59,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
           ]}
         />
       ),
-      cta: { label: t('homeSections.persona.suppliers.cta', 'Sign up as a service provider'), to: signup },
+      cta: { label: t('homeSections.persona.suppliers.cta', 'Sign up as a service provider'), to: signupTo('service-provider') },
     },
     {
       id: 'investors',
@@ -77,7 +78,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
           ]}
         />
       ),
-      cta: { label: t('homePage.profiles.investors.cta', 'Sign up as an investor or developer'), to: signup },
+      cta: { label: t('homePage.profiles.investors.cta', 'Sign up as an investor or developer'), to: signupTo('investor-developer') },
     },
     {
       id: 'media',
@@ -94,7 +95,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
           ]}
         />
       ),
-      cta: { label: t('homePage.profiles.media.cta', 'Sign up as media'), to: signup },
+      cta: { label: t('homePage.profiles.media.cta', 'Sign up as media'), to: signupTo('media') },
     },
   ];
 

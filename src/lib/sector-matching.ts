@@ -148,7 +148,7 @@ export async function checkSectorMatch(
     return {
       allowed: false,
       overlapCount: 0,
-      reason: `Your sectors don’t overlap with ${to.name}’s. A marina’s sectors of interest must match the partner’s service sectors for a connection to be relevant.`,
+      reason: `Your sectors don’t overlap with ${to.name}’s. A marina’s sectors of interest must match the service provider’s service sectors for a connection to be relevant.`,
     };
   }
 

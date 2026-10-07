@@ -35,10 +35,12 @@ export interface PersonalEvent {
 }
 
 export function MemberSpace({
-  profileIncomplete, orgName, orgLogo, personalStats, accountLoaded, feedLoaded,
+  profileIncomplete, completeProfileHref, orgName, orgLogo, personalStats, accountLoaded, feedLoaded,
   myRegistrations, personalResources, personalEvents, lang,
 }: {
   profileIncomplete: boolean;
+  /** Where the amber banner leads: the sign-up form for a draft, the organization tab otherwise. */
+  completeProfileHref: string;
   orgName: string | null;
   orgLogo: string | null;
   personalStats: { profileViews: number; connectionRequests: number; pendingItems: number } | null;
@@ -58,7 +60,7 @@ export function MemberSpace({
     { to: accountHref('organization'), icon: Building2, label: t('accountNav.organization', 'Organization & team') },
   ];
   const statTiles: { key: string; to: string; icon: LucideIcon; value: number | undefined; label: string }[] = [
-    { key: 'views', to: '/account', icon: Eye, value: personalStats?.profileViews, label: t('homeSections.personalStats.profileViews', 'Profile views') },
+    { key: 'views', to: accountHref('profile'), icon: Eye, value: personalStats?.profileViews, label: t('homeSections.personalStats.profileViews', 'Profile views') },
     { key: 'connections', to: accountHref('inbox'), icon: Link2, value: personalStats?.connectionRequests, label: t('homeSections.personalStats.connections', 'Connections') },
     { key: 'pending', to: accountHref('inbox'), icon: Inbox, value: personalStats?.pendingItems, label: t('homeSections.personalStats.pending', 'Pending requests') },
   ];
@@ -76,7 +78,7 @@ export function MemberSpace({
               {t('home.completeOrgBanner', 'Complete your organization profile to unlock all platform features.')}
             </p>
             <Button size="sm" variant="outline" className="min-h-10 shrink-0 border-amber-300 bg-white text-amber-900 hover:bg-amber-100" asChild>
-              <Link to="/account">{t('homeSections.completeProfileCta', 'Complete my profile')}</Link>
+              <Link to={completeProfileHref}>{t('homeSections.completeProfileCta', 'Complete my profile')}</Link>
             </Button>
           </div>
         )}

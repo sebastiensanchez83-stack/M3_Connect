@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { SM26ParticipationCard } from '@/components/sm26/SM26ParticipationCard';
 import { AdminUserOrgs } from './AdminUserOrgs';
@@ -76,7 +77,7 @@ export function AdminUserDetail() {
     { key: 'submit_rfp', label: 'Submit RFPs', description: 'Create Requests for Proposals', personas: ['marina'] },
     { key: 'submit_consultation', label: 'Submit Consultations', description: 'Create consultation requests', personas: ['marina'] },
     { key: 'request_webinar', label: 'Propose Webinars', description: 'Propose and host webinars' },
-    { key: 'b2b_matching', label: 'B2B Matching', description: 'Send & receive partner connection requests' },
+    { key: 'b2b_matching', label: 'B2B Matching', description: 'Send & receive connection requests' },
     { key: 'analytics_dashboard', label: 'Analytics Dashboard', description: 'View profile analytics & insights' },
     { key: 'team_management', label: 'Team Management', description: 'Invite and manage team members' },
     { key: 'document_upload', label: 'Document Upload', description: 'Upload organization documents' },
@@ -141,7 +142,7 @@ export function AdminUserDetail() {
       const [{ data: orgDetail }, { data: sectorData }] = await Promise.all([
         // Only what the Organization card shows. Never '*': claim_code is not
         // readable by signed-in users (audit S2), and select=* then fails.
-        supabase.from('organizations').select('id, name, organization_type, country, city, website, access_status, description').eq('id', orgId).maybeSingle(),
+        supabase.from('organizations').select('id, name, slug, organization_type, country, city, website, access_status, description').eq('id', orgId).maybeSingle(),
         supabase
           .from(
             merged.persona === 'marina' || merged.persona === 'media_partner' || merged.persona === 'developer' || merged.persona === 'investor'
@@ -509,7 +510,7 @@ export function AdminUserDetail() {
               <DetailRow label="Tier" value={getTierBadge(user.org_tier)} />
               <DetailRow label="Country" value={orgData.country as string} />
               <DetailRow label="City" value={orgData.city as string} />
-              <DetailRow label="Website" value={orgData.website ? <a href={orgData.website as string} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">{orgData.website as string} <ExternalLink className="h-3 w-3" /></a> : null} />
+              <DetailRow label="Website" value={orgData.website ? <a href={externalUrl(orgData.website as string) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">{orgData.website as string} <ExternalLink className="h-3 w-3" /></a> : null} />
               <DetailRow label="Status" value={orgData.access_status as string} />
               {typeof orgData.description === 'string' && orgData.description && (
                 <DetailRow label="Description" value={<span className="line-clamp-3">{orgData.description}</span>} />
@@ -521,9 +522,9 @@ export function AdminUserDetail() {
                   </div>
                 } />
               )}
-              {user.org_id && (
+              {!!orgData.slug && (
                 <div className="mt-2">
-                  <Link to={`/organizations/${user.org_id}`} target="_blank" className="text-xs text-primary hover:underline flex items-center gap-1">
+                  <Link to={`/organizations/${orgData.slug as string}`} target="_blank" className="text-xs text-primary hover:underline flex items-center gap-1">
                     <ExternalLink className="h-3 w-3" /> View public page
                   </Link>
                 </div>
@@ -693,7 +694,7 @@ export function AdminUserDetail() {
                         </div>
                       )}
                       <p className="text-xs text-gray-500 mt-2">
-                        Recommendations are optional and appear on the partner's public profile.
+                        Recommendations are optional and appear on the service provider's public profile.
                       </p>
                     </div>
                   </div>
@@ -751,8 +752,8 @@ export function AdminUserDetail() {
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="marina">Marina</SelectItem>
-                    <SelectItem value="partner">Partner</SelectItem>
-                    <SelectItem value="media_partner">Media Partner</SelectItem>
+                    <SelectItem value="partner">Service provider</SelectItem>
+                    <SelectItem value="media_partner">Media</SelectItem>
                     <SelectItem value="developer">Developer</SelectItem>
                     <SelectItem value="investor">Investor</SelectItem>
                     <SelectItem value="moderator">Moderator</SelectItem>

@@ -148,11 +148,12 @@ export function SubmitConsultationPage() {
             {!user && (
               <Button variant="ctaOnDark" onClick={() => navigate('/')}>{t('common.goHome')}</Button>
             )}
-            {user && !isVerified && (
-              <Button variant="ctaOnDark" onClick={() => navigate('/account')}>{t('common.viewAccountStatus')}</Button>
+            {/* A signed-in member always gets a way forward: the dashboard says where the review of the account or the organization stands. */}
+            {user && canSubmitHere && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/dashboard')}>{t('common.viewAccountStatus')}</Button>
             )}
-            {user && isVerified && !canSubmitHere && (
-              <Button variant="ctaOnDark" onClick={() => navigate('/account')}>{t('common.backToAccount')}</Button>
+            {user && !canSubmitHere && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/dashboard')}>{t('common.backToAccount')}</Button>
             )}
           </>
         )}

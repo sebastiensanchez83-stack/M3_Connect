@@ -22,6 +22,8 @@ import type { ProviderCardData } from '@/components/home/NeedPanel';
 import type { HomeResource } from '@/components/home/ResourcesAgenda';
 import type { SponsorLogo } from '@/components/home/SponsorsBand';
 import { MemberSpace, type PersonalEvent, type PersonalResource } from '@/components/home/MemberSpace';
+import { canCreate } from '@/lib/nav';
+import { accountHref } from '@/lib/accountNav';
 
 // Everything below the figures band is its own chunk: the entry bundle (every
 // route, /admin and /sm26 included) does not carry the home page's lower sections.
@@ -83,7 +85,7 @@ function pickProviders(rows: ProviderCardData[], n = 6): ProviderCardData[] {
 
 export function HomePage() {
   const { t, i18n } = useTranslation();
-  const { user, profile, organization, profileTimedOut, refreshProfile, loading: authLoading } = useAuth();
+  const { user, profile, organization, isVerified, profileTimedOut, refreshProfile, loading: authLoading } = useAuth();
   const [retrying, setRetrying] = useState(false);
 
   // Public sections
@@ -449,6 +451,14 @@ export function HomePage() {
 
   // "Run a marina?" speaks to visitors and to marinas; for a signed-in marina it opens the real forms.
   const showNeedPanel = !user || persona === 'marina';
+  // The real forms only open for a verified marina whose organization is verified too (the same rule as the Create menu);
+  // a marina still under review is sent to the dashboard, which explains where the review stands.
+  const canSubmitNeed = !!user && canCreate('submit_rfp', {
+    isVerified,
+    orgVerified: organization?.access_status === 'verified',
+    persona,
+    isFeatureEnabled: () => false,
+  });
 
   // The end tiles' lines: "180 marinas and 66 service providers in 45 countries", "30 resources in six themes".
   const directoryLine = liveFigures
@@ -461,7 +471,7 @@ export function HomePage() {
   const trust = [
     t('home.trustFree', 'Free for every member'),
     t('home.trustVerified', 'Every member checked by the M3 team'),
-    t('home.trustEvents', 'By M3 Monaco, organiser of industry events in Monaco, Dubai and online'),
+    t('home.trustEvents', 'By M3 Monaco, organiser of the Monaco Smart & Sustainable Marina Rendezvous and the World Yachting Summit'),
   ];
 
   return (
@@ -574,6 +584,8 @@ export function HomePage() {
       {user && (
         <MemberSpace
           profileIncomplete={!!profile && (profile.onboarding_status !== 'completed' || !organization)}
+          // A draft finishes sign-up; a completed member without an organization adds it from the organization tab (a bare /account would only redirect to the dashboard).
+          completeProfileHref={profile?.onboarding_status === 'draft' ? accountHref('complete-registration') : accountHref('organization')}
           orgName={organization?.name ?? null}
           orgLogo={organization?.logo_url ?? null}
           personalStats={personalStats}
@@ -591,7 +603,7 @@ export function HomePage() {
         <HomeBelowFold
           signedIn={!!user}
           showNeedPanel={showNeedPanel}
-          canSubmitNeed={!!user && persona === 'marina'}
+          canSubmitNeed={canSubmitNeed}
           providers={providers}
           resources={featuredResources}
           themeCounts={themeCounts}

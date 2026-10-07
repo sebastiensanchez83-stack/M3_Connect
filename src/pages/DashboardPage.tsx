@@ -7,7 +7,7 @@ import {
   Inbox, UserPlus, ImageIcon, ImagePlus, PenLine, UserCircle,
   CheckCircle2, Clock, AlertCircle, CalendarDays, Video, MapPin, Ship,
   MessageSquare, Wrench, BookOpen, ArrowRight, TrendingUp, ShieldCheck,
-  CircleDashed, Tags, Users, GalleryHorizontal, Briefcase, ClipboardList,
+  CircleDashed, Tags, Users, GalleryHorizontal, Briefcase, ClipboardList, Award,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -124,6 +124,8 @@ interface SectionAccess {
   sm26: boolean;
   media: boolean;
   sponsor: boolean;
+  /** M3 staff or Yacht Club de Monaco: the sponsorship fulfilment hub (/sponsorship) is theirs. */
+  manager: boolean;
 }
 
 type MeterKey = 'logo' | 'banner' | 'description' | 'sectors' | 'team' | 'gallery';
@@ -458,8 +460,17 @@ export function DashboardPage() {
       }
     })();
 
-    Promise.all([sm26, media, sponsor]).then(([a, b, c]) => {
-      if (alive) setAccess({ sm26: a, media: b, sponsor: c });
+    const manager = (async () => {
+      try {
+        const { data } = await supabase.rpc('is_sponsorship_manager');
+        return data === true;
+      } catch {
+        return false;
+      }
+    })();
+
+    Promise.all([sm26, media, sponsor, manager]).then(([a, b, c, d]) => {
+      if (alive) setAccess({ sm26: a, media: b, sponsor: c, manager: d });
     });
     return () => { alive = false; };
   }, [uid]);
@@ -599,19 +610,29 @@ export function DashboardPage() {
       items: allCreateActions
         .map((a) => ({ key: a.href, href: a.href, label: t(a.labelKey, a.fallback), desc: t(a.descKey, a.descFallback), icon: a.icon })),
     },
-    ...ACCOUNT_GROUPS.map((g) => ({
+    ...ACCOUNT_GROUPS.map((g): QuickGroup => ({
       key: g.key,
       label: t(g.labelKey, g.fallback),
-      items: ACCOUNT_SECTIONS
-        .filter((s) => s.group === g.key && sectionVisible[s.value])
-        .map((s) => ({
-          key: s.value,
-          href: accountHref(s.value),
-          label: t(s.labelKey, s.fallback),
-          desc: t(s.descKey, s.descFallback),
-          icon: s.icon,
-          badge: s.value === 'inbox' && inboxWaiting > 0 ? inboxWaiting : undefined,
-        })),
+      items: [
+        ...ACCOUNT_SECTIONS
+          .filter((s) => s.group === g.key && sectionVisible[s.value])
+          .map((s): QuickItem => ({
+            key: s.value,
+            href: accountHref(s.value),
+            label: t(s.labelKey, s.fallback),
+            desc: t(s.descKey, s.descFallback),
+            icon: s.icon,
+            badge: s.value === 'inbox' && inboxWaiting > 0 ? inboxWaiting : undefined,
+          })),
+        // The sponsorship hub has no tab of its own: managers (M3 staff, Yacht Club) reach it from here.
+        ...(g.key === 'organization' && access?.manager === true ? [{
+          key: 'sponsorship-hub',
+          href: '/sponsorship',
+          label: t('dashboard.everything.sponsorshipHub', 'Sponsorship hub'),
+          desc: t('dashboard.everything.sponsorshipHubDesc', 'Agreements and fulfilment for every sponsor'),
+          icon: Award,
+        } satisfies QuickItem] : []),
+      ],
     })),
   ].filter((g) => g.items.length > 0);
 
@@ -804,7 +825,8 @@ export function DashboardPage() {
                       {opportunities.map((o) => (
                         <MemberRow
                           key={`${o.kind}-${o.id}`}
-                          to="/opportunities"
+                          // Open the list on the kind of the row that was clicked, so the item is on screen.
+                          to={`/opportunities?kind=${o.kind === 'rfp' ? 'rfps' : 'consultations'}`}
                           icon={o.kind === 'rfp' ? Ship : MessageSquare}
                           title={o.title}
                           hint={(

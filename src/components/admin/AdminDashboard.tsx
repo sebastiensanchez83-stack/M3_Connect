@@ -1146,7 +1146,7 @@ export function AdminDashboard() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {[
             { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, link: '/admin/users', params: { status: 'pending' } },
-            { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, link: '/admin/events', params: { view: 'registrations' } },
+            { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, link: '/admin/events', params: {} },
             { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, link: '/admin/sponsorships', params: {} },
             { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, link: '/admin/webinars', params: { status: 'submitted' } },
             { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, link: '/admin/resources', params: { tab: 'drafts' } },
@@ -1261,8 +1261,8 @@ export function AdminDashboard() {
         <div className="flex flex-wrap gap-2">
           {[
             { label: 'Manage Users', icon: Users, link: '/admin/users' },
-            { label: 'Add Resource', icon: FileText, link: '/admin/resources' },
-            { label: 'Add Event', icon: Calendar, link: '/admin/events' },
+            { label: 'Add Resource', icon: FileText, link: '/admin/resources/new' },
+            { label: 'Add Event', icon: Calendar, link: '/admin/events/new' },
             { label: 'Review Drafts', icon: FolderOpen, link: '/admin/resources?tab=drafts' },
           ].map((a, i) => (
             <Button key={i} variant="outline" size="sm" className={ADMIN_BTN} onClick={() => nav(a.link)}>

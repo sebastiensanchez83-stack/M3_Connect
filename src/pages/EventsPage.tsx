@@ -59,9 +59,6 @@ interface Event extends ListEvent {
   is_full_day: boolean;
 }
 
-/** The sticky navbar above the filter bar. */
-const NAVBAR_HEIGHT = 64;
-
 /** When an event has no end time, it is treated as a one-hour slot — as the calendar links do. */
 const DEFAULT_DURATION_MS = 60 * 60 * 1000;
 
@@ -198,9 +195,12 @@ export function EventsPage() {
       return;
     }
     if (!profileComplete) {
+      const draft = profile?.onboarding_status === 'draft';
       toast({
-        title: t('eventsPage.profileRequired', 'Complete your profile'),
-        description: t('eventsPage.profileRequiredDesc', 'You need to complete and verify your profile before registering for events.'),
+        title: draft ? t('eventsPage.profileRequired', 'Complete your profile') : t('eventsPage.accountUnderReviewTitle', 'Account under review'),
+        description: draft
+          ? t('eventsPage.profileRequiredDesc', 'You need to complete and verify your profile before registering for events.')
+          : t('eventsPage.accountUnderReviewDesc', 'You can register as soon as the M3 team has verified your account. Your dashboard shows where the review stands.'),
         variant: 'destructive',
       });
       return;
@@ -317,7 +317,7 @@ export function EventsPage() {
   const filterBarRef = useRef<HTMLDivElement>(null);
   const scrollTargetTop = (el: HTMLElement) => {
     const bar = filterBarRef.current?.nextElementSibling as HTMLElement | null;
-    // The header (NAVBAR_HEIGHT) only counts on the way up: it tucks away on the way down.
+    // The header (--header-full) only counts on the way up: it tucks away on the way down.
     return scrollTopUnderBars(el, bar?.getBoundingClientRect().height ?? 61, 8);
   };
 

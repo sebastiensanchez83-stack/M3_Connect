@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { SM26SectorSuggestions } from '@/components/admin/SM26SectorSuggestions';
@@ -430,7 +431,7 @@ export function AdminOrganizationDetail() {
               {org.website && (
                 <div>
                   <Label className="text-xs text-gray-500">Website</Label>
-                  <a href={org.website} target="_blank" rel="noopener noreferrer" className="text-sm text-primary flex items-center gap-1 hover:underline">
+                  <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-sm text-primary flex items-center gap-1 hover:underline">
                     <Globe className="h-3 w-3" /> {org.website}
                   </a>
                 </div>

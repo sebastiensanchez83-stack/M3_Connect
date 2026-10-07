@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Building2, Globe, ExternalLink } from 'lucide-react';
@@ -242,7 +243,7 @@ export function AdminOrganizations() {
                         </span>
                         {o.website && (
                           <a
-                            href={o.website}
+                            href={externalUrl(o.website) ?? undefined}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={e => e.stopPropagation()}

@@ -210,7 +210,7 @@ const PROJECT_STATUS_FALLBACK: Record<string, string> = {
   completed: 'Completed',
 };
 
-/** The sticky filter bar's height when it cannot be measured; the header's 64 px are added on the way up only (scrollTopUnderBars). */
+/** The sticky filter bar's height when it cannot be measured; the header's height (--header-full) is added on the way up only (scrollTopUnderBars). */
 const FILTER_BAR_H = 68;
 
 const EMPTY_ITEMS: { rfps: RfpCard[]; consultations: ConsultationCard[]; projects: ProjectCard[] } = {
@@ -564,7 +564,7 @@ export function OpportunitiesPage() {
       if (error) throw error;
 
       // Notify the marina owner
-      const partnerName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A partner';
+      const partnerName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A member';
       sendNotification({
         type: 'partner_request_received',
         userId: interestTarget.marina_user_id,
@@ -1317,13 +1317,13 @@ function LockPanel({ signedIn, pending }: { signedIn: boolean; pending: boolean 
                 <Button asChild variant="ctaOnDark">
                   <Link to="/become-partner">{t('opportunities.signUp', 'Sign up')}</Link>
                 </Button>
-                <UnderlineLink to="/become-partner" tone="light">
+                <UnderlineLink to="/become-partner#marina" tone="light">
                   {t('opportunities.gateMarina', 'Run a marina? Publish your first need.')}
                 </UnderlineLink>
               </>
             ) : (
               <Button asChild variant="ctaWhite">
-                <Link to="/account">{t('opportunities.viewAccountStatus', 'View account status')}</Link>
+                <Link to="/dashboard">{t('opportunities.viewAccountStatus', 'View account status')}</Link>
               </Button>
             )}
           </div>

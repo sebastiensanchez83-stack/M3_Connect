@@ -31,7 +31,7 @@ type StatKey = Exclude<keyof DisplayStats, 'override'>;
 
 const STAT_LABELS: { key: StatKey; label: string }[] = [
   { key: 'marinas', label: 'Marinas Worldwide' },
-  { key: 'partners', label: 'Verified Partners' },
+  { key: 'partners', label: 'Verified Service Providers' },
   { key: 'resources', label: 'Resources' },
   { key: 'events', label: 'Events per Year' },
   { key: 'countries', label: 'Countries' },
@@ -110,7 +110,7 @@ export function AdminPlatformSettings() {
           <div>
             <h2 className="text-lg font-semibold">Homepage Display Stats</h2>
             <p className="text-sm text-muted-foreground mt-1">
-              The homepage and Become a Member page show live counts: verified marinas, verified partners,
+              The homepage and Become a Member page show live counts: verified marinas, verified service providers,
               their countries and published resources. The numbers below are only used when the switch is on,
               or as a stand-in if a live count fails to load.
             </p>

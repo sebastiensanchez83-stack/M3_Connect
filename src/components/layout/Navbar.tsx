@@ -269,7 +269,7 @@ export function Navbar() {
   /** White logo and links, no background: over the hero, at the very top of the page. */
   const transparent = overlay && !scrolled && !mobileMenuOpen;
   /** Transitions only once the page's first state is painted. */
-  const fade = settled ? 'transition-opacity duration-[350ms] ease-out-smc' : '';
+  const fade = settled ? 'transition-opacity [transition-duration:0.35s] ease-out-smc' : '';
   const iconBtn = cn(
     'h-10 w-10 p-0 rounded-full transition-colors',
     transparent ? 'text-white/85 hover:bg-white/15 hover:text-white' : 'text-meta hover:bg-chip hover:text-navy',
@@ -294,7 +294,7 @@ export function Navbar() {
         className={cn(
           'pointer-events-auto absolute inset-x-0 top-0',
           keepPut ? 'h-16' : 'h-16 md:h-[72px]',
-          settled && 'transition-[transform,color] duration-[350ms] ease-out-smc',
+          settled && 'transition-[transform,color] [transition-duration:0.35s] ease-out-smc',
           transparent ? 'text-white' : 'text-navy',
           hidden && '-translate-y-[150%]',
         )}
@@ -335,7 +335,7 @@ export function Navbar() {
             <span
               className={cn(
                 'inline font-wordmark text-[18px] font-semibold tracking-[-0.01em] sm:text-xl',
-                settled && 'transition-colors duration-[350ms]',
+                settled && 'transition-colors [transition-duration:0.35s]',
                 transparent ? 'text-white' : 'text-navy',
               )}
             >

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Loader2, Target, User, Globe, Mail, Phone } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -134,7 +135,7 @@ export function AdminLeadDetail() {
           {lead.website && (
             <div>
               <Label className="text-xs text-gray-500 flex items-center gap-1"><Globe className="h-3 w-3" /> Website</Label>
-              <a href={lead.website} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-1 block">{lead.website}</a>
+              <a href={externalUrl(lead.website) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-1 block">{lead.website}</a>
             </div>
           )}
           {lead.solutions && (

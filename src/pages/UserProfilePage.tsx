@@ -142,7 +142,7 @@ export function UserProfilePage() {
       });
       if (error) throw error;
       // partner_name = REQUESTER's organization (who is reaching out), not the recipient.
-      const requesterOrgName = organization?.name || 'A partner';
+      const requesterOrgName = organization?.name || 'A member';
       sendNotification({ type: 'partner_request_received', userId: id, data: { partner_name: requesterOrgName, message: connectMessage.trim() } });
       toast({ title: 'Connection request sent!' });
       setConnectOpen(false);

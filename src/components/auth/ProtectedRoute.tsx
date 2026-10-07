@@ -128,10 +128,15 @@ function AuthLandingNotice({ landing }: { landing: AuthLanding }) {
 
 function LockedState({ message }: { message: string }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  // A signed-in member who lands here is usually waiting for a review: the dashboard is the page that says where it
+  // stands, and the home page (which sent many of them here) would only loop. Visitors go back to the home page.
   return (
     <AuthShell layout="centered" icon={<Lock className="h-6 w-6" />} title={t('authRefonte.gate.title', 'Access restricted')} lead={message}>
       <Button asChild variant="ctaOnDark">
-        <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>
+        {user
+          ? <Link to="/dashboard">{t('authRefonte.gate.dashboard', 'Back to the dashboard')}</Link>
+          : <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>}
       </Button>
     </AuthShell>
   );

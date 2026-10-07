@@ -10,6 +10,8 @@ export interface AdminProfile {
   onboarding_status: string;
   rejection_reason: string | null;
   created_at: string;
+  /** Last change to the profile (the dashboard's "inactive 30+ days" count is built on it). */
+  updated_at?: string | null;
   org_name: string | null;
   org_id: string | null;
   // Org-level fields (merged from Partners tab)
@@ -84,6 +86,8 @@ export interface Partner {
   access_status: string;
   onboarding_status: string;
   owner_user_id: string | null;
+  /** The public page's address: /organizations/<slug> (the page does not take an id). */
+  slug?: string | null;
 }
 
 export interface SponsorshipRequestRow {

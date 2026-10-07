@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   AlertTriangle, ArrowRight, Building2, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -9,6 +9,7 @@ import i18next from '@/i18n';
 import { DIRECTORY_STRINGS } from '@/i18n/directory';
 import { Seo } from '@/components/seo/Seo';
 import { themedPath } from '@/lib/seoMeta';
+import { canCreate } from '@/lib/nav';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/PageHero';
 import { AdBanner } from '@/components/ui/AdBanner';
@@ -203,7 +204,8 @@ function filterSignature(search: URLSearchParams): string {
 export function DirectoryPage() {
   const { t, i18n } = useTranslation();
   const lang = i18n.language?.startsWith('fr') ? 'fr' : 'en';
-  const { user, profile, organization, loading: authLoading } = useAuth();
+  const { user, profile, organization, isVerified, loading: authLoading } = useAuth();
+  const navigate = useNavigate();
   const { reduced } = useMotion();
   const [params, setParams] = useSearchParams();
   // The same live counts as the home page, for the hero and the meta description.
@@ -772,6 +774,16 @@ export function DirectoryPage() {
   const visitor = !authLoading && !user;
   const marinaLike = profile?.persona === 'marina' || profile?.persona === 'developer';
   const showNeed = !authLoading && (!user || marinaLike);
+  // Same rule as the Create menu: the forms open only for a verified marina whose organization is verified too.
+  // A marina still under review is sent to the dashboard, which explains where the review stands.
+  const canPublish = !!user && canCreate('submit_rfp', {
+    isVerified,
+    orgVerified: organization?.access_status === 'verified',
+    persona: profile?.persona,
+    isFeatureEnabled: () => false,
+  });
+  // "Is your marina listed? Claim it" is for visitors and marinas; a service provider or an investor has nothing to claim.
+  const showClaim = !user || !profile || marinaLike;
 
   const openShortlist = useCallback((name: string) => {
     setShortlistFor({ name });
@@ -853,7 +865,7 @@ export function DirectoryPage() {
         eyebrow={t('directory.eyebrow', "Who's who")}
         title={t('directory.title', 'Marina & service provider directory')}
         subtitle={t('directory.subtitle', 'Marinas, service providers, investors and media. Filter by theme or country, shortlist the companies you need and request an introduction from their page.')}
-        floating={<ClaimFloat />}
+        floating={showClaim ? <ClaimFloat /> : undefined}
       >
         <HeroFigures marinas={figures.marinas} providers={figures.partners} countries={figures.countries} manual={figures.manual} />
       </PageHero>
@@ -1099,7 +1111,7 @@ export function DirectoryPage() {
                         need={showNeed && i === Math.min(5, visible.length - 1)}
                         needPanel={
                           <NeedPanel
-                            marinaLike={!!user && marinaLike}
+                            mode={canPublish ? 'publish' : user ? 'waiting' : 'visitor'}
                             onSignup={() => openSignup('marina')}
                           />
                         }
@@ -1162,8 +1174,8 @@ export function DirectoryPage() {
           aria-label={t('directory.aside.label', 'Opportunities and claiming a marina page')}
           className="mt-14 grid grid-cols-1 gap-6 md:mt-20 lg:grid-cols-12"
         >
-          <OpportunitiesTile className="lg:col-span-8" />
-          <ClaimCard claimHref={claimHref} className="lg:col-span-4" />
+          <OpportunitiesTile className={showClaim ? 'lg:col-span-8' : 'lg:col-span-12'} />
+          {showClaim && <ClaimCard claimHref={claimHref} className="lg:col-span-4" />}
         </section>
       </div>
 
@@ -1271,7 +1283,7 @@ export function DirectoryPage() {
             <DialogTitle>{t('auth.signup', 'Sign up')}</DialogTitle>
             <DialogDescription>{t('directory.shortlist.signupDesc', 'Free for every member. The M3 team checks every company.')}</DialogDescription>
           </DialogHeader>
-          <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => setSignupOpen(false)} />
+          <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
         </DialogContent>
       </Dialog>
     </div>
@@ -2053,10 +2065,10 @@ function DirectoryCard({
 /**
  * The wide "Run a marina? Publish your need" panel: a navy background that
  * scales in while the text rises, sounding lines drifting over it. Members who
- * can publish go to the form; visitors sign up as a marina; other members do
+ * can publish go to the form; a marina still under review goes to the dashboard; visitors sign up as a marina; other members do
  * not see it.
  */
-function NeedPanel({ marinaLike, onSignup }: { marinaLike: boolean; onSignup: () => void }) {
+function NeedPanel({ mode, onSignup }: { mode: 'publish' | 'waiting' | 'visitor'; onSignup: () => void }) {
   const { t } = useTranslation();
   const examples = [
     t('directory.need.ex1', 'Pontoons'),
@@ -2080,9 +2092,13 @@ function NeedPanel({ marinaLike, onSignup }: { marinaLike: boolean; onSignup: ()
             </ul>
           </div>
           <div className="flex shrink-0 flex-col items-start gap-3">
-            {marinaLike ? (
+            {mode === 'publish' ? (
               <Button asChild variant="ctaOnDark">
-                <Link to="/submit-project">{t('directory.need.cta', 'Publish a need')}</Link>
+                <Link to="/submit-rfp">{t('directory.need.cta', 'Publish a need')}</Link>
+              </Button>
+            ) : mode === 'waiting' ? (
+              <Button asChild variant="ctaOnDark">
+                <Link to="/dashboard">{t('directory.need.ctaWaiting', 'Check my account status')}</Link>
               </Button>
             ) : (
               <Button variant="ctaOnDark" onClick={onSignup}>

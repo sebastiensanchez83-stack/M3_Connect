@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
@@ -753,11 +754,22 @@ export function EventDetailPage() {
       <div className="space-y-4">
         <div className="flex items-start gap-2 rounded-field bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-          <span>{t('eventsPage.completeProfileFirst', 'Please complete your profile to register for events.')}</span>
+          <span>
+            {profile?.onboarding_status === 'draft'
+              ? t('eventsPage.completeProfileFirst', 'Please complete your profile to register for events.')
+              : t('eventsPage.accountUnderReview', 'Your account is being reviewed by the M3 team. You can register as soon as it is verified.')}
+          </span>
         </div>
-        <Button variant="cta" className={MAIN_BTN} onClick={() => navigate('/onboarding')}>
-          {t('eventsPage.completeProfile', 'Complete my profile')}
-        </Button>
+        {profile?.onboarding_status === 'draft' ? (
+          <Button variant="cta" className={MAIN_BTN} onClick={() => navigate('/onboarding')}>
+            {t('eventsPage.completeProfile', 'Complete my profile')}
+          </Button>
+        ) : (
+          // The profile is already complete: /onboarding would only bounce back to the dashboard, which shows the review status.
+          <Button variant="cta" className={MAIN_BTN} onClick={() => navigate('/dashboard')}>
+            {t('eventsPage.checkAccountStatus', 'Check my account status')}
+          </Button>
+        )}
       </div>
     );
   } else if (user && profileComplete) {
@@ -1199,7 +1211,7 @@ export function EventDetailPage() {
                   <div className="truncate text-sm font-semibold text-navy">{partner.name}</div>
                   {partner.website && (
                     <a
-                      href={partner.website}
+                      href={externalUrl(partner.website) ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex min-h-8 items-center gap-1 rounded text-[13px] font-medium text-navy underline underline-offset-4 hover:text-teal-text focus:outline-none focus-visible:shadow-focus"
@@ -1475,7 +1487,7 @@ export function EventDetailPage() {
               </button>
             </DialogDescription>
           </DialogHeader>
-          <SignupForm onSuccess={() => setSignupOpen(false)} />
+          <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
         </DialogContent>
       </Dialog>
     </div>

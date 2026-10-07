@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Eye, ExternalLink } from 'lucide-react';
@@ -31,7 +32,7 @@ export function AdminPartners() {
     setLoading(true);
     const { data } = await supabase
       .from('organizations')
-      .select('id, name, description, logo_url, website, organization_type, tier, max_seats, country, city, access_status, onboarding_status, owner_user_id')
+      .select('id, name, slug, description, logo_url, website, organization_type, tier, max_seats, country, city, access_status, onboarding_status, owner_user_id')
       .in('organization_type', ['partner', 'media_partner'])
       .order('name');
     setPartners((data || []) as Partner[]);
@@ -93,8 +94,8 @@ export function AdminPartners() {
           <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
-            <SelectItem value="partner">Partners</SelectItem>
-            <SelectItem value="media_partner">Media Partners</SelectItem>
+            <SelectItem value="partner">Service providers</SelectItem>
+            <SelectItem value="media_partner">Media</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -108,7 +109,7 @@ export function AdminPartners() {
       </tr></thead><tbody>
         {filteredPartners.map(p => (<tr key={p.id} className="border-b hover:bg-gray-50">
           <td className="p-4"><div className="font-medium">{p.name}</div>{p.website && <div className="text-xs text-gray-500 truncate max-w-[200px]">{p.website}</div>}</td>
-          <td className="p-4"><Badge variant="outline">{p.organization_type === 'media_partner' ? 'Media' : 'Partner'}</Badge></td>
+          <td className="p-4"><Badge variant="outline">{p.organization_type === 'media_partner' ? 'Media' : 'Service provider'}</Badge></td>
           <td className="p-4">{tierBadge(p.tier)}</td>
           <td className="p-4">{[p.city, p.country].filter(Boolean).join(', ') || '—'}</td>
           <td className="p-4">{statusBadge(p.access_status)}</td>
@@ -118,16 +119,16 @@ export function AdminPartners() {
             {p.access_status === 'verified' && <Button size="sm" variant="outline" className="text-red-600" onClick={() => updateStatus(p.id, 'suspended')}>Suspend</Button>}
           </div></td>
         </tr>))}
-        {filteredPartners.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">No partner organizations found</td></tr>}
+        {filteredPartners.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-gray-400">No service providers or media found</td></tr>}
       </tbody></table></div></CardContent></Card>
       <Dialog open={!!selectedPartner} onOpenChange={() => setSelectedPartner(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Partner Details</DialogTitle><DialogDescription>View and manage partner organization.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Organization details</DialogTitle><DialogDescription>View and manage this service provider or media organization.</DialogDescription></DialogHeader>
           {selectedPartner && (
             <div className="space-y-4 mt-2">
               <div className="grid grid-cols-2 gap-4">
                 <div><strong>Name:</strong> {selectedPartner.name}</div>
-                <div><strong>Type:</strong> {selectedPartner.organization_type === 'media_partner' ? 'Media Partner' : 'Partner'}</div>
+                <div><strong>Type:</strong> {selectedPartner.organization_type === 'media_partner' ? 'Media' : 'Service provider'}</div>
                 <div><strong>Country:</strong> {selectedPartner.country || '—'}</div>
                 <div><strong>City:</strong> {selectedPartner.city || '—'}</div>
                 <div><strong>Status:</strong> {selectedPartner.access_status}</div>
@@ -186,10 +187,12 @@ export function AdminPartners() {
                 </div>
                 <p className="text-xs text-gray-500">Override seat limit when additional payment is confirmed.</p>
               </div>
-              {selectedPartner.website && <div><strong>Website:</strong> <a href={selectedPartner.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{selectedPartner.website}</a></div>}
+              {selectedPartner.website && <div><strong>Website:</strong> <a href={externalUrl(selectedPartner.website) ?? undefined} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{selectedPartner.website}</a></div>}
               {selectedPartner.description && <div><strong>Description:</strong><p className="mt-1 p-3 bg-gray-50 rounded text-sm">{selectedPartner.description}</p></div>}
               <div className="flex gap-2 pt-2">
-                <Link to={`/organizations/${selectedPartner.id}`} target="_blank"><Button variant="outline" size="sm"><ExternalLink className="h-4 w-4 mr-2" />View Public Page</Button></Link>
+                {selectedPartner.slug && (
+                  <Link to={`/organizations/${selectedPartner.slug}`} target="_blank"><Button variant="outline" size="sm"><ExternalLink className="h-4 w-4 mr-2" />View Public Page</Button></Link>
+                )}
               </div>
             </div>
           )}

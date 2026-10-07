@@ -45,14 +45,18 @@ export function AdminUsers() {
   const [searchParams, setSearchParams] = useSearchParams();
   const urlStatus = searchParams.get('status') || '';
   const urlPersona = searchParams.get('persona') || '';
-  const hasUrlFilters = !!urlStatus || !!urlPersona;
+  // The dashboard tiles open this list pre-filtered: ?onboarding=draft (not activated), ?status=verified&activity=inactive (dormant).
+  const urlOnboarding = searchParams.get('onboarding') || '';
+  const urlInactive = searchParams.get('activity') === 'inactive';
+  const hasUrlFilters = !!urlStatus || !!urlPersona || !!urlOnboarding || urlInactive;
 
   const [users, setUsers] = useState<AdminProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [personaFilter, setPersonaFilter] = useState(urlPersona || 'all');
   const [statusFilter, setStatusFilter] = useState(urlStatus || 'all');
-  const [onboardingFilter, setOnboardingFilter] = useState('all');
+  const [onboardingFilter, setOnboardingFilter] = useState(urlOnboarding || 'all');
+  const [inactiveOnly, setInactiveOnly] = useState(urlInactive);
   const [rejectingUserId, setRejectingUserId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [emailStatusMap, setEmailStatusMap] = useState<Record<string, boolean>>({});
@@ -76,7 +80,7 @@ export function AdminUsers() {
       const [{ data: profilesData, error }, { data: membershipsData }, { data: emailData }, { data: unconfData }] = await Promise.all([
         supabase
           .from('profiles')
-          .select('user_id, first_name, last_name, email, persona, access_status, onboarding_status, rejection_reason, created_at')
+          .select('user_id, first_name, last_name, email, persona, access_status, onboarding_status, rejection_reason, created_at, updated_at')
           .order('created_at', { ascending: false }),
         supabase
           .from('organization_members')
@@ -278,6 +282,10 @@ export function AdminUsers() {
     setCreatingAdmin(false);
   };
 
+  // Dormant = not updated for 30+ days (the same rule as the dashboard's Inactive tile).
+  const dormantBefore = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const isDormant = (u: AdminProfile) => !!u.updated_at && new Date(u.updated_at).getTime() <= dormantBefore;
+
   const filteredUsers = users.filter(user => {
     const name = getUserName(user).toLowerCase();
     const org = getOrgName(user).toLowerCase();
@@ -289,7 +297,8 @@ export function AdminUsers() {
     const matchesOnboarding = onboardingFilter === 'all'
       || (onboardingFilter === 'in_progress' && ['draft', 'submitted', 'under_review'].includes(user.onboarding_status))
       || user.onboarding_status === onboardingFilter;
-    return matchesSearch && matchesPersona && matchesStatus && matchesOnboarding;
+    const matchesActivity = !inactiveOnly || isDormant(user);
+    return matchesSearch && matchesPersona && matchesStatus && matchesOnboarding && matchesActivity;
   });
 
   // Count users by onboarding stage (for the summary strip)
@@ -415,16 +424,22 @@ export function AdminUsers() {
           label={[
             urlStatus ? `Status: ${urlStatus.replace('_', ' ')}` : '',
             urlPersona ? `Type: ${urlPersona.replace('_', ' ')}` : '',
+            urlOnboarding ? `Onboarding: ${urlOnboarding.replace('_', ' ')}` : '',
+            urlInactive ? 'Inactive 30+ days' : '',
           ].filter(Boolean).join(' + ')}
           count={users.filter(u => {
             const matchStatus = !urlStatus || u.access_status === urlStatus;
             const matchPersona = !urlPersona || u.persona === urlPersona;
-            return matchStatus && matchPersona;
+            const matchOnboarding = !urlOnboarding || u.onboarding_status === urlOnboarding;
+            const matchActivity = !urlInactive || isDormant(u);
+            return matchStatus && matchPersona && matchOnboarding && matchActivity;
           }).length}
           onClear={() => {
             setSearchParams({}, { replace: true });
             setStatusFilter('all');
             setPersonaFilter('all');
+            setOnboardingFilter('all');
+            setInactiveOnly(false);
           }}
           color={urlStatus === 'pending' ? 'amber' : urlStatus === 'rejected' ? 'red' : 'blue'}
         />

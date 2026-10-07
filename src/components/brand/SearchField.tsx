@@ -199,7 +199,7 @@ export function SearchField({
           aria-label={t('brand.search.submit', 'Search')}
           title={t('brand.search.submit', 'Search')}
           className={cn(
-            'grid shrink-0 place-items-center rounded-full bg-navy text-white transition-colors duration-[400ms] ease-out-smc hover:bg-gold hover:text-navy focus-visible:bg-gold focus-visible:text-navy focus-visible:shadow-focus focus-visible:outline-none',
+            'grid shrink-0 place-items-center rounded-full bg-navy text-white transition-colors [transition-duration:0.4s] ease-out-smc hover:bg-gold hover:text-navy focus-visible:bg-gold focus-visible:text-navy focus-visible:shadow-focus focus-visible:outline-none',
             md ? 'h-9 w-9' : 'h-11 w-11',
           )}
         >

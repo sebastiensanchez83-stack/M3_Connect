@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -24,6 +24,12 @@ export function WebinarRequestPage() {
   const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
   const { isFeatureEnabled, getQuota, getUsage, isLoading: entitlementsLoading } = useEntitlements();
   const navigate = useNavigate();
+  // /request-webinar?edit=<id> (the Edit button on a submitted proposal in the account) loads that proposal and updates it.
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get('edit');
+  const isEditMode = Boolean(editId);
+  const userId = user?.id;
+  const [loadingExisting, setLoadingExisting] = useState(Boolean(editId));
   const [loading, setLoading] = useState(false);
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [selectedSectors, setSelectedSectors] = useState<string[]>([]);
@@ -44,6 +50,42 @@ export function WebinarRequestPage() {
     }
   }, [user, isVerified, organization, authLoading, navigate]);
 
+  // Edit mode: load the member's own proposal (still waiting for review) into the form.
+  useEffect(() => {
+    if (!editId) { setLoadingExisting(false); return; }
+    if (authLoading || !userId) return;
+    let alive = true;
+    setLoadingExisting(true);
+    (async () => {
+      const { data, error } = await supabase
+        .from('webinar_requests')
+        .select('id, user_id, title, description, preferred_language, preferred_timeframe, status')
+        .eq('id', editId)
+        .maybeSingle();
+      if (!alive) return;
+      if (error || !data || data.user_id !== userId || data.status !== 'submitted') {
+        toast({
+          title: 'This proposal can no longer be edited',
+          description: 'Only your own proposals still waiting for review can be changed.',
+          variant: 'destructive',
+        });
+        navigate('/account?tab=webinars', { replace: true });
+        return;
+      }
+      setForm({
+        title: data.title ?? '',
+        description: data.description ?? '',
+        preferred_language: data.preferred_language ?? 'EN',
+        preferred_timeframe: data.preferred_timeframe ?? '',
+      });
+      const { data: links } = await supabase.from('webinar_request_sectors').select('sector_id').eq('request_id', editId);
+      if (!alive) return;
+      setSelectedSectors((links ?? []).map((l) => l.sector_id as string));
+      setLoadingExisting(false);
+    })();
+    return () => { alive = false; };
+  }, [editId, userId, authLoading, navigate]);
+
   const toggleSector = (id: string) => {
     setSelectedSectors((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
@@ -63,6 +105,36 @@ export function WebinarRequestPage() {
 
     setLoading(true);
     try {
+      if (editId) {
+        // Update the proposal in place instead of creating a second one.
+        const { data: updated, error: updateError } = await supabase
+          .from('webinar_requests')
+          .update({
+            title: form.title.trim(),
+            description: form.description.trim(),
+            preferred_language: form.preferred_language,
+            preferred_timeframe: form.preferred_timeframe.trim() || null,
+          })
+          .eq('id', editId)
+          .eq('user_id', user.id)
+          .eq('status', 'submitted')
+          .select('id');
+        if (updateError) throw updateError;
+        if (!updated || updated.length === 0) throw new Error('This proposal can no longer be edited.');
+
+        const { error: clearError } = await supabase.from('webinar_request_sectors').delete().eq('request_id', editId);
+        if (clearError) throw clearError;
+        if (selectedSectors.length > 0) {
+          const { error: sectorError } = await supabase.from('webinar_request_sectors').insert(
+            selectedSectors.map((sector_id) => ({ request_id: editId, sector_id }))
+          );
+          if (sectorError) throw sectorError;
+        }
+        toast({ title: 'Webinar request updated', description: 'Our team will review the new version.' });
+        navigate('/account?tab=webinars');
+        return;
+      }
+
       const { data: request, error } = await supabase
         .from('webinar_requests')
         .insert({
@@ -104,7 +176,7 @@ export function WebinarRequestPage() {
   };
 
   // ── Loading states ────────────────────────────────────────────────────
-  if (authLoading || (isVerified && organization?.access_status === 'verified' && entitlementsLoading)) {
+  if (authLoading || loadingExisting || (isVerified && organization?.access_status === 'verified' && entitlementsLoading)) {
     return <PageLoader />;
   }
 
@@ -119,8 +191,8 @@ export function WebinarRequestPage() {
             {!user && (
               <Button variant="ctaOnDark" onClick={() => navigate('/')}>Go to Homepage</Button>
             )}
-            {user && !isVerified && (
-              <Button variant="ctaOnDark" onClick={() => navigate('/account')}>View Account Status</Button>
+            {user && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/dashboard')}>View Account Status</Button>
             )}
           </>
         )}
@@ -146,7 +218,7 @@ export function WebinarRequestPage() {
   const quotaExhausted = remaining !== null && remaining <= 0;
 
   // ── Quota exhausted guard ─────────────────────────────────────────────
-  if (quotaExhausted) {
+  if (quotaExhausted && !isEditMode) {
     return (
       <SubmitGuard
         icon={AlertCircle}
@@ -171,12 +243,12 @@ export function WebinarRequestPage() {
       seed="submit-webinar"
       icon={Video}
       eyebrow={t('submitShell.eyebrowWebinars', 'Webinars')}
-      title="Propose a Webinar"
+      title={isEditMode ? "Edit your webinar proposal" : "Propose a Webinar"}
       subtitle="Suggest a topic or expert you'd like to see featured in a Smart Marina Connect webinar. Our team will review your proposal and notify you."
       trail={[{ label: t('nav.events', 'Events'), href: '/events' }]}
     >
       {/* Quota info banner (only when quota is finite) */}
-      {quota !== null && remaining !== null && (
+      {!isEditMode && quota !== null && remaining !== null && (
         <div className="mb-6 flex items-start gap-2.5 rounded-field bg-foam px-4 py-3 text-sm leading-5 text-navy">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
           <span>
@@ -258,8 +330,8 @@ export function WebinarRequestPage() {
         <FormFooter>
           <Button type="submit" variant="cta" size="lg" roll={!loading} arrow={!loading} disabled={loading}>
             {loading
-              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting...</>
-              : 'Submit Webinar Request'
+              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : 'Submitting...'}</>
+              : isEditMode ? 'Save changes' : 'Submit Webinar Request'
             }
           </Button>
         </FormFooter>

@@ -397,7 +397,7 @@ export function AboutPage() {
                   alt={t(`sm26Moments.alt.${m.key}`, m.altFallback)}
                   loading="lazy"
                   decoding="async"
-                  className="h-full w-full object-cover transition-transform duration-[800ms] ease-out-smc hover:scale-105"
+                  className="h-full w-full object-cover transition-transform [transition-duration:800ms] ease-out-smc hover:scale-105"
                 />
               </li>
             ))}

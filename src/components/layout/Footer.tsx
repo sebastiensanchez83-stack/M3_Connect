@@ -101,7 +101,7 @@ export function Footer() {
             <div className="mt-5 flex gap-3">
               {/* No Smart Marina Connect page on LinkedIn: the platform is M3's, so the link is M3's company page. */}
               <a
-                href="https://www.linkedin.com/company/monaco-marina-management"
+                href="https://www.linkedin.com/company/m3-monaco/"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t('brand.footer.linkedin', 'M3 Monaco on LinkedIn (opens in a new tab)')}
@@ -110,7 +110,7 @@ export function Footer() {
                 <Linkedin className="h-5 w-5" aria-hidden="true" />
               </a>
               <a
-                href="https://www.instagram.com/monacomarinamanagement/"
+                href="https://www.instagram.com/m3_monaco/"
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t('brand.footer.instagram', 'M3 Monaco on Instagram (opens in a new tab)')}

@@ -148,9 +148,11 @@ export function SubmitProjectPage() {
         icon={Lock}
         title={t('submitProject.restricted')}
         actions={(
-          <Button variant="ctaOnDark" onClick={() => navigate('/account')}>
-            Complete Marina Profile
-          </Button>
+          // Only a marina whose account is verified but who has no organization yet has a profile to complete;
+          // everyone else is waiting for a review, which the dashboard explains.
+          profile?.persona === 'marina' && isVerified && !organization
+            ? <Button variant="ctaOnDark" onClick={() => navigate('/account?tab=organization')}>Complete Marina Profile</Button>
+            : <Button variant="ctaOnDark" onClick={() => navigate('/dashboard')}>View Account Status</Button>
         )}
       >
         <p>{t('submitProject.restrictedDesc')}</p>

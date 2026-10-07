@@ -246,7 +246,7 @@ export function AdminPulse() {
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <PersonaCount icon={<Anchor className="h-4 w-4 text-blue-500" />} label="Marinas" count={data.totals.marinas} />
-            <PersonaCount icon={<Building2 className="h-4 w-4 text-orange-500" />} label="Partners" count={data.totals.partners} />
+            <PersonaCount icon={<Building2 className="h-4 w-4 text-orange-500" />} label="Service providers" count={data.totals.partners} />
             <PersonaCount icon={<Newspaper className="h-4 w-4 text-purple-500" />} label="Media" count={data.totals.media_partners} />
             <PersonaCount icon={<HardHat className="h-4 w-4 text-amber-600" />} label="Developers" count={data.totals.developers} />
             <PersonaCount icon={<TrendingUp className="h-4 w-4 text-emerald-600" />} label="Investors" count={data.totals.investors} />
@@ -277,7 +277,7 @@ export function AdminPulse() {
           <CardTitle className="text-base flex items-center gap-2">
             <Layers className="h-4 w-4 text-gray-400" />
             Sector heat-map
-            <Badge variant="outline" className="text-[10px] ml-1">RFP demand vs partner supply</Badge>
+            <Badge variant="outline" className="text-[10px] ml-1">RFP demand vs provider supply</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -287,7 +287,7 @@ export function AdminPulse() {
                 <tr className="text-xs text-gray-400 uppercase tracking-wide border-b">
                   <th className="text-left py-2 px-2 font-medium">Sector</th>
                   <th className="text-right py-2 px-2 font-medium">RFPs</th>
-                  <th className="text-right py-2 px-2 font-medium">Partners</th>
+                  <th className="text-right py-2 px-2 font-medium">Providers</th>
                   <th className="text-right py-2 px-2 font-medium">Marina interest</th>
                   <th className="text-right py-2 px-2 font-medium">Signal</th>
                 </tr>
@@ -334,7 +334,7 @@ export function AdminPulse() {
                 <tr className="text-xs text-gray-400 uppercase tracking-wide border-b">
                   <th className="text-left py-2 px-2 font-medium">Country</th>
                   <th className="text-right py-2 px-2 font-medium">Marinas</th>
-                  <th className="text-right py-2 px-2 font-medium">Partners</th>
+                  <th className="text-right py-2 px-2 font-medium">Providers</th>
                   <th className="text-right py-2 px-2 font-medium">Developers</th>
                   <th className="text-right py-2 px-2 font-medium">Investors</th>
                   <th className="text-right py-2 px-2 font-medium">Total</th>

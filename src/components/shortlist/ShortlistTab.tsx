@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { Link } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -183,7 +184,7 @@ export function ShortlistTab() {
                           )}
                           {org.website && (
                             <a
-                              href={org.website}
+                              href={externalUrl(org.website) ?? undefined}
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}

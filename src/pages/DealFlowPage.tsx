@@ -333,7 +333,7 @@ export function DealFlowPage() {
               body={profile?.persona !== 'investor'
                 ? 'The deal-flow board is reserved for verified investor accounts.'
                 : 'Your investor account is pending verification.'}
-              action={<Button variant="ctaNavy" size="sm" onClick={() => navigate('/account')}>Back to my account</Button>}
+              action={<Button variant="ctaNavy" size="sm" onClick={() => navigate('/dashboard')}>Back to my account</Button>}
             />
           </CardShell>
         </div>

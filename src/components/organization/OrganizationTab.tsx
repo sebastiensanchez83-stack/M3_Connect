@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { externalUrl } from '@/lib/externalUrl';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -1178,7 +1179,7 @@ export function OrganizationTab() {
             {org.website && (
               <div className="flex items-center gap-2 text-meta">
                 <Globe className="h-4 w-4 text-primary" />
-                <a href={org.website} target="_blank" rel="noopener noreferrer" className="hover:underline truncate">
+                <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer" className="hover:underline truncate">
                   {org.website.replace(/^https?:\/\//, '')}
                 </a>
               </div>
@@ -1266,7 +1267,7 @@ export function OrganizationTab() {
                 {org.website && (
                   <div>
                     <span className="text-meta block">{t('org.website', 'Website')}</span>
-                    <a href={org.website} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline inline-flex items-center gap-1">
+                    <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline inline-flex items-center gap-1">
                       {org.website.replace(/^https?:\/\//, '')}
                       <ExternalLink className="h-3 w-3" />
                     </a>

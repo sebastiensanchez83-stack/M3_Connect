@@ -388,7 +388,7 @@ export function ResourceDetailPage() {
                     </div>
                   ) : (
                     <Button asChild variant="ctaNavy" className="mt-6">
-                      <Link to="/account">{t('resourceDetail.goToAccount')}</Link>
+                      <Link to="/dashboard">{t('resourceDetail.goToAccount')}</Link>
                     </Button>
                   )}
                 </div>
@@ -481,7 +481,7 @@ export function ResourceDetailPage() {
               </button>
             </DialogDescription>
           </DialogHeader>
-          <SignupForm onSuccess={() => setSignupOpen(false)} />
+          <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
         </DialogContent>
       </Dialog>
 

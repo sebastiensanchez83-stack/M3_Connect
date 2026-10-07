@@ -1,10 +1,9 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useRef, type CSSProperties, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowLeft, type LucideIcon } from 'lucide-react';
 import { CoverImage } from '@/components/ui/CoverImage';
 import type { SiteImage } from '@/lib/siteMedia';
-import { backgroundBehind } from '@/lib/backdropColor';
 import { cn } from '@/lib/utils';
 import { BathyPattern } from '@/components/motion/BathyPattern';
 import { LineReveal } from '@/components/motion/LineReveal';
@@ -15,28 +14,28 @@ import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 
 /**
- * The compact header every section page opens with, as an inset rounded card
- * (12 px from the edges, 24 px radius from md; full bleed on phones): a photo
- * that settles from 1.08 to 1 on load and lags behind the page (parallax, up to
- * 40 px), a marine veil, faint sounding lines drifting very slowly, a
- * breadcrumb (a back link on phones), an optional eyebrow, the H1 (lines rising
- * on load), a subtitle and whatever `children` you pass (search, figures,
- * buttons). No wave edge.
+ * The compact banner every section page opens with, full width and square (no
+ * inset, no rounded corners, no cut-out corner): a photo that settles from 1.08
+ * to 1 on load and lags behind the page (parallax, up to 40 px), a marine veil,
+ * faint sounding lines drifting very slowly, a breadcrumb (a back link on
+ * phones), an optional eyebrow, the H1 (lines rising on load), a subtitle and
+ * whatever `children` you pass (search, figures, buttons).
  *
  * The content sets the height, never the other way round. When it is the first
- * thing on the page, the header overlaps it (transparent, white logo) and the
- * card makes room for it.
+ * thing on the page, the full-width header overlaps it (transparent, white logo)
+ * and the banner makes room for it.
  *
- * `notch` takes a <HeroNotch> (see EventNotch.tsx) for the bottom right corner;
- * give that notch `className="hidden xl:block"` on compact heroes. With no photo
- * the card falls back to CoverImage's sea-toned gradient, a finished look.
+ * `floating` takes a small card that overlaps the banner's bottom edge (from xl,
+ * right aligned): give the content below it room (about 3.5 rem of top margin).
+ * With no photo the banner falls back to CoverImage's sea-toned gradient, a
+ * finished look.
  *
- * The sounding lines move on their own: the card carries the icon-only site-wide
- * pause control (WCAG 2.2.2), bottom right.
+ * The sounding lines move on their own: the banner carries the icon-only
+ * site-wide pause control (WCAG 2.2.2), bottom right.
  *
  * Props are backward compatible with the October 2026 version. `wave` and
  * `belowColor` are accepted and ignored (the wave edge is gone); `breadcrumbs`,
- * `overlayHeader` and `notch` are optional.
+ * `overlayHeader` and `floating` are optional.
  */
 
 export interface Crumb {
@@ -69,7 +68,7 @@ export function PageHero({
   containerClassName,
   breadcrumbs,
   overlayHeader = true,
-  notch,
+  floating,
 }: {
   image: SiteImage | null;
   /** Stable per page: picks the fallback gradient. */
@@ -90,8 +89,8 @@ export function PageHero({
   breadcrumbs?: Crumb[] | false;
   /** Let the header overlap the card when it opens the page (default on). */
   overlayHeader?: boolean;
-  /** A <HeroNotch> cut into the bottom right corner. */
-  notch?: ReactNode;
+  /** A small card overlapping the banner's bottom edge, right aligned, from xl (no cut-out). */
+  floating?: ReactNode;
   /** @deprecated The wave edge is gone; ignored. */
   wave?: boolean;
   /** @deprecated The wave edge is gone; ignored. */
@@ -105,17 +104,6 @@ export function PageHero({
   const centered = align === 'center';
   useParallax(mediaRef, { mode: 'page', max: 40 });
 
-  // The notch cuts the card's corner in the page colour: read it from behind the card.
-  const [notchBg, setNotchBg] = useState<string | undefined>(undefined);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || !notch) return;
-    const read = () => setNotchBg(backgroundBehind(el));
-    read();
-    const timer = window.setTimeout(read, 600);
-    return () => window.clearTimeout(timer);
-  }, [notch, pathname]);
-
   let crumbs: Crumb[] | null = null;
   if (Array.isArray(breadcrumbs)) crumbs = breadcrumbs;
   else if (breadcrumbs !== false && SECTION_LABELS[pathname]) {
@@ -126,11 +114,8 @@ export function PageHero({
   const parent = crumbs && crumbs.length > 1 ? crumbs[crumbs.length - 2] : null;
 
   return (
-    <section
-      ref={ref}
-      style={notchBg ? ({ '--notch-bg': notchBg } as CSSProperties) : undefined}
-      className={cn('relative isolate overflow-hidden bg-navy text-white md:mx-3 md:mt-3 md:rounded-[24px]', className)}
-    >
+    <div className="relative">
+    <section ref={ref} className={cn('relative isolate overflow-hidden bg-navy text-white', className)}>
       <div ref={mediaRef} aria-hidden="true" className="hero-media-layer absolute inset-x-0 -top-10 bottom-0 -z-30">
         <CoverImage
           src={image?.src ?? null}
@@ -155,7 +140,7 @@ export function PageHero({
       <div
         className={cn(
           'relative z-10 mx-auto w-full max-w-7xl px-4 sm:px-6',
-          overlaid ? 'pt-[100px] md:pt-[124px]' : 'pt-10 sm:pt-14',
+          overlaid ? 'pt-[88px] md:pt-[104px]' : 'pt-10 sm:pt-14',
           'pb-8 md:pb-[52px] xl:pb-16',
           containerClassName,
         )}
@@ -224,8 +209,15 @@ export function PageHero({
         </div>
       </div>
 
-      <MotionPauseToggle className={cn('absolute bottom-4 right-4 z-[4] md:bottom-6 md:right-6', notch ? 'xl:right-[412px]' : '')} />
-      {notch}
+      <MotionPauseToggle className={cn('absolute bottom-4 right-4 z-[4] md:bottom-6 md:right-6', floating ? 'xl:right-[440px]' : '')} />
     </section>
+    {floating && (
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden translate-y-1/2 xl:block">
+        <div className="mx-auto flex max-w-7xl justify-end px-6">
+          <div className="pointer-events-auto">{floating}</div>
+        </div>
+      </div>
+    )}
+    </div>
   );
 }

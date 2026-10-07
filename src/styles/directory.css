@@ -114,7 +114,7 @@
 
 /* ── Organization cards ──────────────────────────────────────────────────── */
 
-/* The shortlist star, over the cover under the round arrow: frosted glass, white when hovered,
+/* The shortlist star, over the cover (top right): frosted glass, white when hovered,
    gold with a navy outline once the company is on the shortlist. It wraps either our own button
    (visitors) or BookmarkButton (members), so the rules target the button inside. */
 .dir-star > button {

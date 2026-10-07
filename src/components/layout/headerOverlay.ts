@@ -4,8 +4,8 @@ import { useLayoutEffect, useState, useSyncExternalStore, type RefObject } from 
  * Lets a full-bleed hero tell the Navbar "I am at the top of this page".
  *
  * While a hero is registered, the header overlaps it (it no longer pushes the
- * page down) and stays transparent with a white logo until the hero has scrolled
- * under it; then it turns solid white with a thin bottom rule. Pages without a
+ * page down) and stays transparent with a white logo at the very top of the page; as soon as the
+ * page scrolls it turns solid white with a thin bottom rule. Pages without a
  * registered hero (admin, account, forms…) get the solid header as before.
  *
  * A hero only registers when it really is the first thing in <main>: a PageHero
@@ -31,7 +31,7 @@ export function useHeaderHero(): HTMLElement | null {
   return useSyncExternalStore(subscribe, () => hero, () => null);
 }
 
-/** True when `el` starts at the top of <main id="main-content"> (an inset hero keeps its 12 px margin above it). */
+/** True when `el` starts at the top of <main id="main-content"> (a little tolerance for a margin above it). */
 function isAtTopOfMain(el: HTMLElement): boolean {
   const main = document.getElementById('main-content');
   if (!main || !main.contains(el)) return false;
@@ -40,7 +40,7 @@ function isAtTopOfMain(el: HTMLElement): boolean {
 }
 
 /**
- * Called by InsetHero and PageHero. Returns whether the header now overlaps
+ * Called by SplitHero and PageHero. Returns whether the header now overlaps
  * this hero, so the hero can add room for it (padding-top = header height).
  */
 export function useRegisterHeaderHero(ref: RefObject<HTMLElement>, enabled = true): boolean {

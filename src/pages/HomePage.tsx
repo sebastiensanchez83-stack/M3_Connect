@@ -10,11 +10,12 @@ import { SITE_IMAGES } from '@/lib/siteMedia';
 import { THEMES, themesForSectors, type ThemeKey } from '@/lib/themes';
 import { networkFigures, formatFigure, type OrgFigureRow } from '@/lib/networkStats';
 import { SPONSOR_TIERS, isSponsorTier, type OrgTier } from '@/types/database';
-import { InsetHero, HeroIn } from '@/components/brand/InsetHero';
-import { EventNotch } from '@/components/brand/EventNotch';
+import { SplitHero, HeroIn } from '@/components/brand/SplitHero';
+import { EventCard, daysUntilEvent } from '@/components/brand/EventCard';
+import { NewsBand, type NewsItem } from '@/components/brand/NewsBand';
 import { SearchField } from '@/components/brand/SearchField';
 import { Eyebrow } from '@/components/brand/Eyebrow';
-import { notchEventItems } from '@/components/brand/m3Events';
+import { featuredEventItems } from '@/components/brand/m3Events';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { FiguresBand, type HomeFigures } from '@/components/home/FiguresBand';
 import type { ProviderCardData } from '@/components/home/NeedPanel';
@@ -27,18 +28,20 @@ import { MemberSpace, type PersonalEvent, type PersonalResource } from '@/compon
 const HomeBelowFold = lazy(() => import('@/components/home/HomeBelowFold'));
 
 /**
- * The homepage (refonte v2, Oct 2026), in the spirit of the Solar Impulse
- * Foundation site: large photography, slow scroll-linked motion, one gold action.
+ * The homepage (refonte v2, Oct 2026): large photography, slow scroll-linked
+ * motion, one gold action.
  *
- *   inset hero: photo, H1 by lines, live-figures sentence, search, buttons,
- *               giant marquee, notch card turning the three M3 events  — everyone
+ *   split hero: text on marine (H1 by lines, live-figures sentence, search,
+ *               buttons, trust line) and a rounded photo frame with the "next
+ *               event" card floating over its corner (the three M3 events) — everyone
+ *   news band: thin strip of figures, events, new members, latest article — everyone
  *   figures band: graticule, ruler that draws itself, counters         — everyone
  *   member band: dashboard door, counters, personal feeds               — signed in
  *   who it is for: photo cards in an accordion                          — visitors
  *   "Run a marina?": need form preview + a row of members following the scroll
  *                                                          — visitors and marinas
  *   latest articles + agenda                                            — everyone
- *   giant editorial marquee, then "Our events": a sticky stack        — everyone
+ *   "Our events": a carousel of three photo cards                       — everyone
  *   how it works: channel steps                                         — visitors
  *   event sponsors, logo tiles by tier                                  — everyone
  *   directory and resources tiles + contact panel                       — everyone
@@ -48,8 +51,8 @@ const HomeBelowFold = lazy(() => import('@/components/home/HomeBelowFold'));
  * Figures are live counts (networkStats) unless an admin sets
  * display_stats.override, in which case they show as "N+". The M3 events
  * (World Yachting Summit in Dubai, 27 Nov 2026, by invitation; webinars; the
- * Rendezvous) are carried by the notch, the agenda and the events stack, all
- * three side by side: the platform is not the Rendezvous' own site. The
+ * Rendezvous) are carried by the hero card, the news band, the agenda and the
+ * events carousel, all three side by side: the platform is not the Rendezvous' own site. The
  * platform teaser plays only when asked, in a dialog on the Rendezvous card.
  */
 
@@ -90,6 +93,7 @@ export function HomePage() {
   const [themeCounts, setThemeCounts] = useState<Record<ThemeKey, number> | null>(null);
   const [sponsors, setSponsors] = useState<SponsorLogo[]>([]);
   const [providers, setProviders] = useState<ProviderCardData[]>([]);
+  const [newestMembers, setNewestMembers] = useState<{ id: string; slug: string; name: string }[]>([]);
 
   // Personalized data for logged-in users
   const [accountLoaded, setAccountLoaded] = useState(false);
@@ -257,7 +261,7 @@ export function HomePage() {
     const fetchAll = async () => {
       const [
         settingsRes, orgStatsRes, sectorsRes, resIndexRes, featuredRes,
-        featuredOrgRes, memberMarinasRes, providersRes, sponsorsRes,
+        featuredOrgRes, memberMarinasRes, providersRes, sponsorsRes, newestRes,
       ] = await Promise.allSettled([
         // Admin-editable display stats: used as they are when the admin has
         // set `override: true`, otherwise only as a fallback for a failed live count.
@@ -306,6 +310,14 @@ export function HomePage() {
           .select('id, slug, name, logo_url, tier')
           .eq('access_status', 'verified')
           .in('tier', SPONSOR_TIERS),
+        // The newest verified members (an owner on the platform), for the news band.
+        supabase
+          .from('organizations')
+          .select('id, slug, name')
+          .eq('access_status', 'verified')
+          .not('owner_user_id', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(3),
       ]);
       if (!alive) return;
 
@@ -369,6 +381,9 @@ export function HomePage() {
       }
       setSponsors([...byId.values()].sort((a, b) => a.name.localeCompare(b.name)));
 
+      // ── Newest verified members, for the news band ──
+      setNewestMembers(((ok(newestRes)?.data ?? []) as { id: string; slug: string; name: string }[]).filter((o) => o.slug && o.name));
+
       // ── Service-provider members for the need panel ──
       setProviders(pickProviders((ok(providersRes)?.data ?? []) as ProviderCardData[]));
 
@@ -398,12 +413,39 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [i18n.language],
   );
-  // The notch card turns the three M3 events (WYS while upcoming, webinars, the Rendezvous).
-  const notch = useMemo(() => <EventNotch items={notchEventItems(t)} />, [t]);
-  const marquee = useMemo(
-    () => [t('brand.hero.marquee1', 'Smart'), t('brand.hero.marquee2', 'Sustainable'), t('brand.hero.marquee3', 'Connected')],
-    [t],
-  );
+  // The floating card turns the three M3 events (WYS while upcoming, webinars, the Rendezvous).
+  const eventItems = useMemo(() => featuredEventItems(t), [t]);
+  const card = useMemo(() => <EventCard items={eventItems} />, [eventItems]);
+
+  // The news band: live figures, the M3 events (with the countdown while one is upcoming),
+  // the newest verified members and the latest article. Real data only: an item whose data
+  // has not loaded (or does not exist) is simply left out.
+  const latestResource = featuredResources[0];
+  const newsItems = useMemo<NewsItem[]>(() => {
+    const items: NewsItem[] = [];
+    if (liveFigures) {
+      items.push(
+        { id: 'fig-marinas', lead: liveFigures.marinas, text: t('home.news.marinas', 'marinas listed'), href: '/directory?type=marina' },
+        { id: 'fig-providers', lead: liveFigures.suppliers, text: t('home.news.providers', 'service providers'), href: '/directory?type=partner' },
+        { id: 'fig-countries', lead: liveFigures.countries, text: t('home.news.countries', 'countries'), href: '/directory' },
+      );
+    }
+    for (const e of eventItems) {
+      const days = e.startsOn ? daysUntilEvent(e.startsOn) : null;
+      const lead = days === null ? undefined : days === 0 ? `${t('brand.notch.today', 'Today')} ·` : `${t('brand.notch.countdown', { days, defaultValue: 'D-{{days}}' })} ·`;
+      items.push({ id: `event-${e.id}`, lead, text: [e.title, e.meta].filter(Boolean).join(' · '), href: e.href });
+    }
+    for (const m of newestMembers) {
+      items.push({ id: `member-${m.id}`, lead: t('home.news.newMember', 'New member'), text: m.name, href: `/organizations/${m.slug}` });
+    }
+    if (latestResource) {
+      const title = latestResource.title.length > 72 ? `${latestResource.title.slice(0, 71).trimEnd()}…` : latestResource.title;
+      items.push({ id: `resource-${latestResource.id}`, lead: t('home.news.latestArticle', 'Latest article'), text: title, href: `/resources/${latestResource.id}` });
+    }
+    return items;
+    // liveFigures is rebuilt on each render: its three strings are the dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t, eventItems, newestMembers, latestResource, liveFigures?.marinas, liveFigures?.suppliers, liveFigures?.countries]);
 
   // "Run a marina?" speaks to visitors and to marinas; for a signed-in marina it opens the real forms.
   const showNeedPanel = !user || persona === 'marina';
@@ -426,18 +468,17 @@ export function HomePage() {
     <div className="flex flex-col bg-page">
       <Seo title={seoTitle} description={seoDescription} path="/" />
 
-      {/* ════════════ Inset hero ════════════ */}
-      <InsetHero
+      {/* ════════════ Split hero: text on marine, photo frame, floating event card ════════════ */}
+      <SplitHero
         image={SITE_IMAGES.homeHero}
         seed="home-hero"
         labelledBy="home-hero-title"
-        marquee={marquee}
-        notch={notch}
-        className={user ? 'md:min-h-[min(calc(100svh-52px),760px)]' : undefined}
+        card={card}
+        className={user ? 'lg:min-h-[min(100svh,740px)]' : undefined}
       >
         {!user ? (
           <>
-            <div className="max-w-[780px]">
+            <div className="max-w-[600px]">
               <HeroIn>
                 <Eyebrow tone="onDark">{t('homePage.hero.eyebrow', 'Smart Marina Connect · by M3 Monaco')}</Eyebrow>
               </HeroIn>
@@ -446,16 +487,16 @@ export function HomePage() {
                 id="home-hero-title"
                 trigger="mount"
                 delay={160}
-                className="mt-5 text-balance text-[36px] font-semibold leading-[42px] tracking-[-0.025em] text-white md:text-[54px] md:leading-[60px] xl:text-[58px] xl:leading-[64px]"
+                className="mt-5 text-balance text-[34px] font-semibold leading-[40px] tracking-[-0.025em] text-white sm:text-[42px] sm:leading-[48px] xl:text-[52px] xl:leading-[58px]"
               >
                 {t('home.heroTitle', 'Marinas and the companies that serve them, in one network')}
               </LineReveal>
-              <HeroIn as="p" delay={260} className="mt-5 max-w-[660px] text-[17px] leading-[27px] text-white/85 md:text-[19px] md:leading-[30px]">
+              <HeroIn as="p" delay={260} className="mt-5 max-w-[560px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
                 {liveFigures
                   ? t('home.heroSubtitleLive', liveFigures)
                   : t('home.heroSubtitle', "Marinas publish their needs, service providers answer them, and everyone meets at M3's events in Monaco, Dubai and online.")}
               </HeroIn>
-              <HeroIn delay={340} className="mt-6 max-w-[540px]">
+              <HeroIn delay={340} className="mt-6 max-w-[520px]">
                 <SearchField examples={searchExamples} />
               </HeroIn>
               <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
@@ -467,33 +508,18 @@ export function HomePage() {
                   <Link to="/directory">{t('home.exploreDirectory', 'Explore the directory')}</Link>
                 </Button>
               </HeroIn>
+              <HeroIn as="ul" delay={500} aria-label={t('homePage.hero.trustLabel', 'Why join')} className="mt-7 grid gap-2.5 text-[14px] leading-5 text-white/85">
+                {trust.map((line) => (
+                  <li key={line} className="flex gap-2.5">
+                    <Check className="mt-px h-[18px] w-[18px] shrink-0 text-gold" strokeWidth={2.5} aria-hidden="true" />
+                    {line}
+                  </li>
+                ))}
+              </HeroIn>
             </div>
-            <HeroIn
-              as="ul"
-              delay={500}
-              aria-label={t('homePage.hero.trustLabel', 'Why join')}
-              // From xl the notch takes the bottom left corner: the commitments start after it (.hero-after-notch).
-              className="hero-after-notch mt-7 grid max-w-[880px] gap-3 text-[14px] leading-5 text-white/85 md:grid-cols-[0.78fr_1fr_1.6fr] md:gap-0"
-            >
-              {trust.map((line, i) => (
-                <li
-                  key={line}
-                  className={
-                    i === 0
-                      ? 'flex gap-2.5 md:pr-5'
-                      : i === 1
-                        ? 'flex gap-2.5 md:border-l md:border-white/25 md:px-5'
-                        : 'flex gap-2.5 md:border-l md:border-white/25 md:pl-5'
-                  }
-                >
-                  <Check className="mt-px h-[18px] w-[18px] shrink-0 text-gold" strokeWidth={2.5} aria-hidden="true" />
-                  {line}
-                </li>
-              ))}
-            </HeroIn>
           </>
         ) : (
-          <div className="max-w-[780px]">
+          <div className="max-w-[600px]">
             <HeroIn>
               <Eyebrow tone="onDark">{t('homePage.hero.memberEyebrow', 'Smart Marina Connect · your network')}</Eyebrow>
             </HeroIn>
@@ -502,7 +528,7 @@ export function HomePage() {
               id="home-hero-title"
               trigger="mount"
               delay={160}
-              className="mt-5 text-balance text-[36px] font-semibold leading-[42px] tracking-[-0.025em] text-white md:text-[54px] md:leading-[60px] xl:text-[58px] xl:leading-[64px]"
+              className="mt-5 text-balance text-[34px] font-semibold leading-[40px] tracking-[-0.025em] text-white sm:text-[42px] sm:leading-[48px] xl:text-[52px] xl:leading-[58px]"
             >
               {`${t('home.welcomeBack', 'Welcome back')}${profile?.first_name ? `, ${profile.first_name}` : ''}!`}
             </LineReveal>
@@ -520,10 +546,10 @@ export function HomePage() {
                 </button>
               </div>
             )}
-            <HeroIn as="p" delay={260} className="mt-5 max-w-[660px] text-[17px] leading-[27px] text-white/85 md:text-[19px] md:leading-[30px]">
+            <HeroIn as="p" delay={260} className="mt-5 max-w-[560px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
               {t('home.personalizedSubtitle', "Here's what's happening in the marina industry for you.")}
             </HeroIn>
-            <HeroIn delay={340} className="mt-6 max-w-[540px]">
+            <HeroIn delay={340} className="mt-6 max-w-[520px]">
               <SearchField examples={searchExamples} />
             </HeroIn>
             <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
@@ -536,7 +562,10 @@ export function HomePage() {
             </HeroIn>
           </div>
         )}
-      </InsetHero>
+      </SplitHero>
+
+      {/* ════════════ News band: figures, events, newest members, latest article ════════════ */}
+      <NewsBand items={newsItems} />
 
       {/* ════════════ Figures band: graticule, ruler, counters ════════════ */}
       <FiguresBand figures={stats} loading={publicLoading} className={user ? 'pb-10 md:pb-12' : undefined} />

@@ -47,9 +47,6 @@ const AVATAR_SECTIONS = AVATAR_TABS
   .map((tab) => ACCOUNT_SECTIONS.find((s) => s.value === tab))
   .filter((s): s is (typeof ACCOUNT_SECTIONS)[number] => !!s);
 
-/** The hero counts as "under the bar" until its bottom edge is this far from the top of the viewport. */
-const HERO_EDGE = 96;
-
 /**
  * Working screens keep the header in place: consoles, the account area, event
  * operations (SM26 is frozen), token links and pages whose own scroll-spy
@@ -68,25 +65,25 @@ function focusIsVisible(el: EventTarget | null): boolean {
 }
 
 /**
- * The site header: a bar that floats 12 px (8 px on phones) from the edges.
+ * The site header: a full-width bar fixed at the top of the page (no inset, no
+ * rounded corners): 64 px high, 72 px from md.
  *
- *  - Over a registered hero (InsetHero, PageHero at the top of the page) the bar
- *    is transparent with the white logo and wordmark; the hero is not pushed
- *    down. Fully clear only at the very top of the page: as soon as the page
- *    scrolls while the hero is still under it (the header coming back on a
- *    scroll up), a navy tint keeps the links readable over the hero's text.
- *    Once the hero has gone the bar turns white: rounded (16 px), a soft shadow,
- *    colour logo. Elsewhere it is white from the start. The first state of a
- *    page is never animated (no white bar fading out over the hero on load).
+ *  - Over a registered hero (SplitHero, PageHero at the top of the page) the bar
+ *    is transparent with the white logo, wordmark and links at the very top of the
+ *    page; the hero is not pushed down. As soon as the page scrolls it turns solid
+ *    white with a thin bottom border and a subtle shadow (colour logo). Elsewhere
+ *    it is white from the start. The first state of a page is never animated (no
+ *    white bar fading out over the hero on load).
+ *  - A thin gold reading line runs along its bottom edge (ReadingProgress).
  *  - It tucks away when the reader scrolls down and comes back on scroll up
- *    (translateY -140 %, .35 s), but never while KEYBOARD focus is inside it or
- *    one of its menus or dialogs is open, and never under reduced motion. (A
- *    mouse click on a header link leaves that link focused: that must not pin it
- *    for the rest of the visit.) While it is away, --header-h is 0 so the pages'
- *    own sticky bars rise with it.
+ *    (translateY, .35 s), but never while KEYBOARD focus is inside it or one of its
+ *    menus or dialogs is open, and never under reduced motion. (A mouse click on a
+ *    header link leaves that link focused: that must not pin it for the rest of the
+ *    visit.) While it is away, --header-h is 0 so the pages' own sticky bars rise
+ *    with it.
  *  - Working screens (PINNED_HEADER_ROUTES: consoles, account, SM26…) keep it in
- *    place and compact (a 56 px bar in a 64 px band, html[data-header-compact]),
- *    because those pages compute their own offsets from a 64 px header.
+ *    place at 64 px (html[data-header-compact]), because those pages compute their
+ *    own offsets from a 64 px header; they have no reading line.
  *  - Visitors get the rolling "Sign up" button: white over the hero (the hero has
  *    its own gold one: one gold action per screen), gold once the bar is white.
  *    Members get Create, Inbox and their avatar menu; admins and moderators
@@ -108,7 +105,6 @@ export function Navbar() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [overHero, setOverHero] = useState(true);
   const [hidden, setHidden] = useState(false);
   // The home page always opens on its photo hero: start transparent there, so
   // the very first paint is not a white bar that the hero then turns transparent.
@@ -137,8 +133,6 @@ export function Navbar() {
       frame = 0;
       const y = window.scrollY;
       setScrolled(y > 8);
-      // Without a hero the value does not matter (no overlay): leave it for the home hint.
-      if (hero) setOverHero(hero.getBoundingClientRect().bottom > HERO_EDGE);
       const dy = y - lastY;
       lastY = y;
       if (dy > 0) travel = Math.max(0, travel) + dy;
@@ -163,7 +157,7 @@ export function Navbar() {
       window.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', schedule);
     };
-  }, [hero, reduced, keepPut]);
+  }, [reduced, keepPut]);
 
   useEffect(() => {
     if (pinned) setHidden(false);
@@ -272,12 +266,8 @@ export function Navbar() {
 
   // ---------------------------------------------------------------- look
   const overlay = !!hero || heroHint;
-  /** White logo and links: the header is over the hero. */
-  const transparent = overlay && overHero && !mobileMenuOpen;
-  /** No background at all: only at the very top of the page. */
-  const clear = transparent && !scrolled;
-  /** Scrolled, hero still under the bar: a navy tint keeps the links readable over the hero's text. */
-  const tinted = transparent && scrolled;
+  /** White logo and links, no background: over the hero, at the very top of the page. */
+  const transparent = overlay && !scrolled && !mobileMenuOpen;
   /** Transitions only once the page's first state is painted. */
   const fade = settled ? 'transition-opacity duration-[350ms] ease-out-smc' : '';
   const iconBtn = cn(
@@ -293,39 +283,35 @@ export function Navbar() {
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusInside(false);
       }}
-      // A zero-height band over a hero (the bar floats on top of it), else the band the bar sits in (64 px on
-      // working screens, 72 px on phones, 84 px from md): only the bar itself takes pointer events.
+      // A zero-height band over a hero (the bar sits on top of it), else the band the bar occupies (64 px on
+      // phones and working screens, 72 px from md): only the bar itself takes pointer events.
       className={cn(
         'pointer-events-none sticky top-0 z-50 w-full',
-        overlay ? 'h-0' : keepPut ? 'h-16' : 'h-[72px] md:h-[84px]',
+        overlay ? 'h-0' : keepPut ? 'h-16' : 'h-16 md:h-[72px]',
       )}
     >
       <div
         className={cn(
-          'pointer-events-auto absolute',
-          keepPut ? 'inset-x-2 top-1 h-14 rounded-xl' : 'inset-x-2 top-2 h-16 rounded-2xl md:inset-x-3 md:top-3 md:h-[72px]',
+          'pointer-events-auto absolute inset-x-0 top-0',
+          keepPut ? 'h-16' : 'h-16 md:h-[72px]',
           settled && 'transition-[transform,color] duration-[350ms] ease-out-smc',
           transparent ? 'text-white' : 'text-navy',
-          hidden && '-translate-y-[140%]',
+          hidden && '-translate-y-[150%]',
         )}
       >
-        {/* The bar's backgrounds fade in and out: white and soft shadow once the hero is gone, a navy tint over it. */}
+        {/* The bar's background fades in and out: white with a thin bottom border and a subtle shadow once the page has scrolled. */}
         <span
           aria-hidden="true"
           className={cn(
-            'absolute inset-0 rounded-[inherit] bg-white shadow-[0_12px_32px_rgba(11,38,83,.12),0_0_0_1px_rgba(11,38,83,.05)]',
+            'absolute inset-0 border-b border-rule bg-white shadow-[0_6px_20px_rgba(11,38,83,.07)]',
             fade,
             transparent ? 'opacity-0' : 'opacity-100',
           )}
         />
-        <span
-          aria-hidden="true"
-          className={cn('absolute inset-0 rounded-[inherit] bg-navy-deep/80 backdrop-blur-md', fade, tinted ? 'opacity-100' : 'opacity-0', clear && 'opacity-0')}
-        />
-        {/* The gold reading line under the floating bar (not on working screens, where the header is pinned). */}
+        {/* The gold reading line along the bar's bottom edge (not on working screens, where the header is pinned). */}
         {!keepPut && <ReadingProgress />}
       <nav aria-label="Main navigation" className="relative h-full">
-      <div className="mx-auto h-full max-w-7xl px-2 md:px-6">
+      <div className="mx-auto h-full max-w-7xl px-4 sm:px-6">
         <div className="flex h-full items-center justify-between gap-2">
           {/* Logo — signed-in members land on their dashboard, visitors on the
               marketing homepage. White over a hero, colour on white. */}

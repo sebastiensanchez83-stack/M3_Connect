@@ -4,7 +4,7 @@ import { useReducedMotion } from './useReducedMotion';
 /**
  * One switch for all continuous motion on the site (WCAG 2.2.2 "Pause, Stop,
  * Hide"): the slow hero zoom, the drifting waves and sounding lines, the
- * sponsor marquee, the notch card cycle, the typed
+ * sponsor marquee, the event card cycle, the typed
  * search placeholder.
  *
  *  - `reduced`: the visitor's system asks for less motion. Everything shows its

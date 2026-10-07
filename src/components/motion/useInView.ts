@@ -116,7 +116,7 @@ export function useDocumentVisible(): boolean {
 
 /**
  * True while any part of the element is on screen AND the tab is shown: the
- * condition for a cycle (notch card, typed placeholder) to keep running.
+ * condition for a cycle (event card, typed placeholder) to keep running.
  * Off screen or in a background tab it stops, so it costs nothing there.
  */
 export function useOnScreen<T extends Element>(ref: RefObject<T>, disabled = false): boolean {

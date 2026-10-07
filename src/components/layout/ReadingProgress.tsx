@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * A thin gold reading-progress line (2 px, #d7a647) under the floating header
- * bar, growing from the left with how far the page has been read (scaleX, one
+ * A thin gold reading-progress line (2 px, #d7a647) along the bottom edge of the
+ * full-width header bar, growing from the left with how far the page has been read (scaleX, one
  * requestAnimationFrame per burst of scroll, one passive listener). Decorative
  * (aria-hidden). It has no transition: it simply follows the scroll, so under
  * reduced motion and while motion is paused it shows the same progress, static.
@@ -45,8 +45,8 @@ export function ReadingProgress({ className }: { className?: string }) {
   }, []);
 
   return (
-    <span aria-hidden="true" className={className ?? 'pointer-events-none absolute inset-x-4 top-full mt-[3px] block h-0.5 print:hidden'}>
-      <span ref={ref} className="block h-full origin-left rounded-full bg-[#d7a647]" style={{ transform: 'scaleX(0)' }} />
+    <span aria-hidden="true" className={className ?? 'pointer-events-none absolute inset-x-0 bottom-0 block h-0.5 print:hidden'}>
+      <span ref={ref} className="block h-full origin-left bg-[#d7a647]" style={{ transform: 'scaleX(0)' }} />
     </span>
   );
 }

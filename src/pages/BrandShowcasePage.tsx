@@ -9,9 +9,10 @@ import {
   ChannelSteps, MotionPauseToggle, useMotion,
 } from '@/components/motion';
 import {
-  InsetHero, HeroIn, EventNotch, HeroNotch, NotchCard, GiantMarquee, GiantMarqueeBand, AccordionCards, CaptionList,
-  StickyStack, StickyStackMedia, StickyStackBody, BgRevealPanel, UnderlineLink, ArrowDisc, SearchField, NewsletterField,
-  CardShell, CardMedia, StretchedLink, OrgCard, VerifiedBadge, LogoTile, Eyebrow, ContactCard, notchEventItems,
+  SplitHero, HeroIn, EventCard, NewsBand, Carousel, AccordionCards, CaptionList,
+  BgRevealPanel, UnderlineLink, SearchField, NewsletterField,
+  CardShell, CardMedia, StretchedLink, OrgCard, VerifiedBadge, LogoTile, Eyebrow, ContactCard, featuredEventItems,
+  type NewsItem,
 } from '@/components/brand';
 
 /**
@@ -56,18 +57,20 @@ export function BrandShowcasePage() {
   const { figures } = useNetworkFigures();
 
   const examples = [t('brand.search.ex1'), t('brand.search.ex2'), t('brand.search.ex3'), t('brand.search.ex4')];
-  const events = notchEventItems(t);
+  const events = featuredEventItems(t);
+  const news: NewsItem[] = [
+    { id: 'n1', lead: figures.marinas !== null ? String(figures.marinas) : undefined, text: 'marinas listed', href: '/directory?type=marina' },
+    { id: 'n2', lead: figures.partners !== null ? String(figures.partners) : undefined, text: 'service providers', href: '/directory?type=partner' },
+    { id: 'n3', lead: 'D-51 ·', text: 'World Yachting Summit · Dubai · By invitation (sample)', href: '/wys26' },
+    { id: 'n4', lead: 'New member', text: 'Sample Marina Azzurra (sample)', href: '/directory' },
+    { id: 'n5', lead: 'Latest article', text: 'A sample article title (sample)', href: '/resources' },
+  ];
 
   return (
     <div className="bg-page">
-      {/* 1 · Inset hero: photo, veil, H1 lines, marquee along the bottom, notch card, pause control */}
-      <InsetHero
-        image={SITE_IMAGES.homeHero}
-        marquee={['Smart', 'Sustainable', 'Connected']}
-        notch={<EventNotch items={events} />}
-        labelledBy="brand-hero-title"
-      >
-        <div className="max-w-[780px]">
+      {/* 1 · Split hero: marine text column, rounded photo frame, floating event card, pause control */}
+      <SplitHero image={SITE_IMAGES.homeHero} card={<EventCard items={events} />} labelledBy="brand-hero-title">
+        <div className="max-w-[600px]">
           <HeroIn>
             <Eyebrow tone="onDark">Smart Marina Connect · /__brand</Eyebrow>
           </HeroIn>
@@ -76,14 +79,14 @@ export function BrandShowcasePage() {
             id="brand-hero-title"
             trigger="mount"
             delay={200}
-            className="mt-5 text-[36px] font-semibold leading-[42px] tracking-[-0.025em] text-white md:text-[54px] md:leading-[60px] xl:text-[58px] xl:leading-[64px]"
+            className="mt-5 text-[34px] font-semibold leading-[40px] tracking-[-0.025em] text-white sm:text-[42px] sm:leading-[48px] xl:text-[52px] xl:leading-[58px]"
           >
             Marinas and the companies that serve them, in one network
           </LineReveal>
-          <HeroIn delay={260} className="mt-5 max-w-[660px] text-[17px] leading-[27px] text-white/85 md:text-[19px] md:leading-[30px]">
-            <p>InsetHero: inset rounded card, parallax photo, marine veil, line reveal, giant marquee, and the notch cut into its bottom left corner (with the countdown for an upcoming event).</p>
+          <HeroIn delay={260} className="mt-5 max-w-[560px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
+            <p>SplitHero: text on marine, a rounded photo frame (slow zoom, parallax) and the next-event card floating over its bottom left edge, with the countdown for an upcoming event. No cut-out corner.</p>
           </HeroIn>
-          <HeroIn delay={340} className="mt-6 max-w-[540px]">
+          <HeroIn delay={340} className="mt-6 max-w-[520px]">
             <SearchField examples={examples} />
           </HeroIn>
           <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
@@ -91,9 +94,10 @@ export function BrandShowcasePage() {
             <Button variant="ctaLight">Explore the directory</Button>
           </HeroIn>
         </div>
-      </InsetHero>
+      </SplitHero>
+      <NewsBand items={news} />
       <p className="mx-auto max-w-7xl px-4 pt-4 text-xs text-meta sm:px-6">
-        Motion: {reduced ? 'reduced (final states)' : paused ? 'paused' : 'running'}. The header floats over the hero, then turns into a white bar with a thin gold reading line under it that follows the scroll; it hides on scroll down.
+        Motion: {reduced ? 'reduced (final states)' : paused ? 'paused' : 'running'}. The full-width header is transparent over the hero, turns white with a thin border once the page scrolls, shows a gold reading line along its bottom edge and hides on scroll down. The band above slides sideways, pauses on hover and focus, and wraps statically under reduced motion or the global pause.
       </p>
 
       <Section id="tokens" title="Tokens" note="CSS variables on :root, wired into Tailwind. shadcn names (primary, secondary, muted, accent, border, ring) point at the same tokens.">
@@ -204,7 +208,7 @@ export function BrandShowcasePage() {
         </Reveal>
       </Section>
 
-      <Section id="cards" title="Cards and the round arrow" note="Hover a card or Tab to it: it lifts 4 px, its picture scales to 1.05 (.8 s) and the arrow disc fills with gold while the arrow swaps. Sample organisations, not real records.">
+      <Section id="cards" title="Cards" note="Hover a card or Tab to it: it lifts 4 px, its picture scales to 1.05 (.8 s), the gold line under the title grows from the left and the small arrow after it slides 4 px. No round arrow disc on cards: that stays inside the rolling CTA buttons. Sample organisations, not real records.">
         <RevealGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OrgCard name="Sample Marina Azzurra" href="/directory" type="marina" city="Portofino" country="Italy" verified description="A sample card: initials tile when there is no logo." />
           <OrgCard name="Sample Pontoon Works" href="/directory" type="partner" country="France" verified description="Service provider colour: teal." />
@@ -215,12 +219,11 @@ export function BrandShowcasePage() {
           <CardShell interactive>
             <CardMedia className="aspect-[16/9] bg-navy/10">
               <img src={PERSONA_IMAGES.marinas} alt="" className="h-full w-full object-cover" />
-              <ArrowDisc tone="photo" className="absolute right-3 top-3" />
             </CardMedia>
             <div className="p-5">
               <p className="text-meta-caps">Resource · Infrastructure</p>
               <h3 className="mt-1 text-card-title text-navy">
-                <StretchedLink to="/resources">A picture card with the round arrow in its corner</StretchedLink>
+                <StretchedLink to="/resources">A picture card: lift, zoom, gold line and a small arrow</StretchedLink>
               </h3>
             </div>
           </CardShell>
@@ -234,13 +237,6 @@ export function BrandShowcasePage() {
             <div className="flex flex-wrap items-center gap-3">
               <VerifiedBadge />
               <VerifiedBadge tone="dark" />
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="has-ra inline-flex items-center gap-3 rounded-pill bg-white/10 p-2 pr-4 text-sm">
-                <ArrowDisc tone="photo" size="sm" /> Hover this chip (has-ra)
-              </span>
-              <ArrowDisc tone="navy" />
-              <ArrowDisc />
             </div>
           </div>
         </div>
@@ -265,53 +261,64 @@ export function BrandShowcasePage() {
         </div>
       </BgRevealPanel>
 
-      <GiantMarqueeBand lines={[['Connecting marinas'], ['Monaco', 'Dubai', 'Online']]} />
-
-      <Section id="stack" title="Sticky stack" note="Large photo cards pile up as you scroll: the covered card scales to .94 and darkens. Plain stacked cards under reduced motion.">
-        <StickyStack>
+      <Section id="carousel" title="Carousel" note="A CSS scroll-snap row: mouse drag, previous and next buttons, one dot per stop, arrow keys when the row has focus, touch swipe. Cards reveal on view and lift on hover. Buttons and dots disappear when every card fits.">
+        <Carousel label="Sample events" slideClassName="w-[88%] sm:w-[62%] lg:w-[46%]">
           {[
             { id: 's1', title: 'Monaco Smart & Sustainable Marina Rendezvous', kicker: 'Monaco', image: SITE_IMAGES.partnersHero },
             { id: 's2', title: 'World Yachting Summit', kicker: 'Dubai · by invitation', image: SITE_IMAGES.eventsHero },
             { id: 's3', title: 'Webinars & replays', kicker: 'Online', image: SITE_IMAGES.resourcesHero },
           ].map((c) => (
-            <article key={c.id} aria-labelledby={c.id} className="relative flex flex-1 flex-col">
-              <StickyStackMedia image={c.image.src} focusY={c.image.focusY} />
-              <StickyStackBody>
-                <div>
-                  <p className="inline-flex items-center gap-2 rounded-pill bg-white/15 px-3.5 py-1.5 text-[13px] font-semibold ring-1 ring-inset ring-white/30">
-                    <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-gold" />
-                    {c.kicker}
-                  </p>
-                  <h3 id={c.id} className="mt-4 max-w-[760px] text-[28px] font-semibold leading-8 tracking-[-0.02em] md:text-5xl md:leading-[52px]">{c.title}</h3>
+            <Reveal key={c.id} className="flex w-full min-w-0">
+              <CardShell as="article" interactive tone="navy" className="min-h-[420px] flex-1 rounded-[24px]">
+                <CardMedia className="absolute inset-0">
+                  {c.image.src && <img src={c.image.src} alt="" draggable={false} className="h-full w-full object-cover" />}
+                </CardMedia>
+                <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(180deg,rgba(8,29,64,.7)_0%,rgba(8,29,64,.5)_35%,rgba(8,29,64,.92)_100%)]" />
+                <div className="relative flex flex-1 flex-col justify-between gap-6 p-6 md:p-8">
+                  <div>
+                    <p className="inline-flex items-center gap-2 rounded-pill bg-white/15 px-3.5 py-1.5 text-[13px] font-semibold ring-1 ring-inset ring-white/30">
+                      <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-gold" />
+                      {c.kicker}
+                    </p>
+                    <h3 className="mt-4 text-[28px] font-semibold leading-[34px] tracking-[-0.02em] md:text-[34px] md:leading-[40px]">
+                      <StretchedLink to="/events" tone="light">{c.title}</StretchedLink>
+                    </h3>
+                  </div>
+                  <div className="relative z-10">
+                    <Button asChild variant="ctaLight">
+                      <a href="/events">See the event</a>
+                    </Button>
+                  </div>
                 </div>
-                <div>
-                  <Button asChild variant="ctaLight">
-                    <a href="/events">See the event</a>
-                  </Button>
-                </div>
-              </StickyStackBody>
-            </article>
+              </CardShell>
+            </Reveal>
           ))}
-        </StickyStack>
+        </Carousel>
       </Section>
 
-      <Section id="pagehero" title="Page header">
+      <Section id="pagehero" title="Page header" note="Compact full-width banner (no inset, no rounded corners, no cut-out). A small card can overlap its bottom edge from xl.">
         <PageHero
           image={SITE_IMAGES.directoryHero}
           seed="brand-showcase"
           icon={Search}
           title="Directory of marinas and their service providers"
-          subtitle="Compact version of the hero used by every section page: photo, marine veil, sounding lines, breadcrumb, notch from xl."
+          subtitle="Compact banner used by every section page: photo, marine veil, sounding lines, breadcrumb, an optional floating card from xl."
           breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Directory' }]}
           overlayHeader={false}
-          notch={
-            <HeroNotch label="For marinas" side="right" className="hidden xl:block">
-              <NotchCard
-                item={{ id: 'claim', kicker: 'For marinas', title: 'Is your marina already listed?', meta: 'Claim its profile and complete it', href: '/directory', image: PERSONA_IMAGES.marinas ? { src: PERSONA_IMAGES.marinas, focusY: 0.5 } : null }}
-              />
-            </HeroNotch>
+          floating={
+            <a href="/directory" className="card-lift group has-ra flex w-[400px] items-stretch overflow-hidden rounded-card bg-white text-navy shadow-[0_18px_40px_rgba(4,13,31,.28)] ring-1 ring-rule">
+              <span aria-hidden="true" className="card-media relative block w-[92px] shrink-0 overflow-hidden bg-navy">
+                <img src={PERSONA_IMAGES.marinas} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              </span>
+              <span className="grid content-center gap-0.5 px-4 py-3.5">
+                <span className="text-[12px] font-semibold leading-4 text-gold-text">For marinas</span>
+                <span className="text-[16px] font-semibold leading-[21px]"><span className="card-ul">Is your marina already listed?</span></span>
+                <span className="text-[13px] leading-[18px] text-meta">Claim its page and complete it</span>
+              </span>
+            </a>
           }
         />
+        <div className="hidden h-12 xl:block" />
       </Section>
 
       <Section id="chenal" title="Numbered steps">
@@ -325,10 +332,7 @@ export function BrandShowcasePage() {
         />
       </Section>
 
-      <Section id="marquee" title="Giant marquee and the logo marquee" note="Giant text: pushed by the page's scroll speed, stops on hover. Logos: placeholders, pause on hover and focus; a static wall under reduced motion.">
-        <div className="overflow-hidden rounded-card bg-navy-deep py-6">
-          <GiantMarquee items={['Smart', 'Sustainable', 'Connected']} variant="hero" speed={55} />
-        </div>
+      <Section id="marquee" title="Logo marquee" note="Sponsor logos: placeholders, pause on hover and focus; a static wall under reduced motion.">
         <LogoMarquee
           className="mt-8"
           label="Event partners (sample)"
@@ -340,7 +344,7 @@ export function BrandShowcasePage() {
         />
       </Section>
 
-      <Section id="inputs" title="Search pill, newsletter and motion control" note="The footer below is the real footer: giant signature, drifting sounding lines, newsletter. The global pause stops every loop on the site (WCAG 2.2.2).">
+      <Section id="inputs" title="Search pill, newsletter and motion control" note="The footer below is the real footer: the 'Join the marina network' band (hidden for signed-in members), drifting sounding lines, newsletter. The global pause stops every loop on the site (WCAG 2.2.2).">
         <div className="grid gap-6 md:grid-cols-2">
           <div className="space-y-4 rounded-card border border-rule bg-white p-6">
             <SearchField tone="light" examples={examples} />

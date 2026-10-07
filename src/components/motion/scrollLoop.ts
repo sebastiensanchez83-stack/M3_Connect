@@ -50,7 +50,7 @@ export function requestScrollFrame() {
 }
 
 /**
- * A ticker for continuous motion (the giant marquees): one requestAnimationFrame
+ * A ticker for continuous motion (currently unused: the giant marquees are gone): one requestAnimationFrame
  * loop shared by all, with the page's scroll speed turned into a `boost` that
  * pushes the marquees (up to x5, easing back down). Runs only while something
  * subscribes.

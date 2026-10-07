@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next';
 import type { ThemeKey } from '@/lib/themes';
-import { GiantMarqueeBand } from '@/components/brand/GiantMarquee';
 import { ChannelSteps } from '@/components/motion/ChannelSteps';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal } from '@/components/motion/Reveal';
@@ -8,7 +7,7 @@ import { SectionNo } from '@/components/brand/Eyebrow';
 import { ProfileCards } from './ProfileCards';
 import { NeedPanel, type ProviderCardData } from './NeedPanel';
 import { ResourcesAgenda, type HomeResource } from './ResourcesAgenda';
-import { EventsStack } from './EventsStack';
+import { EventsCarousel } from './EventsCarousel';
 import { SponsorsBand, type SponsorLogo } from './SponsorsBand';
 import { EndSection } from './EndSection';
 
@@ -20,8 +19,7 @@ import { EndSection } from './EndSection';
  *   who it is for: photo cards in an accordion   (visitors)
  *   "Run a marina?": need form preview + members (visitors and marinas)
  *   latest articles + agenda
- *   giant editorial marquee
- *   our events: sticky stack of three cards
+ *   our events: a carousel of three photo cards
  *   how it works, channel steps                  (visitors)
  *   event sponsors, logo tiles by tier
  *   directory and resources tiles + contact panel
@@ -42,7 +40,6 @@ export interface HomeBelowFoldProps {
 }
 
 export default function HomeBelowFold(props: HomeBelowFoldProps) {
-  const { t } = useTranslation();
   const { signedIn, showNeedPanel } = props;
   // Small gold section numbers (01, 02…) follow the sections this visitor actually sees.
   let count = 0;
@@ -57,14 +54,7 @@ export default function HomeBelowFold(props: HomeBelowFoldProps) {
 
       <ResourcesAgenda resources={props.resources} themeCounts={props.themeCounts} loading={props.loading} lang={props.lang} sectionNo={next()} />
 
-      <GiantMarqueeBand
-        lines={[
-          [t('brand.marquee.line1', 'Connecting the marina industry')],
-          [t('brand.route.monaco', 'Monaco'), t('brand.route.dubai', 'Dubai'), t('brand.route.online', 'Online')],
-        ]}
-      />
-
-      <EventsStack sectionNo={next()} />
+      <EventsCarousel sectionNo={next()} />
 
       {!signedIn && <HowItWorks sectionNo={next()} />}
 

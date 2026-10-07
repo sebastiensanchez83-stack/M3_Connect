@@ -1,22 +1,36 @@
-import { useId, useRef, useState, type CSSProperties } from 'react';
+import { useId, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { BadgeCheck, ChevronDown, Instagram, Linkedin } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountHref } from '@/lib/accountNav';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { BathyPattern } from '@/components/motion/BathyPattern';
+import { LineReveal } from '@/components/motion/LineReveal';
 import { MotionPauseToggle } from '@/components/motion/MotionPauseToggle';
-import { useMotion } from '@/components/motion/MotionProvider';
-import { useInView } from '@/components/motion/useInView';
+import { Reveal } from '@/components/motion/Reveal';
+import { Eyebrow } from '@/components/brand/Eyebrow';
 import { NewsletterField } from '@/components/brand/NewsletterField';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 
 /**
- * The site footer: navy, with two layers of faint sounding lines drifting in
- * opposite directions, the newsletter pill, the brand and its columns, a small
- * bottom bar (copyright, the coordinates of Monaco, the animation pause), and
- * the giant "Smart Marina Connect" signature at 13 vw, low contrast, its two
- * lines rising out of a mask when it scrolls into view.
+ * Where the "Join the marina network" band is not shown: the sign-up and
+ * onboarding screens themselves, the consoles and the event areas.
+ */
+const NO_JOIN_BAND = /^\/(become-partner|onboarding|join\/|reset-password|welcome|admin|sm26|wys26|sponsorship)/;
+
+/**
+ * The site footer, in two parts:
+ *
+ *  - a large marine band "Join the marina network" (free membership, every member
+ *    checked by M3) with the rolling "Sign up" button and a link to the directory;
+ *    hidden for signed-in members (they are already members) and on the screens
+ *    listed in NO_JOIN_BAND;
+ *  - the classic footer, navy-deep, with two layers of faint sounding lines drifting
+ *    in opposite directions: the newsletter pill (consent unticked), the brand and
+ *    its columns, a small bottom bar (copyright, the coordinates of Monaco, the
+ *    animation pause).
  *
  * The footer repeats the navigation's own names — Directory, Opportunities,
  * Resources, Events, Partners — so a visitor who scrolls to the bottom finds
@@ -27,6 +41,7 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
 export function Footer() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { pathname } = useLocation();
 
   const platform = [
     { to: '/directory', label: t('nav.directory', 'Directory') },
@@ -50,6 +65,8 @@ export function Footer() {
       ];
 
   return (
+    <>
+    {!user && !NO_JOIN_BAND.test(pathname) && <JoinBand />}
     <footer className="relative overflow-hidden bg-navy-deep text-white">
       <BathyPattern seed={5} opacity={0.05} drift className="absolute inset-0" />
       <BathyPattern seed={8} opacity={0.05} driftReverse className="absolute inset-0" />
@@ -137,32 +154,43 @@ export function Footer() {
         </div>
       </div>
 
-      <Signature />
     </footer>
+    </>
   );
 }
 
-/** "Smart Marina / Connect": 13 vw, low contrast, two lines rising out of a mask on entry. */
-function Signature() {
-  const ref = useRef<HTMLParagraphElement>(null);
-  const { reduced } = useMotion();
-  const inView = useInView(ref, { disabled: reduced, threshold: 0.2 });
+/** The call to action above the footer: large, marine, one gold button and one link. */
+function JoinBand() {
+  const { t } = useTranslation();
   return (
-    <p
-      ref={ref}
-      aria-hidden="true"
-      className={cn(
-        'relative -mt-[1vw] select-none whitespace-nowrap px-[2vw] pb-[1.5vw] font-wordmark text-[13vw] leading-[.9] tracking-[-0.045em]',
-        inView && 'is-in',
-      )}
-    >
-      <span className="rise-line font-light text-white/10">
-        <span style={{ '--li': 0 } as CSSProperties}>Smart Marina</span>
-      </span>
-      <span className="rise-line text-right font-bold text-white/[.15]">
-        <span style={{ '--li': 1 } as CSSProperties}>Connect</span>
-      </span>
-    </p>
+    <section aria-labelledby="join-band-title" className="relative isolate overflow-hidden bg-navy text-white">
+      <BathyPattern seed={11} opacity={0.07} drift className="absolute inset-0 -z-10" />
+      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-14 sm:px-6 md:py-20 lg:grid-cols-12 lg:items-center lg:gap-10">
+        <div className="lg:col-span-8">
+          <Reveal>
+            <Eyebrow tone="onDark">{t('footer.joinBand.eyebrow', 'Smart Marina Connect')}</Eyebrow>
+          </Reveal>
+          <LineReveal
+            as="h2"
+            id="join-band-title"
+            className="mt-4 text-balance text-[32px] font-semibold leading-[38px] tracking-[-0.025em] md:text-[52px] md:leading-[58px]"
+          >
+            {t('footer.joinBand.title', 'Join the marina network')}
+          </LineReveal>
+          <Reveal as="p" delay={120} className="mt-4 max-w-[620px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
+            {t('footer.joinBand.body', 'Membership is free, and every member is checked by the M3 team before access opens.')}
+          </Reveal>
+        </div>
+        <Reveal delay={200} className="flex flex-wrap items-center gap-x-7 gap-y-4 lg:col-span-4 lg:justify-end">
+          <Button asChild variant="ctaOnDark" size="lg">
+            <Link to="/become-partner">{t('home.joinNowFree', 'Sign up')}</Link>
+          </Button>
+          <UnderlineLink to="/directory" tone="light">
+            {t('home.exploreDirectory', 'Explore the directory')}
+          </UnderlineLink>
+        </Reveal>
+      </div>
+    </section>
   );
 }
 

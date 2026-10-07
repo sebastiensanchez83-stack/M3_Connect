@@ -26,11 +26,8 @@ import { useParallax } from '@/components/motion/useParallax';
 import { subscribeScroll } from '@/components/motion/scrollLoop';
 import { BgRevealPanel } from '@/components/brand/BgRevealPanel';
 import { SearchField } from '@/components/brand/SearchField';
-import { ArrowDisc } from '@/components/brand/ArrowDisc';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
-import { GiantMarqueeBand } from '@/components/brand/GiantMarquee';
-import { HeroNotch } from '@/components/brand/EventNotch';
-import { notchEventItems } from '@/components/brand/m3Events';
+import { featuredEventItems } from '@/components/brand/m3Events';
 import { CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { OrgCover, VerifiedPill, TYPE_RGB, orgTypeTone, seedOf, useOrgTypeLabel } from '@/components/brand/OrgCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
@@ -57,9 +54,9 @@ for (const lng of ['en', 'fr'] as const) {
  * The directory: who is on Smart Marina Connect. Served at /directory.
  *
  * Refonte (Oct 2026), on the v2 kit (the Solar Impulse spirit Victor chose):
- *   - a compact inset PageHero (photo, line-revealed H1) with the live figures
- *     counting once, and a notch card for marinas that are listed but unclaimed
- *     (from 1280 px);
+ *   - a compact full-width PageHero banner (photo, line-revealed H1) with the live
+ *     figures counting once, and a small floating card overlapping its bottom edge
+ *     for marinas that are listed but unclaimed (from 1280 px);
  *   - a sticky toolbar that follows the header (it rises when the header tucks
  *     away, and a page-coloured shelf backs it when it sticks): the search pill,
  *     the type as a segmented control whose white cursor slides between live
@@ -67,15 +64,16 @@ for (const lng of ['en', 'fr'] as const) {
  *   - active filters as chips that scale in and out;
  *   - M3 selections: shareable filter URLs built from data that exists (newest
  *     members, marinas on the platform, the six themes) plus the World Yachting
- *     Summit, as photo tiles with a round arrow in a carousel you can drag;
+ *     Summit, as photo tiles (title with a gold line and a small arrow) in a
+ *     carousel you can drag;
  *   - one organization card: a cover (type colours, sounding lines, the type's
- *     icon), the round arrow and the shortlist star over it, a bar in the
+ *     icon) with the shortlist star over it, a bar in the
  *     type's colour that traces itself, the logo straddling the cover, "View
- *     profile" underlined on hover. Visitors get a star that opens a sheet
+ *     profile" with a small arrow. Visitors get a star that opens a sheet
  *     explaining the shortlist (Sign in / Sign up); members a BookmarkButton;
- *   - a wide "Run a marina? Publish your need" panel, a giant marquee, the SEO
- *     text with the six theme pages, an Opportunities tile and the "Is your
- *     marina listed? Claim it" card.
+ *   - a wide "Run a marina? Publish your need" panel, the SEO text with the six
+ *     theme pages, an Opportunities tile and the "Is your marina listed? Claim
+ *     it" card.
  *
  * Every filter lives in the URL (?q=&type=&theme=&sector=&country=&joined=1
  * &mine=1&sort=), and a param with nothing on screen to show it is ignored,
@@ -177,11 +175,11 @@ const isPaying = (tier: string) => (SPONSOR_TIERS as string[]).includes(tier);
 
 const PAGE_SIZE = 24;
 
-/** The header band's height while it shows: 72 px on phones, 84 px from md (--header-full, index.css). */
+/** The header bar's height while it shows: 64 px on phones, 72 px from md (--header-full, index.css). */
 function headerBand(): number {
-  if (typeof document === 'undefined') return 72;
+  if (typeof document === 'undefined') return 64;
   const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-full'));
-  return Number.isFinite(v) && v > 0 ? v : 72;
+  return Number.isFinite(v) && v > 0 ? v : 64;
 }
 
 /** Search text: lower case, accents dropped, so "electricite" finds "Électricité". */
@@ -726,7 +724,7 @@ export function DirectoryPage() {
     }
     // The three M3 meeting points sit side by side: the Summit has no list of its
     // own to filter by (it is by invitation), so its tile leads to its page.
-    const wys = notchEventItems(t).find((i) => i.id === 'wys26');
+    const wys = featuredEventItems(t).find((i) => i.id === 'wys26');
     if (wys) {
       list.push({
         key: 'wys26',
@@ -842,18 +840,6 @@ export function DirectoryPage() {
     ? t('directory.filters.openCount', { count: drawerFilterCount, defaultValue: 'Filters, {{count}} active' })
     : t('directory.filters.open', 'Filters');
 
-  const marqueeLines = useMemo<[string[], string[]]>(() => [
-    [t('directory.marquee.title', 'The marina industry directory')],
-    liveFigures
-      ? [
-          t('directory.marquee.marinas', { value: liveFigures.marinas, defaultValue: '{{value}} marinas' }),
-          t('directory.marquee.providers', { value: liveFigures.suppliers, defaultValue: '{{value}} service providers' }),
-          t('directory.marquee.countries', { value: liveFigures.countries, defaultValue: '{{value}} countries' }),
-        ]
-      : TYPE_FACETS.map((f) => t(f.labelKey, f.fallback)),
-    // The figures are strings of the live counts: depend on them, not on the object.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t, liveFigures?.marinas, liveFigures?.suppliers, liveFigures?.countries]);
 
   // ---------------------------------------------------------------- render
   return (
@@ -867,12 +853,12 @@ export function DirectoryPage() {
         eyebrow={t('directory.eyebrow', "Who's who")}
         title={t('directory.title', 'Marina & service provider directory')}
         subtitle={t('directory.subtitle', 'Marinas, service providers, investors and media. Filter by theme or country, shortlist the companies you need and request an introduction from their page.')}
-        notch={<ClaimNotch />}
+        floating={<ClaimFloat />}
       >
         <HeroFigures marinas={figures.marinas} providers={figures.partners} countries={figures.countries} manual={figures.manual} />
       </PageHero>
 
-      <div className="mt-3 md:mt-4">
+      <div className="mt-3 md:mt-4 xl:mt-14">
         <div ref={sentinelRef} aria-hidden="true" />
 
         {/* ── Toolbar: sticks under the header, rises with it when it tucks away ── */}
@@ -1142,12 +1128,9 @@ export function DirectoryPage() {
         </div>
       </div>
 
-      {/* ── Giant marquee: the editorial break between the list and the text ── */}
-      <GiantMarqueeBand className="mt-14 md:mt-20" lines={marqueeLines} />
-
       {/* ── SEO text with the six theme pages, the Opportunities tile and "claim your marina" ── */}
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pb-16 md:pb-24">
-        <section aria-labelledby="directory-seo-heading" className="mt-6 max-w-[760px] md:mt-10">
+        <section aria-labelledby="directory-seo-heading" className="mt-16 max-w-[760px] md:mt-24">
           <Reveal>
             <Eyebrow number={!loading && !loadFailed && collections.length > 0 ? '02' : '01'}>{t('directory.seo.eyebrow', 'Directory')}</Eyebrow>
           </Reveal>
@@ -1338,32 +1321,33 @@ function HeroFigures({ marinas, providers, countries, manual }: { marinas: numbe
   );
 }
 
-/** The card cut into the hero's corner from 1280 px: marinas that are listed without an account are invited to claim the page. */
-function ClaimNotch() {
+/** The small card overlapping the banner's bottom edge from 1280 px: marinas that are listed without an account are invited to claim the page. */
+function ClaimFloat() {
   const { t } = useTranslation();
   const { reduced } = useMotion();
   return (
-    <HeroNotch label={t('directory.notch.label', 'For marinas')} side="right" className="hidden xl:block">
-      <a
-        href="#directory-claim"
-        onClick={(e) => {
-          const target = document.getElementById('directory-claim');
-          if (!target) return;
-          e.preventDefault();
-          target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
-        }}
-        className="notch-card notch-card--single has-ra"
-      >
-        <img src={PERSONA_IMAGES.marinas} alt="" className="notch-img" loading="eager" />
-        <span className="notch-shade" aria-hidden="true" />
-        <span className="notch-txt">
-          <span className="notch-k">{t('directory.notch.kicker', 'For marinas')}</span>
-          <span className="notch-t">{t('directory.notch.title', 'Is your marina already listed?')}</span>
-          <span className="notch-m">{t('directory.notch.meta', 'Claim its page and complete it')}</span>
+    <a
+      href="#directory-claim"
+      onClick={(e) => {
+        const target = document.getElementById('directory-claim');
+        if (!target) return;
+        e.preventDefault();
+        target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+      }}
+      className="card-lift group has-ra flex w-[400px] items-stretch overflow-hidden rounded-card bg-white text-navy shadow-[0_18px_40px_rgba(4,13,31,.28)] ring-1 ring-rule focus-visible:outline-none focus-visible:shadow-focus"
+    >
+      <span aria-hidden="true" className="card-media relative block w-[92px] shrink-0 overflow-hidden bg-navy">
+        <img src={PERSONA_IMAGES.marinas} alt="" className="absolute inset-0 h-full w-full object-cover" loading="eager" />
+      </span>
+      <span className="grid content-center gap-0.5 px-4 py-3.5">
+        <span className="text-[12px] font-semibold leading-4 text-gold-text">{t('directory.notch.kicker', 'For marinas')}</span>
+        <span className="text-[16px] font-semibold leading-[21px] tracking-[-0.01em]">
+          <span className="card-ul">{t('directory.notch.title', 'Is your marina already listed?')}</span>
+          <ArrowRight className="card-arrow" strokeWidth={2.25} aria-hidden="true" />
         </span>
-        <ArrowDisc tone="photo" size="sm" className="notch-ra" />
-      </a>
-    </HeroNotch>
+        <span className="text-[13px] leading-[18px] text-meta">{t('directory.notch.meta', 'Claim its page and complete it')}</span>
+      </span>
+    </a>
   );
 }
 
@@ -1695,7 +1679,7 @@ interface Collection {
 
 /**
  * M3 selections as shareable filter URLs, drawn as photo tiles (a veil, the
- * kicker in gold and the title at the foot, a round arrow at the corner) in a
+ * kicker in gold and the title at the foot, with a gold line and a small arrow on hover) in a
  * scroll-snap carousel: native swiping and trackpad scrolling, a mouse can drag
  * the row (it keeps a little momentum, then settles on the nearest tile), round
  * buttons from md up, and a thin rule that says where you are.
@@ -1847,7 +1831,7 @@ function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; cu
           const kicker = item.count !== undefined
             ? `${item.kicker} · ${t('directory.collections.count', { count: item.count, defaultValue: '{{count}} organizations' })}`
             : item.kicker;
-          const className = 'dir-tile group has-ra relative isolate block h-[176px] w-[256px] overflow-hidden rounded-card bg-navy text-white outline-none focus-visible:shadow-focus md:h-[200px] md:w-[296px]';
+          const className = 'dir-tile card-lift group has-ra relative isolate block h-[176px] w-[256px] overflow-hidden rounded-card bg-navy text-white outline-none focus-visible:shadow-focus md:h-[200px] md:w-[296px]';
           const inner = (
             <>
               <span aria-hidden="true" className="absolute inset-0 -z-20 bg-[linear-gradient(135deg,#081d40,#1f7a8c)]">
@@ -1868,11 +1852,12 @@ function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; cu
                   {item.pill}
                 </span>
               )}
-              {/* In a positioned span: .arrow-disc sets its own position: relative, which beats a Tailwind `absolute`. */}
-              <span aria-hidden="true" className="absolute right-3 top-3"><ArrowDisc tone="photo" size="sm" /></span>
               <span className="absolute inset-x-4 bottom-3.5 grid gap-[3px]">
                 <span className="text-[12px] font-semibold leading-4 tracking-[0.02em] text-gold">{kicker}</span>
-                <span className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{item.title}</span>
+                <span className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">
+                  <span className="card-ul">{item.title}</span>
+                  <ArrowRight className="card-arrow card-arrow--light" strokeWidth={2.25} aria-hidden="true" />
+                </span>
               </span>
               {current && (
                 <>
@@ -1926,11 +1911,10 @@ function CardSkeleton() {
 
 /**
  * One organization: a cover (type colours, sounding lines that slide on hover,
- * the type's icon), the round arrow and the shortlist star over it, a bar in the
+ * the type's icon) and the shortlist star over it, a bar in the
  * type's colour that traces itself as the card arrives, the logo straddling the
  * cover, then the name, the type and place, the team on the platform, the
- * blurb, up to two theme or sector chips and "View profile", underlined on
- * hover. The name is the link and stretches over the whole card; the shortlist
+ * blurb, up to two theme or sector chips and "View profile" with a small arrow. The name is the link and stretches over the whole card; the shortlist
  * star sits above it. The profile it leads to is where members send a
  * connection request.
  *
@@ -1986,10 +1970,8 @@ function DirectoryCard({
           </div>
         )}
 
-        <span aria-hidden="true" className="pointer-events-none absolute right-3 top-3 z-[2]"><ArrowDisc tone="photo" size="sm" /></span>
-
         {/* Above the stretched link, so it toggles instead of navigating. */}
-        <span className="dir-star absolute right-3 top-14 z-[3]">
+        <span className="dir-star absolute right-3 top-3 z-[3]">
           {visitor ? (
             <button
               type="button"
@@ -2007,7 +1989,7 @@ function DirectoryCard({
 
       <div className="flex flex-1 flex-col px-5 pb-5 pt-9">
         <h3 className="text-card-title text-navy">
-          <StretchedLink to={`/organizations/${org.slug}`} className="line-clamp-2">{org.name}</StretchedLink>
+          <StretchedLink to={`/organizations/${org.slug}`} arrow={false} className="line-clamp-2">{org.name}</StretchedLink>
         </h3>
 
         <p className="mt-1.5 flex items-center gap-2 text-sm leading-5 text-meta">
@@ -2060,6 +2042,7 @@ function DirectoryCard({
           ) : <span />}
           <span aria-hidden="true" className="dir-see uline uline--plain shrink-0 text-sm">
             <span className="uline-t">{t('directory.viewProfile', 'View profile')}</span>
+            <ArrowRight className="uline-a" strokeWidth={2.25} aria-hidden="true" />
           </span>
         </div>
       </div>
@@ -2116,7 +2099,7 @@ function NeedPanel({ marinaLike, onSignup }: { marinaLike: boolean; onSignup: ()
 
 /**
  * The Opportunities tile: a photo that moves a little slower than the page, a
- * veil, the round arrow, the title and a line saying how it works. The whole
+ * veil, the title (a gold line grows under it on hover) and a line saying how it works. The whole
  * tile is the link.
  */
 function OpportunitiesTile({ className }: { className?: string }) {
@@ -2128,7 +2111,7 @@ function OpportunitiesTile({ className }: { className?: string }) {
     <Reveal className={cn('flex', className)}>
       <Link
         to="/opportunities"
-        className="dir-opp group has-ra relative isolate flex min-h-[320px] w-full overflow-hidden rounded-[24px] bg-navy text-white outline-none focus-visible:shadow-focus"
+        className="dir-opp card-lift group has-ra relative isolate flex min-h-[320px] w-full overflow-hidden rounded-[24px] bg-navy text-white outline-none focus-visible:shadow-focus"
       >
         <div ref={pxRef} aria-hidden="true" className="absolute inset-x-0 -bottom-6 -top-6 -z-20">
           <img
@@ -2140,10 +2123,9 @@ function OpportunitiesTile({ className }: { className?: string }) {
           />
         </div>
         <span aria-hidden="true" className="absolute inset-0 -z-10 bg-[linear-gradient(0deg,rgba(8,29,64,.94)_0%,rgba(8,29,64,.58)_45%,rgba(8,29,64,.1)_100%)]" />
-        <span aria-hidden="true" className="absolute right-4 top-4"><ArrowDisc tone="photo" /></span>
         <span className="mt-auto block p-6 md:p-8">
           <Eyebrow tone="onDark" as="span">{t('directory.opp.eyebrow', 'For members')}</Eyebrow>
-          <span className="mt-2 block text-[26px] font-semibold leading-8 md:text-[34px] md:leading-[42px]">{t('directory.opp.title', 'Opportunities')}</span>
+          <span className="mt-2 block text-[26px] font-semibold leading-8 md:text-[34px] md:leading-[42px]"><span className="card-ul">{t('directory.opp.title', 'Opportunities')}</span></span>
           <span className="mt-2 block max-w-[520px] text-[15px] leading-6 text-white/85">
             {t('directory.opp.body', 'Tenders, consultations and projects: marinas publish their needs and member service providers respond.')}
           </span>

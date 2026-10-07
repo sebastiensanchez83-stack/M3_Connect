@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils';
 import { RevealGroup } from '@/components/motion/Reveal';
 import { useMediaQuery } from '@/components/motion/useReducedMotion';
 import { useMotion } from '@/components/motion/MotionProvider';
-import { ArrowDisc } from './ArrowDisc';
 import { UnderlineLink } from './UnderlineLink';
 
 /**
@@ -18,8 +17,8 @@ import { UnderlineLink } from './UnderlineLink';
  * 640 px) with their captions and horizontal titles always visible. On a touch screen the first tap opens a card, the second follows its
  * link. Under reduced motion the cards stay equal and their captions visible.
  *
- * The whole card is one link (the `cta`, stretched over the card); the round
- * arrow is its marker. The first item starts open. Under reduced motion the cards stay equal,
+ * The whole card is one link (the `cta`, stretched over the card). The first item
+ * starts open. Under reduced motion the cards stay equal,
  * captions visible, and the vertical titles and pictograms are not shown.
  *
  *   <AccordionCards items={[{
@@ -67,7 +66,7 @@ export function AccordionCards({ items, className, ariaLabel }: { items: Accordi
         return (
           <article
             key={item.id}
-            className={cn('acc-card has-ra', open && 'is-open')}
+            className={cn('acc-card', open && 'is-open')}
             onMouseEnter={() => !reduced && setOpenId(item.id)}
             onFocus={() => !reduced && setOpenId(item.id)}
             onPointerDown={(e) => {
@@ -128,7 +127,6 @@ export function AccordionCards({ items, className, ariaLabel }: { items: Accordi
                 </UnderlineLink>
               )}
             </div>
-            <ArrowDisc tone="photo" className="absolute bottom-4 right-4" />
           </article>
         );
       })}

@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import { WYS26_PATH, wys26Upcoming } from '@/components/events/WysInvitationCard';
 import { SITE_IMAGES } from '@/lib/siteMedia';
-import type { NotchItem } from './EventNotch';
+import type { EventCardItem } from './EventCard';
 
 /**
  * The three M3 meeting points, presented together so the platform never reads
@@ -19,13 +19,13 @@ export const RENDEZVOUS_2026_PATH = '/events/f55f7b2f-96ac-4c5e-b620-358624e5224
 export const WEBINARS_PATH = '/events';
 
 /**
- * Items for the hero's notch card (EventNotch), in the order they turn: the next
+ * Items for the hero's floating event card (EventCard), in the order they turn: the next
  * M3 event first (World Yachting Summit while it is upcoming), then the
  * webinars, then the Rendezvous. No event hides the others.
  * The WYS photo is provisional (the Rendezvous hall) until the Summit has its own.
  */
-export function notchEventItems(t: TFunction, now = Date.now()): NotchItem[] {
-  const items: NotchItem[] = [];
+export function featuredEventItems(t: TFunction, now = Date.now()): EventCardItem[] {
+  const items: EventCardItem[] = [];
   if (wys26Upcoming(now)) {
     items.push({
       id: 'wys26',

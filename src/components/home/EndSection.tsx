@@ -1,6 +1,5 @@
 import { useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ArrowDisc } from '@/components/brand/ArrowDisc';
 import { CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { ContactCard } from '@/components/brand/ContactCard';
 import { RevealGroup, Reveal } from '@/components/motion/Reveal';
@@ -9,7 +8,7 @@ import { SITE_IMAGES, type SiteImage } from '@/lib/siteMedia';
 
 /**
  * The end of the home page: two photo tiles (the directory and the resource
- * library, each with its live figure, a round arrow and a picture that drifts
+ * library, each with its live figure, a title with a gold line and a small arrow, and a picture that drifts
  * slowly as the page scrolls) and, beside them, the closing panel with the
  * contact of Victor Meyer, M3 Monaco (initials until a photo exists), whose
  * rolling button opens the contact page.
@@ -70,10 +69,9 @@ function EndTile({ to, image, title, line }: { to: string; image: SiteImage; tit
         </div>
       </div>
       <span aria-hidden="true" className="absolute inset-0 bg-[linear-gradient(to_top,rgba(11,38,83,.94)_0%,rgba(11,38,83,.6)_45%,rgba(11,38,83,0)_80%)]" />
-      <ArrowDisc tone="photo" className="absolute right-4 top-4" />
       <div className="absolute inset-x-0 bottom-0 p-6 text-white">
         <h3 className="text-[22px] font-semibold leading-7">
-          <StretchedLink to={to}>{title}</StretchedLink>
+          <StretchedLink to={to} tone="light">{title}</StretchedLink>
         </h3>
         <p className="mt-1 text-sm leading-5 text-white/85">{line}</p>
       </div>

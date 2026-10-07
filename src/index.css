@@ -44,9 +44,9 @@
     --ease-cta: cubic-bezier(.625, .05, 0, 1);
     /* Accordion photo cards. */
     --ease-acc: cubic-bezier(.38, .005, .215, 1);
-    /* The floating header bar: 72 px from the top edge on phones (8 + 64), 84 px from md (12 + 72);
-       64 px on working screens (html[data-header-compact]). */
-    --header-full: 72px;
+    /* The full-width header bar: 64 px on phones, 72 px from md; 64 px on working screens
+       (html[data-header-compact]). */
+    --header-full: 64px;
     /* Where the bar's lower edge sits while it shows; 0 while it is tucked away on scroll down. */
     --header-h: var(--header-full);
 
@@ -74,7 +74,7 @@
   }
   @media (min-width: 768px) {
     :root {
-      --header-full: 84px;
+      --header-full: 72px;
     }
   }
   html[data-header-compact] {

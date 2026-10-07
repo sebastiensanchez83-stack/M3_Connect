@@ -12,7 +12,7 @@ import { useMotion } from './MotionProvider';
  * It says what it will do ("Pause the animations" / "Play the animations") and
  * swaps its icon. It carries no aria-pressed: with a name that changes, that
  * would be read as "Play the animations, toggle button, pressed". The local
- * carousels (the notch card) follow the same pattern.
+ * carousels (the event card) follow the same pattern.
  *
  * The heroes show it WITH its words (`withLabel`), so the site-wide control
  * never looks like a carousel's own icon-only pause button.

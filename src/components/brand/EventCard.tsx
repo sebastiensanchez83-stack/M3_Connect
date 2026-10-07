@@ -1,34 +1,30 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { ArrowRight } from 'lucide-react';
 import type { SiteImage } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
 import { useMotion } from '@/components/motion/MotionProvider';
-import { ArrowDisc } from './ArrowDisc';
 
 /**
- * The notch: a card cut into the bottom left corner of an InsetHero (the hero's
- * corner is cut out around it, in the page colour, with two inverse radii).
+ * The "next event" card: a photo card that floats over the bottom left edge of
+ * the home hero's photo frame (no cut-out corner), turning the M3 events.
  *
- *  - HeroNotch     the cut-out wrapper (position, page-coloured corner). Goes in
- *                  InsetHero's / PageHero's `notch` prop. Bottom left by default
- *                  (`side="right"` for PageHero's compact heroes, whose text runs
- *                  along the bottom left).
- *  - NotchCard     one photo card: kicker, title, meta, a round arrow, one link.
- *                  An upcoming event (`startsOn`) carries its countdown in gold
- *                  before the title: "D-51 · World Yachting Summit" ("Today" on the
- *                  day itself, nothing for a past event or one without a date).
- *  - EventNotch    HeroNotch + the M3 events turning every 6 s: photo fades
- *                  (.6 s) and zooms slowly (6.6 s), a progress bar per event
- *                  (clickable), pause on hover and focus, on the global pause,
- *                  and never rotating under reduced motion. Items come from
- *                  notchEventItems(t) in m3Events.ts (World Yachting Summit →
- *                  /wys26, webinars → /events, the Rendezvous → its event page).
+ *  - Each event: kicker, title, meta. An upcoming event (`startsOn`) carries its
+ *    countdown in gold before the title: "D-51 · World Yachting Summit" ("Today"
+ *    on the day itself, nothing for a past event or one without a date).
+ *  - The card turns every 6 s: the photo fades (.6 s) and zooms slowly (6.6 s), a
+ *    progress bar per event (clickable). It pauses on hover and focus, with the
+ *    global pause, and never rotates under reduced motion.
+ *  - On hover the card lifts 4 px, the gold line under the title grows and the
+ *    small arrow after it slides 4 px.
+ *  - Items come from featuredEventItems(t) in m3Events.ts (World Yachting Summit
+ *    → /wys26, webinars → /events, the Rendezvous → its event page).
  *
- *   <InsetHero notch={<EventNotch items={notchEventItems(t)} />}> … </InsetHero>
+ *   <SplitHero card={<EventCard items={featuredEventItems(t)} />}> … </SplitHero>
  */
 
-export interface NotchItem {
+export interface EventCardItem {
   id: string;
   /** Small gold line above the title ("Next event", "Online"…). */
   kicker: string;
@@ -59,27 +55,6 @@ export function daysUntilEvent(startsOn: { date: string; timeZone: string }, now
   }
 }
 
-/** The cut-out wrapper. `className` can hide it on small screens (e.g. `hidden xl:block`). */
-export function HeroNotch({
-  children,
-  label,
-  className,
-  side = 'left',
-}: {
-  children: ReactNode;
-  /** Name of the region for screen readers. */
-  label: string;
-  className?: string;
-  /** Which bottom corner is cut out: left (default), or right for PageHero's compact heroes. */
-  side?: 'left' | 'right';
-}) {
-  return (
-    <div role="region" aria-label={label} className={cn('hero-notch', side === 'right' && 'hero-notch--right', className)}>
-      {children}
-    </div>
-  );
-}
-
 function SlideLink({ href, className, tabIndex, children }: { href: string; className?: string; tabIndex?: number; children: ReactNode }) {
   if (/^https?:\/\//.test(href)) {
     return (
@@ -95,7 +70,7 @@ function SlideLink({ href, className, tabIndex, children }: { href: string; clas
   );
 }
 
-function NotchBody({ item, eager }: { item: NotchItem; eager?: boolean }) {
+function EventBody({ item, eager }: { item: EventCardItem; eager?: boolean }) {
   const { t } = useTranslation();
   const days = item.startsOn ? daysUntilEvent(item.startsOn) : null;
   return (
@@ -104,49 +79,40 @@ function NotchBody({ item, eager }: { item: NotchItem; eager?: boolean }) {
         <img
           src={item.image.src}
           alt=""
-          className="notch-img"
+          className="evc-img"
           style={{ objectPosition: `50% ${Math.round((item.image.focusY ?? 0.5) * 100)}%` }}
           loading={eager ? 'eager' : 'lazy'}
         />
       )}
-      <span className="notch-shade" aria-hidden="true" />
-      <span className="notch-txt">
-        <span className="notch-k">{item.kicker}</span>
-        <span className="notch-t">
+      <span className="evc-shade" aria-hidden="true" />
+      <span className="evc-txt">
+        <span className="evc-k">{item.kicker}</span>
+        <span className="evc-t">
           {days !== null && (
             <>
-              <span className="notch-cd" aria-hidden="true">
+              <span className="evc-cd" aria-hidden="true">
                 {days === 0 ? t('brand.notch.today', 'Today') : t('brand.notch.countdown', { days, defaultValue: 'D-{{days}}' })}
               </span>
               <span className="sr-only">{days === 0 ? t('brand.notch.todaySr', 'Today: ') : t('brand.notch.countdownSr', { days, defaultValue: '{{days}} days to go: ' })}</span>
-              <span aria-hidden="true" className="notch-cd-sep"> · </span>
+              <span aria-hidden="true" className="evc-cd-sep"> · </span>
             </>
           )}
-          {item.title}
+          <span className="card-ul">{item.title}</span>
+          <ArrowRight className="card-arrow card-arrow--light" strokeWidth={2.25} aria-hidden="true" />
         </span>
-        {item.meta && <span className="notch-m">{item.meta}</span>}
+        {item.meta && <span className="evc-m">{item.meta}</span>}
       </span>
-      <ArrowDisc tone="photo" size="sm" className="notch-ra" />
     </>
   );
 }
 
-/** One photo card with a single link (no rotation): inside a HeroNotch. */
-export function NotchCard({ item, className }: { item: NotchItem; className?: string }) {
-  return (
-    <SlideLink href={item.href} className={cn('notch-card notch-card--single has-ra', className)}>
-      <NotchBody item={item} eager />
-    </SlideLink>
-  );
-}
-
-export function EventNotch({
+export function EventCard({
   items,
   interval = 6000,
   label,
   className,
 }: {
-  items: NotchItem[];
+  items: EventCardItem[];
   /** ms per event (default 6000). */
   interval?: number;
   /** Region name; default "Featured M3 events". */
@@ -161,17 +127,17 @@ export function EventNotch({
   const current = Math.min(index, items.length - 1);
 
   return (
-    <HeroNotch label={label ?? t('brand.notch.label', 'Featured M3 events')} className={className}>
-      <div className="notch-card" style={{ '--notch-interval': `${interval}ms` } as CSSProperties}>
+    <div role="region" aria-label={label ?? t('brand.notch.label', 'Featured M3 events')} className={cn('evc-wrap', className)}>
+      <div className="evc" style={{ '--evc-interval': `${interval}ms` } as CSSProperties}>
         {items.length > 1 && (
-          <div className="notch-segs">
+          <div className="evc-segs">
             {items.map((item, k) => (
               <button
                 key={item.id}
                 type="button"
                 aria-current={k === current ? 'true' : 'false'}
                 aria-label={t('brand.notch.show', { title: item.title, defaultValue: 'Show: {{title}}' })}
-                className={cn('notch-seg', k === current && 'is-active', k < current && 'is-done', rotating && 'is-running')}
+                className={cn('evc-seg', k === current && 'is-active', k < current && 'is-done', rotating && 'is-running')}
                 onClick={() => k !== current && setIndex(k)}
               >
                 <i
@@ -188,12 +154,12 @@ export function EventNotch({
             key={item.id}
             href={item.href}
             tabIndex={k === current ? undefined : -1}
-            className={cn('notch-slide has-ra', k === current && 'is-active')}
+            className={cn('evc-slide has-ra', k === current && 'is-active')}
           >
-            <NotchBody item={item} eager={k === 0} />
+            <EventBody item={item} eager={k === 0} />
           </SlideLink>
         ))}
       </div>
-    </HeroNotch>
+    </div>
   );
 }

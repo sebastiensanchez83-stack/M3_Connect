@@ -1,11 +1,10 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, CalendarPlus, FileText, Lock } from 'lucide-react';
+import { ArrowRight, BookOpen, CalendarPlus, FileText, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { boardDate } from '@/lib/boardDate';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { CoverImage } from '@/components/ui/CoverImage';
-import { ArrowDisc } from '@/components/brand/ArrowDisc';
 import { CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
@@ -18,13 +17,13 @@ import { useHomeAgenda, type AgendaEntry } from './useHomeAgenda';
 /**
  * Latest resources and the agenda, side by side from lg (8 + 4 columns):
  *
- *  - left: the latest articles as cards (a 3:2 picture with its round arrow,
- *    the theme with a teal dot and the date, the title on three lines at most,
+ *  - left: the latest articles as cards (a 3:2 picture, the theme with a teal
+ *    dot and the date, the title on three lines at most with a gold line and a small arrow,
  *    the type) in two columns; a row swiped by hand on phones. Above them, the
  *    themes as small pills with their counts. The sponsors' advert slot sits
  *    under the section (nothing renders when none is running);
  *  - right: the agenda, one ruled row per date (a date block, the title, place
- *    and status, a round arrow): the next published events, the World Yachting
+ *    and status, a small arrow): the next published events, the World Yachting
  *    Summit while it is upcoming, the Rendezvous' 6th edition, then a line that
  *    sends the webinar dates to the newsletter.
  */
@@ -153,7 +152,6 @@ function ArticleCard({ resource: r, lang, className }: { resource: HomeResource;
           aspect="fill"
           tone="sea"
         />
-        <ArrowDisc tone="photo" size="sm" className="absolute right-3 top-3" />
       </div>
       <div className="mt-4 flex items-center justify-between gap-3 text-[12px] font-medium uppercase leading-4 tracking-[0.06em] text-meta">
         {theme ? (
@@ -228,7 +226,7 @@ function AgendaRow({ entry }: { entry: AgendaEntry }) {
     <Link
       to={entry.href}
       className={cn(
-        'group has-ra relative grid grid-cols-[72px_minmax(0,1fr)_36px] items-center gap-4 p-5 outline-none transition-colors [transition-duration:400ms] hover:bg-page',
+        'group has-ra relative grid grid-cols-[72px_minmax(0,1fr)_20px] items-center gap-4 p-5 outline-none transition-colors [transition-duration:400ms] hover:bg-page',
         'focus-visible:shadow-[inset_0_0_0_2px_rgb(11_38_83),inset_0_0_0_4px_#ffffff]',
       )}
     >
@@ -239,10 +237,10 @@ function AgendaRow({ entry }: { entry: AgendaEntry }) {
       </span>
       <span className="min-w-0">
         <span className="sr-only">{entry.spoken}: </span>
-        <span className="block text-base font-semibold leading-[22px] text-navy">{entry.title}</span>
+        <span className="block text-base font-semibold leading-[22px] text-navy"><span className="card-ul">{entry.title}</span></span>
         {entry.sub && <span className="mt-1 block text-[14px] leading-5 text-meta">{entry.sub}</span>}
       </span>
-      <ArrowDisc size="sm" />
+      <ArrowRight aria-hidden="true" strokeWidth={2.25} className="card-arrow !ml-0" />
     </Link>
   );
 }

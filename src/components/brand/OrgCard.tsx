@@ -1,23 +1,23 @@
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Anchor, BadgeCheck, Building2, HardHat, MapPin, Newspaper, ShieldCheck, TrendingUp, Wrench, type LucideIcon } from 'lucide-react';
+import { Anchor, ArrowRight, BadgeCheck, Building2, HardHat, MapPin, Newspaper, ShieldCheck, TrendingUp, Wrench, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { BathyPattern } from '@/components/motion/BathyPattern';
 import { CardShell, StretchedLink, type OrgTypeTone } from './CardShell';
-import { ArrowDisc } from './ArrowDisc';
 
 /**
  * The organisation card, one design for Home and the directory (v2 kit):
  *
  *  - A cover in the type's colours (a gradient picked from the id, so a card
  *    never changes between visits) with sounding lines that slide on hover and
- *    the type's icon watermarked in; the "Verified member" pill top left, the
- *    round arrow top right (the directory adds its shortlist star under it).
+ *    the type's icon watermarked in; the "Verified member" pill top left (the
+ *    directory adds its shortlist star top right).
  *  - A bar in the type's colour under the cover, and the logo (or initials)
  *    straddling the two.
- *  - The name (the one link, stretched over the whole card), a coloured dot
+ *  - The name (the one link, stretched over the whole card; a gold line grows
+ *    under it on hover), a coloured dot
  *    with the type and the place, a two-line blurb.
- *  - "View profile", underlined on hover.
+ *  - "View profile" with a small arrow that slides 4 px on hover.
  *
  * `OrgCover` is the shared top half; the directory's own card builds on it.
  */
@@ -140,7 +140,7 @@ export function LogoTile({
 
 /**
  * The card's top half: the cover (its children are laid over it: badges, the
- * round arrow, a star), the bar in the type's colour, and the logo straddling
+ * a star), the bar in the type's colour, and the logo straddling
  * both. Must sit directly inside a `CardShell` (the logo is positioned against
  * it); follow it with a body that starts with `pt-9`.
  */
@@ -249,18 +249,15 @@ export function OrgCard({
     <CardShell interactive className={cn('min-w-0', className)}>
       <OrgCover id={id ?? name} type={type} name={name} logoUrl={logoUrl}>
         {verified && (
-          <div className="pointer-events-none absolute left-3 right-[60px] top-3 z-[2] flex flex-wrap gap-1.5">
+          <div className="pointer-events-none absolute left-3 right-3 top-3 z-[2] flex flex-wrap gap-1.5">
             <VerifiedPill />
           </div>
         )}
-        <span aria-hidden="true" className="pointer-events-none absolute right-3 top-3 z-[2]">
-          <ArrowDisc tone="photo" size="sm" />
-        </span>
       </OrgCover>
 
       <div className="flex flex-1 flex-col px-5 pb-5 pt-9">
         <h3 className="text-card-title text-navy">
-          <StretchedLink to={href} className="line-clamp-2">{name}</StretchedLink>
+          <StretchedLink to={href} arrow={false} className="line-clamp-2">{name}</StretchedLink>
         </h3>
 
         <p className="mt-1.5 flex items-center gap-2 text-sm leading-5 text-meta">
@@ -283,6 +280,7 @@ export function OrgCard({
           {footerStart ?? <span />}
           <span aria-hidden="true" className="dir-see uline uline--plain shrink-0 text-sm">
             <span className="uline-t">{t('directory.viewProfile', 'View profile')}</span>
+            <ArrowRight className="uline-a" strokeWidth={2.25} aria-hidden="true" />
           </span>
         </div>
       </div>

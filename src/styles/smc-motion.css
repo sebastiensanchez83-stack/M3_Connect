@@ -14,8 +14,10 @@
  * Only transform, opacity and clip-path are animated (plus the width of the
  * accordion cards, as on the reference). Since 7 Oct 2026 the target look is the
  * "v2" mockups, in the spirit of the Solar Impulse Foundation site: rolling CTA
- * buttons, round arrow discs, underline links, notch card, giant marquee,
- * accordion and stacked cards, bg-reveal panels, giant footer signature. The
+ * buttons, underline links, split hero with its floating event card, news band,
+ * snap carousel, accordion cards, bg-reveal panels. (Round arrow discs on cards,
+ * the corner notch, the giant marquees, the sticky stack and the giant footer
+ * signature were dropped the same week: "a bit too much Solar Impulse".) The
  * nautical devices of the first pass (tide button, cap arrow, wave panel, wave
  * edges, waterline hero, departure board, pontoon tag, buoy tabs, event route)
  * are gone.
@@ -191,74 +193,42 @@
 .cta:focus-visible .cta-a2,
 .cta[data-state="open"] .cta-a2 { transform: none; }
 
-/* ─── Kit v2 · 2. Round arrow disc on cards ───────────────────────────────── */
-/* A gold disc grows from the centre when the card (any `has-ra` or `group`
-   ancestor) is hovered or holds focus, while the arrow leaves to the right and a
-   copy enters from the left. The card itself lifts 4 px and its picture scales to
-   1.05 (.8 s, ease-out). */
+/* ─── Kit v2 · 2. Cards: lift, picture zoom, gold title line, small arrow ─── */
+/* The round arrow disc is gone from the cards. On hover or keyboard focus the card
+   lifts 4 px, its picture scales to 1.05 (.8 s, ease-out), the gold line under its
+   title grows from the left (.4 s) and the small arrow after the title slides 4 px.
+   The trigger is the card: put `has-ra` (or `group`) on it; CardShell with
+   `interactive` does. The title text sits in .card-ul, the arrow is .card-arrow. */
 
-/* Zero specificity: a `position` utility (absolute, in a card's corner) must win over this default. */
-:where(.arrow-disc) { position: relative; }
-.arrow-disc {
-  display: grid;
-  place-items: center;
+.card-ul {
+  background-image: linear-gradient(rgb(var(--gold)), rgb(var(--gold)));
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0 2px;
+  padding-bottom: 3px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition: background-size 0.4s var(--ease-out-smc);
+}
+.card-arrow {
+  display: inline-block;
   flex: none;
-  width: 46px;
-  height: 46px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: #fff;
-  color: rgb(var(--navy));
-  box-shadow: inset 0 0 0 1px rgba(11, 38, 83, 0.1);
-  transition: color 0.525s var(--ease-cta);
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  vertical-align: -3px;
+  color: rgb(var(--gold-hover));
+  transition: transform 0.4s var(--ease-out-smc) 0.08s;
 }
-.arrow-disc::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: rgb(var(--gold));
-  transform: scale(0);
-  transition: transform 0.525s var(--ease-cta);
-}
-.arrow-disc > svg {
-  position: relative;
-  grid-area: 1 / 1;
-  width: 20px;
-  height: 20px;
-  transition: transform 0.525s var(--ease-cta);
-}
-.arrow-disc > .ad-a2 { transform: translate3d(-160%, 0, 0); }
-.arrow-disc--sm { width: 36px; height: 36px; }
-.arrow-disc--sm > svg { width: 18px; height: 18px; }
-.arrow-disc--photo {
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-}
-.arrow-disc--navy {
-  background: rgb(var(--navy));
-  color: #fff;
-  box-shadow: none;
-}
-.group:hover .arrow-disc,
-.group:focus-within .arrow-disc,
-.has-ra:hover .arrow-disc,
-.has-ra:focus-within .arrow-disc { color: rgb(var(--navy)); }
-.group:hover .arrow-disc::before,
-.group:focus-within .arrow-disc::before,
-.has-ra:hover .arrow-disc::before,
-.has-ra:focus-within .arrow-disc::before { transform: scale(1); }
-.group:hover .arrow-disc > .ad-a1,
-.group:focus-within .arrow-disc > .ad-a1,
-.has-ra:hover .arrow-disc > .ad-a1,
-.has-ra:focus-within .arrow-disc > .ad-a1 { transform: translate3d(160%, 0, 0); }
-.group:hover .arrow-disc > .ad-a2,
-.group:focus-within .arrow-disc > .ad-a2,
-.has-ra:hover .arrow-disc > .ad-a2,
-.has-ra:focus-within .arrow-disc > .ad-a2 { transform: none; }
+.card-arrow--light { color: rgb(var(--gold)); }
+.group:hover .card-ul,
+.group:focus-within .card-ul,
+.has-ra:hover .card-ul,
+.has-ra:focus-within .card-ul { background-size: 100% 2px; }
+.group:hover .card-arrow,
+.group:focus-within .card-arrow,
+.has-ra:hover .card-arrow,
+.has-ra:focus-within .card-arrow { transform: translate3d(4px, 0, 0); }
 
 .card-lift {
   transition: transform 0.8s var(--ease-out-smc), box-shadow 0.8s var(--ease-out-smc), border-color 0.4s var(--ease-out-smc);
@@ -347,76 +317,47 @@
 .uline:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .uline--light:focus-visible { box-shadow: 0 0 0 2px rgb(var(--navy-deep)), 0 0 0 4px #fff; }
 
-/* ─── Kit v2 · 4 and 5. Inset hero, notch card, giant marquee ─────────────── */
+/* ─── Kit v2 · 4. Split hero, event card ─────────────────────────────────── */
 
 .hero-media-layer { will-change: transform; }
 .hero-video { opacity: 0; transition: opacity 0.8s var(--ease-out-smc); }
 .hero-video.is-playing { opacity: 1; }
-/* The hero's bottom LEFT corner is cut out around the notch: the notch paints the page colour
-   (--notch-bg, read from behind the hero) with two inverse radii. */
-.hero-notch {
-  --r: 20px;
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  z-index: 3;
-  width: 300px;
-  padding: 8px 8px 0 0;
-  background: var(--notch-bg, rgb(var(--page)));
-  border-top-right-radius: var(--r);
-  /* Rises on load (.9 s, +.7 s). */
-  animation: smc-notch-in 0.9s var(--ease-out-smc) 0.7s both;
+/* Page-header settle: the photo eases from 1.08 to 1 on load (1.8 s). */
+.hero-settle { animation: smc-settle 1.8s var(--ease-out-smc) both; }
+@keyframes smc-settle {
+  from { transform: scale(1.08); }
+  to { transform: none; }
 }
-.hero-notch::before,
-.hero-notch::after {
-  content: "";
-  position: absolute;
-  width: var(--r);
-  height: var(--r);
-  pointer-events: none;
-  background: radial-gradient(circle at 100% 0, transparent calc(var(--r) - 0.6px), var(--notch-bg, rgb(var(--page))) var(--r));
+/* Home hero: the photo breathes very slowly (1 to 1.06 over 24 s), after the settle. */
+.hero-breathe { animation: smc-breathe 24s ease-in-out infinite alternate; }
+@keyframes smc-breathe {
+  from { transform: scale(1); }
+  to { transform: scale(1.06); }
 }
-.hero-notch::before { left: 0; top: calc(-1 * var(--r)); }
-.hero-notch::after { right: calc(-1 * var(--r)); bottom: 0; }
-@media (min-width: 768px) {
-  .hero-notch { --r: 24px; width: 388px; padding: 12px 12px 0 0; }
+
+/* The "next event" card floating over the photo frame's bottom left edge: M3 events
+   turning every 6 s, photo fading (.6 s) and zooming slowly (6.6 s), a progress bar
+   per event. It rises on load (.9 s, +.7 s). */
+.evc-wrap { animation: smc-rise-in 0.9s var(--ease-out-smc) 0.7s both; }
+@keyframes smc-rise-in {
+  from { opacity: 0; transform: translate3d(0, 40px, 0); }
+  to { opacity: 1; transform: none; }
 }
-/* PageHero's compact heroes (the directory) keep their notch at the bottom RIGHT:
-   their text runs along the bottom left, so a left notch would sit on it. */
-.hero-notch--right {
-  left: auto;
-  right: 0;
-  padding: 8px 0 0 8px;
-  border-top-right-radius: 0;
-  border-top-left-radius: var(--r);
-}
-.hero-notch--right::before,
-.hero-notch--right::after {
-  background: radial-gradient(circle at 0 0, transparent calc(var(--r) - 0.6px), var(--notch-bg, rgb(var(--page))) var(--r));
-}
-.hero-notch--right::before { left: auto; right: 0; top: calc(-1 * var(--r)); }
-.hero-notch--right::after { right: auto; left: calc(-1 * var(--r)); bottom: 0; }
-@media (min-width: 768px) {
-  .hero-notch--right { padding: 12px 0 0 12px; }
-}
-/* Home hero, from xl: the notch takes the bottom left corner (388 px, plus its 24 px
-   fillet), so the commitments line starts to its right, whatever the page width. */
-@media (min-width: 1280px) {
-  .hero-after-notch {
-    margin-left: max(0px, calc(412px - (100vw - 24px - min(100vw - 24px, 1280px)) / 2));
-  }
-}
-.notch-card {
+.evc {
   position: relative;
   display: block;
   height: 176px;
-  border-radius: 14px;
+  border-radius: 16px;
   overflow: hidden;
   background: rgb(var(--navy));
   color: #fff;
+  box-shadow: 0 24px 48px rgba(4, 13, 31, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.16);
+  transition: transform 0.8s var(--ease-out-smc);
 }
-@media (min-width: 768px) { .notch-card { height: 216px; border-radius: 16px; } }
-.notch-slide {
+@media (min-width: 768px) { .evc { height: 216px; border-radius: 18px; } }
+.evc:hover,
+.evc:has(:focus-visible) { transform: translate3d(0, -4px, 0); }
+.evc-slide {
   position: absolute;
   inset: 0;
   display: block;
@@ -425,8 +366,9 @@
   visibility: hidden;
   transition: opacity 0.6s var(--ease-out-smc), visibility 0s linear 0.6s;
 }
-.notch-slide.is-active { opacity: 1; visibility: visible; transition: opacity 0.6s var(--ease-out-smc), visibility 0s; }
-.notch-img {
+.evc-slide.is-active { opacity: 1; visibility: visible; transition: opacity 0.6s var(--ease-out-smc), visibility 0s; }
+.evc-slide:focus-visible { outline: none; box-shadow: inset 0 0 0 2px #fff, inset 0 0 0 4px rgb(var(--navy)); }
+.evc-img {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -435,62 +377,97 @@
   transform: scale(1.1);
   transition: transform 6.6s linear;
 }
-.notch-slide.is-active .notch-img { transform: scale(1); }
-.notch-card--single .notch-img { transform: none; transition: none; }
-.notch-shade {
+.evc-slide.is-active .evc-img { transform: scale(1); }
+.evc-shade {
   position: absolute;
   inset: 0;
   background: linear-gradient(to top, rgba(8, 29, 64, 0.94) 0%, rgba(8, 29, 64, 0.55) 55%, rgba(8, 29, 64, 0.25) 100%);
 }
-.notch-txt { position: absolute; left: 14px; right: 14px; bottom: 12px; display: grid; gap: 2px; }
-.notch-k { font-size: 11px; line-height: 14px; font-weight: 600; color: rgb(var(--gold)); }
-.notch-t { font-size: 17px; line-height: 21px; font-weight: 600; letter-spacing: -0.01em; }
-.notch-m { font-size: 12px; line-height: 16px; color: rgba(255, 255, 255, 0.85); }
-.notch-cd { color: rgb(var(--gold)); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.notch-cd-sep { color: rgba(255, 255, 255, 0.6); }
+.evc-txt { position: absolute; left: 14px; right: 14px; bottom: 12px; display: grid; gap: 2px; }
+.evc-k { font-size: 11px; line-height: 14px; font-weight: 600; color: rgb(var(--gold)); }
+.evc-t { font-size: 17px; line-height: 21px; font-weight: 600; letter-spacing: -0.01em; }
+.evc-m { font-size: 12px; line-height: 16px; color: rgba(255, 255, 255, 0.85); }
+.evc-cd { color: rgb(var(--gold)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.evc-cd-sep { color: rgba(255, 255, 255, 0.6); }
 @media (min-width: 768px) {
-  .notch-txt { left: 18px; right: 18px; bottom: 16px; gap: 4px; }
-  .notch-k { font-size: 12px; line-height: 16px; letter-spacing: 0.02em; }
-  .notch-t { font-size: 22px; line-height: 27px; }
-  .notch-m { font-size: 14px; line-height: 20px; }
+  .evc-txt { left: 18px; right: 18px; bottom: 16px; gap: 4px; }
+  .evc-k { font-size: 12px; line-height: 16px; letter-spacing: 0.02em; }
+  .evc-t { font-size: 22px; line-height: 27px; }
+  .evc-m { font-size: 14px; line-height: 20px; }
 }
-.notch-ra { position: absolute; right: 10px; top: 24px; }
-@media (min-width: 768px) { .notch-ra { right: 14px; top: 30px; } }
-.notch-card--single .notch-ra { top: 14px; }
-.notch-segs { position: absolute; left: 10px; right: 10px; top: 4px; z-index: 4; display: flex; gap: 6px; }
-@media (min-width: 768px) { .notch-segs { left: 14px; right: 14px; top: 8px; } }
-.notch-seg { position: relative; flex: 1; height: 18px; border-radius: 4px; }
-.notch-seg::before,
-.notch-seg > i { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 3px; border-radius: 3px; }
-.notch-seg::before { background: rgba(255, 255, 255, 0.3); }
-.notch-seg > i { background: #fff; transform: scaleX(0); transform-origin: left; }
-.notch-seg.is-done > i,
-.notch-seg.is-active > i { transform: scaleX(1); }
-.notch-seg.is-active.is-running > i { animation: smc-seg var(--notch-interval, 6s) linear both; }
-.hero-notch:hover .notch-seg > i,
-.hero-notch:focus-within .notch-seg > i { animation-play-state: paused; }
-.notch-seg:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(var(--navy)); }
+.evc-segs { position: absolute; left: 10px; right: 10px; top: 4px; z-index: 4; display: flex; gap: 6px; }
+@media (min-width: 768px) { .evc-segs { left: 14px; right: 14px; top: 8px; } }
+.evc-seg { position: relative; flex: 1; height: 18px; border-radius: 4px; }
+.evc-seg::before,
+.evc-seg > i { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 3px; border-radius: 3px; }
+.evc-seg::before { background: rgba(255, 255, 255, 0.3); }
+.evc-seg > i { background: #fff; transform: scaleX(0); transform-origin: left; }
+.evc-seg.is-done > i,
+.evc-seg.is-active > i { transform: scaleX(1); }
+.evc-seg.is-active.is-running > i { animation: smc-seg var(--evc-interval, 6s) linear both; }
+.evc-wrap:hover .evc-seg > i,
+.evc-wrap:focus-within .evc-seg > i { animation-play-state: paused; }
+.evc-seg:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(var(--navy)); }
 @keyframes smc-seg {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
-/* Entrance on load: the marquee fades in (1.2 s, +.5 s). */
-.hero-enter-fade { animation: smc-fade-in 1.2s var(--ease-out-smc) 0.5s both; }
-@keyframes smc-notch-in {
-  from { opacity: 0; transform: translate3d(0, 40px, 0); }
-  to { opacity: 1; transform: none; }
+
+/* ─── Kit v2 · 5. News band under the hero ─────────────────────────────────── */
+/* A thin band (48 px, 56 px from md) of links sliding sideways at normal size: the
+   list is repeated until it fills the band, and the track slides by exactly one
+   copy (--news-unit), at --news-duration. Paused on hover and keyboard focus and
+   under the global pause. Under reduced motion or the global pause the band is
+   static and wraps (the component renders one copy then). */
+.news-viewport {
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%);
 }
-/* Page-header settle: the photo eases from 1.08 to 1 on load (1.8 s). */
-.hero-settle { animation: smc-settle 1.8s var(--ease-out-smc) both; }
-@keyframes smc-settle {
-  from { transform: scale(1.08); }
-  to { transform: none; }
+.news-track {
+  display: flex;
+  width: max-content;
+  align-items: center;
+  animation: smc-news var(--news-duration, 60s) linear infinite;
+  will-change: transform;
+}
+.news:hover .news-track,
+.news:focus-within .news-track { animation-play-state: paused; }
+@keyframes smc-news {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(calc(var(--news-unit, 1000px) * -1), 0, 0); }
 }
 
-.gmq { position: relative; overflow: hidden; white-space: nowrap; }
-.gmq-track { display: inline-flex; align-items: center; will-change: transform; }
-.gmq-item { flex: none; padding-right: 0.3em; }
-.gmq-sep { color: var(--gmq-sep, rgb(var(--gold))); padding-inline: 0.12em; }
+/* ─── Kit v2 · 5b. Snap carousel (the events on Home) ──────────────────────── */
+/* CSS scroll-snap row; the component adds mouse drag, the buttons, the dots and the
+   keyboard. Touch keeps its native swipe. */
+.car-row {
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+}
+.car-row > * { scroll-snap-align: start; }
+@media (hover: hover) and (pointer: fine) { .car-row { cursor: grab; } }
+.car-row.is-dragging { scroll-snap-type: none; cursor: grabbing; user-select: none; -webkit-user-select: none; }
+.car-row.is-dragging * { pointer-events: none; }
+.car-dot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+}
+.car-dot::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgb(var(--navy) / 0.25);
+  transition: width 0.4s var(--ease-out-smc), background-color 0.4s var(--ease-out-smc);
+}
+.car-dot:hover::before { background: rgb(var(--navy) / 0.5); }
+.car-dot[aria-current="true"]::before { width: 24px; background: rgb(var(--gold)); }
+.car-dot:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* ─── Kit v2 · 6. Accordion photo cards ───────────────────────────────────── */
 /* Stacked with their captions visible below 1024 px. From 1024 px: a row 500 px
@@ -529,7 +506,7 @@
   z-index: -1;
   background: linear-gradient(to top, rgba(8, 29, 64, 0.95) 0%, rgba(8, 29, 64, 0.72) 45%, rgba(8, 29, 64, 0.25) 75%, rgba(8, 29, 64, 0.45) 100%);
 }
-.acc-cap { margin-top: 24px; padding-right: 56px; }
+.acc-cap { margin-top: 24px; }
 /* Stacked: horizontal titles only (the vertical title and the pictogram are for the collapsed row, from 1024 px). */
 .acc-pic,
 .acc-vt { display: none; }
@@ -600,53 +577,6 @@
   .acc-card.is-open .acc-vt { opacity: 0; transition: opacity 0.15s var(--ease-out-smc); pointer-events: none; }
 }
 
-/* ─── Kit v2 · 7. Sticky stack ────────────────────────────────────────────── */
-
-.stk { --stk-top: 84px; display: grid; gap: 24px; }
-@media (min-width: 768px) { .stk { --stk-top: 104px; } }
-.stk:not(.is-flat) { gap: 12vh; }
-.stk-card { position: relative; display: flex; min-height: clamp(560px, 76svh, 680px); }
-@media (min-width: 768px) { .stk-card { min-height: clamp(540px, 72vh, 720px); } }
-.stk:not(.is-flat) .stk-card { position: sticky; top: calc(var(--stk-top) + var(--i, 0) * 14px); }
-.stk.is-flat .stk-card { min-height: 520px; }
-.stk-inner {
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  border-radius: 24px;
-  overflow: hidden;
-  background: rgb(var(--navy));
-  color: #fff;
-  transform-origin: 50% 0;
-  isolation: isolate;
-  box-shadow: 0 -18px 40px rgba(8, 29, 64, 0.18);
-}
-.stk-media { position: absolute; inset: 0; z-index: -2; overflow: hidden; }
-.stk-media > .stk-px { position: absolute; left: 0; right: 0; top: -40px; bottom: -40px; }
-.stk-media img {
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  object-fit: cover;
-  transition: transform 0.8s var(--ease-out-smc);
-}
-.stk-card:hover .stk-media img { transform: scale(1.04); }
-.stk-veil {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: linear-gradient(to top, rgba(8, 29, 64, 0.96) 0%, rgba(8, 29, 64, 0.8) 42%, rgba(8, 29, 64, 0.58) 72%, rgba(8, 29, 64, 0.78) 100%);
-}
-@media (min-width: 1024px) {
-  .stk-veil {
-    background: linear-gradient(90deg, rgba(8, 29, 64, 0.95) 0%, rgba(8, 29, 64, 0.82) 40%, rgba(8, 29, 64, 0.25) 80%),
-      linear-gradient(to top, rgba(8, 29, 64, 0.6), rgba(8, 29, 64, 0) 50%);
-  }
-}
-.stk-shade { position: absolute; inset: 0; z-index: 6; background: #040d1f; opacity: 0; pointer-events: none; }
-
 /* ─── Kit v2 · 8. Bg-reveal panel ─────────────────────────────────────────── */
 /* The navy background scales from .94 to 1 while it fades in (.9 s), then the
    content fades up (+220 ms). */
@@ -659,16 +589,6 @@
   transition: opacity 0.8s var(--ease-out-smc) 0.22s, transform 0.8s var(--ease-out-smc) 0.22s;
 }
 .bgr:not(.is-in) .bgr-content { opacity: 0; transform: translate3d(0, 24px, 0); }
-
-/* ─── Kit v2 · 9. Footer signature: lines rising out of a mask ────────────── */
-
-.rise-line { display: block; overflow: hidden; padding-block: 0.02em 0.1em; }
-.rise-line > span {
-  display: block;
-  transform: translate3d(0, 120%, 0);
-  transition: transform 0.9s var(--ease-out-smc) calc(var(--li, 0) * 90ms);
-}
-.is-in .rise-line > span { transform: none; }
 
 /* ─── Kit v2 · 1. Header: sheet links cascade in (40 ms apart) ────────────── */
 
@@ -742,6 +662,10 @@
 .has-ra:focus-within .dir-see .uline-t::after {
   transform: scaleX(1);
 }
+.has-ra:hover .dir-see .uline-a,
+.has-ra:focus-within .dir-see .uline-a {
+  transform: translate3d(4px, 0, 0);
+}
 
 /* ─── Logo marquee (sponsors, grouped by tier) ────────────────────────────── */
 
@@ -793,7 +717,9 @@ html[data-motion-paused] .motion-loop::before,
 html[data-motion-paused] .motion-loop::after,
 html[data-motion-paused] .logo-marquee-track,
 html[data-motion-paused] .typed-caret,
-html[data-motion-paused] .notch-seg > i,
+html[data-motion-paused] .evc-seg > i,
+html[data-motion-paused] .news-track,
+html[data-motion-paused] .hero-breathe,
 html[data-motion-paused] .bathy-drift-b {
   animation-play-state: paused !important;
 }
@@ -816,6 +742,7 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .bathy-drift,
   .bathy-drift-b,
   .logo-marquee-track,
+  .news-track,
   .typed-caret {
     animation: none !important;
   }
@@ -823,12 +750,11 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .reveal-group > *,
   .line-reveal .lr-i,
   .enter-up,
-  .hero-notch,
-  .hero-enter-fade,
+  .evc-wrap,
   .hero-settle,
+  .hero-breathe,
   .bgr .bgr-bg,
   .bgr .bgr-content,
-  .rise-line > span,
   .chenal-line-h,
   .chenal-line-v,
   .chenal-buoy {
@@ -842,11 +768,13 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .card-lift:hover .dir-cover-lines,
   .card-lift:has(:focus-visible) .dir-cover-art,
   .card-lift:has(:focus-visible) .dir-cover-lines,
-  .notch-img {
+  .evc:hover,
+  .evc:has(:focus-visible),
+  .evc-img {
     transform: none !important;
     transition: none !important;
   }
-  .notch-seg.is-active.is-running > i {
+  .evc-seg.is-active.is-running > i {
     animation: none !important;
     transform: scaleX(1);
   }
@@ -873,9 +801,9 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .cta-t,
   .cta-d,
   .cta-d > svg,
-  .arrow-disc,
-  .arrow-disc::before,
-  .arrow-disc > svg,
+  .card-ul,
+  .card-arrow,
+  .car-dot::before,
   .uline-t::after,
   .uline-a,
   .card-lift,
@@ -883,7 +811,6 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .acc-card,
   .acc-cap,
   .acc-img,
-  .stk-media img,
   .social-disc,
   .social-disc::before,
   .sticky.top-16,
@@ -898,8 +825,7 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .line-reveal .lr-i,
   .enter-up,
   .bgr .bgr-bg,
-  .bgr .bgr-content,
-  .rise-line > span {
+  .bgr .bgr-content {
     opacity: 1 !important;
     transform: none !important;
     clip-path: none !important;

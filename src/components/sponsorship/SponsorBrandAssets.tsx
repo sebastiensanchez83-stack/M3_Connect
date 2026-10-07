@@ -72,29 +72,29 @@ export function SponsorBrandAssets({ sponsorId, canEdit }: { sponsorId: string; 
   };
 
   return (
-    <Card className="border-0 shadow-sm">
+    <Card className="rounded-card shadow-none border-0 shadow-sm">
       <CardHeader className="pb-2">
         <CardTitle className="text-base flex items-center gap-2"><ImageIcon className="h-4 w-4 text-primary" /> Brand assets</CardTitle>
         <CardDescription>Logos uploaded once and reused by every "logo on…" placement.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        {assets.length === 0 && <p className="text-sm text-gray-400">No brand asset yet.</p>}
+        {assets.length === 0 && <p className="text-sm text-meta/60">No brand asset yet.</p>}
         {assets.map(a => (
-          <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2">
+          <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-rule px-3 py-2">
             <button onClick={() => view(a)} className="min-w-0 flex items-center gap-2 text-left group">
-              {a.external_url ? <Link2 className="h-4 w-4 text-gray-400 shrink-0" /> : <ImageIcon className="h-4 w-4 text-gray-400 shrink-0" />}
-              <span className="text-sm text-gray-800 truncate group-hover:text-primary">{a.label || a.filename || 'Logo'}</span>
-              <ExternalLink className="h-3 w-3 text-gray-300 shrink-0" />
+              {a.external_url ? <Link2 className="h-4 w-4 text-meta/60 shrink-0" /> : <ImageIcon className="h-4 w-4 text-meta/60 shrink-0" />}
+              <span className="text-sm text-ink truncate group-hover:text-primary">{a.label || a.filename || 'Logo'}</span>
+              <ExternalLink className="h-3 w-3 text-meta/40 shrink-0" />
             </button>
             {canEdit && (
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-gray-300 hover:text-red-600" disabled={busy === a.id} onClick={() => remove(a)}>
+              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-meta/40 hover:text-red-600" disabled={busy === a.id} onClick={() => remove(a)}>
                 {busy === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               </Button>
             )}
           </div>
         ))}
         {canEdit && (
-          <div {...dropHandlers} className={`rounded-lg border border-dashed p-2.5 space-y-2 transition-colors ${isDragging ? 'border-primary bg-primary/5' : 'border-gray-200'}`}>
+          <div {...dropHandlers} className={`rounded-lg border border-dashed p-2.5 space-y-2 transition-colors ${isDragging ? 'border-primary bg-chip' : 'border-rule'}`}>
             <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (e.g. Primary logo)" className="h-8 text-sm" />
             <div className="flex items-center gap-1.5 flex-wrap">
               <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={uploading} onClick={() => fileRef.current?.click()}>

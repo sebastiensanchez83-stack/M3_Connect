@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -23,146 +22,160 @@ import { PersonaType } from '@/types/database';
 import { useNetworkFigures, formatFigure } from '@/lib/networkStats';
 import { withSiteSuffix } from '@/lib/seoText';
 import { PageHero } from '@/components/ui/PageHero';
-import { SITE_IMAGES } from '@/lib/siteMedia';
-import {
-  Anchor, Building2, Newspaper, CheckCircle, ArrowRight,
-  Globe, Users, Award, Shield, UserPlus, FileText, ShieldCheck, Unlock,
-  HardHat, TrendingUp,
-} from 'lucide-react';
+import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
+import { CardShell } from '@/components/brand/CardShell';
+import { BgRevealPanel } from '@/components/brand/BgRevealPanel';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { ChannelSteps } from '@/components/motion/ChannelSteps';
+import { Counter } from '@/components/motion/Counter';
+import { LineReveal } from '@/components/motion/LineReveal';
+import { useMotion } from '@/components/motion/MotionProvider';
+import { Reveal, RevealGroup } from '@/components/motion/Reveal';
+import { CheckList, PhotoFrame, SectionHead, useScrollToHash } from '@/components/content/ContentParts';
+import { BookOpen, Globe, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+/**
+ * Join the network, on the v2 kit. The sign-up itself is unchanged: the same
+ * dialog, the same SignupForm with the profile pre-selected, the same redirects
+ * for someone who is already signed in.
+ *
+ *   hero: the four profiles as links to their chapter (a /become-partner#media
+ *         link from another page lands on the chapter)
+ *   one chapter per profile: marina, service provider, investor & developer
+ *         (two sign-up buttons), media: a photo, what the profile can do (the
+ *         rights grid validated on 6–7 Oct 2026, as on the home page), "Sign up as…"
+ *   how it works: ChannelSteps (sign up, describe your company, M3 checks, use the network)
+ *   why Smart Marina Connect: four reasons and the live figures
+ *   questions, then a last panel to sign up
+ *
+ * The footer's own "Join" band is hidden on this page (Footer.tsx), so the last
+ * panel is the closing call to action.
+ */
+
+interface Chapter {
+  id: string;
+  /** Eyebrow word ("Marinas"). */
+  label: string;
+  title: string;
+  intro: string[];
+  image: string | null;
+  focusY: number;
+  can: string[];
+  ctas: { persona: PersonaType; label: string }[];
+}
 
 export function BecomePartnerPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
+  const { hash } = useLocation();
+  const { reduced } = useMotion();
   const { user, profile } = useAuth();
   const [signupOpen, setSignupOpen] = useState(false);
   const [selectedPersonaType, setSelectedPersonaType] = useState<PersonaType | undefined>(undefined);
 
+  useScrollToHash(hash, reduced);
+
   // Same figures as the homepage: live counts, unless an admin has set
   // display_stats.override. The copy quotes them too, so no sentence promises
   // "500+ marinas" while the band below says 180.
-  const { figures, loading: figuresLoading } = useNetworkFigures();
-  const fig = (n: number | null) => (n !== null ? formatFigure(n, figures.manual, i18n.language) : null);
-  const marinasFig = fig(figures.marinas);
-  const countriesFig = fig(figures.countries);
-  const statItems = [
-    { key: 'marinas', icon: Anchor, value: marinasFig, label: t('homeSections.stats.marinas', 'Marinas listed') },
-    { key: 'countries', icon: Globe, value: countriesFig, label: t('becomePartner.stats.countries', 'Countries') },
-    { key: 'partners', icon: Building2, value: fig(figures.partners), label: t('homeSections.stats.suppliers', 'Service providers') },
+  const { figures } = useNetworkFigures();
+  const figureItems: [string, number | null, string][] = [
+    ['marinas', figures.marinas, t('homeSections.stats.marinas', 'Marinas listed')],
+    ['providers', figures.partners, t('homeSections.stats.suppliers', 'Service providers')],
+    ['countries', figures.countries, t('becomePartner.stats.countries', 'Countries')],
   ];
 
-  const memberTypes = [
+  // What each profile can do: the home page's rights grid (homePage.profiles.*).
+  const connect = t('homePage.profiles.connect', 'Request introductions and propose a webinar');
+  const chapters: Chapter[] = [
     {
       id: 'marina',
-      icon: <Anchor className="h-8 w-8 text-blue-600" />,
-      iconBg: 'bg-blue-50',
+      label: t('contentPages.join.marinaPill', 'Marinas'),
       title: t('join.marina.title'),
-      desc: t('join.marina.desc'),
-      benefits: [
-        t('join.marina.benefits.0'),
-        t('join.marina.benefits.1'),
-        t('join.marina.benefits.2'),
-        t('join.marina.benefits.3'),
+      intro: [t('join.marina.desc')],
+      image: PERSONA_IMAGES.marinas,
+      focusY: 0.5,
+      can: [
+        t('homePage.profiles.marinas.can1', 'Publish your tenders, expert questions and projects'),
+        t('homePage.profiles.marinas.can2', 'Find service providers by theme and country, checked by M3'),
+        t('homePage.profiles.marinas.can3', 'See what other marinas are looking for'),
+        connect,
       ],
-      cta: t('join.marina.cta'),
+      ctas: [{ persona: 'marina', label: t('join.marina.cta') }],
     },
     {
-      id: 'partner',
-      icon: <Building2 className="h-8 w-8 text-orange-600" />,
-      iconBg: 'bg-orange-50',
+      id: 'service-provider',
+      label: t('contentPages.join.providerPill', 'Service providers'),
       title: t('join.partner.title'),
-      desc: t('join.partner.desc'),
       // No audience figure here: few of the listed marinas have an account yet,
       // so "visibility to N marinas" would promise more than the network gives.
-      benefits: [
-        t('join.partner.benefits.0'),
-        t('join.partner.benefits.1'),
-        t('join.partner.benefits.2'),
-        t('join.partner.benefits.3'),
+      intro: [t('join.partner.desc')],
+      image: PERSONA_IMAGES.suppliers,
+      focusY: 0.5,
+      can: [
+        t('homePage.profiles.providers.can1', 'Read the needs marinas publish and answer them'),
+        t('homePage.profiles.providers.can2', 'Present your company in the directory, checked by M3'),
+        connect,
+        t('homePage.profiles.providers.can3', 'Sponsor an event for more visibility'),
       ],
-      cta: t('join.partner.cta'),
+      ctas: [{ persona: 'partner', label: t('join.partner.cta') }],
     },
     {
-      id: 'media_partner',
-      icon: <Newspaper className="h-8 w-8 text-purple-600" />,
-      iconBg: 'bg-purple-50',
+      id: 'investor-developer',
+      label: t('contentPages.join.investorPill', 'Investors & developers'),
+      title: t('contentPages.join.investorDeveloperTitle', 'Investors & developers'),
+      intro: [
+        t('join.investor.desc', 'Funds, family offices and strategic investors looking at the marina sector.'),
+        t('join.developer.desc', 'Marina developers, real-estate groups and builders shaping the next generation of marinas.'),
+      ],
+      image: SITE_IMAGES.opportunitiesHero.src,
+      focusY: SITE_IMAGES.opportunitiesHero.focusY,
+      can: [
+        t('homePage.profiles.investors.can1', 'Follow the projects and tenders marinas publish'),
+        t('homePage.profiles.investors.can2', 'Investors: publish your investment thesis'),
+        t('homePage.profiles.investors.can3', 'Developers: publish the needs of your own projects'),
+        connect,
+      ],
+      ctas: [
+        { persona: 'investor', label: t('join.investor.cta', 'Sign up as an investor') },
+        { persona: 'developer', label: t('join.developer.cta', 'Sign up as a developer') },
+      ],
+    },
+    {
+      id: 'media',
+      label: t('contentPages.join.mediaPill', 'Media'),
       title: t('join.mediaPartner.title'),
-      desc: t('join.mediaPartner.desc'),
-      benefits: [
-        t('join.mediaPartner.benefits.0'),
-        t('join.mediaPartner.benefits.1'),
-        t('join.mediaPartner.benefits.2'),
-        t('join.mediaPartner.benefits.3'),
+      intro: [t('join.mediaPartner.desc')],
+      image: PERSONA_IMAGES.media,
+      focusY: 0.5,
+      can: [
+        t('homePage.profiles.media.can1', 'Request press accreditation for our events in Monaco and Dubai'),
+        t('homePage.profiles.media.can2', "Follow the sector's articles, opportunities and replays"),
+        connect,
       ],
-      cta: t('join.mediaPartner.cta'),
-    },
-    {
-      id: 'developer',
-      icon: <HardHat className="h-8 w-8 text-amber-600" />,
-      iconBg: 'bg-amber-50',
-      title: t('join.developer.title', 'Developer'),
-      desc: t('join.developer.desc', 'Marina developers, real-estate groups and builders shaping the next generation of marinas.'),
-      benefits: [
-        t('join.developer.benefits.0', 'Publish tenders, projects and expert questions'),
-        t('join.developer.benefits.1', 'Find service providers by theme and country'),
-        t('join.developer.benefits.2', 'Invite your colleagues to work on your projects together'),
-        t('join.developer.benefits.3', "Expert resources and M3's industry events"),
-      ],
-      cta: t('join.developer.cta', 'Sign up as a developer'),
-    },
-    {
-      id: 'investor',
-      icon: <TrendingUp className="h-8 w-8 text-emerald-600" />,
-      iconBg: 'bg-emerald-50',
-      title: t('join.investor.title', 'Investor'),
-      desc: t('join.investor.desc', 'Funds, family offices and strategic investors looking at the marina sector.'),
-      benefits: [
-        t('join.investor.benefits.0', 'Browse marinas, developers and start-ups raising capital'),
-        t('join.investor.benefits.1', 'Filter deal flow by sector and geography'),
-        t('join.investor.benefits.2', 'Contact marina operators and developers directly'),
-        t('join.investor.benefits.3', 'Industry resources, events and replays'),
-      ],
-      cta: t('join.investor.cta', 'Sign up as an investor'),
+      ctas: [{ persona: 'media_partner', label: t('join.mediaPartner.cta') }],
     },
   ];
 
   const platformBenefits = [
     {
-      icon: <Globe className="h-8 w-8" />,
+      icon: Globe,
       title: t('join.benefit1Title'),
-      desc: countriesFig
-        ? t('join.benefit1DescLive', 'Marinas and service providers in {{countries}} countries.', { countries: countriesFig })
+      desc: figures.countries !== null
+        ? t('join.benefit1DescLive', 'Marinas and service providers in {{countries}} countries.', { countries: formatFigure(figures.countries, figures.manual, i18n.language) })
         : t('join.benefit1Desc'),
     },
-    { icon: <Users className="h-8 w-8" />, title: t('join.benefit2Title'), desc: t('join.benefit2Desc') },
-    { icon: <Award className="h-8 w-8" />, title: t('join.benefit3Title'), desc: t('join.benefit3Desc') },
-    { icon: <Shield className="h-8 w-8" />, title: t('join.benefit4Title'), desc: t('join.benefit4Desc') },
+    { icon: ShieldCheck, title: t('join.benefit2Title'), desc: t('join.benefit2Desc') },
+    { icon: BookOpen, title: t('join.benefit3Title'), desc: t('join.benefit3Desc') },
+    { icon: Users, title: t('join.benefit4Title'), desc: t('join.benefit4Desc') },
   ];
 
   const processSteps = [
-    {
-      step: 1,
-      icon: <UserPlus className="h-7 w-7" />,
-      title: t('join.process.step1Title'),
-      desc: t('join.process.step1Desc'),
-    },
-    {
-      step: 2,
-      icon: <FileText className="h-7 w-7" />,
-      title: t('join.process.step2Title'),
-      desc: t('join.process.step2Desc'),
-    },
-    {
-      step: 3,
-      icon: <ShieldCheck className="h-7 w-7" />,
-      title: t('join.process.step3Title'),
-      desc: t('join.process.step3Desc'),
-    },
-    {
-      step: 4,
-      icon: <Unlock className="h-7 w-7" />,
-      title: t('join.process.step4Title'),
-      desc: t('join.process.step4Desc'),
-    },
+    { title: t('join.process.step1Title'), body: t('join.process.step1Desc') },
+    { title: t('join.process.step2Title'), body: t('join.process.step2Desc') },
+    { title: t('join.process.step3Title'), body: t('join.process.step3Desc') },
+    { title: t('join.process.step4Title'), body: t('join.process.step4Desc') },
   ];
 
   const faqItems = [
@@ -198,159 +211,174 @@ export function BecomePartnerPage() {
         image={SITE_IMAGES.joinHero}
         seed="join-hero"
         icon={UserPlus}
+        eyebrow={t('contentPages.join.eyebrow', 'Free for every member')}
         title={t('join.heroTitle')}
         subtitle={t('join.heroSubtitle')}
-        align="center"
-      />
+      >
+        <nav aria-label={t('contentPages.join.jumpLabel', 'Go to a profile')}>
+          <ul className="flex flex-wrap gap-2">
+            {chapters.map((c) => (
+              <li key={c.id}>
+                <a
+                  href={`#${c.id}`}
+                  className="inline-flex h-10 items-center rounded-pill bg-white/15 px-4 text-sm font-medium text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,.3)] backdrop-blur-md transition-colors duration-300 hover:bg-white hover:text-navy focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_rgb(8,29,64),0_0_0_4px_#fff]"
+                >
+                  {c.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </PageHero>
 
-      {/* How It Works — Process Steps */}
-      <section className="py-16 bg-white">
-        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-          <h2 className="text-3xl font-bold text-center text-primary mb-4">{t('join.process.title')}</h2>
-          <p className="text-gray-600 text-center mb-12 max-w-xl mx-auto">{t('join.process.subtitle')}</p>
-
-          <div className="max-w-4xl mx-auto">
-            <div className="grid md:grid-cols-4 gap-6 relative">
-              {/* Connecting line (desktop only) */}
-              <div className="hidden md:block absolute top-12 left-[12.5%] right-[12.5%] h-0.5 bg-[#0b2653]/30" />
-
-              {processSteps.map((s) => (
-                <div key={s.step} className="relative text-center flex flex-col items-center">
-                  {/* Step circle */}
-                  <div className="relative z-10 w-24 h-24 rounded-full bg-[#0b2653] flex items-center justify-center text-white shadow-lg mb-4">
-                    {s.icon}
+      {/* One chapter per profile */}
+      {chapters.map((c, i) => {
+        const flip = i % 2 === 1;
+        const number = String(i + 1).padStart(2, '0');
+        return (
+          <section
+            key={c.id}
+            id={c.id}
+            aria-labelledby={`${c.id}-title`}
+            className={cn('py-16 md:py-[104px]', flip ? 'bg-page' : 'bg-white')}
+          >
+            <div className="mx-auto grid max-w-7xl items-center gap-10 px-4 sm:px-6 lg:grid-cols-12 lg:gap-16">
+              <Reveal className={cn('lg:col-span-5', flip ? 'lg:order-2 lg:col-start-8' : 'lg:order-1')}>
+                <PhotoFrame src={c.image} focusY={c.focusY} aspect="aspect-[4/3]" />
+              </Reveal>
+              <div className={cn('min-w-0 lg:col-span-6', flip ? 'lg:order-1' : 'lg:order-2 lg:col-start-7')}>
+                <Reveal>
+                  <Eyebrow number={number}>{c.label}</Eyebrow>
+                </Reveal>
+                <LineReveal
+                  as="h2"
+                  id={`${c.id}-title`}
+                  className="mt-4 text-balance text-[26px] font-semibold leading-8 tracking-[-0.02em] text-navy md:text-[40px] md:leading-[48px]"
+                >
+                  {c.title}
+                </LineReveal>
+                <Reveal delay={120}>
+                  <div className="mt-4 grid max-w-xl gap-3 text-body md:text-body-lg text-ink">
+                    {c.intro.map((p) => <p key={p}>{p}</p>)}
                   </div>
-                  {/* Step number badge */}
-                  <div className="absolute top-0 right-1/2 translate-x-[2.5rem] -translate-y-1 w-7 h-7 rounded-full bg-[#0b2653] text-white text-xs font-bold flex items-center justify-center shadow-sm z-20">
-                    {s.step}
-                  </div>
-                  <h3 className="font-semibold text-lg mb-2 text-gray-900">{s.title}</h3>
-                  <p className="text-gray-600 text-sm leading-relaxed">{s.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Member Types */}
-      <section className="py-16 bg-gray-50">
-        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-          <h2 className="text-3xl font-bold text-center text-primary mb-4">{t('join.chooseProfile')}</h2>
-          <p className="text-gray-600 text-center mb-12 max-w-xl mx-auto">
-            {t('join.chooseProfileDesc')}
-          </p>
-
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {memberTypes.map((type) => (
-              <Card key={type.id} className="relative overflow-hidden hover:shadow-xl transition-all border-2 hover:border-primary flex flex-col">
-                <CardContent className="pt-8 pb-6 flex flex-col flex-1">
-                  <div className={`w-16 h-16 ${type.iconBg} rounded-full flex items-center justify-center mb-4`}>{type.icon}</div>
-                  <h3 className="text-xl font-bold mb-2">{type.title}</h3>
-                  <p className="text-gray-600 text-sm mb-6">{type.desc}</p>
-
-                  <div className="space-y-3 mb-8 flex-1">
-                    {type.benefits.map((b, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-                        <span className="text-sm text-gray-700">{b}</span>
-                      </div>
+                  <h3 className="text-meta-caps mt-8">{t('homePage.profiles.canTitle', 'What you can do')}</h3>
+                  <CheckList items={c.can} className="mt-4 max-w-xl" />
+                  <div className="mt-8 flex flex-wrap gap-3">
+                    {c.ctas.map((cta, k) => (
+                      <Button key={cta.persona} variant={k === 0 ? 'cta' : 'ctaOutline'} onClick={() => handleJoin(cta.persona)}>
+                        {cta.label}
+                      </Button>
                     ))}
                   </div>
+                </Reveal>
+              </div>
+            </div>
+          </section>
+        );
+      })}
 
-                  <Button
-                    onClick={() => handleJoin(type.id as PersonaType)}
-                    className="w-full group"
-                  >
-                    {type.cta}
-                    <ArrowRight className="h-4 w-4 ml-2 group-hover:translate-x-1 transition-transform" />
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+      {/* How it works */}
+      <section aria-labelledby="join-steps" className="bg-foam py-16 md:py-[104px]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <SectionHead
+            id="join-steps"
+            number="05"
+            eyebrow={t('contentPages.join.stepsEyebrow', 'Getting started')}
+            title={t('join.process.title')}
+            intro={t('join.process.subtitle')}
+          />
+          <ChannelSteps className="mt-10 md:mt-12" steps={processSteps} />
         </div>
       </section>
 
-      {/* Platform Benefits */}
-      <section className="py-16 bg-white">
-        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-          <h2 className="text-3xl font-bold text-center text-primary mb-12">{t('join.whyTitle')}</h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
-            {platformBenefits.map((b, i) => (
-              <Card key={i} className="text-center">
-                <CardContent className="pt-6">
-                  <div className="text-secondary mx-auto mb-4 flex justify-center">{b.icon}</div>
-                  <h3 className="font-semibold text-lg mb-2">{b.title}</h3>
-                  <p className="text-gray-600 text-sm">{b.desc}</p>
-                </CardContent>
-              </Card>
+      {/* Why Smart Marina Connect, and the network in figures */}
+      <section aria-labelledby="join-why" className="bg-white py-16 md:py-[104px]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <SectionHead
+            id="join-why"
+            number="06"
+            eyebrow={t('contentPages.join.whyEyebrow', 'The network')}
+            title={t('join.whyTitle')}
+          />
+          <RevealGroup as="ul" className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4 md:mt-12">
+            {platformBenefits.map((b) => (
+              <li key={b.title} className="flex min-w-0">
+                <CardShell className="w-full p-6">
+                  <span aria-hidden="true" className="grid h-12 w-12 place-items-center rounded-field bg-chip text-navy">
+                    <b.icon className="h-6 w-6" />
+                  </span>
+                  <h3 className="mt-5 text-card-title text-navy">{b.title}</h3>
+                  <p className="mt-2 text-body text-meta">{b.desc}</p>
+                </CardShell>
+              </li>
             ))}
-          </div>
+          </RevealGroup>
         </div>
-      </section>
 
-      {/* Live Stats */}
-      <section className="py-12 bg-primary text-white">
-        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-          <div className="grid grid-cols-3 gap-8 text-center max-w-3xl mx-auto">
-            {statItems.map((s) => (
-              <div key={s.key}>
-                <s.icon className="h-8 w-8 mx-auto mb-2" aria-hidden="true" />
-                {figuresLoading ? (
-                  <div className="mx-auto h-9 w-16 animate-pulse rounded bg-white/20" aria-hidden="true" />
-                ) : (
-                  <div className="text-3xl font-bold tabular-nums">{s.value ?? '—'}</div>
-                )}
-                <div className="text-gray-300">{s.label}</div>
+        <BgRevealPanel bathy bathySeed={6} className="mt-14 py-12 md:mt-20 md:py-16" aria-label={t('contentPages.about.figuresLabel', 'The network in figures')}>
+          <dl className="mx-auto flex max-w-7xl flex-wrap justify-center gap-y-8 px-4 sm:px-6">
+            {figureItems.map(([key, value, label], i) => (
+              <div key={key} className={cn('flex min-w-0 flex-col-reverse items-center px-6 text-center md:px-14', i > 0 && 'md:border-l md:border-white/20')}>
+                <dt className="mt-1 text-[13px] leading-[18px] text-white/80">{label}</dt>
+                <dd className="text-[40px] font-light leading-[44px] tracking-[-0.02em] text-white md:text-[56px] md:leading-[60px]">
+                  <Counter value={value} suffix={figures.manual ? '+' : ''} />
+                </dd>
               </div>
             ))}
-          </div>
-        </div>
+          </dl>
+        </BgRevealPanel>
       </section>
 
-      {/* FAQ Section */}
-      <section className="py-16 bg-gray-50">
-        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-          <h2 className="text-3xl font-bold text-center text-primary mb-4">{t('join.faq.title')}</h2>
-          <p className="text-gray-600 text-center mb-10 max-w-xl mx-auto">{t('join.faq.subtitle')}</p>
-
-          <div className="max-w-2xl mx-auto">
+      {/* Questions */}
+      <section aria-labelledby="join-faq" className="bg-page py-16 md:py-[104px]">
+        <div className="mx-auto grid max-w-7xl gap-10 px-4 sm:px-6 lg:grid-cols-12 lg:gap-16">
+          <SectionHead
+            id="join-faq"
+            number="07"
+            eyebrow={t('contentPages.join.faqEyebrow', 'Questions')}
+            title={t('join.faq.title')}
+            intro={t('join.faq.subtitle')}
+            className="lg:col-span-5"
+          />
+          <Reveal delay={120} className="lg:col-span-7">
             <Accordion type="single" collapsible className="space-y-3">
               {faqItems.map((item, i) => (
-                <AccordionItem key={i} value={`faq-${i}`} className="border rounded-lg bg-white px-5">
-                  <AccordionTrigger className="text-left font-medium text-gray-900 hover:no-underline">
+                <AccordionItem key={i} value={`faq-${i}`} className="rounded-card border border-rule bg-white px-5 data-[state=open]:shadow-hover">
+                  <AccordionTrigger className="py-5 text-left text-[17px] font-semibold leading-6 text-navy hover:no-underline">
                     {item.q}
                   </AccordionTrigger>
-                  <AccordionContent className="text-gray-600 text-sm leading-relaxed">
+                  <AccordionContent className="text-body text-ink">
                     {item.a}
                   </AccordionContent>
                 </AccordionItem>
               ))}
             </Accordion>
-          </div>
+          </Reveal>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="py-16 text-center bg-white">
-        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-          <h2 className="text-3xl font-bold text-primary mb-4">{t('join.readyTitle')}</h2>
-          <p className="text-gray-600 mb-8 max-w-xl mx-auto">
-            {t('join.readySubtitle')}
-          </p>
-          {user ? (
-            <Button size="lg" onClick={() => navigate(profile ? '/account' : '/onboarding')}>
-              {t('join.accessMySpace')}
-              <ArrowRight className="h-5 w-5 ml-2" />
-            </Button>
-          ) : (
-            <Button size="lg" onClick={() => setSignupOpen(true)}>
-              {t('join.createAccount')}
-              <ArrowRight className="h-5 w-5 ml-2" />
-            </Button>
-          )}
-        </div>
+      {/* Closing call to action: the footer's join band is not shown on this page. */}
+      <section aria-labelledby="join-ready" className="bg-white pb-16 pt-16 md:pb-24 md:pt-[104px]">
+        <BgRevealPanel bathy bathySeed={4} className="py-14 md:py-20">
+          <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
+            <Eyebrow tone="onDark" className="justify-center">{t('contentPages.join.readyEyebrow', 'Ready?')}</Eyebrow>
+            <h2 id="join-ready" className="mt-4 text-balance text-[26px] font-semibold leading-8 tracking-[-0.02em] text-white md:text-[40px] md:leading-[48px]">
+              {t('join.readyTitle')}
+            </h2>
+            <p className="mx-auto mt-3 max-w-xl text-body md:text-body-lg text-white/80">{t('join.readySubtitle')}</p>
+            <div className="mt-8 flex justify-center">
+              {user ? (
+                <Button variant="ctaOnDark" onClick={() => navigate(profile ? '/account' : '/onboarding')}>
+                  {t('join.accessMySpace')}
+                </Button>
+              ) : (
+                <Button variant="ctaOnDark" onClick={() => setSignupOpen(true)}>
+                  {t('join.createAccount')}
+                </Button>
+              )}
+            </div>
+          </div>
+        </BgRevealPanel>
       </section>
 
       {/* Signup Dialog */}

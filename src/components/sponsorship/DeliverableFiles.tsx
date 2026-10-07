@@ -102,11 +102,11 @@ export function DeliverableFiles({ sponsorId, benefitId, isManager, canUpload, o
   return (
     <div className="space-y-1.5">
       {files.map(f => (
-        <div key={f.id} className="flex items-center justify-between gap-2 rounded-md border border-gray-100 px-2.5 py-1.5">
+        <div key={f.id} className="flex items-center justify-between gap-2 rounded-md border border-rule px-2.5 py-1.5">
           <button onClick={() => view(f)} className="min-w-0 flex items-center gap-2 text-left group">
-            {f.external_url ? <Link2 className="h-3.5 w-3.5 text-gray-400 shrink-0" /> : <FileText className="h-3.5 w-3.5 text-gray-400 shrink-0" />}
-            <span className="text-xs text-gray-700 truncate group-hover:text-primary group-hover:underline">{f.filename || 'File'}</span>
-            <ExternalLink className="h-3 w-3 text-gray-300 shrink-0" />
+            {f.external_url ? <Link2 className="h-3.5 w-3.5 text-meta/60 shrink-0" /> : <FileText className="h-3.5 w-3.5 text-meta/60 shrink-0" />}
+            <span className="text-xs text-ink truncate group-hover:text-primary group-hover:underline">{f.filename || 'File'}</span>
+            <ExternalLink className="h-3 w-3 text-meta/40 shrink-0" />
           </button>
           <div className="flex items-center gap-1.5 shrink-0">
             <span className={`text-[10px] font-medium ${REVIEW_CLS[f.review_status]}`}>{f.review_status}</span>
@@ -114,10 +114,10 @@ export function DeliverableFiles({ sponsorId, benefitId, isManager, canUpload, o
               <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-green-600" disabled={busy === f.id} onClick={() => review(f, 'approved')} title="Approve"><Check className="h-3.5 w-3.5" /></Button>
             )}
             {isManager && f.review_status !== 'rejected' && (
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-gray-400 hover:text-red-600" disabled={busy === f.id} onClick={() => review(f, 'rejected')} title="Reject"><X className="h-3.5 w-3.5" /></Button>
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-meta/60 hover:text-red-600" disabled={busy === f.id} onClick={() => review(f, 'rejected')} title="Reject"><X className="h-3.5 w-3.5" /></Button>
             )}
             {(isManager || f.review_status !== 'approved') && canUpload && (
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-gray-300 hover:text-red-600" disabled={busy === f.id} onClick={() => remove(f)} title="Remove">
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-meta/40 hover:text-red-600" disabled={busy === f.id} onClick={() => remove(f)} title="Remove">
                 {busy === f.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               </Button>
             )}
@@ -129,14 +129,14 @@ export function DeliverableFiles({ sponsorId, benefitId, isManager, canUpload, o
       )}
 
       {canUpload && (
-        <div {...dropHandlers} className={`flex items-center gap-1.5 pt-0.5 rounded-md transition-colors ${isDragging ? 'ring-2 ring-primary/40 bg-primary/5' : ''}`}>
+        <div {...dropHandlers} className={`flex items-center gap-1.5 pt-0.5 rounded-md transition-colors ${isDragging ? 'ring-2 ring-primary/40 bg-chip' : ''}`}>
           <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={uploading} onClick={() => fileRef.current?.click()}>
             {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload
           </Button>
           <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => setShowLink(v => !v)}>
             <Link2 className="h-3.5 w-3.5" /> Link
           </Button>
-          <span className="text-[10px] text-gray-400">or drop a file</span>
+          <span className="text-[10px] text-meta/60">or drop a file</span>
           <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
         </div>
       )}

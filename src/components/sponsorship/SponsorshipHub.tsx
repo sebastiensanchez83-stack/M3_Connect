@@ -77,15 +77,15 @@ export function SponsorshipHub({ basePath }: { basePath: string }) {
     <div className="max-w-4xl mx-auto space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Award className="h-6 w-6 text-primary" /> Sponsorship fulfilment</h1>
-          <p className="text-sm text-gray-500 mt-0.5">What each sponsor was sold, what we owe, and what we've delivered.</p>
+          <h1 className="text-2xl font-bold text-navy flex items-center gap-2"><Award className="h-6 w-6 text-primary" /> Sponsorship fulfilment</h1>
+          <p className="text-sm text-meta mt-0.5">What each sponsor was sold, what we owe, and what we've delivered.</p>
         </div>
         <Button className="gap-1.5" onClick={() => setOpen(true)}><Plus className="h-4 w-4" /> New sponsor</Button>
       </div>
 
       {rows.length === 0 ? (
-        <Card><CardContent className="py-12 text-center text-gray-500">
-          <Building2 className="h-10 w-10 text-gray-300 mx-auto mb-3" />
+        <Card><CardContent className="py-12 text-center text-meta">
+          <Building2 className="h-10 w-10 text-meta/40 mx-auto mb-3" />
           No sponsors yet. Create one and build its agreement from a tier template.
         </CardContent></Card>
       ) : (
@@ -95,20 +95,20 @@ export function SponsorshipHub({ basePath }: { basePath: string }) {
               <Card className="hover:border-primary/40 transition-colors">
                 <CardContent className="py-4 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold text-gray-900 truncate">{s.company_name}</div>
-                    <div className="text-xs text-gray-500 truncate">
+                    <div className="font-semibold text-navy truncate">{s.company_name}</div>
+                    <div className="text-xs text-meta truncate">
                       {s.tierLabel || 'No tier'}{s.primary_contact_name ? ` · ${s.primary_contact_name}` : ''}
                     </div>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     {s.hasAgreement && (
                       <div className="w-28 hidden sm:block">
-                        <div className="flex items-center justify-between text-[11px] mb-1"><span className="text-gray-400">Delivered</span><span className="font-medium text-gray-600">{s.pct}%</span></div>
-                        <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full bg-primary" style={{ width: `${s.pct}%` }} /></div>
+                        <div className="flex items-center justify-between text-[11px] mb-1"><span className="text-meta/60">Delivered</span><span className="font-medium text-meta">{s.pct}%</span></div>
+                        <div className="h-1.5 rounded-full bg-chip overflow-hidden"><div className="h-full rounded-full bg-primary" style={{ width: `${s.pct}%` }} /></div>
                       </div>
                     )}
                     <Badge className={`text-[11px] ${SPONSOR_STATUS_CLS[s.status]}`}>{s.status}</Badge>
-                    <ChevronRight className="h-4 w-4 text-gray-300" />
+                    <ChevronRight className="h-4 w-4 text-meta/40" />
                   </div>
                 </CardContent>
               </Card>
@@ -125,7 +125,7 @@ export function SponsorshipHub({ basePath }: { basePath: string }) {
             <Input placeholder="Primary contact name" value={form.primary_contact_name} onChange={e => setForm(f => ({ ...f, primary_contact_name: e.target.value }))} />
             <Input placeholder="Primary contact email" value={form.primary_contact_email} onChange={e => setForm(f => ({ ...f, primary_contact_email: e.target.value }))} />
             <div>
-              <label className="text-xs text-gray-500">Build agreement from tier (optional)</label>
+              <label className="text-xs text-meta">Build agreement from tier (optional)</label>
               <Select value={form.tier_key} onValueChange={v => setForm(f => ({ ...f, tier_key: v }))}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="No agreement yet" /></SelectTrigger>
                 <SelectContent>{tiers.map(t => <SelectItem key={t.tier_key} value={t.tier_key}>{t.label}</SelectItem>)}</SelectContent>

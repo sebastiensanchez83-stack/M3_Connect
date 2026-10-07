@@ -337,7 +337,7 @@ export function EventRegistrationFlow({
         </div>
 
         {eventType === 'webinar' && eventMeetingUrl && (
-          <Button asChild className="w-full bg-violet-600 hover:bg-violet-700 rounded-lg">
+          <Button asChild variant="cta" className="w-full justify-between">
             <a href={eventMeetingUrl} target="_blank" rel="noopener noreferrer">
               <Video className="h-4 w-4 mr-2" />
               {t('eventsPage.joinWebinar', 'Join the webinar')}
@@ -381,7 +381,7 @@ export function EventRegistrationFlow({
             )}
 
             {eventType === 'webinar' && eventMeetingUrl && (
-              <Button asChild className="w-full bg-violet-600 hover:bg-violet-700 rounded-xl">
+              <Button asChild variant="cta" className="w-full justify-between">
                 <a href={eventMeetingUrl} target="_blank" rel="noopener noreferrer">
                   <Video className="h-4 w-4 mr-2" />
                   {t('eventsPage.joinWebinar', 'Join the webinar')}
@@ -455,7 +455,7 @@ export function EventRegistrationFlow({
       if (!quotaReached) {
         return (
           <div className="space-y-3">
-            <Button onClick={() => registerDirect('sponsor_included')} disabled={registering} className="rounded-xl shadow-sm w-full">
+            <Button onClick={() => registerDirect('sponsor_included')} disabled={registering} variant="cta" className="w-full justify-between">
               {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {t('eventsShared.registrationFlow.registerIncluded', { tier: TIER_LABELS[orgTier], defaultValue: 'Register (Included in {{tier}})' })}
             </Button>
@@ -472,8 +472,8 @@ export function EventRegistrationFlow({
         <Button
           onClick={() => registerDirect('invitation_request')}
           disabled={registering}
-          variant="outline"
-          className="w-full rounded-xl shadow-sm border-purple-200 text-purple-700 hover:bg-purple-50"
+          variant="ctaOutline"
+          className="w-full justify-between"
         >
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
           <Lock className="h-4 w-4 mr-2" />
@@ -490,7 +490,7 @@ export function EventRegistrationFlow({
   if (hasPackages && !isSponsor) {
     return (
       <>
-        <Button onClick={() => setPackageSelectOpen(true)} disabled={registering} className="w-full rounded-xl shadow-sm">
+        <Button onClick={() => setPackageSelectOpen(true)} disabled={registering} variant="cta" className="w-full justify-between">
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
           <Package className="h-4 w-4 mr-2" />
           {t('eventsShared.registrationFlow.choosePackage', 'Choose a package')}
@@ -564,7 +564,7 @@ export function EventRegistrationFlow({
           </div>
         ) : (
           <>
-            <Button onClick={() => registerDirect('sponsor_included')} disabled={registering} className="rounded-xl shadow-sm">
+            <Button onClick={() => registerDirect('sponsor_included')} disabled={registering} variant="cta" className="w-full justify-between">
               {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {t('eventsShared.registrationFlow.registerIncluded', { tier: TIER_LABELS[orgTier], defaultValue: 'Register (Included in {{tier}})' })}
             </Button>
@@ -588,7 +588,7 @@ export function EventRegistrationFlow({
   // the M3 team, so we register straight through rather than offering a choice.
   if (isMarina) {
     return (
-      <Button onClick={() => registerDirect('visitor')} disabled={registering} className="w-full sm:w-auto rounded-xl shadow-sm">
+      <Button onClick={() => registerDirect('visitor')} disabled={registering} variant="cta" className="w-full justify-between">
         {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
         {t('eventsShared.registrationFlow.registerForEvent', 'Register for this event')}
       </Button>
@@ -604,7 +604,7 @@ export function EventRegistrationFlow({
     const discount = pricing?.discount_pct || 10;
     return (
       <div className="space-y-2">
-        <Button onClick={() => registerDirect('member_discount')} disabled={registering} className="rounded-xl shadow-sm">
+        <Button onClick={() => registerDirect('member_discount')} disabled={registering} variant="cta" className="w-full justify-between">
           {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
           {t('eventsShared.registrationFlow.registerMemberRate', 'Register (member rate)')}
         </Button>
@@ -615,7 +615,7 @@ export function EventRegistrationFlow({
 
   // Default: basic registration
   return (
-    <Button onClick={() => registerDirect('visitor')} disabled={registering} className="rounded-xl shadow-sm">
+    <Button onClick={() => registerDirect('visitor')} disabled={registering} variant="cta" className="w-full justify-between">
       {registering && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
       {t('eventsShared.registrationFlow.registerForEvent', 'Register for this event')}
     </Button>

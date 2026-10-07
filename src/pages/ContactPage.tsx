@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,12 +13,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
-import { Mail, MapPin, Send, CheckCircle } from 'lucide-react';
+import { Mail, MapPin, CheckCircle } from 'lucide-react';
 import { Seo } from '@/components/seo/Seo';
 import { supabase } from '@/lib/supabase';
 import { PageHero } from '@/components/ui/PageHero';
+import { ContactCard } from '@/components/brand/ContactCard';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { Reveal } from '@/components/motion/Reveal';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { withSiteSuffix } from '@/lib/seoText';
+import { cn } from '@/lib/utils';
 
 interface ContactForm {
   name: string;
@@ -36,6 +39,10 @@ const SUBJECT_OPTIONS = [
   { value: 'media', labelKey: 'contact.subjectMedia', fallback: 'Media and press' },
   { value: 'other', labelKey: 'contact.subjectOther', fallback: 'Other' },
 ];
+
+/** A field: 48 px, 12 px radius, a #6b7588 edge (3:1 on white); an error turns it red and is read with the field. */
+const FIELD = 'h-12 md:h-12 rounded-field border-checkbox bg-white px-4 text-base';
+const FIELD_ERROR = 'border-red-700';
 
 export function ContactPage() {
   const { t } = useTranslation();
@@ -152,201 +159,194 @@ export function ContactPage() {
     }
   }
 
-  if (submitted) {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-3xl">
-        <div className="text-center py-16">
-          <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-6" />
-          <h1 className="text-3xl font-bold text-gray-900 mb-4">
-            {t('contact.thankYouTitle', 'Thank you!')}
-          </h1>
-          <p className="text-lg text-gray-600 mb-8">
-            {t(
-              'contact.thankYouDesc',
-              'Your message has been sent. The M3 team will read it and get back to you as soon as possible.'
-            )}
-          </p>
-          <Button onClick={() => { setSubmitted(false); setForm({ name: '', email: '', subject: '', message: '' }); }}>
-            {t('contact.sendAnother', 'Send another message')}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   const seoTitle = withSiteSuffix(t('seo.contact.title', 'Contact the Smart Marina Connect team'));
   const seoDescription = t('seo.contact.description', 'A question about the platform, your company page or sponsoring an event? Write to the M3 Monaco team behind Smart Marina Connect.');
 
+  /** The message under a field: red text, tied to the field for screen readers. */
+  const fieldError = (field: keyof ContactForm) =>
+    errors[field] ? (
+      <p id={`contact-${field}-error`} role="alert" className="text-sm font-medium text-red-700">
+        {errors[field]}
+      </p>
+    ) : null;
+  const fieldA11y = (field: keyof ContactForm) => ({
+    'aria-invalid': errors[field] ? (true as const) : undefined,
+    'aria-describedby': errors[field] ? `contact-${field}-error` : undefined,
+  });
+  const required = <span aria-hidden="true" className="text-red-700">*</span>;
+
   return (
-    <>
+    <div className="min-h-screen bg-page">
       <Seo title={seoTitle} description={seoDescription} path="/contact" />
       {/* A round-table workshop from SM26: people talking things through. */}
       <PageHero
         image={SITE_IMAGES.contactHero}
         seed="contact-hero"
-        containerClassName="max-w-5xl"
         icon={Mail}
+        eyebrow={t('contentPages.contact.eyebrow', 'Contact')}
         title={t('contact.title', 'Contact us')}
         subtitle={t(
           'contact.subtitle',
           'A question about the platform, your company page or sponsoring one of our events? The M3 team reads every message.'
         )}
       />
-    <div className="container mx-auto px-4 py-12 max-w-5xl">
 
-      <div className="grid gap-8 lg:grid-cols-3">
-        {/* Contact Form */}
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Send className="h-5 w-5 text-primary" />
-                {t('contact.formTitle', 'Send us a message')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-                {/* Name */}
-                <div className="space-y-2">
-                  <Label htmlFor="contact-name">
-                    {t('contact.nameLabel', 'Full name')} <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="contact-name"
-                    type="text"
-                    placeholder={t('contact.namePlaceholder', 'Your full name')}
-                    value={form.name}
-                    onChange={(e) => handleChange('name', e.target.value)}
-                    className={errors.name ? 'border-red-500' : ''}
-                  />
-                  {errors.name && (
-                    <p className="text-sm text-red-500">{errors.name}</p>
-                  )}
-                </div>
-
-                {/* Email */}
-                <div className="space-y-2">
-                  <Label htmlFor="contact-email">
-                    {t('contact.emailLabel', 'Email address')} <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="contact-email"
-                    type="email"
-                    placeholder={t('contact.emailPlaceholder', 'your.email@example.com')}
-                    value={form.email}
-                    onChange={(e) => handleChange('email', e.target.value)}
-                    className={errors.email ? 'border-red-500' : ''}
-                  />
-                  {errors.email && (
-                    <p className="text-sm text-red-500">{errors.email}</p>
-                  )}
-                </div>
-
-                {/* Subject */}
-                <div className="space-y-2">
-                  <Label htmlFor="contact-subject">
-                    {t('contact.subjectLabel', 'Subject')} <span className="text-red-500">*</span>
-                  </Label>
-                  <Select
-                    value={form.subject}
-                    onValueChange={(value) => handleChange('subject', value)}
+      <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 md:py-14">
+        <div className="grid gap-8 lg:grid-cols-12 lg:gap-10">
+          {/* Contact form */}
+          <Reveal className="lg:col-span-7 xl:col-span-8">
+            <section aria-labelledby="contact-form-title" className="rounded-card border border-rule bg-white p-6 sm:p-8 md:p-10">
+              {submitted ? (
+                <div role="status" className="py-6 text-center md:py-10">
+                  <span aria-hidden="true" className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-pill bg-foam text-teal-text">
+                    <CheckCircle className="h-8 w-8" />
+                  </span>
+                  <h2 id="contact-form-title" className="text-h2-sm text-navy md:text-h2">
+                    {t('contact.thankYouTitle', 'Thank you!')}
+                  </h2>
+                  <p className="mx-auto mt-3 max-w-md text-body md:text-body-lg text-ink">
+                    {t(
+                      'contact.thankYouDesc',
+                      'Your message has been sent. The M3 team will read it and get back to you as soon as possible.'
+                    )}
+                  </p>
+                  <Button
+                    variant="ctaOutline"
+                    className="mt-8"
+                    onClick={() => { setSubmitted(false); setForm({ name: '', email: '', subject: '', message: '' }); }}
                   >
-                    <SelectTrigger
-                      id="contact-subject"
-                      className={errors.subject ? 'border-red-500' : ''}
-                    >
-                      <SelectValue
-                        placeholder={t('contact.subjectPlaceholder', 'Select a subject')}
+                    {t('contact.sendAnother', 'Send another message')}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Eyebrow>{t('contentPages.contact.formEyebrow', 'Write to us')}</Eyebrow>
+                  <h2 id="contact-form-title" className="mt-3 text-h2-sm text-navy md:text-h2">
+                    {t('contact.formTitle', 'Send us a message')}
+                  </h2>
+                  <p className="mt-2 text-sm text-meta">{t('contentPages.contact.required', 'Fields marked * are required.')}</p>
+
+                  <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
+                    <div className="grid gap-5 sm:grid-cols-2">
+                      {/* Name */}
+                      <div className="space-y-2">
+                        <Label htmlFor="contact-name" className="text-sm font-semibold text-navy">
+                          {t('contact.nameLabel', 'Full name')} {required}
+                        </Label>
+                        <Input
+                          id="contact-name"
+                          type="text"
+                          autoComplete="name"
+                          placeholder={t('contact.namePlaceholder', 'Your full name')}
+                          value={form.name}
+                          onChange={(e) => handleChange('name', e.target.value)}
+                          className={cn(FIELD, errors.name && FIELD_ERROR)}
+                          {...fieldA11y('name')}
+                        />
+                        {fieldError('name')}
+                      </div>
+
+                      {/* Email */}
+                      <div className="space-y-2">
+                        <Label htmlFor="contact-email" className="text-sm font-semibold text-navy">
+                          {t('contact.emailLabel', 'Email address')} {required}
+                        </Label>
+                        <Input
+                          id="contact-email"
+                          type="email"
+                          autoComplete="email"
+                          placeholder={t('contact.emailPlaceholder', 'your.email@example.com')}
+                          value={form.email}
+                          onChange={(e) => handleChange('email', e.target.value)}
+                          className={cn(FIELD, errors.email && FIELD_ERROR)}
+                          {...fieldA11y('email')}
+                        />
+                        {fieldError('email')}
+                      </div>
+                    </div>
+
+                    {/* Subject */}
+                    <div className="space-y-2">
+                      <Label htmlFor="contact-subject" className="text-sm font-semibold text-navy">
+                        {t('contact.subjectLabel', 'Subject')} {required}
+                      </Label>
+                      <Select
+                        value={form.subject}
+                        onValueChange={(value) => handleChange('subject', value)}
+                      >
+                        <SelectTrigger
+                          id="contact-subject"
+                          className={cn(FIELD, 'text-base', errors.subject && FIELD_ERROR)}
+                          {...fieldA11y('subject')}
+                        >
+                          <SelectValue
+                            placeholder={t('contact.subjectPlaceholder', 'Select a subject')}
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SUBJECT_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {t(opt.labelKey, opt.fallback)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {fieldError('subject')}
+                    </div>
+
+                    {/* Message */}
+                    <div className="space-y-2">
+                      <Label htmlFor="contact-message" className="text-sm font-semibold text-navy">
+                        {t('contact.messageLabel', 'Message')} {required}
+                      </Label>
+                      <Textarea
+                        id="contact-message"
+                        placeholder={t('contact.messagePlaceholder', 'Tell us how we can help…')}
+                        value={form.message}
+                        onChange={(e) => handleChange('message', e.target.value)}
+                        rows={6}
+                        className={cn('rounded-field border-checkbox bg-white px-4 py-3 text-base', errors.message && FIELD_ERROR)}
+                        {...fieldA11y('message')}
                       />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SUBJECT_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {t(opt.labelKey, opt.fallback)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {errors.subject && (
-                    <p className="text-sm text-red-500">{errors.subject}</p>
-                  )}
-                </div>
+                      {fieldError('message')}
+                    </div>
 
-                {/* Message */}
-                <div className="space-y-2">
-                  <Label htmlFor="contact-message">
-                    {t('contact.messageLabel', 'Message')} <span className="text-red-500">*</span>
-                  </Label>
-                  <Textarea
-                    id="contact-message"
-                    placeholder={t('contact.messagePlaceholder', 'Tell us how we can help…')}
-                    value={form.message}
-                    onChange={(e) => handleChange('message', e.target.value)}
-                    rows={6}
-                    className={errors.message ? 'border-red-500' : ''}
-                  />
-                  {errors.message && (
-                    <p className="text-sm text-red-500">{errors.message}</p>
-                  )}
-                </div>
+                    <div className="pt-2">
+                      <Button
+                        type="submit"
+                        variant="cta"
+                        disabled={submitting}
+                        arrow={!submitting}
+                        roll={!submitting}
+                        className="w-full justify-between sm:w-auto"
+                      >
+                        {submitting ? t('contact.sending', 'Sending…') : t('contact.submitButton', 'Send message')}
+                      </Button>
+                    </div>
+                  </form>
+                </>
+              )}
+            </section>
+          </Reveal>
 
-                <Button type="submit" disabled={submitting} className="w-full sm:w-auto">
-                  {submitting ? (
-                    <>
-                      <span className="animate-spin mr-2">&#9696;</span>
-                      {t('contact.sending', 'Sending…')}
-                    </>
-                  ) : (
-                    <>
-                      <Send className="mr-2 h-4 w-4" />
-                      {t('contact.submitButton', 'Send message')}
-                    </>
-                  )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Contact Info Cards */}
-        <div className="space-y-6">
-          <h2 className="sr-only">{t('contact.infoTitle', 'Contact information')}</h2>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Mail className="h-5 w-5 text-primary" />
-                {t('contact.emailTitle', 'Email')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <a
-                href="mailto:events@m3monaco.com"
-                className="text-primary hover:underline"
-              >
-                events@m3monaco.com
-              </a>
-              <p className="text-sm text-gray-500 mt-2">
-                {t('contact.emailNote', 'We usually reply within 24 to 48 hours.')}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <MapPin className="h-5 w-5 text-primary" />
-                {t('contact.addressTitle', 'Address')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-gray-600">M3 Monaco</p>
-              <p className="text-gray-600">{t('contact.principality', 'Principality of Monaco')}</p>
-            </CardContent>
-          </Card>
+          {/* Who to write to */}
+          <aside aria-label={t('contact.infoTitle', 'Contact information')} className="grid content-start gap-6 lg:col-span-5 xl:col-span-4">
+            <Reveal delay={120}>
+              <ContactCard line={t('contact.emailNote', 'We usually reply within 24 to 48 hours.')} />
+            </Reveal>
+            <Reveal delay={200}>
+              <div className="rounded-card bg-white p-5 ring-1 ring-inset ring-rule sm:p-6">
+                <p className="text-meta-caps flex items-center gap-2">
+                  <MapPin className="h-4 w-4" aria-hidden="true" />
+                  {t('contact.addressTitle', 'Address')}
+                </p>
+                <p className="mt-3 text-card-title text-navy">M3 Monaco</p>
+                <p className="text-body text-ink">{t('contact.principality', 'Principality of Monaco')}</p>
+              </div>
+            </Reveal>
+          </aside>
         </div>
       </div>
     </div>
-    </>
   );
 }

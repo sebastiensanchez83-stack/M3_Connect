@@ -2,39 +2,47 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import { themedPath } from '@/lib/seoMeta';
-import { Link, useSearchParams } from 'react-router-dom';
-import { Input } from '@/components/ui/input';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import {
-  Search, Lock, FileText, Calendar, Clock, ArrowRight, BookOpen, Users, X, LayoutGrid, Sparkles, Tag,
-} from 'lucide-react';
+import { BookOpen, FileText, LayoutGrid, Sparkles, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { supabase } from '@/lib/supabase';
 import { AdBanner } from '@/components/ui/AdBanner';
-import { CoverImage } from '@/components/ui/CoverImage';
 import { PageHero } from '@/components/ui/PageHero';
-import { FilterBar, FilterChip } from '@/components/ui/FilterChip';
-import { ThemeTile, ThemeTileRow } from '@/components/ui/ThemeTile';
+import { SearchField } from '@/components/brand/SearchField';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { ContactCard } from '@/components/brand/ContactCard';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { Reveal, RevealGroup } from '@/components/motion/Reveal';
+import { subscribeScroll } from '@/components/motion/scrollLoop';
+import { useMediaQuery } from '@/components/motion/useReducedMotion';
+import {
+  FeaturedResource, FilterPill, ResourceCard, ResourceSkeleton, ThemeDoor, type ResourceCardData,
+} from '@/components/resources/ResourceParts';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { SITE_IMAGES } from '@/lib/siteMedia';
-import { readMinutes } from '@/lib/readTime';
 import { withSiteSuffix } from '@/lib/seoText';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
+import { cn } from '@/lib/utils';
+import '@/styles/refonte-content.css';
 
 /**
  * The resource library, browsed by theme.
  *
- * Before: a row of five format pills (four of which matched nothing — every
- * published resource is an article), a sidebar of 17 sector checkboxes, and
- * the visitor's organization sectors pre-ticked without saying so — and ticked
- * again on every tab refocus, wiping whatever the visitor had chosen.
+ * Refonte (Oct 2026), on the v2 kit, like the directory:
+ *   - the compact PageHero banner with the search pill (gold compass);
+ *   - six photo tiles, one per theme, are the way in (src/lib/themes.ts): the
+ *     title with a gold line and a small arrow, the count in a frosted pill, a
+ *     gold ring on the open theme;
+ *   - a sticky toolbar under the header (it rises when the header tucks away, a
+ *     page-coloured shelf backs it once stuck): the live count, "All themes", the
+ *     open theme's sectors, the formats (once there are two) and "For your sectors";
+ *   - the newest article as a wide card on the untouched library, then the cards.
  *
- * Now: six theme tiles with pictures are the way in (src/lib/themes.ts); once a
- * theme is open its sectors become chips to narrow it down. "For your sectors"
- * is a visible chip, never a hidden default. Every filter lives in the URL
- * (?theme=&sector=&format=&mine=1&q=), so a filtered view can be shared and
- * the back button undoes the last choice.
+ * Every filter lives in the URL (?theme=&sector=&format=&mine=1&q=), so a filtered
+ * view can be shared and the back button undoes the last choice. "For your
+ * sectors" is a visible chip, never a hidden default; a URL value with nothing on
+ * screen to show it is ignored, never applied invisibly.
  */
 
 interface Sector {
@@ -65,11 +73,10 @@ interface Indexed extends Resource {
   haystack: string;
 }
 
-/** Navbar (64 px) + filter toolbar (~57 px): where the list should start when scrolled to. */
-/** The sticky filter bar's height; the header's 64 px are added on the way up only (scrollTopUnderBars). */
-const FILTER_BAR_H = 57;
+/** The toolbar's height before it is measured (one row of 40 px chips and its padding). */
+const TOOLBAR_FALLBACK_H = 61;
 
-/** Speakers in display order — on a copy, never sorting the fetched array in place. */
+/** Speakers in display order: on a copy, never sorting the fetched array in place. */
 function speakerNames(r: Resource): string {
   return [...(r.resource_speakers ?? [])]
     .sort((a, b) => a.display_order - b.display_order)
@@ -213,10 +220,50 @@ export function ResourcesPage() {
 
   const anyFilter = !!(theme || activeSector || activeFormat || activeMine || query.trim());
 
+  // ---------------------------------------------------------------- toolbar
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  /** The toolbar is stuck under the header: a page-coloured shelf backs it, with a soft shadow. */
+  const [stuck, setStuck] = useState(false);
+
+  // Keyboard focus moving up must not land under the sticky toolbar: its height
+  // feeds the page's scroll-padding (index.css) while the library is mounted.
+  useEffect(() => {
+    const bar = toolbarRef.current;
+    const root = document.documentElement;
+    if (!bar) return;
+    const set = () => root.style.setProperty('--sticky-offset', `${bar.offsetHeight}px`);
+    set();
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(set);
+      ro.observe(bar);
+    }
+    return () => {
+      ro?.disconnect();
+      root.style.removeProperty('--sticky-offset');
+    };
+  }, []);
+
+  // Stuck state: the sentinel above the toolbar has scrolled up to where the
+  // toolbar sits (its computed top follows the header: 0 while it is tucked away).
+  useEffect(() => {
+    const bar = toolbarRef.current;
+    const sentinel = sentinelRef.current;
+    if (!bar || !sentinel) return;
+    return subscribeScroll(() => {
+      const top = parseFloat(getComputedStyle(bar).top) || 0;
+      const next = sentinel.getBoundingClientRect().top <= top + 0.5;
+      setStuck((prev) => (prev === next ? prev : next));
+    });
+  }, []);
+
+  const barHeight = () => toolbarRef.current?.offsetHeight ?? TOOLBAR_FALLBACK_H;
+
   // Changing a filter from the sticky toolbar deep in the list would leave the
   // reader looking at the middle of the new results. Bring the top of the list
   // back under the toolbar — only when they are below it, never on load.
-  const resultsRef = useRef<HTMLDivElement>(null);
   const filterKey = `${theme?.key ?? ''}|${activeSector ?? ''}|${activeFormat ?? ''}|${activeMine}`;
   const lastFilterKey = useRef(filterKey);
   useEffect(() => {
@@ -224,14 +271,15 @@ export function ResourcesPage() {
     lastFilterKey.current = filterKey;
     const el = resultsRef.current;
     if (!el) return;
-    const top = scrollTopUnderBars(el, FILTER_BAR_H, 0);
+    const top = scrollTopUnderBars(el, barHeight(), 0);
     if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
   }, [filterKey]);
 
   const scrollToResults = () => {
     const el = resultsRef.current;
-    if (el) window.scrollTo({ top: scrollTopUnderBars(el, FILTER_BAR_H, 0), behavior: 'smooth' });
+    if (el) window.scrollTo({ top: scrollTopUnderBars(el, barHeight(), 0), behavior: 'smooth' });
   };
+
   // "Featured" only means something on the untouched library.
   const featured = !anyFilter ? filtered[0] ?? null : null;
   const grid = featured ? filtered.slice(1) : filtered;
@@ -265,9 +313,14 @@ export function ResourcesPage() {
       ? t('seo.resources.descriptionLive', { count: resourceCount, defaultValue: '{{count}} articles on marina infrastructure, design, digital, energy, operations and business, sorted into 6 themes.' })
       : t('seo.resources.description', 'Articles on marina infrastructure, design, digital, energy, operations and business, sorted into 6 themes in the Smart Marina Connect library.');
 
+  // Cards in a row arrive 80 ms apart: how many fit in a row (1, 2, 3 at sm, lg).
+  const lg = useMediaQuery('(min-width: 1024px)');
+  const sm = useMediaQuery('(min-width: 640px)');
+  const columns = lg ? 3 : sm ? 2 : 1;
+
   // ---------------------------------------------------------------- render
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-page">
       <Seo title={seoTitle} description={seoDescription} path={themedPath('/resources', theme?.key)} />
 
       <PageHero
@@ -281,362 +334,201 @@ export function ResourcesPage() {
           : t('resources.subtitle', 'Articles in 6 themes: infrastructure, design, digital, energy, operations and business.')}
       >
         {/* A real form, so Enter on a phone keyboard closes it and shows the results. */}
-        <form
-          role="search"
-          className="relative max-w-xl"
-          onSubmit={(e) => {
-            e.preventDefault();
+        <SearchField
+          className="max-w-xl"
+          inputId="resources-search"
+          value={query}
+          onValueChange={(v) => update({ q: v }, true)}
+          onSearch={() => {
             (document.activeElement as HTMLElement | null)?.blur();
             scrollToResults();
           }}
-        >
-          <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
-          <Input
-            type="search"
-            enterKeyHint="search"
-            aria-label={t('resources.search')}
-            placeholder={t('resources.search')}
-            value={query}
-            onChange={(e) => update({ q: e.target.value }, true)}
-            className="h-12 rounded-full border-0 bg-white pl-12 pr-4 text-base text-gray-800 shadow-lg placeholder:text-gray-500"
-          />
-        </form>
+          placeholder={t('resources.search')}
+          label={t('resources.search')}
+        />
       </PageHero>
 
       {/* ── Themes: the way in ── */}
-      <section className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-8" aria-labelledby="themes-heading">
-        <h2 id="themes-heading" className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">
-          {t('resources.browseByTheme')}
-        </h2>
-        <ThemeTileRow>
-          <ThemeTile
-            label={t('resources.allThemes')}
-            hint={t('resources.allThemesDesc')}
-            count={indexed.length}
-            active={!theme}
-            seed="all-themes"
-            icon={LayoutGrid}
-            image={null}
-            // Already showing everything: a second click must not stack a
-            // duplicate history entry that makes Back look broken.
-            onClick={() => { if (theme) update({ theme: null, sector: null }); }}
-          />
+      <section aria-label={t('resources.browseByTheme')} className="mx-auto w-full max-w-7xl px-4 pt-10 sm:px-6 md:pt-14">
+        <Reveal>
+          <Eyebrow as="h2" number="01">{t('resources.browseByTheme')}</Eyebrow>
+        </Reveal>
+        <RevealGroup as="ul" className="mt-5 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
           {THEMES.map((th) => (
-            <ThemeTile
-              key={th.key}
-              label={themeLabel(th)}
-              hint={t(th.descKey, th.descFallback)}
-              count={themeCounts[th.key]}
-              active={theme?.key === th.key}
-              seed={`theme-${th.key}`}
-              icon={th.icon}
-              image={th.image}
-              focusY={th.imageFocusY}
-              // Clicking the open theme closes it, like a tab you can untick.
-              onClick={() => update({ theme: theme?.key === th.key ? null : th.key, sector: null })}
-            />
+            <li key={th.key} className="min-w-0">
+              <ThemeDoor
+                label={themeLabel(th)}
+                hint={t(th.descKey, th.descFallback)}
+                countLabel={t('resources.results', { count: themeCounts[th.key] })}
+                active={theme?.key === th.key}
+                icon={th.icon}
+                image={th.image}
+                focusY={th.imageFocusY}
+                // Clicking the open theme closes it, like a tab you can untick.
+                onClick={() => update({ theme: theme?.key === th.key ? null : th.key, sector: null })}
+              />
+            </li>
           ))}
-        </ThemeTileRow>
+        </RevealGroup>
       </section>
 
-      {/* ── Toolbar: refine within the current view. Sticks under the 64 px navbar. ── */}
-      <FilterBar sticky className="mt-6">
-          {/* aria-live: a screen-reader user hears the new count after each filter. */}
-          <span className="shrink-0 text-sm font-medium text-gray-900" aria-live="polite">
-            {loading ? '…' : t('resources.results', { count: filtered.length })}
-          </span>
+      {/* ── Toolbar: refine within the current view. Sticks under the header. ── */}
+      <div ref={sentinelRef} aria-hidden="true" className="mt-8" />
+      <div
+        ref={toolbarRef}
+        role="region"
+        aria-label={t('contentPages.library.toolbarLabel', 'Filter the library')}
+        className={cn('res-toolbar sticky top-16 z-30 border-y border-rule bg-page/95 backdrop-blur-md', stuck && 'is-stuck')}
+      >
+        <div className="mx-auto w-full max-w-7xl px-4 py-2.5 sm:px-6">
+          <div className="res-chips no-scrollbar -mx-4 flex items-center gap-2 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
+            {/* aria-live: a screen-reader user hears the new count after each filter. */}
+            <span className="shrink-0 pr-1 text-sm font-semibold text-ink" aria-live="polite">
+              {loading ? '…' : t('resources.results', { count: filtered.length })}
+            </span>
 
-          {/* Right after the count, so it can never end up scrolled off-screen. */}
-          {anyFilter && (
-            <button
-              type="button"
-              onClick={() => setParams(new URLSearchParams(), { replace: false })}
-              className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full px-3 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+            {/* Right after the count, so it can never end up scrolled off-screen. */}
+            {anyFilter && (
+              <button
+                type="button"
+                onClick={() => setParams(new URLSearchParams(), { replace: false })}
+                className="focus-ring inline-flex min-h-10 shrink-0 items-center gap-1 rounded-badge px-1.5 text-sm font-semibold text-gold-text underline underline-offset-[3px] transition-colors hover:text-navy"
+              >
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                {t('resources.clearFilters')}
+              </button>
+            )}
+
+            <span className="mx-1 h-5 w-px shrink-0 bg-rule" aria-hidden="true" />
+
+            <FilterPill
+              active={!theme}
+              icon={LayoutGrid}
+              count={indexed.length}
+              // Already showing everything: a second click must not stack a
+              // duplicate history entry that makes Back look broken.
+              onClick={() => { if (theme) update({ theme: null, sector: null }); }}
             >
-              <X className="h-3.5 w-3.5" aria-hidden="true" />
-              {t('resources.clearFilters')}
-            </button>
-          )}
+              {t('resources.allThemes')}
+            </FilterPill>
 
-          {(themeSectors.length > 1 || formats.length > 1 || mySectorSlugs.size > 0) && (
-            <span className="mx-1 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
-          )}
+            {/* Sectors of the open theme — only when there is a choice to make. */}
+            {themeSectors.length > 1 && themeSectors.map((s) => (
+              <FilterPill
+                key={s.slug}
+                active={activeSector === s.slug}
+                count={s.count}
+                onClick={() => update({ sector: activeSector === s.slug ? null : s.slug })}
+              >
+                {s.label}
+              </FilterPill>
+            ))}
 
-          {/* Sectors of the open theme — only when there is a choice to make. */}
-          {themeSectors.length > 1 && themeSectors.map((s) => (
-            <FilterChip
-              key={s.slug}
-              active={activeSector === s.slug}
-              count={s.count}
-              onClick={() => update({ sector: activeSector === s.slug ? null : s.slug })}
-            >
-              {s.label}
-            </FilterChip>
-          ))}
+            {formats.length > 1 && formats.map((f) => (
+              <FilterPill key={f} active={activeFormat === f} onClick={() => update({ format: activeFormat === f ? null : f })}>
+                {t(`resources.types.${f}`, f)}
+              </FilterPill>
+            ))}
 
-          {formats.length > 1 && formats.map((f) => (
-            <FilterChip key={f} active={activeFormat === f} onClick={() => update({ format: activeFormat === f ? null : f })}>
-              {t(`resources.types.${f}`, f)}
-            </FilterChip>
-          ))}
-
-          {mySectorSlugs.size > 0 && (
-            <FilterChip active={activeMine} onClick={() => update({ mine: activeMine ? null : '1' })} icon={Sparkles}>
-              {t('resources.forYourSectors')}
-            </FilterChip>
-          )}
-      </FilterBar>
-
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-6">
-        <AdBanner placement="resources" className="mb-2" />
+            {mySectorSlugs.size > 0 && (
+              <FilterPill active={activeMine} onClick={() => update({ mine: activeMine ? null : '1' })} icon={Sparkles}>
+                {t('resources.forYourSectors')}
+              </FilterPill>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ── Results ── */}
-      <div ref={resultsRef} className="mx-auto w-full max-w-7xl px-4 sm:px-6 pb-16 pt-6">
+      <div ref={resultsRef} className="mx-auto w-full max-w-7xl px-4 pb-14 pt-6 sm:px-6 md:pb-20">
+        <AdBanner placement="resources" className="mb-6" />
+
         {loading ? (
-          <LoadingSkeleton variant="card" count={6} />
+          <>
+            <p role="status" className="sr-only">{t('contentPages.library.loading', 'Loading the library…')}</p>
+            <ul aria-hidden="true" className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 6 }, (_, i) => <ResourceSkeleton key={i} />)}
+            </ul>
+          </>
         ) : filtered.length === 0 ? (
-          <div className="py-24 text-center">
-            <div className="mb-4 inline-flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
-              <FileText className="h-10 w-10 text-gray-300" aria-hidden="true" />
-            </div>
-            <p className="mb-2 text-lg text-gray-500">
+          <div className="mx-auto max-w-xl rounded-[24px] border border-dashed border-rule bg-white px-6 py-12 text-center">
+            <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-pill bg-chip text-navy">
+              <FileText className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <p className="text-h3 text-navy" role="status">
               {resources.length === 0 ? t('resources.noResources') : t('resources.noMatch')}
             </p>
             {resources.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => setParams(new URLSearchParams())}>
-                {t('resources.clearFilters')}
-              </Button>
+              <>
+                <p className="mt-2 text-body text-meta">{t('contentPages.library.noMatchHint', 'Try another word, or remove a filter.')}</p>
+                <Button variant="ctaNavy" className="mt-6" onClick={() => setParams(new URLSearchParams())}>
+                  {t('resources.clearFilters')}
+                </Button>
+              </>
             )}
           </div>
         ) : (
           <>
             {featured && (
-              <FeaturedCard
-                resource={featured}
-                locked={!canAccess(featured.access_level)}
-                formatDate={formatDate}
-              />
+              <Reveal className="mb-10">
+                <FeaturedResource resource={featured as ResourceCardData} locked={!canAccess(featured.access_level)} formatDate={formatDate} />
+              </Reveal>
             )}
 
             {theme && (
               <div className="mb-6 flex items-center gap-3">
-                <theme.icon className="h-5 w-5 text-primary" aria-hidden="true" />
+                <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-field bg-chip text-navy">
+                  <theme.icon className="h-5 w-5" />
+                </span>
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900">{themeLabel(theme)}</h2>
-                  <p className="text-sm text-gray-500">{t(theme.descKey, theme.descFallback)}</p>
+                  <h2 className="text-h3 text-navy">{themeLabel(theme)}</h2>
+                  <p className="text-sm text-meta">{t(theme.descKey, theme.descFallback)}</p>
                 </div>
               </div>
             )}
 
             {grid.length > 0 && (
-              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                {grid.map((r) => (
-                  <ResourceCard
-                    key={r.id}
-                    resource={r}
-                    locked={!canAccess(r.access_level)}
-                    formatDate={formatDate}
-                    showFormat={formats.length > 1}
-                    openTheme={theme}
-                    activeSector={activeSector}
-                    query={query}
-                    sectorLabel={sectorLabel}
-                  />
+              <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {grid.map((r, i) => (
+                  <Reveal as="li" key={r.id} delay={(i % columns) * 80} className="flex min-w-0">
+                    <ResourceCard
+                      resource={r as ResourceCardData}
+                      locked={!canAccess(r.access_level)}
+                      formatDate={formatDate}
+                      showFormat={formats.length > 1}
+                      openTheme={theme}
+                      activeSector={activeSector}
+                      query={query}
+                      sectorLabel={sectorLabel}
+                    />
+                  </Reveal>
                 ))}
-              </div>
+              </ul>
             )}
           </>
         )}
       </div>
-    </div>
-  );
-}
 
-/* ─── Pieces ─────────────────────────────────────────────────────── */
-
-function LockOverlay({ level }: { level: string }) {
-  const { t } = useTranslation();
-  return (
-    <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-      <div className="p-3 text-center text-white">
-        <Lock className="mx-auto mb-1 h-6 w-6" aria-hidden="true" />
-        <p className="text-xs font-medium">
-          {level === 'members' ? t('resources.signupToAccess') : t('resources.verifyMarinaToAccess')}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * What the card is about, in one chip. In the whole library that is its theme;
- * inside an open theme every card would repeat the same name, so the chip
- * names the resource's sector within that theme instead.
- */
-function ThemeBadge({
-  resource, openTheme, activeSector, sectorLabel,
-}: {
-  resource: Indexed;
-  openTheme: Theme | null;
-  activeSector: string | null;
-  sectorLabel: (slug: string) => string;
-}) {
-  const { t } = useTranslation();
-  let icon: Theme['icon'] | null = null;
-  let text = '';
-  if (openTheme) {
-    // The chip the reader picked wins, so the card agrees with the filter.
-    const slug = activeSector && resource.sectorSlugs.includes(activeSector)
-      ? activeSector
-      : resource.sectorSlugs.find((s) => openTheme.sectors.includes(s));
-    if (slug) { icon = openTheme.icon; text = sectorLabel(slug); }
-  } else {
-    const th = getTheme(resource.themes[0]);
-    if (th) { icon = th.icon; text = t(th.labelKey, th.fallback); }
-  }
-  if (!icon || !text) return null;
-  const Icon = icon;
-  return (
-    <span className="absolute left-3 top-3 inline-flex max-w-[85%] items-center gap-1 rounded-full bg-white/90 px-2.5 py-1 text-xs font-medium text-gray-800 backdrop-blur-sm">
-      <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
-      <span className="truncate">{text}</span>
-    </span>
-  );
-}
-
-function FeaturedCard({
-  resource, locked, formatDate,
-}: {
-  resource: Indexed;
-  locked: boolean;
-  formatDate: (iso: string) => string;
-}) {
-  const { t } = useTranslation();
-  const speakers = speakerNames(resource);
-  return (
-    <Link to={`/resources/${resource.id}`} state={{ fromList: true }} className="group mb-10 block">
-      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:shadow-lg">
-        <div className="grid lg:grid-cols-2">
-          <CoverImage
-            src={resource.thumbnail_url}
-            alt=""
-            seed={resource.id}
-            icon={getTheme(resource.themes[0])?.icon ?? BookOpen}
-            aspect="fill"
-            tone="sea"
-            eager
-            className="h-64 lg:h-80"
-            imageClassName="group-hover:scale-105"
-          >
-            {locked && <LockOverlay level={resource.access_level} />}
-            <span className="absolute left-4 top-4 rounded-full bg-secondary px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
-              {t('resources.latest')}
-            </span>
-          </CoverImage>
-          <div className="flex flex-col justify-center p-6 lg:p-8">
-            {resource.themes.length > 0 && (
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-secondary-dark">
-                {resource.themes.map((k) => { const th = getTheme(k)!; return t(th.labelKey, th.fallback); }).join(' · ')}
+      {/* ── The end: what is open to whom (visitors) and the person to write to ── */}
+      <section aria-label={t('homePage.end.label', 'Explore and contact us')} className="mx-auto w-full max-w-7xl px-4 pb-16 sm:px-6 md:pb-24">
+        <div className="grid items-center gap-8 lg:grid-cols-12 lg:gap-14">
+          {!user && (
+            <Reveal className="lg:col-span-7">
+              <Eyebrow>{t('contentPages.library.joinEyebrow', 'Free for every member')}</Eyebrow>
+              <h2 className="mt-3 max-w-2xl text-h2-sm text-navy md:text-h2">
+                {t('contentPages.library.joinTitle', 'Public articles are open to everyone. Join to read the rest.')}
+              </h2>
+              <p className="mt-3 max-w-xl text-body md:text-body-lg text-ink">
+                {t('contentPages.library.joinBody', 'Member-only articles open once the M3 team has checked your company. Membership is free.')}
               </p>
-            )}
-            <h2 className="mb-3 text-xl font-bold leading-tight text-gray-900 transition-colors group-hover:text-primary lg:text-2xl">
-              {resource.title}
-            </h2>
-            {resource.summary && <p className="mb-4 line-clamp-3 leading-relaxed text-gray-600">{resource.summary}</p>}
-            <div className="mb-4 flex items-center gap-4 text-sm text-gray-500">
-              <span className="flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5" aria-hidden="true" />
-                {formatDate(resource.published_at || resource.created_at)}
-              </span>
-              <span className="flex items-center gap-1">
-                <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                {t('resources.minRead', { count: readMinutes(resource.content) })}
-              </span>
-            </div>
-            {speakers && (
-              <div className="mb-2 flex items-center gap-2 text-sm text-gray-500">
-                <Users className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{speakers}</span>
-              </div>
-            )}
-            <span className="flex items-center gap-1 text-sm font-semibold text-primary transition-all group-hover:gap-2">
-              {t('resources.readMore')} <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </span>
-          </div>
+              <UnderlineLink to="/become-partner" className="mt-5 text-base">{t('nav.becomePartner')}</UnderlineLink>
+            </Reveal>
+          )}
+          <Reveal delay={120} className={user ? 'lg:col-span-6' : 'lg:col-span-5'}>
+            <ContactCard line={t('contentPages.library.askLine', 'Suggest an article or a webinar: write to the M3 team.')} />
+          </Reveal>
         </div>
-      </div>
-    </Link>
-  );
-}
-
-function ResourceCard({
-  resource, locked, formatDate, showFormat, openTheme, activeSector, sectorLabel, query,
-}: {
-  resource: Indexed;
-  locked: boolean;
-  formatDate: (iso: string) => string;
-  showFormat: boolean;
-  openTheme: Theme | null;
-  activeSector: string | null;
-  sectorLabel: (slug: string) => string;
-  query: string;
-}) {
-  const { t } = useTranslation();
-  const speakers = speakerNames(resource);
-  // Tags are searched but no longer printed on every card. When a search hits
-  // one, show it — otherwise the card is in the results with no visible reason.
-  const q = query.trim().toLowerCase();
-  const matchedTags = q ? (resource.tags ?? []).filter((tag) => tag.toLowerCase().includes(q)).slice(0, 3) : [];
-  return (
-    <Link
-      to={`/resources/${resource.id}`}
-      state={{ fromList: true }}
-      className="group block overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-md"
-    >
-      <CoverImage
-        src={resource.thumbnail_url}
-        alt=""
-        seed={resource.id}
-        icon={getTheme(resource.themes[0])?.icon ?? BookOpen}
-        aspect="wide"
-        imageClassName="group-hover:scale-105"
-      >
-        {locked && <LockOverlay level={resource.access_level} />}
-        <ThemeBadge resource={resource} openTheme={openTheme} activeSector={activeSector} sectorLabel={sectorLabel} />
-      </CoverImage>
-      <div className="p-4">
-        <div className="mb-2 flex items-center gap-3 text-xs text-gray-500">
-          <span className="flex items-center gap-1">
-            <Calendar className="h-3 w-3" aria-hidden="true" />
-            {formatDate(resource.published_at || resource.created_at)}
-          </span>
-          <span className="flex items-center gap-1">
-            <Clock className="h-3 w-3" aria-hidden="true" />
-            {t('resources.minRead', { count: readMinutes(resource.content) })}
-          </span>
-          {showFormat && <span>{t(`resources.types.${resource.type}`, resource.type)}</span>}
-        </div>
-        <h3 className="mb-2 line-clamp-2 font-semibold leading-snug text-gray-800 transition-colors group-hover:text-primary">
-          {resource.title}
-        </h3>
-        {resource.summary && <p className="line-clamp-2 text-sm leading-relaxed text-gray-500">{resource.summary}</p>}
-        {speakers && (
-          <div className="mt-2 flex items-center gap-1.5 text-xs text-gray-500">
-            <Users className="h-3 w-3 shrink-0" aria-hidden="true" />
-            <span className="truncate">{speakers}</span>
-          </div>
-        )}
-        {matchedTags.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            {matchedTags.map((tag) => (
-              <span key={tag} className="inline-flex items-center gap-1 rounded-full bg-secondary/15 px-2 py-0.5 text-xs font-medium text-secondary-dark">
-                <Tag className="h-3 w-3" aria-hidden="true" />{tag}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    </Link>
+      </section>
+    </div>
   );
 }

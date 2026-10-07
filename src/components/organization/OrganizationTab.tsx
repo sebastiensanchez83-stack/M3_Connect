@@ -876,11 +876,11 @@ export function OrganizationTab() {
   if (!org) {
     return (
       <div className="space-y-6">
-        <Card>
+        <Card className="rounded-card shadow-none">
           <CardContent className="pt-6 text-center">
-            <Building2 className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('org.noOrg')}</h3>
-            <p className="text-gray-500 text-sm mb-6">{t('org.createOrgDesc')}</p>
+            <Building2 className="h-12 w-12 mx-auto text-meta/40 mb-4" />
+            <h3 className="text-lg font-semibold text-navy mb-2">{t('org.noOrg')}</h3>
+            <p className="text-meta text-sm mb-6">{t('org.createOrgDesc')}</p>
 
             <div className="space-y-3 mb-6 inline-block text-left">
               <div className="flex items-center gap-3">
@@ -888,12 +888,12 @@ export function OrganizationTab() {
                 <span className="text-sm text-green-700 font-medium line-through">Create your account</span>
               </div>
               <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">2</div>
+                <div className="h-8 w-8 rounded-full bg-chip text-primary flex items-center justify-center text-sm font-bold">2</div>
                 <span className="text-sm text-primary font-medium">Create & complete your organization profile</span>
               </div>
               <div className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center text-sm font-bold">3</div>
-                <span className="text-sm text-gray-400">Admin review & approval</span>
+                <div className="h-8 w-8 rounded-full bg-chip text-meta/60 flex items-center justify-center text-sm font-bold">3</div>
+                <span className="text-sm text-meta/60">Admin review & approval</span>
               </div>
             </div>
 
@@ -905,7 +905,7 @@ export function OrganizationTab() {
         </Card>
 
         {showCreateForm && (
-          <Card>
+          <Card className="rounded-card shadow-none">
             <CardHeader>
               <CardTitle>{t('org.createOrg')}</CardTitle>
             </CardHeader>
@@ -926,7 +926,7 @@ export function OrganizationTab() {
                   onChange={(e) => setCreateForm({ ...createForm, domain: e.target.value })}
                   placeholder={t('org.domainPlaceholder')}
                 />
-                <p className="text-xs text-gray-500">{t('org.domainHelp')}</p>
+                <p className="text-xs text-meta">{t('org.domainHelp')}</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -964,7 +964,7 @@ export function OrganizationTab() {
                 />
               </div>
               {(profile?.persona === 'partner' || profile?.persona === 'media_partner') && (
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-meta">
                   {t('org.sponsorFreeNote', 'Membership is free. Want to sponsor an event?')}{' '}
                   <Link to="/contact?subject=partnership" className="font-medium text-primary underline">
                     {t('org.sponsorContactLink', 'Contact the M3 team')}
@@ -1011,7 +1011,7 @@ export function OrganizationTab() {
           documents, capital / thesis. */}
 
       {/* Organization Info Card */}
-      <Card className="overflow-hidden" data-org-section="branding">
+      <Card className="rounded-card shadow-none overflow-hidden" data-org-section="branding">
         {/* Cover banner (3:1) — full-bleed, with an always-visible upload button for owners */}
         <div className="relative aspect-[3/1] min-h-[10rem] bg-gradient-to-br from-slate-100 to-slate-200">
           {org.banner_url ? (
@@ -1075,7 +1075,7 @@ export function OrganizationTab() {
                 {org.logo_url ? (
                   <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-lg object-contain border bg-white p-1" />
                 ) : (
-                  <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <div className="w-14 h-14 rounded-lg bg-chip flex items-center justify-center">
                     <Building2 className="h-7 w-7 text-primary" />
                   </div>
                 )}
@@ -1129,7 +1129,7 @@ export function OrganizationTab() {
                   <Badge className="bg-red-100 text-red-800 border-red-200"><XCircle className="h-3 w-3 mr-1" />{t('org.statusRejected', 'Rejected')}</Badge>
                 )}
                 {org.access_status === 'suspended' && (
-                  <Badge className="bg-gray-100 text-gray-800 border-gray-200"><XCircle className="h-3 w-3 mr-1" />{t('org.statusSuspended', 'Suspended')}</Badge>
+                  <Badge className="bg-chip text-ink border-rule"><XCircle className="h-3 w-3 mr-1" />{t('org.statusSuspended', 'Suspended')}</Badge>
                 )}
                 {org.onboarding_status === 'submitted' && org.access_status === 'pending' && (
                   <Badge variant="outline" className="text-blue-600 border-blue-200">{t('org.onboardingSubmitted', 'Under Review')}</Badge>
@@ -1170,13 +1170,13 @@ export function OrganizationTab() {
           {/* Org details */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             {org.primary_domain && (
-              <div className="flex items-center gap-2 text-gray-600">
+              <div className="flex items-center gap-2 text-meta">
                 <Mail className="h-4 w-4 text-primary" />
                 <span>{org.primary_domain}</span>
               </div>
             )}
             {org.website && (
-              <div className="flex items-center gap-2 text-gray-600">
+              <div className="flex items-center gap-2 text-meta">
                 <Globe className="h-4 w-4 text-primary" />
                 <a href={org.website} target="_blank" rel="noopener noreferrer" className="hover:underline truncate">
                   {org.website.replace(/^https?:\/\//, '')}
@@ -1184,25 +1184,25 @@ export function OrganizationTab() {
               </div>
             )}
             {(org.city || org.country) && (
-              <div className="flex items-center gap-2 text-gray-600">
+              <div className="flex items-center gap-2 text-meta">
                 <MapPin className="h-4 w-4 text-primary" />
                 <span>{[org.city, org.country].filter(Boolean).join(', ')}</span>
               </div>
             )}
-            <div className="flex items-center gap-2 text-gray-600">
+            <div className="flex items-center gap-2 text-meta">
               <Users className="h-4 w-4 text-primary" />
               <span>{members.length} {members.length === 1 ? 'member' : 'members'}</span>
             </div>
           </div>
 
           {org.description && (
-            <p className="text-gray-600 text-sm">{org.description}</p>
+            <p className="text-meta text-sm">{org.description}</p>
           )}
 
           {/* Product images — any member manages; shown on the public profile */}
           <div className="border-t pt-4" data-org-section="gallery">
             <div className="flex items-center justify-between gap-2 mb-1">
-              <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Product images</h4>
+              <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">Product images</h4>
               {canEditOrg && (
                 <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary cursor-pointer hover:underline">
                   <input type="file" accept="image/*" multiple className="hidden" disabled={galleryBusy}
@@ -1211,17 +1211,17 @@ export function OrganizationTab() {
                 </label>
               )}
             </div>
-            <p className="text-xs text-gray-400 mb-2">Shown on your public organization profile. Any team member can add or remove them.</p>
+            <p className="text-xs text-meta/60 mb-2">Shown on your public organization profile. Any team member can add or remove them.</p>
             {(org.gallery || []).length === 0 ? (
-              <p className="text-sm text-gray-400">No product images yet.</p>
+              <p className="text-sm text-meta/60">No product images yet.</p>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {(org.gallery || []).map((url, i) => (
-                  <div key={galleryKeys[i]} className="relative group aspect-square rounded-lg border border-gray-100 overflow-hidden bg-gray-50">
+                  <div key={galleryKeys[i]} className="relative group aspect-square rounded-lg border border-rule overflow-hidden bg-page">
                     <img src={url} alt="" className="w-full h-full object-cover" />
                     {canEditOrg && (
                       <button type="button" onClick={() => removeGalleryImage(url)}
-                        className="absolute top-1 right-1 bg-white/90 rounded-full p-1 text-gray-500 hover:text-red-600 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Remove image">
+                        className="absolute top-1 right-1 bg-white/90 rounded-full p-1 text-meta hover:text-red-600 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Remove image">
                         <X className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -1235,37 +1235,37 @@ export function OrganizationTab() {
           {!editing && (
             <div className="border-t pt-4 space-y-4" data-org-section="details">
               {/* General Details */}
-              <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">{t('org.generalDetails', 'General Details')}</h4>
+              <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">{t('org.generalDetails', 'General Details')}</h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-500 block">{t('org.orgType', 'Organization Type')}</span>
+                  <span className="text-meta block">{t('org.orgType', 'Organization Type')}</span>
                   <span className="font-medium capitalize">{org.organization_type?.replace('_', ' ') || '—'}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500 block">{t('org.tier', 'Tier')}</span>
+                  <span className="text-meta block">{t('org.tier', 'Tier')}</span>
                   <span className="font-medium">{TIER_LABELS[org.tier as OrgTier] || org.tier}</span>
                 </div>
                 {org.country && (
                   <div>
-                    <span className="text-gray-500 block">{t('org.country', 'Country')}</span>
+                    <span className="text-meta block">{t('org.country', 'Country')}</span>
                     <span className="font-medium">{org.country}</span>
                   </div>
                 )}
                 {org.city && (
                   <div>
-                    <span className="text-gray-500 block">{t('org.city', 'City')}</span>
+                    <span className="text-meta block">{t('org.city', 'City')}</span>
                     <span className="font-medium">{org.city}</span>
                   </div>
                 )}
                 {org.primary_domain && (
                   <div>
-                    <span className="text-gray-500 block">{t('org.domain', 'Primary Domain')}</span>
+                    <span className="text-meta block">{t('org.domain', 'Primary Domain')}</span>
                     <span className="font-medium">{org.primary_domain}</span>
                   </div>
                 )}
                 {org.website && (
                   <div>
-                    <span className="text-gray-500 block">{t('org.website', 'Website')}</span>
+                    <span className="text-meta block">{t('org.website', 'Website')}</span>
                     <a href={org.website} target="_blank" rel="noopener noreferrer" className="font-medium text-primary hover:underline inline-flex items-center gap-1">
                       {org.website.replace(/^https?:\/\//, '')}
                       <ExternalLink className="h-3 w-3" />
@@ -1273,11 +1273,11 @@ export function OrganizationTab() {
                   </div>
                 )}
                 <div>
-                  <span className="text-gray-500 block">{t('org.status', 'Status')}</span>
+                  <span className="text-meta block">{t('org.status', 'Status')}</span>
                   <span className="font-medium capitalize">{org.access_status}</span>
                 </div>
                 <div>
-                  <span className="text-gray-500 block">{t('org.created', 'Created')}</span>
+                  <span className="text-meta block">{t('org.created', 'Created')}</span>
                   <span className="font-medium">{new Date(org.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                 </div>
               </div>
@@ -1285,7 +1285,7 @@ export function OrganizationTab() {
               {/* Partner-specific details */}
               {org.organization_type === 'partner' && org.headquarters_country && (
                 <div className="text-sm">
-                  <span className="text-gray-500 block">{t('org.headquartersCountry', 'Headquarters Country')}</span>
+                  <span className="text-meta block">{t('org.headquartersCountry', 'Headquarters Country')}</span>
                   <span className="font-medium">{org.headquarters_country}</span>
                 </div>
               )}
@@ -1293,52 +1293,52 @@ export function OrganizationTab() {
               {/* Media partner-specific details */}
               {org.organization_type === 'media_partner' && org.audience_description && (
                 <div className="text-sm">
-                  <span className="text-gray-500 block mb-1">{t('org.audienceDescription', 'Audience Description')}</span>
-                  <p className="text-gray-700">{org.audience_description}</p>
+                  <span className="text-meta block mb-1">{t('org.audienceDescription', 'Audience Description')}</span>
+                  <p className="text-ink">{org.audience_description}</p>
                 </div>
               )}
 
               {/* Marina-specific details */}
               {org.organization_type === 'marina' && (
                 <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide border-t pt-4">{t('org.marinaDetails', 'Marina Details')}</h4>
+                  <h4 className="text-sm font-semibold text-ink uppercase tracking-wide border-t pt-4">{t('org.marinaDetails', 'Marina Details')}</h4>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                     {editForm.marina_type && (
                       <div>
-                        <span className="text-gray-500 block">{t('org.marinaType', 'Marina Type')}</span>
+                        <span className="text-meta block">{t('org.marinaType', 'Marina Type')}</span>
                         <span className="font-medium capitalize">{editForm.marina_type.replace('_', ' ')}</span>
                       </div>
                     )}
                     {editForm.berths_count && (
                       <div>
-                        <span className="text-gray-500 block">{t('org.totalBerths', 'Total Berths')}</span>
+                        <span className="text-meta block">{t('org.totalBerths', 'Total Berths')}</span>
                         <span className="font-medium">{editForm.berths_count}</span>
                       </div>
                     )}
                     {editForm.superyacht_berths && (
                       <div>
-                        <span className="text-gray-500 block">{t('org.superyachtBerths', 'Superyacht Berths')}</span>
+                        <span className="text-meta block">{t('org.superyachtBerths', 'Superyacht Berths')}</span>
                         <span className="font-medium">{editForm.superyacht_berths}</span>
                       </div>
                     )}
                     {editForm.longest_berth_meters && (
                       <div>
-                        <span className="text-gray-500 block">{t('org.longestBerth', 'Longest Berth')}</span>
+                        <span className="text-meta block">{t('org.longestBerth', 'Longest Berth')}</span>
                         <span className="font-medium">{editForm.longest_berth_meters} m</span>
                       </div>
                     )}
                     <div>
-                      <span className="text-gray-500 block">{t('org.freshWater', 'Fresh Water')}</span>
+                      <span className="text-meta block">{t('org.freshWater', 'Fresh Water')}</span>
                       <span className="font-medium">{editForm.fresh_water_available ? t('common.yes', 'Yes') : t('common.no', 'No')}</span>
                     </div>
                   </div>
 
                   {editForm.certifications.length > 0 && (
                     <div className="text-sm">
-                      <span className="text-gray-500 block mb-1">{t('org.certifications', 'Certifications')}</span>
+                      <span className="text-meta block mb-1">{t('org.certifications', 'Certifications')}</span>
                       <div className="flex flex-wrap gap-1.5">
                         {editForm.certifications.map((cert, i) => (
-                          <Badge key={certificationKeys[i]} variant="secondary" className="text-xs">{cert}</Badge>
+                          <Badge key={certificationKeys[i]} variant="secondary" className="border-transparent bg-chip text-xs font-medium text-navy hover:bg-chip">{cert}</Badge>
                         ))}
                       </div>
                     </div>
@@ -1347,7 +1347,7 @@ export function OrganizationTab() {
                   {/* Facilities */}
                   {(editForm.has_yacht_club || editForm.has_sailing_school || editForm.has_boat_yard || editForm.has_restaurants || editForm.has_concierge) && (
                     <div className="text-sm">
-                      <span className="text-gray-500 block mb-1">{t('org.facilities', 'Facilities')}</span>
+                      <span className="text-meta block mb-1">{t('org.facilities', 'Facilities')}</span>
                       <div className="flex flex-wrap gap-1.5">
                         {editForm.has_yacht_club && (
                           <Badge variant="outline" className="text-xs">
@@ -1368,25 +1368,25 @@ export function OrganizationTab() {
 
                   {editForm.marina_description && (
                     <div className="text-sm">
-                      <span className="text-gray-500 block mb-1">{t('org.marinaDescription', 'Marina Description')}</span>
-                      <p className="text-gray-700">{editForm.marina_description}</p>
+                      <span className="text-meta block mb-1">{t('org.marinaDescription', 'Marina Description')}</span>
+                      <p className="text-ink">{editForm.marina_description}</p>
                     </div>
                   )}
 
                   {editForm.services_description && (
                     <div className="text-sm">
-                      <span className="text-gray-500 block mb-1">{t('org.servicesDescription', 'Services Description')}</span>
-                      <p className="text-gray-700">{editForm.services_description}</p>
+                      <span className="text-meta block mb-1">{t('org.servicesDescription', 'Services Description')}</span>
+                      <p className="text-ink">{editForm.services_description}</p>
                     </div>
                   )}
 
                   {/* Sectors of Interest (read-only) */}
                   {interestSectors.length > 0 && (
                     <div className="text-sm">
-                      <span className="text-gray-500 block mb-1">{t('org.sectorsOfInterest', 'Sectors of Interest')}</span>
+                      <span className="text-meta block mb-1">{t('org.sectorsOfInterest', 'Sectors of Interest')}</span>
                       <div className="flex flex-wrap gap-1.5">
                         {allSectors.filter(s => interestSectors.includes(s.id)).map(sector => (
-                          <Badge key={sector.id} variant="secondary" className="text-xs">{sector.label}</Badge>
+                          <Badge key={sector.id} variant="secondary" className="border-transparent bg-chip text-xs font-medium text-navy hover:bg-chip">{sector.label}</Badge>
                         ))}
                       </div>
                     </div>
@@ -1395,11 +1395,11 @@ export function OrganizationTab() {
                   {/* Future Plans (read-only) */}
                   {Object.keys(futurePlans).length > 0 && (
                     <div className="text-sm">
-                      <span className="text-gray-500 block mb-1">{t('org.futurePlans', 'Future Development Plans')}</span>
+                      <span className="text-meta block mb-1">{t('org.futurePlans', 'Future Development Plans')}</span>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {allSectors.filter(s => futurePlans[s.id]).map(sector => (
-                          <div key={sector.id} className="flex items-center justify-between bg-gray-50 rounded px-3 py-1.5">
-                            <span className="text-gray-700 truncate">{sector.label}</span>
+                          <div key={sector.id} className="flex items-center justify-between bg-page rounded px-3 py-1.5">
+                            <span className="text-ink truncate">{sector.label}</span>
                             <Badge variant="outline" className="text-xs ml-2 shrink-0">
                               {timelineOptions.find(opt => opt.value === futurePlans[sector.id])?.label || futurePlans[sector.id]}
                             </Badge>
@@ -1470,8 +1470,8 @@ export function OrganizationTab() {
               {/* Service Sectors — for partner/moderator/media orgs */}
               {org.organization_type !== 'marina' && allSectors.length > 0 && (
                 <div className="space-y-2 border-t pt-4">
-                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Service Sectors</h4>
-                  <p className="text-xs text-gray-500">Select the sectors your organization operates in.</p>
+                  <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">Service Sectors</h4>
+                  <p className="text-xs text-meta">Select the sectors your organization operates in.</p>
                   <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
                     {allSectors.map(s => (
                       <div key={s.id} className="flex items-center space-x-2">
@@ -1489,7 +1489,7 @@ export function OrganizationTab() {
                     ))}
                   </div>
                   {serviceSectors.length > 0 && (
-                    <p className="text-xs text-gray-500">{serviceSectors.length} sector(s) selected</p>
+                    <p className="text-xs text-meta">{serviceSectors.length} sector(s) selected</p>
                   )}
                 </div>
               )}
@@ -1497,7 +1497,7 @@ export function OrganizationTab() {
               {/* Marina-specific fields */}
               {org.organization_type === 'marina' && (
                 <div className="space-y-4 border-t pt-4">
-                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Marina Details</h4>
+                  <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">Marina Details</h4>
 
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
@@ -1548,7 +1548,7 @@ export function OrganizationTab() {
                     />
                   </div>
 
-                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide pt-2">Facilities</h4>
+                  <h4 className="text-sm font-semibold text-ink uppercase tracking-wide pt-2">Facilities</h4>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Label htmlFor="yacht_club" className="cursor-pointer">Yacht Club</Label>
@@ -1556,7 +1556,7 @@ export function OrganizationTab() {
                         {editForm.has_yacht_club && (
                           <div className="flex items-center gap-1.5">
                             <Input type="number" min="0" className="w-20 h-8 text-xs" placeholder="0" value={editForm.yacht_club_members} onChange={(e) => setEditForm({ ...editForm, yacht_club_members: e.target.value })} />
-                            <span className="text-xs text-gray-500 whitespace-nowrap">members</span>
+                            <span className="text-xs text-meta whitespace-nowrap">members</span>
                           </div>
                         )}
                         <Switch id="yacht_club" checked={editForm.has_yacht_club} onCheckedChange={(c) => setEditForm({ ...editForm, has_yacht_club: c })} />
@@ -1576,7 +1576,7 @@ export function OrganizationTab() {
                         {editForm.has_restaurants && (
                           <div className="flex items-center gap-1.5">
                             <Input type="number" min="0" className="w-16 h-8 text-xs" placeholder="0" value={editForm.restaurants_count} onChange={(e) => setEditForm({ ...editForm, restaurants_count: e.target.value })} />
-                            <span className="text-xs text-gray-500 whitespace-nowrap">restaurants</span>
+                            <span className="text-xs text-meta whitespace-nowrap">restaurants</span>
                           </div>
                         )}
                         <Switch id="restaurants" checked={editForm.has_restaurants} onCheckedChange={(c) => setEditForm({ ...editForm, has_restaurants: c })} />
@@ -1608,7 +1608,7 @@ export function OrganizationTab() {
                   </div>
 
                   {/* Sectors of Interest */}
-                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide pt-2">Sectors of Interest</h4>
+                  <h4 className="text-sm font-semibold text-ink uppercase tracking-wide pt-2">Sectors of Interest</h4>
                   <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
                     {allSectors.map(s => (
                       <div key={s.id} className="flex items-center space-x-2">
@@ -1627,11 +1627,11 @@ export function OrganizationTab() {
                   </div>
 
                   {/* Future Development Plans */}
-                  <h4 className="text-sm font-semibold text-gray-700 uppercase tracking-wide pt-2">Future Development Plans</h4>
-                  <p className="text-xs text-gray-500">For each sector of interest, select the timeline that best matches your development plans.</p>
+                  <h4 className="text-sm font-semibold text-ink uppercase tracking-wide pt-2">Future Development Plans</h4>
+                  <p className="text-xs text-meta">For each sector of interest, select the timeline that best matches your development plans.</p>
                   <div className="space-y-1 max-h-[400px] overflow-y-auto border rounded-lg p-3">
                     {allSectors.filter(s => interestSectors.includes(s.id)).map(sector => (
-                      <div key={sector.id} className="flex items-center gap-3 py-2 px-2 rounded hover:bg-gray-50 border-b border-gray-100 last:border-0">
+                      <div key={sector.id} className="flex items-center gap-3 py-2 px-2 rounded hover:bg-page border-b border-rule last:border-0">
                         <span className="text-sm flex-1 min-w-0 truncate" title={sector.label}>{sector.label}</span>
                         <div className="flex gap-1 shrink-0">
                           {timelineOptions.map(tOpt => (
@@ -1647,7 +1647,7 @@ export function OrganizationTab() {
                               className={`px-2 py-1 text-xs rounded border transition-colors ${
                                 futurePlans[sector.id] === tOpt.value
                                   ? 'bg-primary text-white border-primary'
-                                  : 'bg-white text-gray-500 border-gray-200 hover:border-primary hover:text-primary'
+                                  : 'bg-white text-meta border-rule hover:border-primary hover:text-primary'
                               }`}
                             >
                               {tOpt.label.replace(' months', 'm').replace(' years', 'y').replace('Immediate', 'Now')}
@@ -1657,7 +1657,7 @@ export function OrganizationTab() {
                       </div>
                     ))}
                     {interestSectors.length === 0 && (
-                      <p className="text-sm text-gray-400 text-center py-4">Select sectors of interest above to set development timelines.</p>
+                      <p className="text-sm text-meta/60 text-center py-4">Select sectors of interest above to set development timelines.</p>
                     )}
                   </div>
                 </div>
@@ -1676,17 +1676,17 @@ export function OrganizationTab() {
       </Card>
 
       {/* Members */}
-      <Card data-org-section="team">
+      <Card className="rounded-card shadow-none" data-org-section="team">
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-h3 text-navy">
               <Users className="h-5 w-5 text-primary" />
               {t('org.members')}
             </CardTitle>
             {/* Seat counter — hidden for marinas (unlimited) */}
             {org.organization_type !== 'marina' && org.max_seats > 0 && (
               <div className="mt-2 flex items-center gap-2">
-                <div className="flex-1 max-w-[160px] h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="flex-1 max-w-[160px] h-2 bg-rule rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all ${
                       members.length >= org.max_seats ? 'bg-red-500' : members.length >= org.max_seats * 0.8 ? 'bg-amber-500' : 'bg-primary'
@@ -1694,7 +1694,7 @@ export function OrganizationTab() {
                     style={{ width: `${Math.min(100, (members.length / org.max_seats) * 100)}%` }}
                   />
                 </div>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-meta">
                   {members.length} / {org.max_seats} seats
                 </span>
               </div>
@@ -1733,17 +1733,17 @@ export function OrganizationTab() {
               return (
                 <div key={member.id} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
+                    <div className="w-9 h-9 rounded-full bg-chip flex items-center justify-center text-primary font-bold text-sm">
                       {initials}
                     </div>
                     <div>
-                      <div className="font-medium text-gray-900 flex items-center gap-2">
+                      <div className="font-semibold text-navy flex items-center gap-2">
                         {name}
                         {member.role === 'owner' && (
                           <Crown className="h-4 w-4 text-amber-500" />
                         )}
                       </div>
-                      <div className="text-xs text-gray-500">{p?.email}</div>
+                      <div className="text-xs text-meta">{p?.email}</div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1790,10 +1790,10 @@ export function OrganizationTab() {
 
             {/* Invitations & join requests — visible to all members, actions owner-only */}
             {invitations.length > 0 && (
-              <div className="pt-3 mt-3 border-t border-gray-100">
+              <div className="pt-3 mt-3 border-t border-rule">
                 <div className="flex items-center gap-2 mb-2">
                   <Mail className="h-4 w-4 text-amber-500" />
-                  <span className="text-sm font-semibold text-gray-600">Invitations & Requests ({invitations.length})</span>
+                  <span className="text-sm font-semibold text-meta">Invitations & Requests ({invitations.length})</span>
                 </div>
               </div>
             )}
@@ -1817,7 +1817,7 @@ export function OrganizationTab() {
                       {invInitials}
                     </div>
                     <div>
-                      <div className="font-medium text-gray-700 flex items-center gap-2">
+                      <div className="font-medium text-ink flex items-center gap-2">
                         {invName || inv.email.split('@')[0]}
                         {isAccepted ? (
                           <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">
@@ -1836,9 +1836,9 @@ export function OrganizationTab() {
                           </Badge>
                         )}
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-meta">
                         {inv.email}
-                        <span className="text-gray-400 ml-2">
+                        <span className="text-meta/60 ml-2">
                           {isAccepted ? 'Joined' : isJoinRequest ? 'Requested' : 'Invited'} {new Date(inv.created_at).toLocaleDateString()}
                         </span>
                       </div>
@@ -1914,9 +1914,9 @@ export function OrganizationTab() {
 
       {/* Pending Invitations card removed — invitations now shown inline in members list above */}
       {false && isOwner && invitations.length > 0 && (
-        <Card>
+        <Card className="rounded-card shadow-none">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-h3 text-navy">
               <Mail className="h-5 w-5 text-primary" />
               {t('org.pendingInvitations')} ({invitations.length})
             </CardTitle>
@@ -1926,13 +1926,13 @@ export function OrganizationTab() {
               {invitations.map((inv) => (
                 <div key={inv.id} className="flex items-center justify-between py-3">
                   <div>
-                    <div className="font-medium text-gray-900">
+                    <div className="font-semibold text-navy">
                       {[inv.first_name, inv.last_name].filter(Boolean).join(' ') || inv.email}
                     </div>
-                    <div className="text-xs text-gray-500">{inv.email}</div>
+                    <div className="text-xs text-meta">{inv.email}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-400">
+                    <span className="text-xs text-meta/60">
                       {new Date(inv.expires_at).toLocaleDateString()}
                     </span>
                     <Button
@@ -1952,9 +1952,9 @@ export function OrganizationTab() {
       )}
 
       {/* Organization Documents */}
-      <Card data-org-section="documents">
+      <Card className="rounded-card shadow-none" data-org-section="documents">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-h3 text-navy">
             <FileText className="h-5 w-5 text-primary" />
             Documents
           </CardTitle>
@@ -1994,7 +1994,7 @@ export function OrganizationTab() {
 
           {/* Document list */}
           {orgDocs.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No documents uploaded yet.</p>
+            <p className="text-sm text-meta/60 text-center py-4">No documents uploaded yet.</p>
           ) : (
             <div className="divide-y">
               {orgDocs.map((doc) => (
@@ -2008,11 +2008,11 @@ export function OrganizationTab() {
                         href={doc.file_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm font-medium text-gray-900 hover:text-primary truncate block"
+                        className="text-sm font-semibold text-navy hover:text-primary truncate block"
                       >
                         {doc.file_name}
                       </a>
-                      <div className="text-xs text-gray-500 flex items-center gap-2">
+                      <div className="text-xs text-meta flex items-center gap-2">
                         <span>{(doc.file_size / 1024).toFixed(0)} KB</span>
                         <span>{new Date(doc.created_at).toLocaleDateString()}</span>
                         {doc.description && <span>— {doc.description}</span>}
@@ -2167,7 +2167,7 @@ export function OrganizationTab() {
                 </Link>
               </Button>
             </div>
-            <p className="text-xs text-gray-500 sm:text-right">
+            <p className="text-xs text-meta sm:text-right">
               {t('org.sponsorDialog.emailNote', 'Or write to')}{' '}
               <a href={`mailto:${SPONSORSHIP_CONTACT}`} className="text-primary hover:underline">{SPONSORSHIP_CONTACT}</a>
             </p>

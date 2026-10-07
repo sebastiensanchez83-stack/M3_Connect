@@ -2,11 +2,12 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Helmet } from 'react-helmet-async';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ArrowRight, CheckCircle, Loader2, Lock, Mail, RefreshCw, ShieldCheck, Ship } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { AlertTriangle, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { AuthLoading, AuthShell, AuthStatus } from '@/components/auth/AuthShell';
+import { AuthInput, AuthLabel, AuthNotice, CTA_WRAP, FieldHint, PasswordInput } from '@/components/auth/fields';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
@@ -97,21 +98,18 @@ function isRateLimited(error: AuthErrorLike): boolean {
 function WelcomeShell({ event, children }: { event: boolean; children: ReactNode }) {
   const { t } = useTranslation();
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
       <Helmet><title>{t('welcome.pageTitle', 'Welcome — Smart Marina Connect')}</title></Helmet>
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-        <div className="container mx-auto px-4 py-10 text-center">
-          <Ship className="h-8 w-8 mx-auto mb-2 text-white/70" />
-          <h1 className="text-2xl lg:text-3xl font-bold">{t('onboarding.welcome', 'Welcome to Smart Marina Connect')}</h1>
-          <p className="text-white/80 mt-1">
-            {event
-              ? t('welcome.eventLine', 'Monaco Smart & Sustainable Marina Rendezvous 2026 · 20–21 Sep · Yacht Club de Monaco')
-              : t('welcome.tagline', 'The marina industry network')}
-          </p>
-        </div>
-      </section>
-      <div className="container mx-auto px-4 py-10 max-w-md">{children}</div>
-    </div>
+      <AuthShell
+        title={t('onboarding.welcome', 'Welcome to Smart Marina Connect')}
+        lead={event
+          ? t('welcome.eventLine', 'Monaco Smart & Sustainable Marina Rendezvous 2026 · 20–21 Sep · Yacht Club de Monaco')
+          : t('welcome.tagline', 'The marina industry network')}
+        points={false}
+      >
+        {children}
+      </AuthShell>
+    </>
   );
 }
 
@@ -370,60 +368,50 @@ export function WelcomePage() {
     setResent(true);
   };
 
-  if (authLoading || redeeming || lookupPending) return (
-    <div className="flex items-center justify-center h-[60vh]">
-      <RefreshCw className="h-8 w-8 animate-spin text-primary" aria-label={t('common.loading', 'Loading...')} />
-    </div>
-  );
+  if (authLoading || redeeming || lookupPending) return <AuthLoading label={t('common.loading', 'Loading...')} />;
 
   // ── Logged out: expired or already-used link → resend path ──
   if (!user) {
     return (
       <WelcomeShell event={isEvent}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              {linkFailed
-                ? <><AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" /> {t('welcome.linkInvalidTitle', "This link can't be used")}</>
-                : <><Mail className="h-5 w-5 text-primary shrink-0" /> {t('welcome.getLinkTitle', 'Get your access link')}</>}
-            </CardTitle>
-            <CardDescription>
-              {linkFailed
-                ? t('welcome.linkInvalidDesc', "Links in our e-mails work once and expire. This one has already been used, has run out, or was replaced by a newer link. Enter your e-mail address and we'll send you a fresh one.")
-                : t('welcome.getLinkDesc', "Access links work once and expire quickly. Enter the e-mail address of your account and we'll send you a fresh one.")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {resent ? (
-              <div className="text-center py-4">
-                <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-2" />
-                <p className="text-sm text-gray-700 break-words">
-                  {t('welcome.linkSent', 'If an account exists for {{email}}, a new access link is on its way. Check your inbox (and your spam folder).', { email: resendEmail.trim().toLowerCase() })}
-                </p>
+        <AuthStatus
+          tone={linkFailed ? 'warning' : 'default'}
+          icon={linkFailed ? <AlertTriangle className="h-6 w-6" /> : <Mail className="h-6 w-6" />}
+          title={linkFailed ? t('welcome.linkInvalidTitle', "This link can't be used") : t('welcome.getLinkTitle', 'Get your access link')}
+        >
+          <p className="text-sm leading-6 text-meta">
+            {linkFailed
+              ? t('welcome.linkInvalidDesc', "Links in our e-mails work once and expire. This one has already been used, has run out, or was replaced by a newer link. Enter your e-mail address and we'll send you a fresh one.")
+              : t('welcome.getLinkDesc', "Access links work once and expire quickly. Enter the e-mail address of your account and we'll send you a fresh one.")}
+          </p>
+          {resent ? (
+            <AuthNotice tone="success" role="status">
+              <p className="break-words">
+                {t('welcome.linkSent', 'If an account exists for {{email}}, a new access link is on its way. Check your inbox (and your spam folder).', { email: resendEmail.trim().toLowerCase() })}
+              </p>
+            </AuthNotice>
+          ) : (
+            <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void resend(); }}>
+              <div className="space-y-2">
+                <AuthLabel htmlFor="welcome-email">{t('auth.email', 'Email')}</AuthLabel>
+                <AuthInput
+                  id="welcome-email"
+                  type="email"
+                  autoComplete="email"
+                  value={resendEmail}
+                  onChange={e => setResendEmail(e.target.value)}
+                  placeholder={t('auth.emailPlaceholder', 'you@example.com')}
+                />
               </div>
-            ) : (
-              <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void resend(); }}>
-                <div className="space-y-1">
-                  <Label htmlFor="welcome-email">{t('auth.email', 'Email')}</Label>
-                  <Input
-                    id="welcome-email"
-                    type="email"
-                    autoComplete="email"
-                    value={resendEmail}
-                    onChange={e => setResendEmail(e.target.value)}
-                    placeholder={t('auth.emailPlaceholder', 'you@example.com')}
-                  />
-                </div>
-                <Button type="submit" className="w-full gap-1.5" disabled={busy || !resendEmail.trim()}>
-                  {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.sendLink', 'Email me a new access link')}
-                </Button>
-                <p className="text-[11px] text-gray-400 text-center">
-                  {t('welcome.haveLogin', 'Already have a password? Use {{login}} (top-right) instead.', { login: t('nav.login', 'Login') })}
-                </p>
-              </form>
-            )}
-          </CardContent>
-        </Card>
+              <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !resendEmail.trim()}>
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.sendLink', 'Email me a new access link')}
+              </Button>
+              <FieldHint className="text-center">
+                {t('welcome.haveLogin', 'Already have a password? Use {{login}} (top-right) instead.', { login: t('nav.login', 'Login') })}
+              </FieldHint>
+            </form>
+          )}
+        </AuthStatus>
       </WelcomeShell>
     );
   }
@@ -447,90 +435,82 @@ export function WelcomePage() {
 
   return (
     <WelcomeShell event={isEvent}>
-      {linkFailed && (
-        <div className="mb-4 flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
-          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-          <span>{t('welcome.linkIgnored', 'The link you opened has already been used or has expired, so it changed nothing. You are still signed in with the account below.')}</span>
-        </div>
-      )}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            {mustSetPassword
-              ? <ShieldCheck className="h-5 w-5 text-primary shrink-0" />
-              : <Lock className="h-5 w-5 text-primary shrink-0" />}
-            {title}
-          </CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void setPassword(); }}>
-            {user.email && (
-              <p className="text-xs text-gray-500 break-all">{t('welcome.signedInAs', 'Account: {{email}}', { email: user.email })}</p>
-            )}
-            {/* Lets password managers file the new password under the right account. */}
-            <input type="email" name="username" autoComplete="username" value={user.email ?? ''} readOnly hidden />
-            <div className="space-y-1">
-              <Label htmlFor="welcome-password">{t('auth.password', 'Password')}</Label>
-              <Input
-                id="welcome-password"
-                type="password"
-                value={pw}
-                onChange={e => setPw(e.target.value)}
-                placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="welcome-password2">{t('auth.confirmPassword', 'Confirm Password')}</Label>
-              <Input
-                id="welcome-password2"
-                type="password"
-                value={pw2}
-                onChange={e => setPw2(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-            {freshLink && (
-              <div role="alert" className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
-                {freshLink === 'sent'
-                  ? <CheckCircle className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
-                  : <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />}
-                {freshLink === 'sent' ? (
-                  <p className="break-words">
-                    {t('welcome.reauthSent', 'Link sent to {{email}}. Open it to choose your password (check your spam folder too). You can close this page.', { email: user.email ?? '' })}
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    <p>{t('welcome.reauthNeeded', "For your security, we need to check it's you before saving a password. We'll e-mail you a link: open it to choose your password.")}</p>
-                    <Button type="button" size="sm" variant="outline" className="gap-1.5 bg-white" onClick={() => void sendPasswordLink()} disabled={busy || !user.email}>
+      <AuthStatus icon={mustSetPassword ? <ShieldCheck className="h-6 w-6" /> : <Lock className="h-6 w-6" />} title={title}>
+        {linkFailed && (
+          <AuthNotice tone="warning">
+            <p>{t('welcome.linkIgnored', 'The link you opened has already been used or has expired, so it changed nothing. You are still signed in with the account below.')}</p>
+          </AuthNotice>
+        )}
+        <p className="text-sm leading-6 text-meta">{description}</p>
+        <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void setPassword(); }}>
+          {user.email && (
+            <p className="break-all text-[13px] leading-5 text-meta">{t('welcome.signedInAs', 'Account: {{email}}', { email: user.email })}</p>
+          )}
+          {/* Lets password managers file the new password under the right account. */}
+          <input type="email" name="username" autoComplete="username" value={user.email ?? ''} readOnly hidden />
+          <div className="space-y-2">
+            <AuthLabel htmlFor="welcome-password">{t('auth.password', 'Password')}</AuthLabel>
+            <PasswordInput
+              id="welcome-password"
+              value={pw}
+              onChange={e => setPw(e.target.value)}
+              placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
+              autoComplete="new-password"
+            />
+          </div>
+          <div className="space-y-2">
+            <AuthLabel htmlFor="welcome-password2">{t('auth.confirmPassword', 'Confirm Password')}</AuthLabel>
+            <PasswordInput
+              id="welcome-password2"
+              value={pw2}
+              onChange={e => setPw2(e.target.value)}
+              autoComplete="new-password"
+            />
+          </div>
+          {freshLink && (
+            <AuthNotice
+              tone={freshLink === 'sent' ? 'success' : 'warning'}
+              role="alert"
+              icon={freshLink === 'sent' ? undefined : <AlertTriangle className="h-4 w-4" />}
+            >
+              {freshLink === 'sent' ? (
+                <p className="break-words">
+                  {t('welcome.reauthSent', 'Link sent to {{email}}. Open it to choose your password (check your spam folder too). You can close this page.', { email: user.email ?? '' })}
+                </p>
+              ) : (
+                <>
+                  <p>{t('welcome.reauthNeeded', "For your security, we need to check it's you before saving a password. We'll e-mail you a link: open it to choose your password.")}</p>
+                  <div className="pt-1.5">
+                    <Button type="button" size="sm" variant="ctaOutline" arrow={false} roll={false} className={cn('bg-white', CTA_WRAP, 'min-h-11')} onClick={() => void sendPasswordLink()} disabled={busy || !user.email}>
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                       {t('welcome.reauthSend', 'Email me a link to set my password')}
                     </Button>
                   </div>
-                )}
-              </div>
-            )}
-            <Button type="submit" className="w-full gap-1.5" disabled={busy || !pw || !pw2}>
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-              {isEvent
-                ? t('welcome.ctaEvent', 'Set password & open my event hub')
-                : t('welcome.ctaContinue', 'Set password & continue')}
-            </Button>
-            {mustSetPassword ? (
-              <p className="text-[11px] text-gray-400 text-center pt-1">
-                {t('welcome.forcedHint', 'This step is required: it makes sure only you can sign in to this account.')}
-              </p>
-            ) : (
-              <button type="button" onClick={skipHasPassword} disabled={busy} className="w-full text-center text-xs text-gray-400 hover:text-gray-600 pt-1">
+                </>
+              )}
+            </AuthNotice>
+          )}
+          <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !pw || !pw2}>
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {isEvent
+              ? t('welcome.ctaEvent', 'Set password & open my event hub')
+              : t('welcome.ctaContinue', 'Set password & continue')}
+          </Button>
+          {mustSetPassword ? (
+            <FieldHint className="text-center">
+              {t('welcome.forcedHint', 'This step is required: it makes sure only you can sign in to this account.')}
+            </FieldHint>
+          ) : (
+            <div className="text-center">
+              <UnderlineLink arrow={false} onClick={skipHasPassword} disabled={busy} className="!text-sm !font-medium">
                 {isEvent
                   ? t('welcome.skipEvent', 'I already have a password — take me to my event hub')
                   : t('welcome.skipContinue', 'I already have a password — continue')}
-              </button>
-            )}
-          </form>
-        </CardContent>
-      </Card>
+              </UnderlineLink>
+            </div>
+          )}
+        </form>
+      </AuthStatus>
     </WelcomeShell>
   );
 }

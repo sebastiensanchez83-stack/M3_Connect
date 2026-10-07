@@ -2,25 +2,25 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Seo } from '@/components/seo/Seo';
-import type { LucideIcon } from 'lucide-react';
-import {
-  ArrowRight, BookOpen, CalendarDays, CalendarPlus, CheckCircle2, Clock, Loader2, Lock,
-  MapPin, Mic2, Play, Radio, Users, Video, X,
-} from 'lucide-react';
+import { CalendarDays, CalendarPlus, CheckCircle2, Loader2, Lock, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { PageHero } from '@/components/ui/PageHero';
-import { FilterBar, FilterChip } from '@/components/ui/FilterChip';
-import { CoverImage } from '@/components/ui/CoverImage';
-import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
+import { CardShell } from '@/components/brand/CardShell';
+import { ContactCard } from '@/components/brand/ContactCard';
+import { Reveal } from '@/components/motion/Reveal';
 import { WysInvitationCard, isWys26Event, wys26Upcoming } from '@/components/events/WysInvitationCard';
+import {
+  EventFilterChip, EventListCard, FeaturedEventPanel, ListHead, kindIcon,
+  type EventKind, type ListEvent, type Phase,
+} from '@/components/events/EventListParts';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { SM26_ENABLED } from '@/lib/featureFlags';
 import { requireFreshSession } from '@/lib/session';
-import { SITE_IMAGES, eventCover } from '@/lib/siteMedia';
+import { SITE_IMAGES } from '@/lib/siteMedia';
 import { THEMES, getTheme, themesForSectors, type ThemeKey } from '@/lib/themes';
 import { accountHref } from '@/lib/accountNav';
 import { canCreate } from '@/lib/nav';
@@ -35,8 +35,12 @@ import { scrollTopUnderBars } from '@/lib/scrollTarget';
  * sector labels as filters, and buttons nested inside the card's link — so
  * "Register" or "Add to calendar" also navigated away to the event page.
  *
- * Now: the next event is featured large, the rest of the programme follows in
- * cards, and past events (with their replays) sit below on the same page.
+ * Now (refonte v2, Oct 2026): a compact PageHero, a sticky toolbar of pill filters,
+ * the next event featured on a marine panel (the World Yachting Summit's own panel
+ * when it is the only one ahead), the rest of the programme in the shared card
+ * grammar (lift, picture zoom, gold title line, no round disc), and past events with
+ * their replays below on the same page, then the one public contact. The pieces
+ * that draw live in components/events/EventListParts.tsx.
  * Filters are the platform's six themes, the event format (only when both
  * webinars and on-site events exist) and "My events" for members — all in the
  * URL (?type=&theme=&mine=1), so a filtered view can be shared and Back undoes
@@ -49,28 +53,11 @@ import { scrollTopUnderBars } from '@/lib/scrollTarget';
  * the same event_registrations row as before.
  */
 
-interface Event {
-  id: string;
-  title: string;
-  description: string | null;
-  date_time: string | null;
+interface Event extends ListEvent {
   end_date_time: string | null;
-  location: string | null;
   language: string;
-  access_level: string;
-  event_type: 'webinar' | 'on_site';
   is_full_day: boolean;
-  invitation_only: boolean;
-  published: boolean;
-  speakers: { name: string; title: string }[] | null;
-  replay_url: string | null;
-  meeting_url: string | null;
-  /** Uploaded cover; null falls back to the built-in photo or a gradient (eventCover). */
-  image_url: string | null;
 }
-
-type Phase = 'tbd' | 'upcoming' | 'live' | 'ended';
-type EventKind = Event['event_type'];
 
 /** The sticky navbar above the filter bar. */
 const NAVBAR_HEIGHT = 64;
@@ -90,10 +77,6 @@ function phaseOf(e: Event, now: number): Phase {
   if (now < start) return 'upcoming';
   if (now < end) return 'live';
   return 'ended';
-}
-
-function kindIcon(kind: EventKind): LucideIcon {
-  return kind === 'webinar' ? Video : CalendarDays;
 }
 
 export function EventsPage() {
@@ -393,49 +376,51 @@ export function EventsPage() {
   /**
    * The one thing to do with an event right now, as the old list offered it:
    * replay, join, register (or go to the SM intake page), request an invitation.
+   * On a card the main action is navy (gold on hover) and the others outlines;
+   * on the marine "next event" panel the main action is the page's gold.
    */
-  const primaryAction = (e: Event, size: 'sm' | 'default' = 'sm') => {
+  const primaryAction = (e: Event, mode: 'card' | 'featured' = 'card') => {
     const phase = phaseOf(e, now);
     const isRegistered = registeredSet.has(e.id);
     const hasAccess = canAccess(e.access_level);
     const smPath = smPaths[e.id];
     const detail = `/events/${e.id}`;
-    const btn = size === 'sm' ? 'h-10 rounded-xl' : 'h-11 rounded-xl px-5';
+    const onNavy = mode === 'featured';
+    const size = onNavy ? 'default' : 'sm';
+    const main = onNavy ? 'ctaOnDark' : 'ctaNavy';
+    const second = onNavy ? 'ctaLight' : 'ctaOutline';
+    const quiet = cn('inline-flex min-h-11 items-center gap-1.5 text-sm', onNavy ? 'text-white/85' : 'text-meta');
 
     if (phase === 'ended') {
       if (e.replay_url) {
         return hasAccess ? (
-          <Button asChild size={size} className={btn}>
-            <a href={e.replay_url} target="_blank" rel="noopener noreferrer">
-              <Play className="mr-2 h-4 w-4" aria-hidden="true" />{t('events.watchReplay')}
-            </a>
+          <Button asChild size={size} variant={main}>
+            <a href={e.replay_url} target="_blank" rel="noopener noreferrer">{t('events.watchReplay')}</a>
           </Button>
         ) : (
-          <span className="inline-flex min-h-10 items-center gap-1.5 text-sm text-gray-600">
+          <span className={quiet}>
             <Lock className="h-4 w-4" aria-hidden="true" />{t('eventsPage.replayForMembers', 'Replay for members')}
           </span>
         );
       }
-      return <span className="inline-flex min-h-10 items-center text-sm text-gray-600">{t('eventsPage.ended', 'Ended')}</span>;
+      return <span className={quiet}>{t('eventsPage.ended', 'Ended')}</span>;
     }
 
     if (phase === 'live') {
       if (isRegistered && e.event_type === 'webinar' && e.meeting_url) {
         return (
-          <Button asChild size={size} className={btn}>
-            <a href={e.meeting_url} target="_blank" rel="noopener noreferrer">
-              <Video className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.joinNow', 'Join now')}
-            </a>
+          <Button asChild size={size} variant={main}>
+            <a href={e.meeting_url} target="_blank" rel="noopener noreferrer">{t('eventsPage.joinNow', 'Join now')}</a>
           </Button>
         );
       }
-      // Registration closed when it started. The featured card already has a
+      // Registration closed when it started. The featured panel already has a
       // "See details" link of its own, so only the small cards need one here.
-      return size === 'sm' ? (
-        <Button asChild size={size} variant="outline" className={btn}>
+      return onNavy ? null : (
+        <Button asChild size={size} variant={second}>
           <Link to={detail}>{t('eventsPage.seeDetails', 'See details')}</Link>
         </Button>
-      ) : null;
+      );
     }
 
     // Upcoming, or date still to be announced.
@@ -443,52 +428,50 @@ export function EventsPage() {
       // The event page knows whether invitations run on a guest list, on a
       // request, or are included in the member's sponsorship.
       return (
-        <Button asChild size={size} variant="outline" className={btn}>
-          <Link to={detail}><Lock className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.requestInvitation', 'Request an invitation')}</Link>
+        <Button asChild size={size} variant={onNavy ? main : second}>
+          <Link to={detail}>{t('eventsPage.requestInvitation', 'Request an invitation')}</Link>
         </Button>
       );
     }
     if (isRegistered && e.event_type === 'webinar' && e.meeting_url) {
       return (
-        <Button asChild size={size} className={btn}>
-          <a href={e.meeting_url} target="_blank" rel="noopener noreferrer">
-            <Video className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.joinWebinar', 'Join the webinar')}
-          </a>
+        <Button asChild size={size} variant={main}>
+          <a href={e.meeting_url} target="_blank" rel="noopener noreferrer">{t('eventsPage.joinWebinar', 'Join the webinar')}</a>
         </Button>
       );
     }
     if (smPath && hasAccess) {
       return (
-        <Button size={size} className={btn} onClick={() => navigate(smPath)}>
-          {t('events.register')}<ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+        <Button size={size} variant={main} onClick={() => navigate(smPath)}>
+          {t('events.register')}
         </Button>
       );
     }
     if (isRegistered) {
       return (
-        <Button asChild size={size} variant="outline" className={btn}>
-          <Link to={detail}><CheckCircle2 className="mr-2 h-4 w-4 text-emerald-700" aria-hidden="true" />{t('eventsPage.viewRegistration', 'View my registration')}</Link>
+        <Button asChild size={size} variant={second}>
+          <Link to={detail}>{t('eventsPage.viewRegistration', 'View my registration')}</Link>
         </Button>
       );
     }
     if (!signedIn) {
       // Logging in, or the no-account webinar signup, happen on the event page.
       return (
-        <Button asChild size={size} className={btn}>
-          <Link to={detail}>{t('events.register')}<ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" /></Link>
+        <Button asChild size={size} variant={main}>
+          <Link to={detail}>{t('events.register')}</Link>
         </Button>
       );
     }
     if (!hasAccess) {
       return (
-        <span className="inline-flex min-h-10 items-center gap-1.5 text-sm text-gray-600">
+        <span className={quiet}>
           <Lock className="h-4 w-4" aria-hidden="true" />
           {e.access_level === 'marina' ? t('eventsPage.access.marina', 'Marinas only') : t('eventsPage.access.members', 'Members only')}
         </span>
       );
     }
     return (
-      <Button size={size} className={btn} disabled={busyId === e.id} onClick={() => handleRegister(e.id)}>
+      <Button size={size} variant={main} disabled={busyId === e.id} onClick={() => handleRegister(e.id)}>
         {busyId === e.id && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
         {t('events.register')}
       </Button>
@@ -496,13 +479,13 @@ export function EventsPage() {
   };
 
   /** One-tap .ics download for an upcoming event — the compact form of AddToCalendarButtons. */
-  const calendarButton = (e: Event, className?: string) => {
+  const calendarButton = (e: Event, onNavy = false, className?: string) => {
     if (!e.date_time || phaseOf(e, now) !== 'upcoming') return null;
     return (
       <Button
-        variant="outline"
+        variant={onNavy ? 'ctaLight' : 'ctaOutline'}
         size="icon"
-        className={cn('h-10 w-10 shrink-0 rounded-xl', className)}
+        className={cn('h-11 w-11 shrink-0 md:h-11 md:w-11', className)}
         onClick={() => handleAddToCalendar(e)}
         aria-label={t('eventsPage.addToCalendarFor', { title: e.title, defaultValue: 'Add “{{title}}” to your calendar' })}
         title={t('events.addToCalendar')}
@@ -520,9 +503,27 @@ export function EventsPage() {
   const seoTitle = withSiteSuffix(t('seo.events.title', 'Marina industry events in Monaco, Dubai and online'));
   const seoDescription = t('seo.events.description', 'The Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai and our webinars: industry events organised by M3 Monaco.');
 
+  /** What every card is given: the same texts and rules, whatever the card. */
+  const viewProps = (e: Event, phase: Phase) => ({
+    event: e,
+    phase,
+    registered: registeredSet.has(e.id),
+    themes: themesByEvent[e.id] ?? [],
+    themeLabel,
+    kindLabel,
+    whenText: whenText as (ev: ListEvent) => string,
+    whereText: whereText as (ev: ListEvent) => string,
+    accessLabel,
+    locale,
+    isModerator,
+  });
+
+  const noMatch = anyFilter && filtered.length === 0 && !showWys;
+  const upcomingCount = upcoming.length + (showWys ? 1 : 0);
+
   // ---------------------------------------------------------------- render
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-page">
       <Seo title={seoTitle} description={seoDescription} path="/events" />
 
       <PageHero
@@ -536,530 +537,206 @@ export function EventsPage() {
         {(signedIn && myUpcomingCount > 0) || canPropose ? (
           <div className="flex flex-wrap items-center gap-3">
             {signedIn && myUpcomingCount > 0 && (
-              <Button asChild className="h-11 rounded-full bg-secondary px-5 text-primary hover:bg-secondary/90">
+              <Button asChild variant="ctaOnDark">
                 <Link to={accountHref('registrations')}>
-                  <CheckCircle2 className="mr-2 h-4 w-4" aria-hidden="true" />
                   {t('eventsPage.myUpcoming', { count: myUpcomingCount, defaultValue_one: 'My events ({{count}} upcoming)', defaultValue_other: 'My events ({{count}} upcoming)' })}
                 </Link>
               </Button>
             )}
             {canPropose && (
-              <Button asChild variant="ghost" className="h-11 rounded-full bg-white/10 px-5 text-white ring-1 ring-white/30 hover:bg-white/20 hover:text-white">
-                <Link to="/request-webinar">
-                  <Mic2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                  {t('eventsPage.proposeWebinar', 'Propose a webinar')}
-                </Link>
+              <Button asChild variant="ctaLight">
+                <Link to="/request-webinar">{t('eventsPage.proposeWebinar', 'Propose a webinar')}</Link>
               </Button>
             )}
           </div>
         ) : null}
       </PageHero>
 
-      {/* ── Filters: sticky under the 64 px navbar. The empty marker lets the page measure the bar. ── */}
+      {/* ── Filters: sticky under the header. The empty marker lets the page measure the bar. ── */}
       <div ref={filterBarRef} aria-hidden="true" />
-      <FilterBar sticky>
-        <span className="shrink-0 text-sm font-medium text-gray-900" aria-live="polite">
-          {loading ? '…' : t('eventsPage.results', { count: filtered.length, defaultValue_one: '{{count}} event', defaultValue_other: '{{count}} events' })}
-        </span>
+      <div
+        role="region"
+        aria-label={t('eventsPage.toolbarLabel', 'Filter the events')}
+        className="sticky top-16 z-30 border-b border-rule bg-page/95 backdrop-blur-md"
+      >
+        <div className="no-scrollbar mx-auto flex w-full max-w-7xl items-center gap-2 overflow-x-auto px-4 py-3 sm:px-6 md:flex-wrap md:overflow-visible">
+          <span className="shrink-0 pr-1 text-sm font-semibold text-navy" aria-live="polite">
+            {loading ? '…' : t('eventsPage.results', { count: filtered.length, defaultValue_one: '{{count}} event', defaultValue_other: '{{count}} events' })}
+          </span>
 
-        {anyFilter && (
-          <button
-            type="button"
-            onClick={() => update({ type: null, theme: null, mine: null })}
-            className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-full px-3 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            <X className="h-3.5 w-3.5" aria-hidden="true" />
-            {t('eventsPage.clearFilters', 'Clear filters')}
-          </button>
-        )}
+          {anyFilter && (
+            <button
+              type="button"
+              onClick={() => update({ type: null, theme: null, mine: null })}
+              className="inline-flex h-10 shrink-0 items-center gap-1 rounded-pill px-3 text-sm font-medium text-navy underline decoration-navy/30 underline-offset-4 transition-colors hover:decoration-navy focus-visible:shadow-focus focus-visible:outline-none"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('eventsPage.clearFilters', 'Clear filters')}
+            </button>
+          )}
 
-        {(kinds.size > 1 || presentThemes.length > 1 || showMine) && (
-          <span className="mx-1 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
-        )}
+          {(kinds.size > 1 || presentThemes.length > 1 || showMine) && (
+            <span className="mx-1 h-5 w-px shrink-0 bg-rule" aria-hidden="true" />
+          )}
 
-        {showMine && (
-          <FilterChip active={activeMine} icon={CheckCircle2} onClick={() => update({ mine: activeMine ? null : '1' })}>
-            {t('eventsPage.myEventsFilter', 'My events')}
-          </FilterChip>
-        )}
+          {showMine && (
+            <EventFilterChip active={activeMine} icon={CheckCircle2} onClick={() => update({ mine: activeMine ? null : '1' })}>
+              {t('eventsPage.myEventsFilter', 'My events')}
+            </EventFilterChip>
+          )}
 
-        {/* Format: only when there is a choice to make. */}
-        {kinds.size > 1 && (['webinar', 'on_site'] as const).map((k) => (
-          <FilterChip
-            key={k}
-            active={activeType === k}
-            icon={kindIcon(k)}
-            count={events.filter((e) => e.event_type === k).length}
-            onClick={() => update({ type: activeType === k ? null : k })}
-          >
-            {k === 'webinar' ? t('eventsPage.webinars', 'Webinars') : t('eventsPage.onSiteEvents', 'On-site events')}
-          </FilterChip>
-        ))}
+          {/* Format: only when there is a choice to make. */}
+          {kinds.size > 1 && (['webinar', 'on_site'] as const).map((k) => (
+            <EventFilterChip
+              key={k}
+              active={activeType === k}
+              icon={kindIcon(k)}
+              count={events.filter((e) => e.event_type === k).length}
+              onClick={() => update({ type: activeType === k ? null : k })}
+            >
+              {k === 'webinar' ? t('eventsPage.webinars', 'Webinars') : t('eventsPage.onSiteEvents', 'On-site events')}
+            </EventFilterChip>
+          ))}
 
-        {presentThemes.length > 1 && presentThemes.map((th) => (
-          <FilterChip
-            key={th.key}
-            active={activeTheme?.key === th.key}
-            icon={th.icon}
-            count={themeCounts[th.key]}
-            onClick={() => update({ theme: activeTheme?.key === th.key ? null : th.key })}
-          >
-            {t(th.labelKey, th.fallback)}
-          </FilterChip>
-        ))}
-      </FilterBar>
+          {presentThemes.length > 1 && presentThemes.map((th) => (
+            <EventFilterChip
+              key={th.key}
+              active={activeTheme?.key === th.key}
+              icon={th.icon}
+              count={themeCounts[th.key]}
+              onClick={() => update({ theme: activeTheme?.key === th.key ? null : th.key })}
+            >
+              {t(th.labelKey, th.fallback)}
+            </EventFilterChip>
+          ))}
+        </div>
+      </div>
 
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-6">
+      <div className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6">
         <AdBanner placement="events" className="mb-2" />
       </div>
 
-      <div ref={listRef} className="mx-auto w-full max-w-7xl px-4 sm:px-6 space-y-12 pb-16 pt-6">
+      <div ref={listRef} className="mx-auto w-full max-w-7xl space-y-16 px-4 pb-16 pt-8 sm:px-6 md:space-y-24 md:pb-24 md:pt-12">
         {loading ? (
           <LoadingSkeleton variant="card" count={3} />
-        ) : anyFilter && filtered.length === 0 && !showWys ? (
-          <div className="rounded-2xl bg-white px-6 py-16 text-center shadow-sm ring-1 ring-gray-100">
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
-              <CalendarDays className="h-8 w-8 text-gray-400" aria-hidden="true" />
-            </div>
-            <p className="mb-4 text-gray-600">{t('eventsPage.noMatch', 'No event matches these filters.')}</p>
-            <Button variant="outline" className="h-10 rounded-xl" onClick={() => update({ type: null, theme: null, mine: null })}>
+        ) : noMatch ? (
+          <CardShell className="items-center px-6 py-16 text-center">
+            <span className="mb-4 grid h-14 w-14 place-items-center rounded-full bg-chip text-navy">
+              <CalendarDays className="h-7 w-7" aria-hidden="true" />
+            </span>
+            <p className="mb-6 text-body text-ink">{t('eventsPage.noMatch', 'No event matches these filters.')}</p>
+            <Button variant="ctaOutline" size="sm" onClick={() => update({ type: null, theme: null, mine: null })}>
               {t('eventsPage.clearFilters', 'Clear filters')}
             </Button>
-          </div>
+          </CardShell>
         ) : (
           <>
-            {/* ── What's coming ── */}
+            {/* ── What is coming ── */}
             <section aria-labelledby="upcoming-heading">
-              <SectionHeading id="upcoming-heading" icon={CalendarDays} title={t('eventsPage.upcomingTitle', 'Upcoming events')} count={upcoming.length + (showWys ? 1 : 0)} />
+              <ListHead
+                id="upcoming-heading"
+                no="01"
+                eyebrow={t('eventsPage.upcomingEyebrow', 'Programme')}
+                title={t('eventsPage.upcomingTitle', 'Upcoming events')}
+                count={upcomingCount}
+              />
 
               {featured ? (
-                <FeaturedEvent
-                  event={featured}
-                  phase={phaseOf(featured, now)}
-                  registered={registeredSet.has(featured.id)}
-                  themes={themesByEvent[featured.id] ?? []}
-                  themeLabel={themeLabel}
-                  kindLabel={kindLabel}
-                  whenText={whenText}
-                  whereText={whereText}
-                  accessLabel={accessLabel}
-                  locale={locale}
-                  isModerator={isModerator}
-                  action={primaryAction(featured, 'default')}
-                  extra={calendarButton(featured, 'sm:hidden')}
+                <FeaturedEventPanel
+                  {...viewProps(featured, phaseOf(featured, now))}
+                  action={primaryAction(featured, 'featured')}
+                  extra={calendarButton(featured, true, 'sm:hidden')}
+                  calendarUrl={registeredSet.has(featured.id) ? featured.meeting_url : null}
                 />
               ) : showWys ? (
                 <>
-                  <WysInvitationCard />
-                  <p className="mt-3 text-sm text-gray-600">
+                  <WysInvitationCard variant="panel" />
+                  <p className="mt-4 text-sm text-meta">
                     {t('eventsPage.wys.moreSoon', 'New webinars are announced here first.')}
                   </p>
                 </>
               ) : (
-                <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
-                  <div className="grid sm:grid-cols-5">
-                    <CoverImage src={null} alt="" seed="events-empty" icon={CalendarDays} aspect="fill" tone="sea" className="h-28 sm:col-span-2 sm:h-auto" />
-                    <div className="p-6 sm:col-span-3 lg:p-8">
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {anyFilter
-                          ? t('eventsPage.noUpcomingFiltered', 'No upcoming event matches these filters')
-                          : t('eventsPage.noUpcomingTitle', 'No upcoming event announced yet')}
-                      </h3>
-                      <p className="mt-2 text-sm leading-relaxed text-gray-600">
-                        {/* Only point to the replays "just below" when there are some. */}
-                        {past.length > 0
-                          ? t('eventsPage.noUpcomingBody', 'New webinars and conferences are announced here first. In the meantime, past sessions and their replays are just below.')
-                          : t('eventsPage.noUpcomingBodyNoPast', 'New webinars and conferences are announced here first.')}
-                      </p>
-                      <div className="mt-5 flex flex-wrap gap-2">
-                        {past.length > 0 && (
-                          <Button className="h-10 rounded-xl" onClick={scrollToPast}>
-                            <Play className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.browsePast', 'Browse past events')}
-                          </Button>
-                        )}
-                        {canPropose && (
-                          <Button asChild variant="outline" className="h-10 rounded-xl">
-                            <Link to="/request-webinar"><Mic2 className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.proposeWebinar', 'Propose a webinar')}</Link>
-                          </Button>
-                        )}
-                        <Button asChild variant="ghost" className="h-10 rounded-xl text-primary">
-                          <Link to="/resources"><BookOpen className="mr-2 h-4 w-4" aria-hidden="true" />{t('eventsPage.exploreLibrary', 'Explore the library')}</Link>
+                <CardShell>
+                  <div className="p-6 sm:p-8 lg:p-10">
+                    <h3 className="text-h3 text-navy">
+                      {anyFilter
+                        ? t('eventsPage.noUpcomingFiltered', 'No upcoming event matches these filters')
+                        : t('eventsPage.noUpcomingTitle', 'No upcoming event announced yet')}
+                    </h3>
+                    <p className="mt-2 max-w-[640px] text-body text-ink/80">
+                      {/* Only point to the replays "just below" when there are some. */}
+                      {past.length > 0
+                        ? t('eventsPage.noUpcomingBody', 'New webinars and conferences are announced here first. In the meantime, past sessions and their replays are just below.')
+                        : t('eventsPage.noUpcomingBodyNoPast', 'New webinars and conferences are announced here first.')}
+                    </p>
+                    <div className="mt-6 flex flex-wrap items-center gap-3">
+                      {past.length > 0 && (
+                        <Button variant="cta" size="sm" onClick={scrollToPast}>
+                          {t('eventsPage.browsePast', 'Browse past events')}
                         </Button>
-                      </div>
+                      )}
+                      {canPropose && (
+                        <Button asChild variant="ctaOutline" size="sm">
+                          <Link to="/request-webinar">{t('eventsPage.proposeWebinar', 'Propose a webinar')}</Link>
+                        </Button>
+                      )}
+                      <Button asChild variant="ctaOutline" size="sm">
+                        <Link to="/resources">{t('eventsPage.exploreLibrary', 'Explore the library')}</Link>
+                      </Button>
                     </div>
                   </div>
-                </div>
+                </CardShell>
               )}
 
               {featured && showWys && <WysInvitationCard className="mt-6" />}
 
               {moreUpcoming.length > 0 && (
-                <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                  {moreUpcoming.map((e) => (
-                    <EventCard
-                      key={e.id}
-                      event={e}
-                      phase={phaseOf(e, now)}
-                      registered={registeredSet.has(e.id)}
-                      themes={themesByEvent[e.id] ?? []}
-                      themeLabel={themeLabel}
-                      kindLabel={kindLabel}
-                      whenText={whenText}
-                      whereText={whereText}
-                      accessLabel={accessLabel}
-                      locale={locale}
-                      isModerator={isModerator}
-                      action={primaryAction(e)}
-                      extra={calendarButton(e)}
-                    />
+                <ul className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {moreUpcoming.map((e, i) => (
+                    <Reveal as="li" key={e.id} delay={(i % 3) * 80} className="flex min-w-0">
+                      <EventListCard
+                        {...viewProps(e, phaseOf(e, now))}
+                        action={primaryAction(e)}
+                        extra={calendarButton(e)}
+                      />
+                    </Reveal>
                   ))}
-                </div>
+                </ul>
               )}
             </section>
 
             {/* ── Past events and replays ── */}
             {past.length > 0 && (
               <section ref={pastRef} aria-labelledby="past-heading">
-                <SectionHeading id="past-heading" icon={Play} title={t('eventsPage.pastTitle', 'Past events & replays')} count={past.length} />
-                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                  {past.map((e) => (
-                    <EventCard
-                      key={e.id}
-                      event={e}
-                      phase="ended"
-                      registered={registeredSet.has(e.id)}
-                      themes={themesByEvent[e.id] ?? []}
-                      themeLabel={themeLabel}
-                      kindLabel={kindLabel}
-                      whenText={whenText}
-                      whereText={whereText}
-                      accessLabel={accessLabel}
-                      locale={locale}
-                      isModerator={isModerator}
-                      action={primaryAction(e)}
-                    />
+                <ListHead
+                  id="past-heading"
+                  no="02"
+                  eyebrow={t('eventsPage.pastEyebrow', 'Archive')}
+                  title={t('eventsPage.pastTitle', 'Past events & replays')}
+                  count={past.length}
+                />
+                <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                  {past.map((e, i) => (
+                    <Reveal as="li" key={e.id} delay={(i % 3) * 80} className="flex min-w-0">
+                      <EventListCard {...viewProps(e, 'ended')} action={primaryAction(e)} />
+                    </Reveal>
                   ))}
-                </div>
+                </ul>
               </section>
             )}
+
+            {/* ── Questions: the one public address ── */}
+            <Reveal>
+              <ContactCard
+                variant="panel"
+                title={t('eventsPage.contact.title', 'A question about an event?')}
+                line={t('eventsPage.contact.line', 'Programme, registration or sponsoring: write to the M3 team.')}
+                className="lg:mx-auto lg:max-w-3xl"
+              />
+            </Reveal>
           </>
         )}
       </div>
     </div>
-  );
-}
-
-/* ─── Pieces ─────────────────────────────────────────────────────── */
-
-function SectionHeading({ id, icon: Icon, title, count }: { id: string; icon: LucideIcon; title: string; count: number }) {
-  return (
-    <div className="mb-4 flex items-center gap-2">
-      <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
-      <h2 id={id} className="text-xl font-bold text-gray-900">{title}</h2>
-      <span className="rounded-full bg-gray-200/70 px-2 py-0.5 text-xs font-semibold tabular-nums text-gray-700">{count}</span>
-    </div>
-  );
-}
-
-/** The calendar-page chip laid over a cover: day number, month, and the year when it is not this one. */
-function DateChip({ iso, endIso, locale, large = false, showYear = false }: {
-  iso: string | null; endIso: string | null; locale: string; large?: boolean; showYear?: boolean;
-}) {
-  const { t } = useTranslation();
-  if (!iso) {
-    return (
-      <div className={cn('rounded-xl bg-white/95 px-3 py-2 text-center shadow-sm', large && 'px-4 py-3')}>
-        <span className="block text-xs font-bold uppercase tracking-wide text-primary">{t('eventsPage.tbdShort', 'TBA')}</span>
-      </div>
-    );
-  }
-  const start = new Date(iso);
-  const end = endIso ? new Date(endIso) : null;
-  // "20–21" for a conference over consecutive days of one month.
-  const sameMonthSpan = !!end && end.toDateString() !== start.toDateString()
-    && end.getMonth() === start.getMonth() && end.getFullYear() === start.getFullYear();
-  const day = sameMonthSpan ? `${start.getDate()}–${end!.getDate()}` : String(start.getDate());
-  return (
-    <div className={cn('min-w-[3.5rem] rounded-xl bg-white/95 px-2.5 py-1.5 text-center shadow-sm backdrop-blur-sm', large && 'min-w-[4.5rem] px-3 py-2')}>
-      <span className={cn('block text-[11px] font-semibold uppercase tracking-wide text-gray-600', large && 'text-xs')}>
-        {start.toLocaleDateString(locale, { month: 'short' })}
-      </span>
-      <span className={cn('block font-bold leading-none tabular-nums text-primary', large ? 'text-3xl' : 'text-xl')}>{day}</span>
-      {showYear && <span className="mt-0.5 block text-[11px] font-medium tabular-nums text-gray-600">{start.getFullYear()}</span>}
-    </div>
-  );
-}
-
-function StatusBadges({ phase, registered }: { phase: Phase; registered: boolean }) {
-  const { t } = useTranslation();
-  return (
-    <div className="absolute right-3 top-3 flex flex-col items-end gap-1.5">
-      {phase === 'live' && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
-          <Radio className="h-3 w-3" aria-hidden="true" />{t('eventsPage.liveNow', 'Live now')}
-        </span>
-      )}
-      {registered && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
-          <CheckCircle2 className="h-3 w-3" aria-hidden="true" />{t('eventsPage.registered', 'Registered')}
-        </span>
-      )}
-    </div>
-  );
-}
-
-function KindChip({ kind, label }: { kind: EventKind; label: string }) {
-  const Icon = kindIcon(kind);
-  return (
-    <span className={cn(
-      'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold',
-      kind === 'webinar' ? 'bg-primary/10 text-primary' : 'bg-secondary/20 text-[#5c4510]',
-    )}>
-      <Icon className="h-3 w-3" aria-hidden="true" />{label}
-    </span>
-  );
-}
-
-function ThemeChips({ themes, themeLabel, max }: { themes: ThemeKey[]; themeLabel: (k: ThemeKey) => string; max: number }) {
-  if (themes.length === 0) return null;
-  const shown = themes.slice(0, max);
-  const rest = themes.length - shown.length;
-  return (
-    <ul className="flex flex-wrap gap-1.5">
-      {shown.map((k) => {
-        const Icon = getTheme(k)!.icon;
-        return (
-          <li key={k} className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
-            <Icon className="h-3 w-3" aria-hidden="true" />{themeLabel(k)}
-          </li>
-        );
-      })}
-      {rest > 0 && (
-        <li className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium tabular-nums text-gray-700">+{rest}</li>
-      )}
-    </ul>
-  );
-}
-
-interface CardProps {
-  event: Event;
-  phase: Phase;
-  registered: boolean;
-  themes: ThemeKey[];
-  themeLabel: (k: ThemeKey) => string;
-  kindLabel: (k: EventKind) => string;
-  whenText: (e: Event) => string;
-  whereText: (e: Event) => string;
-  accessLabel: (level: string) => string | null;
-  locale: string;
-  isModerator: boolean;
-  action: React.ReactNode;
-  extra?: React.ReactNode;
-}
-
-/** Small flags shown next to the format: access restriction, invitation, draft. */
-function Flags({ event, accessLabel, isModerator }: Pick<CardProps, 'event' | 'accessLabel' | 'isModerator'>) {
-  const { t } = useTranslation();
-  const access = accessLabel(event.access_level);
-  return (
-    <>
-      {access && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
-          <Lock className="h-3 w-3" aria-hidden="true" />{access}
-        </span>
-      )}
-      {event.invitation_only && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
-          <Lock className="h-3 w-3" aria-hidden="true" />{t('eventsPage.invitationOnly', 'By invitation')}
-        </span>
-      )}
-      {!event.published && isModerator && (
-        <span className="inline-flex items-center rounded-full border border-dashed border-gray-400 px-2.5 py-0.5 text-xs font-medium text-gray-600">
-          {t('eventsPage.draft', 'Draft')}
-        </span>
-      )}
-    </>
-  );
-}
-
-/** Stretched link: the whole card opens the event, while the buttons stay separate, real buttons. */
-const STRETCHED_LINK =
-  'after:absolute after:inset-0 after:z-0 after:rounded-2xl after:content-[""] focus:outline-none focus-visible:after:ring-2 focus-visible:after:ring-primary focus-visible:after:ring-offset-2';
-
-function FeaturedEvent(props: CardProps) {
-  const { event, phase, registered, themes, themeLabel, kindLabel, whenText, whereText, locale, action, extra } = props;
-  const { t } = useTranslation();
-  const isWebinar = event.event_type === 'webinar';
-  const speakers = (event.speakers ?? []).map((s) => s.name).filter(Boolean);
-  return (
-    <article className="group relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 transition-shadow duration-300 hover:shadow-lg">
-      <div className="grid lg:grid-cols-5">
-        <CoverImage
-          src={eventCover(event)?.src ?? null}
-          focusY={eventCover(event)?.focusY}
-          alt=""
-          seed={event.id}
-          icon={kindIcon(event.event_type)}
-          aspect="fill"
-          tone="sea"
-          eager
-          className="h-52 sm:h-60 lg:col-span-2 lg:h-auto lg:min-h-[20rem]"
-          imageClassName="transition-transform duration-500 group-hover:scale-105"
-        >
-          {phase === 'live' ? (
-            <span className="absolute left-4 top-4 inline-flex items-center gap-1 rounded-full bg-red-600 px-3 py-1 text-xs font-bold uppercase tracking-wide text-white">
-              <Radio className="h-3.5 w-3.5" aria-hidden="true" />{t('eventsPage.happeningNow', 'Happening now')}
-            </span>
-          ) : (
-            <span className="absolute left-4 top-4 rounded-full bg-secondary px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
-              {t('eventsPage.nextEvent', 'Next event')}
-            </span>
-          )}
-          <div className="absolute bottom-4 left-4">
-            <DateChip iso={event.date_time} endIso={event.end_date_time} locale={locale} large />
-          </div>
-          {/* The live state is already the label on the left. */}
-          <StatusBadges phase={phase === 'live' ? 'upcoming' : phase} registered={registered} />
-        </CoverImage>
-
-        <div className="flex flex-col p-6 lg:col-span-3 lg:p-8">
-          <div className="mb-3 flex flex-wrap items-center gap-1.5">
-            <KindChip kind={event.event_type} label={kindLabel(event.event_type)} />
-            <Flags {...props} />
-          </div>
-          <h3 className="text-xl font-bold leading-tight text-gray-900 transition-colors group-hover:text-primary lg:text-2xl">
-            <Link to={`/events/${event.id}`} className={STRETCHED_LINK}>{event.title}</Link>
-          </h3>
-          <ul className="mt-3 space-y-1.5 text-sm text-gray-700">
-            <li className="flex items-start gap-2">
-              <Clock className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-              <span>{whenText(event)}</span>
-            </li>
-            <li className="flex items-start gap-2">
-              {isWebinar
-                ? <Video className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                : <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />}
-              <span>{whereText(event)}</span>
-            </li>
-            {speakers.length > 0 && (
-              <li className="flex items-start gap-2">
-                <Users className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
-                <span>
-                  <span className="sr-only">{t('events.speakers')}: </span>
-                  {speakers.slice(0, 4).join(', ')}
-                  {speakers.length > 4 && ` ${t('eventsPage.andMore', { count: speakers.length - 4, defaultValue_one: '+{{count}} more', defaultValue_other: '+{{count}} more' })}`}
-                </span>
-              </li>
-            )}
-          </ul>
-          {event.description && (
-            <p className="mt-4 line-clamp-3 text-sm leading-relaxed text-gray-600">{event.description}</p>
-          )}
-          {themes.length > 0 && (
-            <div className="mt-4">
-              <ThemeChips themes={themes} themeLabel={themeLabel} max={4} />
-            </div>
-          )}
-          <div className="relative z-10 mt-6 flex flex-wrap items-center gap-2">
-            {action}
-            {extra}
-            <Button asChild variant="ghost" className="h-11 rounded-xl text-primary">
-              <Link to={`/events/${event.id}`}>
-                {t('eventsPage.seeDetails', 'See details')}<ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
-              </Link>
-            </Button>
-          </div>
-          {/* Three calendar buttons on wider screens; phones get the compact .ics button next to the action. */}
-          {phase === 'upcoming' && event.date_time && (
-            <div className="relative z-10 mt-4 hidden border-t border-gray-100 pt-4 sm:block">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">{t('events.addToCalendar')}</p>
-              <AddToCalendarButtons
-                event={{
-                  title: event.title,
-                  description: event.description,
-                  date_time: event.date_time,
-                  end_date_time: event.end_date_time,
-                  location: event.location,
-                  // The join link only goes into the calendar of someone registered.
-                  url: registered ? event.meeting_url : null,
-                }}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function EventCard(props: CardProps) {
-  const { event, phase, registered, themes, themeLabel, kindLabel, whenText, whereText, locale, action, extra } = props;
-  const { t } = useTranslation();
-  const isPast = phase === 'ended';
-  const speakers = (event.speakers ?? []).map((s) => s.name).filter(Boolean);
-  const SHOWN_SPEAKERS = 3;
-  return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100 transition duration-300 hover:-translate-y-0.5 hover:shadow-md">
-      <CoverImage
-        src={eventCover(event)?.src ?? null}
-        focusY={eventCover(event)?.focusY}
-        alt=""
-        seed={event.id}
-        icon={kindIcon(event.event_type)}
-        aspect="video"
-        imageClassName="transition-transform duration-500 group-hover:scale-105"
-      >
-        <div className="absolute left-3 top-3">
-          <DateChip iso={event.date_time} endIso={event.end_date_time} locale={locale} showYear={isPast} />
-        </div>
-        <StatusBadges phase={phase} registered={registered && !isPast} />
-        {isPast && event.replay_url && (
-          <span className="absolute bottom-3 left-3 inline-flex items-center gap-1 rounded-full bg-white/95 px-2.5 py-1 text-xs font-semibold text-primary shadow-sm">
-            <Play className="h-3 w-3" aria-hidden="true" />{t('eventsPage.replayAvailable', 'Replay available')}
-          </span>
-        )}
-      </CoverImage>
-      <div className="flex flex-1 flex-col p-4">
-        <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          <KindChip kind={event.event_type} label={kindLabel(event.event_type)} />
-          <Flags {...props} />
-        </div>
-        <h3 className="line-clamp-2 font-semibold leading-snug text-gray-900 transition-colors group-hover:text-primary">
-          <Link to={`/events/${event.id}`} className={STRETCHED_LINK}>{event.title}</Link>
-        </h3>
-        <p className="mt-2 flex items-start gap-1.5 text-sm text-gray-600">
-          <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <span>{whenText(event)}</span>
-        </p>
-        <p className="mt-1 flex items-start gap-1.5 text-sm text-gray-600">
-          {event.event_type === 'webinar'
-            ? <Video className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            : <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-          <span className="line-clamp-1">{whereText(event)}</span>
-        </p>
-        {speakers.length > 0 && (
-          <p className="mt-1 flex items-start gap-1.5 text-sm text-gray-600">
-            <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            <span className="line-clamp-2">
-              <span className="sr-only">{t('events.speakers')}: </span>
-              {speakers.slice(0, SHOWN_SPEAKERS).join(', ')}
-              {speakers.length > SHOWN_SPEAKERS && ` ${t('eventsPage.andMore', { count: speakers.length - SHOWN_SPEAKERS, defaultValue_one: '+{{count}} more', defaultValue_other: '+{{count}} more' })}`}
-            </span>
-          </p>
-        )}
-        {event.description && (
-          <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-gray-600">{event.description}</p>
-        )}
-        {themes.length > 0 && (
-          <div className="mt-3">
-            <ThemeChips themes={themes} themeLabel={themeLabel} max={2} />
-          </div>
-        )}
-        <div className="relative z-10 mt-auto flex items-center gap-2 pt-4">
-          {action}
-          {extra}
-        </div>
-      </div>
-    </article>
   );
 }

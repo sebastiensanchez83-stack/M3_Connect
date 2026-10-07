@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { AuthLoading, AuthShell } from '@/components/auth/AuthShell';
+import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, FieldError, PasswordInput } from '@/components/auth/fields';
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
 import type { EmailOtpType } from '@supabase/supabase-js';
-import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle } from 'lucide-react';
 
 const OTP_TYPES = ['recovery', 'invite', 'magiclink', 'signup', 'email_change'];
 
@@ -278,159 +278,131 @@ export function ResetPasswordPage() {
 
   // Still working out whether the link carried a usable session
   if (checking && !sessionReady) {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-md">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
-            <p className="text-gray-600">{t('resetPassword.verifying', 'Verifying your reset link...')}</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    return <AuthLoading label={t('resetPassword.verifying', 'Verifying your reset link...')} />;
   }
 
   // No session — the link was already used, has expired, or was opened after a
   // newer one replaced it (or the session behind it went stale). Let them fix it
   // here instead of sending them away.
   if (!sessionReady) {
+    if (resent) {
+      return (
+        <AuthShell
+          layout="centered"
+          icon={<CheckCircle className="h-6 w-6" />}
+          title={t('resetPassword.checkInboxTitle', 'Check your inbox')}
+          lead={<span className="break-words">{t('resetPassword.newLinkSent', 'If {{email}} has an account, a new link is on its way. It works once, on any device. Nothing after a few minutes? Check your spam folder.', { email: resendEmail.trim().toLowerCase() })}</span>}
+        >
+          <Button variant="ctaOnDark" onClick={() => (window.location.href = '/')}>{t('common.goHome', 'Go to Homepage')}</Button>
+        </AuthShell>
+      );
+    }
     return (
-      <div className="container mx-auto px-4 py-16 max-w-md">
-        <Card>
-          <CardContent className="pt-6">
-            {resent ? (
-              <div className="text-center">
-                <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-                <h2 className="text-xl font-semibold mb-2">{t('resetPassword.checkInboxTitle', 'Check your inbox')}</h2>
-                <p className="text-gray-600 mb-4 break-words">
-                  {t('resetPassword.newLinkSent', 'If {{email}} has an account, a new link is on its way. It works once, on any device. Nothing after a few minutes? Check your spam folder.', { email: resendEmail.trim().toLowerCase() })}
-                </p>
-                <Button variant="outline" onClick={() => (window.location.href = '/')}>{t('common.goHome', 'Go to Homepage')}</Button>
-              </div>
+      <AuthShell
+        title={sessionLost
+          ? t('resetPassword.sessionExpiredTitle', 'Your reset session has expired')
+          : t('resetPassword.linkInvalidTitle', "This link can't be used")}
+        lead={sessionLost
+          ? t('resetPassword.sessionExpiredDesc', "For your security, your password can no longer be changed from this session. Enter your e-mail address and we'll send you a fresh link.")
+          : t('resetPassword.linkInvalidDesc', "Password links work once and expire. This one has already been used, has run out, or was replaced by a newer link. Enter your e-mail address and we'll send you a fresh one.")}
+        points={false}
+      >
+        <form
+          className="space-y-5"
+          onSubmit={(e) => { e.preventDefault(); void requestNewLink(); }}
+        >
+          <div className="space-y-2">
+            <AuthLabel htmlFor="resendEmail">{t('auth.email', 'Email')}</AuthLabel>
+            <AuthInput
+              id="resendEmail"
+              type="email"
+              autoComplete="email"
+              value={resendEmail}
+              onChange={(e) => setResendEmail(e.target.value)}
+              placeholder={t('auth.emailPlaceholder', 'you@example.com')}
+              required
+              disabled={resendBusy}
+              className={resendError ? AUTH_FIELD_ERROR : undefined}
+            />
+          </div>
+          {resendError && (
+            <FieldError>{resendError}</FieldError>
+          )}
+          <Button type="submit" variant="cta" className="w-full justify-between" disabled={resendBusy}>
+            {resendBusy ? (
+              <><Loader2 className="h-4 w-4 animate-spin" />{t('resetPassword.sending', 'Sending...')}</>
             ) : (
-              <>
-                <div className="text-center">
-                  <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                  <h2 className="text-xl font-semibold mb-2">
-                    {sessionLost
-                      ? t('resetPassword.sessionExpiredTitle', 'Your reset session has expired')
-                      : t('resetPassword.linkInvalidTitle', "This link can't be used")}
-                  </h2>
-                  <p className="text-gray-600 mb-5">
-                    {sessionLost
-                      ? t('resetPassword.sessionExpiredDesc', "For your security, your password can no longer be changed from this session. Enter your e-mail address and we'll send you a fresh link.")
-                      : t('resetPassword.linkInvalidDesc', "Password links work once and expire. This one has already been used, has run out, or was replaced by a newer link. Enter your e-mail address and we'll send you a fresh one.")}
-                  </p>
-                </div>
-                <form
-                  className="space-y-3"
-                  onSubmit={(e) => { e.preventDefault(); void requestNewLink(); }}
-                >
-                  <div className="space-y-2">
-                    <Label htmlFor="resendEmail">{t('auth.email', 'Email')}</Label>
-                    <Input
-                      id="resendEmail"
-                      type="email"
-                      autoComplete="email"
-                      value={resendEmail}
-                      onChange={(e) => setResendEmail(e.target.value)}
-                      placeholder={t('auth.emailPlaceholder', 'you@example.com')}
-                      required
-                      disabled={resendBusy}
-                    />
-                  </div>
-                  {resendError && (
-                    <p className="text-sm text-red-600" role="alert">{resendError}</p>
-                  )}
-                  <Button type="submit" className="w-full" disabled={resendBusy}>
-                    {resendBusy ? (
-                      <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('resetPassword.sending', 'Sending...')}</>
-                    ) : (
-                      t('auth.sendNewLink', 'Send me a new link')
-                    )}
-                  </Button>
-                  <Button type="button" variant="ghost" className="w-full" onClick={() => (window.location.href = '/')}>
-                    {t('common.goHome', 'Go to Homepage')}
-                  </Button>
-                </form>
-              </>
+              t('auth.sendNewLink', 'Send me a new link')
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </Button>
+          <div className="text-center">
+            <UnderlineLink arrow={false} onClick={() => (window.location.href = '/')}>
+              {t('common.goHome', 'Go to Homepage')}
+            </UnderlineLink>
+          </div>
+        </form>
+      </AuthShell>
     );
   }
 
   if (success) {
     return (
-      <div className="container mx-auto px-4 py-16 max-w-md">
-        <Card>
-          <CardContent className="pt-6 text-center">
-            <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">{t('resetPassword.successTitle', 'Password updated!')}</h2>
-            <p className="text-gray-600">
-              {next
-                ? t('resetPassword.takingYouBack', 'Taking you back...')
-                : t('resetPassword.signInAgain', 'Sign in with your new password — redirecting...')}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthShell
+        layout="centered"
+        icon={<CheckCircle className="h-6 w-6" />}
+        title={t('resetPassword.successTitle', 'Password updated!')}
+        lead={next
+          ? t('resetPassword.takingYouBack', 'Taking you back...')
+          : t('resetPassword.signInAgain', 'Sign in with your new password — redirecting...')}
+      />
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-16 max-w-md">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('resetPassword.title', 'Reset your password')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg" role="alert">
-              <p className="text-red-700 text-sm">{error}</p>
-            </div>
-          )}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="password">{t('resetPassword.newPassword', 'New password')}</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
-                required
-                disabled={loading}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirmPassword">{t('auth.confirmPassword', 'Confirm Password')}</Label>
-              <Input
-                id="confirmPassword"
-                type="password"
-                autoComplete="new-password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder={t('resetPassword.confirmPlaceholder', 'Confirm new password')}
-                required
-                disabled={loading}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  {t('resetPassword.updating', 'Updating...')}
-                </>
-              ) : (
-                t('resetPassword.submit', 'Update password')
-              )}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+    <AuthShell title={t('resetPassword.title', 'Reset your password')} points={false}>
+      <div className="space-y-5">
+        {error && (
+          <AuthNotice tone="error" role="alert">
+            <p>{error}</p>
+          </AuthNotice>
+        )}
+        <form onSubmit={handleSubmit} className="space-y-5">
+          <div className="space-y-2">
+            <AuthLabel htmlFor="password">{t('resetPassword.newPassword', 'New password')}</AuthLabel>
+            <PasswordInput
+              id="password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
+              required
+              disabled={loading}
+            />
+          </div>
+          <div className="space-y-2">
+            <AuthLabel htmlFor="confirmPassword">{t('auth.confirmPassword', 'Confirm Password')}</AuthLabel>
+            <PasswordInput
+              id="confirmPassword"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder={t('resetPassword.confirmPlaceholder', 'Confirm new password')}
+              required
+              disabled={loading}
+            />
+          </div>
+          <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {t('resetPassword.updating', 'Updating...')}
+              </>
+            ) : (
+              t('resetPassword.submit', 'Update password')
+            )}
+          </Button>
+        </form>
+      </div>
+    </AuthShell>
   );
 }

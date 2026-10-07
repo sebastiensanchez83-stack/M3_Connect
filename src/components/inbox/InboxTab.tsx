@@ -1,14 +1,15 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
-import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { CardShell } from '@/components/brand/CardShell';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { BTN, BTN_OUTLINE, MemberEmpty, MemberPanel, RowSkeleton, StatusPill } from '@/components/member/MemberUI';
+import { cn } from '@/lib/utils';
+import type { LucideIcon } from 'lucide-react';
 import {
   Inbox, Link2, Award, Users, Check, X, Clock, MailCheck, MailX,
   CheckCircle, Mail, RefreshCw, ExternalLink,
@@ -295,65 +296,57 @@ export function InboxTab() {
     setActingOn(null);
   };
 
-  if (loading) return <LoadingSkeleton variant="inline" />;
+  if (loading) return <MemberPanel><RowSkeleton rows={3} /></MemberPanel>;
 
   return (
-    <div className="space-y-4">
-      {/* Header + filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Inbox className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-semibold text-gray-900">Inbox</h2>
-              {pendingByCategory.all > 0 && (
-                <Badge className="bg-red-500 text-white border-0 text-[10px]">{pendingByCategory.all} pending</Badge>
-              )}
-            </div>
-            <Button size="sm" variant="ghost" onClick={() => load(false)} disabled={refreshing}>
-              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
+    <div className="space-y-5">
+      {/* Filters: the directory's segmented control, scrolling sideways on a phone */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div role="group" aria-label="Filter the inbox" className="no-scrollbar -mx-1 max-w-full overflow-x-auto px-1 py-1">
+          <div className="inline-flex rounded-pill bg-[#e9edf3] p-1">
+            {FILTERS.map((f) => {
+              const active = filter === f.value;
+              return (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setFilter(f.value)}
+                  aria-pressed={active}
+                  className={cn(
+                    'inline-flex h-9 shrink-0 items-center gap-2 whitespace-nowrap rounded-pill px-3.5 text-[14px] font-medium transition-colors duration-300 focus-visible:outline-none focus-visible:shadow-focus',
+                    active ? 'bg-white text-navy shadow-[0_1px_3px_rgba(11,38,83,.10)]' : 'text-meta hover:text-navy',
+                  )}
+                >
+                  {f.icon}
+                  {f.label}
+                  {pendingByCategory[f.value] > 0 && (
+                    <span className="grid h-5 min-w-5 place-items-center rounded-pill bg-navy px-1.5 text-[12px] font-semibold leading-none tabular-nums text-white">
+                      {pendingByCategory[f.value]}
+                      <span className="sr-only"> pending</span>
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
-          <div className="flex flex-wrap gap-2">
-            {FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setFilter(f.value)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                  filter === f.value
-                    ? 'bg-primary text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {f.icon}
-                {f.label}
-                {pendingByCategory[f.value] > 0 && (
-                  <span className={`ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 text-[10px] font-bold rounded-full ${
-                    filter === f.value ? 'bg-white/20' : 'bg-red-500 text-white'
-                  }`}>
-                    {pendingByCategory[f.value]}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+        </div>
+        <Button size="sm" variant="ghost" className={cn(BTN, 'gap-1.5 text-navy hover:bg-chip')} onClick={() => load(false)} disabled={refreshing}>
+          <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
+          Refresh
+        </Button>
+      </div>
 
       {/* Items */}
       {filtered.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <Inbox className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">
-              {filter === 'all' ? 'Your inbox is empty.' : 'Nothing in this category right now.'}
-            </p>
-          </CardContent>
-        </Card>
+        <CardShell>
+          <MemberEmpty
+            icon={Inbox}
+            title={filter === 'all' ? 'Your inbox is empty.' : 'Nothing in this category right now.'}
+            body="Connection requests, team requests and recommendations from other members show up here."
+          />
+        </CardShell>
       ) : (
-        <div className="space-y-2">
+        <ul className="space-y-3">
           {filtered.map((item) => (
             <InboxItemCard
               key={`${item.kind}-${'id' in item.data ? item.data.id : ''}`}
@@ -365,7 +358,7 @@ export function InboxTab() {
               onCancelInvitation={handleCancelInvitation}
             />
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );
@@ -380,8 +373,54 @@ interface InboxItemCardProps {
   onCancelInvitation: (item: InboxItem & { kind: 'team_invitation' }) => void;
 }
 
+/** One request: icon tile, title and meta line, a state pill, the answer buttons. */
+function InboxRow({
+  icon: Icon,
+  urgent = false,
+  title,
+  meta,
+  status,
+  body,
+  children,
+}: {
+  icon: LucideIcon;
+  urgent?: boolean;
+  title: ReactNode;
+  meta?: ReactNode;
+  status: ReactNode;
+  body?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <li>
+      <CardShell>
+        <div className="flex gap-4 p-4 sm:p-5">
+          <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-xl text-navy', urgent ? 'bg-gold/25' : 'bg-chip')}>
+            <Icon className="h-5 w-5" aria-hidden="true" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{title}</p>
+                {meta && <p className="mt-1 text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]">{meta}</p>}
+              </div>
+              {status}
+            </div>
+            {body && <p className="mt-2 line-clamp-3 text-[15px] leading-6 text-meta">{body}</p>}
+            {children && <div className="mt-4 flex flex-wrap gap-2">{children}</div>}
+          </div>
+        </div>
+      </CardShell>
+    </li>
+  );
+}
+
+const DENY = 'text-red-700 hover:border-red-300 hover:bg-red-50 hover:text-red-800';
+
 function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onResendInvitation, onCancelInvitation }: InboxItemCardProps) {
-  const date = new Date(item.created_at).toLocaleDateString();
+  const created = new Date(item.created_at);
+  // A request without a readable date shows no date rather than "Invalid Date".
+  const date = Number.isNaN(created.getTime()) ? '' : created.toLocaleDateString();
 
   // Partner request
   if (item.kind === 'partner_request') {
@@ -390,42 +429,30 @@ function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onRese
     const isPending = data.status === 'pending';
     const counterpartName = isReceived ? data.partner_org_name : data.marina_org_name;
     return (
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex gap-3">
-            <div className="shrink-0 mt-0.5">
-              <div className="w-9 h-9 rounded-full bg-blue-50 flex items-center justify-center">
-                <Link2 className="h-4 w-4 text-blue-500" />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">
-                    {isReceived ? 'B2B request' : 'B2B request sent'}
-                    {counterpartName && <span className="text-gray-500"> · {counterpartName}</span>}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">{date}</p>
-                </div>
-                <PartnerStatusBadge status={data.status} />
-              </div>
-              {data.message && (
-                <p className="mt-2 text-sm text-gray-600 line-clamp-3">{data.message}</p>
-              )}
-              {isReceived && isPending && (
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" onClick={() => onPartnerResponse(item, 'accepted')} disabled={acting}>
-                    <Check className="h-3.5 w-3.5 mr-1" /> Accept
-                  </Button>
-                  <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => onPartnerResponse(item, 'rejected')} disabled={acting}>
-                    <X className="h-3.5 w-3.5 mr-1" /> Reject
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <InboxRow
+        icon={Link2}
+        urgent={isReceived && isPending}
+        title={(
+          <>
+            {isReceived ? 'B2B request' : 'B2B request sent'}
+            {counterpartName && <span className="font-normal text-meta"> · {counterpartName}</span>}
+          </>
+        )}
+        meta={date}
+        status={<PartnerStatusBadge status={data.status} />}
+        body={data.message}
+      >
+        {isReceived && isPending && (
+          <>
+            <Button size="sm" className={cn(BTN, 'gap-1.5')} onClick={() => onPartnerResponse(item, 'accepted')} disabled={acting}>
+              <Check className="h-4 w-4" aria-hidden="true" /> Accept
+            </Button>
+            <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, DENY, 'gap-1.5')} onClick={() => onPartnerResponse(item, 'rejected')} disabled={acting}>
+              <X className="h-4 w-4" aria-hidden="true" /> Reject
+            </Button>
+          </>
+        )}
+      </InboxRow>
     );
   }
 
@@ -433,33 +460,16 @@ function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onRese
   if (item.kind === 'reference_request') {
     const { data } = item;
     return (
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex gap-3">
-            <div className="shrink-0 mt-0.5">
-              <div className="w-9 h-9 rounded-full bg-amber-50 flex items-center justify-center">
-                <Award className="h-4 w-4 text-amber-500" />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">
-                    Recommendation sent to {data.client_legal_name}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">{data.project_name} · {date}</p>
-                </div>
-                <ReferenceStatusBadge status={data.status} />
-              </div>
-              <div className="mt-2">
-                <Link to="/account?tab=references" className="text-xs text-primary hover:underline inline-flex items-center gap-1">
-                  Manage recommendations <ExternalLink className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <InboxRow
+        icon={Award}
+        title={`Recommendation sent to ${data.client_legal_name}`}
+        meta={[data.project_name, date].filter(Boolean).join(' · ')}
+        status={<ReferenceStatusBadge status={data.status} />}
+      >
+        <UnderlineLink to="/account?tab=references" className="!text-[14px] !leading-5">
+          Manage recommendations
+        </UnderlineLink>
+      </InboxRow>
     );
   }
 
@@ -468,38 +478,20 @@ function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onRese
     const { data } = item;
     const displayName = `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim() || data.email;
     return (
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex gap-3">
-            <div className="shrink-0 mt-0.5">
-              <div className="w-9 h-9 rounded-full bg-cyan-50 flex items-center justify-center">
-                <Users className="h-4 w-4 text-cyan-500" />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">
-                    Join request from {displayName}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {data.email} · wants to join {data.organization_name} · {date}
-                  </p>
-                </div>
-                <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px]">Action needed</Badge>
-              </div>
-              <div className="mt-3 flex gap-2">
-                <Button size="sm" onClick={() => onJoinResponse(item, true)} disabled={acting}>
-                  <Check className="h-3.5 w-3.5 mr-1" /> Approve
-                </Button>
-                <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => onJoinResponse(item, false)} disabled={acting}>
-                  <X className="h-3.5 w-3.5 mr-1" /> Reject
-                </Button>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <InboxRow
+        icon={Users}
+        urgent
+        title={`Join request from ${displayName}`}
+        meta={[data.email, `wants to join ${data.organization_name}`, date].filter(Boolean).join(' · ')}
+        status={<StatusPill tone="warning">Action needed</StatusPill>}
+      >
+        <Button size="sm" className={cn(BTN, 'gap-1.5')} onClick={() => onJoinResponse(item, true)} disabled={acting}>
+          <Check className="h-4 w-4" aria-hidden="true" /> Approve
+        </Button>
+        <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, DENY, 'gap-1.5')} onClick={() => onJoinResponse(item, false)} disabled={acting}>
+          <X className="h-4 w-4" aria-hidden="true" /> Reject
+        </Button>
+      </InboxRow>
     );
   }
 
@@ -507,38 +499,23 @@ function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onRese
   if (item.kind === 'team_invitation') {
     const { data } = item;
     return (
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex gap-3">
-            <div className="shrink-0 mt-0.5">
-              <div className="w-9 h-9 rounded-full bg-purple-50 flex items-center justify-center">
-                <Mail className="h-4 w-4 text-purple-500" />
-              </div>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900">
-                    Team invitation to {data.email}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">{date}</p>
-                </div>
-                <TeamInvitationStatusBadge status={data.status} />
-              </div>
-              {data.status === 'pending' && (
-                <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => onResendInvitation(item)} disabled={acting}>
-                    <MailCheck className="h-3.5 w-3.5 mr-1" /> Resend
-                  </Button>
-                  <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => onCancelInvitation(item)} disabled={acting}>
-                    <X className="h-3.5 w-3.5 mr-1" /> Cancel
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <InboxRow
+        icon={Mail}
+        title={`Team invitation to ${data.email}`}
+        meta={date}
+        status={<TeamInvitationStatusBadge status={data.status} />}
+      >
+        {data.status === 'pending' && (
+          <>
+            <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => onResendInvitation(item)} disabled={acting}>
+              <MailCheck className="h-4 w-4" aria-hidden="true" /> Resend
+            </Button>
+            <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, DENY, 'gap-1.5')} onClick={() => onCancelInvitation(item)} disabled={acting}>
+              <X className="h-4 w-4" aria-hidden="true" /> Cancel
+            </Button>
+          </>
+        )}
+      </InboxRow>
     );
   }
 
@@ -546,37 +523,37 @@ function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onRese
 }
 
 function PartnerStatusBadge({ status }: { status: 'pending' | 'accepted' | 'rejected' }) {
-  if (status === 'pending') return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px]"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
-  if (status === 'accepted') return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px]"><CheckCircle className="h-3 w-3 mr-1" />Accepted</Badge>;
-  return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]"><X className="h-3 w-3 mr-1" />Rejected</Badge>;
+  if (status === 'pending') return <StatusPill tone="warning" icon={Clock}>Pending</StatusPill>;
+  if (status === 'accepted') return <StatusPill tone="success" icon={CheckCircle}>Accepted</StatusPill>;
+  return <StatusPill tone="danger" icon={X}>Rejected</StatusPill>;
 }
 
 function ReferenceStatusBadge({ status }: { status: ReferenceData['status'] }) {
   switch (status) {
     case 'confirmed':
-      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px]"><CheckCircle className="h-3 w-3 mr-1" />Confirmed</Badge>;
+      return <StatusPill tone="success" icon={CheckCircle}>Confirmed</StatusPill>;
     case 'rejected':
-      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]"><MailX className="h-3 w-3 mr-1" />Declined</Badge>;
+      return <StatusPill tone="danger" icon={MailX}>Declined</StatusPill>;
     case 'expired':
-      return <Badge variant="secondary" className="text-[10px]">Expired</Badge>;
+      return <StatusPill tone="neutral">Expired</StatusPill>;
     case 'sent':
-      return <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px]"><Mail className="h-3 w-3 mr-1" />Sent</Badge>;
+      return <StatusPill tone="info" icon={Mail}>Sent</StatusPill>;
     default:
-      return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px]"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
+      return <StatusPill tone="warning" icon={Clock}>Pending</StatusPill>;
   }
 }
 
 function TeamInvitationStatusBadge({ status }: { status: TeamInvitationData['status'] }) {
   switch (status) {
     case 'accepted':
-      return <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px]"><CheckCircle className="h-3 w-3 mr-1" />Accepted</Badge>;
+      return <StatusPill tone="success" icon={CheckCircle}>Accepted</StatusPill>;
     case 'rejected':
-      return <Badge className="bg-red-100 text-red-700 border-red-200 text-[10px]">Declined</Badge>;
+      return <StatusPill tone="danger">Declined</StatusPill>;
     case 'expired':
-      return <Badge variant="secondary" className="text-[10px]">Expired</Badge>;
+      return <StatusPill tone="neutral">Expired</StatusPill>;
     case 'cancelled':
-      return <Badge variant="outline" className="text-[10px] text-gray-500">Cancelled</Badge>;
+      return <StatusPill tone="neutral">Cancelled</StatusPill>;
     default:
-      return <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px]"><Clock className="h-3 w-3 mr-1" />Pending</Badge>;
+      return <StatusPill tone="warning" icon={Clock}>Pending</StatusPill>;
   }
 }

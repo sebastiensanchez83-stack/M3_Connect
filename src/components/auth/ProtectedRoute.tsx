@@ -1,13 +1,14 @@
 import { ReactNode, useEffect, useRef } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { PersonaType } from '@/types/database';
-import { RefreshCw, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { LoginForm } from '@/components/auth/LoginForm';
+import { AuthLoading, AuthShell } from '@/components/auth/AuthShell';
 import { readAuthLanding, scrubAuthLandingUrl, type AuthLanding } from '@/components/auth/AuthRedirector';
 
 /** Show a toast once per redirect reason */
@@ -71,11 +72,7 @@ export function ProtectedRoute({
   const landingShown = useRef(false);
 
   if ((loading || (bypassEntitlement && entitlementsLoading)) && !(landing && landingShown.current)) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <AuthLoading />;
   }
 
   // Check auth
@@ -123,25 +120,19 @@ function AuthLandingNotice({ landing }: { landing: AuthLanding }) {
   const { t } = useTranslation();
   useEffect(() => { scrubAuthLandingUrl(); }, []);
   return (
-    <div className="flex items-center justify-center min-h-[60vh] px-4 py-8">
-      <Card className="w-full max-w-md">
-        <CardContent className="pt-6 space-y-4">
-          <h1 className="text-xl font-semibold text-gray-900">{t('auth.login')}</h1>
-          <LoginForm showConfirmedBanner={landing === 'confirmed'} linkError={landing === 'link-error'} />
-        </CardContent>
-      </Card>
-    </div>
+    <AuthShell title={t('auth.login')}>
+      <LoginForm showConfirmedBanner={landing === 'confirmed'} linkError={landing === 'link-error'} />
+    </AuthShell>
   );
 }
 
 function LockedState({ message }: { message: string }) {
+  const { t } = useTranslation();
   return (
-    <div className="flex flex-col items-center justify-center h-[60vh] text-center px-4">
-      <div className="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center mb-4">
-        <Lock className="h-8 w-8 text-gray-400" />
-      </div>
-      <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Restricted</h2>
-      <p className="text-gray-500 max-w-md">{message}</p>
-    </div>
+    <AuthShell layout="centered" icon={<Lock className="h-6 w-6" />} title={t('authRefonte.gate.title', 'Access restricted')} lead={message}>
+      <Button asChild variant="ctaOnDark">
+        <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>
+      </Button>
+    </AuthShell>
   );
 }

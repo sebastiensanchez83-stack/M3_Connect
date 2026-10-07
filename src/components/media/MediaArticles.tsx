@@ -97,7 +97,7 @@ export function MediaArticles() {
     }
   };
 
-  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-gray-300" /></div>;
+  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-meta/40" /></div>;
 
   const term = q.trim().toLowerCase();
   const shown = term
@@ -107,37 +107,37 @@ export function MediaArticles() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+        <h2 className="text-xl font-bold text-navy flex items-center gap-2">
           <FileText className="h-5 w-5 text-primary" /> Articles
         </h2>
-        <p className="text-sm text-gray-500 mt-0.5">
+        <p className="text-sm text-meta mt-0.5">
           Download any published article as a PDF to reuse in your coverage.
         </p>
       </div>
 
       {articles.length > 4 && (
         <div className="relative max-w-sm">
-          <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="h-4 w-4 text-meta/60 absolute left-3 top-1/2 -translate-y-1/2" />
           <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search articles" className="pl-9" />
         </div>
       )}
 
       {shown.length === 0 ? (
-        <Card><CardContent className="py-10 text-center text-sm text-gray-400">
+        <Card className="rounded-card shadow-none"><CardContent className="py-10 text-center text-sm text-meta/60">
           {articles.length === 0 ? 'No articles published yet.' : 'No article matches your search.'}
         </CardContent></Card>
       ) : (
         <div className="space-y-2">
           {shown.map(a => (
-            <Card key={a.id}>
+            <Card className="rounded-card shadow-none" key={a.id}>
               <CardContent className="py-4 flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <div className="font-medium text-gray-900">{a.title}</div>
-                  {a.summary && <p className="text-sm text-gray-500 mt-0.5 line-clamp-2">{a.summary}</p>}
+                  <div className="font-semibold text-navy">{a.title}</div>
+                  {a.summary && <p className="text-sm text-meta mt-0.5 line-clamp-2">{a.summary}</p>}
                   <div className="flex items-center gap-2 mt-1.5">
-                    {a.topic && <Badge variant="secondary" className="text-xs">{a.topic}</Badge>}
+                    {a.topic && <Badge variant="secondary" className="border-transparent bg-chip text-xs font-medium text-navy hover:bg-chip">{a.topic}</Badge>}
                     {a.published_at && (
-                      <span className="text-xs text-gray-400">
+                      <span className="text-xs text-meta/60">
                         {new Date(a.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </span>
                     )}

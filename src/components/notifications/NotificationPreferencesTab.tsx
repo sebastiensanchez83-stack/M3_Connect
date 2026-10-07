@@ -9,6 +9,7 @@ import {
   Bell, Link2, ClipboardList, Award, Calendar, CreditCard, Users, ShieldCheck, Mail, Info,
 } from 'lucide-react';
 import type { NotificationCategory } from '@/types/database';
+import { cn } from '@/lib/utils';
 
 interface CategoryDef {
   key: NotificationCategory;
@@ -72,7 +73,7 @@ const CATEGORIES: CategoryDef[] = [
   },
   {
     key: 'marketing',
-    icon: <Mail className="h-5 w-5 text-gray-500" />,
+    icon: <Mail className="h-5 w-5 text-meta" />,
     title: 'Invitations & welcome',
     description: 'Onboarding emails the M3 team sends to introduce the platform.',
     examples: 'Examples: partner_onboarding_welcome.',
@@ -86,7 +87,7 @@ export function NotificationPreferencesTab() {
 
   if (!user || !profile) {
     return (
-      <div className="flex items-center justify-center py-16 text-gray-400 text-sm">
+      <div className="flex items-center justify-center py-16 text-meta/60 text-sm">
         Sign in to manage your notification preferences.
       </div>
     );
@@ -120,20 +121,14 @@ export function NotificationPreferencesTab() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-primary" />
-            Notification preferences
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-gray-600">
+      {/* Intro */}
+      <Card className="rounded-card shadow-none">
+        <CardContent className="space-y-4 p-5">
+          <p className="max-w-3xl text-[15px] leading-6 text-meta">
             Choose which email notifications you want to receive. Everything is on by default. Turning a category off applies immediately and silently skips matching emails — you can re-enable any category at any time.
           </p>
-          <div className="mt-3 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-            <Info className="h-4 w-4 shrink-0 mt-0.5" />
+          <div className="flex items-start gap-3 rounded-card border border-amber-200 bg-amber-50 p-4 text-[14px] leading-5 text-amber-950">
+            <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
             <p>
               <strong>Account lifecycle</strong> emails (approval, rejection, organization claim codes) are critical for using the platform. We strongly recommend keeping them on.
             </p>
@@ -146,24 +141,24 @@ export function NotificationPreferencesTab() {
         {CATEGORIES.map((cat) => {
           const enabled = isEnabled(cat.key);
           return (
-            <Card key={cat.key} className={enabled ? '' : 'opacity-70'}>
-              <CardContent className="py-4">
+            <Card key={cat.key} className={cn('rounded-card shadow-none', !enabled && 'opacity-70')}>
+              <CardContent className="p-4 sm:p-5">
                 <div className="flex items-start gap-4">
-                  <div className="shrink-0 mt-0.5">{cat.icon}</div>
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-chip text-navy [&_svg]:!text-navy">{cat.icon}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-medium text-gray-900">{cat.title}</h3>
+                      <h3 className="text-[15px] font-semibold leading-5 text-navy">{cat.title}</h3>
                       {cat.critical && (
-                        <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 bg-amber-50">
+                        <Badge variant="outline" className="border-amber-200 bg-amber-50 text-[12px] font-semibold text-amber-900">
                           Recommended on
                         </Badge>
                       )}
                       {savingKey === cat.key && (
-                        <span className="text-[10px] text-gray-400">Saving…</span>
+                        <span className="text-[10px] text-meta/60">Saving…</span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-600 mt-0.5">{cat.description}</p>
-                    <p className="text-xs text-gray-400 mt-1.5">{cat.examples}</p>
+                    <p className="mt-1 text-[14px] leading-5 text-meta">{cat.description}</p>
+                    <p className="mt-1.5 text-[13px] leading-[18px] text-meta/80">{cat.examples}</p>
                   </div>
                   <div className="shrink-0">
                     <Switch
@@ -179,7 +174,7 @@ export function NotificationPreferencesTab() {
         })}
       </div>
 
-      <p className="text-xs text-gray-400 text-center">
+      <p className="text-xs text-meta/60 text-center">
         Changes save automatically. Anonymous notifications (e.g. team invitations sent to someone who doesn't have an account yet) are not affected by these preferences.
       </p>
     </div>

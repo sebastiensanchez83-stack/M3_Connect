@@ -83,7 +83,7 @@ export function InvestmentThesisSection({ org, isOwner, onSaved }: Props) {
   };
 
   return (
-    <Card>
+    <Card className="rounded-card shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-emerald-500" />
@@ -91,7 +91,7 @@ export function InvestmentThesisSection({ org, isOwner, onSaved }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-start gap-2 text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg p-2.5">
+        <div className="flex items-start gap-2 text-xs text-meta bg-amber-50 border border-amber-100 rounded-lg p-2.5">
           <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
           <p>
             <strong>Public on your profile.</strong> Marinas and developers will see this on <code>/organizations/{org.slug}</code> so they can decide whether their raise fits your strategy. Focus sectors are managed in your interest sectors below.
@@ -100,8 +100,8 @@ export function InvestmentThesisSection({ org, isOwner, onSaved }: Props) {
 
         {/* Geographies */}
         <div className="space-y-2">
-          <Label className="text-sm flex items-center gap-1.5"><Globe className="h-3.5 w-3.5 text-gray-400" /> Geographies</Label>
-          <p className="text-xs text-gray-400">Countries or regions you target. Press Enter or click + to add.</p>
+          <Label className="text-sm flex items-center gap-1.5"><Globe className="h-3.5 w-3.5 text-meta/60" /> Geographies</Label>
+          <p className="text-xs text-meta/60">Countries or regions you target. Press Enter or click + to add.</p>
           {form.investment_geographies.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {form.investment_geographies.map((g) => (
@@ -111,7 +111,7 @@ export function InvestmentThesisSection({ org, isOwner, onSaved }: Props) {
                     <button
                       type="button"
                       onClick={() => removeGeo(g)}
-                      className="ml-1 hover:bg-gray-200 rounded-full p-0.5"
+                      className="ml-1 hover:bg-rule rounded-full p-0.5"
                       title={`Remove ${g}`}
                     >
                       <X className="h-3 w-3" />
@@ -192,9 +192,9 @@ export function InvestmentThesisSection({ org, isOwner, onSaved }: Props) {
             rows={5}
             maxLength={1500}
             placeholder="What you look for, your value-add, why founders/operators should pick you. Public to anyone visiting your profile."
-            className="w-full resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:bg-gray-50 disabled:text-gray-500"
+            className="w-full resize-y rounded-lg border border-rule bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:bg-page disabled:text-meta"
           />
-          <p className="text-xs text-gray-400">{form.investment_thesis.length} / 1500</p>
+          <p className="text-xs text-meta/60">{form.investment_thesis.length} / 1500</p>
         </div>
 
         {isOwner && (
@@ -207,7 +207,7 @@ export function InvestmentThesisSection({ org, isOwner, onSaved }: Props) {
         )}
 
         {!isOwner && (
-          <div className="flex items-start gap-2 text-xs text-gray-400 pt-2">
+          <div className="flex items-start gap-2 text-xs text-meta/60 pt-2">
             <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <p>Only the organization owner can edit the investment thesis.</p>
           </div>

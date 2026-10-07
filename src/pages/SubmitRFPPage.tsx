@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Loader2, CheckCircle } from 'lucide-react';
+import { Loader2, Lock, Ship } from 'lucide-react';
+import { FormCard, FormFooter, PageLoader, SubmitGuard, SubmitShell } from '@/components/submit/SubmitShell';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
@@ -168,119 +168,118 @@ export function SubmitRFPPage() {
   };
 
   if (authLoading || loadingExisting) {
-    return (
-      <div className="container mx-auto py-16 text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   // Access guard: only verified marina (or developer) users with verified org
   const canSubmitHere = profile?.persona === 'marina' || profile?.persona === 'developer';
   if (!user || !canSubmitHere || !isVerified || organization?.access_status !== 'verified') {
     return (
-      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('submitRfp.restrictedTitle')}</h1>
-        <p className="text-gray-500 mb-6">
+      <SubmitGuard
+        icon={Lock}
+        title={t('submitRfp.restrictedTitle')}
+        actions={(
+          <>
+            {!user && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/')}>{t('common.goHome')}</Button>
+            )}
+            {user && !isVerified && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/account')}>{t('common.viewAccountStatus')}</Button>
+            )}
+            {user && isVerified && !canSubmitHere && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/account')}>{t('common.backToAccount')}</Button>
+            )}
+          </>
+        )}
+      >
+        <p>
           {!user
             ? t('submitRfp.restrictedNoUser')
             : !canSubmitHere
               ? t('submitRfp.restrictedNotMarina')
               : t('submitRfp.restrictedNotVerified')}
         </p>
-        {!user && (
-          <Button onClick={() => navigate('/')}>{t('common.goHome')}</Button>
-        )}
-        {user && !isVerified && (
-          <Button onClick={() => navigate('/account')}>{t('common.viewAccountStatus')}</Button>
-        )}
-        {user && isVerified && !canSubmitHere && (
-          <Button onClick={() => navigate('/account')}>{t('common.backToAccount')}</Button>
-        )}
-      </div>
+      </SubmitGuard>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-2xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">
-          {isEditMode ? 'Edit RFP' : t('submitRfp.title')}
-        </h1>
-        <p className="text-gray-600">
-          {isEditMode ? 'Update your RFP details below.' : t('submitRfp.subtitle')}
-        </p>
-      </div>
-
+    <SubmitShell
+      seed="submit-rfp"
+      icon={Ship}
+      eyebrow={t('submitShell.eyebrowOpportunities', 'Opportunities')}
+      title={isEditMode ? 'Edit RFP' : t('submitRfp.title')}
+      subtitle={isEditMode ? 'Update your RFP details below.' : t('submitRfp.subtitle')}
+      trail={[{ label: t('nav.opportunities', 'Opportunities'), href: '/opportunities' }]}
+    >
       <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{isEditMode ? 'Edit RFP Details' : t('submitRfp.cardTitle')}</CardTitle>
-            <CardDescription>{isEditMode ? 'Modify the fields you want to update' : t('submitRfp.cardDescription')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="space-y-2">
-              <Label>{t('submitRfp.fieldTitle')} *</Label>
-              <Input
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                required
-                placeholder={t('submitRfp.titlePlaceholder')}
-              />
-            </div>
+        <FormCard
+          title={isEditMode ? 'Edit RFP Details' : t('submitRfp.cardTitle')}
+          description={isEditMode ? 'Modify the fields you want to update' : t('submitRfp.cardDescription')}
+        >
+          <div className="space-y-2">
+            <Label>{t('submitRfp.fieldTitle')} *</Label>
+            <Input
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              required
+              placeholder={t('submitRfp.titlePlaceholder')}
+            />
+          </div>
 
-            <div className="space-y-2">
-              <Label>{t('submitRfp.fieldScope')} *</Label>
-              <Textarea
-                value={form.scope}
-                onChange={(e) => setForm({ ...form, scope: e.target.value })}
-                required
-                rows={6}
-                placeholder={t('submitRfp.scopePlaceholder')}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label>{t('submitRfp.fieldScope')} *</Label>
+            <Textarea
+              value={form.scope}
+              onChange={(e) => setForm({ ...form, scope: e.target.value })}
+              required
+              rows={6}
+              placeholder={t('submitRfp.scopePlaceholder')}
+            />
+          </div>
 
-            <div className="space-y-2">
-              <Label>{t('submitRfp.fieldSector')}</Label>
-              <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border rounded-lg p-3">
-                {sectors.map((s) => (
-                  <div key={s.id} className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`rfp-sector-${s.id}`}
-                      checked={selectedSectors.includes(s.id)}
-                      onCheckedChange={() => {
-                        setSelectedSectors(prev =>
-                          prev.includes(s.id) ? prev.filter(sid => sid !== s.id) : [...prev, s.id]
-                        );
-                      }}
-                    />
-                    <Label htmlFor={`rfp-sector-${s.id}`} className="text-sm cursor-pointer font-normal">{s.label}</Label>
-                  </div>
-                ))}
-              </div>
-              {selectedSectors.length > 0 && (
-                <p className="text-xs text-gray-500">{selectedSectors.length} {t('marketplace.sectorsSelected', 'sector(s) selected')}</p>
-              )}
+          <div className="space-y-2">
+            <Label>{t('submitRfp.fieldSector')}</Label>
+            <div className="grid max-h-48 grid-cols-1 gap-2 overflow-y-auto rounded-field border border-rule bg-page/60 p-3 sm:grid-cols-2">
+              {sectors.map((s) => (
+                <div key={s.id} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`rfp-sector-${s.id}`}
+                    checked={selectedSectors.includes(s.id)}
+                    onCheckedChange={() => {
+                      setSelectedSectors(prev =>
+                        prev.includes(s.id) ? prev.filter(sid => sid !== s.id) : [...prev, s.id]
+                      );
+                    }}
+                  />
+                  <Label htmlFor={`rfp-sector-${s.id}`} className="text-sm cursor-pointer font-normal">{s.label}</Label>
+                </div>
+              ))}
             </div>
+            {selectedSectors.length > 0 && (
+              <p className="text-xs text-meta">{selectedSectors.length} {t('marketplace.sectorsSelected', 'sector(s) selected')}</p>
+            )}
+          </div>
 
-            <div className="space-y-2">
-              <Label>{t('submitRfp.fieldDeadline')}</Label>
-              <Input
-                type="date"
-                value={form.deadline_date}
-                onChange={(e) => setForm({ ...form, deadline_date: e.target.value })}
-              />
-            </div>
-          </CardContent>
-        </Card>
+          <div className="space-y-2">
+            <Label>{t('submitRfp.fieldDeadline')}</Label>
+            <Input
+              type="date"
+              value={form.deadline_date}
+              onChange={(e) => setForm({ ...form, deadline_date: e.target.value })}
+            />
+          </div>
+        </FormCard>
 
-        <Button type="submit" className="w-full" size="lg" disabled={loading}>
-          {loading
-            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : t('submitRfp.submitting')}</>
-            : <><CheckCircle className="h-4 w-4 mr-2" />{isEditMode ? 'Save Changes' : t('submitRfp.submitBtn')}</>
-          }
-        </Button>
+        <FormFooter note={isEditMode ? undefined : t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}>
+          <Button type="submit" variant="cta" size="lg" roll={!loading} arrow={!loading} disabled={loading}>
+            {loading
+              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : t('submitRfp.submitting')}</>
+              : (isEditMode ? 'Save Changes' : t('submitRfp.submitBtn'))
+            }
+          </Button>
+        </FormFooter>
       </form>
-    </div>
+    </SubmitShell>
   );
 }

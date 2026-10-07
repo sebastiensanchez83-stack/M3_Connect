@@ -4,33 +4,49 @@ import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Anchor, ArrowRight, Briefcase, Building2, Compass, HardHat, HeartHandshake, MapPin, Mail,
-  Newspaper, Search, TrendingUp, X,
+  Anchor, Briefcase, HardHat, HeartHandshake, MapPin, Newspaper, TrendingUp, X,
 } from 'lucide-react';
-import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
-import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { PageHero } from '@/components/ui/PageHero';
-import { CoverImage, LogoBadge } from '@/components/ui/CoverImage';
-import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { SITE_IMAGES } from '@/lib/siteMedia';
-import { SPONSOR_TIERS, type OrgTier } from '@/types/database';
+import { SPONSOR_TIERS, TIER_LABELS, type OrgTier } from '@/types/database';
 import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
+import { Reveal, RevealGroup } from '@/components/motion/Reveal';
+import { LineReveal } from '@/components/motion/LineReveal';
+import { BgRevealPanel } from '@/components/brand/BgRevealPanel';
+import { CardShell, StretchedLink } from '@/components/brand/CardShell';
+import { ContactCard } from '@/components/brand/ContactCard';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { TYPE_RGB, orgTypeTone } from '@/components/brand/OrgCard';
+import { SearchField } from '@/components/brand/SearchField';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { registerOrgRefonteStrings } from '@/i18n/refonte-org';
+
+registerOrgRefonteStrings();
 
 /**
- * /partners — the companies backing the ecosystem.
+ * /partners — the companies that sponsor M3's events (refonte v2).
  *
  * Who is listed has not changed: every verified organization on a paying tier
  * (whatever its type), plus media outlets an admin has tagged as event media
- * partners. What changed is the presentation: a header band, the paying
- * partners first, then the media partners, as cards matching the directory's,
- * and a clear way to the directory for every other organization — this page
- * was a dead end for anyone looking for a marina or a free member.
+ * partners. "Partners" are paying event sponsors and nobody else, so the page
+ * reads like the sponsors band of the home page, in full:
  *
- * The search lives in the URL (?q=), replacing history while typing.
+ *   - a compact banner with the search (?q=, replacing history while typing);
+ *   - the sponsors grouped by tier, highest first (Main Sponsor down to
+ *     Innovation Partner). A tier shows once at least one of its sponsors has a
+ *     logo; each sponsor sits on a card of the same shape, its logo normalised
+ *     in a fixed box (never stretched, never cropped), with the shortlist star,
+ *     the type and place, and up to two sectors. A sponsor of a tier without a
+ *     single logo yet is not listed here (same rule as the home page);
+ *   - the media outlets that cover the events, then a band that sends everyone
+ *     else to the directory, then the sponsorship panel and the M3 contact.
+ *
+ * Event sponsorship is sold by the M3 team: "Sponsor an event" opens the
+ * contact form on that subject (/contact?subject=partnership).
  */
 
 interface SectorRef {
@@ -69,15 +85,24 @@ const TYPE_META: Record<TypeKey, { icon: LucideIcon; oneKey: string; oneFallback
 const TYPE_KEYS = Object.keys(TYPE_META) as TypeKey[];
 const typeMeta = (type: string | null | undefined) => (type && type in TYPE_META ? TYPE_META[type as TypeKey] : null);
 
-/** Biggest packages first. */
-const TIER_ORDER: Record<string, number> = {
+/** Biggest packages first, as on the home page's sponsors band. */
+const TIER_ORDER: OrgTier[] = ['main_sponsor', 'premium_sponsor', 'premium_partner', 'associate_partner', 'innovation_partner'];
+const TIER_RANK: Record<string, number> = {
   main_sponsor: 0, premium_sponsor: 1, premium_partner: 2, associate_partner: 3, innovation_partner: 4, member: 5,
 };
 
 /** The media section: outlets an admin tagged as our event media partners. */
 const isMediaPartner = (p: OrgCard) => p.organization_type === 'media_partner' && p.is_event_media_partner;
 
-const focusRing = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2';
+/** Card shape per tier: how many across, and the height of the logo box. */
+const TIER_LOOK: Record<string, { grid: string; box: string; logo: string }> = {
+  main_sponsor: { grid: 'sm:grid-cols-2 lg:grid-cols-3', box: 'h-[168px] md:h-[184px]', logo: 'max-h-[84px] md:max-h-24' },
+  premium_sponsor: { grid: 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4', box: 'h-[148px] md:h-[156px]', logo: 'max-h-[72px] md:max-h-20' },
+  premium_partner: { grid: 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4', box: 'h-[148px] md:h-[156px]', logo: 'max-h-[72px] md:max-h-20' },
+  associate_partner: { grid: 'sm:grid-cols-2 lg:grid-cols-4', box: 'h-[132px] md:h-[140px]', logo: 'max-h-16 md:max-h-[68px]' },
+  innovation_partner: { grid: 'sm:grid-cols-2 lg:grid-cols-4', box: 'h-[132px] md:h-[140px]', logo: 'max-h-16 md:max-h-[68px]' },
+  media: { grid: 'sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4', box: 'h-[132px] md:h-[140px]', logo: 'max-h-16 md:max-h-[68px]' },
+};
 
 export function PartnersPage() {
   const { t } = useTranslation();
@@ -192,7 +217,7 @@ export function PartnersPage() {
           };
         });
 
-        cards.sort((a, b) => (TIER_ORDER[a.tier] ?? 9) - (TIER_ORDER[b.tier] ?? 9) || a.name.localeCompare(b.name));
+        cards.sort((a, b) => (TIER_RANK[a.tier] ?? 9) - (TIER_RANK[b.tier] ?? 9) || a.name.localeCompare(b.name));
         setPartners(cards);
       } catch (err) {
         if (import.meta.env.DEV) console.error('Error fetching partners:', err);
@@ -221,8 +246,19 @@ export function PartnersPage() {
     );
   }, [partners, search, t]);
 
-  const featured = filteredPartners.filter((p) => !isMediaPartner(p));
+  // Tiers with at least one logo (whatever the search): a tier without any is not shown, as on the home page.
+  const logoTiers = useMemo(
+    () => TIER_ORDER.filter((tier) => partners.some((p) => !isMediaPartner(p) && p.tier === tier && p.logo_url)),
+    [partners],
+  );
+  const tierGroups = useMemo(
+    () => logoTiers
+      .map((tier) => ({ tier, items: filteredPartners.filter((p) => !isMediaPartner(p) && p.tier === tier) }))
+      .filter((g) => g.items.length > 0),
+    [logoTiers, filteredPartners],
+  );
   const media = filteredPartners.filter(isMediaPartner);
+  const shownCount = tierGroups.reduce((n, g) => n + g.items.length, 0) + media.length;
   const searching = search.trim().length > 0;
 
   const typeLinks = typeCounts
@@ -232,8 +268,10 @@ export function PartnersPage() {
   const seoTitle = withSiteSuffix(t('seo.partners.title', 'Event partners and sponsors'));
   const seoDescription = t('seo.partners.description', 'Main Sponsor, Premium Sponsor and the other partners of the industry events M3 Monaco organises in Monaco, Dubai and online.');
 
+  const mediaNo = tierGroups.length > 0 ? '02' : '01';
+
   return (
-    <div className="min-h-screen bg-gray-50 pb-16">
+    <div className="min-h-screen bg-page">
       <Seo title={seoTitle} description={seoDescription} path="/partners" />
 
       <PageHero
@@ -244,176 +282,202 @@ export function PartnersPage() {
         title={t('partners.title', 'Our event partners')}
         subtitle={t('partners.subtitle', 'The companies that sponsor the industry events M3 Monaco organises, listed by tier.')}
       >
-        {/* A real form, so Enter on a phone keyboard closes it. */}
-        <form
-          role="search"
-          className="relative max-w-xl"
-          onSubmit={(e) => {
-            e.preventDefault();
-            (document.activeElement as HTMLElement | null)?.blur();
-          }}
-        >
-          <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" aria-hidden="true" />
-          <Input
-            type="search"
-            enterKeyHint="search"
-            aria-label={t('partnersPage.search', 'Search by name, country, sector…')}
-            placeholder={t('partnersPage.search', 'Search by name, country, sector…')}
+        <div className="flex max-w-xl flex-col items-start gap-4">
+          <SearchField
+            className="w-full"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-12 rounded-full border-0 bg-white pl-12 pr-4 text-base text-gray-800 shadow-lg placeholder:text-gray-500"
+            onValueChange={setSearch}
+            // Enter on a phone keyboard closes the keyboard; the list already follows the field.
+            onSearch={() => (document.activeElement as HTMLElement | null)?.blur()}
+            label={t('partnersPage.search', 'Search by name, country, sector…')}
+            placeholder={t('partnersPage.search', 'Search by name, country, sector…')}
           />
-        </form>
+          <UnderlineLink to="/contact?subject=partnership" tone="light">
+            {t('partnersPage.becomeTitle', 'Sponsor an event')}
+          </UnderlineLink>
+        </div>
       </PageHero>
 
-      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-8">
-        {/* Result count + the chip that undoes the search. */}
-        {!loading && partners.length > 0 && (
-          <div className="mb-6 flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium text-gray-900" aria-live="polite">
-              {t('partnersPage.results', { count: filteredPartners.length, defaultValue: '{{count}} companies' })}
-            </span>
-            {searching && (
-              <button
-                type="button"
-                onClick={clearSearch}
-                className={cn('inline-flex min-h-10 items-center gap-1.5 rounded-full bg-primary px-3.5 text-sm font-medium text-white shadow-sm hover:bg-primary/90', focusRing)}
-              >
-                <span className="max-w-[14rem] truncate">“{search.trim()}”</span>
-                <X className="h-3.5 w-3.5" aria-hidden="true" />
-                <span className="sr-only">{t('partnersPage.clearSearch', 'Clear search')}</span>
-              </button>
-            )}
-          </div>
-        )}
-
+      <div className="mx-auto w-full max-w-7xl px-4 pb-16 pt-10 sm:px-6 md:pb-24 md:pt-14">
         {loading ? (
-          <LoadingSkeleton variant="card" count={3} />
-        ) : filteredPartners.length === 0 ? (
-          <div className="rounded-2xl bg-white px-6 py-16 text-center shadow-sm ring-1 ring-gray-100">
-            <div className="mb-4 inline-flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
-              <Building2 className="h-8 w-8 text-gray-400" aria-hidden="true" />
-            </div>
-            <p className="text-lg text-gray-600">
-              {partners.length === 0
+          <div aria-hidden="true" className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {[0, 1, 2].map((i) => <div key={i} className="h-[300px] animate-pulse rounded-card bg-chip/70" />)}
+          </div>
+        ) : shownCount === 0 ? (
+          <div className="rounded-card border border-rule bg-white px-6 py-14 text-center md:py-16">
+            <span aria-hidden="true" className="mx-auto grid h-14 w-14 place-items-center rounded-pill bg-foam text-teal">
+              <HeartHandshake className="h-6 w-6" strokeWidth={1.75} />
+            </span>
+            <h2 className="mt-5 text-[20px] font-semibold leading-7 text-navy">
+              {!searching
                 ? t('partnersPage.noPartners', 'No partners yet. Check back soon!')
                 : t('partnersPage.noMatch', 'No partners match your search.')}
-            </p>
-            {partners.length > 0 && (
-              <Button variant="outline" className="mt-4 min-h-10" onClick={clearSearch}>
-                {t('partnersPage.clearSearch', 'Clear search')}
-              </Button>
+            </h2>
+            {!searching && (
+              <p className="mx-auto mt-2 max-w-[460px] text-[15px] leading-6 text-meta">
+                {t('partnersRefonte.emptyHint', 'Sponsors appear here, grouped by tier, as soon as they have a logo and a profile.')}
+              </p>
             )}
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-3">
+              {searching ? (
+                <Button variant="ctaNavy" size="sm" arrow={false} onClick={clearSearch}>
+                  {t('partnersPage.clearSearch', 'Clear search')}
+                </Button>
+              ) : (
+                <Button asChild variant="cta" size="sm">
+                  <Link to="/contact?subject=partnership">{t('partnersPage.becomeTitle', 'Sponsor an event')}</Link>
+                </Button>
+              )}
+            </div>
           </div>
         ) : (
           <>
-            {featured.length > 0 && (
+            {/* Result count + the chip that undoes the search. */}
+            <div className="mb-8 flex min-h-9 flex-wrap items-center gap-3">
+              <span className="text-sm font-medium text-navy" aria-live="polite">
+                {t('partnersPage.results', { count: shownCount, defaultValue: '{{count}} companies' })}
+              </span>
+              {searching && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="focus-ring inline-flex h-9 items-center gap-1.5 rounded-pill bg-navy px-3.5 text-sm font-medium text-white transition-colors duration-300 hover:bg-navy-deep"
+                >
+                  <span className="max-w-[14rem] truncate">“{search.trim()}”</span>
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                  <span className="sr-only">{t('partnersPage.clearSearch', 'Clear search')}</span>
+                </button>
+              )}
+            </div>
+
+            {tierGroups.length > 0 && (
               <section aria-labelledby="partners-featured-heading">
-                <SectionTitle
-                  id="partners-featured-heading"
-                  icon={HeartHandshake}
-                  title={t('partnersPage.featuredTitle', 'Sponsors')}
-                  subtitle={t('partnersPage.featuredSubtitle', "Companies that support M3's events through a sponsorship package.")}
-                />
-                <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                  {featured.map((p) => (
-                    <li key={p.id}><PartnerCard partner={p} featured sectorLabel={sectorLabel} /></li>
-                  ))}
-                </ul>
+                <Reveal>
+                  <Eyebrow number="01">{t('partnersRefonte.sponsorsEyebrow', 'Event sponsors')}</Eyebrow>
+                </Reveal>
+                <LineReveal as="h2" id="partners-featured-heading" className="mt-3 text-h2-sm text-navy md:text-h2">
+                  {t('partnersPage.featuredTitle', 'Sponsors')}
+                </LineReveal>
+                <Reveal as="p" delay={120} className="mt-3 max-w-[640px] text-body text-ink">
+                  {t('partnersPage.featuredSubtitle', "Companies that support M3's events through a sponsorship package.")}
+                </Reveal>
+
+                <div className="mt-10 space-y-12 md:space-y-14">
+                  {tierGroups.map((g) => {
+                    const look = TIER_LOOK[g.tier];
+                    const tierName = t(`sharedUi.sponsorBadge.tiers.${g.tier}`, TIER_LABELS[g.tier]);
+                    return (
+                      <div key={g.tier} role="group" aria-labelledby={`tier-${g.tier}`}>
+                        <Reveal>
+                          <h3 id={`tier-${g.tier}`} className="flex items-center gap-3 text-[20px] font-semibold leading-7 tracking-[-0.01em] text-navy">
+                            <span aria-hidden="true" className="h-6 w-0.5 bg-gold" />
+                            {tierName}
+                          </h3>
+                        </Reveal>
+                        <RevealGroup as="ul" className={cn('mt-5 grid grid-cols-1 gap-5 md:gap-6', look.grid)}>
+                          {g.items.map((p) => (
+                            <li key={p.id} className="flex">
+                              <SponsorCard partner={p} look={look} sectorLabel={sectorLabel} />
+                            </li>
+                          ))}
+                        </RevealGroup>
+                      </div>
+                    );
+                  })}
+                </div>
               </section>
             )}
 
             {media.length > 0 && (
-              <section aria-labelledby="partners-media-heading" className={cn(featured.length > 0 && 'mt-12')}>
-                <SectionTitle
-                  id="partners-media-heading"
-                  icon={Newspaper}
-                  title={t('partnersPage.mediaTitle', 'Media')}
-                  subtitle={t('partnersPage.mediaSubtitle', 'The publications that cover our events and the industry.')}
-                />
-                <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <section aria-labelledby="partners-media-heading" className={cn(tierGroups.length > 0 ? 'mt-16 md:mt-24' : '')}>
+                <Reveal>
+                  <Eyebrow number={mediaNo}>{t('partnersPage.mediaTitle', 'Media')}</Eyebrow>
+                </Reveal>
+                <LineReveal as="h2" id="partners-media-heading" className="mt-3 text-h2-sm text-navy md:text-h2">
+                  {t('partnersPage.mediaTitle', 'Media')}
+                </LineReveal>
+                <Reveal as="p" delay={120} className="mt-3 max-w-[640px] text-body text-ink">
+                  {t('partnersPage.mediaSubtitle', 'The publications that cover our events and the industry.')}
+                </Reveal>
+                <RevealGroup as="ul" className={cn('mt-8 grid grid-cols-1 gap-5 md:gap-6', TIER_LOOK.media.grid)}>
                   {media.map((p) => (
-                    <li key={p.id}><PartnerCard partner={p} sectorLabel={sectorLabel} /></li>
+                    <li key={p.id} className="flex">
+                      <SponsorCard partner={p} look={TIER_LOOK.media} sectorLabel={sectorLabel} />
+                    </li>
                   ))}
-                </ul>
+                </RevealGroup>
               </section>
             )}
           </>
         )}
 
         {/* ── Everyone else lives in the directory ── */}
-        <section
-          aria-labelledby="partners-directory-heading"
-          className="relative mt-12 overflow-hidden rounded-2xl text-white shadow-sm"
-        >
-          <CoverImage
-            src={SITE_IMAGES.directoryHero.src}
-            focusY={SITE_IMAGES.directoryHero.focusY}
-            alt=""
-            seed="partners-directory"
-            icon={Compass}
-            aspect="fill"
-            tone="sea"
-            className="absolute inset-0"
-          />
-          <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-r from-[#0b2653]/95 via-[#0b2653]/85 to-[#0b2653]/60" />
-          <div className="relative p-6 sm:p-8 lg:p-10">
-            <div className="max-w-2xl">
-              <h2 id="partners-directory-heading" className="text-2xl font-bold tracking-tight">
-                {t('partnersPage.directoryTitle', 'Looking for someone else?')}
-              </h2>
-              <p className="mt-2 text-white/85">
-                {typeCounts
-                  ? t('partnersPage.directoryBody', {
-                    count: typeCounts.all,
-                    defaultValue: 'The directory lists all {{count}} organizations on Smart Marina Connect — marinas, service providers, investors and media.',
-                  })
-                  : t('partnersPage.directoryBodyNoCount', 'Every organization on Smart Marina Connect is listed in the directory.')}
-              </p>
+        <Reveal as="section" aria-labelledby="partners-directory-heading" className="mt-16 md:mt-24">
+          <div className="rounded-card border border-rule bg-white p-6 md:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between lg:gap-10">
+              <div className="max-w-[680px]">
+                <Eyebrow>{t('nav.directory', 'Directory')}</Eyebrow>
+                <h2 id="partners-directory-heading" className="mt-3 text-h2-sm text-navy md:text-[28px] md:leading-9">
+                  {t('partnersPage.directoryTitle', 'Looking for someone else?')}
+                </h2>
+                <p className="mt-3 text-body text-ink">
+                  {typeCounts
+                    ? t('partnersPage.directoryBody', {
+                      count: typeCounts.all,
+                      defaultValue: 'The directory lists all {{count}} organizations on Smart Marina Connect — marinas, service providers, investors and media.',
+                    })
+                    : t('partnersPage.directoryBodyNoCount', 'Every organization on Smart Marina Connect is listed in the directory.')}
+                </p>
+                {typeLinks.length > 0 && (
+                  <ul className="mt-5 flex flex-wrap gap-2">
+                    {typeLinks.map((tl) => (
+                      <li key={tl.key}>
+                        <Link
+                          to={`/directory?type=${tl.key}`}
+                          className="focus-ring inline-flex min-h-10 items-center gap-2 rounded-pill border border-rule bg-white px-3.5 text-[13px] font-medium text-navy transition-colors duration-300 hover:border-navy/40 md:min-h-9"
+                        >
+                          <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-pill" style={{ background: TYPE_RGB[orgTypeTone(tl.key)] }} />
+                          {t(tl.manyKey, tl.manyFallback)}
+                          <span className="tabular font-normal text-meta">{tl.count}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="shrink-0">
+                <Button asChild variant="ctaNavy">
+                  <Link to="/directory">{t('partnersPage.directoryCta', 'Open the directory')}</Link>
+                </Button>
+              </div>
             </div>
-            {typeLinks.length > 0 && (
-              <ul className="mt-5 flex flex-wrap gap-2">
-                {typeLinks.map((tl) => (
-                  <li key={tl.key}>
-                    <Link
-                      to={`/directory?type=${tl.key}`}
-                      className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-white/15 px-3.5 text-sm font-medium text-white backdrop-blur-sm transition hover:bg-white/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                    >
-                      <tl.icon className="h-4 w-4" aria-hidden="true" />
-                      {t(tl.manyKey, tl.manyFallback)}
-                      <span className="tabular-nums text-white/80">{tl.count}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <Button asChild variant="secondary" className="mt-6 h-auto min-h-11 whitespace-normal rounded-full px-5 font-semibold">
-              <Link to="/directory">
-                {t('partnersPage.directoryCta', 'Open the directory')}
-                <ArrowRight className="ml-2 h-4 w-4 shrink-0" aria-hidden="true" />
-              </Link>
-            </Button>
           </div>
-        </section>
+        </Reveal>
 
-        {/* ── Join the partners ── Event sponsorship is sold by the M3 team, so the
-            card opens the contact form on that subject. */}
-        <div className="mt-6 grid gap-6 md:grid-cols-2">
-          <CtaCard
-            icon={HeartHandshake}
-            title={t('partnersPage.becomeTitle', 'Sponsor an event')}
-            body={t('partnersPage.becomeBody', "Put your company in front of marinas at M3's events in Monaco, Dubai and online.")}
-            to="/contact?subject=partnership"
-            cta={t('partnersPage.becomeCta', 'Contact the M3 team')}
-          />
-          <CtaCard
-            icon={Mail}
-            title={t('partnersPage.mediaCtaTitle', 'Are you a media outlet?')}
-            body={t('partnersPage.mediaCtaBody', 'Talk to us about covering our events and getting press accreditation.')}
-            to="/contact?subject=media"
-            cta={t('partnersPage.mediaCtaCta', 'Contact us')}
-          />
-        </div>
+        {/* ── Sponsor an event ── Event sponsorship is sold by the M3 team, so the
+            button opens the contact form on that subject. */}
+        <section aria-labelledby="partners-sponsor-heading" className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
+          <BgRevealPanel as="div" bathy bathySeed={9} className="mx-0 px-6 py-8 md:mx-0 md:px-10 md:py-10 lg:col-span-7">
+            <Eyebrow tone="onDark">{t('partnersRefonte.closing.eyebrow', 'Sponsorship')}</Eyebrow>
+            <h2 id="partners-sponsor-heading" className="mt-3 text-[26px] font-semibold leading-8 tracking-[-0.01em] md:text-[34px] md:leading-[42px]">
+              {t('partnersRefonte.closing.title', 'Sponsor an M3 event')}
+            </h2>
+            <p className="mt-3 max-w-[520px] text-[15px] leading-6 text-white/85">
+              {t('partnersPage.becomeBody', "Put your company in front of marinas at M3's events in Monaco, Dubai and online.")}
+            </p>
+            <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
+              <Button asChild variant="ctaOnDark">
+                <Link to="/contact?subject=partnership">{t('partnersPage.becomeTitle', 'Sponsor an event')}</Link>
+              </Button>
+              <UnderlineLink to="/contact?subject=media" tone="light">
+                {t('partnersRefonte.closing.mediaLink', 'Are you a media outlet?')}
+              </UnderlineLink>
+            </div>
+          </BgRevealPanel>
+          <Reveal className="flex lg:col-span-5">
+            <ContactCard className="w-full self-stretch" line={t('partnersRefonte.contactLine', 'Sponsorship is handled directly by the M3 team.')} />
+          </Reveal>
+        </section>
       </div>
     </div>
   );
@@ -421,166 +485,93 @@ export function PartnersPage() {
 
 /* ─── Pieces ─────────────────────────────────────────────────────── */
 
-function SectionTitle({ id, icon: Icon, title, subtitle }: { id: string; icon: LucideIcon; title: string; subtitle: string }) {
-  return (
-    <div className="mb-5 flex items-start gap-3">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary">
-        <Icon className="h-5 w-5" aria-hidden="true" />
-      </span>
-      <div>
-        <h2 id={id} className="text-xl font-bold text-gray-900">{title}</h2>
-        <p className="mt-0.5 text-sm text-gray-600">{subtitle}</p>
-      </div>
-    </div>
-  );
+/** A sponsor's logo in its fixed box: contained, never stretched or cropped; the name when it has none (or it fails to load). */
+function SponsorLogo({ src, name, logoClass }: { src: string | null; name: string; logoClass: string }) {
+  const [failed, setFailed] = useState(false);
+  if (src && !failed) {
+    return (
+      <img
+        src={src}
+        alt=""
+        loading="lazy"
+        onError={() => setFailed(true)}
+        className={cn('w-auto max-w-[72%] object-contain', logoClass)}
+      />
+    );
+  }
+  return <span aria-hidden="true" className="line-clamp-2 max-w-[80%] text-center text-[17px] font-semibold leading-6 text-navy">{name}</span>;
 }
 
 /**
- * One partner, in the directory's card language. The name is the link and
- * stretches over the whole card, so the shortlist star can sit inside it
- * without nesting interactive elements in an <a>.
+ * One sponsor, in the directory's card language: a logo box of the same size for
+ * everyone, then the name (the link, stretched over the whole card, so the
+ * shortlist star can sit inside it without nesting interactive elements in an
+ * <a>), the type and place, and up to two sectors.
  */
-function PartnerCard({
-  partner, featured = false, sectorLabel,
+function SponsorCard({
+  partner, look, sectorLabel,
 }: {
   partner: OrgCard;
-  featured?: boolean;
+  look: { box: string; logo: string };
   sectorLabel: (s: SectorRef) => string;
 }) {
   const { t } = useTranslation();
   const meta = typeMeta(partner.organization_type);
-  const TypeIcon = meta?.icon ?? Building2;
+  const tone = orgTypeTone(partner.organization_type);
   const location = [partner.city, partner.headquarters_country || partner.country].filter(Boolean).join(', ');
-  const isPress = partner.organization_type === 'media_partner';
 
   return (
-    <article
-      className={cn(
-        'group relative flex h-full flex-col overflow-hidden rounded-2xl bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md',
-        featured ? 'ring-2 ring-secondary/60' : 'ring-1 ring-gray-100',
-        'has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-primary',
-      )}
-    >
-      <CoverImage
-        src={partner.cover_url}
-        alt=""
-        seed={partner.id}
-        icon={TypeIcon}
-        aspect="banner"
-        imageClassName="group-hover:scale-105"
-      >
+    <CardShell interactive className="h-full w-full min-w-0">
+      <div className={cn('card-media relative grid place-items-center border-b border-rule bg-white px-6', look.box)}>
+        <SponsorLogo src={partner.logo_url} name={partner.name} logoClass={look.logo} />
         {/* Above the stretched link, so the star toggles instead of navigating. */}
-        <div className="absolute right-2 top-2 z-20">
+        <div className="absolute right-3 top-3 z-20">
           <BookmarkButton
             organizationId={partner.id}
             organizationName={partner.name}
-            className="h-10 w-10 bg-white/95 shadow-sm hover:bg-white"
+            className="h-9 w-9 rounded-pill border border-rule bg-white text-navy hover:bg-chip"
           />
         </div>
-      </CoverImage>
+      </div>
 
-      <div className="flex flex-1 flex-col px-4 pb-4">
-        {/* Positioned, so it paints over the cover it overlaps. */}
-        <div className="relative -mt-8 mb-2 w-fit">
-          <LogoBadge src={partner.logo_url} name={partner.name} size="lg" className="shadow-sm ring-4 ring-white" />
-        </div>
+      <div className="flex flex-1 flex-col px-5 pb-5 pt-4">
+        <h4 className="text-card-title text-navy">
+          <StretchedLink to={`/organizations/${partner.slug}`} className="line-clamp-2 rounded-sm">{partner.name}</StretchedLink>
+        </h4>
 
-        <h3 className="font-semibold leading-snug text-gray-900">
-          <Link
-            to={`/organizations/${partner.slug}`}
-            className="after:absolute after:inset-0 after:content-[''] focus:outline-none group-hover:text-primary"
-          >
-            {partner.name}
-          </Link>
-        </h3>
-
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          {/* Media outlets are listed as press, not as a sponsor tier. */}
-          {isPress ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-gray-300 px-2 py-0.5 text-[11px] font-semibold text-gray-700">
-              <Newspaper className="h-3 w-3" aria-hidden="true" />
-              {t('partnersPage.press', 'Press')}
-            </span>
-          ) : (
-            <SponsorBadge tier={partner.tier} size="sm" />
-          )}
-          {partner.is_event_media_partner && (
-            <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
-              {t('partnersPage.mediaPartner', 'Media')}
-            </span>
-          )}
-        </div>
-
-        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
-          <span className="inline-flex items-center gap-1">
-            <TypeIcon className="h-3.5 w-3.5" aria-hidden="true" />
-            {meta ? t(meta.oneKey, meta.oneFallback) : t('partnersPage.typeOne.organization', 'Organization')}
+        <p className="mt-1.5 flex items-center gap-2 text-sm leading-5 text-meta">
+          <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-pill" style={{ background: TYPE_RGB[tone] }} />
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="shrink-0">{meta ? t(meta.oneKey, meta.oneFallback) : t('partnersPage.typeOne.organization', 'Organization')}</span>
+            {location && (
+              <>
+                <span aria-hidden="true">·</span>
+                <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{location}</span>
+              </>
+            )}
           </span>
-          {location && (
-            <span className="inline-flex min-w-0 items-center gap-1">
-              <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{location}</span>
-            </span>
-          )}
         </p>
+
+        {partner.description && (
+          <p className="mt-3 line-clamp-2 text-sm leading-5 text-[#374151]">{partner.description}</p>
+        )}
 
         {partner.sectors.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {partner.sectors.slice(0, 2).map((s) => (
-              <span key={s.id} className="inline-flex max-w-full items-center rounded-full bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary">
+              <span key={s.id} className="inline-flex h-6 max-w-full items-center rounded-pill bg-chip px-2.5 text-[12px] font-medium text-navy">
                 <span className="truncate">{sectorLabel(s)}</span>
               </span>
             ))}
             {partner.sectors.length > 2 && (
-              <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600">
+              <span className="inline-flex h-6 items-center rounded-pill bg-chip px-2 text-[12px] font-medium text-meta">
                 +{partner.sectors.length - 2}
               </span>
             )}
           </div>
         )}
-
-        {partner.description && (
-          <p className="mt-3 line-clamp-2 text-sm leading-relaxed text-gray-600">{partner.description}</p>
-        )}
-
-        <div className="mt-auto pt-4">
-          <div className="flex items-center justify-end border-t border-gray-100 pt-3">
-            <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
-              {t('partnersPage.viewProfile', 'View profile')}
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-            </span>
-          </div>
-        </div>
       </div>
-    </article>
-  );
-}
-
-function CtaCard({
-  icon: Icon, title, body, to, cta,
-}: {
-  icon: LucideIcon;
-  title: string;
-  body: string;
-  to: string;
-  cta: string;
-}) {
-  return (
-    <Link
-      to={to}
-      className={cn('group flex gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100 transition hover:-translate-y-0.5 hover:shadow-md sm:p-6', focusRing)}
-    >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-secondary/15 text-secondary-dark">
-        <Icon className="h-5 w-5" aria-hidden="true" />
-      </span>
-      <span className="min-w-0">
-        <span className="block font-semibold text-gray-900">{title}</span>
-        <span className="mt-1 block text-sm text-gray-600">{body}</span>
-        <span className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary transition-all group-hover:gap-2">
-          {cta}
-          <ArrowRight className="h-4 w-4" aria-hidden="true" />
-        </span>
-      </span>
-    </Link>
+    </CardShell>
   );
 }

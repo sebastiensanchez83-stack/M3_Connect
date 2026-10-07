@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle } from 'lucide-react';
+import { Loader2, Lock, MessageSquare } from 'lucide-react';
+import { FormCard, FormFooter, PageLoader, SubmitGuard, SubmitShell } from '@/components/submit/SubmitShell';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
@@ -133,104 +133,103 @@ export function SubmitConsultationPage() {
   };
 
   if (authLoading || loadingExisting) {
-    return (
-      <div className="container mx-auto py-16 text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   // Access guard: only verified marina (or developer) users with verified org
   const canSubmitHere = profile?.persona === 'marina' || profile?.persona === 'developer';
   if (!user || !canSubmitHere || !isVerified || organization?.access_status !== 'verified') {
     return (
-      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">{t('submitConsultation.restrictedTitle')}</h1>
-        <p className="text-gray-500 mb-6">
+      <SubmitGuard
+        icon={Lock}
+        title={t('submitConsultation.restrictedTitle')}
+        actions={(
+          <>
+            {!user && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/')}>{t('common.goHome')}</Button>
+            )}
+            {user && !isVerified && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/account')}>{t('common.viewAccountStatus')}</Button>
+            )}
+            {user && isVerified && !canSubmitHere && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/account')}>{t('common.backToAccount')}</Button>
+            )}
+          </>
+        )}
+      >
+        <p>
           {!user
             ? t('submitConsultation.restrictedNoUser')
             : !canSubmitHere
               ? t('submitConsultation.restrictedNotMarina')
               : t('submitConsultation.restrictedNotVerified')}
         </p>
-        {!user && (
-          <Button onClick={() => navigate('/')}>{t('common.goHome')}</Button>
-        )}
-        {user && !isVerified && (
-          <Button onClick={() => navigate('/account')}>{t('common.viewAccountStatus')}</Button>
-        )}
-        {user && isVerified && !canSubmitHere && (
-          <Button onClick={() => navigate('/account')}>{t('common.backToAccount')}</Button>
-        )}
-      </div>
+      </SubmitGuard>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-2xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">
-          {isEditMode ? 'Edit Consultation' : t('submitConsultation.title')}
-        </h1>
-        <p className="text-gray-600">
-          {isEditMode ? 'Update your consultation details below.' : t('submitConsultation.subtitle')}
-        </p>
-      </div>
-
+    <SubmitShell
+      seed="submit-consultation"
+      icon={MessageSquare}
+      eyebrow={t('submitShell.eyebrowOpportunities', 'Opportunities')}
+      title={isEditMode ? 'Edit Consultation' : t('submitConsultation.title')}
+      subtitle={isEditMode ? 'Update your consultation details below.' : t('submitConsultation.subtitle')}
+      trail={[{ label: t('nav.opportunities', 'Opportunities'), href: '/opportunities' }]}
+    >
       <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{isEditMode ? 'Edit Consultation Details' : t('submitConsultation.cardTitle')}</CardTitle>
-            <CardDescription>{isEditMode ? 'Modify the fields you want to update' : t('submitConsultation.cardDescription')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            <div className="space-y-2">
-              <Label>{t('submitConsultation.fieldTitle')} *</Label>
-              <Input
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                required
-                placeholder={t('submitConsultation.titlePlaceholder')}
-              />
-            </div>
+        <FormCard
+          title={isEditMode ? 'Edit Consultation Details' : t('submitConsultation.cardTitle')}
+          description={isEditMode ? 'Modify the fields you want to update' : t('submitConsultation.cardDescription')}
+        >
+          <div className="space-y-2">
+            <Label>{t('submitConsultation.fieldTitle')} *</Label>
+            <Input
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              required
+              placeholder={t('submitConsultation.titlePlaceholder')}
+            />
+          </div>
 
-            <div className="space-y-2">
-              <Label>{t('submitConsultation.fieldDescription')} *</Label>
-              <Textarea
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                required
-                rows={6}
-                placeholder={t('submitConsultation.descriptionPlaceholder')}
-              />
-            </div>
+          <div className="space-y-2">
+            <Label>{t('submitConsultation.fieldDescription')} *</Label>
+            <Textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              required
+              rows={6}
+              placeholder={t('submitConsultation.descriptionPlaceholder')}
+            />
+          </div>
 
-            <div className="space-y-2">
-              <Label>{t('submitConsultation.fieldSector')}</Label>
-              <Select
-                value={form.sector_id}
-                onValueChange={(v) => setForm({ ...form, sector_id: v })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t('submitConsultation.selectSector')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {sectors.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
+          <div className="space-y-2">
+            <Label>{t('submitConsultation.fieldSector')}</Label>
+            <Select
+              value={form.sector_id}
+              onValueChange={(v) => setForm({ ...form, sector_id: v })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t('submitConsultation.selectSector')} />
+              </SelectTrigger>
+              <SelectContent>
+                {sectors.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </FormCard>
 
-        <Button type="submit" className="w-full" size="lg" disabled={loading}>
-          {loading
-            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : t('submitConsultation.submitting')}</>
-            : <><CheckCircle className="h-4 w-4 mr-2" />{isEditMode ? 'Save Changes' : t('submitConsultation.submitBtn')}</>
-          }
-        </Button>
+        <FormFooter note={isEditMode ? undefined : t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}>
+          <Button type="submit" variant="cta" size="lg" roll={!loading} arrow={!loading} disabled={loading}>
+            {loading
+              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{isEditMode ? 'Saving...' : t('submitConsultation.submitting')}</>
+              : (isEditMode ? 'Save Changes' : t('submitConsultation.submitBtn'))
+            }
+          </Button>
+        </FormFooter>
       </form>
-    </div>
+    </SubmitShell>
   );
 }

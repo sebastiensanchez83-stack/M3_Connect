@@ -1,20 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { AuthCardHeading, AuthLoading, AuthShell, AuthStatus } from '@/components/auth/AuthShell';
+import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, CTA_WRAP, FieldError, FieldHint, PasswordInput } from '@/components/auth/fields';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { clearStoredInvite } from '@/lib/invite-store';
 import { ResendConfirmationButton, isEmailNotConfirmed } from '@/components/auth/LoginForm';
 import { readAuthLanding, scrubAuthLandingUrl } from '@/components/auth/AuthRedirector';
-import {
-  Building2, Loader2, CheckCircle, Eye, EyeOff, Mail, MailWarning, User, AlertTriangle,
-} from 'lucide-react';
+import { Loader2, Mail, MailWarning, AlertTriangle } from 'lucide-react';
 
 type PageState = 'loading' | 'signup' | 'login' | 'accept' | 'check-email' | 'error';
 
@@ -76,12 +75,10 @@ export function JoinPage() {
   const [lastName, setLastName] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
 
   // Login form
   const [loginPassword, setLoginPassword] = useState('');
-  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [loginUnconfirmed, setLoginUnconfirmed] = useState(false);
 
   // Accept state
@@ -330,20 +327,10 @@ export function JoinPage() {
     handleAccept();
   }, [autoAccept, pageState, invite?.id, user?.id, profile?.user_id]);
 
-  // ── Org header card (shown in all states) ──
-  const OrgHeader = () => (
-    <div className="text-center mb-6">
-      <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
-        <Building2 className="h-8 w-8 text-primary" />
-      </div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">
-        {t('joinInvite.title', 'Join {{org}}', { org: invite?.organization_name ?? '' })}
-      </h1>
-      <p className="text-gray-500 text-sm">
-        {t('joinInvite.subtitle', '{{inviter}} invited you to join their organization on Smart Marina Connect', { inviter: invite?.inviter_name ?? '' })}
-      </p>
-    </div>
-  );
+  // ── The panel's words, the same in every state: who invited you, to what ──
+  const shellTitle = t('joinInvite.title', 'Join {{org}}', { org: invite?.organization_name ?? '' });
+  const shellLead = t('joinInvite.subtitle', '{{inviter}} invited you to join their organization on Smart Marina Connect', { inviter: invite?.inviter_name ?? '' });
+  const shellEyebrow = t('authRefonte.join.eyebrow', 'Invitation');
 
   // ── Loading state ──
   // Back from the confirmation link, wait for auth to settle once: in the browser
@@ -355,277 +342,237 @@ export function JoinPage() {
   if (!authLoading) authSettled.current = true;
   const switchingToAccept = (pageState === 'signup' || pageState === 'login') && !!user && !!profile && !!invite;
   if (pageState === 'loading' || (landing && !authSettled.current) || switchingToAccept) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return <AuthLoading />;
   }
 
   // ── Error state ──
   if (pageState === 'error') {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center px-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-8 text-center space-y-4">
-            <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto" />
-            <h2 className="text-xl font-bold text-gray-900">{t('joinInvite.invalidTitle', 'Invalid or Expired Invitation')}</h2>
-            <p className="text-gray-500 text-sm">
-              {t('joinInvite.invalidDesc', 'This invitation link is no longer valid. It may have expired or already been used. Please ask the organization owner to send a new invitation.')}
-            </p>
-            <Button onClick={() => navigate('/')} variant="outline">
-              {t('common.goHome', 'Go to Homepage')}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthShell
+        layout="centered"
+        icon={<AlertTriangle className="h-6 w-6" />}
+        title={t('joinInvite.invalidTitle', 'Invalid or Expired Invitation')}
+        lead={t('joinInvite.invalidDesc', 'This invitation link is no longer valid. It may have expired or already been used. Please ask the organization owner to send a new invitation.')}
+      >
+        <Button onClick={() => navigate('/')} variant="ctaOnDark">
+          {t('common.goHome', 'Go to Homepage')}
+        </Button>
+      </AuthShell>
     );
   }
 
   // ── Check email state (after signup) ──
   if (pageState === 'check-email') {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center px-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-8 text-center space-y-4">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mx-auto">
-              <Mail className="h-8 w-8 text-green-600" />
-            </div>
-            <h2 className="text-xl font-bold text-gray-900">{t('auth.checkInboxTitle', 'Check your inbox')}</h2>
-            <div className="space-y-1">
-              <p className="text-gray-500 text-sm">{t('auth.checkInboxSentTo', 'We sent an activation link to:')}</p>
-              <p className="text-sm font-semibold text-gray-900 break-all">{invite?.email}</p>
-            </div>
-            <p className="text-gray-500 text-sm">
-              {t('joinInvite.checkInboxOpenLink', 'Open the link in that e-mail to activate your account and join {{org}}.', { org: invite?.organization_name })}
-            </p>
-            <p className="text-xs text-gray-400">
-              {t('auth.checkInboxSpam', 'Nothing after a few minutes? Check your spam or junk folder. If you already have an account with this address, log in instead.')}
-            </p>
-            {invite && (
-              <ResendConfirmationButton email={invite.email} redirectTo={joinConfirmRedirect} justSent />
-            )}
-            <div className="pt-2">
-              <Button variant="outline" size="sm" onClick={() => setPageState('login')}>
-                {t('joinInvite.confirmedLogIn', "I've confirmed my e-mail — Log in")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <AuthShell eyebrow={shellEyebrow} title={shellTitle} lead={shellLead}>
+        <AuthStatus icon={<Mail className="h-7 w-7" />} title={t('auth.checkInboxTitle', 'Check your inbox')}>
+          <div className="space-y-1.5">
+            <p className="text-sm text-meta">{t('auth.checkInboxSentTo', 'We sent an activation link to:')}</p>
+            <p className="break-all text-sm font-semibold text-navy">{invite?.email}</p>
+          </div>
+          <p className="text-sm leading-6 text-ink">
+            {t('joinInvite.checkInboxOpenLink', 'Open the link in that e-mail to activate your account and join {{org}}.', { org: invite?.organization_name })}
+          </p>
+          <p className="text-[13px] leading-5 text-meta">
+            {t('auth.checkInboxSpam', 'Nothing after a few minutes? Check your spam or junk folder. If you already have an account with this address, log in instead.')}
+          </p>
+          {invite && (
+            <ResendConfirmationButton email={invite.email} redirectTo={joinConfirmRedirect} justSent />
+          )}
+          <div className="pt-1">
+            <Button variant="cta" roll={false} className={cn('max-w-full', CTA_WRAP, 'min-h-11')} onClick={() => setPageState('login')}>
+              {t('joinInvite.confirmedLogIn', "I've confirmed my e-mail — Log in")}
+            </Button>
+          </div>
+        </AuthStatus>
+      </AuthShell>
     );
   }
 
   // ── Accept state (logged in user) ──
   if (pageState === 'accept') {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center px-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-8 space-y-6">
-            <OrgHeader />
-            <div className="bg-gray-50 rounded-lg p-4 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                {(profile?.first_name?.[0] || user?.email?.[0] || 'U').toUpperCase()}
+      <AuthShell eyebrow={shellEyebrow} title={shellTitle} lead={shellLead}>
+        <div className="space-y-6">
+          <div className="flex items-center gap-4 rounded-field border border-rule bg-page p-4">
+            <span className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-navy text-lg font-semibold text-white">
+              {(profile?.first_name?.[0] || user?.email?.[0] || 'U').toUpperCase()}
+            </span>
+            <div className="min-w-0">
+              <div className="truncate font-semibold text-navy">
+                {profile?.first_name} {profile?.last_name}
               </div>
-              <div>
-                <div className="font-medium text-gray-900">
-                  {profile?.first_name} {profile?.last_name}
-                </div>
-                <div className="text-xs text-gray-500">{user?.email}</div>
-              </div>
+              <div className="truncate text-sm text-meta">{user?.email}</div>
             </div>
-            <Button className="w-full" size="lg" onClick={handleAccept} disabled={accepting}>
-              {accepting ? (
-                <><Loader2 className="h-4 w-4 animate-spin mr-2" /> {t('joinInvite.joining', 'Joining...')}</>
-              ) : (
-                <><CheckCircle className="h-4 w-4 mr-2" /> {t('joinInvite.acceptAndJoin', 'Accept & Join {{org}}', { org: invite?.organization_name ?? '' })}</>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+          <Button variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} onClick={handleAccept} disabled={accepting}>
+            {accepting ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> {t('joinInvite.joining', 'Joining...')}</>
+            ) : (
+              t('joinInvite.acceptAndJoin', 'Accept & Join {{org}}', { org: invite?.organization_name ?? '' })
+            )}
+          </Button>
+        </div>
+      </AuthShell>
     );
   }
 
   // ── Login state (existing user) ──
   if (pageState === 'login') {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center px-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="pt-8 space-y-6">
-            <OrgHeader />
-            {landing === 'confirmed' && (
-              <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-sm">
-                <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
-                <span className="text-green-800">{t('auth.emailConfirmedLogin', 'Your e-mail is confirmed. Log in to continue.')}</span>
-              </div>
-            )}
-            {landing === 'link-error' && invite && (
-              <div className="space-y-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="font-medium text-amber-900">{t('auth.linkInvalidTitle', 'This link no longer works')}</p>
-                    <p className="text-amber-800">
-                      {t('joinInvite.linkInvalidDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try logging in first: if your address is confirmed, that is all you need. Otherwise, ask for a new link.')}
-                    </p>
-                  </div>
-                </div>
+      <AuthShell eyebrow={shellEyebrow} title={shellTitle} lead={shellLead}>
+        <AuthCardHeading title={t('auth.login', 'Login')} />
+        <div className="space-y-5">
+          {landing === 'confirmed' && (
+            <AuthNotice tone="success" className="items-center">
+              <p>{t('auth.emailConfirmedLogin', 'Your e-mail is confirmed. Log in to continue.')}</p>
+            </AuthNotice>
+          )}
+          {landing === 'link-error' && invite && (
+            <AuthNotice tone="warning" title={t('auth.linkInvalidTitle', 'This link no longer works')}>
+              <p>
+                {t('joinInvite.linkInvalidDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try logging in first: if your address is confirmed, that is all you need. Otherwise, ask for a new link.')}
+              </p>
+              <div className="pt-1.5">
                 <ResendConfirmationButton email={invite.email} redirectTo={joinConfirmRedirect} label={t('auth.sendNewLink', 'Send me a new link')} />
               </div>
-            )}
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div className="space-y-2">
-                <Label>{t('auth.email', 'Email')}</Label>
-                <Input value={invite?.email || ''} disabled className="bg-gray-50" />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('auth.password', 'Password')}</Label>
-                <div className="relative">
-                  <Input
-                    type={showLoginPassword ? 'text' : 'password'}
-                    value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
-                    required
-                    placeholder={t('joinInvite.loginPasswordPlaceholder', 'Enter your password')}
-                    className="pr-10"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowLoginPassword(!showLoginPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    tabIndex={-1}
-                  >
-                    {showLoginPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                {t('joinInvite.loginAndJoin', 'Log in & Join')}
-              </Button>
-              {loginUnconfirmed && invite && (
-                <div className="space-y-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm" role="alert">
-                  <div className="flex items-start gap-2">
-                    <MailWarning className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-                    <span className="text-amber-900">
-                      {t('auth.emailNotConfirmed', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then log in. Nothing in your inbox or spam folder? Send it again.')}
-                    </span>
-                  </div>
+            </AuthNotice>
+          )}
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div className="space-y-2">
+              <AuthLabel htmlFor="join-login-email">{t('auth.email', 'Email')}</AuthLabel>
+              <AuthInput id="join-login-email" value={invite?.email || ''} disabled className="bg-page" />
+            </div>
+            <div className="space-y-2">
+              <AuthLabel htmlFor="join-login-password">{t('auth.password', 'Password')}</AuthLabel>
+              <PasswordInput
+                id="join-login-password"
+                autoComplete="current-password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                required
+                placeholder={t('joinInvite.loginPasswordPlaceholder', 'Enter your password')}
+                autoFocus
+              />
+            </div>
+            <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {t('joinInvite.loginAndJoin', 'Log in & Join')}
+            </Button>
+            {loginUnconfirmed && invite && (
+              <AuthNotice tone="warning" role="alert" icon={<MailWarning className="h-4 w-4" />}>
+                <p>
+                  {t('auth.emailNotConfirmed', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then log in. Nothing in your inbox or spam folder? Send it again.')}
+                </p>
+                <div className="pt-1.5">
                   <ResendConfirmationButton email={invite.email} redirectTo={joinConfirmRedirect} />
                 </div>
-              )}
-            </form>
-            <p className="text-center text-xs text-gray-400">
-              {t('auth.noAccount', "Don't have an account?")}{' '}
-              <button type="button" onClick={() => setPageState('signup')} className="text-primary hover:underline font-medium">
-                {t('auth.signup', 'Sign Up')}
-              </button>
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+              </AuthNotice>
+            )}
+          </form>
+          <p className="text-center text-sm text-meta">
+            {t('auth.noAccount', "Don't have an account?")}{' '}
+            <UnderlineLink arrow={false} onClick={() => setPageState('signup')} className="!text-sm">
+              {t('auth.signup', 'Sign Up')}
+            </UnderlineLink>
+          </p>
+        </div>
+      </AuthShell>
     );
   }
 
   // ── Signup state (new user) ──
   return (
-    <div className="min-h-[60vh] flex items-center justify-center px-4 py-8">
-      <Card className="w-full max-w-md">
-        <CardContent className="pt-8 space-y-6">
-          <OrgHeader />
-          <form onSubmit={handleSignup} className="space-y-4">
+    <AuthShell eyebrow={shellEyebrow} title={shellTitle} lead={shellLead}>
+      <AuthCardHeading title={t('auth.signup', 'Sign Up')} />
+      <div className="space-y-5">
+        <form onSubmit={handleSignup} className="space-y-5">
+          <div className="space-y-2">
+            <AuthLabel htmlFor="join-email">{t('auth.email', 'Email')}</AuthLabel>
+            <AuthInput id="join-email" value={invite?.email || ''} disabled className="bg-page" />
+            <FieldHint>{t('joinInvite.emailHint', 'This is the email the invitation was sent to')}</FieldHint>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>{t('auth.email', 'Email')}</Label>
-              <Input value={invite?.email || ''} disabled className="bg-gray-50" />
-              <p className="text-xs text-gray-400">{t('joinInvite.emailHint', 'This is the email the invitation was sent to')}</p>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>{t('auth.firstName', 'First Name')} *</Label>
-                <Input
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  required
-                  placeholder={t('auth.firstNamePlaceholder', 'John')}
-                  autoFocus
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('auth.lastName', 'Last Name')} *</Label>
-                <Input
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  required
-                  placeholder={t('auth.lastNamePlaceholder', 'Doe')}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>{t('auth.password', 'Password')} *</Label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                  placeholder={t('joinInvite.createPasswordPlaceholder', 'Create a password')}
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  tabIndex={-1}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <p className="text-xs text-gray-400">{t('auth.passwordRules', 'Min. 8 characters, 1 uppercase letter, 1 symbol')}</p>
-            </div>
-            <div className="space-y-2">
-              <Label>{t('auth.confirmPassword', 'Confirm Password')} *</Label>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+              <AuthLabel htmlFor="join-first-name">{t('auth.firstName', 'First Name')} *</AuthLabel>
+              <AuthInput
+                id="join-first-name"
+                autoComplete="given-name"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
                 required
-                placeholder={t('auth.confirmPassword', 'Confirm Password')}
+                placeholder={t('auth.firstNamePlaceholder', 'John')}
+                autoFocus
               />
-              {confirmPassword && password !== confirmPassword && (
-                <p className="text-xs text-red-600">{t('auth.passwordMismatch', 'Passwords do not match')}</p>
-              )}
             </div>
-            <div className="flex items-start gap-2.5">
-              <Checkbox
-                id="join-terms"
-                checked={acceptTerms}
-                onCheckedChange={(c) => setAcceptTerms(c === true)}
-                className="mt-0.5"
+            <div className="space-y-2">
+              <AuthLabel htmlFor="join-last-name">{t('auth.lastName', 'Last Name')} *</AuthLabel>
+              <AuthInput
+                id="join-last-name"
+                autoComplete="family-name"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                required
+                placeholder={t('auth.lastNamePlaceholder', 'Doe')}
               />
-              <label htmlFor="join-terms" className="text-xs text-gray-600 leading-snug cursor-pointer">
-                {t('auth.acceptTerms', 'I accept the')}{' '}
-                <a href="/terms" target="_blank" className="text-primary hover:underline font-medium">{t('auth.termsAndConditions', 'Terms and Conditions')}</a>
-                {' '}{t('auth.andThe', 'and the')}{' '}
-                <a href="/privacy" target="_blank" className="text-primary hover:underline font-medium">{t('auth.privacyPolicy', 'Privacy Policy')}</a>
-              </label>
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading
-                ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> {t('auth.creating', 'Creating...')}</>
-                : t('joinInvite.createAndJoin', 'Create Account & Join')}
-            </Button>
-          </form>
-          <p className="text-center text-xs text-gray-400">
-            {t('auth.haveAccount', 'Already have an account?')}{' '}
-            <button type="button" onClick={() => setPageState('login')} className="text-primary hover:underline font-medium">
-              {t('auth.login', 'Login')}
-            </button>
-          </p>
-        </CardContent>
-      </Card>
-    </div>
+          </div>
+          <div className="space-y-2">
+            <AuthLabel htmlFor="join-password">{t('auth.password', 'Password')} *</AuthLabel>
+            <PasswordInput
+              id="join-password"
+              autoComplete="new-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+              placeholder={t('joinInvite.createPasswordPlaceholder', 'Create a password')}
+            />
+            <FieldHint>{t('auth.passwordRules', 'Min. 8 characters, 1 uppercase letter, 1 symbol')}</FieldHint>
+          </div>
+          <div className="space-y-2">
+            <AuthLabel htmlFor="join-confirm-password">{t('auth.confirmPassword', 'Confirm Password')} *</AuthLabel>
+            <PasswordInput
+              id="join-confirm-password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              placeholder={t('auth.confirmPassword', 'Confirm Password')}
+              className={confirmPassword && password !== confirmPassword ? AUTH_FIELD_ERROR : undefined}
+              aria-invalid={confirmPassword && password !== confirmPassword ? true : undefined}
+            />
+            {confirmPassword && password !== confirmPassword && (
+              <FieldError>{t('auth.passwordMismatch', 'Passwords do not match')}</FieldError>
+            )}
+          </div>
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="join-terms"
+              checked={acceptTerms}
+              onCheckedChange={(c) => setAcceptTerms(c === true)}
+              className="mt-0.5 h-5 w-5 border-checkbox"
+            />
+            <label htmlFor="join-terms" className="cursor-pointer text-sm leading-6 text-ink">
+              {t('auth.acceptTerms', 'I accept the')}{' '}
+              <UnderlineLink href="/terms" external arrow={false} className="!text-sm !leading-6">{t('auth.termsAndConditions', 'Terms and Conditions')}</UnderlineLink>
+              {' '}{t('auth.andThe', 'and the')}{' '}
+              <UnderlineLink href="/privacy" external arrow={false} className="!text-sm !leading-6">{t('auth.privacyPolicy', 'Privacy Policy')}</UnderlineLink>
+            </label>
+          </div>
+          <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
+            {loading
+              ? <><Loader2 className="h-4 w-4 animate-spin" /> {t('auth.creating', 'Creating...')}</>
+              : t('joinInvite.createAndJoin', 'Create Account & Join')}
+          </Button>
+        </form>
+        <p className="text-center text-sm text-meta">
+          {t('auth.haveAccount', 'Already have an account?')}{' '}
+          <UnderlineLink arrow={false} onClick={() => setPageState('login')} className="!text-sm">
+            {t('auth.login', 'Login')}
+          </UnderlineLink>
+        </p>
+      </div>
+    </AuthShell>
   );
 }

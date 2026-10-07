@@ -97,7 +97,7 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
   if (loading) return null;
 
   return (
-    <Card>
+    <Card className="rounded-card shadow-none">
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <TrendingUp className="h-4 w-4 text-emerald-500" />
@@ -106,10 +106,10 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Toggle row */}
-        <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-gray-50 border">
+        <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-page border">
           <div className="flex-1">
-            <Label className="font-medium text-gray-900">Currently seeking capital</Label>
-            <p className="text-xs text-gray-500 mt-1">
+            <Label className="font-semibold text-navy">Currently seeking capital</Label>
+            <p className="text-xs text-meta mt-1">
               Turning this on adds your organization to the investor deal-flow feed. You can switch it off at any time.
             </p>
           </div>
@@ -120,7 +120,7 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
           />
         </div>
 
-        <div className="flex items-start gap-2 text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-lg p-2.5">
+        <div className="flex items-start gap-2 text-xs text-meta bg-blue-50 border border-blue-100 rounded-lg p-2.5">
           <EyeOff className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-500" />
           <p>
             <strong>Investor-only visibility:</strong> these details are hidden from the public profile and from non-investor users. Only verified Investor accounts on the platform can see them.
@@ -183,7 +183,7 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
                   disabled={!isOwner}
                 />
               </div>
-              <p className="text-xs text-gray-400">Enter whole euros. Both fields are optional — investors will see whatever you choose to share.</p>
+              <p className="text-xs text-meta/60">Enter whole euros. Both fields are optional — investors will see whatever you choose to share.</p>
             </div>
 
             <div className="space-y-2">
@@ -195,9 +195,9 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
                 rows={3}
                 maxLength={400}
                 placeholder="One-liner that investors will see, e.g. 'Funding Q3 dredging expansion + 40 new berths'."
-                className="w-full resize-y rounded-lg border border-gray-200 bg-white p-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:bg-gray-50 disabled:text-gray-500"
+                className="w-full resize-y rounded-lg border border-rule bg-white p-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:bg-page disabled:text-meta"
               />
-              <p className="text-xs text-gray-400">{form.use_of_funds.length} / 400</p>
+              <p className="text-xs text-meta/60">{form.use_of_funds.length} / 400</p>
             </div>
           </div>
         )}
@@ -212,7 +212,7 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
         )}
 
         {!isOwner && (
-          <div className="flex items-start gap-2 text-xs text-gray-400 pt-2">
+          <div className="flex items-start gap-2 text-xs text-meta/60 pt-2">
             <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
             <p>Only the organization owner can edit these fields.</p>
           </div>

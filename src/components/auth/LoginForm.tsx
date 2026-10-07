@@ -4,10 +4,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { getStoredInvite } from '@/lib/invite-store';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { AuthInput, AuthLabel, AuthNotice, FieldHint, OrDivider, PasswordInput } from '@/components/auth/fields';
 import { toast } from '@/hooks/use-toast';
-import { Eye, EyeOff, Loader2, CheckCircle, AlertTriangle, MailWarning } from 'lucide-react';
+import { Loader2, MailWarning } from 'lucide-react';
 
 interface LoginFormProps {
   onSuccess?: () => void;
@@ -96,18 +96,18 @@ export function ResendConfirmationButton({ email, redirectTo, label, justSent = 
   };
 
   return (
-    <div className="space-y-1.5">
-      <Button type="button" variant="outline" size="sm" className="w-full bg-white" disabled={sending || cooldown > 0} onClick={handleResend}>
-        {sending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+    <div className="space-y-2">
+      <Button type="button" variant="ctaOutline" size="sm" arrow={false} roll={false} className="w-full bg-white" disabled={sending || cooldown > 0} onClick={handleResend}>
+        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {cooldown > 0
           ? t('auth.resendEmailIn', 'Resend the e-mail ({{seconds}} s)', { seconds: cooldown })
           : label ?? t('auth.resendConfirmation', 'Resend the confirmation e-mail')}
       </Button>
       {feedback === 'sent' && (
-        <p className="text-xs text-green-700 text-center" role="status">{t('auth.resendEmailSent', 'A new e-mail is on its way.')}</p>
+        <p className="text-center text-[13px] leading-5 text-teal-text" role="status">{t('auth.resendEmailSent', 'A new e-mail is on its way.')}</p>
       )}
       {feedback === 'error' && (
-        <p className="text-xs text-red-600 text-center" role="alert">{t('auth.resendEmailError', "We couldn't send the e-mail just now. Please wait a minute and try again.")}</p>
+        <p className="text-center text-[13px] leading-5 text-red-700" role="alert">{t('auth.resendEmailError', "We couldn't send the e-mail just now. Please wait a minute and try again.")}</p>
       )}
     </div>
   );
@@ -119,7 +119,6 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState(defaultEmail || '');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
@@ -195,51 +194,53 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
 
   if (forgotMode) {
     return (
-      <form onSubmit={handleForgotPassword} className="space-y-4">
-        <p className="text-sm text-gray-600">{t('auth.forgotPasswordDesc', 'Enter your email and we\'ll send you a link to reset your password.')}</p>
+      <form onSubmit={handleForgotPassword} className="space-y-5">
+        <p className="text-sm leading-6 text-meta">{t('auth.forgotPasswordDesc', 'Enter your email and we\'ll send you a link to reset your password.')}</p>
         <div className="space-y-2">
-          <Label htmlFor="forgot-email">{t('auth.email')}</Label>
-          <Input
+          <AuthLabel htmlFor="forgot-email">{t('auth.email')}</AuthLabel>
+          <AuthInput
             id="forgot-email"
             type="email"
+            autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
         </div>
         {forgotSent || magicSent ? (
-          <div className="space-y-2 text-center">
-            <p className="text-sm text-green-600 font-medium">
-              {magicSent
-                ? t('auth.signInLinkSent', 'Sign-in link sent — check your inbox.')
-                : t('auth.resetEmailSent', 'Reset email sent! Check your inbox.')}
-            </p>
-            <p className="text-xs text-gray-500">
-              {t('auth.linkAnyDevice', 'The link opens on any device — phone or computer. If it is not there in a minute, check your spam folder.')}
-            </p>
-            <Button type="button" variant="ghost" size="sm" onClick={() => { setForgotMode(false); setForgotSent(false); setMagicSent(false); }}>
+          <div className="space-y-3 text-center">
+            <AuthNotice tone="success" role="status" className="text-left">
+              <p className="font-semibold text-navy">
+                {magicSent
+                  ? t('auth.signInLinkSent', 'Sign-in link sent — check your inbox.')
+                  : t('auth.resetEmailSent', 'Reset email sent! Check your inbox.')}
+              </p>
+              <p className="text-[13px] text-meta">
+                {t('auth.linkAnyDevice', 'The link opens on any device — phone or computer. If it is not there in a minute, check your spam folder.')}
+              </p>
+            </AuthNotice>
+            <UnderlineLink arrow={false} onClick={() => { setForgotMode(false); setForgotSent(false); setMagicSent(false); }}>
               {t('auth.backToLogin', 'Back to login')}
-            </Button>
+            </UnderlineLink>
           </div>
         ) : (
-          <div className="space-y-2">
-            <Button type="submit" className="w-full" disabled={forgotLoading || magicLoading}>
-              {forgotLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('common.loading')}</> : t('auth.sendResetLink', 'Send reset link')}
+          <div className="space-y-4">
+            <Button type="submit" variant="cta" className="w-full justify-between" disabled={forgotLoading || magicLoading}>
+              {forgotLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.sendResetLink', 'Send reset link')}
             </Button>
             {/* The way out for anyone who has already fought the password twice. */}
-            <div className="relative py-1 text-center">
-              <span className="text-[11px] uppercase tracking-wide text-gray-400 bg-white px-2 relative z-10">{t('auth.or', 'or')}</span>
-              <span className="absolute left-0 right-0 top-1/2 border-t border-gray-100" />
-            </div>
-            <Button type="button" variant="outline" className="w-full" disabled={forgotLoading || magicLoading} onClick={handleMagicLink}>
-              {magicLoading ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />{t('common.loading')}</> : t('auth.emailSignInLink', 'Email me a sign-in link instead')}
+            <OrDivider>{t('auth.or', 'or')}</OrDivider>
+            <Button type="button" variant="ctaOutline" className="w-full justify-between" disabled={forgotLoading || magicLoading} onClick={handleMagicLink}>
+              {magicLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.emailSignInLink', 'Email me a sign-in link instead')}
             </Button>
-            <p className="text-[11px] text-gray-500 text-center">
+            <FieldHint className="text-center">
               {t('auth.signInLinkHint', 'Signs you straight in — no password needed.')}
-            </p>
-            <Button type="button" variant="ghost" className="w-full" size="sm" onClick={() => setForgotMode(false)}>
-              {t('auth.backToLogin', 'Back to login')}
-            </Button>
+            </FieldHint>
+            <div className="text-center">
+              <UnderlineLink arrow={false} onClick={() => setForgotMode(false)}>
+                {t('auth.backToLogin', 'Back to login')}
+              </UnderlineLink>
+            </div>
           </div>
         )}
       </form>
@@ -247,32 +248,28 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {showConfirmedBanner && !linkError && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 border border-green-200 text-sm">
-          <CheckCircle className="h-4 w-4 text-green-600 shrink-0" />
-          <span className="text-green-800">{t('auth.emailConfirmedLogin', 'Your e-mail is confirmed. Log in to continue.')}</span>
-        </div>
+        <AuthNotice tone="success" className="items-center">
+          <p>{t('auth.emailConfirmedLogin', 'Your e-mail is confirmed. Log in to continue.')}</p>
+        </AuthNotice>
       )}
       {linkError && (
-        <div className="space-y-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p className="font-medium text-amber-900">{t('auth.linkInvalidTitle', 'This link no longer works')}</p>
-              <p className="text-amber-800">
-                {t('auth.linkInvalidDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try logging in first: if your address is confirmed, that is all you need. Otherwise, enter your e-mail below and ask for a new link.')}
-              </p>
-            </div>
+        <AuthNotice tone="warning" title={t('auth.linkInvalidTitle', 'This link no longer works')}>
+          <p>
+            {t('auth.linkInvalidDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try logging in first: if your address is confirmed, that is all you need. Otherwise, enter your e-mail below and ask for a new link.')}
+          </p>
+          <div className="pt-1.5">
+            <ResendConfirmationButton email={email} redirectTo={confirmationRedirectTo()} label={t('auth.sendNewLink', 'Send me a new link')} />
           </div>
-          <ResendConfirmationButton email={email} redirectTo={confirmationRedirectTo()} label={t('auth.sendNewLink', 'Send me a new link')} />
-        </div>
+        </AuthNotice>
       )}
       <div className="space-y-2">
-        <Label htmlFor="email">{t('auth.email')}</Label>
-        <Input
+        <AuthLabel htmlFor="email">{t('auth.email')}</AuthLabel>
+        <AuthInput
           id="email"
           type="email"
+          autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
@@ -280,51 +277,34 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       </div>
 
       <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="password">{t('auth.password')}</Label>
-          <button
-            type="button"
-            onClick={() => setForgotMode(true)}
-            className="text-xs text-primary hover:underline"
-          >
+        <div className="flex items-center justify-between gap-3">
+          <AuthLabel htmlFor="password">{t('auth.password')}</AuthLabel>
+          <UnderlineLink arrow={false} onClick={() => setForgotMode(true)} className="!text-[13px] !font-medium">
             {t('auth.forgotPassword')}
-          </button>
+          </UnderlineLink>
         </div>
-        <div className="relative">
-          <Input
-            id="password"
-            type={showPassword ? 'text' : 'password'}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className="pr-10"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-            tabIndex={-1}
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
-          >
-            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-          </button>
-        </div>
+        <PasswordInput
+          id="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
       </div>
 
-      <Button type="submit" className="w-full" disabled={loading}>
+      <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
         {loading ? t('common.loading') : t('auth.login')}
       </Button>
 
       {unconfirmedEmail !== null && unconfirmedEmail === email && (
-        <div className="space-y-2 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm" role="alert">
-          <div className="flex items-start gap-2">
-            <MailWarning className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
-            <span className="text-amber-900">
-              {t('auth.emailNotConfirmed', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then log in. Nothing in your inbox or spam folder? Send it again.')}
-            </span>
+        <AuthNotice tone="warning" role="alert" icon={<MailWarning className="h-4 w-4" />}>
+          <p>
+            {t('auth.emailNotConfirmed', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then log in. Nothing in your inbox or spam folder? Send it again.')}
+          </p>
+          <div className="pt-1.5">
+            <ResendConfirmationButton email={unconfirmedEmail} redirectTo={confirmationRedirectTo()} />
           </div>
-          <ResendConfirmationButton email={unconfirmedEmail} redirectTo={confirmationRedirectTo()} />
-        </div>
+        </AuthNotice>
       )}
     </form>
   );

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
+import { StatusPill } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
@@ -218,7 +218,7 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
 
   if (submitted) {
     return (
-      <Card className="border-green-200 bg-green-50">
+      <Card className="rounded-card shadow-none border-green-200 bg-green-50">
         <CardContent className="pt-6 text-center">
           <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
           <h3 className="text-xl font-bold text-green-900 mb-2">Recommendation Sent</h3>
@@ -247,40 +247,32 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <Card className="border-primary/20">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-primary/10 rounded-xl">
-              <Award className="h-8 w-8 text-primary" />
-            </div>
-            <div className="flex-1">
-              <h2 className="text-2xl font-bold text-gray-900 mb-1">Marina Recommendations</h2>
-              <p className="text-gray-600">
-                Show marinas that recommend you. Confirmed recommendations appear publicly on your organization profile and help marinas trust your services. This is optional — submit as many as you like, whenever you like.
-              </p>
-              {!loadingRefs && existingRefs.length > 0 && (
-                <p className="text-sm text-gray-500 mt-3">
-                  {confirmedCount} confirmed · {existingRefs.length} total
-                </p>
-              )}
-            </div>
-            {!showForm && (
-              <Button onClick={() => setShowForm(true)} className="shrink-0">
-                <Plus className="h-4 w-4 mr-1" /> New recommendation
-              </Button>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Intro */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="max-w-2xl text-[15px] leading-6 text-meta">
+            Show marinas that recommend you. Confirmed recommendations appear publicly on your organization profile and help marinas trust your services. This is optional — submit as many as you like, whenever you like.
+          </p>
+          {!loadingRefs && existingRefs.length > 0 && (
+            <p className="mt-2 text-[14px] font-medium text-navy">
+              {confirmedCount} confirmed · {existingRefs.length} total
+            </p>
+          )}
+        </div>
+        {!showForm && (
+          <Button variant="cta" size="sm" onClick={() => setShowForm(true)} className="shrink-0">
+            New recommendation
+          </Button>
+        )}
+      </div>
 
       {/* Existing references (org-level — shared by all team members) */}
       {loadingRefs ? (
         <div className="flex items-center justify-center py-6">
-          <RefreshCw className="h-5 w-5 animate-spin text-gray-400" />
+          <RefreshCw className="h-5 w-5 animate-spin text-meta/60" />
         </div>
       ) : existingRefs.length > 0 ? (
-        <Card>
+        <Card className="rounded-card shadow-none">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <FileText className="h-4 w-4" />
@@ -292,30 +284,24 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
               {existingRefs.map((ref) => (
                 <div key={ref.id} className="flex items-center justify-between px-6 py-3">
                   <div>
-                    <p className="font-medium text-sm text-gray-900">{ref.client_legal_name}</p>
-                    <p className="text-xs text-gray-500">{ref.project_name} — {new Date(ref.created_at).toLocaleDateString()}</p>
+                    <p className="font-medium text-sm text-navy">{ref.client_legal_name}</p>
+                    <p className="text-xs text-meta">{ref.project_name} — {new Date(ref.created_at).toLocaleDateString()}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     {ref.status === 'confirmed' && (
-                      <Badge variant="success" className="text-xs gap-1">
-                        <CheckCircle className="h-3 w-3" /> Confirmed
-                      </Badge>
+                      <StatusPill tone="success" icon={CheckCircle}>Confirmed</StatusPill>
                     )}
                     {(ref.status === 'pending' || ref.status === 'sent') && (
-                      <Badge variant="warning" className="text-xs gap-1">
-                        <Clock className="h-3 w-3" /> {ref.status === 'sent' ? 'Sent' : 'Pending'}
-                      </Badge>
+                      <StatusPill tone="warning" icon={Clock}>{ref.status === 'sent' ? 'Sent' : 'Pending'}</StatusPill>
                     )}
                     {ref.status === 'rejected' && (
-                      <Badge variant="destructive" className="text-xs gap-1">
-                        <FileX className="h-3 w-3" /> Declined
-                      </Badge>
+                      <StatusPill tone="danger" icon={FileX}>Declined</StatusPill>
                     )}
                     {ref.status === 'expired' && (
-                      <Badge variant="secondary" className="text-xs gap-1">Expired</Badge>
+                      <StatusPill tone="neutral">Expired</StatusPill>
                     )}
                     {ref.created_by === user?.id && (
-                      <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">You</span>
+                      <span className="text-[10px] text-meta/60 bg-chip px-1.5 py-0.5 rounded">You</span>
                     )}
                   </div>
                 </div>
@@ -324,11 +310,11 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
           </CardContent>
         </Card>
       ) : !showForm && (
-        <Card className="border-dashed">
+        <Card className="rounded-card shadow-none border-dashed">
           <CardContent className="pt-6 pb-6 text-center">
-            <Award className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-sm text-gray-500 mb-1">No recommendations submitted yet.</p>
-            <p className="text-xs text-gray-400">Click "New recommendation" to invite a marina contact to endorse you.</p>
+            <Award className="h-10 w-10 text-meta/40 mx-auto mb-3" />
+            <p className="text-sm text-meta mb-1">No recommendations submitted yet.</p>
+            <p className="text-xs text-meta/60">Click "New recommendation" to invite a marina contact to endorse you.</p>
           </CardContent>
         </Card>
       )}
@@ -346,22 +332,22 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
               }}
               disabled={s > step}
               className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all ${
-                step === s ? 'bg-primary text-white' : step > s ? 'bg-green-700 text-white cursor-pointer' : 'bg-gray-200 text-gray-500 cursor-not-allowed opacity-60'
+                step === s ? 'bg-primary text-white' : step > s ? 'bg-green-700 text-white cursor-pointer' : 'bg-rule text-meta cursor-not-allowed opacity-60'
               }`}
             >
               {step > s ? '✓' : s}
             </button>
-            <span className={`text-sm ${step === s ? 'font-semibold text-gray-900' : 'text-gray-500'}`}>
+            <span className={`text-sm ${step === s ? 'font-semibold text-navy' : 'text-meta'}`}>
               {s === 1 ? 'Client Info' : s === 2 ? 'Project Details' : 'Recipient & Send'}
             </span>
-            {s < 3 && <div className="flex-1 h-px bg-gray-200 mx-2" />}
+            {s < 3 && <div className="flex-1 h-px bg-rule mx-2" />}
           </div>
         ))}
       </div>
 
       {/* Step 1: Client Info */}
       {step === 1 && (
-        <Card>
+        <Card className="rounded-card shadow-none">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Globe className="h-5 w-5 text-primary" />
@@ -401,7 +387,7 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
                   onChange={(e) => setClientForm({ ...clientForm, primary_domain: e.target.value })}
                   placeholder="e.g. marina-alpha.com"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-meta mt-1">
                   The recipient's email must match this domain for verification.
                 </p>
               </div>
@@ -418,7 +404,7 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
 
       {/* Step 2: Project Details + Recommendation */}
       {step === 2 && (
-        <Card>
+        <Card className="rounded-card shadow-none">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Briefcase className="h-5 w-5 text-primary" />
@@ -492,7 +478,7 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
                 value={projectForm.scope_description}
                 onChange={(e) => setProjectForm({ ...projectForm, scope_description: e.target.value })}
                 placeholder="Describe the project scope..."
-                className="w-full min-h-[80px] resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className="w-full min-h-[80px] resize-y rounded-lg border border-rule bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
             </div>
 
@@ -502,7 +488,7 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
                 value={projectForm.results_summary}
                 onChange={(e) => setProjectForm({ ...projectForm, results_summary: e.target.value })}
                 placeholder="Describe the results and value delivered..."
-                className="w-full min-h-[80px] resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className="w-full min-h-[80px] resize-y rounded-lg border border-rule bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
             </div>
 
@@ -517,7 +503,7 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
 
             <div className="border-t pt-4">
               <Label className="text-base font-semibold">Recommendation Statement *</Label>
-              <p className="text-sm text-gray-500 mb-2">
+              <p className="text-sm text-meta mb-2">
                 Write the recommendation statement that will be presented to your client for confirmation.
               </p>
               <textarea
@@ -540,7 +526,7 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
 
       {/* Step 3: Recipients */}
       {step === 3 && (
-        <Card>
+        <Card className="rounded-card shadow-none">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Send className="h-5 w-5 text-primary" />

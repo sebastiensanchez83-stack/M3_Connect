@@ -100,18 +100,18 @@ export function MediaPressRoom() {
     load();
   };
 
-  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-gray-300" /></div>;
+  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-meta/40" /></div>;
 
   const photos = resources.filter(r => r.kind === 'photos');
   const releases = resources.filter(r => r.kind === 'press_release');
 
   const item = (r: PressResource) => (
     <button key={r.id} type="button" disabled={busy === r.id} onClick={() => open(r)}
-      className="w-full flex items-center gap-2 rounded-lg border border-gray-100 hover:border-primary/40 px-3 py-2 text-left disabled:opacity-50">
+      className="w-full flex items-center gap-2 rounded-lg border border-rule hover:border-primary/40 px-3 py-2 text-left disabled:opacity-50">
       {busy === r.id ? <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
         : r.mode === 'link' ? <ExternalLink className="h-4 w-4 text-primary shrink-0" />
         : <Download className="h-4 w-4 text-primary shrink-0" />}
-      <span className="text-sm text-gray-800 truncate flex-1">
+      <span className="text-sm text-ink truncate flex-1">
         {r.title || r.filename || (r.kind === 'photos' ? 'Photo library' : 'Press release')}
       </span>
       {r.sm_event?.name && <Badge variant="outline" className="text-[10px] shrink-0">{r.sm_event.name}</Badge>}
@@ -121,24 +121,24 @@ export function MediaPressRoom() {
   return (
     <div className="space-y-4">
       <div className="grid md:grid-cols-2 gap-3">
-        <Card><CardContent className="pt-6">
+        <Card className="rounded-card shadow-none"><CardContent className="pt-6">
           <div className="text-sm font-medium flex items-center gap-2 mb-2"><ImageIcon className="h-4 w-4 text-primary" /> Photos</div>
           {photos.length === 0
-            ? <p className="text-xs text-gray-400">No photo library published yet.</p>
+            ? <p className="text-xs text-meta/60">No photo library published yet.</p>
             : <div className="space-y-1.5">{photos.map(item)}</div>}
         </CardContent></Card>
-        <Card><CardContent className="pt-6">
+        <Card className="rounded-card shadow-none"><CardContent className="pt-6">
           <div className="text-sm font-medium flex items-center gap-2 mb-2"><FileText className="h-4 w-4 text-primary" /> Press releases</div>
           {releases.length === 0
-            ? <p className="text-xs text-gray-400">No press release published yet.</p>
+            ? <p className="text-xs text-meta/60">No press release published yet.</p>
             : <div className="space-y-1.5">{releases.map(item)}</div>}
         </CardContent></Card>
       </div>
 
-      <Card><CardContent className="pt-6 space-y-3">
+      <Card className="rounded-card shadow-none"><CardContent className="pt-6 space-y-3">
         <div>
           <div className="text-sm font-medium flex items-center gap-2"><Link2 className="h-4 w-4 text-primary" /> My coverage</div>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-meta mt-0.5">
             Share what you publish about the event — the organisers see it and it feeds the coverage report.
           </p>
         </div>
@@ -167,19 +167,19 @@ export function MediaPressRoom() {
         </div>
 
         {coverage.length > 0 && (
-          <div className="divide-y divide-gray-100 border-t border-gray-100 pt-1">
+          <div className="divide-y divide-rule border-t border-rule pt-1">
             {coverage.map(c => (
               <div key={c.id} className="py-2 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <a href={c.url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline truncate block">
                     {c.title || c.url}
                   </a>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-meta">
                     {c.outlet}{c.outlet && c.published_at ? ' · ' : ''}
                     {c.published_at ? new Date(c.published_at).toLocaleDateString('en-GB') : ''}
                   </div>
                 </div>
-                <button onClick={() => removeCoverage(c.id)} className="text-gray-400 hover:text-red-600 p-1 shrink-0">
+                <button onClick={() => removeCoverage(c.id)} className="text-meta/60 hover:text-red-600 p-1 shrink-0">
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>

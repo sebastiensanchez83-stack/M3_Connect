@@ -37,23 +37,23 @@ export function SponsorshipPage() {
   useEffect(() => { if (!authLoading) resolve(); }, [authLoading, resolve]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-page">
       <Helmet><title>Sponsorship — Smart Marina Connect</title></Helmet>
       <div className="container mx-auto px-4 py-8">
         {role === 'loading' && <div className="flex items-center justify-center h-[50vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>}
         {role === 'error' && (
           <div className="max-w-md mx-auto py-16 text-center">
             <AlertCircle className="h-10 w-10 text-amber-400 mx-auto mb-3" />
-            <h1 className="text-xl font-bold text-gray-900">Couldn't check your access</h1>
-            <p className="text-gray-500 text-sm mt-1 mb-4">Something went wrong loading the sponsorship area.</p>
+            <h1 className="text-xl font-bold text-navy">Couldn't check your access</h1>
+            <p className="text-meta text-sm mt-1 mb-4">Something went wrong loading the sponsorship area.</p>
             <Button onClick={resolve}>Try again</Button>
           </div>
         )}
         {role === 'none' && (
           <div className="max-w-md mx-auto py-16 text-center">
-            <Lock className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-            <h1 className="text-xl font-bold text-gray-900">No sponsorship access</h1>
-            <p className="text-gray-500 text-sm mt-1">This area is for M3 staff, Yacht Club de Monaco, and linked sponsors.</p>
+            <Lock className="h-10 w-10 text-meta/40 mx-auto mb-3" />
+            <h1 className="text-xl font-bold text-navy">No sponsorship access</h1>
+            <p className="text-meta text-sm mt-1">This area is for M3 staff, Yacht Club de Monaco, and linked sponsors.</p>
           </div>
         )}
         {role === 'manager' && (

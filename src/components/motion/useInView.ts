@@ -13,6 +13,30 @@ interface Shared {
 
 const pool = new Map<string, Shared>();
 
+/**
+ * A block taller than about 4 viewports can never be `threshold` (12 %) visible
+ * at once (a 7,800 px programme on a 844 px phone), so it would stay hidden for
+ * good. For any threshold above 0 the observer therefore also reports a few
+ * small ratios, and the callback decides: "in" once the threshold ratio is
+ * reached OR half a viewport of the block is on screen, whichever comes first.
+ * For a block of normal height the two rules are the same and nothing changes.
+ */
+const TALL_STEPS = [0.005, 0.01, 0.02, 0.03, 0.05, 0.08];
+
+function thresholdsFor(threshold: number): number | number[] {
+  if (threshold <= 0) return threshold;
+  return [0, ...TALL_STEPS.filter((s) => s < threshold), threshold];
+}
+
+/** True when this report means "in view" (see TALL_STEPS). */
+function reachedThreshold(entry: IntersectionObserverEntry, threshold: number): boolean {
+  if (!entry.isIntersecting) return false;
+  if (threshold <= 0 || entry.intersectionRatio >= threshold) return true;
+  const rootHeight = entry.rootBounds?.height ?? (typeof window === 'undefined' ? 0 : window.innerHeight);
+  const need = Math.min(entry.boundingClientRect.height * threshold, rootHeight * 0.5);
+  return entry.intersectionRect.height >= need;
+}
+
 function getShared(rootMargin: string, threshold: number): Shared {
   const key = `${rootMargin}|${threshold}`;
   let shared = pool.get(key);
@@ -24,7 +48,7 @@ function getShared(rootMargin: string, threshold: number): Shared {
         (entries) => {
           for (const entry of entries) callbacks.get(entry.target)?.(entry);
         },
-        { rootMargin, threshold },
+        { rootMargin, threshold: thresholdsFor(threshold) },
       ),
     };
     pool.set(key, shared);
@@ -76,7 +100,7 @@ export function useInView<T extends Element>(
     };
     shared.callbacks.set(el, (entry) => {
       reported = true;
-      if (entry.isIntersecting) {
+      if (reachedThreshold(entry, threshold)) {
         setInView(true);
         if (once) stop();
       } else if (!once) {

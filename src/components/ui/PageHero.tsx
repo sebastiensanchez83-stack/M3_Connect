@@ -141,7 +141,8 @@ export function PageHero({
         className={cn(
           'relative z-10 mx-auto w-full max-w-7xl px-4 sm:px-6',
           overlaid ? 'pt-[88px] md:pt-[104px]' : 'pt-10 sm:pt-14',
-          'pb-8 md:pb-[52px] xl:pb-16',
+          // Phones: room under the content for the 44 px pause control (bottom 16 px), so it never covers the last words of a long subtitle.
+          'pb-[68px] md:pb-[52px] xl:pb-16',
           containerClassName,
         )}
       >

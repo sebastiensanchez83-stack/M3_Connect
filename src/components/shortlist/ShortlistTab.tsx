@@ -6,7 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { CardShell } from '@/components/brand/CardShell';
+import { BTN, MemberEmpty, MemberPanel, RowSkeleton } from '@/components/member/MemberUI';
+import { cn } from '@/lib/utils';
 import {
   Star, MapPin, ExternalLink, Pencil, Save, X, Trash2, Building2, Globe,
 } from 'lucide-react';
@@ -109,39 +111,34 @@ export function ShortlistTab() {
   };
 
   if (loading) {
-    return <LoadingSkeleton variant="inline" />;
+    return <MemberPanel><RowSkeleton rows={2} /></MemberPanel>;
   }
 
   if (entries.length === 0) {
     const isInvestor = profile?.persona === 'investor';
     return (
-      <Card>
-        <CardContent className="pt-12 pb-12 text-center">
-          <Star className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-          <h3 className="font-medium text-gray-800 mb-1">Your shortlist is empty</h3>
-          <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
-            {isInvestor
-              ? 'Pin any organization to save it here with private notes. Useful for tracking deal-flow targets and capital-seekers worth a second look.'
-              : 'Star any organization on the platform to save it here with private notes. Useful for tracking service providers you might want to work with on a future project.'}
-          </p>
-          <Button asChild variant="outline">
-            <Link to={isInvestor ? '/investments' : '/directory?type=partner'}>
-              {isInvestor ? 'Browse deal flow' : 'Browse service providers'}
-            </Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <CardShell>
+        <MemberEmpty
+          icon={Star}
+          title="Your shortlist is empty"
+          body={isInvestor
+            ? 'Pin any organization to save it here with private notes. Useful for tracking deal-flow targets and capital-seekers worth a second look.'
+            : 'Star any organization on the platform to save it here with private notes. Useful for tracking service providers you might want to work with on a future project.'}
+          action={(
+            <Button asChild variant="ctaNavy" size="sm">
+              <Link to={isInvestor ? '/investments' : '/directory?type=partner'}>
+                {isInvestor ? 'Browse deal flow' : 'Browse service providers'}
+              </Link>
+            </Button>
+          )}
+        />
+      </CardShell>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">Shortlist</h2>
-          <p className="text-sm text-gray-500">{entries.length} {entries.length === 1 ? 'organization' : 'organizations'} saved with private notes.</p>
-        </div>
-      </div>
+      <p className="text-[15px] leading-6 text-meta">{entries.length} {entries.length === 1 ? 'organization' : 'organizations'} saved with private notes.</p>
 
       <div className="space-y-3">
         {entries.map((entry) => {
@@ -150,16 +147,16 @@ export function ShortlistTab() {
           const isEditing = editingId === entry.id;
           const isSaving = savingId === entry.id;
           return (
-            <Card key={entry.id}>
-              <CardContent className="p-5">
+            <CardShell key={entry.id} className="p-4 sm:p-5">
+              <div>
                 <div className="flex gap-4">
                   {/* Logo */}
                   <Link to={`/organizations/${org.slug}`} className="shrink-0">
                     {org.logo_url ? (
-                      <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-lg object-cover border" />
+                      <img src={org.logo_url} alt={org.name} className="h-14 w-14 rounded-xl border border-rule bg-white object-contain p-1" />
                     ) : (
-                      <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Building2 className="h-6 w-6 text-primary" />
+                      <div className="grid h-14 w-14 place-items-center rounded-xl bg-chip">
+                        <Building2 className="h-6 w-6 text-navy" />
                       </div>
                     )}
                   </Link>
@@ -168,12 +165,12 @@ export function ShortlistTab() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-3 flex-wrap">
                       <div className="min-w-0">
-                        <Link to={`/organizations/${org.slug}`} className="font-semibold text-gray-900 hover:text-primary transition-colors">
+                        <Link to={`/organizations/${org.slug}`} className="group text-[16px] font-semibold text-navy"><span className="card-ul">
                           {org.name}
-                        </Link>
-                        <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-gray-500">
+                        </span></Link>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-meta">
                           {org.organization_type && (
-                            <Badge variant="outline" className="text-[10px] capitalize">
+                            <Badge variant="outline" className="border-rule bg-chip text-[12px] font-medium capitalize text-navy">
                               {org.organization_type.replace('_', ' ')}
                             </Badge>
                           )}
@@ -201,7 +198,7 @@ export function ShortlistTab() {
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {!isEditing && (
-                          <Button size="sm" variant="ghost" onClick={() => handleEdit(entry)} title="Edit note">
+                          <Button size="sm" variant="ghost" className="h-10 w-10 rounded-pill p-0 text-navy hover:bg-chip" onClick={() => handleEdit(entry)} title="Edit note" aria-label="Edit note">
                             <Pencil className="h-3.5 w-3.5" />
                           </Button>
                         )}
@@ -210,7 +207,8 @@ export function ShortlistTab() {
                           variant="ghost"
                           onClick={() => handleRemove(entry.id, org.name)}
                           title="Remove from shortlist"
-                          className="text-red-500 hover:text-red-600 hover:bg-red-50"
+                          aria-label="Remove from shortlist"
+                          className="h-10 w-10 rounded-pill p-0 text-red-600 hover:bg-red-50 hover:text-red-700"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -225,14 +223,14 @@ export function ShortlistTab() {
                           onChange={(e) => setDraftNote(e.target.value)}
                           rows={3}
                           placeholder="Private note (e.g. met at Cannes, recommended by ACI, shortlisted for Q3 dredging project)…"
-                          className="w-full text-sm rounded-lg border border-gray-200 bg-white p-2.5 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                          className="w-full resize-y rounded-xl border border-rule bg-white p-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-primary/30"
                           autoFocus
                         />
                         <div className="flex gap-2 justify-end">
-                          <Button size="sm" variant="ghost" onClick={handleCancel} disabled={isSaving}>
+                          <Button size="sm" variant="ghost" className={cn(BTN, 'text-navy hover:bg-chip')} onClick={handleCancel} disabled={isSaving}>
                             <X className="h-3.5 w-3.5 mr-1" /> Cancel
                           </Button>
-                          <Button size="sm" onClick={() => handleSave(entry.id)} disabled={isSaving}>
+                          <Button size="sm" className={BTN} onClick={() => handleSave(entry.id)} disabled={isSaving}>
                             <Save className="h-3.5 w-3.5 mr-1" />
                             {isSaving ? 'Saving…' : 'Save note'}
                           </Button>
@@ -241,7 +239,7 @@ export function ShortlistTab() {
                     ) : entry.note ? (
                       <p
                         onClick={() => handleEdit(entry)}
-                        className="mt-3 text-sm text-gray-700 bg-amber-50 border border-amber-100 rounded-lg p-3 cursor-text hover:bg-amber-100/60 transition-colors whitespace-pre-wrap"
+                        className="mt-3 cursor-text whitespace-pre-wrap rounded-xl border border-teal/20 bg-foam p-3 text-[14px] leading-5 text-ink transition-colors hover:border-teal/40"
                       >
                         {entry.note}
                       </p>
@@ -249,20 +247,20 @@ export function ShortlistTab() {
                       <button
                         type="button"
                         onClick={() => handleEdit(entry)}
-                        className="mt-3 text-xs text-gray-400 hover:text-primary inline-flex items-center gap-1"
+                        className="mt-3 inline-flex min-h-10 items-center gap-1.5 text-[13px] font-medium text-meta hover:text-navy"
                       >
                         <Pencil className="h-3 w-3" /> Add a private note
                       </button>
                     )}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </CardShell>
           );
         })}
       </div>
 
-      <p className="text-xs text-gray-400 text-center pt-2">
+      <p className="pt-2 text-center text-[13px] leading-5 text-meta">
         Notes are private and only visible to you. The organization itself can't see they're on your shortlist.
       </p>
     </div>

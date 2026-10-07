@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, FieldError, FieldHint, PasswordInput } from '@/components/auth/fields';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { PersonaType } from '@/types/database';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Anchor, Building2, Newspaper, Loader2, ChevronLeft, Eye, EyeOff, Info, HardHat, TrendingUp, Mail } from 'lucide-react';
+import { Anchor, ArrowRight, Building2, Newspaper, Loader2, ChevronLeft, Info, HardHat, TrendingUp, Mail } from 'lucide-react';
 
 interface SignupFormProps {
   onSuccess?: () => void;
@@ -92,8 +92,6 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [loading, setLoading] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<PersonaType | ''>(defaultPersona || '');
   const [formData, setFormData] = useState({ firstName: '', lastName: '', email: '', jobTitle: '', companyName: '', companyWebsite: '', password: '', confirmPassword: '' });
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [detectedOrg, setDetectedOrg] = useState<{ id: string; name: string } | null>(null);
   const [errors, setErrors] = useState<{ passwordMismatch?: boolean; termsRequired?: boolean; passwordWeak?: boolean }>({});
@@ -350,54 +348,54 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
 
   if (pendingConfirmation) {
     return (
-      <div className="space-y-4 text-center">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-green-100 mx-auto">
-          <Mail className="h-7 w-7 text-green-600" />
-        </div>
+      <div className="space-y-5 text-center">
+        <span aria-hidden="true" className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-foam text-teal-text">
+          <Mail className="h-7 w-7" />
+        </span>
         {mailSent ? (
           <>
-            <div className="space-y-1">
-              <h3 className="text-lg font-semibold text-gray-900">{t('auth.checkInboxTitle', 'Check your inbox')}</h3>
-              <p className="text-sm text-gray-600">{t('auth.checkInboxSentTo', 'We sent an activation link to:')}</p>
-              <p className="text-sm font-semibold text-gray-900 break-all">{pendingConfirmation.email}</p>
+            <div className="space-y-1.5">
+              <h3 className="text-h3 text-navy">{t('auth.checkInboxTitle', 'Check your inbox')}</h3>
+              <p className="text-sm text-meta">{t('auth.checkInboxSentTo', 'We sent an activation link to:')}</p>
+              <p className="break-all text-sm font-semibold text-navy">{pendingConfirmation.email}</p>
             </div>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm leading-6 text-ink">
               {t('auth.checkInboxOpenLink', 'Open the link in that e-mail to activate your account. It stays inactive until you do.')}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-[13px] leading-5 text-meta">
               {t('auth.checkInboxSpam', 'Nothing after a few minutes? Check your spam or junk folder. If you already have an account with this address, log in instead.')}
             </p>
           </>
         ) : (
           <>
-            <div className="space-y-1">
-              <h3 className="text-lg font-semibold text-gray-900">{t('auth.activateAccountTitle', 'Activate your account')}</h3>
-              <p className="text-sm text-gray-600">{t('auth.checkInboxCreatedFor', 'Your account has been created for:')}</p>
-              <p className="text-sm font-semibold text-gray-900 break-all">{pendingConfirmation.email}</p>
+            <div className="space-y-1.5">
+              <h3 className="text-h3 text-navy">{t('auth.activateAccountTitle', 'Activate your account')}</h3>
+              <p className="text-sm text-meta">{t('auth.checkInboxCreatedFor', 'Your account has been created for:')}</p>
+              <p className="break-all text-sm font-semibold text-navy">{pendingConfirmation.email}</p>
             </div>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm leading-6 text-ink">
               {t('auth.checkInboxNotSent', "We couldn't send the activation e-mail just now. When the countdown ends, use the button below to send it, then open its link to activate your account.")}
             </p>
           </>
         )}
         {pendingConfirmation.via === 'claim' && (
-          <p className="text-sm text-gray-600">{t('auth.claimPasswordLater', 'You will choose your password after confirming your e-mail address.')}</p>
+          <p className="text-sm leading-6 text-ink">{t('auth.claimPasswordLater', 'You will choose your password after confirming your e-mail address.')}</p>
         )}
         <div className="space-y-2">
-          <Button type="button" variant="outline" className="w-full" disabled={resending || resendCooldown > 0} onClick={handleResend}>
-            {resending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+          <Button type="button" variant="ctaOutline" arrow={false} roll={false} className="w-full" disabled={resending || resendCooldown > 0} onClick={handleResend}>
+            {resending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {resendCooldown > 0
               ? t('auth.resendEmailIn', 'Resend the e-mail ({{seconds}} s)', { seconds: resendCooldown })
               : t('auth.resendEmail', 'Resend the e-mail')}
           </Button>
           {resendFeedback === 'sent' && (
-            <p className="text-sm text-green-600" role="status">{t('auth.resendEmailSent', 'A new e-mail is on its way.')}</p>
+            <p className="text-sm text-teal-text" role="status">{t('auth.resendEmailSent', 'A new e-mail is on its way.')}</p>
           )}
           {resendFeedback === 'active' && (
-            <p className="text-sm text-gray-700" role="status">{t('auth.resendAlreadyActive', 'This account is already activated. You can log in.')}</p>
+            <p className="text-sm text-ink" role="status">{t('auth.resendAlreadyActive', 'This account is already activated. You can log in.')}</p>
           )}
           {resendFeedback === 'error' && (
-            <p className="text-sm text-red-600" role="alert">{t('auth.resendEmailError', "We couldn't send the e-mail just now. Please wait a minute and try again.")}</p>
+            <p className="text-sm text-red-700" role="alert">{t('auth.resendEmailError', "We couldn't send the e-mail just now. Please wait a minute and try again.")}</p>
           )}
         </div>
       </div>
@@ -407,16 +405,23 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   if (step === 1) {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-gray-600">{t('auth.selectPersona')}</p>
+        <p className="text-sm leading-6 text-meta">{t('auth.selectPersona')}</p>
         <div className="space-y-3">
           {personas.map((p) => (
-            <button key={p.value} type="button" onClick={() => handlePersonaSelect(p.value)}
-              className="w-full flex items-center gap-4 p-4 rounded-lg border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition-all text-left group">
-              <div className="text-primary shrink-0">{p.icon}</div>
-              <div>
-                <div className="font-semibold text-gray-900 group-hover:text-primary">{p.title}</div>
-                <div className="text-sm text-gray-500">{p.desc}</div>
-              </div>
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => handlePersonaSelect(p.value)}
+              className="group card-lift flex w-full items-center gap-4 rounded-card border border-rule bg-white p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-field bg-chip text-navy">{p.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-card-title text-navy">
+                  <span className="card-ul">{p.title}</span>
+                  <ArrowRight className="card-arrow" strokeWidth={2.25} aria-hidden="true" />
+                </span>
+                <span className="mt-0.5 block text-sm leading-5 text-meta">{p.desc}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -427,140 +432,142 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const selected = personas.find((p) => p.value === selectedPersona);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <button type="button" onClick={() => setStep(1)} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-        <ChevronLeft className="h-4 w-4" /> {t('auth.back')}
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <button
+        type="button"
+        onClick={() => setStep(1)}
+        className="-ml-1 inline-flex items-center gap-1 rounded px-1 text-sm font-medium text-meta transition-colors hover:text-navy focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <ChevronLeft className="h-4 w-4" aria-hidden="true" /> {t('auth.back')}
       </button>
       {incomingClaimCode && (
-        <div className="flex items-start gap-3 p-3 rounded-lg bg-green-50 border border-green-200">
-          <Info className="h-5 w-5 text-green-600 shrink-0 mt-0.5" />
-          <div className="text-sm">
-            <div className="font-medium text-green-900">{t('auth.claimInviteTitle', "You've been invited to join an organization")}</div>
-            <div className="text-xs text-green-700 mt-0.5">
-              {t('auth.claimInviteCodeLabel', 'Invitation code:')} <span className="font-mono font-semibold">{incomingClaimCode}</span>
-            </div>
-            <div className="text-xs text-green-700">{t('auth.claimInviteApplied', 'It will be applied to your account automatically.')}</div>
-          </div>
-        </div>
+        <AuthNotice tone="success" icon={<Info className="h-4 w-4" />} title={t('auth.claimInviteTitle', "You've been invited to join an organization")}>
+          <p className="text-[13px]">
+            {t('auth.claimInviteCodeLabel', 'Invitation code:')} <span className="font-mono font-semibold">{incomingClaimCode}</span>
+          </p>
+          <p className="text-[13px]">{t('auth.claimInviteApplied', 'It will be applied to your account automatically.')}</p>
+        </AuthNotice>
       )}
       {selected && (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
-          <div className="text-primary">{selected.icon}</div>
-          <div><div className="font-medium text-primary">{selected.title}</div><div className="text-xs text-gray-500">{selected.desc}</div></div>
+        <div className="flex items-center gap-3 rounded-field border border-rule bg-page p-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-field bg-chip text-navy">{selected.icon}</span>
+          <div className="min-w-0">
+            <div className="font-semibold text-navy">{selected.title}</div>
+            <div className="text-[13px] leading-5 text-meta">{selected.desc}</div>
+          </div>
         </div>
       )}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
-          <Label htmlFor="firstName">{t('auth.firstName')} *</Label>
-          <Input id="firstName" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required placeholder={t('auth.firstNamePlaceholder')} />
+          <AuthLabel htmlFor="firstName">{t('auth.firstName')} *</AuthLabel>
+          <AuthInput id="firstName" autoComplete="given-name" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required placeholder={t('auth.firstNamePlaceholder')} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="lastName">{t('auth.lastName')} *</Label>
-          <Input id="lastName" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required placeholder={t('auth.lastNamePlaceholder')} />
+          <AuthLabel htmlFor="lastName">{t('auth.lastName')} *</AuthLabel>
+          <AuthInput id="lastName" autoComplete="family-name" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required placeholder={t('auth.lastNamePlaceholder')} />
         </div>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="jobTitle">{t('auth.jobTitle', 'Job Title / Position')}</Label>
-        <Input id="jobTitle" value={formData.jobTitle} onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })} placeholder={t('auth.jobTitlePlaceholder', 'e.g. Marina Director, Sales Manager...')} />
+        <AuthLabel htmlFor="jobTitle">{t('auth.jobTitle', 'Job Title / Position')}</AuthLabel>
+        <AuthInput id="jobTitle" autoComplete="organization-title" value={formData.jobTitle} onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })} placeholder={t('auth.jobTitlePlaceholder', 'e.g. Marina Director, Sales Manager...')} />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="email">{t('auth.emailPro')} *</Label>
-        <Input id="email" type="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
+        <AuthLabel htmlFor="email">{t('auth.emailPro')} *</AuthLabel>
+        <AuthInput id="email" type="email" autoComplete="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
       </div>
       {/* Domain auto-join was removed; the "company already exists" check now runs at
           onboarding (create-company step) as a name match, so no misleading promise here. */}
       <div className="space-y-2">
-        <Label htmlFor="companyName">{t('auth.companyName')} *</Label>
-        <Input id="companyName" value={formData.companyName} onChange={(e) => setFormData({ ...formData, companyName: e.target.value })} required placeholder={t('auth.companyNamePlaceholder')} />
+        <AuthLabel htmlFor="companyName">{t('auth.companyName')} *</AuthLabel>
+        <AuthInput id="companyName" autoComplete="organization" value={formData.companyName} onChange={(e) => setFormData({ ...formData, companyName: e.target.value })} required placeholder={t('auth.companyNamePlaceholder')} />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="companyWebsite">{t('auth.companyWebsite')}</Label>
-        <Input id="companyWebsite" type="url" value={formData.companyWebsite} onChange={(e) => setFormData({ ...formData, companyWebsite: e.target.value })} placeholder={t('auth.companyWebsitePlaceholder')} />
+        <AuthLabel htmlFor="companyWebsite">{t('auth.companyWebsite')}</AuthLabel>
+        <AuthInput id="companyWebsite" type="url" value={formData.companyWebsite} onChange={(e) => setFormData({ ...formData, companyWebsite: e.target.value })} placeholder={t('auth.companyWebsitePlaceholder')} />
       </div>
       {incomingClaimCode ? (
-        <p className="flex items-start gap-2 text-sm text-gray-600">
-          <Info className="h-4 w-4 text-gray-400 shrink-0 mt-0.5" />
+        <p className="flex items-start gap-2 text-sm leading-6 text-meta">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           {t('auth.claimPasswordLater', 'You will choose your password after confirming your e-mail address.')}
         </p>
       ) : (
         <>
           <div className="space-y-2">
-            <Label htmlFor="password">{t('auth.password')} *</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? 'text' : 'password'}
-                value={formData.password}
-                onChange={(e) => {
-                  const pwd = e.target.value;
-                  setFormData({ ...formData, password: pwd });
-                  if (pwd.length > 0) {
-                    setErrors(prev => ({ ...prev, passwordWeak: !validatePasswordStrength(pwd) }));
-                  } else {
-                    setErrors(prev => ({ ...prev, passwordWeak: false }));
-                  }
-                }}
-                required
-                minLength={8}
-                placeholder={t('auth.passwordPlaceholder')}
-                className="pr-10"
-                aria-invalid={errors.passwordWeak || undefined}
-              />
-              <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors" tabIndex={-1}>
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <AuthLabel htmlFor="password">{t('auth.password')} *</AuthLabel>
+            <PasswordInput
+              id="password"
+              autoComplete="new-password"
+              value={formData.password}
+              onChange={(e) => {
+                const pwd = e.target.value;
+                setFormData({ ...formData, password: pwd });
+                if (pwd.length > 0) {
+                  setErrors(prev => ({ ...prev, passwordWeak: !validatePasswordStrength(pwd) }));
+                } else {
+                  setErrors(prev => ({ ...prev, passwordWeak: false }));
+                }
+              }}
+              required
+              minLength={8}
+              placeholder={t('auth.passwordPlaceholder')}
+              className={errors.passwordWeak ? AUTH_FIELD_ERROR : undefined}
+              aria-invalid={errors.passwordWeak || undefined}
+            />
             {errors.passwordWeak ? (
-              <p className="text-sm text-red-600 mt-1">{t('auth.passwordWeak', 'Password must be at least 8 characters and include one uppercase letter and one symbol.')}</p>
+              <FieldError>{t('auth.passwordWeak', 'Password must be at least 8 characters and include one uppercase letter and one symbol.')}</FieldError>
             ) : (
-              <p className="text-xs text-gray-400">{t('auth.passwordRules', 'Min. 8 characters, 1 uppercase letter, 1 symbol')}</p>
+              <FieldHint>{t('auth.passwordRules', 'Min. 8 characters, 1 uppercase letter, 1 symbol')}</FieldHint>
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="confirmPassword">{t('auth.confirmPassword')} *</Label>
-            <div className="relative">
-              <Input id="confirmPassword" type={showConfirmPassword ? 'text' : 'password'} value={formData.confirmPassword} onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })} required className="pr-10"
-                onBlur={() => {
-                  if (formData.confirmPassword && formData.password !== formData.confirmPassword) {
-                    setErrors(prev => ({ ...prev, passwordMismatch: true }));
-                  } else {
-                    setErrors(prev => ({ ...prev, passwordMismatch: false }));
-                  }
-                }}
-              />
-              <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors" tabIndex={-1}>
-                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <AuthLabel htmlFor="confirmPassword">{t('auth.confirmPassword')} *</AuthLabel>
+            <PasswordInput
+              id="confirmPassword"
+              autoComplete="new-password"
+              value={formData.confirmPassword}
+              onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+              required
+              className={errors.passwordMismatch ? AUTH_FIELD_ERROR : undefined}
+              aria-invalid={errors.passwordMismatch || undefined}
+              onBlur={() => {
+                if (formData.confirmPassword && formData.password !== formData.confirmPassword) {
+                  setErrors(prev => ({ ...prev, passwordMismatch: true }));
+                } else {
+                  setErrors(prev => ({ ...prev, passwordMismatch: false }));
+                }
+              }}
+            />
             {errors.passwordMismatch && (
-              <p className="text-sm text-red-600 mt-1">{t('auth.passwordMismatch', 'Passwords do not match')}</p>
+              <FieldError>{t('auth.passwordMismatch', 'Passwords do not match')}</FieldError>
             )}
           </div>
         </>
       )}
-      <div className="flex items-start gap-2.5">
-        <Checkbox
-          id="acceptTerms"
-          checked={acceptTerms}
-          onCheckedChange={(checked) => { setAcceptTerms(checked === true); setErrors(prev => ({ ...prev, termsRequired: false })); }}
-          className="mt-0.5"
-        />
-        <label htmlFor="acceptTerms" className="text-sm text-gray-600 leading-snug cursor-pointer">
-          {t('auth.acceptTerms', 'I accept the')}{' '}
-          <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">
-            {t('auth.termsAndConditions', 'Terms and Conditions')}
-          </a>{' '}
-          {t('auth.andThe', 'and the')}{' '}
-          <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">
-            {t('auth.privacyPolicy', 'Privacy Policy')}
-          </a>
-        </label>
+      <div className="space-y-2">
+        <div className="flex items-start gap-3">
+          <Checkbox
+            id="acceptTerms"
+            checked={acceptTerms}
+            onCheckedChange={(checked) => { setAcceptTerms(checked === true); setErrors(prev => ({ ...prev, termsRequired: false })); }}
+            className="mt-0.5 h-5 w-5 border-checkbox"
+          />
+          <label htmlFor="acceptTerms" className="cursor-pointer text-sm leading-6 text-ink">
+            {t('auth.acceptTerms', 'I accept the')}{' '}
+            <UnderlineLink href="/terms" external arrow={false} className="!text-sm !leading-6">
+              {t('auth.termsAndConditions', 'Terms and Conditions')}
+            </UnderlineLink>{' '}
+            {t('auth.andThe', 'and the')}{' '}
+            <UnderlineLink href="/privacy" external arrow={false} className="!text-sm !leading-6">
+              {t('auth.privacyPolicy', 'Privacy Policy')}
+            </UnderlineLink>
+          </label>
+        </div>
+        {errors.termsRequired && !acceptTerms && (
+          <FieldError className="pl-8">{t('auth.acceptTermsRequired', 'Please accept the Terms and Conditions to continue')}</FieldError>
+        )}
       </div>
-      {errors.termsRequired && !acceptTerms && (
-        <p className="text-sm text-red-600 mt-1 ml-7">{t('auth.acceptTermsRequired', 'Please accept the Terms and Conditions to continue')}</p>
-      )}
-      <Button type="submit" className="w-full" disabled={loading}>
-        {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+      <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {loading ? t('auth.creating') : t('auth.createAccount')}
       </Button>
     </form>

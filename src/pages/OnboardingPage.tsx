@@ -1,17 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+// The field kit of the sign-in screens: same names as the shadcn ones, 48 px / 12 px radius.
+import { AuthInput as Input, AuthLabel as Label, AuthTextarea as Textarea, AuthSelectTrigger as SelectTrigger, AuthNotice, AuthSection, CTA_WRAP } from '@/components/auth/fields';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectItem, SelectValue } from '@/components/ui/select';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Loader2, CheckCircle, ChevronRight, Anchor, Briefcase, Newspaper, Building2, Users, Clock, Send, KeyRound, AlertTriangle } from 'lucide-react';
+import { Loader2, CheckCircle, ArrowRight, Anchor, Briefcase, Newspaper, Building2, Users, Clock, Send, KeyRound } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { AuthLoading, AuthShell, AuthStatus, AuthSteps } from '@/components/auth/AuthShell';
+import { PageHero } from '@/components/ui/PageHero';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { SITE_IMAGES } from '@/lib/siteMedia';
+import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { Sector, PersonaType, PendingInvitationResult } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
@@ -771,100 +773,79 @@ export function OnboardingPage() {
   /* ─── Renders ─── */
 
   if (authLoading || submitted) {
-    return <LoadingSkeleton variant="page" />;
+    return <AuthLoading />;
   }
 
   // Synchronous redirect guard — prevent form from flashing before useEffect fires
   // BUT: if we're still resolving or found a domain/invitation match, let the resolve UI show
   if (profile?.onboarding_status === 'draft' && profile?.access_status !== 'rejected'
       && !resolving && !detectedOrg && !pendingInvitation && !joinRequested && step === 'org-form') {
-    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /><p className="text-sm text-gray-500 mt-3">{t('onboarding.redirecting')}</p></div>;
+    return <AuthLoading label={t('onboarding.redirecting')} />;
   }
   if (profile?.onboarding_status === 'completed' || (profile?.onboarding_status === 'submitted' && profile?.access_status !== 'rejected')) {
-    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>;
+    return <AuthLoading />;
   }
 
   // Step 0: persona selection (rare — only if handle_new_user trigger didn't fire)
   if (needsPersonaSetup) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-2xl">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-primary mb-2">{t('onboarding.welcome')}</h1>
-          <p className="text-gray-600">{t('onboarding.selectProfile')}</p>
-        </div>
-        <div className="space-y-4">
+      <AuthShell step={1} title={t('onboarding.welcome')} lead={t('onboarding.selectProfile')}>
+        <div className="space-y-3">
           {personaCards.map(p => (
             <button key={p.value} type="button" disabled={creatingProfile} onClick={() => handlePersonaSelect(p.value)}
-              className="w-full flex items-center gap-5 p-6 rounded-xl border-2 border-gray-200 hover:border-primary hover:bg-primary/5 transition-all text-left group disabled:opacity-50">
-              <div className="text-primary shrink-0">{p.icon}</div>
-              <div className="flex-1">
-                <div className="font-semibold text-lg text-gray-900 group-hover:text-primary">{p.title}</div>
-                <div className="text-sm text-gray-500">{p.desc}</div>
-              </div>
-              <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-primary shrink-0" />
+              className="group card-lift flex w-full items-center gap-4 rounded-card border border-rule bg-white p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50">
+              <span className="grid h-14 w-14 shrink-0 place-items-center rounded-field bg-chip text-navy">{p.icon}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-card-title text-navy">
+                  <span className="card-ul">{p.title}</span>
+                  <ArrowRight className="card-arrow" strokeWidth={2.25} aria-hidden="true" />
+                </span>
+                <span className="mt-0.5 block text-sm leading-5 text-meta">{p.desc}</span>
+              </span>
             </button>
           ))}
         </div>
         {creatingProfile && (
-          <div className="mt-6 text-center text-gray-500 flex items-center justify-center gap-2">
+          <p role="status" className="mt-5 flex items-center justify-center gap-2 text-sm text-meta">
             <Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.creatingProfile')}
-          </div>
+          </p>
         )}
-      </div>
+      </AuthShell>
     );
   }
 
   if (!profile) {
-    return <div className="container mx-auto py-16 text-center"><Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" /></div>;
+    return <AuthLoading />;
   }
 
   // Step 1: Organization resolution — invitation or domain match
   if (step === 'resolve' && !resolving && (pendingInvitation || detectedOrg)) {
     return (
-      <div className="container mx-auto px-4 py-8 max-w-2xl">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-primary mb-2">{t('onboarding.joinOrg')}</h1>
-          <p className="text-gray-600">{t('onboarding.orgFound')}</p>
-        </div>
-
+      <AuthShell step={2} title={t('onboarding.joinOrg')} lead={t('onboarding.orgFound')}>
         {pendingInvitation && !showProfileCompletion && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-primary" />
-                {t('onboarding.youveBeenInvited')}
-              </CardTitle>
-              <CardDescription>
-                {pendingInvitation.invited_by_name} has invited you to join <strong>{pendingInvitation.organization_name}</strong>.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="bg-primary/5 rounded-lg p-4 text-center">
-                <Building2 className="h-10 w-10 text-primary mx-auto mb-2" />
-                <div className="font-semibold text-lg">{pendingInvitation.organization_name}</div>
-                <div className="text-sm text-gray-500">{t('onboarding.invitedBy', { name: pendingInvitation.invited_by_name })}</div>
-              </div>
-              <Button className="w-full" onClick={handleAcceptInvitation} disabled={acceptingInvite}>
-                {acceptingInvite ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-                {t('onboarding.acceptJoin')}
-              </Button>
-            </CardContent>
-          </Card>
+          <AuthStatus icon={<Users className="h-6 w-6" />} title={t('onboarding.youveBeenInvited')}>
+            <p className="text-sm leading-6 text-meta">
+              {pendingInvitation.invited_by_name} has invited you to join <strong className="font-semibold text-navy">{pendingInvitation.organization_name}</strong>.
+            </p>
+            <div className="rounded-field border border-rule bg-page p-5 text-center">
+              <span className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-field bg-chip text-navy">
+                <Building2 className="h-7 w-7" />
+              </span>
+              <div className="text-card-title text-navy">{pendingInvitation.organization_name}</div>
+              <div className="mt-0.5 text-sm text-meta">{t('onboarding.invitedBy', { name: pendingInvitation.invited_by_name })}</div>
+            </div>
+            <Button variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} onClick={handleAcceptInvitation} disabled={acceptingInvite}>
+              {acceptingInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              {t('onboarding.acceptJoin')}
+            </Button>
+          </AuthStatus>
         )}
 
         {/* Post-invitation profile completion form */}
         {showProfileCompletion && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                {t('onboarding.completeProfile')}
-              </CardTitle>
-              <CardDescription>
-                {t('onboarding.completeProfileDesc')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          <AuthStatus icon={<CheckCircle className="h-6 w-6" />} title={t('onboarding.completeProfile')}>
+            <p className="text-sm leading-6 text-meta">{t('onboarding.completeProfileDesc')}</p>
+            <div className="space-y-5">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label>{t('onboarding.firstName')}</Label>
@@ -891,172 +872,157 @@ export function OnboardingPage() {
                   placeholder={t('onboarding.jobTitlePlaceholder')}
                 />
               </div>
-              <div className="flex gap-3">
-                <Button
-                  className="flex-1"
-                  onClick={handleSaveProfileCompletion}
-                  disabled={savingProfile || !profileForm.firstName.trim() || !profileForm.lastName.trim()}
-                >
-                  {savingProfile && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-                  {t('onboarding.saveContinue')}
-                </Button>
-                <Button variant="outline" onClick={() => navigate('/account')}>
+              <Button
+                variant="cta"
+                className="w-full justify-between"
+                onClick={handleSaveProfileCompletion}
+                disabled={savingProfile || !profileForm.firstName.trim() || !profileForm.lastName.trim()}
+              >
+                {savingProfile && <Loader2 className="h-4 w-4 animate-spin" />}
+                {t('onboarding.saveContinue')}
+              </Button>
+              <div className="text-center">
+                <UnderlineLink arrow={false} onClick={() => navigate('/account')}>
                   {t('onboarding.skipForNow')}
-                </Button>
+                </UnderlineLink>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </AuthStatus>
         )}
 
         {!pendingInvitation && detectedOrg && (
-          <Card className="overflow-hidden">
-            <CardHeader className={joinRequested ? 'bg-amber-50/50' : 'bg-primary/5'}>
-              <CardTitle className="flex items-center gap-2">
-                {joinRequested ? (
-                  <Clock className="h-5 w-5 text-amber-600" />
-                ) : (
-                  <Building2 className="h-5 w-5 text-primary" />
-                )}
-                {joinRequested ? 'Join Request Sent' : 'Organization Found'}
-              </CardTitle>
-              <CardDescription>
-                {joinRequested
-                  ? 'Your request is pending approval from the organization owner.'
-                  : 'We found an organization matching your email domain. Join your team instead of creating a new profile.'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5 pt-6">
-              {/* Org card with logo, name, tier, member count */}
-              <div className={`rounded-xl p-5 text-center border ${joinRequested ? 'bg-amber-50/50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
-                {detectedOrg.logo_url ? (
-                  <img src={detectedOrg.logo_url} alt={detectedOrg.name} className="h-16 w-16 rounded-lg object-cover mx-auto mb-3 border border-gray-200" />
-                ) : (
-                  <div className="h-16 w-16 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                    <Building2 className={`h-8 w-8 ${joinRequested ? 'text-amber-500' : 'text-primary'}`} />
-                  </div>
-                )}
-                <div className="font-bold text-xl text-gray-900">{detectedOrg.name}</div>
-                <div className="flex items-center justify-center gap-3 mt-2 text-sm text-gray-500">
-                  {detectedOrg.member_count !== undefined && (
-                    <span className="flex items-center gap-1">
-                      <Users className="h-3.5 w-3.5" />
-                      {detectedOrg.member_count} member{detectedOrg.member_count !== 1 ? 's' : ''}
-                    </span>
-                  )}
-                </div>
-                {joinRequested && (
-                  <div className="mt-3 text-sm text-amber-700 bg-amber-100/60 rounded-lg px-3 py-2">
-                    The organization owner has been notified by email. You'll receive an email when your request is approved.
-                  </div>
-                )}
-                {!joinRequested && detectedOrg.auto_approve && (
-                  <div className="mt-3 text-sm text-green-700 bg-green-100/60 rounded-lg px-3 py-2 flex items-center justify-center gap-1.5">
-                    <CheckCircle className="h-3.5 w-3.5" />
-                    This organization accepts new members automatically
-                  </div>
-                )}
-              </div>
-
-              {joinRequested ? (
-                <Button className="w-full" onClick={() => navigate('/account')}>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  Go to My Account
-                </Button>
+          <AuthStatus
+            tone={joinRequested ? 'warning' : 'default'}
+            icon={joinRequested ? <Clock className="h-6 w-6" /> : <Building2 className="h-6 w-6" />}
+            title={joinRequested ? 'Join Request Sent' : 'Organization Found'}
+          >
+            <p className="text-sm leading-6 text-meta">
+              {joinRequested
+                ? 'Your request is pending approval from the organization owner.'
+                : 'We found an organization matching your email domain. Join your team instead of creating a new profile.'}
+            </p>
+            {/* Org card with logo, name, tier, member count */}
+            <div className="rounded-field border border-rule bg-page p-5 text-center">
+              {detectedOrg.logo_url ? (
+                <img src={detectedOrg.logo_url} alt={detectedOrg.name} className="mx-auto mb-3 h-16 w-16 rounded-field border border-rule bg-white object-cover" />
               ) : (
-                <div className="space-y-3">
-                  <Button className="w-full" size="lg" onClick={handleRequestJoinOrg} disabled={requestingJoin}>
-                    {requestingJoin ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
-                    {detectedOrg.auto_approve ? `Join ${detectedOrg.name}` : `Request to Join ${detectedOrg.name}`}
-                  </Button>
-                  <button
-                    type="button"
-                    onClick={() => { setDetectedOrg(null); setStep('org-form'); }}
-                    className="w-full text-center text-sm text-gray-400 hover:text-gray-600 transition-colors py-2"
-                  >
-                    I want to create a new organization instead
-                  </button>
+                <div className="mx-auto mb-3 grid h-16 w-16 place-items-center rounded-field bg-chip text-navy">
+                  <Building2 className="h-8 w-8" />
                 </div>
               )}
-            </CardContent>
-          </Card>
+              <div className="text-h3 text-navy">{detectedOrg.name}</div>
+              {detectedOrg.member_count !== undefined && (
+                <div className="mt-1.5 flex items-center justify-center gap-3 text-sm text-meta">
+                  <span className="flex items-center gap-1">
+                    <Users className="h-3.5 w-3.5" />
+                    {detectedOrg.member_count} member{detectedOrg.member_count !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              )}
+            </div>
+            {joinRequested && (
+              <AuthNotice tone="warning">
+                <p>The organization owner has been notified by email. You'll receive an email when your request is approved.</p>
+              </AuthNotice>
+            )}
+            {!joinRequested && detectedOrg.auto_approve && (
+              <AuthNotice tone="success">
+                <p>This organization accepts new members automatically</p>
+              </AuthNotice>
+            )}
+
+            {joinRequested ? (
+              <Button variant="cta" className="w-full justify-between" onClick={() => navigate('/account')}>
+                Go to My Account
+              </Button>
+            ) : (
+              <div className="space-y-4">
+                <Button variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} onClick={handleRequestJoinOrg} disabled={requestingJoin}>
+                  {requestingJoin ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {detectedOrg.auto_approve ? `Join ${detectedOrg.name}` : `Request to Join ${detectedOrg.name}`}
+                </Button>
+                <div className="text-center">
+                  <UnderlineLink arrow={false} onClick={() => { setDetectedOrg(null); setStep('org-form'); }} className="!text-sm !font-medium">
+                    I want to create a new organization instead
+                  </UnderlineLink>
+                </div>
+              </div>
+            )}
+          </AuthStatus>
         )}
-      </div>
+      </AuthShell>
     );
   }
 
   if (resolving) {
     return (
-      <div className="container mx-auto py-16 text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-        <p className="text-gray-500 mt-2">{t('onboarding.checkingOrg')}</p>
-        <Button variant="link" className="mt-4 text-sm" onClick={() => { setResolving(false); setStep('org-form'); }}>
+      <AuthLoading label={t('onboarding.checkingOrg')}>
+        <UnderlineLink arrow={false} onClick={() => { setResolving(false); setStep('org-form'); }}>
           {t('onboarding.takingTooLong')}
-        </Button>
-      </div>
+        </UnderlineLink>
+      </AuthLoading>
     );
   }
 
   // Step 2: Organization creation form
-  return (
-    <div className="container mx-auto px-4 py-8 max-w-3xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">{t('onboarding.createOrgProfile')}</h1>
-        <p className="text-gray-600">
-          {t('onboarding.orgProfileDesc')}{' '}
-          <span className="font-medium">
-            {profile.persona === 'marina' ? t('onboarding.orgProfileDescMarina') : profile.persona === 'partner' ? t('onboarding.orgProfileDescPartner') : t('onboarding.orgProfileDescMedia')}
-          </span>{' '}{t('onboarding.orgProfileDescSuffix')}
-        </p>
-      </div>
+  const orgIntro = [
+    t('onboarding.orgProfileDesc'),
+    profile.persona === 'marina' ? t('onboarding.orgProfileDescMarina') : profile.persona === 'partner' ? t('onboarding.orgProfileDescPartner') : t('onboarding.orgProfileDescMedia'),
+    t('onboarding.orgProfileDescSuffix'),
+  ].join(' ');
 
+  return (
+    <>
+    <PageHero
+      image={SITE_IMAGES.joinHero}
+      seed="onboarding"
+      icon={Building2}
+      title={t('onboarding.createOrgProfile')}
+      subtitle={orgIntro}
+      breadcrumbs={false}
+      containerClassName="max-w-3xl"
+    >
+      <AuthSteps current={2} />
+    </PageHero>
+    <div className="bg-page">
+    <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 md:py-14">
       {nameMatch && (
-        <Card className="mb-8 border-amber-200 bg-amber-50">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="text-sm text-amber-900 space-y-1">
-                <p className="font-semibold">&ldquo;{nameMatch.org_name}&rdquo; is already on Smart Marina Connect.</p>
-                <p>
-                  If this is your company you don&rsquo;t need to create it again
-                  {nameMatch.owner_name ? <> — ask <strong>{nameMatch.owner_name}</strong>, who owns it, to invite you</> : null}, or email{' '}
-                  <a href="mailto:events@m3monaco.com" className="underline font-medium">events@m3monaco.com</a> and we&rsquo;ll connect you.
-                  If it&rsquo;s a different company that happens to share the name, just continue below.
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <AuthNotice tone="warning" className="mb-8 p-5" title={<>&ldquo;{nameMatch.org_name}&rdquo; is already on Smart Marina Connect.</>}>
+          <p>
+            If this is your company you don&rsquo;t need to create it again
+            {nameMatch.owner_name ? <> — ask <strong>{nameMatch.owner_name}</strong>, who owns it, to invite you</> : null}, or email{' '}
+            <UnderlineLink href="mailto:events@m3monaco.com" arrow={false} className="!text-sm !leading-5">events@m3monaco.com</UnderlineLink> and we&rsquo;ll connect you.
+            If it&rsquo;s a different company that happens to share the name, just continue below.
+          </p>
+        </AuthNotice>
       )}
 
       {/* ── Claim Code Banner ── */}
-      <Card className="mb-8 border-primary/20 bg-primary/[0.02]">
-        <CardContent className="pt-6">
-          <div className="flex items-start gap-3">
-            <div className="shrink-0 mt-0.5">
-              <KeyRound className="h-5 w-5 text-primary" />
-            </div>
-            <div className="flex-1 space-y-3">
-              <div>
-                <h3 className="font-semibold text-gray-900">Have an organization code?</h3>
-                <p className="text-sm text-gray-500">If your marina or organization has already been registered on the platform, enter the code provided to you to join directly.</p>
-              </div>
-              <div className="flex gap-2">
-                <Input
-                  value={claimCode}
-                  onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. ABCD-1234"
-                  className="max-w-[200px] uppercase tracking-wider font-mono"
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleClaimOrg(); } }}
-                />
-                <Button type="button" onClick={handleClaimOrg} disabled={claimingOrg || !claimCode.trim()}>
-                  {claimingOrg ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                  Join
-                </Button>
-              </div>
-            </div>
+      <section className="mb-8 rounded-card border border-rule bg-white p-6 sm:p-8">
+        <div className="flex items-start gap-4">
+          <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-field bg-chip text-navy">
+            <KeyRound className="h-6 w-6" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-card-title text-navy">Have an organization code?</h2>
+            <p className="mt-1 text-sm leading-6 text-meta">If your marina or organization has already been registered on the platform, enter the code provided to you to join directly.</p>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-3 sm:pl-16">
+          <Input
+            value={claimCode}
+            onChange={(e) => setClaimCode(e.target.value.toUpperCase())}
+            placeholder="e.g. ABCD-1234"
+            aria-label="Organization code"
+            className="max-w-[220px] uppercase tracking-wider font-mono"
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleClaimOrg(); } }}
+          />
+          <Button type="button" variant="ctaNavy" size="sm" arrow={false} onClick={handleClaimOrg} disabled={claimingOrg || !claimCode.trim()}>
+            {claimingOrg ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Join
+          </Button>
+        </div>
+      </section>
 
       <form onSubmit={handleSubmit} className="space-y-8">
 
@@ -1066,12 +1032,7 @@ export function OnboardingPage() {
         {profile.persona === 'marina' && (
           <>
             {/* ── Section 1: General Information ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle>{t('onboarding.marinaForm.generalInfo')}</CardTitle>
-                <CardDescription>{t('onboarding.marinaForm.basicDetails')}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
+            <AuthSection number="01" title={t('onboarding.marinaForm.generalInfo')} description={t('onboarding.marinaForm.basicDetails')} contentClassName="space-y-5">
                 <div className="space-y-2">
                   <Label>{t('onboarding.marinaForm.marinaName')}</Label>
                   <Input value={marina.marina_name} onChange={e => updateMarina('marina_name', e.target.value)} required placeholder={t('onboarding.marinaForm.marinaNamePlaceholder')} />
@@ -1114,7 +1075,7 @@ export function OnboardingPage() {
                     <Input type="date" value={marina.completion_date} onChange={e => updateMarina('completion_date', e.target.value)} />
                   </div>
                 )}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <div className="space-y-2">
                     <Label>{t('onboarding.marinaForm.totalBerths')}</Label>
                     <Input type="number" min="0" value={marina.berths_count} onChange={e => updateMarina('berths_count', e.target.value)} placeholder="500" />
@@ -1155,18 +1116,12 @@ export function OnboardingPage() {
                   <Input value={marina.certifications_other} onChange={e => updateMarina('certifications_other', e.target.value)}
                     placeholder={t('onboarding.marinaForm.otherCertifications')} className="mt-2" />
                 </div>
-              </CardContent>
-            </Card>
+              </AuthSection>
 
             {/* ── Section 2: Facilities & Amenities ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle>{t('onboarding.marinaFacilities.title')}</CardTitle>
-                <CardDescription>{t('onboarding.marinaFacilities.subtitle')}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <AuthSection number="02" title={t('onboarding.marinaFacilities.title')} description={t('onboarding.marinaFacilities.subtitle')} contentClassName="space-y-4">
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center space-x-3">
                       <Checkbox id="yacht-club" checked={marina.has_yacht_club} onCheckedChange={c => updateMarina('has_yacht_club', !!c)} />
                       <Label htmlFor="yacht-club" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.yachtClub')}</Label>
@@ -1175,7 +1130,7 @@ export function OnboardingPage() {
                       <div className="flex items-center gap-2">
                         <Input type="number" min="0" value={marina.yacht_club_members} onChange={e => updateMarina('yacht_club_members', e.target.value)}
                           placeholder="0" className="w-24" />
-                        <span className="text-sm text-gray-500">members</span>
+                        <span className="text-sm text-meta">members</span>
                       </div>
                     )}
                   </div>
@@ -1187,7 +1142,7 @@ export function OnboardingPage() {
                     <Checkbox id="boat-yard" checked={marina.has_boat_yard} onCheckedChange={c => updateMarina('has_boat_yard', !!c)} />
                     <Label htmlFor="boat-yard" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.boatYard')}</Label>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center space-x-3">
                       <Checkbox id="restaurants" checked={marina.has_restaurants} onCheckedChange={c => updateMarina('has_restaurants', !!c)} />
                       <Label htmlFor="restaurants" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.restaurants')}</Label>
@@ -1196,7 +1151,7 @@ export function OnboardingPage() {
                       <div className="flex items-center gap-2">
                         <Input type="number" min="1" value={marina.restaurants_count} onChange={e => updateMarina('restaurants_count', e.target.value)}
                           placeholder="0" className="w-20" />
-                        <span className="text-sm text-gray-500">restaurants</span>
+                        <span className="text-sm text-meta">restaurants</span>
                       </div>
                     )}
                   </div>
@@ -1205,16 +1160,10 @@ export function OnboardingPage() {
                     <Label htmlFor="concierge" className="font-normal cursor-pointer">{t('onboarding.marinaFacilities.concierge')}</Label>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </AuthSection>
 
             {/* ── Section 3: Descriptions & Media ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle>{t('onboarding.marinaDescriptions.title')}</CardTitle>
-                <CardDescription>{t('onboarding.marinaDescriptions.subtitle')}</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-5">
+            <AuthSection number="03" title={t('onboarding.marinaDescriptions.title')} description={t('onboarding.marinaDescriptions.subtitle')} contentClassName="space-y-5">
                 <div className="space-y-2">
                   <Label>{t('onboarding.marinaDescriptions.description')}</Label>
                   <Textarea value={marina.marina_description} onChange={e => updateMarina('marina_description', e.target.value)}
@@ -1230,36 +1179,29 @@ export function OnboardingPage() {
                   <Input value={marina.social_media_links} onChange={e => updateMarina('social_media_links', e.target.value)}
                     placeholder={t('onboarding.marinaDescriptions.socialMediaPlaceholder')} />
                 </div>
-              </CardContent>
-            </Card>
+              </AuthSection>
 
             {/* ── Section 4: Future Plans ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle>{t('onboarding.marinaFuturePlans.title')}</CardTitle>
-                <CardDescription>
-                  {t('onboarding.marinaFuturePlans.subtitle')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-wrap gap-3 mb-4 text-xs text-gray-500">
+            <AuthSection number="04" title={t('onboarding.marinaFuturePlans.title')} description={t('onboarding.marinaFuturePlans.subtitle')}>
+                <div className="mb-4 flex flex-wrap gap-2 text-[13px] text-meta">
                   {timelineOptions.map(t => (
-                    <span key={t.value} className="bg-gray-100 px-2 py-1 rounded">{t.label}</span>
+                    <span key={t.value} className="rounded-full bg-chip px-2.5 py-1">{t.label}</span>
                   ))}
                 </div>
                 <div className="space-y-1 max-h-[600px] overflow-y-auto">
                   {sectors.map(sector => (
-                    <div key={sector.id} className="flex items-center gap-3 py-2 px-2 rounded hover:bg-gray-50 border-b border-gray-100 last:border-0">
-                      <span className="text-sm flex-1 min-w-0 truncate" title={sector.label}>{sector.label}</span>
-                      <div className="flex gap-1 shrink-0">
+                    <div key={sector.id} className="flex flex-col gap-2 rounded-field border-b border-rule px-2 py-2.5 last:border-0 hover:bg-page sm:flex-row sm:items-center sm:gap-3">
+                      <span className="min-w-0 flex-1 text-sm text-ink sm:truncate" title={sector.label}>{sector.label}</span>
+                      <div className="flex shrink-0 flex-wrap gap-1">
                         {timelineOptions.map(t => (
                           <button key={t.value} type="button"
                             onClick={() => setFuturePlan(sector.id, futurePlans[sector.id] === t.value ? '' : t.value)}
                             title={t.label}
-                            className={`px-2 py-1 text-xs rounded border transition-colors ${
+                            aria-pressed={futurePlans[sector.id] === t.value}
+                            className={`min-h-8 rounded-full border px-2.5 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 ${
                               futurePlans[sector.id] === t.value
-                                ? 'bg-primary text-white border-primary'
-                                : 'bg-white text-gray-500 border-gray-200 hover:border-primary hover:text-primary'
+                                ? 'border-navy bg-navy text-white'
+                                : 'border-rule bg-white text-meta hover:border-navy hover:text-navy'
                             }`}
                           >
                             {t.label.replace(' months', 'm').replace(' years', 'y').replace('Immediate', 'Now')}
@@ -1269,9 +1211,8 @@ export function OnboardingPage() {
                     </div>
                   ))}
                 </div>
-                {sectors.length === 0 && <p className="text-sm text-gray-400 text-center py-4">{t('onboarding.marinaFuturePlans.loadingSectors')}</p>}
-              </CardContent>
-            </Card>
+                {sectors.length === 0 && <p className="py-4 text-center text-sm text-meta">{t('onboarding.marinaFuturePlans.loadingSectors')}</p>}
+              </AuthSection>
           </>
         )}
 
@@ -1279,20 +1220,15 @@ export function OnboardingPage() {
             ██  PARTNER ORGANIZATION FORM
             ════════════════════════════════════════════════════════ */}
         {(profile.persona === 'partner' || profile.persona === 'developer' || profile.persona === 'investor') && (
-          <Card>
-            <CardHeader>
-              <CardTitle>
+          <AuthSection title={<>
                 {profile.persona === 'developer' && t('onboarding.developerForm.title', 'Developer details')}
                 {profile.persona === 'investor' && t('onboarding.investorForm.title', 'Investor details')}
                 {profile.persona === 'partner' && t('onboarding.partnerForm.title')}
-              </CardTitle>
-              <CardDescription>
+              </>} description={<>
                 {profile.persona === 'developer' && t('onboarding.developerForm.subtitle', 'Tell us about your company and the marina sectors you focus on.')}
                 {profile.persona === 'investor' && t('onboarding.investorForm.subtitle', 'Tell us about your fund or family office and the sectors you invest in.')}
                 {profile.persona === 'partner' && t('onboarding.partnerForm.subtitle')}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
+              </>} contentClassName="space-y-5">
               <div className="space-y-2">
                 <Label>{t('onboarding.partnerForm.companyName')}</Label>
                 <Input value={partner.company_name} onChange={e => setPartner({ ...partner, company_name: e.target.value })} required placeholder={t('onboarding.partnerForm.companyNamePlaceholder')} />
@@ -1321,7 +1257,7 @@ export function OnboardingPage() {
               </div>
               <div className="space-y-2">
                 <Label>{t('onboarding.partnerForm.socialMedia')}</Label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.linkedin')}</Label>
                     <Input value={partner.social_media_links.linkedin} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, linkedin: e.target.value } })} placeholder="https://linkedin.com/company/..." />
@@ -1351,7 +1287,7 @@ export function OnboardingPage() {
                   {profile.persona === 'investor' && t('onboarding.investorForm.interestSectorsHint', 'Pick the sectors you invest in or look at for deal flow.')}
                   {profile.persona === 'partner' && t('onboarding.partnerForm.serviceSectorsHint')}
                 </p>
-                <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
+                <div className="grid max-h-60 grid-cols-1 gap-2 overflow-y-auto rounded-field border border-checkbox p-3 sm:grid-cols-2">
                   {sectors.map(s => (
                     <div key={s.id} className="flex items-center space-x-2">
                       <Checkbox id={`ps-${s.id}`} checked={selectedSectors.includes(s.id)} onCheckedChange={() => toggleSector(s.id)} />
@@ -1360,20 +1296,14 @@ export function OnboardingPage() {
                   ))}
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </AuthSection>
         )}
 
         {/* ════════════════════════════════════════════════════════
             ██  MEDIA ORGANIZATION FORM
             ════════════════════════════════════════════════════════ */}
         {profile.persona === 'media_partner' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('onboarding.mediaForm.title')}</CardTitle>
-              <CardDescription>{t('onboarding.mediaForm.subtitle')}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-5">
+          <AuthSection title={t('onboarding.mediaForm.title')} description={t('onboarding.mediaForm.subtitle')} contentClassName="space-y-5">
               <div className="space-y-2">
                 <Label>{t('onboarding.mediaForm.mediaName')}</Label>
                 <Input value={media.media_name} onChange={e => setMedia({ ...media, media_name: e.target.value })} required placeholder={t('onboarding.mediaForm.mediaNamePlaceholder')} />
@@ -1389,7 +1319,7 @@ export function OnboardingPage() {
               </div>
               <div className="space-y-2">
                 <Label>{t('onboarding.mediaForm.socialMedia')}</Label>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.linkedin')}</Label>
                     <Input value={media.social_media_links.linkedin} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, linkedin: e.target.value } })} placeholder="https://linkedin.com/company/..." />
@@ -1408,16 +1338,17 @@ export function OnboardingPage() {
                   </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </AuthSection>
         )}
 
         {/* ── Submit button ── */}
-        <Button type="submit" className="w-full" size="lg" disabled={loading}>
-          {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+        <Button type="submit" variant="cta" size="lg" className="w-full justify-between" disabled={loading}>
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           {loading ? t('onboarding.submitting') : t('onboarding.submitOrgProfile')}
         </Button>
       </form>
     </div>
+    </div>
+    </>
   );
 }

@@ -4,6 +4,8 @@ import { PAGE_STRINGS } from './pages';
 import { SEO_STRINGS } from './seo';
 import { BRAND_STRINGS } from './brand';
 import { HOME_STRINGS } from './home';
+import { EVENTS_STRINGS } from './refonte-events';
+import { CONTENT_STRINGS } from './refonte-content';
 
 const resources = {
   en: {
@@ -2577,6 +2579,10 @@ for (const lng of ['en', 'fr'] as const) {
   i18n.addResourceBundle(lng, 'translation', BRAND_STRINGS[lng], true, false);
   // Refonte home page sections (quay figures, profiles, need panel, sponsors, end tiles): src/i18n/home.ts.
   i18n.addResourceBundle(lng, 'translation', HOME_STRINGS[lng], true, false);
+  // Refonte events pages (/events, /events/:id): src/i18n/refonte-events.ts.
+  i18n.addResourceBundle(lng, 'translation', EVENTS_STRINGS[lng], true, false);
+  // Refonte content pages (library, article, About, Contact, Join, legal, 404): src/i18n/refonte-content.ts.
+  i18n.addResourceBundle(lng, 'translation', CONTENT_STRINGS[lng], true, false);
   // The refonte directory's strings (src/i18n/directory.ts) are registered by the
   // lazy DirectoryPage itself, so they stay out of the entry bundle.
 }

@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Helmet } from 'react-helmet-async';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -20,6 +19,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { CardShell } from '@/components/brand/CardShell';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { BTN, BTN_OUTLINE, MemberEmpty, MemberHeader, RowSkeleton, StatusPill } from '@/components/member/MemberUI';
+import { cn } from '@/lib/utils';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { formatCapitalRange, formatCapitalAmount } from '@/components/capital/InvestmentThesisSection';
 import { CAPITAL_TYPES, CAPITAL_STAGES } from '@/types/database';
@@ -310,20 +314,29 @@ export function DealFlowPage() {
   if (!user) return <Navigate to="/" replace />;
 
   if (checkingAccess) {
-    return <div className="container mx-auto px-4 py-16 text-center text-gray-400">Checking access…</div>;
+    return (
+      <div className="min-h-screen bg-page">
+        <div className="mx-auto max-w-3xl px-4 py-16"><CardShell><RowSkeleton rows={2} /></CardShell></div>
+      </div>
+    );
   }
 
   if (!accessOK) {
     return (
-      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <TrendingUp className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Investor access required</h1>
-        <p className="text-gray-500 mb-6">
-          {profile?.persona !== 'investor'
-            ? 'The deal-flow board is reserved for verified investor accounts.'
-            : 'Your investor account is pending verification.'}
-        </p>
-        <Button onClick={() => navigate('/account')}>Back to my account</Button>
+      <div className="min-h-screen bg-page">
+        <div className="mx-auto max-w-xl px-4 py-16 sm:py-24">
+          <CardShell>
+            <MemberEmpty
+              titleAs="h1"
+              icon={TrendingUp}
+              title="Investor access required"
+              body={profile?.persona !== 'investor'
+                ? 'The deal-flow board is reserved for verified investor accounts.'
+                : 'Your investor account is pending verification.'}
+              action={<Button variant="ctaNavy" size="sm" onClick={() => navigate('/account')}>Back to my account</Button>}
+            />
+          </CardShell>
+        </div>
       </div>
     );
   }
@@ -331,61 +344,56 @@ export function DealFlowPage() {
   const hasFocusSectors = investorSectorIds.size > 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-page">
       <Helmet>
         <title>Deal flow — Smart Marina Connect</title>
         <meta name="description" content="Marinas, developers and service providers raising capital on Smart Marina Connect." />
       </Helmet>
 
-      {/* Hero */}
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-        <div className="container mx-auto px-4 py-10 lg:py-14">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-white/10 rounded-xl backdrop-blur-sm shrink-0">
-              <TrendingUp className="h-8 w-8" />
-            </div>
-            <div className="flex-1">
-              <h1 className="text-3xl lg:text-4xl font-bold mb-2">Deal flow</h1>
-              <p className="text-white/80 max-w-2xl">
-                Organizations on Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type. Click into a profile to see the full thesis or send an introduction directly from here.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* Band */}
+      <MemberHeader
+        image={null}
+        seed="deal-flow"
+        icon={TrendingUp}
+        eyebrow="For investors"
+        title="Deal flow"
+      >
+        <p className="max-w-2xl text-[16px] leading-7">
+          Organizations on Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type. Click into a profile to see the full thesis or send an introduction directly from here.
+        </p>
+      </MemberHeader>
 
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
+      <div className="mx-auto w-full max-w-7xl px-4 pb-20 pt-8 sm:px-6 md:pt-10">
         {/* Filters */}
-        <Card className="mb-6">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-gray-700">
-              <Filter className="h-4 w-4 text-gray-400" />
-              Filter
-              {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400 ml-1" />}
+        <CardShell className="mb-6">
+          <div className="p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <Eyebrow as="h2">Filter</Eyebrow>
+              {refreshing && <Loader2 className="ml-1 h-3.5 w-3.5 animate-spin text-meta motion-reduce:animate-none" aria-hidden="true" />}
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => loadData(false)}
-                className="ml-auto"
+                className={cn(BTN, 'ml-auto gap-1.5 text-navy hover:bg-chip')}
                 disabled={refreshing}
               >
-                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin motion-reduce:animate-none' : ''}`} aria-hidden="true" />
                 Refresh
               </Button>
             </div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
               <div className="lg:col-span-2 relative">
-                <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-meta" aria-hidden="true" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search by name or description"
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  className="h-11 w-full rounded-field border border-input bg-white pl-10 pr-3 text-[15px] placeholder:text-meta/70 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 />
               </div>
               <Select value={orgTypeFilter} onValueChange={setOrgTypeFilter}>
-                <SelectTrigger><SelectValue placeholder="Org type" /></SelectTrigger>
+                <SelectTrigger className="h-11 rounded-field"><SelectValue placeholder="Org type" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All types</SelectItem>
                   <SelectItem value="marina">Marina</SelectItem>
@@ -394,7 +402,7 @@ export function DealFlowPage() {
                 </SelectContent>
               </Select>
               <Select value={capitalTypeFilter} onValueChange={setCapitalTypeFilter}>
-                <SelectTrigger><SelectValue placeholder="Capital type" /></SelectTrigger>
+                <SelectTrigger className="h-11 rounded-field"><SelectValue placeholder="Capital type" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All capital types</SelectItem>
                   {CAPITAL_TYPES.map(t => (
@@ -403,7 +411,7 @@ export function DealFlowPage() {
                 </SelectContent>
               </Select>
               <Select value={countryFilter} onValueChange={setCountryFilter}>
-                <SelectTrigger><SelectValue placeholder="Country" /></SelectTrigger>
+                <SelectTrigger className="h-11 rounded-field"><SelectValue placeholder="Country" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All countries</SelectItem>
                   {countryOptions.map(c => (
@@ -414,62 +422,58 @@ export function DealFlowPage() {
             </div>
             {hasFocusSectors && (
               <div className="mt-3 flex items-center gap-2">
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <label className="inline-flex items-center gap-2 text-sm text-ink cursor-pointer">
                   <input
                     type="checkbox"
                     checked={matchMyFocus}
                     onChange={(e) => setMatchMyFocus(e.target.checked)}
-                    className="rounded border-gray-300"
+                    className="rounded border-meta/30 accent-navy"
                   />
                   Only show orgs in my focus sectors ({investorSectorIds.size} configured)
                 </label>
               </div>
             )}
             {!hasFocusSectors && (
-              <p className="mt-3 text-xs text-amber-600">
+              <p className="mt-3 text-[13px] leading-5 text-meta">
                 Tip: configure your focus sectors in your{' '}
-                <Link to="/account?tab=organization" className="underline">organization profile</Link>{' '}
+                <UnderlineLink to="/account?tab=organization" arrow={false} className="!text-[13px] !font-medium">organization profile</UnderlineLink>{' '}
                 to filter deal flow by sector overlap.
               </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </CardShell>
 
         {/* Results */}
         {loading ? (
-          <LoadingSkeleton variant="inline" />
+          <CardShell><RowSkeleton rows={3} /></CardShell>
         ) : filteredOrgs.length === 0 ? (
-          <Card>
-            <CardContent className="py-16 text-center">
-              <TrendingUp className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-              <h3 className="font-medium text-gray-800 mb-1">
-                {orgs.length === 0 ? 'No active raises yet' : 'No matches with these filters'}
-              </h3>
-              <p className="text-sm text-gray-500 max-w-md mx-auto">
-                {orgs.length === 0
-                  ? 'When marinas, developers or service providers on the platform switch on "Seeking capital", they show up here.'
-                  : 'Try widening your filters or unticking "Only show orgs in my focus sectors".'}
-              </p>
-            </CardContent>
-          </Card>
+          <CardShell>
+            <MemberEmpty
+              icon={TrendingUp}
+              title={orgs.length === 0 ? 'No active raises yet' : 'No matches with these filters'}
+              body={orgs.length === 0
+                ? 'When marinas, developers or service providers on the platform switch on "Seeking capital", they show up here.'
+                : 'Try widening your filters or unticking "Only show orgs in my focus sectors".'}
+            />
+          </CardShell>
         ) : (
           <>
-            <p className="text-sm text-gray-500 mb-3">
+            <p className="mb-4 text-[15px] text-meta">
               {filteredOrgs.length} {filteredOrgs.length === 1 ? 'opportunity' : 'opportunities'}
               {matchMyFocus && hasFocusSectors && ' matching your focus sectors'}
             </p>
-            <div className="space-y-3">
+            <div className="space-y-4">
               {filteredOrgs.map((o) => (
-                <Card key={o.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-5">
+                <CardShell key={o.id} interactive className="p-5">
+                  <div>
                     <div className="flex gap-4">
                       {/* Logo */}
                       <Link to={`/organizations/${o.slug}`} className="shrink-0">
                         {o.logo_url ? (
-                          <img src={o.logo_url} alt={o.name} className="w-14 h-14 rounded-lg object-cover border" />
+                          <img src={o.logo_url} alt={o.name} className="h-14 w-14 rounded-xl border border-rule bg-white object-contain p-1" />
                         ) : (
-                          <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
-                            <Building2 className="h-6 w-6 text-primary" />
+                          <div className="grid h-14 w-14 place-items-center rounded-xl bg-chip">
+                            <Building2 className="h-6 w-6 text-navy" />
                           </div>
                         )}
                       </Link>
@@ -478,12 +482,12 @@ export function DealFlowPage() {
                         {/* Header row */}
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                           <div className="min-w-0">
-                            <Link to={`/organizations/${o.slug}`} className="font-semibold text-gray-900 hover:text-primary text-base">
-                              {o.name}
+                            <Link to={`/organizations/${o.slug}`} className="text-[17px] font-semibold text-navy focus:outline-none focus-visible:shadow-focus">
+                              <span className="card-ul">{o.name}</span>
                             </Link>
-                            <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-gray-500">
+                            <div className="flex items-center gap-3 mt-1 flex-wrap text-xs text-meta">
                               {o.organization_type && (
-                                <Badge variant="outline" className="text-[10px] gap-1">
+                                <Badge variant="outline" className="gap-1 border-rule bg-chip text-[12px] font-medium text-navy">
                                   {TYPE_ICON[o.organization_type] ?? <Building2 className="h-3 w-3" />}
                                   {TYPE_LABEL[o.organization_type] ?? o.organization_type}
                                 </Badge>
@@ -495,9 +499,9 @@ export function DealFlowPage() {
                                 </span>
                               )}
                               {hasFocusSectors && o.overlapping_sectors > 0 && (
-                                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">
+                                <StatusPill tone="success">
                                   {o.overlapping_sectors} sector match{o.overlapping_sectors > 1 ? 'es' : ''}
-                                </Badge>
+                                </StatusPill>
                               )}
                             </div>
                           </div>
@@ -509,17 +513,17 @@ export function DealFlowPage() {
                         {/* Capital details */}
                         <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
                           {o.capital_type && (
-                            <Badge variant="secondary" className="text-xs">
+                            <Badge variant="secondary" className="border-transparent bg-chip text-[13px] font-medium text-navy hover:bg-chip">
                               {CAPITAL_TYPES.find(t => t.value === o.capital_type)?.label ?? o.capital_type}
                             </Badge>
                           )}
                           {o.stage && (
-                            <Badge variant="outline" className="text-xs">
+                            <Badge variant="outline" className="border-rule text-[13px] font-medium text-navy">
                               {CAPITAL_STAGES.find(s => s.value === o.stage)?.label ?? o.stage}
                             </Badge>
                           )}
                           {(o.amount_min != null || o.amount_max != null) && (
-                            <span className="font-medium text-emerald-700">
+                            <span className="font-signage text-[18px] font-semibold tabular-nums text-navy">
                               {formatCapitalRange(o.amount_min, o.amount_max)}
                             </span>
                           )}
@@ -527,38 +531,34 @@ export function DealFlowPage() {
 
                         {/* Use of funds */}
                         {o.use_of_funds && (
-                          <p className="mt-3 text-sm text-gray-700 line-clamp-2">{o.use_of_funds}</p>
+                          <p className="mt-3 text-sm text-ink line-clamp-2">{o.use_of_funds}</p>
                         )}
 
                         {/* Sectors */}
                         {o.sector_labels.length > 0 && (
                           <div className="mt-3 flex flex-wrap gap-1.5">
                             {o.sector_labels.slice(0, 4).map((label, i) => (
-                              <Badge key={i} variant="outline" className="text-[10px] text-gray-500">{label}</Badge>
+                              <Badge key={i} variant="outline" className="border-rule text-[12px] font-medium text-meta">{label}</Badge>
                             ))}
                             {o.sector_labels.length > 4 && (
-                              <Badge variant="outline" className="text-[10px] text-gray-400">+{o.sector_labels.length - 4}</Badge>
+                              <Badge variant="outline" className="border-rule text-[12px] font-medium text-meta">+{o.sector_labels.length - 4}</Badge>
                             )}
                           </div>
                         )}
 
                         {/* Actions */}
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <Button size="sm" variant="outline" asChild>
-                            <Link to={`/organizations/${o.slug}`}>
-                              View profile
-                              <ChevronRight className="h-3.5 w-3.5 ml-1" />
-                            </Link>
-                          </Button>
-                          <Button size="sm" onClick={() => openInterest(o)}>
-                            <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
+                          <Button size="sm" variant="ctaNavy" onClick={() => openInterest(o)}>
                             Express interest
                           </Button>
+                          <UnderlineLink to={`/organizations/${o.slug}`} className="!text-[14px] !leading-5">
+                            View profile
+                          </UnderlineLink>
                         </div>
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </CardShell>
               ))}
             </div>
           </>
@@ -580,7 +580,7 @@ export function DealFlowPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label className="text-sm">Message <span className="text-gray-400 font-normal">(optional)</span></Label>
+              <Label className="text-sm">Message <span className="text-meta/60 font-normal">(optional)</span></Label>
               <Textarea
                 value={interestMessage}
                 onChange={(e) => setInterestMessage(e.target.value)}
@@ -594,8 +594,8 @@ export function DealFlowPage() {
             </div>
           </div>
           <div className="flex gap-2 justify-end">
-            <Button variant="outline" onClick={() => setInterestTarget(null)} disabled={sendingInterest}>Cancel</Button>
-            <Button onClick={sendInterest} disabled={sendingInterest}>
+            <Button variant="outline" className={BTN_OUTLINE} onClick={() => setInterestTarget(null)} disabled={sendingInterest}>Cancel</Button>
+            <Button className={BTN} onClick={sendInterest} disabled={sendingInterest}>
               {sendingInterest && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               Send interest
             </Button>

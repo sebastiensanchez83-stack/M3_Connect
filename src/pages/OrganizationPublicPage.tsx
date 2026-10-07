@@ -9,7 +9,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, Award, BadgeCheck, Building2, CalendarClock, Camera, CheckCircle, ChevronLeft, ChevronRight,
   Clock, Droplets, ExternalLink, Globe, GraduationCap, HardHat, Info, Landmark, Layers, Leaf, Link2,
-  Loader2, Lock, MapPin, Newspaper, Pencil, Ruler, ShieldCheck, Ship, Sparkles, Tag, Target,
+  Loader2, Lock, MapPin, Newspaper, Ruler, Ship, Sparkles, Tag, Target,
   TrendingUp, Users, UtensilsCrossed, Wrench,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -18,23 +18,38 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { CoverImage, LogoBadge } from '@/components/ui/CoverImage';
+import { CoverImage } from '@/components/ui/CoverImage';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { SM26MarinaSustainability } from '@/components/organization/SM26MarinaSustainability';
 import { formatCapitalRange } from '@/components/capital/InvestmentThesisSection';
+import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
+import { BathyPattern } from '@/components/motion/BathyPattern';
+import { LineReveal } from '@/components/motion/LineReveal';
+import { Reveal, RevealGroup } from '@/components/motion/Reveal';
+import { useParallax } from '@/components/motion/useParallax';
+import { Carousel } from '@/components/brand/Carousel';
+import { CardShell, StretchedLink, type OrgTypeTone } from '@/components/brand/CardShell';
+import { ContactCard, M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { LogoTile, OrgCard, TYPE_RGB, VerifiedBadge, orgTypeTone, seedOf } from '@/components/brand/OrgCard';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { sendNotification } from '@/lib/notifications';
 import { checkSectorMatch } from '@/lib/sector-matching';
-import { THEMES, themeForSector, type Theme } from '@/lib/themes';
+import { THEMES, getTheme, themeForSector, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { accountHref } from '@/lib/accountNav';
+import { boardDate } from '@/lib/boardDate';
 import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
 import { toast } from '@/hooks/use-toast';
 import { HOLD_PERIODS } from '@/types/database';
 import type { Organization, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
+import { registerOrgRefonteStrings } from '@/i18n/refonte-org';
+
+registerOrgRefonteStrings();
 
 /**
  * The public profile of an organization, at /organizations/:slug.
@@ -56,17 +71,32 @@ import type { Organization, OrganizationMarinaDetails, Sector, OrgTier } from '@
  * Who sees what is unchanged: marina details and the team stay reserved to
  * verified members, the connection request to verified members of another
  * organization, the shortlist to the personas BookmarkButton allows.
+ *
+ * Refonte v2 (Oct 2026), the directory's design: a cover (the banner, or the
+ * type's gradient with sounding lines) the header overlaps, the logo straddling
+ * the cover and a white identity band (type, "Verified member" for claimed pages
+ * only, key facts, every action), a sticky bar of text tabs with a gold reading
+ * line, numbered sections on cards that match the directory's, then related
+ * articles, similar organizations as the directory's cards in a carousel, and
+ * the M3 contact. Pages the M3 team listed before anyone had an account (no
+ * owner) invite their marina to claim and complete them. The two extra reads
+ * (articles, similar organizations) are best-effort: a failure leaves the
+ * section out.
  */
 
-/** The navbar is sticky and 64 px tall. */
-const NAVBAR_H = 64;
-/** The section bar: py-2 around 40 px pills, plus its bottom border. */
-const SECTION_NAV_H = 57;
+/** The section bar: 48 px tabs plus its bottom border. */
+const SECTION_NAV_H = 49;
+/** The header bar's height while it shows: 64 px on phones, 72 px from md (--header-full, index.css). */
+function headerBand(): number {
+  if (typeof document === 'undefined') return 64;
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-full'));
+  return Number.isFinite(v) && v > 0 ? v : 64;
+}
 /** Where a section counts as "being read": just under both sticky bars. */
-const SPY_OFFSET = NAVBAR_H + SECTION_NAV_H + 8;
-/** Same column for the header, the section bar and the body, so their edges line up. */
-const WRAP = 'mx-auto w-full max-w-6xl px-4';
-const CARD = 'rounded-2xl bg-white shadow-sm ring-1 ring-gray-100';
+const spyOffset = () => headerBand() + SECTION_NAV_H + 8;
+/** Same column for the cover, the identity band, the section bar and the body, so their edges line up. */
+const WRAP = 'mx-auto w-full max-w-7xl px-4 sm:px-6';
+const CARD = 'rounded-card border border-rule bg-white';
 /** Gallery tiles shown before the "+N" tile that opens the rest in the lightbox. */
 const GALLERY_TILES = 9;
 
@@ -102,6 +132,32 @@ interface FuturePlan {
   timeline: string;
 }
 
+/** A similar organization, with what the directory's card shows. */
+interface SimilarOrg {
+  id: string;
+  slug: string;
+  name: string;
+  organization_type: string | null;
+  logo_url: string | null;
+  city: string | null;
+  country: string | null;
+  headquarters_country: string | null;
+  description: string | null;
+  owner_user_id: string | null;
+}
+
+/** An article of the library, with the themes its sectors touch. */
+interface RelatedArticle {
+  id: string;
+  title: string;
+  type: string;
+  access_level: string;
+  thumbnail_url: string | null;
+  created_at: string;
+  published_at: string | null;
+  themes: ThemeKey[];
+}
+
 type SectionId =
   | 'about'
   | 'investment'
@@ -131,15 +187,15 @@ const TYPE_FALLBACK: Record<string, string> = {
 
 /**
  * Future-plan timelines, stored as '0-3months' and the like. Keys are mapped to
- * plain identifiers for i18n; the tone runs from gold (now) through navy to grey
+ * plain identifiers for i18n; the tone runs from navy (now) through foam to grey
  * (years away) — one brand scale instead of five unrelated colours.
  */
 const TIMELINES: Record<string, { key: string; fallback: string; tone: string }> = {
-  immediate: { key: 'immediate', fallback: 'Immediate', tone: 'bg-secondary text-primary' },
-  '0-3months': { key: 'months0to3', fallback: '0-3 months', tone: 'bg-primary text-white' },
-  '3-12months': { key: 'months3to12', fallback: '3-12 months', tone: 'bg-primary/10 text-primary' },
-  '1-3years': { key: 'years1to3', fallback: '1-3 years', tone: 'bg-gray-100 text-gray-700' },
-  '3+years': { key: 'years3plus', fallback: '3+ years', tone: 'bg-gray-100 text-gray-700' },
+  immediate: { key: 'immediate', fallback: 'Immediate', tone: 'bg-navy text-white' },
+  '0-3months': { key: 'months0to3', fallback: '0-3 months', tone: 'bg-navy/85 text-white' },
+  '3-12months': { key: 'months3to12', fallback: '3-12 months', tone: 'bg-foam text-teal-text' },
+  '1-3years': { key: 'years1to3', fallback: '1-3 years', tone: 'bg-chip text-meta' },
+  '3+years': { key: 'years3plus', fallback: '3+ years', tone: 'bg-chip text-meta' },
 };
 
 /** "in_operation" → "In operation", for values with no translation yet. */
@@ -213,9 +269,11 @@ function useActiveSection(idsKey: string): string | null {
   useEffect(() => {
     const ids = idsKey ? idsKey.split('|') : [];
     if (ids.length === 0) return;
+    let offset = spyOffset();
     setActive((current) => (current && ids.includes(current) ? current : ids[0]));
 
     const pick = () => {
+      offset = spyOffset();
       const doc = document.documentElement;
       if (window.innerHeight + window.scrollY >= doc.scrollHeight - 4) {
         setActive(ids[ids.length - 1]);
@@ -228,8 +286,8 @@ function useActiveSection(idsKey: string): string | null {
         const el = document.getElementById(id);
         if (!el || el.offsetHeight === 0) continue; // hidden: never "being read"
         const { top, bottom } = el.getBoundingClientRect();
-        if (top <= SPY_OFFSET) passed = id;
-        if (!inBand && bottom > SPY_OFFSET && top < bandBottom) inBand = id;
+        if (top <= offset) passed = id;
+        if (!inBand && bottom > offset && top < bandBottom) inBand = id;
       }
       setActive(inBand ?? passed ?? ids[0]);
     };
@@ -242,7 +300,7 @@ function useActiveSection(idsKey: string): string | null {
 
     let observer: IntersectionObserver | null = null;
     if (typeof IntersectionObserver !== 'undefined') {
-      observer = new IntersectionObserver(pick, { rootMargin: `-${SPY_OFFSET}px 0px -50% 0px`, threshold: 0 });
+      observer = new IntersectionObserver(pick, { rootMargin: `-${offset}px 0px -50% 0px`, threshold: 0 });
       for (const id of ids) {
         const el = document.getElementById(id);
         if (el) observer.observe(el);
@@ -472,6 +530,89 @@ export function OrganizationPublicPage() {
     return () => { alive = false; };
   }, [isVerified, missingProfileIds]);
 
+  // Two extra reads once the profile is on screen: articles in this
+  // organization's themes, and organizations like it. Best-effort: a failure
+  // (or an organization with nothing to relate to) just leaves the section out.
+  const [similar, setSimilar] = useState<SimilarOrg[]>([]);
+  const [related, setRelated] = useState<RelatedArticle[]>([]);
+  const extrasOrgId = org?.id ?? null;
+  const extrasType = org?.organization_type ?? null;
+  const extrasCountry = org?.country ?? null;
+  const sectorSlugsKey = sectors.map((s) => s.slug).sort().join('|');
+
+  useEffect(() => {
+    if (loading || !extrasOrgId || !extrasType) {
+      setSimilar([]);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const COLS = 'id, slug, name, organization_type, logo_url, city, country, headquarters_country, description, owner_user_id';
+        const base = () => supabase
+          .from('organizations')
+          .select(COLS)
+          .eq('access_status', 'verified')
+          .eq('organization_type', extrasType)
+          .neq('id', extrasOrgId);
+        // Members first, then pages with a logo: the cards that look finished lead.
+        const rank = (list: SimilarOrg[]) => [...list].sort(
+          (a, b) => Number(!!b.owner_user_id) - Number(!!a.owner_user_id) || Number(!!b.logo_url) - Number(!!a.logo_url),
+        );
+        let sameCountry: SimilarOrg[] = [];
+        if (extrasCountry) {
+          const { data } = await base().eq('country', extrasCountry).order('created_at', { ascending: false }).limit(12);
+          sameCountry = (data ?? []) as SimilarOrg[];
+        }
+        let rows = rank(sameCountry);
+        if (rows.length < 9) {
+          const { data } = await base().order('created_at', { ascending: false }).limit(30);
+          const seen = new Set(rows.map((r) => r.id));
+          rows = [...rows, ...rank(((data ?? []) as SimilarOrg[]).filter((r) => !seen.has(r.id)))];
+        }
+        if (alive) setSimilar(rows.slice(0, 9));
+      } catch {
+        if (alive) setSimilar([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [loading, extrasOrgId, extrasType, extrasCountry]);
+
+  useEffect(() => {
+    const orgThemes = sectorSlugsKey ? themesForSectors(sectorSlugsKey.split('|')) : [];
+    if (loading || !extrasOrgId || orgThemes.length === 0) {
+      setRelated([]);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('resources')
+          .select('id, title, type, access_level, thumbnail_url, created_at, published_at, resource_sectors(sectors(slug))')
+          .eq('published', true)
+          .order('published_at', { ascending: false, nullsFirst: false })
+          .order('created_at', { ascending: false })
+          .limit(40);
+        if (error) throw error;
+        type Row = Omit<RelatedArticle, 'themes'> & { resource_sectors: { sectors: { slug: string | null } | null }[] | null };
+        const wanted = new Set<ThemeKey>(orgThemes);
+        const picked = ((data ?? []) as unknown as Row[])
+          .map((r): RelatedArticle & { shared: number } => {
+            const themes = themesForSectors((r.resource_sectors ?? []).map((rs) => rs.sectors?.slug));
+            return { ...r, themes, shared: themes.filter((k) => wanted.has(k)).length };
+          })
+          .filter((r) => r.shared > 0)
+          .sort((a, b) => b.shared - a.shared)
+          .slice(0, 3);
+        if (alive) setRelated(picked);
+      } catch {
+        if (alive) setRelated([]);
+      }
+    })();
+    return () => { alive = false; };
+  }, [loading, extrasOrgId, sectorSlugsKey]);
+
   const handleSendConnectRequest = async () => {
     if (!user || !org || !org.owner_user_id) return;
     const uid = await requireFreshSession();
@@ -635,33 +776,29 @@ export function OrganizationPublicPage() {
   const plural = (key: string, count: number, one: string, other: string, extra: Record<string, unknown> = {}): string =>
     t(key, { count, defaultValue: count === 1 ? one : other, ...extra }) as string;
 
-  // Signed-in members go back to the directory; guests to the public partner list.
-  const back = user
-    ? { to: '/directory', label: t('orgProfile.backToDirectory', 'Back to the directory') }
-    : { to: '/partners', label: t('orgProfile.backToPartners', 'All partners') };
+  // The directory is public and lists every organization (/partners only the event
+  // sponsors), so everyone goes back to it.
+  const back = { to: '/directory', label: t('orgProfile.backToDirectory', 'Back to the directory') };
 
   // ------------------------------------------------------------------ loading / not found
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50" aria-busy="true">
+      <div className="min-h-screen bg-page" aria-busy="true">
         <span className="sr-only" role="status">{t('common.loading', 'Loading...')}</span>
-        <div className="h-36 animate-pulse bg-gray-200 sm:h-48 lg:h-64" />
-        <div className="border-b border-gray-200 bg-white">
-          <div className={cn(WRAP, 'flex flex-col gap-4 pb-6 sm:flex-row sm:gap-6')}>
-            <div className="relative z-10 -mt-10 h-20 w-20 shrink-0 animate-pulse rounded-2xl bg-gray-300 ring-4 ring-white sm:-mt-14 sm:h-28 sm:w-28" />
-            <div className="flex-1 space-y-3 sm:pt-4">
-              <div className="h-7 w-2/3 max-w-sm animate-pulse rounded-lg bg-gray-200" />
-              <div className="h-4 w-1/2 max-w-xs animate-pulse rounded bg-gray-100" />
-              <div className="flex gap-2 pt-1">
-                <div className="h-10 w-36 animate-pulse rounded-xl bg-gray-100" />
-                <div className="h-10 w-28 animate-pulse rounded-xl bg-gray-100" />
-              </div>
+        <div className="h-[260px] animate-pulse bg-navy/90 sm:h-[300px] lg:h-[340px]" />
+        <div className="border-b border-rule bg-white">
+          <div className={cn(WRAP, 'flex flex-col gap-4 pb-8 sm:flex-row sm:gap-6')}>
+            <div className="relative z-10 -mt-12 h-[104px] w-[104px] shrink-0 animate-pulse rounded-field bg-chip ring-4 ring-white sm:-mt-16" />
+            <div className="flex-1 space-y-3 sm:pt-5">
+              <div className="h-4 w-40 animate-pulse rounded bg-chip" />
+              <div className="h-9 w-2/3 max-w-md animate-pulse rounded-lg bg-chip" />
+              <div className="h-4 w-1/2 max-w-xs animate-pulse rounded bg-chip/70" />
             </div>
           </div>
         </div>
-        <div className={cn(WRAP, 'grid gap-6 py-10 lg:grid-cols-3')}>
-          <div className={cn(CARD, 'h-48 animate-pulse lg:col-span-2')} />
-          <div className={cn(CARD, 'h-48 animate-pulse')} />
+        <div className={cn(WRAP, 'grid gap-6 py-12 lg:grid-cols-12')}>
+          <div className="h-48 animate-pulse rounded-card bg-chip/70 lg:col-span-8" />
+          <div className="h-48 animate-pulse rounded-card bg-chip/70 lg:col-span-4" />
         </div>
       </div>
     );
@@ -671,52 +808,34 @@ export function OrganizationPublicPage() {
     // No <Seo> here: the head the edge function wrote stays as it is, so a
     // passing network error never tells Google to drop a real page.
     return (
-      <div className="min-h-[60vh] bg-gray-50">
-        <div className={cn(WRAP, 'py-20 text-center')}>
-          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
-            <Building2 className="h-10 w-10 text-gray-400" aria-hidden="true" />
-          </div>
-          <h1 className="mb-2 text-2xl font-bold text-gray-900">{t('common.loadFailedTitle', 'This page could not be loaded')}</h1>
-          <p className="mb-6 text-gray-600">{t('common.loadFailedBody', 'The connection may be slow or interrupted. Please try again.')}</p>
-          <div className="flex flex-wrap justify-center gap-3">
-            <Button asChild variant="outline" className="rounded-xl">
-              <Link to={back.to}>
-                <ChevronLeft className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                {back.label}
-              </Link>
-            </Button>
-            <Button className="rounded-xl" onClick={() => setLoadAttempt((n) => n + 1)}>
-              {t('common.retry', 'Try again')}
-            </Button>
-          </div>
-        </div>
-      </div>
+      <StateScreen
+        title={t('common.loadFailedTitle', 'This page could not be loaded')}
+        body={t('common.loadFailedBody', 'The connection may be slow or interrupted. Please try again.')}
+      >
+        <Button asChild variant="ctaOutline" size="sm">
+          <Link to={back.to}>{back.label}</Link>
+        </Button>
+        <Button variant="ctaNavy" size="sm" onClick={() => setLoadAttempt((n) => n + 1)}>
+          {t('common.retry', 'Try again')}
+        </Button>
+      </StateScreen>
     );
   }
 
   if (!org) {
     return (
-      <div className="min-h-[60vh] bg-gray-50">
-        <Seo title={withSiteSuffix(t('orgProfile.notFoundTitle', 'Organization not found'))} noindex />
-        <div className={cn(WRAP, 'py-20 text-center')}>
-          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
-            <Building2 className="h-10 w-10 text-gray-400" aria-hidden="true" />
-          </div>
-          <h1 className="mb-2 text-2xl font-bold text-gray-900">{t('orgProfile.notFoundTitle', 'Organization not found')}</h1>
-          <p className="mb-6 text-gray-600">{t('orgProfile.notFoundBody', 'This organization does not exist or has been removed.')}</p>
-          <div className="flex flex-wrap justify-center gap-3">
-            <Button asChild variant="outline" className="rounded-xl">
-              <Link to={back.to}>
-                <ChevronLeft className="mr-1.5 h-4 w-4" aria-hidden="true" />
-                {back.label}
-              </Link>
-            </Button>
-            <Button asChild className="rounded-xl">
-              <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>
-            </Button>
-          </div>
-        </div>
-      </div>
+      <StateScreen
+        seo={<Seo title={withSiteSuffix(t('orgProfile.notFoundTitle', 'Organization not found'))} noindex />}
+        title={t('orgProfile.notFoundTitle', 'Organization not found')}
+        body={t('orgProfile.notFoundBody', 'This organization does not exist or has been removed.')}
+      >
+        <Button asChild variant="ctaOutline" size="sm">
+          <Link to={back.to}>{back.label}</Link>
+        </Button>
+        <Button asChild variant="ctaNavy" size="sm">
+          <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>
+        </Button>
+      </StateScreen>
     );
   }
 
@@ -766,7 +885,23 @@ export function OrganizationPublicPage() {
     team: { label: t('orgProfile.nav.team', 'Team'), icon: Users, count: members.length },
   };
 
+  // Imported marinas have no owner until the M3 team hands the page over: those
+  // are invited to claim and complete it, and are not shown as verified members.
+  const claimed = !!org.owner_user_id;
+  const verifiedMember = claimed && org.access_status === 'verified';
+  const showClaim = !claimed;
+  const tone = orgTypeTone(orgType);
   const hasFacts = !!(typeLabel || location || org.headquarters_country || org.website || members.length > 0);
+  const hasAside = hasFacts || showClaim;
+  const numberOf = (id: SectionId) => String(sectionIds.indexOf(id) + 1).padStart(2, '0');
+
+  const similarTitle: Record<string, string> = {
+    marina: t('orgPage.similar.titleMarina', 'Other marinas'),
+    partner: t('orgPage.similar.titlePartner', 'Other service providers'),
+    investor: t('orgPage.similar.titleInvestor', 'Other investors'),
+    developer: t('orgPage.similar.titleDeveloper', 'Other developers'),
+    media_partner: t('orgPage.similar.titleMedia', 'Other media'),
+  };
 
   // What verification would really unlock on THIS profile, built from data the
   // page already has (members and marina details are readable before
@@ -791,150 +926,126 @@ export function OrganizationPublicPage() {
   const seo = organizationMeta(org, seoTr);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-page">
       <Seo {...seo} />
 
-      {/* ── Header: cover band, logo, identity, actions ── */}
-      <header className="border-b border-gray-200 bg-white">
-        <CoverImage
-          src={org.banner_url}
-          alt={org.banner_url ? t('orgProfile.coverAlt', '{{name}} cover image', { name: org.name }) : ''}
-          seed={org.id}
-          icon={TypeIcon}
-          aspect="fill"
-          tone="sea"
-          eager
-          className="h-36 sm:h-48 lg:h-64"
-        >
-          <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-b from-[#0b2653]/60 via-[#0b2653]/10 to-[#0b2653]/30" />
-          <div className="absolute inset-x-0 top-0">
-            <div className={cn(WRAP, 'pt-3 sm:pt-4')}>
-              <Link
-                to={back.to}
-                className="inline-flex min-h-10 items-center gap-1.5 rounded-full bg-black/30 px-3.5 text-sm font-medium text-white backdrop-blur-sm transition-colors hover:bg-black/45 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-              >
-                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-                {back.label}
-              </Link>
+      {/* ── Cover: the organization's banner, or its type's gradient with sounding lines ── */}
+      <ProfileCover
+        id={org.id}
+        name={org.name}
+        bannerUrl={org.banner_url}
+        icon={TypeIcon}
+        tone={tone}
+        back={back}
+        alt={org.banner_url ? t('orgProfile.coverAlt', '{{name}} cover image', { name: org.name }) : ''}
+      />
+
+      {/* ── Identity: logo over the cover, type, verification, key facts, every action ── */}
+      <header className="border-b border-rule bg-white">
+        <div className={cn(WRAP, 'flex flex-col gap-5 pb-8 sm:flex-row sm:items-start sm:gap-7 lg:pb-10')}>
+          <LogoTile
+            src={org.logo_url}
+            name={org.name}
+            type={orgType}
+            size={112}
+            className="relative z-10 -mt-14 ring-4 ring-white shadow-[0_12px_32px_rgba(11,38,83,.16)] sm:-mt-[72px]"
+          />
+
+          <div className="min-w-0 flex-1 sm:pt-5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              {typeLabel && (
+                <span className="flex items-center gap-2 text-[13px] font-semibold uppercase leading-4 tracking-[0.08em] text-meta">
+                  <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-pill" style={{ background: TYPE_RGB[tone] }} />
+                  {typeLabel}
+                </span>
+              )}
+              {verifiedMember && <VerifiedBadge />}
+              {org.access_status === 'pending' && (
+                <span className="inline-flex items-center gap-1 rounded-badge bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold leading-4 text-amber-900">
+                  <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('orgProfile.pending', 'Verification in progress')}
+                </span>
+              )}
+              <SponsorBadge tier={org.tier as OrgTier} size="md" />
             </div>
-          </div>
-        </CoverImage>
 
-        <div className={cn(WRAP, 'pb-6')}>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
-            <LogoBadge
-              src={org.logo_url}
-              name={org.name}
-              size="lg"
-              className="relative z-10 -mt-10 h-20 w-20 rounded-2xl text-2xl shadow-md ring-4 ring-white sm:-mt-14 sm:h-28 sm:w-28 sm:text-3xl"
-            />
+            <h1 className="mt-2 break-words text-h1-sm text-navy sm:text-h1">{org.name}</h1>
 
-            <div className="min-w-0 flex-1 sm:pt-4">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <h1 className="break-words text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">{org.name}</h1>
-                <SponsorBadge tier={org.tier as OrgTier} size="md" />
-              </div>
-
-              <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-600">
-                {typeLabel && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary">
-                    <TypeIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                    {typeLabel}
-                  </span>
-                )}
-                {org.access_status === 'verified' && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800">
-                    <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
-                    {t('orgProfile.verified', 'Verified organization')}
-                  </span>
-                )}
-                {org.access_status === 'pending' && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
-                    <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                    {t('orgProfile.pending', 'Verification in progress')}
-                  </span>
-                )}
-                {location && (
-                  <span className="inline-flex items-center gap-1">
-                    <MapPin className="h-4 w-4 text-gray-500" aria-hidden="true" />
-                    {location}
-                  </span>
-                )}
-                {members.length > 0 && (
-                  <span className="inline-flex items-center gap-1">
-                    <Users className="h-4 w-4 text-gray-500" aria-hidden="true" />
-                    {membersLabel}
-                  </span>
-                )}
-                {showRefs && (
-                  <a
-                    href="#recommendations"
-                    onClick={jumpTo('recommendations')}
-                    className="inline-flex items-center gap-1 rounded font-medium text-gray-800 underline-offset-2 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <Award className="h-4 w-4 text-secondary-dark" aria-hidden="true" />
-                    {recommendedLabel}
-                  </a>
-                )}
-              </div>
-
-              {/* Actions — same permission checks as before. The connect button
-                  also needs an owner to send the request to: an unclaimed
-                  organization (no owner_user_id) can never receive one, so
-                  nothing about connecting is shown there at all. */}
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                {canConnect && org.owner_user_id && (
-                  <Button className="rounded-xl" onClick={() => setConnectOpen(true)}>
-                    <Link2 className="mr-2 h-4 w-4" aria-hidden="true" />
-                    {t('orgProfile.connect', 'Request to connect')}
-                  </Button>
-                )}
-                {hasExistingRequest && (
-                  <span className="inline-flex min-h-10 items-center gap-1.5 rounded-xl bg-emerald-50 px-3 text-sm font-medium text-emerald-800 ring-1 ring-emerald-200">
-                    <CheckCircle className="h-4 w-4" aria-hidden="true" />
-                    {t('orgProfile.requestSent', 'Connection request sent')}
-                  </span>
-                )}
-                {org.website && (
-                  <Button asChild variant="outline" className="rounded-xl">
-                    <a href={org.website} target="_blank" rel="noopener noreferrer">
-                      <Globe className="mr-2 h-4 w-4" aria-hidden="true" />
-                      {t('orgProfile.visitWebsite', 'Visit website')}
-                      <ExternalLink className="ml-1.5 h-3.5 w-3.5 text-gray-500" aria-hidden="true" />
-                      <span className="sr-only"> {t('orgProfile.newTab', '(opens in a new tab)')}</span>
-                    </a>
-                  </Button>
-                )}
-                <BookmarkButton
-                  organizationId={org.id}
-                  organizationName={org.name}
-                  variant="full"
-                  className="h-10 rounded-xl"
-                />
-                {canEdit && (
-                  <Button asChild variant="outline" className="rounded-xl">
-                    <Link to={accountHref('organization')}>
-                      <Pencil className="mr-2 h-4 w-4" aria-hidden="true" />
-                      {t('org.editOrg', 'Edit Organization')}
-                    </Link>
-                  </Button>
-                )}
-              </div>
-              {canEdit && (
-                <p className="mt-2 text-xs text-gray-500">{t('orgProfile.ownPage', "This is your organization's public page.")}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[15px] leading-6 text-ink">
+              {location && (
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="h-4 w-4 text-meta" aria-hidden="true" />
+                  {location}
+                </span>
+              )}
+              {members.length > 0 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Users className="h-4 w-4 text-meta" aria-hidden="true" />
+                  {membersLabel}
+                </span>
+              )}
+              {showRefs && (
+                <a
+                  href="#recommendations"
+                  onClick={jumpTo('recommendations')}
+                  className="focus-ring inline-flex items-center gap-1.5 rounded-sm font-medium text-navy underline underline-offset-[3px]"
+                >
+                  <Award className="h-4 w-4 text-teal" aria-hidden="true" />
+                  {recommendedLabel}
+                </a>
               )}
             </div>
+
+            {/* Actions — same permission checks as before. The connect button
+                also needs an owner to send the request to: an unclaimed
+                organization (no owner_user_id) can never receive one, so
+                nothing about connecting is shown there at all. */}
+            <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-3">
+              {canConnect && org.owner_user_id && (
+                <Button variant="cta" onClick={() => setConnectOpen(true)}>
+                  {t('orgProfile.connect', 'Request to connect')}
+                </Button>
+              )}
+              {hasExistingRequest && (
+                <span className="inline-flex min-h-11 items-center gap-1.5 rounded-pill bg-foam px-4 text-sm font-semibold text-teal-text">
+                  <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                  {t('orgProfile.requestSent', 'Connection request sent')}
+                </span>
+              )}
+              {org.website && (
+                <Button asChild variant="ctaOutline" size="sm">
+                  <a href={org.website} target="_blank" rel="noopener noreferrer">
+                    {t('orgProfile.visitWebsite', 'Visit website')}
+                    <span className="sr-only"> {t('orgProfile.newTab', '(opens in a new tab)')}</span>
+                  </a>
+                </Button>
+              )}
+              <BookmarkButton
+                organizationId={org.id}
+                organizationName={org.name}
+                variant="full"
+                className="h-11 rounded-pill border-rule px-4 text-navy"
+              />
+              {canEdit && (
+                <Button asChild variant="ctaOutline" size="sm">
+                  <Link to={accountHref('organization')}>{t('org.editOrg', 'Edit Organization')}</Link>
+                </Button>
+              )}
+            </div>
+            {canEdit && (
+              <p className="mt-3 text-[13px] leading-[18px] text-meta">{t('orgProfile.ownPage', "This is your organization's public page.")}</p>
+            )}
           </div>
         </div>
       </header>
 
-      {/* ── Section bar: sticky under the 64 px navbar, sideways on phones ── */}
+      {/* ── Section bar: sticky under the header (it rises when the header tucks away), sideways on phones ── */}
       {sectionIds.length > 1 && (
         <nav
           aria-label={t('orgProfile.sectionNav', 'Profile sections')}
-          className="sticky top-16 z-30 border-b border-gray-200 bg-white/95 backdrop-blur"
+          className="sticky top-16 z-30 border-b border-rule bg-white/95 backdrop-blur-md"
         >
-          <div ref={navScrollerRef} className={cn(WRAP, 'no-scrollbar relative flex gap-1 overflow-x-auto py-2')}>
+          <div ref={navScrollerRef} className={cn(WRAP, 'no-scrollbar relative flex gap-1 overflow-x-auto')}>
             {sectionIds.map((id) => {
               const item = navLabels[id];
               const active = activeSection === id;
@@ -946,15 +1057,15 @@ export function OrganizationPublicPage() {
                   onClick={jumpTo(id)}
                   aria-current={active ? 'location' : undefined}
                   className={cn(
-                    'inline-flex min-h-10 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-sm font-medium transition-colors',
-                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
-                    active ? 'bg-primary text-white shadow-sm' : 'text-gray-700 hover:bg-gray-100',
+                    'relative inline-flex h-12 shrink-0 items-center gap-2 whitespace-nowrap px-3.5 text-sm transition-colors duration-300',
+                    'after:absolute after:inset-x-3.5 after:bottom-0 after:h-0.5 after:origin-left after:scale-x-0 after:bg-gold after:transition-transform after:duration-300',
+                    'focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_2px_rgb(11_38_83)]',
+                    active ? 'font-semibold text-navy after:scale-x-100' : 'font-medium text-meta hover:text-navy',
                   )}
                 >
-                  <item.icon className="h-4 w-4" aria-hidden="true" />
                   {item.label}
                   {item.count !== undefined && item.count > 0 && (
-                    <span className={cn('text-xs tabular-nums', active ? 'text-white/80' : 'text-gray-500')}>{item.count}</span>
+                    <span className="tabular text-xs font-normal text-meta">{item.count}</span>
                   )}
                 </a>
               );
@@ -964,90 +1075,95 @@ export function OrganizationPublicPage() {
       )}
 
       {/* ── Body ── */}
-      <div className={cn(WRAP, 'flex flex-col gap-12 py-8 sm:py-10')}>
+      <div className={cn(WRAP, 'flex flex-col gap-16 py-12 md:gap-20 md:py-16')}>
         {/* About */}
-        <ProfileSection id="about" icon={Info} title={t('orgProfile.aboutTitle', 'About {{name}}', { name: org.name })}>
-          <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
-            <div className={cn(CARD, 'p-6', hasFacts ? 'lg:col-span-2' : 'lg:col-span-3')}>
+        <ProfileSection id="about" number={numberOf('about')} label={navLabels.about.label} title={t('orgProfile.aboutTitle', 'About {{name}}', { name: org.name })}>
+          <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
+            <div className={cn(CARD, 'p-6 md:p-8', hasAside ? 'lg:col-span-8' : 'lg:col-span-12')}>
               {org.description ? (
-                <p className="whitespace-pre-wrap leading-relaxed text-gray-700">{org.description}</p>
+                <p className="whitespace-pre-wrap text-body text-ink">{org.description}</p>
               ) : (
-                <p className="text-gray-500">{t('orgProfile.noDescription', '{{name}} has not added a description yet.', { name: org.name })}</p>
+                <p className="text-meta">{t('orgProfile.noDescription', '{{name}} has not added a description yet.', { name: org.name })}</p>
               )}
               {/* Audience description (media organizations) */}
               {org.audience_description && (
-                <div className="mt-6 border-t border-gray-100 pt-6">
-                  <h3 className="mb-2 font-semibold text-gray-900">{t('orgProfile.audience', 'Audience')}</h3>
-                  <p className="whitespace-pre-wrap leading-relaxed text-gray-700">{org.audience_description}</p>
+                <div className="mt-6 border-t border-rule pt-6">
+                  <h3 className="mb-2 text-card-title text-navy">{t('orgProfile.audience', 'Audience')}</h3>
+                  <p className="whitespace-pre-wrap text-body text-ink">{org.audience_description}</p>
                 </div>
               )}
             </div>
 
-            {hasFacts && (
-              <aside className={cn(CARD, 'p-6')} aria-labelledby="org-glance-title">
-                <h3 id="org-glance-title" className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
-                  {t('orgProfile.atAGlance', 'At a glance')}
-                </h3>
-                <ul className="space-y-4">
-                  {typeLabel && <Fact icon={TypeIcon} label={t('orgProfile.fields.type', 'Type')}>{typeLabel}</Fact>}
-                  {location && <Fact icon={MapPin} label={t('orgProfile.fields.location', 'Location')}>{location}</Fact>}
-                  {org.headquarters_country && (
-                    <Fact icon={Landmark} label={t('orgProfile.fields.headquarters', 'Headquarters')}>{org.headquarters_country}</Fact>
-                  )}
-                  {org.website && (
-                    <Fact icon={Globe} label={t('orgProfile.fields.website', 'Website')}>
-                      <a
-                        href={org.website}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="break-all text-primary underline-offset-2 hover:underline"
-                      >
-                        {displayUrl(org.website)}
-                        <span className="sr-only"> {t('orgProfile.newTab', '(opens in a new tab)')}</span>
-                      </a>
-                    </Fact>
-                  )}
-                  {members.length > 0 && <Fact icon={Users} label={t('orgProfile.fields.team', 'Team')}>{membersLabel}</Fact>}
-                </ul>
-              </aside>
+            {hasAside && (
+              <div className="flex flex-col gap-6 lg:col-span-4">
+                {hasFacts && (
+                  <aside className={cn(CARD, 'p-6')} aria-labelledby="org-glance-title">
+                    <h3 id="org-glance-title" className="text-meta-caps mb-4">
+                      {t('orgProfile.atAGlance', 'At a glance')}
+                    </h3>
+                    <ul className="divide-y divide-rule">
+                      {typeLabel && <Fact icon={TypeIcon} label={t('orgProfile.fields.type', 'Type')}>{typeLabel}</Fact>}
+                      {location && <Fact icon={MapPin} label={t('orgProfile.fields.location', 'Location')}>{location}</Fact>}
+                      {org.headquarters_country && (
+                        <Fact icon={Landmark} label={t('orgProfile.fields.headquarters', 'Headquarters')}>{org.headquarters_country}</Fact>
+                      )}
+                      {org.website && (
+                        <Fact icon={Globe} label={t('orgProfile.fields.website', 'Website')}>
+                          <a
+                            href={org.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="focus-ring break-all rounded-sm text-navy underline underline-offset-[3px] hover:text-teal-text"
+                          >
+                            {displayUrl(org.website)}
+                            <span className="sr-only"> {t('orgProfile.newTab', '(opens in a new tab)')}</span>
+                          </a>
+                        </Fact>
+                      )}
+                      {members.length > 0 && <Fact icon={Users} label={t('orgProfile.fields.team', 'Team')}>{membersLabel}</Fact>}
+                    </ul>
+                  </aside>
+                )}
+                {showClaim && <ClaimCard name={org.name} isMarina={isMarina} />}
+              </div>
             )}
           </div>
         </ProfileSection>
 
         {/* Investment thesis — public on investor profiles */}
         {showInvestment && (
-          <ProfileSection id="investment" icon={Target} title={t('orgProfile.investment.title', 'Investment thesis')}>
-            <div className={cn(CARD, 'p-6')}>
+          <ProfileSection id="investment" number={numberOf('investment')} label={navLabels.investment.label} title={t('orgProfile.investment.title', 'Investment thesis')}>
+            <div className={cn(CARD, 'p-6 md:p-8')}>
               {org.investment_thesis && (
-                <p className="mb-6 whitespace-pre-wrap leading-relaxed text-gray-700">{org.investment_thesis}</p>
+                <p className="mb-6 whitespace-pre-wrap text-body text-ink">{org.investment_thesis}</p>
               )}
-              <dl className="grid gap-5 sm:grid-cols-3">
+              <dl className="grid gap-6 sm:grid-cols-3">
                 {org.investment_geographies && org.investment_geographies.length > 0 && (
                   <div>
-                    <dt className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <dt className="text-meta-caps mb-2">
                       {t('orgProfile.investment.geographies', 'Geographies')}
                     </dt>
                     <dd className="flex flex-wrap gap-1.5">
                       {org.investment_geographies.map((g) => (
-                        <span key={g} className="rounded-full bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary">{g}</span>
+                        <span key={g} className="inline-flex h-7 items-center rounded-pill bg-chip px-3 text-[13px] font-medium text-navy">{g}</span>
                       ))}
                     </dd>
                   </div>
                 )}
                 {(org.investment_size_min != null || org.investment_size_max != null) && (
                   <div>
-                    <dt className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <dt className="text-meta-caps mb-2">
                       {t('orgProfile.investment.checkSize', 'Check size')}
                     </dt>
-                    <dd className="font-medium text-gray-900">{formatCapitalRange(org.investment_size_min, org.investment_size_max)}</dd>
+                    <dd className="text-card-title text-navy">{formatCapitalRange(org.investment_size_min, org.investment_size_max)}</dd>
                   </div>
                 )}
                 {org.investment_hold_period && (
                   <div>
-                    <dt className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    <dt className="text-meta-caps mb-2">
                       {t('orgProfile.investment.holdPeriod', 'Hold period')}
                     </dt>
-                    <dd className="font-medium text-gray-900">
+                    <dd className="text-card-title text-navy">
                       {t(
                         `orgProfile.holdPeriods.${org.investment_hold_period}`,
                         HOLD_PERIODS.find((h) => h.value === org.investment_hold_period)?.label ?? org.investment_hold_period,
@@ -1062,13 +1178,13 @@ export function OrganizationPublicPage() {
 
         {/* Sectors, grouped by theme */}
         {showSectors && (
-          <ProfileSection id="sectors" icon={Layers} title={sectorsTitle} count={sectors.length}>
-            <div className="grid gap-4 sm:grid-cols-2">
+          <ProfileSection id="sectors" number={numberOf('sectors')} label={navLabels.sectors.label} title={sectorsTitle} count={sectors.length}>
+            <div className="grid gap-5 sm:grid-cols-2 md:gap-6">
               {sectorGroups.map((g) => {
                 const Icon = g.theme?.icon ?? Tag;
                 const label = g.theme ? t(g.theme.labelKey, g.theme.fallback) : t('orgProfile.sectors.other', 'Other sectors');
                 return (
-                  <div key={g.key} className={cn(CARD, 'overflow-hidden')}>
+                  <CardShell key={g.key} as="div">
                     <CoverImage
                       src={g.theme?.image ?? null}
                       focusY={g.theme?.imageFocusY ?? 0.5}
@@ -1077,22 +1193,22 @@ export function OrganizationPublicPage() {
                       icon={Icon}
                       aspect="fill"
                       tone="sea"
-                      className="h-24"
+                      className="h-28"
                     >
-                      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/95 via-[#0b2653]/50 to-[#0b2653]/10" />
-                      <h3 className="absolute inset-x-0 bottom-0 flex items-center gap-2 p-3 text-sm font-semibold text-white drop-shadow-sm">
-                        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#081d40]/95 via-[#0b2653]/50 to-[#0b2653]/10" />
+                      <h3 className="absolute inset-x-0 bottom-0 flex items-center gap-2 p-4 text-[15px] font-semibold text-white">
+                        <Icon className="h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
                         {label}
                       </h3>
                     </CoverImage>
-                    <ul className="flex flex-wrap gap-2 p-4">
+                    <ul className="flex flex-wrap gap-2 p-5">
                       {g.items.map((s) => (
-                        <li key={s.id} className="rounded-full bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-800">
+                        <li key={s.id} className="inline-flex h-8 items-center rounded-pill bg-chip px-3.5 text-sm font-medium text-navy">
                           {sectorLabel(s)}
                         </li>
                       ))}
                     </ul>
-                  </div>
+                  </CardShell>
                 );
               })}
             </div>
@@ -1101,7 +1217,7 @@ export function OrganizationPublicPage() {
 
         {/* Gallery */}
         {showGallery && (
-          <ProfileSection id="gallery" icon={Camera} title={t('orgProfile.gallery.title', 'Gallery')} count={gallery.length}>
+          <ProfileSection id="gallery" number={numberOf('gallery')} label={navLabels.gallery.label} title={t('orgProfile.gallery.title', 'Gallery')} count={gallery.length}>
             <div className={cn('grid gap-2 sm:gap-3', gallery.length >= 5 ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4' : 'grid-cols-2 sm:grid-cols-4')}>
               {gallery.slice(0, GALLERY_TILES).map((url, i) => {
                 const feature = i === 0 && gallery.length >= 5;
@@ -1116,8 +1232,8 @@ export function OrganizationPublicPage() {
                       ? plural('orgProfile.gallery.showAll', gallery.length, 'Show all {{count}} photos', 'Show all {{count}} photos')
                       : t('orgProfile.gallery.open', 'Open photo {{n}} of {{total}}', { n: i + 1, total: gallery.length })}
                     className={cn(
-                      'group relative aspect-square overflow-hidden rounded-xl bg-gray-100',
-                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+                      'group relative aspect-square overflow-hidden rounded-card bg-chip',
+                      'focus:outline-none focus-visible:shadow-focus',
                       feature && 'col-span-2 row-span-2',
                     )}
                   >
@@ -1128,7 +1244,7 @@ export function OrganizationPublicPage() {
                       icon={Camera}
                       aspect="fill"
                       tone="sea"
-                      imageClassName="group-hover:scale-105"
+                      imageClassName="duration-[800ms] ease-out-smc group-hover:scale-105"
                     />
                     {moreTile && (
                       <span aria-hidden="true" className="absolute inset-0 flex items-center justify-center bg-[#0b2653]/70 text-2xl font-semibold text-white">
@@ -1144,7 +1260,7 @@ export function OrganizationPublicPage() {
 
         {/* Marina details (verified members only) */}
         {showMarina && marinaDetails && (
-          <ProfileSection id="marina" icon={Anchor} title={t('orgProfile.marina.title', 'Marina details')}>
+          <ProfileSection id="marina" number={numberOf('marina')} label={navLabels.marina.label} title={t('orgProfile.marina.title', 'Marina details')}>
             <MarinaDetailsBlock details={marinaDetails} futurePlans={futurePlans} sectorLabel={sectorLabel} />
           </ProfileSection>
         )}
@@ -1160,19 +1276,19 @@ export function OrganizationPublicPage() {
 
         {/* Recommended by — confirmed marina references for partners */}
         {showRefs && (
-          <ProfileSection id="recommendations" icon={Award} title={recommendedLabel}>
-            <p className="-mt-1 mb-4 max-w-prose text-sm text-gray-600">
+          <ProfileSection id="recommendations" number={numberOf('recommendations')} label={navLabels.recommendations.label} title={recommendedLabel}>
+            <p className="-mt-2 mb-6 max-w-prose text-[15px] leading-6 text-ink">
               {t('orgProfile.recommendedByDesc', 'These marinas have confirmed working with {{name}} and recommend their services.', { name: org.name })}
             </p>
-            <ul className="grid gap-3 sm:grid-cols-2">
+            <ul className="grid gap-4 sm:grid-cols-2">
               {confirmedReferences.map((ref, idx) => (
-                <li key={idx} className={cn(CARD, 'flex items-start gap-3 p-4')}>
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary/15 text-secondary-dark">
-                    <BadgeCheck className="h-5 w-5" aria-hidden="true" />
+                <li key={idx} className={cn(CARD, 'flex items-start gap-4 p-5')}>
+                  <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-pill bg-foam text-teal">
+                    <BadgeCheck className="h-5 w-5" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-semibold text-gray-900">{ref.client_legal_name}</p>
-                    <p className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-gray-600">
+                    <p className="truncate text-card-title text-navy">{ref.client_legal_name}</p>
+                    <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-meta">
                       {ref.client_country && (
                         <span className="inline-flex items-center gap-1">
                           <MapPin className="h-3.5 w-3.5" aria-hidden="true" /> {ref.client_country}
@@ -1180,7 +1296,7 @@ export function OrganizationPublicPage() {
                       )}
                       {ref.project_name && (
                         <span>
-                          {t('orgProfile.project', 'Project')}: <span className="text-gray-800">{ref.project_name}</span>
+                          {t('orgProfile.project', 'Project')}: <span className="text-ink">{ref.project_name}</span>
                         </span>
                       )}
                     </p>
@@ -1193,8 +1309,8 @@ export function OrganizationPublicPage() {
 
         {/* Team (verified members only) */}
         {showTeam && (
-          <ProfileSection id="team" icon={Users} title={t('orgProfile.team.title', 'Team')} count={members.length}>
-            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ProfileSection id="team" number={numberOf('team')} label={navLabels.team.label} title={t('orgProfile.team.title', 'Team')} count={members.length}>
+            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {members.map((member) => {
                 const person = member.profiles ?? publicProfiles[member.user_id] ?? null;
                 const fullName = `${person?.first_name || ''} ${person?.last_name || ''}`.trim();
@@ -1205,28 +1321,23 @@ export function OrganizationPublicPage() {
                 const jobTitle = person?.job_title;
                 const avatarUrl = person?.avatar_url ?? null;
                 return (
-                  <li key={member.id}>
-                    <Link
-                      to={`/users/${member.user_id}`}
-                      className={cn(
-                        CARD,
-                        'group flex items-center gap-3 p-4 transition hover:shadow-md hover:ring-primary/20',
-                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-                      )}
-                    >
+                  <li key={member.id} className="flex">
+                    <CardShell interactive className="w-full flex-row items-center gap-4 p-4">
                       {avatarUrl ? (
-                        <img src={avatarUrl} alt="" className="h-12 w-12 shrink-0 rounded-2xl object-cover ring-2 ring-primary/10" />
+                        <img src={avatarUrl} alt="" className="h-14 w-14 shrink-0 rounded-pill object-cover ring-2 ring-rule" />
                       ) : (
-                        <span aria-hidden="true" className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-base font-bold text-primary">
+                        <span aria-hidden="true" className="grid h-14 w-14 shrink-0 place-items-center rounded-pill bg-teal text-base font-semibold tracking-[0.02em] text-white">
                           {initials || '??'}
                         </span>
                       )}
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-semibold text-gray-900 group-hover:text-primary">{displayName}</span>
-                        {jobTitle && <span className="block truncate text-sm text-gray-500">{jobTitle}</span>}
+                        <span className="block truncate text-card-title text-navy">
+                          <StretchedLink to={`/users/${member.user_id}`} arrow={false} className="rounded-sm">{displayName}</StretchedLink>
+                        </span>
+                        {jobTitle && <span className="block truncate text-sm text-meta">{jobTitle}</span>}
                       </span>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-gray-400 group-hover:text-gray-600" aria-hidden="true" />
-                    </Link>
+                      <ChevronRight className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" />
+                    </CardShell>
                   </li>
                 );
               })}
@@ -1236,23 +1347,23 @@ export function OrganizationPublicPage() {
 
         {/* What a verified member would also get here — only what this profile really has. */}
         {membersOnlyItems.length > 0 && (
-          <div className={cn(CARD, 'flex flex-col gap-4 p-6 sm:flex-row sm:items-center')}>
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-secondary/15 text-secondary-dark">
-              <Lock className="h-6 w-6" aria-hidden="true" />
+          <div className={cn(CARD, 'flex flex-col gap-5 p-6 sm:flex-row sm:items-center md:p-8')}>
+            <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-pill bg-foam text-teal">
+              <Lock className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="font-semibold text-gray-900">{t('orgProfile.membersOnlyTitle', 'More for verified members')}</h2>
-              <p className="mt-1 text-sm text-gray-600">{t('orgProfile.membersOnlyIntro', 'Verified members also get:')}</p>
-              <ul className="mt-2 flex flex-wrap gap-2">
+              <h2 className="text-card-title text-navy">{t('orgProfile.membersOnlyTitle', 'More for verified members')}</h2>
+              <p className="mt-1 text-sm text-meta">{t('orgProfile.membersOnlyIntro', 'Verified members also get:')}</p>
+              <ul className="mt-3 flex flex-wrap gap-2">
                 {membersOnlyItems.map((item) => (
-                  <li key={item.key} className="inline-flex max-w-full items-center gap-1.5 rounded-xl bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-800">
-                    <item.icon className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                  <li key={item.key} className="inline-flex max-w-full items-center gap-1.5 rounded-pill bg-chip px-3.5 py-1.5 text-sm font-medium text-navy">
+                    <item.icon className="h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
                     <span className="min-w-0 break-words">{item.label}</span>
                   </li>
                 ))}
               </ul>
             </div>
-            <Button asChild className="shrink-0 rounded-xl">
+            <Button asChild variant="ctaNavy" size="sm" className="shrink-0">
               {user ? (
                 <Link to={accountHref('dashboard')}>{t('orgProfile.checkStatus', 'Check your account status')}</Link>
               ) : (
@@ -1262,6 +1373,96 @@ export function OrganizationPublicPage() {
           </div>
         )}
       </div>
+
+      {/* ── Related articles: the library's latest pieces in this organization's themes ── */}
+      {related.length > 0 && (
+        <section aria-labelledby="org-related-heading" className="border-t border-rule bg-page pb-16 pt-14 md:pb-24 md:pt-20">
+          <div className={WRAP}>
+            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+              <div>
+                <Reveal>
+                  <Eyebrow>{t('orgPage.related.eyebrow', 'Reading')}</Eyebrow>
+                </Reveal>
+                <LineReveal as="h2" id="org-related-heading" className="mt-3 text-h2-sm text-navy md:text-h2">
+                  {t('orgPage.related.title', 'Related articles')}
+                </LineReveal>
+              </div>
+              <Reveal delay={120}>
+                <UnderlineLink to="/resources">{t('orgPage.related.all', 'All resources')}</UnderlineLink>
+              </Reveal>
+            </div>
+            <RevealGroup as="ul" className="mt-8 grid gap-5 md:grid-cols-3 md:gap-6">
+              {related.map((r) => (
+                <li key={r.id} className="flex">
+                  <ArticleCard resource={r} />
+                </li>
+              ))}
+            </RevealGroup>
+          </div>
+        </section>
+      )}
+
+      {/* ── Similar organizations, as the directory's cards in a carousel ── */}
+      {similar.length > 0 && (
+        <section aria-labelledby="org-similar-heading" className="border-t border-rule bg-white py-14 md:py-20">
+          <div className={WRAP}>
+            <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+              <div>
+                <Reveal>
+                  <Eyebrow>{t('orgPage.similar.eyebrow', 'Keep exploring')}</Eyebrow>
+                </Reveal>
+                <LineReveal as="h2" id="org-similar-heading" className="mt-3 text-h2-sm text-navy md:text-h2">
+                  {(orgType && similarTitle[orgType]) || t('orgPage.similar.titleOther', 'Similar organizations')}
+                </LineReveal>
+              </div>
+              <Reveal delay={120}>
+                <UnderlineLink to={orgType && TYPE_FALLBACK[orgType] ? `/directory?type=${orgType}` : '/directory'}>
+                  {t('orgPage.similar.all', 'See them all in the directory')}
+                </UnderlineLink>
+              </Reveal>
+            </div>
+            <Reveal className="mt-8">
+              <Carousel label={t('orgPage.similar.label', 'Similar organizations')} slideClassName="w-[86%] sm:w-[46%] lg:w-[31.5%]">
+                {similar.map((o) => (
+                  <OrgCard
+                    key={o.id}
+                    id={o.id}
+                    name={o.name}
+                    href={`/organizations/${o.slug}`}
+                    type={o.organization_type}
+                    logoUrl={o.logo_url}
+                    city={o.city}
+                    country={o.country ?? o.headquarters_country}
+                    description={o.description}
+                    verified={!!o.owner_user_id}
+                    className="w-full"
+                  />
+                ))}
+              </Carousel>
+            </Reveal>
+          </div>
+        </section>
+      )}
+
+      {/* ── The M3 contact ── */}
+      <section aria-labelledby="org-contact-heading" className="bg-page pb-16 pt-14 md:pb-24 md:pt-20">
+        <div className={cn(WRAP, 'grid gap-8 lg:grid-cols-12 lg:items-center lg:gap-12')}>
+          <div className="lg:col-span-6">
+            <Reveal>
+              <Eyebrow>{t('brand.contact.eyebrow', 'Contact')}</Eyebrow>
+            </Reveal>
+            <LineReveal as="h2" id="org-contact-heading" className="mt-3 text-h2-sm text-navy md:text-h2">
+              {t('orgPage.contact.title', 'Questions about this page?')}
+            </LineReveal>
+            <Reveal as="p" delay={120} className="mt-4 max-w-[520px] text-body text-ink">
+              {t('orgPage.contact.line', 'Something to correct on this page, or a question about the network? Write to the team.')}
+            </Reveal>
+          </div>
+          <Reveal delay={120} className="lg:col-span-5 lg:col-start-8">
+            <ContactCard />
+          </Reveal>
+        </div>
+      </section>
 
       <GalleryLightbox
         images={gallery}
@@ -1273,9 +1474,9 @@ export function OrganizationPublicPage() {
 
       {/* Connect Request Dialog */}
       <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
-        <DialogContent className="max-w-md rounded-2xl">
+        <DialogContent className="max-w-md rounded-card">
           <DialogHeader>
-            <DialogTitle>{t('orgProfile.connectTitle', 'Request to connect')}</DialogTitle>
+            <DialogTitle className="text-navy">{t('orgProfile.connectTitle', 'Request to connect')}</DialogTitle>
             <DialogDescription>{t('orgProfile.connectDesc', 'Send a connection request to {{name}}.', { name: org.name })}</DialogDescription>
           </DialogHeader>
           <div className="mt-2 space-y-4">
@@ -1289,9 +1490,9 @@ export function OrganizationPublicPage() {
                 rows={4}
               />
             </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="outline" onClick={() => setConnectOpen(false)}>{t('common.cancel', 'Cancel')}</Button>
-              <Button onClick={handleSendConnectRequest} disabled={connectSending}>
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
+              <Button variant="ctaOutline" size="sm" arrow={false} onClick={() => setConnectOpen(false)}>{t('common.cancel', 'Cancel')}</Button>
+              <Button variant="cta" size="sm" roll={!connectSending} arrow={!connectSending} onClick={handleSendConnectRequest} disabled={connectSending}>
                 {connectSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
                 {t('orgProfile.connectSend', 'Send request')}
               </Button>
@@ -1305,53 +1506,230 @@ export function OrganizationPublicPage() {
 
 /* ─── Pieces ─────────────────────────────────────────────────────── */
 
+/** Nothing to show: the page could not be loaded, or the organization does not exist. */
+function StateScreen({ seo, title, body, children }: { seo?: ReactNode; title: string; body: string; children: ReactNode }) {
+  return (
+    <div className="min-h-[70vh] bg-page px-4 py-16 sm:px-6 md:py-24">
+      {seo}
+      <div className="mx-auto max-w-lg rounded-card border border-rule bg-white px-6 py-12 text-center sm:px-10">
+        <span aria-hidden="true" className="mx-auto grid h-16 w-16 place-items-center rounded-pill bg-foam text-teal">
+          <Building2 className="h-7 w-7" strokeWidth={1.75} />
+        </span>
+        <h1 className="mt-6 text-h2-sm text-navy">{title}</h1>
+        <p className="mt-2 text-[15px] leading-6 text-meta">{body}</p>
+        <div className="mt-7 flex flex-wrap items-center justify-center gap-3">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** The cover gradient of each organization type, as on the directory's cards. */
+const COVER_BG: Record<OrgTypeTone, string> = {
+  marina: 'linear-gradient(135deg, #0b2653, #1f7a8c)',
+  provider: 'linear-gradient(135deg, #0b2653, #1f7a8c)',
+  investor: 'linear-gradient(135deg, #0b2653, #4a6fa5)',
+  media: 'linear-gradient(135deg, #1e293b, #64748b)',
+};
+
 /**
- * One section of the profile. scroll-mt-36 (144 px) lands its top just under
- * the navbar and the section bar after a jump; the heading takes focus then,
- * so keyboard and screen-reader users carry on from where they jumped.
+ * The top of a profile: the organization's own banner (settling and lagging
+ * behind the page like every banner of the site) or, without one, its type's
+ * gradient with sounding lines drifting slowly and the type's icon
+ * watermarked in. A marine veil keeps the breadcrumb readable over any photo.
+ * It registers with the header like PageHero does: the header overlaps it and
+ * turns solid on scroll. The logo, name and actions sit on the white band
+ * below; the logo straddles the two.
+ */
+function ProfileCover({
+  id, name, bannerUrl, icon: Icon, tone, back, alt,
+}: {
+  id: string;
+  name: string;
+  bannerUrl: string | null;
+  icon: LucideIcon;
+  tone: OrgTypeTone;
+  back: { to: string; label: string };
+  alt: string;
+}) {
+  const { t } = useTranslation();
+  const ref = useRef<HTMLElement>(null);
+  const mediaRef = useRef<HTMLDivElement>(null);
+  const overlaid = useRegisterHeaderHero(ref, true);
+  useParallax(mediaRef, { mode: 'page', max: 40 });
+  const seed = seedOf(id);
+
+  return (
+    <section ref={ref} className="relative isolate min-h-[260px] overflow-hidden bg-navy text-white sm:min-h-[300px] lg:min-h-[340px]">
+      <div ref={mediaRef} aria-hidden={bannerUrl ? undefined : true} className="hero-media-layer absolute inset-x-0 -top-10 bottom-0 -z-30">
+        {bannerUrl ? (
+          <CoverImage src={bannerUrl} alt={alt} seed={id} icon={Icon} aspect="fill" tone="sea" eager className="absolute inset-0" imageClassName="hero-settle" />
+        ) : (
+          <div className="absolute inset-0" style={{ background: COVER_BG[tone] }}>
+            <BathyPattern seed={seed} rings={8} opacity={0.12} drift className="absolute -inset-4" />
+            <Icon aria-hidden="true" className="absolute bottom-10 right-[8%] h-40 w-40 text-white/[.08]" strokeWidth={1.25} />
+          </div>
+        )}
+      </div>
+      <div aria-hidden="true" className="absolute inset-0 -z-20 bg-[linear-gradient(180deg,rgba(8,29,64,.82)_0%,rgba(11,38,83,.35)_55%,rgba(11,38,83,.5)_100%)]" />
+
+      <div className={cn(WRAP, 'relative z-10 pb-24', overlaid ? 'pt-[88px] md:pt-[104px]' : 'pt-8')}>
+        <nav aria-label={t('orgPage.crumbsLabel', 'Breadcrumb')} className="hidden text-[14px] leading-5 text-white/80 md:block">
+          <ol className="flex flex-wrap items-center gap-2">
+            <li className="flex items-center gap-2">
+              <UnderlineLink to="/" tone="light" plain arrow={false} className="!text-[14px] !font-normal">{t('nav.home', 'Home')}</UnderlineLink>
+              <span aria-hidden="true">/</span>
+            </li>
+            <li className="flex items-center gap-2">
+              <UnderlineLink to={back.to} tone="light" plain arrow={false} className="!text-[14px] !font-normal">{t('nav.directory', 'Directory')}</UnderlineLink>
+              <span aria-hidden="true">/</span>
+            </li>
+            <li aria-current="page" className="max-w-[420px] truncate text-white">{name}</li>
+          </ol>
+        </nav>
+        {/* Phones: one link back instead of the whole trail. */}
+        <div className="md:hidden">
+          <Link to={back.to} className="uline uline--light uline--plain !text-[14px] !font-normal">
+            <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+            <span className="uline-t">{back.label}</span>
+          </Link>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * "Is this your marina? Claim this page": for organizations the M3 team listed
+ * before anyone had an account. The request is an e-mail to the public M3
+ * address, prepared with the organization's name; the team checks every request
+ * before handing the page over.
+ */
+function ClaimCard({ name, isMarina }: { name: string; isMarina: boolean }) {
+  const { t } = useTranslation();
+  const href = `mailto:${M3_PUBLIC_EMAIL}?subject=${encodeURIComponent(t('orgPage.claim.mailSubject', 'Claim the page of {{name}} on Smart Marina Connect', { name }))}&body=${encodeURIComponent(t('orgPage.claim.mailBody', 'Organization: {{name}}\nMy name and role:\nPhone:\n', { name }))}`;
+  return (
+    <aside aria-labelledby="org-claim-heading" className="relative isolate overflow-hidden rounded-[24px] bg-navy p-6 text-white md:p-7">
+      <BathyPattern seed={7} drift className="absolute inset-0 -z-10" />
+      <Eyebrow tone="onDark">{t('orgPage.claim.eyebrow', 'Listed by M3')}</Eyebrow>
+      <h2 id="org-claim-heading" className="mt-3 text-[22px] font-semibold leading-7">
+        {isMarina ? t('orgPage.claim.titleMarina', 'Is this your marina? Claim this page') : t('orgPage.claim.titleOther', 'Is this your company? Claim this page')}
+      </h2>
+      <p className="mt-3 text-[15px] leading-6 text-white/85">
+        {isMarina
+          ? t('orgPage.claim.bodyMarina', 'The M3 team listed {{name}} before it had an account. Claim the page to complete it and keep it up to date: the M3 team checks every request before handing the page over.', { name })
+          : t('orgPage.claim.bodyOther', 'The M3 team listed {{name}} before it had an account. Claim the page to complete it and keep it up to date: the M3 team checks every request before handing it over.', { name })}
+      </p>
+      <div className="mt-6 flex items-center gap-4">
+        <span aria-hidden="true" className="grid h-14 w-14 shrink-0 place-items-center rounded-pill bg-teal text-[18px] font-semibold tracking-[0.02em] text-white shadow-[0_0_0_4px_rgba(255,255,255,.14)]">
+          VM
+        </span>
+        <div>
+          <p className="text-base font-semibold leading-[22px]">Victor Meyer</p>
+          <p className="mt-0.5 text-sm leading-5 text-white/80">M3 Monaco</p>
+        </div>
+      </div>
+      <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+        <Button asChild variant="ctaWhite" size="sm">
+          <a href={href}>{t('orgPage.claim.cta', 'Claim this page')}</a>
+        </Button>
+        <UnderlineLink to="/contact" tone="light">{t('orgPage.claim.question', 'Ask a question')}</UnderlineLink>
+      </div>
+    </aside>
+  );
+}
+
+/** One article of the library, as on the home page: a 3:2 picture, theme and date, the title, the type. */
+function ArticleCard({ resource: r }: { resource: RelatedArticle }) {
+  const { t } = useTranslation();
+  const theme = getTheme(r.themes[0]);
+  const locked = r.access_level && r.access_level !== 'public';
+  return (
+    <CardShell interactive className="w-full min-w-0 p-4">
+      <div className="card-media relative aspect-[3/2] overflow-hidden rounded-[12px]">
+        <CoverImage
+          src={r.thumbnail_url || theme?.image || null}
+          focusY={r.thumbnail_url ? 0.5 : theme?.imageFocusY ?? 0.5}
+          alt=""
+          seed={r.id}
+          icon={theme?.icon ?? Newspaper}
+          aspect="fill"
+          tone="sea"
+        />
+      </div>
+      <div className="mt-4 flex items-center justify-between gap-3 text-[12px] font-medium uppercase leading-4 tracking-[0.06em] text-meta">
+        {theme ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-teal" />
+            <span className="truncate">{t(theme.labelKey, theme.fallback)}</span>
+          </span>
+        ) : (
+          <span />
+        )}
+        <span className="tabular shrink-0">{boardDate(r.published_at || r.created_at, 'en-GB')}</span>
+      </div>
+      <h3 lang="en" className="mt-2 text-[18px] font-semibold leading-[26px] text-navy">
+        <StretchedLink to={`/resources/${r.id}`} className="line-clamp-3 rounded-sm">
+          {r.title}
+        </StretchedLink>
+      </h3>
+      <div className="mt-auto flex flex-wrap gap-2 pt-4">
+        <span className="inline-flex h-6 items-center rounded-full bg-chip px-2.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-navy">
+          {t(`resources.types.${r.type}`, r.type)}
+        </span>
+        {locked && (
+          <span className="inline-flex h-6 items-center gap-1 rounded-full bg-chip px-2.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-navy">
+            <Lock className="h-3 w-3" aria-hidden="true" />
+            {t(`resources.accessLevels.${r.access_level}`, r.access_level)}
+          </span>
+        )}
+      </div>
+    </CardShell>
+  );
+}
+
+/**
+ * One section of the profile: a numbered eyebrow, the title and the content.
+ * scroll-mt-36 (144 px) lands its top just under the header and the section bar
+ * after a jump; the heading takes focus then, so keyboard and screen-reader
+ * users carry on from where they jumped.
  */
 function ProfileSection({
-  id, icon: Icon, title, count, children,
+  id, number, label, title, count, children,
 }: {
   id: SectionId;
-  icon: LucideIcon;
+  number: string;
+  label: string;
   title: string;
   count?: number;
   children: ReactNode;
 }) {
   return (
-    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-36">
-      <div className="mb-4 flex items-center gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary">
-          <Icon className="h-5 w-5" aria-hidden="true" />
-        </span>
-        <h2
-          id={`${id}-title`}
-          tabIndex={-1}
-          data-section-heading
-          className="min-w-0 break-words text-xl font-semibold text-gray-900 focus:outline-none"
-        >
-          {title}
-        </h2>
+    <Reveal as="section" id={id} aria-labelledby={`${id}-title`} className="scroll-mt-36">
+      <Eyebrow number={number}>{label}</Eyebrow>
+      <h2
+        id={`${id}-title`}
+        tabIndex={-1}
+        data-section-heading
+        className="mt-3 flex min-w-0 flex-wrap items-center gap-x-3 break-words text-h2-sm text-navy focus:outline-none md:text-h2"
+      >
+        {title}
         {count !== undefined && count > 0 && (
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium tabular-nums text-gray-600">{count}</span>
+          <span className="tabular inline-flex h-7 items-center rounded-pill bg-chip px-2.5 text-[13px] font-medium text-navy">{count}</span>
         )}
-      </div>
-      {children}
-    </section>
+      </h2>
+      <div className="mt-6 md:mt-8">{children}</div>
+    </Reveal>
   );
 }
 
 /** A labelled fact in the "At a glance" card. */
 function Fact({ icon: Icon, label, children }: { icon: LucideIcon; label: string; children: ReactNode }) {
   return (
-    <li className="flex items-start gap-3">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary">
-        <Icon className="h-5 w-5" aria-hidden="true" />
-      </span>
+    <li className="flex items-start gap-3 py-3.5 first:pt-0 last:pb-0">
+      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-teal" aria-hidden="true" />
       <div className="min-w-0">
-        <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{label}</p>
-        <div className="break-words font-medium text-gray-900">{children}</div>
+        <p className="text-meta-caps">{label}</p>
+        <div className="mt-0.5 break-words font-medium text-navy">{children}</div>
       </div>
     </li>
   );
@@ -1422,16 +1800,16 @@ function MarinaDetailsBlock({
   if (hasText(details.marina_description)) {
     textCards.push(
       <div key="about" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-2 font-semibold text-gray-900">{t('orgProfile.marina.aboutMarina', 'About the marina')}</h3>
-        <p className="whitespace-pre-wrap leading-relaxed text-gray-700">{details.marina_description}</p>
+        <h3 className="mb-2 text-card-title text-navy">{t('orgProfile.marina.aboutMarina', 'About the marina')}</h3>
+        <p className="whitespace-pre-wrap leading-relaxed text-ink">{details.marina_description}</p>
       </div>,
     );
   }
   if (hasText(details.services_description)) {
     textCards.push(
       <div key="services" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-2 font-semibold text-gray-900">{t('orgProfile.marina.services', 'Services')}</h3>
-        <p className="whitespace-pre-wrap leading-relaxed text-gray-700">{details.services_description}</p>
+        <h3 className="mb-2 text-card-title text-navy">{t('orgProfile.marina.services', 'Services')}</h3>
+        <p className="whitespace-pre-wrap leading-relaxed text-ink">{details.services_description}</p>
       </div>,
     );
   }
@@ -1440,11 +1818,11 @@ function MarinaDetailsBlock({
   if (facilities.length > 0) {
     listCards.push(
       <div key="facilities" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-4 font-semibold text-gray-900">{t('orgProfile.marina.facilities', 'Facilities & services')}</h3>
+        <h3 className="mb-4 text-card-title text-navy">{t('orgProfile.marina.facilities', 'Facilities & services')}</h3>
         <ul className="grid gap-3 sm:grid-cols-2">
           {facilities.map((f) => (
-            <li key={f.key} className="flex items-center gap-2.5 text-sm text-gray-800">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/5 text-primary">
+            <li key={f.key} className="flex items-center gap-2.5 text-sm text-ink">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-field bg-foam text-teal">
                 <f.icon className="h-4 w-4" aria-hidden="true" />
               </span>
               {f.label}
@@ -1457,17 +1835,17 @@ function MarinaDetailsBlock({
   if (certifications.length > 0 || hasText(details.certifications_other)) {
     listCards.push(
       <div key="certs" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-3 font-semibold text-gray-900">{t('orgProfile.marina.certifications', 'Certifications')}</h3>
+        <h3 className="mb-3 text-card-title text-navy">{t('orgProfile.marina.certifications', 'Certifications')}</h3>
         <ul className="flex flex-wrap gap-2">
           {certifications.map((cert) => (
-            <li key={cert} className="inline-flex items-center gap-1.5 rounded-full bg-secondary/15 px-3 py-1.5 text-sm font-medium text-gray-900">
-              <Award className="h-3.5 w-3.5 text-secondary-dark" aria-hidden="true" />
+            <li key={cert} className="inline-flex items-center gap-1.5 rounded-full bg-chip px-3 py-1.5 text-sm font-medium text-navy">
+              <Award className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
               {cert}
             </li>
           ))}
           {hasText(details.certifications_other) && (
-            <li className="inline-flex items-center gap-1.5 rounded-full bg-secondary/15 px-3 py-1.5 text-sm font-medium text-gray-900">
-              <Award className="h-3.5 w-3.5 text-secondary-dark" aria-hidden="true" />
+            <li className="inline-flex items-center gap-1.5 rounded-full bg-chip px-3 py-1.5 text-sm font-medium text-navy">
+              <Award className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
               {details.certifications_other}
             </li>
           )}
@@ -1478,17 +1856,17 @@ function MarinaDetailsBlock({
   if (plans.length > 0) {
     listCards.push(
       <div key="plans" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-4 flex items-center gap-2 font-semibold text-gray-900">
-          <CalendarClock className="h-4 w-4 text-primary" aria-hidden="true" />
+        <h3 className="mb-4 flex items-center gap-2 text-card-title text-navy">
+          <CalendarClock className="h-4 w-4 text-teal" aria-hidden="true" />
           {t('orgProfile.marina.futurePlans', 'Future development plans')}
         </h3>
         <ul className="space-y-2">
           {plans.map((plan) => {
             const tl = TIMELINES[plan.timeline];
             return (
-              <li key={`${plan.sector_label}-${plan.timeline}`} className="flex items-center justify-between gap-3 rounded-xl bg-gray-50 px-3 py-2">
-                <span className="min-w-0 text-sm font-medium text-gray-800">{planLabel(plan)}</span>
-                <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold', tl?.tone ?? 'bg-gray-100 text-gray-700')}>
+              <li key={`${plan.sector_label}-${plan.timeline}`} className="flex items-center justify-between gap-3 rounded-field bg-page px-3 py-2">
+                <span className="min-w-0 text-sm font-medium text-navy">{planLabel(plan)}</span>
+                <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold', tl?.tone ?? 'bg-chip text-meta')}>
                   {tl ? t(`orgProfile.timelines.${tl.key}`, tl.fallback) : plan.timeline}
                 </span>
               </li>
@@ -1505,9 +1883,9 @@ function MarinaDetailsBlock({
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {stats.map((s) => (
             <li key={s.key} className={cn(CARD, 'p-4')}>
-              <s.icon className="h-5 w-5 text-secondary-dark" aria-hidden="true" />
-              <p className={cn('mt-3 break-words font-bold text-gray-900', s.numeric ? 'text-2xl tabular-nums' : 'text-lg leading-tight')}>{s.value}</p>
-              <p className="mt-0.5 text-xs font-medium uppercase tracking-wide text-gray-500">{s.label}</p>
+              <s.icon className="h-5 w-5 text-teal" aria-hidden="true" />
+              <p className={cn('mt-3 break-words font-semibold text-navy', s.numeric ? 'text-[28px] leading-8 tabular-nums' : 'text-lg leading-tight')}>{s.value}</p>
+              <p className="mt-0.5 text-meta-caps">{s.label}</p>
             </li>
           ))}
         </ul>
@@ -1575,7 +1953,7 @@ function GalleryLightbox({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className={cn('w-[calc(100vw-1rem)] max-w-5xl gap-0 overflow-hidden rounded-2xl border-0 bg-gray-950 p-0 text-white sm:rounded-2xl', closeBtn)}>
+      <DialogContent className={cn('w-[calc(100vw-1rem)] max-w-5xl gap-0 overflow-hidden rounded-card border-0 bg-gray-950 p-0 text-white sm:rounded-card', closeBtn)}>
         <DialogTitle className="sr-only">{t('orgProfile.gallery.lightboxTitle', 'Photos of {{name}}', { name })}</DialogTitle>
         <div
           className="relative flex min-h-[40vh] items-center justify-center bg-black"

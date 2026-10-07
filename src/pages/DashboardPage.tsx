@@ -4,10 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { Helmet } from 'react-helmet-async';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Inbox, UserPlus, ImageIcon, ImagePlus, PenLine, UserCircle, ChevronRight,
+  Inbox, UserPlus, ImageIcon, ImagePlus, PenLine, UserCircle,
   CheckCircle2, Clock, AlertCircle, CalendarDays, Video, MapPin, Ship,
   MessageSquare, Wrench, BookOpen, ArrowRight, TrendingUp, ShieldCheck,
-  CircleDashed, Tags, Users, GalleryHorizontal, LayoutGrid, ExternalLink, Eye,
+  CircleDashed, Tags, Users, GalleryHorizontal, Briefcase, ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -16,6 +16,14 @@ import { CoverImage, LogoBadge } from '@/components/ui/CoverImage';
 import { SITE_IMAGES, eventCover } from '@/lib/siteMedia';
 import { Button } from '@/components/ui/button';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
+import { CardShell, CardMedia, StretchedLink } from '@/components/brand/CardShell';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { Reveal, RevealGroup } from '@/components/motion/Reveal';
+import {
+  BandPill, BlockSkeleton, FOCUS, MemberBanner, MemberEmpty, MemberHeader, MemberPanel, MemberRow,
+  RowSkeleton, SectionHeading, StatusPill, type PillTone,
+} from '@/components/member/MemberUI';
 import { CREATE_ACTIONS, DEAL_FLOW_ITEM, MEMBER_NAV, canCreate } from '@/lib/nav';
 import { ACCOUNT_GROUPS, ACCOUNT_SECTIONS, accountHref, type AccountTab } from '@/lib/accountNav';
 import { cn, type CalendarEventInput } from '@/lib/utils';
@@ -129,8 +137,6 @@ interface MeterItem {
   inTodo: boolean;
 }
 
-type QuickTone = 'navy' | 'gold' | 'soft';
-
 interface QuickItem {
   key: string;
   href: string;
@@ -143,7 +149,6 @@ interface QuickItem {
 interface QuickGroup {
   key: string;
   label: string;
-  tone: QuickTone;
   items: QuickItem[];
 }
 
@@ -154,10 +159,6 @@ const SUPPLY_PERSONAS = ['partner', 'media_partner'];
 
 /** Same default as the event page when an event has no end time. */
 const DEFAULT_DURATION_MS = 60 * 60 * 1000;
-
-/** Row links inside a card: the card clips, so the focus ring sits inside. */
-const ROW_FOCUS = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary';
-const FOCUS = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2';
 
 /** The organization tab, opened on one of its sections (AccountPage honours ?section=). */
 function orgSectionHref(section: 'branding' | 'gallery' | 'details' | 'team'): string {
@@ -589,21 +590,18 @@ export function DashboardPage() {
     {
       key: 'explore',
       label: t('dashboard.everything.explore', 'Explore the platform'),
-      tone: 'navy' as const,
       items: [...MEMBER_NAV.filter((n) => n.href !== '/dashboard'), ...(isInvestor ? [DEAL_FLOW_ITEM] : [])]
         .map((n) => ({ key: n.href, href: n.href, label: t(n.labelKey, n.fallback), desc: t(n.descKey, n.descFallback), icon: n.icon })),
     },
     {
       key: 'create',
       label: t('dashboard.everything.create', 'Publish or propose'),
-      tone: 'gold' as const,
       items: allCreateActions
         .map((a) => ({ key: a.href, href: a.href, label: t(a.labelKey, a.fallback), desc: t(a.descKey, a.descFallback), icon: a.icon })),
     },
     ...ACCOUNT_GROUPS.map((g) => ({
       key: g.key,
       label: t(g.labelKey, g.fallback),
-      tone: 'soft' as const,
       items: ACCOUNT_SECTIONS
         .filter((s) => s.group === g.key && sectionVisible[s.value])
         .map((s) => ({
@@ -632,15 +630,14 @@ export function DashboardPage() {
   // own and this lists what else is coming.
   const upcomingList = nextRegistered ? otherEvents.slice(0, 2) : events.slice(0, 3);
   const upcomingSection = (
-    <Section
+    <MemberPanel
       title={nextRegistered ? t('dashboard.alsoComingUp', 'Also coming up') : t('dashboard.upcomingTitle')}
       link={{ to: '/events', label: t('dashboard.seeAllEvents') }}
-      footer={nextRegistered ? undefined : { to: accountHref('registrations'), label: t('accountNav.registrations', 'My events') }}
     >
       {loading ? (
-        <div className="p-5"><div className="aspect-video rounded-xl bg-gray-100 animate-pulse" /></div>
+        <div className="p-5"><BlockSkeleton className="aspect-video" /></div>
       ) : upcomingList.length === 0 ? (
-        <p className="px-5 py-6 text-sm text-gray-600">{t('dashboard.noEvents')}</p>
+        <MemberEmpty icon={CalendarDays} title={t('dashboard.noEvents')} className="py-8" />
       ) : (
         <div className="space-y-4 p-5">
           {upcomingList.map((e, i) => (
@@ -648,313 +645,263 @@ export function DashboardPage() {
           ))}
         </div>
       )}
-    </Section>
+      {!nextRegistered && (
+        <div className="border-t border-rule px-5 py-3">
+          <UnderlineLink to={accountHref('registrations')} className="!text-[14px] !leading-5">
+            {t('accountNav.registrations', 'My events')}
+          </UnderlineLink>
+        </div>
+      )}
+    </MemberPanel>
   );
 
   /* -------------------------------------------------------------- render */
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-16">
+    <div className="min-h-screen bg-page pb-20">
       <Helmet>
         <title>{`${t('dashboard.title')} — Smart Marina Connect`}</title>
       </Helmet>
 
       {/* ── Header band: the organization's own cover; without one (most
           organizations), an SM26 photo rather than a bare gradient. ── */}
-      <CoverImage
-        src={brandSrc?.banner_url || SITE_IMAGES.dashboardBand.src}
-        focusY={brandSrc?.banner_url ? 0.5 : SITE_IMAGES.dashboardBand.focusY}
-        alt=""
+      <MemberHeader
+        image={brandSrc?.banner_url ? { src: brandSrc.banner_url, focusY: 0.5 } : SITE_IMAGES.dashboardBand}
         seed={orgId ?? uid ?? 'member'}
         icon={Ship}
-        aspect="fill"
-        tone="sea"
-        eager
-        className="h-48 sm:h-56"
+        eyebrow={t('dashboard.title')}
+        title={t('dashboard.greeting', { name: firstName })}
+        leading={organization ? (
+          <LogoBadge
+            src={brandSrc?.logo_url}
+            name={organization.name}
+            size="lg"
+            className="hidden ring-2 ring-white/80 sm:flex"
+          />
+        ) : undefined}
+        actions={(
+          <UnderlineLink tone="light" onClick={jumpToEverything}>
+            {t('dashboard.everything.jump', 'Everything you can do')}
+          </UnderlineLink>
+        )}
       >
-        {/* Navy wash rising from the greeting, so white text reads on any photo. */}
-        <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/90 via-[#0b2653]/55 to-[#0b2653]/25" />
-        <div className="absolute inset-0 flex items-end">
-          <div className="container mx-auto px-4 pb-6 flex items-end gap-4">
-            {organization && (
-              <LogoBadge
-                src={brandSrc?.logo_url}
-                name={organization.name}
-                size="lg"
-                className="hidden sm:flex ring-4 ring-white/90 shadow-lg"
-              />
-            )}
-            <div className="min-w-0 flex-1 text-white">
-              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight drop-shadow-sm">
-                {t('dashboard.greeting', { name: firstName })}
-              </h1>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-white/85">
-                {organization && <span className="truncate">{t('dashboard.actingFor', { org: orgName })}</span>}
-                {organization && (
-                  orgVerified ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-xs backdrop-blur-sm">
-                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> {t('dashboard.verified')}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/25 px-2 py-0.5 text-xs backdrop-blur-sm">
-                      <Clock className="h-3.5 w-3.5" aria-hidden="true" /> {t('dashboard.underReview')}
-                    </span>
-                  )
-                )}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={jumpToEverything}
-              className="hidden shrink-0 items-center gap-2 rounded-full bg-white/15 px-4 min-h-10 text-sm font-medium text-white ring-1 ring-white/30 backdrop-blur-sm transition-colors hover:bg-white/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-white md:inline-flex"
-            >
-              <LayoutGrid className="h-4 w-4" aria-hidden="true" />
-              {t('dashboard.everything.jump', 'Everything you can do')}
-            </button>
-          </div>
-        </div>
-      </CoverImage>
+        {organization && <span className="min-w-0 [overflow-wrap:anywhere]">{t('dashboard.actingFor', { org: orgName })}</span>}
+        {organization && (
+          orgVerified ? (
+            <BandPill icon={ShieldCheck}>{t('dashboard.verified')}</BandPill>
+          ) : (
+            <BandPill tone="warning" icon={Clock}>{t('dashboard.underReview')}</BandPill>
+          )
+        )}
+      </MemberHeader>
 
-      <div className="container mx-auto px-4 pt-8">
+      <div className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6 md:pt-10">
         {/* ── Blocking status, above everything else ── */}
         {profile?.access_status === 'pending' && (
-          <StatusCard tone="amber" icon={Clock} title={t('dashboard.statusPendingTitle')} body={t('dashboard.statusPendingBody')} />
+          <MemberBanner tone="warning" icon={Clock} title={t('dashboard.statusPendingTitle')} body={t('dashboard.statusPendingBody')} />
         )}
         {profile?.access_status === 'rejected' && (
-          <StatusCard
-            tone="red"
+          <MemberBanner
+            tone="danger"
             icon={AlertCircle}
             title={t('dashboard.statusRejectedTitle')}
-            body={profile.rejection_reason ? t('dashboard.statusRejectedBody', { reason: profile.rejection_reason }) : ''}
-            action={<Link to="/contact" className="font-medium underline underline-offset-2">{t('dashboard.contactUs')}</Link>}
+            body={profile.rejection_reason ? t('dashboard.statusRejectedBody', { reason: profile.rejection_reason }) : undefined}
+            action={<UnderlineLink to="/contact">{t('dashboard.contactUs')}</UnderlineLink>}
           />
         )}
         {isVerified && organization && !orgVerified && (
-          <StatusCard tone="amber" icon={Clock} title={t('dashboard.orgPendingTitle', { org: orgName })} body={t('dashboard.orgPendingBody')} />
+          <MemberBanner tone="warning" icon={Clock} title={t('dashboard.orgPendingTitle', { org: orgName })} body={t('dashboard.orgPendingBody')} />
         )}
 
-        {/* On a phone the hero has no room for the shortcut; it opens the page instead. */}
-        <button
-          type="button"
-          onClick={jumpToEverything}
-          className={cn(
-            'mb-6 flex min-h-11 w-full items-center gap-3 rounded-2xl bg-white px-4 py-2.5 text-left text-sm font-medium text-gray-900 shadow-sm ring-1 ring-gray-100 transition-colors hover:bg-gray-50 md:hidden',
-            FOCUS,
-          )}
-        >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-white">
-            <LayoutGrid className="h-4 w-4" aria-hidden="true" />
-          </span>
-          <span className="flex-1">{t('dashboard.everything.jump', 'Everything you can do')}</span>
-          <ChevronRight className="h-4 w-4 rotate-90 text-gray-400" aria-hidden="true" />
-        </button>
-
-        {/* grid-cols-1 is minmax(0, 1fr): a truncated title can't widen the phone column. */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* grid-cols-1 is minmax(0, 1fr): a long title can't widen the phone column. */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:gap-8">
           {/* ════════════ Main column ════════════ */}
-          <div className="space-y-6 lg:col-span-2">
+          <div className="space-y-6 lg:col-span-2 lg:space-y-8">
             {/* To do */}
-            <Section title={t('dashboard.todoTitle')}>
-              {loading ? (
-                <RowSkeleton rows={2} />
-              ) : todos.length === 0 ? (
-                <div className="flex items-center gap-3 px-5 py-6 text-sm text-gray-600">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-500 shrink-0" aria-hidden="true" />
-                  {t('dashboard.todoEmpty')}
-                </div>
-              ) : (
-                <ul className="divide-y divide-gray-100">
-                  {todos.map((todo) => (
-                    <li key={todo.key}>
-                      <Link to={todo.href} className={cn('group flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors', ROW_FOCUS)}>
-                        <span className={cn(
-                          'flex h-10 w-10 shrink-0 items-center justify-center rounded-xl',
-                          todo.urgent ? 'bg-secondary/15 text-secondary-dark' : 'bg-primary/5 text-primary',
-                        )}>
-                          <todo.icon className="h-5 w-5" aria-hidden="true" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-medium text-gray-900">{todo.title}</span>
-                          <span className="block text-xs text-gray-500">{todo.hint}</span>
-                        </span>
-                        <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0" aria-hidden="true" />
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Section>
+            <Reveal>
+              <MemberPanel title={t('dashboard.todoTitle')}>
+                {loading ? (
+                  <RowSkeleton rows={2} />
+                ) : todos.length === 0 ? (
+                  <div className="flex items-center gap-3 px-5 py-6 text-[15px] text-meta">
+                    <CheckCircle2 className="h-5 w-5 shrink-0 text-teal" aria-hidden="true" />
+                    {t('dashboard.todoEmpty')}
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-rule">
+                    {todos.map((todo) => (
+                      <MemberRow key={todo.key} to={todo.href} icon={todo.icon} title={todo.title} hint={todo.hint} urgent={todo.urgent} />
+                    ))}
+                  </ul>
+                )}
+              </MemberPanel>
+            </Reveal>
 
             {/* My next event comes right after the to-do list on every screen.
                 Without one, the "coming up" block takes that place on phones
                 (on desktop it sits in the side column). */}
             {nextRegistered
-              ? <NextEventCard event={nextRegistered} lang={lang} />
+              ? <Reveal><NextEventCard event={nextRegistered} lang={lang} /></Reveal>
               : <div className="lg:hidden">{upcomingSection}</div>}
 
             {/* Demand side: what I've put out there */}
             {isDemand && (
-              <Section
-                title={t('dashboard.myRequestsTitle')}
-                link={myRequests.length > 0 ? { to: '/account?tab=submissions', label: t('dashboard.seeAllRequests') } : undefined}
-              >
-                {loading ? (
-                  <RowSkeleton rows={2} />
-                ) : myRequests.length === 0 ? (
-                  <div className="px-5 py-6">
-                    <p className="text-sm text-gray-600 max-w-prose">{t('dashboard.myRequestsEmpty')}</p>
-                    {createActions.length > 0 && (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {createActions.map((a) => (
-                          <Link
-                            key={a.href}
-                            to={a.href}
-                            className={cn('inline-flex min-h-10 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:border-primary/40 hover:text-primary transition-colors', FOCUS)}
-                          >
-                            <a.icon className="h-4 w-4" aria-hidden="true" />
-                            {t(a.labelKey, a.fallback)}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <ul className="divide-y divide-gray-100">
-                    {myRequests.map((r) => {
-                      const Icon = r.kind === 'rfp' ? Ship : r.kind === 'consultation' ? MessageSquare : Wrench;
-                      const tab = r.kind === 'rfp' ? 'rfps' : r.kind === 'consultation' ? 'consultations' : 'projects';
-                      return (
-                        <li key={`${r.kind}-${r.id}`}>
-                          <Link to={`/account?tab=${tab}`} className={cn('group flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors', ROW_FOCUS)}>
-                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary">
-                              <Icon className="h-5 w-5" aria-hidden="true" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-medium text-gray-900">{r.title}</span>
-                              <span className="block text-xs text-gray-500">{t(`dashboard.${r.kind}`)}</span>
-                            </span>
-                            <StatusPill status={r.status} label={t(`dashboard.status_${r.status}`, r.status)} />
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </Section>
+              <Reveal>
+                <MemberPanel
+                  title={t('dashboard.myRequestsTitle')}
+                  link={myRequests.length > 0 ? { to: '/account?tab=submissions', label: t('dashboard.seeAllRequests') } : undefined}
+                >
+                  {loading ? (
+                    <RowSkeleton rows={2} />
+                  ) : myRequests.length === 0 ? (
+                    <MemberEmpty
+                      icon={ClipboardList}
+                      title={t('dashboard.myRequestsEmptyTitle', 'Nothing published yet')}
+                      body={t('dashboard.myRequestsEmpty')}
+                      action={createActions.map((a, i) => (
+                        <Button key={a.href} asChild variant={i === 0 ? 'cta' : 'ctaOutline'} size="sm">
+                          <Link to={a.href}>{t(a.labelKey, a.fallback)}</Link>
+                        </Button>
+                      ))}
+                    />
+                  ) : (
+                    <ul className="divide-y divide-rule">
+                      {myRequests.map((r) => {
+                        const Icon = r.kind === 'rfp' ? Ship : r.kind === 'consultation' ? MessageSquare : Wrench;
+                        const tab = r.kind === 'rfp' ? 'rfps' : r.kind === 'consultation' ? 'consultations' : 'projects';
+                        return (
+                          <MemberRow
+                            key={`${r.kind}-${r.id}`}
+                            to={`/account?tab=${tab}`}
+                            icon={Icon}
+                            title={r.title}
+                            hint={t(`dashboard.${r.kind}`)}
+                            aside={<RequestPill status={r.status} label={t(`dashboard.status_${r.status}`, r.status)} />}
+                          />
+                        );
+                      })}
+                    </ul>
+                  )}
+                </MemberPanel>
+              </Reveal>
             )}
 
             {/* Supply side: open business */}
             {isSupply && (
-              <Section
-                title={t('dashboard.opportunitiesTitle')}
-                link={canSeeOpportunities ? { to: '/opportunities', label: t('dashboard.seeAllOpportunities') } : undefined}
-              >
-                {!canSeeOpportunities ? (
-                  <p className="px-5 py-6 text-sm text-gray-600">{t('dashboard.opportunitiesLocked')}</p>
-                ) : loading ? (
-                  <RowSkeleton rows={3} />
-                ) : opportunities.length === 0 ? (
-                  <p className="px-5 py-6 text-sm text-gray-600">{t('dashboard.opportunitiesEmpty')}</p>
-                ) : (
-                  <ul className="divide-y divide-gray-100">
-                    {opportunities.map((o) => (
-                      <li key={`${o.kind}-${o.id}`}>
-                        <Link to="/opportunities" className={cn('group flex items-center gap-4 px-5 py-3.5 hover:bg-gray-50 transition-colors', ROW_FOCUS)}>
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary">
-                            {o.kind === 'rfp'
-                              ? <Ship className="h-5 w-5" aria-hidden="true" />
-                              : <MessageSquare className="h-5 w-5" aria-hidden="true" />}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium text-gray-900">{o.title}</span>
-                            <span className="block text-xs text-gray-500">
+              <Reveal>
+                <MemberPanel
+                  title={t('dashboard.opportunitiesTitle')}
+                  link={canSeeOpportunities ? { to: '/opportunities', label: t('dashboard.seeAllOpportunities') } : undefined}
+                >
+                  {!canSeeOpportunities ? (
+                    <MemberEmpty icon={ShieldCheck} title={t('dashboard.opportunitiesLocked')} className="py-8" />
+                  ) : loading ? (
+                    <RowSkeleton rows={3} />
+                  ) : opportunities.length === 0 ? (
+                    <MemberEmpty icon={Briefcase} title={t('dashboard.opportunitiesEmpty')} className="py-8" />
+                  ) : (
+                    <ul className="divide-y divide-rule">
+                      {opportunities.map((o) => (
+                        <MemberRow
+                          key={`${o.kind}-${o.id}`}
+                          to="/opportunities"
+                          icon={o.kind === 'rfp' ? Ship : MessageSquare}
+                          title={o.title}
+                          hint={(
+                            <>
                               {t(`dashboard.${o.kind}`)}
                               {o.deadline && ` · ${t('dashboard.deadline', {
                                 date: new Date(o.deadline).toLocaleDateString(lang, { day: 'numeric', month: 'short' }),
                               })}`}
-                            </span>
-                          </span>
-                          {o.matches && (
-                            <span className="hidden sm:inline-flex rounded-full bg-secondary/15 px-2 py-0.5 text-[11px] font-medium text-secondary-dark">
-                              {t('dashboard.opportunitiesMatch')}
-                            </span>
+                            </>
                           )}
-                          <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0" aria-hidden="true" />
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Section>
+                          aside={o.matches ? (
+                            <StatusPill tone="info" className="hidden sm:inline-flex">{t('dashboard.opportunitiesMatch')}</StatusPill>
+                          ) : undefined}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </MemberPanel>
+              </Reveal>
             )}
 
-            {/* Resources — the visual block */}
-            <Section
-              title={resourcesMatched ? t('dashboard.resourcesForYou') : t('dashboard.resourcesLatest')}
-              link={{ to: '/resources', label: t('dashboard.seeAllResources') }}
-            >
+            {/* Resources — the visual block: the library's own cards, straight on the page */}
+            <Reveal as="section" aria-labelledby="dash-resources-title">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <Eyebrow as="h2">
+                  <span id="dash-resources-title">{resourcesMatched ? t('dashboard.resourcesForYou') : t('dashboard.resourcesLatest')}</span>
+                </Eyebrow>
+                <UnderlineLink to="/resources" className="!text-[14px] !leading-5">{t('dashboard.seeAllResources')}</UnderlineLink>
+              </div>
               {loading ? (
-                <div className="grid grid-cols-2 gap-4 p-5 xl:grid-cols-4">
-                  {[0, 1, 2, 3].map((i) => <div key={i} className="aspect-[3/2] rounded-xl bg-gray-100 animate-pulse" />)}
+                <div className="grid grid-cols-2 gap-4 xl:grid-cols-4" aria-hidden="true">
+                  {[0, 1, 2, 3].map((i) => <BlockSkeleton key={i} className="aspect-[3/4] rounded-card" />)}
                 </div>
               ) : resources.length === 0 ? (
-                <p className="px-5 py-6 text-sm text-gray-600">{t('dashboard.noResources')}</p>
+                <CardShell>
+                  <MemberEmpty icon={BookOpen} title={t('dashboard.noResources')} className="py-8" />
+                </CardShell>
               ) : (
-                <div className="grid grid-cols-2 gap-4 p-5 xl:grid-cols-4">
+                <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
                   {resources.map((r) => (
-                    <Link key={r.id} to={`/resources/${r.id}`} className={cn('group block rounded-xl', FOCUS)}>
-                      <CoverImage
-                        src={r.thumbnail_url}
-                        alt=""
-                        seed={r.id}
-                        icon={RESOURCE_ICON[r.type] ?? BookOpen}
-                        aspect="wide"
-                        className="rounded-xl"
-                        imageClassName="group-hover:scale-[1.03]"
-                      >
-                        <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-0.5 text-[11px] font-medium text-gray-800 backdrop-blur-sm">
-                          {t(`resources.types.${r.type}`, r.type)}
-                        </span>
-                      </CoverImage>
-                      <h3 className="mt-3 line-clamp-2 text-sm font-semibold text-gray-900 group-hover:text-primary transition-colors">
-                        {r.title}
-                      </h3>
-                      {r.summary && <p className="mt-1 line-clamp-2 text-xs text-gray-500">{r.summary}</p>}
-                    </Link>
+                    <CardShell key={r.id} interactive>
+                      <CardMedia>
+                        <CoverImage
+                          src={r.thumbnail_url}
+                          alt=""
+                          seed={r.id}
+                          icon={RESOURCE_ICON[r.type] ?? BookOpen}
+                          aspect="wide"
+                        >
+                          <span className="absolute left-3 top-3 rounded-pill bg-white/95 px-2.5 py-0.5 text-[12px] font-semibold text-navy">
+                            {t(`resources.types.${r.type}`, r.type)}
+                          </span>
+                        </CoverImage>
+                      </CardMedia>
+                      <div className="flex flex-1 flex-col p-4">
+                        <h3 className="text-[15px] font-semibold leading-5 text-navy">
+                          <StretchedLink to={`/resources/${r.id}`} arrow={false} className="[overflow-wrap:anywhere]">{r.title}</StretchedLink>
+                        </h3>
+                        {r.summary && <p className="mt-1.5 line-clamp-2 text-[13px] leading-[18px] text-meta">{r.summary}</p>}
+                      </div>
+                    </CardShell>
                   ))}
                 </div>
               )}
-            </Section>
+            </Reveal>
           </div>
 
           {/* ════════════ Side column ════════════ */}
-          <div className="space-y-6">
+          <div className="space-y-6 lg:space-y-8">
             {nextRegistered
-              ? (otherEvents.length > 0 && upcomingSection)
-              : <div className="hidden lg:block">{upcomingSection}</div>}
+              ? (otherEvents.length > 0 && <Reveal delay={80}>{upcomingSection}</Reveal>)
+              : <Reveal delay={80} className="hidden lg:block">{upcomingSection}</Reveal>}
 
             {showMeter && organization && (
-              <ProfileMeter
-                items={meterItems}
-                loading={loading}
-                orgName={orgName}
-                publicHref={organization.slug ? `/organizations/${organization.slug}` : null}
-              />
+              <Reveal delay={160}>
+                <ProfileMeter
+                  items={meterItems}
+                  loading={loading}
+                  orgName={orgName}
+                  publicHref={organization.slug ? `/organizations/${organization.slug}` : null}
+                />
+              </Reveal>
             )}
 
             {persona === 'investor' && (
-              <Link
-                to="/investments"
-                className={cn('group block rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100 hover:ring-primary/30 transition', FOCUS)}
-              >
-                <TrendingUp className="h-6 w-6 text-primary" aria-hidden="true" />
-                <h2 className="mt-3 font-semibold text-gray-900">{t('dashboard.dealFlowTitle')}</h2>
-                <p className="mt-1 text-sm text-gray-600">{t('dashboard.dealFlowBody')}</p>
-                <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary">
-                  {t('dashboard.dealFlowCta')}
-                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-                </span>
-              </Link>
+              <Reveal delay={160}>
+                <CardShell interactive className="p-5">
+                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-chip text-navy">
+                    <TrendingUp className="h-5 w-5" aria-hidden="true" />
+                  </span>
+                  <h2 className="mt-4 text-card-title text-navy">
+                    <StretchedLink to="/investments">{t('dashboard.dealFlowTitle')}</StretchedLink>
+                  </h2>
+                  <p className="mt-1.5 text-[15px] leading-6 text-meta">{t('dashboard.dealFlowBody')}</p>
+                  <p className="mt-3 text-[14px] font-semibold text-navy">{t('dashboard.dealFlowCta')}</p>
+                </CardShell>
+              </Reveal>
             )}
           </div>
         </div>
@@ -963,26 +910,20 @@ export function DashboardPage() {
         <section
           ref={everythingRef}
           aria-labelledby="dash-everything-title"
-          className="mt-6 scroll-mt-20 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100"
+          className="mt-14 scroll-mt-24 md:mt-20"
         >
-          <header className="border-b border-gray-100 px-5 py-4">
-            <h2
-              id="dash-everything-title"
-              ref={everythingTitleRef}
-              tabIndex={-1}
-              className="text-base font-semibold text-gray-900 focus:outline-none"
-            >
-              {t('dashboard.everything.title', 'Everything you can do here')}
-            </h2>
-            <p className="mt-0.5 text-sm text-gray-600">
-              {t('dashboard.everything.intro', 'Every feature open to you, grouped like your account menu.')}
-            </p>
-          </header>
-          <div className="grid grid-cols-1 gap-x-6 gap-y-7 p-3 sm:grid-cols-2 sm:p-5 xl:grid-cols-3">
+          <SectionHeading
+            eyebrow={t('memberUi.memberArea', 'Member area')}
+            title={t('dashboard.everything.title', 'Everything you can do here')}
+            intro={t('dashboard.everything.intro', 'Every feature open to you, grouped like your account menu.')}
+            titleId="dash-everything-title"
+            titleRef={everythingTitleRef}
+          />
+          <RevealGroup className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {quickGroups.map((g) => (
               <QuickGroupList key={g.key} group={g} />
             ))}
-          </div>
+          </RevealGroup>
         </section>
       </div>
     </div>
@@ -991,94 +932,25 @@ export function DashboardPage() {
 
 /* ------------------------------------------------------------------ pieces */
 
-function HeaderLink({ to, label }: { to: string; label: string }) {
-  return (
-    <Link
-      to={to}
-      className={cn(
-        '-my-2 -mr-2 inline-flex min-h-10 shrink-0 items-center gap-1 rounded-lg px-2 text-xs font-medium text-primary hover:underline underline-offset-2',
-        ROW_FOCUS,
-      )}
-    >
-      {label}
-      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-    </Link>
-  );
+/** State of one of my requests, in the one pill vocabulary. */
+function RequestPill({ status, label }: { status: string; label: string }) {
+  const tone: PillTone =
+    status === 'approved' ? 'success'
+      : status === 'rejected' ? 'danger'
+        : status === 'closed' ? 'neutral'
+          : 'warning';
+  return <StatusPill tone={tone}>{label}</StatusPill>;
 }
 
-function Section({
-  title,
-  link,
-  footer,
-  children,
-}: {
-  title: string;
-  link?: { to: string; label: string };
-  /** A secondary destination, shown under the content. */
-  footer?: { to: string; label: string };
-  children: React.ReactNode;
-}) {
+/** Small date tile: day and month, in the signage face. */
+function DateTile({ start, lang, large = false }: { start: Date; lang: string; large?: boolean }) {
   return (
-    <section className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
-      <header className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-3.5">
-        <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-        {link && <HeaderLink to={link.to} label={link.label} />}
-      </header>
-      {children}
-      {footer && (
-        <div className="border-t border-gray-100 px-5 py-2">
-          <Link
-            to={footer.to}
-            className={cn('-mx-2 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-primary hover:underline underline-offset-2', ROW_FOCUS)}
-          >
-            <CalendarDays className="h-4 w-4" aria-hidden="true" />
-            {footer.label}
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </Link>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function StatusCard({
-  tone,
-  icon: Icon,
-  title,
-  body,
-  action,
-}: {
-  tone: 'amber' | 'red';
-  icon: LucideIcon;
-  title: string;
-  body: string;
-  action?: React.ReactNode;
-}) {
-  return (
-    <div className={cn(
-      'mb-6 flex gap-3 rounded-2xl p-4 ring-1',
-      tone === 'amber' ? 'bg-amber-50 text-amber-900 ring-amber-200' : 'bg-red-50 text-red-900 ring-red-200',
-    )}>
-      <Icon className="h-5 w-5 shrink-0 mt-0.5" aria-hidden="true" />
-      <div className="text-sm">
-        <p className="font-semibold">{title}</p>
-        {body && <p className="mt-1 opacity-90">{body}</p>}
-        {action && <p className="mt-2">{action}</p>}
-      </div>
+    <div className={cn('flex shrink-0 flex-col items-center justify-center rounded-xl text-center', large ? 'bg-white px-3 py-2 shadow-hover' : 'h-12 w-12 bg-chip')}>
+      <span className={cn('font-signage font-semibold leading-none tabular-nums text-navy', large ? 'text-[26px]' : 'text-[19px]')}>{start.getDate()}</span>
+      <span className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-meta">
+        {start.toLocaleDateString(lang, { month: 'short' })}
+      </span>
     </div>
-  );
-}
-
-function StatusPill({ status, label }: { status: string; label: string }) {
-  const tone =
-    status === 'approved' ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
-      : status === 'rejected' ? 'bg-red-50 text-red-700 ring-red-200'
-        : status === 'closed' ? 'bg-gray-100 text-gray-600 ring-gray-200'
-          : 'bg-amber-50 text-amber-700 ring-amber-200';
-  return (
-    <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1', tone)}>
-      {label}
-    </span>
   );
 }
 
@@ -1100,34 +972,22 @@ function EventCard({ event, lang, featured }: { event: DashEvent; lang: string; 
           aspect="video"
           className="mb-3 rounded-xl"
         >
-          <div className="absolute left-3 top-3 flex flex-col items-center rounded-lg bg-white/95 px-2.5 py-1.5 text-center shadow-sm">
-            <span className="text-lg font-bold leading-none text-primary">{start.getDate()}</span>
-            <span className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-gray-500">
-              {start.toLocaleDateString(lang, { month: 'short' })}
-            </span>
-          </div>
+          <div className="absolute left-3 top-3"><DateTile start={start} lang={lang} large /></div>
           {event.registered && (
-            <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-medium text-white">
-              <CheckCircle2 className="h-3 w-3" aria-hidden="true" /> {t('dashboard.registered')}
+            <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-pill bg-emerald-700 px-2.5 py-0.5 text-[12px] font-semibold text-white">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> {t('dashboard.registered')}
             </span>
           )}
         </CoverImage>
       )}
       <div className={cn(!featured && 'flex gap-3')}>
-        {!featured && (
-          <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-primary/5 text-center">
-            <span className="text-base font-bold leading-none text-primary">{start.getDate()}</span>
-            <span className="mt-0.5 text-[10px] font-medium uppercase text-gray-500">
-              {start.toLocaleDateString(lang, { month: 'short' })}
-            </span>
-          </div>
-        )}
+        {!featured && <DateTile start={start} lang={lang} />}
         <div className="min-w-0">
-          <h3 className="line-clamp-2 text-sm font-semibold text-gray-900 group-hover:text-primary transition-colors">
-            {event.title}
+          <h3 className="text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">
+            <span className="card-ul">{event.title}</span>
           </h3>
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-gray-500">
-            {isWebinar ? <Video className="h-3.5 w-3.5" aria-hidden="true" /> : <MapPin className="h-3.5 w-3.5" aria-hidden="true" />}
+          <p className="mt-1.5 flex items-center gap-1.5 text-[13px] leading-[18px] text-meta">
+            {isWebinar ? <Video className="h-3.5 w-3.5 shrink-0" aria-hidden="true" /> : <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
             <span className="truncate">
               {isWebinar ? t('dashboard.webinar') : (event.location || t('dashboard.onSite'))}
               {/* A full-day event has no meaningful start time — "00:00" would read as midnight. */}
@@ -1135,9 +995,7 @@ function EventCard({ event, lang, featured }: { event: DashEvent; lang: string; 
             </span>
           </p>
           {!featured && event.registered && (
-            <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
-              <CheckCircle2 className="h-3 w-3" aria-hidden="true" /> {t('dashboard.registered')}
-            </span>
+            <StatusPill tone="success" icon={CheckCircle2} className="mt-1.5">{t('dashboard.registered')}</StatusPill>
           )}
         </div>
       </div>
@@ -1199,10 +1057,12 @@ function NextEventCard({ event, lang }: { event: DashEvent; lang: string }) {
   };
 
   return (
-    <section aria-labelledby="dash-next-event-title" className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
-      <header className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-3.5">
-        <h2 id="dash-next-event-title" className="text-sm font-semibold text-gray-900">{t('dashboard.nextEventTitle')}</h2>
-        <HeaderLink to={accountHref('registrations')} label={t('accountNav.registrations', 'My events')} />
+    <CardShell as="section">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-rule px-5 py-4">
+        <Eyebrow as="h2"><span id="dash-next-event-title">{t('dashboard.nextEventTitle')}</span></Eyebrow>
+        <UnderlineLink to={accountHref('registrations')} className="!text-[14px] !leading-5">
+          {t('accountNav.registrations', 'My events')}
+        </UnderlineLink>
       </header>
 
       <div className="md:grid md:grid-cols-5">
@@ -1216,41 +1076,37 @@ function NextEventCard({ event, lang }: { event: DashEvent; lang: string }) {
             icon={isWebinar ? Video : CalendarDays}
             aspect="fill"
             tone="sea"
-            className="h-40 md:h-full md:min-h-[17rem]"
+            className="h-44 md:h-full md:min-h-[17rem]"
           >
-            <div className="absolute left-3 top-3 flex flex-col items-center rounded-lg bg-white/95 px-3 py-2 text-center shadow-sm">
-              <span className="text-2xl font-bold leading-none text-primary">{start.getDate()}</span>
-              <span className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-gray-600">
-                {start.toLocaleDateString(lang, { month: 'short' })}
-              </span>
-            </div>
-            <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-full bg-emerald-700 px-2 py-0.5 text-[11px] font-medium text-white">
-              <CheckCircle2 className="h-3 w-3" aria-hidden="true" /> {t('dashboard.registered')}
+            <div className="absolute left-3 top-3"><DateTile start={start} lang={lang} large /></div>
+            <span className="absolute right-3 top-3 inline-flex items-center gap-1 rounded-pill bg-emerald-700 px-2.5 py-0.5 text-[12px] font-semibold text-white">
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> {t('dashboard.registered')}
             </span>
           </CoverImage>
         </Link>
 
         <div className="space-y-4 p-5 md:col-span-3">
-          <div>
-            <h3 className="text-lg font-semibold leading-snug text-gray-900">
-              <Link to={`/events/${event.id}`} className={cn('rounded hover:text-primary transition-colors', FOCUS)}>
-                {event.title}
+          <div className="group">
+            <h3 className="text-card-title text-navy [overflow-wrap:anywhere]">
+              <Link to={`/events/${event.id}`} className={cn('rounded', FOCUS)}>
+                <span className="card-ul">{event.title}</span>
+                <ArrowRight className="card-arrow" strokeWidth={2.25} aria-hidden="true" />
               </Link>
             </h3>
-            <p className="mt-1.5 flex items-center gap-1.5 text-sm text-gray-600">
-              <CalendarDays className="h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />
+            <p className="mt-2 flex items-center gap-2 text-[15px] leading-6 text-meta">
+              <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{when}</span>
             </p>
-            <p className="mt-1 flex items-center gap-1.5 text-sm text-gray-600">
+            <p className="mt-1 flex items-center gap-2 text-[15px] leading-6 text-meta">
               {isWebinar
-                ? <Video className="h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />
-                : <MapPin className="h-4 w-4 shrink-0 text-gray-500" aria-hidden="true" />}
+                ? <Video className="h-4 w-4 shrink-0" aria-hidden="true" />
+                : <MapPin className="h-4 w-4 shrink-0" aria-hidden="true" />}
               <span className="truncate">{where}</span>
             </p>
           </div>
 
           {isLive ? (
-            <p className="inline-flex items-center gap-2 rounded-full bg-red-50 px-3 py-1 text-sm font-semibold text-red-700 ring-1 ring-red-200">
+            <p className="inline-flex items-center gap-2 rounded-pill bg-red-50 px-3 py-1 text-[14px] font-semibold text-red-700 ring-1 ring-inset ring-red-200">
               <span className="relative flex h-2 w-2" aria-hidden="true">
                 <span className="absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75 motion-safe:animate-ping" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-red-600" />
@@ -1259,12 +1115,12 @@ function NextEventCard({ event, lang }: { event: DashEvent; lang: string }) {
             </p>
           ) : !hasEnded ? (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-600" aria-hidden="true">{startsIn}</p>
+              <p className="text-meta-caps" aria-hidden="true">{startsIn}</p>
               <div className="mt-2 flex gap-2" aria-hidden="true">
                 {parts.map((p) => (
-                  <div key={p.key} className="min-w-[4.25rem] rounded-xl bg-primary px-3 py-2 text-center text-white">
-                    <span className="block text-2xl font-bold leading-none tabular-nums">{p.value}</span>
-                    <span className="mt-1 block text-[11px] uppercase tracking-wide text-white/80">{p.label}</span>
+                  <div key={p.key} className="min-w-[4.5rem] rounded-xl bg-navy px-3 py-2 text-center text-white">
+                    <span className="block font-signage text-[28px] font-semibold leading-none tabular-nums">{p.value}</span>
+                    <span className="mt-1 block text-[11px] font-semibold uppercase tracking-wide text-white/80">{p.label}</span>
                   </div>
                 ))}
               </div>
@@ -1275,17 +1131,15 @@ function NextEventCard({ event, lang }: { event: DashEvent; lang: string }) {
           {/* Webinar: registered attendees get the joining link, as on the event page. */}
           {isWebinar && !hasEnded && (
             event.meeting_url ? (
-              <Button asChild className="h-11 w-full rounded-xl sm:w-auto">
+              <Button asChild variant="cta" size="sm" className="w-full justify-between sm:w-auto">
                 <a href={event.meeting_url} target="_blank" rel="noopener noreferrer">
-                  <Video className="mr-2 h-4 w-4" aria-hidden="true" />
                   {t('dashboard.joinWebinar', 'Join the webinar')}
-                  <ExternalLink className="ml-2 h-3.5 w-3.5 opacity-80" aria-hidden="true" />
                   <span className="sr-only"> {t('dashboard.opensNewTab', '(opens in a new tab)')}</span>
                 </a>
               </Button>
             ) : (
-              <p className="flex items-start gap-2 rounded-xl bg-primary/5 p-3 text-sm text-gray-700">
-                <Video className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+              <p className="flex items-start gap-2 rounded-xl bg-foam p-3 text-[14px] leading-5 text-navy">
+                <Video className="mt-0.5 h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
                 {t('dashboard.joinLater', 'The joining link will appear here before the webinar starts.')}
               </p>
             )
@@ -1293,23 +1147,15 @@ function NextEventCard({ event, lang }: { event: DashEvent; lang: string }) {
 
           {!hasEnded && (
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-600">
+              <p className="text-meta-caps mb-2">
                 {t('dashboard.addToCalendar', 'Add to your calendar')}
               </p>
               <AddToCalendarButtons event={calendarEvent} />
             </div>
           )}
-
-          <Link
-            to={`/events/${event.id}`}
-            className={cn('-mx-2 inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-sm font-medium text-primary hover:underline underline-offset-2', FOCUS)}
-          >
-            {t('dashboard.viewEvent')}
-            <ArrowRight className="h-4 w-4" aria-hidden="true" />
-          </Link>
         </div>
       </div>
-    </section>
+    </CardShell>
   );
 }
 
@@ -1342,47 +1188,42 @@ function ProfileMeter({
   const ordered = [...items].sort((a, b) => rank(a) - rank(b));
 
   return (
-    <section aria-labelledby="dash-meter-title" className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
-      <header className="flex items-center justify-between gap-4 border-b border-gray-100 px-5 py-3.5">
-        <h2 id="dash-meter-title" className="text-sm font-semibold text-gray-900">
-          {t('dashboard.profileMeter.title', 'Organization profile')}
-        </h2>
-        <HeaderLink to={accountHref('organization')} label={t('dashboard.profileMeter.edit', 'Edit')} />
-      </header>
-
+    <MemberPanel
+      title={t('dashboard.profileMeter.title', 'Organization profile')}
+      titleId="dash-meter-title"
+      link={{ to: accountHref('organization'), label: t('dashboard.profileMeter.edit', 'Edit') }}
+    >
       {loading ? (
-        <div className="space-y-3 p-5">
-          <div className="h-6 w-1/3 rounded bg-gray-100 animate-pulse" />
-          <div className="h-2 rounded-full bg-gray-100 animate-pulse" />
-          <div className="h-3 w-2/3 rounded bg-gray-100 animate-pulse" />
+        <div className="space-y-3 p-5" aria-hidden="true">
+          <BlockSkeleton className="h-7 w-1/3" />
+          <BlockSkeleton className="h-2 rounded-pill" />
+          <BlockSkeleton className="h-3 w-2/3" />
         </div>
       ) : complete ? (
         <div className="flex gap-3 p-5">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-foam text-teal">
             <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
           </span>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-900">{t('dashboard.profileMeter.completeTitle', 'Your profile is complete')}</p>
-            <p className="mt-0.5 text-sm text-gray-600">
+            <p className="text-[15px] font-semibold leading-5 text-navy">{t('dashboard.profileMeter.completeTitle', 'Your profile is complete')}</p>
+            <p className="mt-1 text-[14px] leading-5 text-meta">
               {t('dashboard.profileMeter.completeBody', { org: orgName, defaultValue: 'Every part of the {{org}} profile is filled in.' })}
             </p>
             {publicHref && (
-              <Link
-                to={publicHref}
-                className={cn('-mx-2 mt-1 inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-primary hover:underline underline-offset-2', FOCUS)}
-              >
-                <Eye className="h-4 w-4" aria-hidden="true" />
-                {t('dashboard.profileMeter.viewPublic', 'See your public profile')}
-              </Link>
+              <div className="mt-3">
+                <UnderlineLink to={publicHref} className="!text-[14px] !leading-5">
+                  {t('dashboard.profileMeter.viewPublic', 'See your public profile')}
+                </UnderlineLink>
+              </div>
             )}
           </div>
         </div>
       ) : (
         <>
-          <div className="px-5 pt-5 pb-4">
+          <div className="px-5 pb-4 pt-5">
             <div className="flex items-end justify-between gap-3">
-              <p className="text-2xl font-bold leading-none text-primary tabular-nums">{percent}%</p>
-              <p className="text-xs font-medium text-gray-600">{scoreText}</p>
+              <p className="font-signage text-[36px] font-semibold leading-none tabular-nums text-navy">{percent}%</p>
+              <p className="text-[13px] font-medium text-meta">{scoreText}</p>
             </div>
             <div
               role="progressbar"
@@ -1396,21 +1237,21 @@ function ProfileMeter({
               {items.map((i, idx) => (
                 <span
                   key={i.key}
-                  className={cn('h-2 flex-1 rounded-full', idx < done ? 'bg-secondary' : 'bg-gray-100')}
+                  className={cn('h-2 flex-1 rounded-pill', idx < done ? 'bg-teal' : 'bg-chip')}
                 />
               ))}
             </div>
-            <p className="mt-3 text-xs text-gray-600">
+            <p className="mt-3 text-[13px] leading-5 text-meta">
               {t('dashboard.profileMeter.intro', 'Complete profiles are easier to find, and to trust, in the directory.')}
             </p>
           </div>
-          <ul className="divide-y divide-gray-100 border-t border-gray-100">
+          <ul className="divide-y divide-rule border-t border-rule">
             {ordered.map((item) => {
               const label = t(`dashboard.profileMeter.items.${item.key}`, METER_LABEL[item.key]);
               if (item.done) {
                 return (
-                  <li key={item.key} className="flex items-center gap-3 px-5 py-2.5 text-sm text-gray-600">
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                  <li key={item.key} className="flex items-center gap-3 px-5 py-2.5 text-[14px] text-meta">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
                     <span className="flex-1">{label}</span>
                     <span className="sr-only">{t('dashboard.profileMeter.done', 'Done')}</span>
                   </li>
@@ -1418,103 +1259,55 @@ function ProfileMeter({
               }
               if (item.inTodo) {
                 return (
-                  <li key={item.key} className="flex items-center gap-3 px-5 py-2.5 text-sm text-gray-800">
-                    <CircleDashed className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                  <li key={item.key} className="flex items-center gap-3 px-5 py-2.5 text-[14px] text-ink">
+                    <CircleDashed className="h-4 w-4 shrink-0 text-meta/60" aria-hidden="true" />
                     <span className="flex-1">{label}</span>
-                    <span className="text-xs text-gray-500">{t('dashboard.profileMeter.inTodo', 'In your to-do list')}</span>
+                    <span className="text-[13px] text-meta">{t('dashboard.profileMeter.inTodo', 'In your to-do list')}</span>
                   </li>
                 );
               }
               return (
-                <li key={item.key}>
-                  <Link
-                    to={item.href}
-                    className={cn('group flex items-center gap-3 px-5 py-3 transition-colors hover:bg-gray-50', ROW_FOCUS)}
-                  >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary">
-                      <item.icon className="h-4 w-4" aria-hidden="true" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium text-gray-900">{label}</span>
-                      {METER_HINT[item.key] && (
-                        <span className="block text-xs text-gray-500">
-                          {t(`dashboard.profileMeter.hints.${item.key}`, METER_HINT[item.key] as string)}
-                        </span>
-                      )}
-                    </span>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 group-hover:text-gray-500" aria-hidden="true" />
-                  </Link>
-                </li>
+                <MemberRow
+                  key={item.key}
+                  to={item.href}
+                  icon={item.icon}
+                  title={label}
+                  hint={METER_HINT[item.key] ? t(`dashboard.profileMeter.hints.${item.key}`, METER_HINT[item.key] as string) : undefined}
+                />
               );
             })}
           </ul>
         </>
       )}
-    </section>
+    </MemberPanel>
   );
 }
-
-const QUICK_TONE: Record<QuickTone, string> = {
-  navy: 'bg-primary text-white',
-  gold: 'bg-secondary text-primary',
-  soft: 'bg-primary/5 text-primary',
-};
 
 /** One group of the "everything you can do here" map. */
 function QuickGroupList({ group }: { group: QuickGroup }) {
   const { t } = useTranslation();
   const headingId = `dash-quick-${group.key}`;
   return (
-    <div>
-      <h3 id={headingId} className="px-2.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
-        {group.label}
-      </h3>
-      <ul aria-labelledby={headingId} className="mt-2 space-y-0.5">
+    <MemberPanel title={group.label} titleId={headingId}>
+      <ul aria-labelledby={headingId} className="divide-y divide-rule">
         {group.items.map((item) => (
-          <li key={item.key}>
-            <Link
-              to={item.href}
-              className={cn(
-                'group flex min-h-[3.25rem] items-center gap-3 rounded-xl px-2.5 py-2 transition-colors hover:bg-gray-50',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary',
-              )}
-            >
-              <span className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', QUICK_TONE[group.tone])}>
-                <item.icon className="h-5 w-5" aria-hidden="true" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-gray-900 group-hover:text-primary transition-colors">{item.label}</span>
-                <span className="block truncate text-xs text-gray-500">{item.desc}</span>
-              </span>
-              {item.badge ? (
-                <span className="shrink-0 rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-primary">
-                  <span aria-hidden="true">{item.badge}</span>
-                  <span className="sr-only">
-                    {t('dashboard.everything.waiting', { count: item.badge, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' })}
-                  </span>
+          <MemberRow
+            key={item.key}
+            to={item.href}
+            icon={item.icon}
+            title={item.label}
+            hint={item.desc}
+            aside={item.badge ? (
+              <span className="grid h-5 min-w-5 shrink-0 place-items-center rounded-pill bg-navy px-1.5 text-[12px] font-semibold leading-none tabular-nums text-white">
+                <span aria-hidden="true">{item.badge}</span>
+                <span className="sr-only">
+                  {t('dashboard.everything.waiting', { count: item.badge, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' })}
                 </span>
-              ) : null}
-              <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 group-hover:text-gray-500" aria-hidden="true" />
-            </Link>
-          </li>
+              </span>
+            ) : undefined}
+          />
         ))}
       </ul>
-    </div>
-  );
-}
-
-function RowSkeleton({ rows }: { rows: number }) {
-  return (
-    <div className="divide-y divide-gray-100">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4 px-5 py-3.5">
-          <div className="h-10 w-10 rounded-xl bg-gray-100 animate-pulse" />
-          <div className="flex-1 space-y-2">
-            <div className="h-3 w-2/3 rounded bg-gray-100 animate-pulse" />
-            <div className="h-2.5 w-1/3 rounded bg-gray-100 animate-pulse" />
-          </div>
-        </div>
-      ))}
-    </div>
+    </MemberPanel>
   );
 }

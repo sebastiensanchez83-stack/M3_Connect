@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
@@ -16,9 +14,11 @@ import { checkSectorMatch } from '@/lib/sector-matching';
 import { requireFreshSession } from '@/lib/session';
 import {
   Building2, Anchor, Newspaper, ChevronLeft, Link2, Loader2,
-  Users, Mail, Briefcase, CheckCircle, MapPin,
+  Users, Mail, Briefcase, CheckCircle, MapPin, ArrowRight,
 } from 'lucide-react';
-import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { CardShell } from '@/components/brand/CardShell';
+import { BTN, BTN_OUTLINE, BackLink, BandPill, MemberEmpty, MemberHeader, MemberPanel, ROW_FOCUS, RowSkeleton } from '@/components/member/MemberUI';
+import { cn } from '@/lib/utils';
 
 interface UserProfile {
   user_id: string;
@@ -175,21 +175,27 @@ export function UserProfilePage() {
   };
 
   if (loading) {
-    return <LoadingSkeleton variant="page" />;
+    return <div className="min-h-screen bg-page"><div className="mx-auto max-w-3xl px-4 py-16"><CardShell><RowSkeleton rows={3} /></CardShell></div></div>;
   }
 
   if (!profileData) {
     return (
-      <div className="container mx-auto px-4 py-16 text-center">
-        <Users className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">User not found</h1>
-        <p className="text-gray-500 mb-6">This user profile does not exist.</p>
-        <Button asChild>
-          <Link to="/">
-            <ChevronLeft className="h-4 w-4 mr-2" />
-            Go Home
-          </Link>
-        </Button>
+      <div className="min-h-screen bg-page">
+        <div className="mx-auto max-w-xl px-4 py-16 sm:py-24">
+          <CardShell>
+            <MemberEmpty
+              titleAs="h1"
+              icon={Users}
+              title="User not found"
+              body="This user profile does not exist."
+              action={(
+                <Button asChild variant="ctaNavy" size="sm">
+                  <Link to="/">Go home</Link>
+                </Button>
+              )}
+            />
+          </CardShell>
+        </div>
       </div>
     );
   }
@@ -205,101 +211,91 @@ export function UserProfilePage() {
   const canConnect = user && isVerified && !isOwnProfile && !hasExistingRequest;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Hero */}
-      <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-        <div className="container mx-auto px-4 py-12">
-          <Link to={userOrg ? `/organizations/${userOrg.slug || userOrg.id}` : '/directory'} className="inline-flex items-center gap-1 text-white/70 hover:text-white mb-6 text-sm">
-            <ChevronLeft className="h-4 w-4" />
+    <div className="min-h-screen bg-page pb-20">
+      {/* Band */}
+      <MemberHeader
+        image={null}
+        seed={profileData.user_id}
+        icon={Users}
+        eyebrow={getPersonaLabel(profileData.persona) || undefined}
+        title={displayName}
+        back={(
+          <BackLink to={userOrg ? `/organizations/${userOrg.slug || userOrg.id}` : '/directory'}>
             {userOrg ? `Back to ${userOrg.name}` : 'Back'}
-          </Link>
-          <div className="flex items-center gap-6">
-            {/* Avatar */}
-            <div className="w-20 h-20 lg:w-24 lg:h-24 rounded-full bg-white/10 flex items-center justify-center shrink-0">
-              {profileData.avatar_url ? (
-                <img src={profileData.avatar_url} alt={displayName} className="w-full h-full rounded-full object-cover" />
-              ) : (
-                <span className="text-2xl lg:text-3xl font-bold text-white/70">{initials}</span>
-              )}
-            </div>
-            <div>
-              <h1 className="text-3xl lg:text-4xl font-bold mb-1">{displayName}</h1>
-              <div className="flex flex-wrap items-center gap-3 text-white/80">
-                {profileData.job_title && (
-                  <div className="flex items-center gap-1">
-                    <Briefcase className="h-4 w-4" />
-                    <span>{profileData.job_title}</span>
-                  </div>
-                )}
-                <Badge variant="outline" className="border-white/30 text-white">
-                  {getPersonaIcon(profileData.persona)}
-                  <span className="ml-1">{getPersonaLabel(profileData.persona)}</span>
-                </Badge>
-              </div>
-              {/* Connect button */}
-              {canConnect && (
-                <Button
-                  className="mt-4 bg-white text-primary hover:bg-white/90"
-                  onClick={() => setConnectOpen(true)}
-                >
-                  <Link2 className="h-4 w-4 mr-2" />
-                  Request to Connect
-                </Button>
-              )}
-              {hasExistingRequest && (
-                <Badge className="mt-4 bg-white/20 text-white border-white/30">
-                  <CheckCircle className="h-3 w-3 mr-1" />
-                  Connection Request Sent
-                </Badge>
-              )}
-            </div>
+          </BackLink>
+        )}
+        leading={(
+          <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full border-2 border-white/40 bg-white/10 lg:h-24 lg:w-24">
+            {profileData.avatar_url ? (
+              <img src={profileData.avatar_url} alt={displayName} className="h-full w-full rounded-full object-cover" />
+            ) : (
+              <span className="font-signage text-3xl font-semibold text-white/80">{initials}</span>
+            )}
           </div>
-        </div>
-      </section>
+        )}
+        actions={(
+          <>
+            {canConnect && (
+              <Button variant="ctaOnDark" onClick={() => setConnectOpen(true)}>
+                Request to connect
+              </Button>
+            )}
+            {hasExistingRequest && (
+              <BandPill icon={CheckCircle}>Connection request sent</BandPill>
+            )}
+          </>
+        )}
+      >
+        {profileData.job_title && (
+          <span className="inline-flex items-center gap-1.5">
+            <Briefcase className="h-4 w-4" aria-hidden="true" />
+            {profileData.job_title}
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1.5">
+          {getPersonaIcon(profileData.persona)}
+          {getPersonaLabel(profileData.persona)}
+        </span>
+      </MemberHeader>
 
       {/* Content */}
-      <div className="container mx-auto px-4 py-8 max-w-3xl">
+      <div className="mx-auto max-w-3xl px-4 pt-8 sm:px-6 md:pt-10">
         <div className="space-y-6">
           {/* Organization Card */}
           {userOrg && (
-            <Card>
-              <CardContent className="pt-6">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Organization</h3>
-                <Link to={`/organizations/${userOrg.slug || userOrg.id}`} className="flex items-center gap-4 hover:bg-gray-50 p-3 -m-3 rounded-lg transition-colors">
-                  <div className="w-12 h-12 rounded-lg bg-white border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
+            <MemberPanel title="Organization">
+              <Link to={`/organizations/${userOrg.slug || userOrg.id}`} className={cn('group flex items-center gap-4 p-5 transition-colors hover:bg-page', ROW_FOCUS)}>
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-rule bg-white">
                     {userOrg.logo_url ? (
-                      <img src={userOrg.logo_url} alt={userOrg.name} className="w-full h-full rounded-lg object-contain p-0.5" />
+                      <img src={userOrg.logo_url} alt={userOrg.name} className="h-full w-full rounded-xl object-contain p-1" />
                     ) : (
-                      <Building2 className="h-6 w-6 text-primary" />
+                      <Building2 className="h-6 w-6 text-navy" />
                     )}
                   </div>
-                  <div>
-                    <div className="font-semibold text-gray-900">{userOrg.name}</div>
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                      {(userOrg.city || userOrg.country) && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-3 w-3" />
-                          {[userOrg.city, userOrg.country].filter(Boolean).join(', ')}
-                        </span>
-                      )}
+                  <div className="min-w-0">
+                    <div className="text-[16px] font-semibold text-navy">
+                      <span className="card-ul">{userOrg.name}</span>
+                      <ArrowRight className="card-arrow" strokeWidth={2.25} aria-hidden="true" />
                     </div>
+                    {(userOrg.city || userOrg.country) && (
+                      <div className="mt-0.5 flex items-center gap-1 text-[14px] text-meta">
+                        <MapPin className="h-3.5 w-3.5" aria-hidden="true" />
+                        {[userOrg.city, userOrg.country].filter(Boolean).join(', ')}
+                      </div>
+                    )}
                   </div>
-                </Link>
-              </CardContent>
-            </Card>
+              </Link>
+            </MemberPanel>
           )}
 
           {/* Contact Info (only if same org or is self) */}
           {(isOwnProfile || isSameOrg) && profileData.email && (
-            <Card>
-              <CardContent className="pt-6">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Contact</h3>
-                <div className="flex items-center gap-3">
-                  <Mail className="h-4 w-4 text-gray-400" />
-                  <span className="text-gray-700">{profileData.email}</span>
-                </div>
-              </CardContent>
-            </Card>
+            <MemberPanel title="Contact">
+              <div className="flex items-center gap-3 p-5">
+                <Mail className="h-4 w-4 text-meta" aria-hidden="true" />
+                <span className="break-all text-[15px] text-ink">{profileData.email}</span>
+              </div>
+            </MemberPanel>
           )}
         </div>
       </div>
@@ -322,8 +318,8 @@ export function UserProfilePage() {
               />
             </div>
             <div className="flex gap-3 justify-end">
-              <Button variant="outline" onClick={() => setConnectOpen(false)}>Cancel</Button>
-              <Button onClick={handleSendConnectRequest} disabled={connectSending}>
+              <Button variant="outline" className={BTN_OUTLINE} onClick={() => setConnectOpen(false)}>Cancel</Button>
+              <Button className={BTN} onClick={handleSendConnectRequest} disabled={connectSending}>
                 {connectSending && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 Send Request
               </Button>

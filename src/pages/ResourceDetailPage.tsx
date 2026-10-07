@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { readMinutes } from '@/lib/readTime';
@@ -7,21 +7,39 @@ import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
 import { resourceMeta } from '@/lib/seoMeta';
 import DOMPurify from 'dompurify';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
-import {
-  ChevronLeft, Download, Play, Lock, Calendar, Clock, Tag, FileText,
-  Share2, LogIn,
-} from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, FileText, Lock, Share2, Tag } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { AdBanner } from '@/components/ui/AdBanner';
+import { PageHero } from '@/components/ui/PageHero';
+import { CardShell } from '@/components/brand/CardShell';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { Reveal } from '@/components/motion/Reveal';
+import { ResourceCard, type ResourceCardData } from '@/components/resources/ResourceParts';
+import { getTheme, themesForSectors, type Theme } from '@/lib/themes';
+import { cn } from '@/lib/utils';
+import '@/styles/refonte-content.css';
+
+/**
+ * One article, on the v2 kit: the compact PageHero banner (the article's own
+ * picture, or the sea gradient) carrying the theme and type, the H1, the date,
+ * the read time, the topic, the share button and the way back; then a reading
+ * column of about 68 characters at 18/1.7 with the summary as a lead, the
+ * speakers beside it (above it on phones), tags, and three related resources.
+ *
+ * Access is as before: public articles are open, "members" ones need an account,
+ * "marina" ones a verified marina, developer or investor. Locked, the reader gets
+ * a blurred beginning and a panel to sign up or sign in. The article's HTML is
+ * sanitized (DOMPurify) and styled by `.smc-article` (src/styles/refonte-content.css).
+ */
 
 interface Resource {
   id: string;
@@ -64,9 +82,14 @@ export function ResourceDetailPage() {
   const [resource, setResource] = useState<Resource | null>(null);
   const [relatedResources, setRelatedResources] = useState<Resource[]>([]);
   const [speakers, setSpeakers] = useState<ResourceSpeaker[]>([]);
+  const [themes, setThemes] = useState<Theme[]>([]);
   const [loading, setLoading] = useState(true);
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
 
   useEffect(() => {
     const fetchResource = async () => {
@@ -93,6 +116,17 @@ export function ResourceDetailPage() {
           .eq('resource_id', id)
           .order('display_order');
         setSpeakers((speakerData || []) as ResourceSpeaker[]);
+
+        // The article's themes, from its sectors: for the header's eyebrow. Best
+        // effort: without them the header shows the type alone.
+        const { data: sectorRows } = await supabase
+          .from('resource_sectors')
+          .select('sectors(slug)')
+          .eq('resource_id', id);
+        const slugs = ((sectorRows ?? []) as unknown as { sectors: { slug: string } | { slug: string }[] | null }[])
+          .flatMap((row) => (Array.isArray(row.sectors) ? row.sectors : row.sectors ? [row.sectors] : []))
+          .map((s) => s.slug);
+        setThemes(themesForSectors(slugs).map((k) => getTheme(k)).filter((th): th is Theme => !!th));
 
         // Fetch related resources
         const { data: related } = await supabase
@@ -128,28 +162,35 @@ export function ResourceDetailPage() {
     return false;
   };
 
-  const getTypeBadgeColor = (type: string) => {
-    const colors: Record<string, string> = {
-      article: 'bg-blue-100 text-blue-700 border-blue-200',
-      whitepaper: 'bg-purple-100 text-purple-700 border-purple-200',
-      guide: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-      replay: 'bg-red-100 text-red-700 border-red-200',
-      case_study: 'bg-amber-100 text-amber-700 border-amber-200',
-    };
-    return colors[type] || 'bg-gray-100 text-gray-700 border-gray-200';
-  };
-
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-GB', {
       year: 'numeric', month: 'long', day: 'numeric',
     });
   };
+  const formatShort = (date: string) =>
+    new Date(date).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
 
   // Same helper as the library cards, so both show the same duration.
   const estimateReadTime = readMinutes;
 
   const getInitials = (name: string) =>
     name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+  const share = async () => {
+    if (!resource) return;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: resource.title, url: window.location.href });
+        return;
+      }
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      window.clearTimeout(copiedTimer.current);
+      copiedTimer.current = window.setTimeout(() => setCopied(false), 2200);
+    } catch {
+      // The reader closed the share sheet, or the clipboard is blocked: nothing to report.
+    }
+  };
 
   if (loading) {
     return <LoadingSkeleton variant="page" />;
@@ -164,250 +205,253 @@ export function ResourceDetailPage() {
   // the edge function that writes them into the HTML for share previews (src/lib/seoMeta.ts).
   const seo = resourceMeta(resource, seoTr);
 
+  const typeLabel = t(`resources.types.${resource.type}`);
+  const eyebrow = [...themes.map((th) => t(th.labelKey, th.fallback)), typeLabel].join(' · ');
+
+  const speakersCard = speakers.length > 0 && (
+    <CardShell className="p-5 sm:p-6">
+      <h2 className="text-meta-caps">{t('resourceDetail.speakers')}</h2>
+      <ul className="mt-4 grid gap-4">
+        {speakers.map((speaker) => (
+          <li key={speaker.id} className="flex items-center gap-3">
+            <span
+              aria-hidden="true"
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-pill bg-teal text-sm font-semibold tracking-[0.02em] text-white"
+            >
+              {getInitials(speaker.full_name)}
+            </span>
+            <div className="min-w-0">
+              {speaker.profile_id ? (
+                <Link
+                  to={`/users/${speaker.profile_id}`}
+                  className="uline uline--plain text-[15px] font-semibold text-navy"
+                >
+                  <span className="uline-t">{speaker.full_name}</span>
+                </Link>
+              ) : (
+                <span className="text-[15px] font-semibold text-navy">{speaker.full_name}</span>
+              )}
+              {(speaker.job_title || speaker.company_name) && (
+                <p className="text-sm leading-5 text-meta">
+                  {[speaker.job_title, speaker.company_name].filter(Boolean).join(' — ')}
+                </p>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </CardShell>
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-white">
       <Seo {...seo} />
       {resource.seo_keywords && <Helmet><meta name="keywords" content={resource.seo_keywords} /></Helmet>}
-      {/* Hero Header — banner uses a fixed 3:1 panorama ratio inside a
-          max-width container so the same source image fits both here and
-          in the 16:10 thumbnail cards without surprises. */}
-      <div className="relative">
-        {resource.thumbnail_url ? (
-          <div className="w-full max-w-7xl mx-auto relative aspect-[3/1] min-h-[14rem] overflow-hidden">
-            <img src={resource.thumbnail_url} alt={resource.title} className="w-full h-full object-cover object-center" />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
-          </div>
-        ) : (
-          <div className="w-full max-w-7xl mx-auto relative aspect-[3/1] min-h-[14rem] overflow-hidden bg-gradient-to-br from-[#0b2653] to-[#143a6b]">
-            <div className="absolute inset-0 flex items-center justify-center opacity-10">
-              <FileText className="h-40 w-40 text-white" />
-            </div>
-            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-          </div>
-        )}
 
-        <div className="absolute top-4 left-4 z-10">
-          <Button variant="ghost" size="sm" onClick={() => (cameFromList ? navigate(-1) : navigate('/resources'))}
-            className="bg-white/90 backdrop-blur-sm hover:bg-white text-gray-800 shadow-sm">
-            <ChevronLeft className="h-4 w-4 mr-1" />
-            {t('resourceDetail.backToResources')}
-          </Button>
-        </div>
-
-        <div className="absolute bottom-0 left-0 right-0 z-10 px-4 pb-8">
-          <div className="container mx-auto max-w-4xl">
-            <div className="flex flex-wrap gap-2 mb-3">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${getTypeBadgeColor(resource.type)}`}>
-                {t(`resources.types.${resource.type}`)}
-              </span>
-              {resource.access_level !== 'public' && (
-                <Badge variant={resource.access_level === 'members' ? 'info' : 'purple'} className="text-xs">
-                  {t(`resources.accessLevels.${resource.access_level}`)}
-                </Badge>
-              )}
-            </div>
-            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white leading-tight">
-              {resource.title}
-            </h1>
-          </div>
-        </div>
-      </div>
-
-      {/* Article Body */}
-      <div className="container mx-auto max-w-4xl px-4">
-        {/* Meta bar */}
-        <div className="flex flex-wrap items-center gap-4 py-5 border-b border-gray-200 text-sm text-gray-500">
-          <div className="flex items-center gap-1.5">
-            <Calendar className="h-4 w-4" />
-            <span>{formatDate(displayDate)}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Clock className="h-4 w-4" />
+      {/* Header: the sea gradient. The article's own picture is shown whole under it: thumbnails are often posters with their own text, which a veil would turn into noise behind the title. */}
+      <PageHero
+        image={null}
+        seed={resource.id}
+        icon={FileText}
+        breadcrumbs={false}
+        eyebrow={eyebrow}
+        title={resource.title}
+      >
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-[14px] leading-5 text-white/85">
+          <span className="inline-flex items-center gap-1.5">
+            <Calendar className="h-4 w-4" aria-hidden="true" />
+            <span className="sr-only">{t('contentPages.article.published', 'Published')} </span>
+            <time dateTime={displayDate}>{formatDate(displayDate)}</time>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Clock className="h-4 w-4" aria-hidden="true" />
             <span>{readTime} {t('resourceDetail.minRead')}</span>
-          </div>
+          </span>
           {resource.topic && (
-            <div className="flex items-center gap-1.5">
-              <Tag className="h-4 w-4" />
+            <span className="inline-flex items-center gap-1.5">
+              <Tag className="h-4 w-4" aria-hidden="true" />
               <span className="capitalize">{resource.topic}</span>
-            </div>
+            </span>
           )}
-          <div className="flex-1" />
-          <Button variant="ghost" size="sm" className="text-gray-500 hover:text-primary" onClick={() => {
-            if (navigator.share) {
-              navigator.share({ title: resource.title, url: window.location.href });
-            } else {
-              navigator.clipboard.writeText(window.location.href);
-            }
-          }}>
-            <Share2 className="h-4 w-4 mr-1" />
-            {t('resourceDetail.share')}
+          {resource.access_level !== 'public' && (
+            <span className="inline-flex h-6 items-center gap-1.5 rounded-pill bg-white/15 px-2.5 text-[12px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,.3)]">
+              <Lock className="h-3 w-3" aria-hidden="true" />
+              {t(`resources.accessLevels.${resource.access_level}`)}
+            </span>
+          )}
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <button
+            type="button"
+            onClick={() => (cameFromList ? navigate(-1) : navigate('/resources'))}
+            className="uline uline--light uline--plain !text-[14px] !font-normal"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            <span className="uline-t">{t('resourceDetail.backToResources')}</span>
+          </button>
+          <Button
+            type="button"
+            variant="ctaLight"
+            size="sm"
+            arrow={false}
+            roll={false}
+            onClick={share}
+            className="gap-2 px-4"
+          >
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+            <span aria-live="polite">{copied ? t('contentPages.article.linkCopied', 'Link copied') : t('resourceDetail.share')}</span>
           </Button>
         </div>
+      </PageHero>
 
-        {/* Speakers */}
-        {speakers.length > 0 && (
-          <div className="py-5 border-b border-gray-200">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              {t('resourceDetail.speakers')}
-            </h3>
-            <div className="flex flex-wrap gap-4">
-              {speakers.map((speaker) => (
-                <div key={speaker.id} className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-semibold text-sm shrink-0">
-                    {getInitials(speaker.full_name)}
-                  </div>
-                  <div>
-                    {speaker.profile_id ? (
-                      <Link
-                        to={`/users/${speaker.profile_id}`}
-                        className="font-medium text-primary hover:underline"
-                      >
-                        {speaker.full_name}
-                      </Link>
-                    ) : (
-                      <span className="font-medium text-gray-800">{speaker.full_name}</span>
-                    )}
-                    {(speaker.job_title || speaker.company_name) && (
-                      <p className="text-sm text-gray-500">
-                        {[speaker.job_title, speaker.company_name].filter(Boolean).join(' — ')}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+      {/* The reading column and, beside it, the speakers */}
+      <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 md:py-14">
+        <div className="grid gap-8 lg:grid-cols-12 lg:gap-14">
+          <div className="min-w-0 lg:col-span-8">
+            {/* The article's own picture, at the card's 16:10 */}
+            {resource.thumbnail_url && (
+              <figure className="mb-8 max-w-[68ch] overflow-hidden rounded-card bg-chip md:mb-10">
+                <img src={resource.thumbnail_url} alt={resource.title} className="aspect-[16/10] w-full object-cover" />
+              </figure>
+            )}
 
-        {/* Summary */}
-        <div className="py-6">
-          <p className="text-lg text-gray-600 leading-relaxed font-medium italic border-l-4 border-secondary pl-4">
-            {resource.summary}
-          </p>
-        </div>
-
-        {/* Content or Lock */}
-        {hasAccess ? (
-          <>
-            {resource.content && (
-              <article className="pb-8">
-                <div
-                  className="article-content text-gray-700 leading-relaxed"
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(resource.content) }}
-                />
-              </article>
-            )}
-            {resource.file_url && (
-              <div className="py-6 border-t border-gray-200">
-                <a href={resource.file_url} target="_blank" rel="noopener noreferrer">
-                  <Button size="lg" className="bg-secondary hover:bg-secondary/90 text-white">
-                    {resource.type === 'replay' ? (
-                      <><Play className="h-5 w-5 mr-2" />{t('resources.watchReplay')}</>
-                    ) : (
-                      <><Download className="h-5 w-5 mr-2" />{t('resources.download')}</>
-                    )}
-                  </Button>
-                </a>
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="relative">
-            {/* Blurred preview of content */}
-            {resource.content && (
-              <div className="relative overflow-hidden max-h-64">
-                <div
-                  className="article-content text-gray-700 leading-relaxed select-none"
-                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(resource.content) }}
-                  style={{ filter: 'blur(5px)', pointerEvents: 'none' }}
-                />
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/60 to-white" />
-              </div>
-            )}
-            {/* CTA overlay */}
-            <div className="relative py-12 text-center bg-white">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 mb-4">
-                <Lock className="h-8 w-8 text-primary" />
-              </div>
-              <h3 className="text-xl font-semibold text-gray-800 mb-2">
-                {!user
-                  ? t('resourceDetail.signupToRead', 'Sign up to read the full article')
-                  : t('resourceDetail.restrictedTitle')}
-              </h3>
-              <p className="text-gray-500 mb-6 max-w-md mx-auto">
-                {!user
-                  ? t('resourceDetail.signupToReadDesc', 'Sign up or sign in to read this article and the other member-only resources.')
-                  : resource.access_level === 'members'
-                  ? t('resources.signupToAccess')
-                  : t('resources.verifyMarinaToAccess')}
+            {/* Summary: the lead of the article */}
+            {resource.summary && (
+              <p className="max-w-[68ch] text-[19px] font-medium leading-[30px] text-navy md:text-[20px] md:leading-8">
+                {resource.summary}
               </p>
-              {!user ? (
-                <div className="flex items-center justify-center gap-3">
-                  <Button size="lg" onClick={() => setSignupOpen(true)}>
-                    {t('auth.signup', 'Sign Up')}
-                  </Button>
-                  <Button size="lg" variant="outline" onClick={() => setLoginOpen(true)}>
-                    <LogIn className="h-4 w-4 mr-2" />
-                    {t('auth.login', 'Log In')}
-                  </Button>
+            )}
+
+            {/* Speakers: here on phones, beside the article from lg */}
+            {speakersCard && <div className="mt-8 max-w-[68ch] lg:hidden">{speakersCard}</div>}
+
+            {/* Content or lock */}
+            {hasAccess ? (
+              <>
+                {resource.content && (
+                  <article className={cn(resource.summary && 'mt-8 border-t border-rule pt-8')}>
+                    <div
+                      className="smc-article"
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(resource.content) }}
+                    />
+                  </article>
+                )}
+                {resource.file_url && (
+                  <div className="mt-10">
+                    <Button asChild variant="cta">
+                      <a href={resource.file_url} target="_blank" rel="noopener noreferrer">
+                        {resource.type === 'replay' ? t('resources.watchReplay') : t('resources.download')}
+                        <span className="sr-only"> (opens in a new tab)</span>
+                      </a>
+                    </Button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="relative mt-8">
+                {/* Blurred preview of the beginning */}
+                {resource.content && (
+                  <div aria-hidden="true" className="relative max-h-64 overflow-hidden">
+                    <div
+                      className="smc-article select-none"
+                      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(resource.content) }}
+                      style={{ filter: 'blur(5px)', pointerEvents: 'none' }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/60 to-white" />
+                  </div>
+                )}
+                {/* CTA panel */}
+                <div className="relative rounded-card border border-rule bg-page px-6 py-10 text-center sm:px-10">
+                  <span aria-hidden="true" className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-pill bg-chip text-navy">
+                    <Lock className="h-6 w-6" />
+                  </span>
+                  <h2 className="text-h3 text-navy">
+                    {!user
+                      ? t('resourceDetail.signupToRead', 'Sign up to read the full article')
+                      : t('resourceDetail.restrictedTitle')}
+                  </h2>
+                  <p className="mx-auto mt-2 max-w-md text-body text-meta">
+                    {!user
+                      ? t('resourceDetail.signupToReadDesc', 'Sign up or sign in to read this article and the other member-only resources.')
+                      : resource.access_level === 'members'
+                      ? t('resources.signupToAccess')
+                      : t('resources.verifyMarinaToAccess')}
+                  </p>
+                  {!user ? (
+                    <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                      <Button variant="cta" onClick={() => setSignupOpen(true)}>
+                        {t('auth.signup', 'Sign Up')}
+                      </Button>
+                      <Button variant="ctaOutline" onClick={() => setLoginOpen(true)}>
+                        {t('auth.login', 'Log In')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button asChild variant="ctaNavy" className="mt-6">
+                      <Link to="/account">{t('resourceDetail.goToAccount')}</Link>
+                    </Button>
+                  )}
                 </div>
-              ) : (
-                <Link to="/account">
-                  <Button size="lg" className="bg-primary hover:bg-primary/90">{t('resourceDetail.goToAccount')}</Button>
-                </Link>
-              )}
-            </div>
-          </div>
-        )}
+              </div>
+            )}
 
-        {/* Sponsor Ad Banner */}
-        <AdBanner placement="resources" className="my-6" />
+            {/* Sponsor Ad Banner */}
+            <AdBanner placement="resources" className="my-8" />
 
-        {/* Tags */}
-        {resource.tags && resource.tags.length > 0 && (
-          <div className="py-6 border-t border-gray-200">
-            <div className="flex flex-wrap gap-2">
-              {resource.tags.map((tag) => (
-                <span key={tag} className="px-3 py-1.5 bg-gray-100 text-gray-600 text-sm rounded-full hover:bg-gray-200 transition-colors">
-                  #{tag}
-                </span>
-              ))}
-            </div>
+            {/* Tags */}
+            {resource.tags && resource.tags.length > 0 && (
+              <div className="border-t border-rule pt-6">
+                <h2 className="sr-only">{t('contentPages.article.tags', 'Tags')}</h2>
+                <ul className="flex flex-wrap gap-2">
+                  {resource.tags.map((tag) => (
+                    <li key={tag} className="inline-flex h-8 items-center rounded-pill bg-chip px-3 text-sm font-medium text-navy">
+                      #{tag}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
-        )}
 
-        {/* Related Resources */}
-        {relatedResources.length > 0 && (
-          <div className="py-10 border-t border-gray-200">
-            <h2 className="text-xl font-bold text-primary mb-6">{t('resourceDetail.relatedResources')}</h2>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {relatedResources.map((rel) => (
-                <Link key={rel.id} to={`/resources/${rel.id}`}
-                  className="group block bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-md transition-all duration-300 hover:-translate-y-0.5">
-                  <div className="relative h-36">
-                    {rel.thumbnail_url ? (
-                      <img src={rel.thumbnail_url} alt={rel.title} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-primary/10 flex items-center justify-center">
-                        <FileText className="h-8 w-8 text-primary/30" />
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${getTypeBadgeColor(rel.type)}`}>
-                      {t(`resources.types.${rel.type}`)}
-                    </span>
-                    <h3 className="font-semibold text-gray-800 mt-2 line-clamp-2 group-hover:text-primary transition-colors">
-                      {rel.title}
-                    </h3>
-                    <p className="text-gray-500 text-sm mt-1 line-clamp-2">{rel.summary}</p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
+          {/* Speakers beside the article from lg */}
+          {speakersCard && (
+            <aside className="hidden lg:col-span-4 lg:block">
+              <div className="lg:sticky lg:top-20">{speakersCard}</div>
+            </aside>
+          )}
+        </div>
       </div>
+
+      {/* Related resources */}
+      {relatedResources.length > 0 && (
+        <section aria-labelledby="related-heading" className="bg-page py-14 md:py-20">
+          <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
+            <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+              <div>
+                <Reveal>
+                  <Eyebrow>{t('resources.heroTag', 'Library')}</Eyebrow>
+                </Reveal>
+                <Reveal delay={80}>
+                  <h2 id="related-heading" className="mt-3 text-h2-sm text-navy md:text-h2">{t('resourceDetail.relatedResources')}</h2>
+                </Reveal>
+              </div>
+              <UnderlineLink to="/resources">{t('contentPages.article.backToLibrary', 'Browse the whole library')}</UnderlineLink>
+            </div>
+            <ul className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {relatedResources.map((rel, i) => (
+                <Reveal as="li" key={rel.id} delay={i * 80} className="flex min-w-0">
+                  <ResourceCard
+                    resource={rel as ResourceCardData}
+                    locked={!canAccess(rel.access_level)}
+                    formatDate={formatShort}
+                    fromList={false}
+                  />
+                </Reveal>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
 
       {/* Login Dialog */}
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>

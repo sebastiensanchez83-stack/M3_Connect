@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, CheckCircle, Lock, AlertCircle, Info } from 'lucide-react';
+import { Loader2, Lock, AlertCircle, Info, Video } from 'lucide-react';
+import { FormCard, FormFooter, PageLoader, SubmitGuard, SubmitShell } from '@/components/submit/SubmitShell';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
@@ -19,6 +20,7 @@ import { requireFreshSession } from '@/lib/session';
 const FEATURE_KEY = 'webinar_requests';
 
 export function WebinarRequestPage() {
+  const { t } = useTranslation();
   const { user, profile, isVerified, organization, loading: authLoading } = useAuth();
   const { isFeatureEnabled, getQuota, getUsage, isLoading: entitlementsLoading } = useEntitlements();
   const navigate = useNavigate();
@@ -103,31 +105,32 @@ export function WebinarRequestPage() {
 
   // ── Loading states ────────────────────────────────────────────────────
   if (authLoading || (isVerified && organization?.access_status === 'verified' && entitlementsLoading)) {
-    return (
-      <div className="container mx-auto py-16 text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary" />
-      </div>
-    );
+    return <PageLoader />;
   }
 
   // ── Access guard: not logged in or not verified ───────────────────────
   if (!user || !isVerified || organization?.access_status !== 'verified') {
     return (
-      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <Lock className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Members Only</h1>
-        <p className="text-gray-500 mb-6">
+      <SubmitGuard
+        icon={Lock}
+        title="Members Only"
+        actions={(
+          <>
+            {!user && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/')}>Go to Homepage</Button>
+            )}
+            {user && !isVerified && (
+              <Button variant="ctaOnDark" onClick={() => navigate('/account')}>View Account Status</Button>
+            )}
+          </>
+        )}
+      >
+        <p>
           {!user
             ? 'Please log in to propose a webinar topic.'
             : 'Your account must be verified to submit a webinar request.'}
         </p>
-        {!user && (
-          <Button onClick={() => navigate('/')}>Go to Homepage</Button>
-        )}
-        {user && !isVerified && (
-          <Button onClick={() => navigate('/account')}>View Account Status</Button>
-        )}
-      </div>
+      </SubmitGuard>
     );
   }
 
@@ -145,130 +148,122 @@ export function WebinarRequestPage() {
   // ── Quota exhausted guard ─────────────────────────────────────────────
   if (quotaExhausted) {
     return (
-      <div className="container mx-auto px-4 py-16 max-w-lg text-center">
-        <AlertCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">All webinar proposals used</h1>
-        <p className="text-gray-500 mb-6">
+      <SubmitGuard
+        icon={AlertCircle}
+        title="All webinar proposals used"
+        actions={(
+          <Button asChild variant="ctaOnDark">
+            <Link to="/contact?subject=partnership">Contact the M3 team</Link>
+          </Button>
+        )}
+      >
+        <p>
           You have used the {quota} webinar proposal{quota === 1 ? '' : 's'} included in your sponsor level for this period.
           Talk to the M3 team if you would like to propose more.
         </p>
-        <Button asChild>
-          <Link to="/contact?subject=partnership">Contact the M3 team</Link>
-        </Button>
-      </div>
+      </SubmitGuard>
     );
   }
 
   // ── Main form ─────────────────────────────────────────────────────────
   return (
-    <div className="container mx-auto px-4 py-8 max-w-2xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-primary mb-2">Propose a Webinar</h1>
-        <p className="text-gray-600">
-          Suggest a topic or expert you'd like to see featured in a Smart Marina Connect webinar.
-          Our team will review your proposal and notify you.
-        </p>
-
-        {/* Quota info banner (only when quota is finite) */}
-        {quota !== null && remaining !== null && (
-          <div className="mt-4 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-            <Info className="h-4 w-4 mt-0.5 shrink-0" />
-            <span>
-              You have <strong>{remaining}</strong> webinar request{remaining === 1 ? '' : 's'} remaining
-              this period (used {usedCount} of {quota}).
-            </span>
-          </div>
-        )}
-      </div>
+    <SubmitShell
+      seed="submit-webinar"
+      icon={Video}
+      eyebrow={t('submitShell.eyebrowWebinars', 'Webinars')}
+      title="Propose a Webinar"
+      subtitle="Suggest a topic or expert you'd like to see featured in a Smart Marina Connect webinar. Our team will review your proposal and notify you."
+      trail={[{ label: t('nav.events', 'Events'), href: '/events' }]}
+    >
+      {/* Quota info banner (only when quota is finite) */}
+      {quota !== null && remaining !== null && (
+        <div className="mb-6 flex items-start gap-2.5 rounded-field bg-foam px-4 py-3 text-sm leading-5 text-navy">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
+          <span>
+            You have <strong>{remaining}</strong> webinar request{remaining === 1 ? '' : 's'} remaining
+            this period (used {usedCount} of {quota}).
+          </span>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Webinar Details</CardTitle>
-            <CardDescription>Tell us what you'd like to explore</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
+        <FormCard title="Webinar Details" description="Tell us what you'd like to explore">
+          <div className="space-y-2">
+            <Label>Topic / Title *</Label>
+            <Input
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              required
+              placeholder="e.g. Sustainable shore power solutions for marinas"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Description *</Label>
+            <Textarea
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+              required
+              rows={5}
+              placeholder="Describe the topic, why it matters to the marina industry, any specific questions you'd like answered, or experts you'd like to hear from..."
+            />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Topic / Title *</Label>
+              <Label>Preferred Language</Label>
+              <Select
+                value={form.preferred_language}
+                onValueChange={(v) => setForm({ ...form, preferred_language: v })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="EN">English</SelectItem>
+                  <SelectItem value="FR">Français</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Preferred Timeframe</Label>
               <Input
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                required
-                placeholder="e.g. Sustainable shore power solutions for marinas"
+                value={form.preferred_timeframe}
+                onChange={(e) => setForm({ ...form, preferred_timeframe: e.target.value })}
+                placeholder="e.g. Q3 2026, Autumn 2026"
               />
             </div>
+          </div>
+        </FormCard>
 
-            <div className="space-y-2">
-              <Label>Description *</Label>
-              <Textarea
-                value={form.description}
-                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                required
-                rows={5}
-                placeholder="Describe the topic, why it matters to the marina industry, any specific questions you'd like answered, or experts you'd like to hear from..."
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Preferred Language</Label>
-                <Select
-                  value={form.preferred_language}
-                  onValueChange={(v) => setForm({ ...form, preferred_language: v })}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="EN">English</SelectItem>
-                    <SelectItem value="FR">Français</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Preferred Timeframe</Label>
-                <Input
-                  value={form.preferred_timeframe}
-                  onChange={(e) => setForm({ ...form, preferred_timeframe: e.target.value })}
-                  placeholder="e.g. Q3 2026, Autumn 2026"
+        <FormCard title="Related Sectors" description="Select the sectors most relevant to this webinar topic">
+          <div className="grid max-h-60 grid-cols-1 gap-2 overflow-y-auto rounded-field border border-rule bg-page/60 p-3 sm:grid-cols-2">
+            {sectors.map((s) => (
+              <div key={s.id} className="flex items-center space-x-2">
+                <Checkbox
+                  id={`ws-${s.id}`}
+                  checked={selectedSectors.includes(s.id)}
+                  onCheckedChange={() => toggleSector(s.id)}
                 />
+                <Label htmlFor={`ws-${s.id}`} className="text-sm cursor-pointer font-normal">
+                  {s.label}
+                </Label>
               </div>
-            </div>
-          </CardContent>
-        </Card>
+            ))}
+          </div>
+          {sectors.length === 0 && (
+            <p className="py-4 text-center text-sm text-meta">Loading sectors...</p>
+          )}
+        </FormCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Related Sectors</CardTitle>
-            <CardDescription>Select the sectors most relevant to this webinar topic</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
-              {sectors.map((s) => (
-                <div key={s.id} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`ws-${s.id}`}
-                    checked={selectedSectors.includes(s.id)}
-                    onCheckedChange={() => toggleSector(s.id)}
-                  />
-                  <Label htmlFor={`ws-${s.id}`} className="text-sm cursor-pointer font-normal">
-                    {s.label}
-                  </Label>
-                </div>
-              ))}
-            </div>
-            {sectors.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-4">Loading sectors...</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Button type="submit" className="w-full" size="lg" disabled={loading}>
-          {loading
-            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting...</>
-            : <><CheckCircle className="h-4 w-4 mr-2" />Submit Webinar Request</>
-          }
-        </Button>
+        <FormFooter>
+          <Button type="submit" variant="cta" size="lg" roll={!loading} arrow={!loading} disabled={loading}>
+            {loading
+              ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting...</>
+              : 'Submit Webinar Request'
+            }
+          </Button>
+        </FormFooter>
       </form>
-    </div>
+    </SubmitShell>
   );
 }

@@ -64,7 +64,7 @@ export function SponsorPortal({ sponsorIds }: { sponsorIds: string[] }) {
   };
 
   if (loading) return <div className="flex items-center justify-center h-[50vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
-  if (!sponsor) return <div className="max-w-2xl mx-auto py-16 text-center text-gray-500">No sponsorship linked to your account yet.</div>;
+  if (!sponsor) return <div className="max-w-2xl mx-auto py-16 text-center text-meta">No sponsorship linked to your account yet.</div>;
 
   const pct = deliveredPct(items);
   const needed = items.filter(i => i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' && !i.delivered);
@@ -73,34 +73,34 @@ export function SponsorPortal({ sponsorIds }: { sponsorIds: string[] }) {
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><Award className="h-6 w-6 text-primary" /> {sponsor.company_name}</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Your sponsorship benefits and their delivery status.</p>
+        <h1 className="text-2xl font-bold text-navy flex items-center gap-2"><Award className="h-6 w-6 text-primary" /> {sponsor.company_name}</h1>
+        <p className="text-sm text-meta mt-0.5">Your sponsorship benefits and their delivery status.</p>
       </div>
 
       {sponsors.length > 1 && (
         <div className="flex flex-wrap gap-2">
           {sponsors.map(s => (
-            <button key={s.id} onClick={() => setSponsor(s)} className={`px-3 py-1.5 rounded-lg border text-sm ${s.id === sponsor.id ? 'border-primary bg-primary/5 text-primary font-medium' : 'border-gray-200 text-gray-600'}`}>{s.company_name}</button>
+            <button key={s.id} onClick={() => setSponsor(s)} className={`px-3 py-1.5 rounded-lg border text-sm ${s.id === sponsor.id ? 'border-primary bg-chip text-primary font-medium' : 'border-rule text-meta'}`}>{s.company_name}</button>
           ))}
         </div>
       )}
 
       {agreement && (
-        <Card>
+        <Card className="rounded-card shadow-none">
           <CardContent className="pt-6 space-y-3">
             <div className="flex items-center justify-between gap-3 flex-wrap">
               <div>
-                <div className="text-sm text-gray-500">{tier?.label || 'Sponsorship'}</div>
-                <div className="text-lg font-bold text-gray-900">{formatMoney(agreement.negotiated_fee_cents ?? tier?.list_fee_cents, agreement.currency)}<span className="text-xs font-normal text-gray-400"> / term</span></div>
+                <div className="text-sm text-meta">{tier?.label || 'Sponsorship'}</div>
+                <div className="text-lg font-bold text-navy">{formatMoney(agreement.negotiated_fee_cents ?? tier?.list_fee_cents, agreement.currency)}<span className="text-xs font-normal text-meta/60"> / term</span></div>
               </div>
               {(agreement.term_start || agreement.term_end) && (
-                <div className="text-xs text-gray-500 text-right">{agreement.term_start || '—'} → {agreement.term_end || '—'}</div>
+                <div className="text-xs text-meta text-right">{agreement.term_start || '—'} → {agreement.term_end || '—'}</div>
               )}
             </div>
             {items.length > 0 && (
               <div>
-                <div className="flex items-center justify-between text-xs mb-1"><span className="text-gray-500">Delivered</span><span className="font-medium text-gray-700">{items.filter(i => i.delivered).length}/{items.length} · {pct}%</span></div>
-                <div className="h-2 rounded-full bg-gray-100 overflow-hidden"><div className={`h-full rounded-full ${pct === 100 ? 'bg-green-500' : 'bg-primary'}`} style={{ width: `${pct}%` }} /></div>
+                <div className="flex items-center justify-between text-xs mb-1"><span className="text-meta">Delivered</span><span className="font-medium text-ink">{items.filter(i => i.delivered).length}/{items.length} · {pct}%</span></div>
+                <div className="h-2 rounded-full bg-chip overflow-hidden"><div className={`h-full rounded-full ${pct === 100 ? 'bg-teal' : 'bg-navy'}`} style={{ width: `${pct}%` }} /></div>
               </div>
             )}
           </CardContent>
@@ -108,13 +108,13 @@ export function SponsorPortal({ sponsorIds }: { sponsorIds: string[] }) {
       )}
 
       {needed.length > 0 && (
-        <Card className="border-amber-200">
+        <Card className="rounded-card shadow-none border-amber-200">
           <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2 text-amber-800"><AlertCircle className="h-4 w-4" /> We need from you</CardTitle>
             <CardDescription>Upload a file or paste a link for each item below.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
             {needed.map(i => (
               <div key={i.id} className="rounded-lg border border-amber-100 bg-amber-50/40 p-3">
-                <div className="text-sm font-medium text-gray-900 flex items-center gap-2 flex-wrap">
+                <div className="text-sm font-semibold text-navy flex items-center gap-2 flex-wrap">
                   {i.name}
                   {i.status === 'REQUESTED_FROM_SPONSOR' && <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-200"><Clock className="h-3 w-3 mr-1" /> Requested</Badge>}
                 </div>
@@ -126,14 +126,14 @@ export function SponsorPortal({ sponsorIds }: { sponsorIds: string[] }) {
       )}
 
       {grouped.map(g => (
-        <Card key={g.program}>
+        <Card className="rounded-card shadow-none" key={g.program}>
           <CardHeader className="pb-2"><CardTitle className="text-sm">{PROGRAM_LABELS[g.program]}</CardTitle></CardHeader>
           <CardContent className="space-y-1.5">
             {g.rows.map(i => (
-              <div key={i.id} className="flex items-center justify-between gap-3 py-1.5 border-b border-gray-50 last:border-0">
+              <div key={i.id} className="flex items-center justify-between gap-3 py-1.5 border-b border-rule last:border-0">
                 <div className="min-w-0">
-                  <div className="text-sm text-gray-800 truncate">{i.name}</div>
-                  <div className="text-xs text-gray-400">{formatBenefitValue(i)}</div>
+                  <div className="text-sm text-ink truncate">{i.name}</div>
+                  <div className="text-xs text-meta/60">{formatBenefitValue(i)}</div>
                 </div>
                 <div className="shrink-0">
                   {isWysPending(i) ? <span className="text-[11px] text-amber-600">pending — event not scheduled</span>

@@ -1,0 +1,230 @@
+/*
+ * Content and static pages (refonte, Oct 2026, v2 kit): the resource library's
+ * toolbar, the article body (src/pages/ResourceDetailPage.tsx), the legal
+ * documents (src/components/content/LegalLayout.tsx) and the join page's chapter
+ * photos. Only transform and opacity move. Reduced motion: final states at once
+ * (end of file).
+ */
+
+/* ── Library toolbar ─────────────────────────────────────────────────────── */
+
+/* Sticks under the header (the global `.sticky.top-16` rule makes it follow the
+   header when it tucks away). Once stuck, a page-coloured shelf behind the header
+   keeps cards that scroll up from showing between the bar's edges. */
+.res-toolbar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 120px;
+  background: rgb(var(--page) / 0.94);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s var(--ease-out-smc);
+}
+.res-toolbar.is-stuck {
+  box-shadow: 0 10px 24px rgba(11, 38, 83, 0.06);
+}
+.res-toolbar.is-stuck::before {
+  opacity: 1;
+}
+/* Phones: the chips scroll sideways, their edges fade. */
+@media (max-width: 767px) {
+  .res-chips {
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%);
+  }
+}
+
+/* The theme tiles' picture zooms like every card's (.card-media in smc-motion.css);
+   the selected tile keeps a gold ring inside its edge. */
+.res-tile.is-on {
+  box-shadow: inset 0 0 0 2px rgb(var(--gold)), inset 0 0 0 4px rgb(var(--navy));
+}
+
+/* ── Article body ────────────────────────────────────────────────────────── */
+
+/* About 68 characters a line (68ch at 18 px), line height 1.7. The editor's HTML
+   is styled here and nowhere else: headings navy, links navy with a gold line,
+   quotes on foam with a teal rule, rounded pictures. */
+.smc-article {
+  max-width: 68ch;
+  font-size: 18px;
+  line-height: 1.7;
+  color: rgb(var(--ink));
+  overflow-wrap: break-word;
+}
+.smc-article > :first-child { margin-top: 0; }
+.smc-article > :last-child { margin-bottom: 0; }
+.smc-article p { margin: 0 0 1.25em; }
+.smc-article h2 {
+  margin: 2.1em 0 0.6em;
+  font-size: 28px;
+  line-height: 34px;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  color: rgb(var(--navy));
+}
+.smc-article h3 {
+  margin: 1.8em 0 0.5em;
+  font-size: 22px;
+  line-height: 28px;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  color: rgb(var(--navy));
+}
+.smc-article h4 {
+  margin: 1.6em 0 0.4em;
+  font-size: 18px;
+  line-height: 26px;
+  font-weight: 600;
+  color: rgb(var(--navy));
+}
+.smc-article strong { font-weight: 600; color: rgb(var(--navy)); }
+.smc-article ul,
+.smc-article ol { margin: 0 0 1.25em; padding-left: 1.4em; }
+.smc-article ul { list-style: disc; }
+.smc-article ol { list-style: decimal; }
+.smc-article li { margin: 0.35em 0; padding-left: 0.2em; }
+.smc-article li::marker { color: rgb(var(--teal)); }
+.smc-article a {
+  color: rgb(var(--navy));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--gold));
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  transition: background-color 0.3s var(--ease-out-smc);
+}
+.smc-article a:hover { background-color: rgb(var(--gold) / 0.18); }
+.smc-article a:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 2px; }
+.smc-article blockquote {
+  margin: 1.8em 0;
+  padding: 1rem 1.25rem 1rem 1.5rem;
+  border-left: 3px solid rgb(var(--teal));
+  border-radius: 0 16px 16px 0;
+  background: rgb(var(--foam));
+  font-size: 20px;
+  line-height: 1.55;
+  color: rgb(var(--navy));
+}
+.smc-article blockquote p:last-child { margin-bottom: 0; }
+.smc-article hr { margin: 2.5em 0; border: 0; border-top: 1px solid rgb(var(--rule)); }
+.smc-article img,
+.smc-article video,
+.smc-article iframe { max-width: 100%; height: auto; margin: 1.8em 0; border-radius: 16px; }
+.smc-article iframe { aspect-ratio: 16 / 9; width: 100%; height: auto; }
+.smc-article figure { margin: 1.8em 0; }
+.smc-article figure img { margin: 0; }
+.smc-article figcaption { margin-top: 0.5em; font-size: 14px; line-height: 20px; color: rgb(var(--meta)); }
+.smc-article code {
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: rgb(var(--chip));
+  color: rgb(var(--navy));
+  font-size: 0.9em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.smc-article pre {
+  margin: 1.5em 0;
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  border-radius: 16px;
+  background: rgb(var(--navy-deep));
+  color: #fff;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.smc-article pre code { padding: 0; background: none; color: inherit; font-size: inherit; }
+.smc-article table {
+  display: block;
+  width: 100%;
+  margin: 1.8em 0;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.smc-article th,
+.smc-article td {
+  padding: 0.6em 0.8em;
+  border-bottom: 1px solid rgb(var(--rule));
+  text-align: left;
+  vertical-align: top;
+}
+.smc-article th { background: rgb(var(--page)); color: rgb(var(--navy)); font-weight: 600; }
+@media (max-width: 639px) {
+  .smc-article { font-size: 17px; }
+  .smc-article h2 { font-size: 24px; line-height: 30px; }
+  .smc-article blockquote { font-size: 18px; }
+}
+
+/* ── Legal documents ─────────────────────────────────────────────────────── */
+
+/* The five documents keep their own markup (articles as <section> with an <h2>,
+   the occasional list or key-facts box); this restyles it into one readable
+   column: about 72 characters a line, line height 1.7. */
+.legal-body {
+  max-width: 72ch;
+  font-size: 16px;
+  line-height: 1.7;
+  color: rgb(var(--ink));
+  overflow-wrap: break-word;
+}
+.legal-body > section + section { margin-top: 2.5rem; }
+.legal-body h2 {
+  margin: 0 0 0.75rem;
+  font-size: 22px;
+  line-height: 28px;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  color: rgb(var(--navy));
+}
+.legal-body .text-sm { font-size: 15px; line-height: 1.65; }
+.legal-body .text-gray-500 { color: rgb(var(--meta)); }
+.legal-body strong { font-weight: 600; color: rgb(var(--navy)); }
+.legal-body ul { margin-top: 0.5rem; padding-left: 1.25rem; list-style: disc; list-style-position: outside; }
+.legal-body li { margin: 0.25rem 0; padding-left: 0.25rem; }
+.legal-body li::marker { color: rgb(var(--teal)); }
+.legal-body a {
+  color: rgb(var(--navy));
+  text-decoration: underline;
+  text-decoration-color: rgb(var(--gold));
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.legal-body a:hover { background-color: rgb(var(--gold) / 0.18); }
+.legal-body a:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: 2px; }
+/* Key facts (publisher, hosting…): a foam box. */
+.legal-body .bg-gray-50 {
+  padding: 1rem 1.25rem;
+  border-radius: 12px;
+  background: rgb(var(--foam));
+}
+.legal-body > section.border-t { margin-top: 3rem; padding-top: 1.5rem; border-color: rgb(var(--rule)); }
+
+/* "On this page": the current article's link carries a gold bar. */
+.legal-toc a[aria-current="true"] { color: rgb(var(--navy)); font-weight: 600; }
+.legal-toc a[aria-current="true"]::before { transform: scaleY(1); }
+.legal-toc a::before {
+  content: "";
+  position: absolute;
+  left: -1px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: rgb(var(--gold));
+  transform: scaleY(0);
+  transition: transform 0.3s var(--ease-out-smc);
+}
+.legal-toc a:hover::before { transform: scaleY(1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .res-toolbar::before,
+  .legal-toc a::before,
+  .smc-article a {
+    transition: none !important;
+  }
+}

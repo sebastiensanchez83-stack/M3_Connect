@@ -1,0 +1,113 @@
+/*
+ * Administration skin (refonte, Oct 2026).
+ *
+ * The ~30 admin sections were written with plain Tailwind (gray-*, text-2xl
+ * font-bold, bg-gray-50 table heads). Rather than rewrite every one of them,
+ * AdminPage puts `.admin-skin` on the content area and this file gives them the
+ * refonte's working-screen register: marine headings, hairline cards at 16 px,
+ * compact tables with a sticky caps header and a quiet row hover, nothing that
+ * moves.
+ *
+ * Scope: ONLY the content area of the admin, and NOT the frozen SM26 consoles
+ * (/admin/sm26*): AdminPage leaves the class off there. Dialogs and menus are
+ * portalled to <body>, outside the skin, and keep the shadcn look.
+ *
+ * Specificity: every selector starts with `.admin-skin` plus an element or a
+ * second class, so it beats the single-class Tailwind utilities of the legacy
+ * markup (p-4, border-0, shadow-sm, text-2xl) without !important.
+ */
+
+/* ─── Headings ─────────────────────────────────────────────────────────────── */
+.admin-skin h1 {
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: rgb(var(--navy));
+}
+
+/* ─── Cards: white, hairline, 16 px, no shadow at rest ─────────────────────── */
+.admin-skin .bg-card.rounded-lg {
+  border: 1px solid rgb(var(--rule));
+  border-radius: 16px;
+  box-shadow: none;
+}
+/* A card that is a link or a button lifts on hover, like the public cards. */
+.admin-skin .bg-card.rounded-lg.cursor-pointer {
+  transition: box-shadow 0.2s var(--ease-out-smc), border-color 0.2s var(--ease-out-smc);
+}
+.admin-skin .bg-card.rounded-lg.cursor-pointer:hover {
+  border-color: rgb(var(--navy) / 0.25);
+  box-shadow: var(--shadow-hover);
+}
+
+/* Card titles (shadcn CardTitle is an h3): marine, semibold, teal icon. */
+.admin-skin .bg-card h3 {
+  color: rgb(var(--navy));
+  font-weight: 600;
+}
+.admin-skin .bg-card h3 > svg:first-child {
+  color: rgb(var(--teal));
+}
+
+/* ─── Tables: compact, sticky caps header, hairline rows, row hover ───────── */
+.admin-skin table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 14px;
+  line-height: 20px;
+}
+.admin-skin table thead {
+  background: transparent;
+  border: 0;
+}
+.admin-skin table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px 12px;
+  background: rgb(var(--page));
+  border-bottom: 1px solid rgb(var(--rule));
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(var(--meta));
+  white-space: nowrap;
+}
+.admin-skin table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgb(var(--rule));
+  vertical-align: middle;
+}
+.admin-skin table tbody tr:last-child > td {
+  border-bottom: 0;
+}
+.admin-skin table tbody tr {
+  background: transparent;
+  transition: background-color 0.12s var(--ease-out-smc);
+}
+.admin-skin table tbody tr:hover > td {
+  background: rgb(var(--page));
+}
+/* A table's own scroll box: the header stays in view while a long list scrolls
+   under it, and wide tables scroll sideways inside the card, not the page. */
+.admin-skin .overflow-x-auto:has(> table),
+.admin-skin .admin-table-scroll {
+  max-height: min(72vh, 760px);
+  overflow: auto;
+}
+
+/* ─── Misc: the legacy muted greys follow the refonte neutrals ─────────────── */
+.admin-skin .text-gray-900 {
+  color: rgb(var(--navy));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-skin .bg-card.rounded-lg.cursor-pointer,
+  .admin-skin table tbody tr {
+    transition: none;
+  }
+}

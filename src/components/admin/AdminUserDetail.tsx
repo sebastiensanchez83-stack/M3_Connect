@@ -26,6 +26,7 @@ import { sendNotification } from '@/lib/notifications';
 import { startImpersonation, PendingRecoveryError } from '@/lib/impersonation';
 import { useAuth } from '@/contexts/AuthContext';
 import type { AdminProfile } from './types';
+import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN } from './AdminUI';
 
 interface ReferenceItem {
   id: string;
@@ -370,22 +371,22 @@ export function AdminUserDetail() {
 
   const getPersonaBadge = (p: string) => {
     switch (p) {
-      case 'admin': return <Badge variant="destructive">Admin</Badge>;
-      case 'moderator': return <Badge variant="destructive">Moderator</Badge>;
-      case 'partner': return <Badge variant="success">Partner</Badge>;
-      case 'marina': return <Badge variant="info">Marina</Badge>;
-      case 'media_partner': return <Badge variant="secondary">Media</Badge>;
-      default: return <Badge variant="secondary">{p}</Badge>;
+      case 'admin': return <AdminStatusPill tone="danger">Admin</AdminStatusPill>;
+      case 'moderator': return <AdminStatusPill tone="danger">Moderator</AdminStatusPill>;
+      case 'partner': return <AdminStatusPill tone="success">Service provider</AdminStatusPill>;
+      case 'marina': return <AdminStatusPill tone="info">Marina</AdminStatusPill>;
+      case 'media_partner': return <AdminStatusPill>Media</AdminStatusPill>;
+      default: return <AdminStatusPill>{p}</AdminStatusPill>;
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'verified': return <Badge variant="success">Verified</Badge>;
-      case 'pending': return <Badge variant="warning">Pending</Badge>;
-      case 'rejected': return <Badge variant="destructive">Rejected</Badge>;
-      case 'suspended': return <Badge variant="destructive">Suspended</Badge>;
-      default: return <Badge variant="secondary">{status}</Badge>;
+      case 'verified': return <AdminStatusPill tone="success">Verified</AdminStatusPill>;
+      case 'pending': return <AdminStatusPill tone="warning">Pending</AdminStatusPill>;
+      case 'rejected': return <AdminStatusPill tone="danger">Rejected</AdminStatusPill>;
+      case 'suspended': return <AdminStatusPill tone="danger">Suspended</AdminStatusPill>;
+      default: return <AdminStatusPill>{status}</AdminStatusPill>;
     }
   };
 
@@ -422,21 +423,16 @@ export function AdminUserDetail() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/users')} className="gap-1.5">
-            <ArrowLeft className="h-4 w-4" /> Users
-          </Button>
-          <Separator orientation="vertical" className="h-6" />
-          <h1 className="text-xl font-bold text-gray-900">{getUserName()}</h1>
-          {getPersonaBadge(user.persona)}
-          {getStatusBadge(user.access_status)}
-        </div>
-        {isAdmin && id && user.persona !== 'admin' && user.persona !== 'moderator' && (
+      <AdminDetailHeader
+        back={{ to: '/admin/users', label: 'Users' }}
+        title={getUserName()}
+        badges={<>{getPersonaBadge(user.persona)}{getStatusBadge(user.access_status)}</>}
+        actions={
+          isAdmin && id && user.persona !== 'admin' && user.persona !== 'moderator' && (
           <Button
             variant="outline"
             size="sm"
-            className="gap-1.5"
+            className={`${ADMIN_BTN} gap-1.5`}
             disabled={viewingAs}
             title="Open the platform in this user's own account to see exactly what they see"
             onClick={async () => {
@@ -465,8 +461,9 @@ export function AdminUserDetail() {
           >
             <Eye className="h-4 w-4" /> {viewingAs ? 'Opening…' : 'View as this user'}
           </Button>
-        )}
-      </div>
+        )
+        }
+      />
 
       {/* SM26 event participation — single source (sm_registration) */}
       {id && <SM26ParticipationCard userId={id} variant="admin" hideWhenEmpty={false} />}
@@ -482,7 +479,7 @@ export function AdminUserDetail() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="bg-gray-50 rounded-lg p-4">
+          <div className="rounded-xl bg-page p-4">
             <DetailRow label="First Name" value={user.first_name} />
             <DetailRow label="Last Name" value={user.last_name} />
             <DetailRow label="Email" value={user.email} />
@@ -506,7 +503,7 @@ export function AdminUserDetail() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="bg-blue-50 rounded-lg p-4">
+            <div className="rounded-xl bg-page p-4">
               <DetailRow label="Name" value={orgData.name as string} />
               <DetailRow label="Type" value={orgData.organization_type as string} />
               <DetailRow label="Tier" value={getTierBadge(user.org_tier)} />

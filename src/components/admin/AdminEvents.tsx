@@ -1,11 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Plus, Calendar, MapPin, ChevronRight, Search, Lock, EyeOff } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Plus, Calendar, MapPin, ChevronRight, Lock, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -13,6 +10,9 @@ import { supabase } from '@/lib/supabase';
 import type { Event } from './types';
 import { useAdminFilters } from './hooks/useAdminFilters';
 import { AdminContextBanner } from './AdminContextBanner';
+import {
+  AdminPageHeader, AdminFilterBar, AdminTableCard, AdminStatusPill, AdminEmpty, AdminLoading, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
 
 interface ExtendedEvent extends Event {
   invitation_only?: boolean;
@@ -78,32 +78,28 @@ export function AdminEvents() {
       ].filter(Boolean).join(', ') || 'Filtered events'
     : '';
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">{t('admin.events')} ({filtered.length})</h1>
-        <Button onClick={() => navigate('/admin/events/new')} className="gap-1.5">
-          <Plus className="h-4 w-4" /> Create Event
-        </Button>
-      </div>
+    <div>
+      <AdminPageHeader
+        title={t('admin.events')}
+        count={filtered.length}
+        description={t('adminUi.pages.events')}
+        actions={
+          <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => navigate('/admin/events/new')}>
+            <Plus className="h-4 w-4 mr-1.5" /> Create Event
+          </Button>
+        }
+      />
 
       {hasFilters && (
-        <AdminContextBanner label={bannerLabel} count={filtered.length} onClear={clearFilters} color="pink" />
+        <AdminContextBanner label={bannerLabel} count={filtered.length} onClear={clearFilters} color="blue" />
       )}
 
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search events..." className="pl-9 h-9" />
-        </div>
+      <AdminFilterBar search={search} onSearchChange={setSearch} searchPlaceholder="Search events...">
         <Select value={typeFilter} onValueChange={v => setFilters({ type: v === 'all' ? '' : v } as any)}>
-          <SelectTrigger className="w-40 h-9"><SelectValue placeholder="All types" /></SelectTrigger>
+          <SelectTrigger className="w-40"><SelectValue placeholder="All types" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
             <SelectItem value="webinar">Webinar</SelectItem>
@@ -111,7 +107,7 @@ export function AdminEvents() {
           </SelectContent>
         </Select>
         <Select value={timeFilter} onValueChange={v => setFilters({ time: v === 'all' ? '' : v } as any)}>
-          <SelectTrigger className="w-40 h-9"><SelectValue placeholder="All events" /></SelectTrigger>
+          <SelectTrigger className="w-40"><SelectValue placeholder="All events" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Events</SelectItem>
             <SelectItem value="upcoming">Upcoming</SelectItem>
@@ -119,109 +115,105 @@ export function AdminEvents() {
           </SelectContent>
         </Select>
         <Select value={publishedFilter} onValueChange={v => setFilters({ published: v === 'all' ? '' : v } as any)}>
-          <SelectTrigger className="w-40 h-9"><SelectValue placeholder="All status" /></SelectTrigger>
+          <SelectTrigger className="w-40"><SelectValue placeholder="All status" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
             <SelectItem value="published">Published</SelectItem>
             <SelectItem value="draft">Draft</SelectItem>
           </SelectContent>
         </Select>
-      </div>
+      </AdminFilterBar>
 
-      <div className="space-y-2">
-        {filtered.length === 0 ? (
-          <Card className="border-0 shadow-sm">
-            <CardContent className="py-12 text-center text-gray-400">No events match your filters</CardContent>
-          </Card>
-        ) : (
-          filtered.map(e => {
-            const hasDate = !!e.date_time;
-            const isPast = hasDate && new Date(e.date_time) < now;
-            const evType = e.event_type || 'webinar';
-            const regs = regCounts[e.id] || 0;
-            const isDraft = e.published === false;
+      <AdminTableCard footer={`${filtered.length} of ${events.length} events`}>
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className="text-left">Event</th>
+              <th className="text-left">Type</th>
+              <th className="text-left">When</th>
+              <th className="text-left">Location</th>
+              <th className="text-left">Access</th>
+              <th className="text-left">Registrations</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={6}><AdminEmpty icon={Calendar} title="No events match your filters" /></td></tr>
+            ) : (
+              filtered.map(e => {
+                const hasDate = !!e.date_time;
+                const isPast = hasDate && new Date(e.date_time) < now;
+                const evType = e.event_type || 'webinar';
+                const regs = regCounts[e.id] || 0;
+                const isDraft = e.published === false;
 
-            return (
-              <Card key={e.id}
-                className={`border-0 shadow-sm hover:shadow-md transition-all cursor-pointer group ${isPast ? 'opacity-70' : ''} ${isDraft ? 'border-l-4 border-l-amber-400' : ''}`}
-                onClick={() => navigate(`/admin/events/${e.id}`)}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    {/* Date block */}
-                    <div className={`h-14 w-14 rounded-xl flex flex-col items-center justify-center shrink-0 ${
-                      isPast ? 'bg-gray-100' : hasDate ? 'bg-pink-50' : 'bg-amber-50'
-                    }`}>
+                return (
+                  <tr key={e.id} className="group cursor-pointer" onClick={() => navigate(`/admin/events/${e.id}`)}>
+                    <td>
+                      <div className="flex items-center gap-3">
+                        {/* Date tile */}
+                        <div className={`flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-xl ${isPast ? 'bg-chip' : hasDate ? 'bg-foam' : 'bg-amber-50'}`}>
+                          {hasDate ? (
+                            <>
+                              <span className={`text-[15px] font-semibold leading-none tabular-nums ${isPast ? 'text-meta' : 'text-navy'}`}>
+                                {new Date(e.date_time).getDate()}
+                              </span>
+                              <span className={`mt-0.5 text-[10px] font-semibold uppercase leading-none ${isPast ? 'text-meta/70' : 'text-teal-text'}`}>
+                                {new Date(e.date_time).toLocaleDateString('en-US', { month: 'short' })}
+                              </span>
+                            </>
+                          ) : (
+                            <span className="text-[11px] font-semibold text-amber-700">TBD</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <Link
+                              to={`/admin/events/${e.id}`}
+                              onClick={ev => ev.stopPropagation()}
+                              className={`rounded-sm font-semibold focus:outline-none focus-visible:shadow-focus ${isPast ? 'text-meta' : 'text-navy'}`}
+                            >
+                              <span className="card-ul">{e.title}</span>
+                            </Link>
+                            {isDraft && <AdminStatusPill tone="warning" icon={EyeOff}>Draft</AdminStatusPill>}
+                            {e.invitation_only && <AdminStatusPill tone="info" icon={Lock}>Invite only</AdminStatusPill>}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td><AdminStatusPill tone={evType === 'on_site' ? 'navy' : 'neutral'}>{evType === 'on_site' ? 'On-site' : 'Webinar'}</AdminStatusPill></td>
+                    <td className="whitespace-nowrap text-sm text-ink">
                       {hasDate ? (
                         <>
-                          <span className={`text-lg font-bold leading-none ${isPast ? 'text-gray-500' : 'text-pink-700'}`}>
-                            {new Date(e.date_time).getDate()}
-                          </span>
-                          <span className={`text-[10px] font-medium uppercase ${isPast ? 'text-gray-400' : 'text-pink-500'}`}>
-                            {new Date(e.date_time).toLocaleDateString('en-US', { month: 'short' })}
-                          </span>
+                          {new Date(e.date_time).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                          {!e.is_full_day && (
+                            <span className="text-meta"> {new Date(e.date_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
+                          )}
+                          {e.is_full_day && <span className="text-meta"> (all day)</span>}
                         </>
                       ) : (
-                        <span className="text-xs font-medium text-amber-600">TBD</span>
+                        <span className="text-amber-700">Date TBD</span>
                       )}
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-900 truncate group-hover:text-primary transition-colors">
-                          {e.title}
-                        </span>
-                        <Badge variant={evType === 'on_site' ? 'info' : 'secondary'} className="shrink-0 text-[10px]">
-                          {evType === 'on_site' ? 'On-Site' : 'Webinar'}
-                        </Badge>
-                        <Badge variant={e.access_level === 'public' ? 'success' : 'outline'} className="shrink-0 text-[10px]">
-                          {e.access_level}
-                        </Badge>
-                        {isDraft && (
-                          <Badge className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
-                            <EyeOff className="h-2.5 w-2.5 mr-0.5" /> Draft
-                          </Badge>
-                        )}
-                        {e.invitation_only && (
-                          <Badge className="bg-purple-50 text-purple-700 border-purple-200 text-[10px]">
-                            <Lock className="h-2.5 w-2.5 mr-0.5" /> Invite Only
-                          </Badge>
-                        )}
+                    </td>
+                    <td className="text-sm text-ink">
+                      {e.location ? (
+                        <span className="inline-flex items-center gap-1"><MapPin className="h-3.5 w-3.5 shrink-0 text-meta" aria-hidden="true" />{e.location}</span>
+                      ) : <span className="text-meta/60">—</span>}
+                    </td>
+                    <td><AdminStatusPill tone={e.access_level === 'public' ? 'success' : 'neutral'}>{e.access_level}</AdminStatusPill></td>
+                    <td>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="whitespace-nowrap text-sm tabular-nums text-ink">{regs}</span>
+                        <ChevronRight className="h-4 w-4 text-meta/50 transition-colors group-hover:text-navy" aria-hidden="true" />
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-gray-500">
-                        {hasDate ? (
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {new Date(e.date_time).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                            {!e.is_full_day && (
-                              <> {new Date(e.date_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</>
-                            )}
-                            {e.is_full_day && <> (All day)</>}
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-1 text-amber-600">
-                            <Calendar className="h-3 w-3" /> Date TBD
-                          </span>
-                        )}
-                        {e.location && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3" /> {e.location}
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1 text-violet-600 font-medium">
-                          {regs} registration{regs !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                    </div>
-
-                    <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-primary transition-colors shrink-0" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })
-        )}
-      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </AdminTableCard>
     </div>
   );
 }

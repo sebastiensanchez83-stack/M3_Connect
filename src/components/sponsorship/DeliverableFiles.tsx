@@ -2,18 +2,21 @@ import { useState, useEffect, useRef } from 'react';
 import { Loader2, Upload, Link2, ExternalLink, Trash2, FileText, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { BTN, BTN_OUTLINE, FOCUS, StatusPill, type PillTone } from '@/components/member/MemberUI';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { useFileDrop } from '@/hooks/useFileDrop';
 import { SPONSORSHIP_BUCKET, SpDeliverableFile } from '@/lib/sponsorship';
+import { FIELD, ICON_BTN } from './sponsorshipUi';
+import { cn } from '@/lib/utils';
 
 // Files a sponsor provides for a deliverable — native Storage upload OR an
 // external link (Drive/Dropbox, for large videos). Exactly one per row (DB
 // CHECK). Managers approve/reject; the uploader can remove a not-yet-approved
 // file. Reused in the admin/YCM hub and the sponsor portal.
 
-const REVIEW_CLS: Record<string, string> = {
-  pending: 'text-amber-600', approved: 'text-green-600', rejected: 'text-red-600',
+const REVIEW_TONE: Record<string, PillTone> = {
+  pending: 'warning', approved: 'success', rejected: 'danger',
 };
 
 export function DeliverableFiles({ sponsorId, benefitId, isManager, canUpload, onChanged }: {
@@ -100,50 +103,51 @@ export function DeliverableFiles({ sponsorId, benefitId, isManager, canUpload, o
   };
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       {files.map(f => (
-        <div key={f.id} className="flex items-center justify-between gap-2 rounded-md border border-rule px-2.5 py-1.5">
-          <button onClick={() => view(f)} className="min-w-0 flex items-center gap-2 text-left group">
-            {f.external_url ? <Link2 className="h-3.5 w-3.5 text-meta/60 shrink-0" /> : <FileText className="h-3.5 w-3.5 text-meta/60 shrink-0" />}
-            <span className="text-xs text-ink truncate group-hover:text-primary group-hover:underline">{f.filename || 'File'}</span>
-            <ExternalLink className="h-3 w-3 text-meta/40 shrink-0" />
+        <div key={f.id} className="flex items-center justify-between gap-2 rounded-xl border border-rule bg-white py-0.5 pl-3 pr-1">
+          <button type="button" onClick={() => view(f)} className={cn('group flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md text-left', FOCUS)}>
+            {f.external_url ? <Link2 className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" /> : <FileText className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" />}
+            <span className="min-w-0 truncate py-0.5 text-[14px] text-navy"><span className="card-ul">{f.filename || 'File'}</span></span>
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-meta" aria-hidden="true" />
+            <span className="sr-only">(opens in a new tab)</span>
           </button>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`text-[10px] font-medium ${REVIEW_CLS[f.review_status]}`}>{f.review_status}</span>
+          <div className="flex shrink-0 items-center gap-1">
+            <StatusPill tone={REVIEW_TONE[f.review_status] ?? 'neutral'} className="capitalize">{f.review_status}</StatusPill>
             {isManager && f.review_status !== 'approved' && (
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-green-600" disabled={busy === f.id} onClick={() => review(f, 'approved')} title="Approve"><Check className="h-3.5 w-3.5" /></Button>
+              <Button type="button" size="icon" variant="ghost" className={cn(ICON_BTN, 'text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800')} disabled={busy === f.id} onClick={() => review(f, 'approved')} title="Approve" aria-label="Approve this file"><Check className="h-4 w-4" aria-hidden="true" /></Button>
             )}
             {isManager && f.review_status !== 'rejected' && (
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-meta/60 hover:text-red-600" disabled={busy === f.id} onClick={() => review(f, 'rejected')} title="Reject"><X className="h-3.5 w-3.5" /></Button>
+              <Button type="button" size="icon" variant="ghost" className={cn(ICON_BTN, 'text-meta hover:bg-red-50 hover:text-red-700')} disabled={busy === f.id} onClick={() => review(f, 'rejected')} title="Reject" aria-label="Reject this file"><X className="h-4 w-4" aria-hidden="true" /></Button>
             )}
             {(isManager || f.review_status !== 'approved') && canUpload && (
-              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-meta/40 hover:text-red-600" disabled={busy === f.id} onClick={() => remove(f)} title="Remove">
-                {busy === f.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              <Button type="button" size="icon" variant="ghost" className={cn(ICON_BTN, 'text-meta hover:bg-red-50 hover:text-red-700')} disabled={busy === f.id} onClick={() => remove(f)} title="Remove" aria-label="Remove this file">
+                {busy === f.id ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
               </Button>
             )}
           </div>
         </div>
       ))}
       {files.some(f => f.review_status === 'rejected' && f.review_note) && (
-        <p className="text-[11px] text-red-600 px-1">{files.filter(f => f.review_status === 'rejected' && f.review_note).map(f => `“${f.review_note}”`).join(' ')}</p>
+        <p className="px-1 text-[13px] leading-5 text-red-700">{files.filter(f => f.review_status === 'rejected' && f.review_note).map(f => `“${f.review_note}”`).join(' ')}</p>
       )}
 
       {canUpload && (
-        <div {...dropHandlers} className={`flex items-center gap-1.5 pt-0.5 rounded-md transition-colors ${isDragging ? 'ring-2 ring-primary/40 bg-chip' : ''}`}>
-          <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={uploading} onClick={() => fileRef.current?.click()}>
-            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload
+        <div {...dropHandlers} className={cn('flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-2 transition-colors', isDragging ? 'border-navy bg-chip' : 'border-rule')}>
+          <Button type="button" variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} disabled={uploading} onClick={() => fileRef.current?.click()}>
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />} Upload
           </Button>
-          <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => setShowLink(v => !v)}>
-            <Link2 className="h-3.5 w-3.5" /> Link
+          <Button type="button" variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} aria-expanded={showLink} onClick={() => setShowLink(v => !v)}>
+            <Link2 className="h-4 w-4" aria-hidden="true" /> Link
           </Button>
-          <span className="text-[10px] text-meta/60">or drop a file</span>
-          <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
+          <span className="text-[13px] text-meta">or drop a file</span>
+          <input ref={fileRef} type="file" className="hidden" aria-label="Choose a file to upload" onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
         </div>
       )}
       {showLink && canUpload && (
-        <div className="flex items-center gap-1.5">
-          <Input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="https://drive.google.com/…" className="h-7 text-xs" />
-          <Button size="sm" className="h-7 text-xs" onClick={addLink}>Add</Button>
+        <div className="flex items-center gap-2">
+          <Input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="https://drive.google.com/…" aria-label="Link to the file" className={cn(FIELD, 'flex-1')} />
+          <Button type="button" className={BTN} onClick={addLink}>Add</Button>
         </div>
       )}
     </div>

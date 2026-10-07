@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { AdminContextBanner } from './AdminContextBanner';
 import type { WebinarRequest } from './types';
+import { ADMIN_BTN_PRIMARY } from './AdminUI';
 
 export function AdminWebinarRequests() {
   const { t } = useTranslation();
@@ -173,7 +174,7 @@ export function AdminWebinarRequests() {
           {' '}({requests.length})
         </h1>
         {isAdmin && (
-          <Button onClick={() => navigate('/admin/events/new?type=webinar')} className="gap-1.5 ml-auto">
+          <Button variant="secondary" size="sm" onClick={() => navigate('/admin/events/new?type=webinar')} className={ADMIN_BTN_PRIMARY + ' gap-1.5 ml-auto'}>
             <Plus className="h-4 w-4" /> Create webinar
           </Button>
         )}

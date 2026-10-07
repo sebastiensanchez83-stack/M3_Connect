@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Seo } from '@/components/seo/Seo';
-import { Anchor, Building2, Calendar, Compass, Globe, Link2, Newspaper, BookOpen } from 'lucide-react';
+import { Anchor, Building2, BookOpen, Compass, Link2, Newspaper, ShieldCheck, UserCheck, MailCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/PageHero';
 import { CardShell, CardMedia, StretchedLink } from '@/components/brand/CardShell';
@@ -13,22 +13,34 @@ import { BathyPattern } from '@/components/motion/BathyPattern';
 import { Counter } from '@/components/motion/Counter';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
-import { SectionHead } from '@/components/content/ContentParts';
+import { CheckList, SectionHead } from '@/components/content/ContentParts';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNetworkFigures } from '@/lib/networkStats';
 import { SITE_IMAGES, PERSONA_IMAGES, SM26_MOMENTS } from '@/lib/siteMedia';
 import { withSiteSuffix } from '@/lib/seoText';
+import { registerCopyStrings } from '@/i18n/refonte-copy';
 import { cn } from '@/lib/utils';
 
+registerCopyStrings();
+
 /**
- * About, on the v2 kit: the compact banner (two actions), the mission with the
- * network's live figures, what the platform does (three cards that lead to it),
- * who it is for (four photo cards that lead to the matching chapter of the join
- * page), M3 Monaco with its three meeting points and the contact panel, and the
- * moments of the 6th edition of the Rendezvous.
+ * About, on the v2 kit, as a short story in seven numbered chapters:
+ *
+ *   01 why the network exists, with its live figures
+ *   02 what the platform holds (directory, opportunities, resources)
+ *   03 what members can do, by profile (the validated rights lists, as on the
+ *      home page and the join page), each card leading to its join chapter
+ *   04 how the M3 team checks every member
+ *   05 where M3 meets its members: the Rendezvous, the World Yachting Summit
+ *      and the webinars, side by side
+ *   06 the moments of the 6th edition of the Rendezvous
+ *   07 M3 Monaco, the team, and the contact panel
  *
  * The footer's "Join the marina network" band closes the page for visitors, so
- * there is no second sign-up block here.
+ * there is no second sign-up block here: the banner and the profile cards are
+ * the way in.
+ *
+ * Copy: src/i18n/refonte-copy.ts (staticPages.about.*). Facts only.
  */
 export function AboutPage() {
   const { t } = useTranslation();
@@ -43,39 +55,45 @@ export function AboutPage() {
     ['countries', figures.countries, t('becomePartner.stats.countries', 'Countries')],
   ];
 
-  const doing = [
+  const platform = [
+    {
+      key: 'directory',
+      icon: Building2,
+      to: '/directory',
+      title: t('staticPages.about.platform.directory.title'),
+      desc: t('staticPages.about.platform.directory.desc'),
+    },
+    {
+      key: 'opportunities',
+      icon: Link2,
+      to: '/opportunities',
+      title: t('staticPages.about.platform.opportunities.title'),
+      desc: t('staticPages.about.platform.opportunities.desc'),
+    },
     {
       key: 'resources',
       icon: BookOpen,
       to: '/resources',
-      title: t('about.feature1Title', 'Resources'),
-      desc: t('about.feature1Desc', 'Articles on marina infrastructure, design, digital, energy, operations and business, sorted by theme.'),
-    },
-    {
-      key: 'intro',
-      icon: Link2,
-      to: '/opportunities',
-      title: t('about.feature2Title', 'Introductions'),
-      desc: t('about.feature2Desc', 'Marinas publish tenders, projects and expert questions. Service providers answer them and request introductions.'),
-    },
-    {
-      key: 'events',
-      icon: Calendar,
-      to: '/events',
-      title: t('about.feature3Title', 'Events & webinars'),
-      desc: t('about.feature3Desc', 'The Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai and webinars online.'),
+      title: t('staticPages.about.platform.resources.title'),
+      desc: t('staticPages.about.platform.resources.desc'),
     },
   ];
 
-  const audiences = [
+  // The rights lists are the home page's (homePage.profiles.*): one wording everywhere.
+  const profiles = [
     {
       key: 'marinas',
       icon: Anchor,
       image: PERSONA_IMAGES.marinas,
       focusY: 0.5,
       to: '/become-partner#marina',
-      title: t('about.audience1Title', 'Marinas'),
-      desc: t('about.audience1Desc', 'Marina operators and managers looking for service providers, industry knowledge and proven solutions.'),
+      title: t('staticPages.about.profiles.marinas.title'),
+      who: t('staticPages.about.profiles.marinas.who'),
+      can: [
+        t('homePage.profiles.marinas.can1', 'Publish your tenders, expert questions and projects'),
+        t('homePage.profiles.marinas.can2', 'Find service providers by theme and country, checked by M3'),
+        t('homePage.profiles.marinas.can3', 'See what other marinas are looking for'),
+      ],
     },
     {
       key: 'providers',
@@ -83,8 +101,13 @@ export function AboutPage() {
       image: PERSONA_IMAGES.suppliers,
       focusY: 0.5,
       to: '/become-partner#service-provider',
-      title: t('about.audience2Title', 'Service providers'),
-      desc: t('about.audience2Desc', 'Technology providers, consultants and service companies working for marinas: a company page in the directory, the needs marinas publish, and introductions.'),
+      title: t('staticPages.about.profiles.providers.title'),
+      who: t('staticPages.about.profiles.providers.who'),
+      can: [
+        t('homePage.profiles.providers.can1', 'Read the needs marinas publish and answer them'),
+        t('homePage.profiles.providers.can2', 'Present your company in the directory, checked by M3'),
+        t('homePage.profiles.providers.can3', 'Sponsor an event for more visibility'),
+      ],
     },
     {
       key: 'investors',
@@ -92,8 +115,13 @@ export function AboutPage() {
       image: SITE_IMAGES.opportunitiesHero.src,
       focusY: SITE_IMAGES.opportunitiesHero.focusY,
       to: '/become-partner#investor-developer',
-      title: t('homePage.profiles.investors.tab', 'Investors & developers'),
-      desc: t('homePage.profiles.investors.desc', 'Follow the projects marinas publish and meet the teams behind them.'),
+      title: t('staticPages.about.profiles.investors.title'),
+      who: t('staticPages.about.profiles.investors.who'),
+      can: [
+        t('homePage.profiles.investors.can1', 'Follow the projects and tenders marinas publish'),
+        t('homePage.profiles.investors.can2', 'Investors: publish your investment thesis'),
+        t('homePage.profiles.investors.can3', 'Developers: publish the needs of your own projects'),
+      ],
     },
     {
       key: 'media',
@@ -101,13 +129,43 @@ export function AboutPage() {
       image: PERSONA_IMAGES.media,
       focusY: 0.5,
       to: '/become-partner#media',
-      title: t('about.audience3Title', 'Media'),
-      desc: t('about.audience3Desc', 'Journalists and publications covering marinas and the nautical sector: press accreditation for our events, news and replays.'),
+      title: t('staticPages.about.profiles.media.title'),
+      who: t('staticPages.about.profiles.media.who'),
+      can: [
+        t('homePage.profiles.media.can1', 'Request press accreditation for our events in Monaco and Dubai'),
+        t('homePage.profiles.media.can2', "Follow the sector's articles, opportunities and replays"),
+      ],
     },
   ];
 
-  // The three M3 meeting points, together (the World Yachting Summit while it is upcoming).
+  const checks = [
+    {
+      key: 'company',
+      icon: ShieldCheck,
+      title: t('staticPages.about.check.company.title'),
+      desc: t('staticPages.about.check.company.desc'),
+    },
+    {
+      key: 'person',
+      icon: UserCheck,
+      title: t('staticPages.about.check.person.title'),
+      desc: t('staticPages.about.check.person.desc'),
+    },
+    {
+      key: 'access',
+      icon: MailCheck,
+      title: t('staticPages.about.check.access.title'),
+      desc: t('staticPages.about.check.access.desc'),
+    },
+  ];
+
+  // M3's meeting points, side by side (the World Yachting Summit while it is upcoming).
   const meetingPoints = featuredEventItems(t);
+  const meetingDesc: Record<string, string> = {
+    wys26: t('staticPages.about.events.wys'),
+    webinars: t('staticPages.about.events.webinars'),
+    rendezvous: t('staticPages.about.events.rendezvous'),
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -120,10 +178,7 @@ export function AboutPage() {
         icon={Anchor}
         eyebrow={t('about.eyebrow', 'By M3 Monaco')}
         title={t('about.title', 'About Smart Marina Connect')}
-        subtitle={t(
-          'about.hero',
-          'The network of marinas and the companies that serve them. Smart Marina Connect is run by M3 Monaco, organiser of industry events in Monaco, Dubai and online.',
-        )}
+        subtitle={t('staticPages.about.hero.subtitle')}
       >
         <div className="flex flex-wrap gap-3">
           {!user && (
@@ -137,21 +192,22 @@ export function AboutPage() {
         </div>
       </PageHero>
 
-      {/* 01 · Mission, with the network's live figures */}
+      {/* 01 · Why it exists, with the network's live figures */}
       <section aria-labelledby="about-mission" className="bg-white py-16 md:py-[104px]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <div className="grid gap-8 lg:grid-cols-12 lg:gap-14">
             <SectionHead
               id="about-mission"
               number="01"
-              eyebrow={t('contentPages.about.missionEyebrow', 'Our mission')}
-              title={t('about.mission', 'Help marinas find the right service providers, and help those providers understand what marinas need.')}
+              eyebrow={t('staticPages.about.why.eyebrow')}
+              title={t('staticPages.about.why.title')}
               className="lg:col-span-7"
             />
             <Reveal delay={160} className="lg:col-span-5 lg:pt-[34px]">
-              <p className="text-body md:text-body-lg text-ink">
-                {t('about.missionDetail', "Marinas publish their needs, service providers answer them, and both meet at M3's events in Monaco, Dubai and online. The M3 team checks every member, so you know who you are talking to.")}
-              </p>
+              <div className="grid gap-4 text-body md:text-body-lg text-ink">
+                <p>{t('staticPages.about.why.body1')}</p>
+                <p>{t('staticPages.about.why.body2')}</p>
+              </div>
             </Reveal>
           </div>
           <Reveal delay={80}>
@@ -172,17 +228,17 @@ export function AboutPage() {
         </div>
       </section>
 
-      {/* 02 · What we do */}
+      {/* 02 · The platform */}
       <section aria-labelledby="about-do" className="bg-page py-16 md:py-[104px]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <SectionHead
             id="about-do"
             number="02"
-            eyebrow={t('contentPages.about.platformEyebrow', 'The platform')}
-            title={t('about.whatWeDoTitle', 'What we do')}
+            eyebrow={t('staticPages.about.platform.eyebrow')}
+            title={t('staticPages.about.platform.title')}
           />
           <RevealGroup as="ul" className="mt-10 grid gap-6 md:grid-cols-3 md:mt-12">
-            {doing.map((item) => (
+            {platform.map((item) => (
               <li key={item.key} className="flex min-w-0">
                 <CardShell interactive className="w-full p-6 md:p-8">
                   <span aria-hidden="true" className="grid h-12 w-12 place-items-center rounded-field bg-chip text-navy">
@@ -199,40 +255,42 @@ export function AboutPage() {
         </div>
       </section>
 
-      {/* 03 · Who it is for */}
+      {/* 03 · What members can do, by profile */}
       <section aria-labelledby="about-who" className="bg-white py-16 md:py-[104px]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <SectionHead
             id="about-who"
             number="03"
-            eyebrow={t('contentPages.about.networkEyebrow', 'The network')}
-            title={t('about.whoWeServeTitle', 'Who it is for')}
+            eyebrow={t('staticPages.about.profiles.eyebrow')}
+            title={t('staticPages.about.profiles.title')}
+            intro={t('staticPages.about.profiles.intro')}
           />
-          {/* Photo cards: who the platform is for, shown with the people and work it serves. */}
-          <RevealGroup as="ul" className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4 md:mt-12">
-            {audiences.map((a) => (
-              <li key={a.key} className="flex min-w-0">
-                <CardShell interactive className="w-full">
-                  <CardMedia className="aspect-[3/2] bg-navy">
-                    {a.image && (
+          {/* Photo cards: who each profile is, and what it can do. Side by side from sm, the photo on the left. */}
+          <RevealGroup as="ul" className="mt-10 grid gap-6 md:grid-cols-2 md:mt-12">
+            {profiles.map((p) => (
+              <li key={p.key} className="flex min-w-0">
+                <CardShell interactive className="w-full sm:flex-row">
+                  <CardMedia className="aspect-[3/2] bg-navy sm:aspect-auto sm:w-[38%] sm:shrink-0">
+                    {p.image && (
                       <img
-                        src={a.image}
+                        src={p.image}
                         alt=""
                         loading="lazy"
                         decoding="async"
-                        className="h-full w-full object-cover"
-                        style={{ objectPosition: `50% ${Math.round(a.focusY * 100)}%` }}
+                        className="absolute inset-0 h-full w-full object-cover"
+                        style={{ objectPosition: `50% ${Math.round(p.focusY * 100)}%` }}
                       />
                     )}
                     <span aria-hidden="true" className="absolute left-3 top-3 grid h-10 w-10 place-items-center rounded-field bg-white/95 text-navy">
-                      <a.icon className="h-5 w-5" />
+                      <p.icon className="h-5 w-5" />
                     </span>
                   </CardMedia>
-                  <div className="flex flex-1 flex-col p-5">
+                  <div className="flex min-w-0 flex-1 flex-col p-5 sm:p-6">
                     <h3 className="text-card-title text-navy">
-                      <StretchedLink to={a.to}>{a.title}</StretchedLink>
+                      <StretchedLink to={p.to}>{p.title}</StretchedLink>
                     </h3>
-                    <p className="mt-2 text-sm leading-[22px] text-meta">{a.desc}</p>
+                    <p className="mt-2 text-sm leading-[22px] text-meta">{p.who}</p>
+                    <CheckList items={p.can} className="mt-4 gap-2.5" />
                   </div>
                 </CardShell>
               </li>
@@ -241,63 +299,87 @@ export function AboutPage() {
         </div>
       </section>
 
-      {/* 04 · M3 Monaco, its meeting points, and who to write to */}
-      <section aria-labelledby="about-m3" className="bg-page py-16 md:py-[104px]">
-        <div className="mx-auto grid max-w-7xl gap-6 px-4 sm:px-6 lg:grid-cols-12">
-          <Reveal className="lg:col-span-8">
-            <div className="relative h-full overflow-hidden rounded-card bg-navy p-6 text-white sm:p-10">
-              <BathyPattern seed={7} drift className="absolute inset-0" />
-              <div className="relative">
-                <Eyebrow tone="onDark" number="04">{t('contentPages.about.teamEyebrow', 'The team')}</Eyebrow>
-                <LineReveal as="h2" id="about-m3" className="mt-4 text-[26px] font-semibold leading-8 tracking-[-0.02em] text-white md:text-[40px] md:leading-[48px]">
-                  {t('about.companyTitle', 'M3 Monaco')}
-                </LineReveal>
-                <div className="mt-4 grid max-w-2xl gap-4 text-body text-white/85 md:text-body-lg">
-                  <p>
-                    {t('about.companyDesc', 'Smart Marina Connect is run by M3 Monaco, based in the Principality of Monaco. M3 organises the Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai and webinars for the marina industry.')}
-                  </p>
-                  <p>
-                    {t('about.companyDesc2', "The team brings together marina management professionals and event organisers who know the sector's challenges first-hand.")}
-                  </p>
-                </div>
-                <ul className="mt-8 grid gap-x-6 gap-y-5 border-t border-white/15 pt-6 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1.5fr]">
-                  {meetingPoints.map((item) => (
-                    <li key={item.id} className="min-w-0">
-                      <p className="text-[12px] font-semibold leading-4 tracking-[0.02em] text-gold">{item.kicker}</p>
-                      <UnderlineLink to={item.href} tone="light" className="mt-1 text-[15px] font-semibold leading-[22px]">
-                        {item.title}
-                      </UnderlineLink>
-                      <p className="mt-1 text-[13px] leading-[18px] text-white/75">{item.meta}</p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </Reveal>
-          <Reveal delay={160} className="lg:col-span-4">
-            <ContactCard
-              variant="panel"
-              className="h-full"
-              title={t('homePage.end.contactTitleMember', 'A question about the platform or our events?')}
-              line={t('homePage.end.contactBodyMember', 'The M3 team answers every request.')}
-              cta={{ label: t('homePage.end.contactCta', 'Write to the team'), to: '/contact' }}
-            />
-          </Reveal>
+      {/* 04 · How the M3 team checks every member */}
+      <section aria-labelledby="about-check" className="bg-foam py-16 md:py-[104px]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <SectionHead
+            id="about-check"
+            number="04"
+            eyebrow={t('staticPages.about.check.eyebrow')}
+            title={t('staticPages.about.check.title')}
+            intro={t('staticPages.about.check.intro')}
+          />
+          <RevealGroup as="ul" className="mt-10 grid gap-6 md:grid-cols-3 md:mt-12">
+            {checks.map((c) => (
+              <li key={c.key} className="flex min-w-0">
+                <CardShell className="w-full p-6 md:p-8">
+                  <span aria-hidden="true" className="grid h-12 w-12 place-items-center rounded-field bg-chip text-navy">
+                    <c.icon className="h-6 w-6" />
+                  </span>
+                  <h3 className="mt-5 text-card-title text-navy">{c.title}</h3>
+                  <p className="mt-2 text-body text-meta">{c.desc}</p>
+                </CardShell>
+              </li>
+            ))}
+          </RevealGroup>
         </div>
       </section>
 
-      {/* Relive the 6th edition of the Rendezvous — the network in person */}
-      <section aria-labelledby="sm26-moments-heading" className="bg-white py-16 md:py-[104px]">
+      {/* 05 · Where M3 meets its members */}
+      <section aria-labelledby="about-events" className="bg-white py-16 md:py-[104px]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6">
           <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
             <SectionHead
-              id="sm26-moments-heading"
+              id="about-events"
               number="05"
-              eyebrow={t('sm26Moments.eyebrow', '20–21 September 2026 · Yacht Club de Monaco')}
-              title={t('sm26Moments.title', 'Relive the Monaco Smart & Sustainable Marina Rendezvous')}
+              eyebrow={t('staticPages.about.events.eyebrow')}
+              title={t('staticPages.about.events.title')}
+              intro={t('staticPages.about.events.intro')}
             />
             <UnderlineLink to="/events">{t('sm26Moments.cta', 'See upcoming events')}</UnderlineLink>
           </div>
+          <RevealGroup
+            as="ul"
+            className={cn('mt-10 grid gap-6 md:mt-12', meetingPoints.length > 2 ? 'md:grid-cols-3' : 'md:grid-cols-2')}
+          >
+            {meetingPoints.map((item) => (
+              <li key={item.id} className="flex min-w-0">
+                <CardShell interactive className="w-full">
+                  <CardMedia className="aspect-[3/2] bg-navy">
+                    {item.image?.src && (
+                      <img
+                        src={item.image.src}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover"
+                        style={{ objectPosition: `50% ${Math.round(item.image.focusY * 100)}%` }}
+                      />
+                    )}
+                  </CardMedia>
+                  <div className="flex flex-1 flex-col p-5 md:p-6">
+                    <p className="text-[12px] font-semibold leading-4 tracking-[0.02em] text-teal-text">{item.kicker}</p>
+                    <h3 className="mt-1 text-card-title text-navy">
+                      <StretchedLink to={item.href}>{item.title}</StretchedLink>
+                    </h3>
+                    <p className="mt-2 text-sm leading-[22px] text-meta">{meetingDesc[item.id]}</p>
+                  </div>
+                </CardShell>
+              </li>
+            ))}
+          </RevealGroup>
+        </div>
+      </section>
+
+      {/* 06 · Relive the 6th edition of the Rendezvous: the network in person */}
+      <section aria-labelledby="sm26-moments-heading" className="bg-page py-16 md:py-[104px]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <SectionHead
+            id="sm26-moments-heading"
+            number="06"
+            eyebrow={t('sm26Moments.eyebrow', '20–21 September 2026 · Yacht Club de Monaco')}
+            title={t('sm26Moments.title', 'Relive the Monaco Smart & Sustainable Marina Rendezvous')}
+          />
           {/* Phones: a sideways scroller. md+: a mosaic, first picture 2×2. */}
           <ul className="no-scrollbar -mx-4 mt-10 flex snap-x scroll-px-4 gap-3 overflow-x-auto px-4 md:mx-0 md:mt-12 md:grid md:grid-cols-4 md:grid-rows-2 md:gap-4 md:overflow-visible md:px-0">
             {SM26_MOMENTS.map((m, i) => (
@@ -320,6 +402,36 @@ export function AboutPage() {
               </li>
             ))}
           </ul>
+        </div>
+      </section>
+
+      {/* 07 · M3 Monaco, the team, and who to write to */}
+      <section aria-labelledby="about-m3" className="bg-white py-16 md:py-[104px]">
+        <div className="mx-auto grid max-w-7xl gap-6 px-4 sm:px-6 lg:grid-cols-12">
+          <Reveal className="lg:col-span-8">
+            <div className="relative h-full overflow-hidden rounded-card bg-navy p-6 text-white sm:p-10">
+              <BathyPattern seed={7} drift className="absolute inset-0" />
+              <div className="relative">
+                <Eyebrow tone="onDark" number="07">{t('staticPages.about.team.eyebrow')}</Eyebrow>
+                <LineReveal as="h2" id="about-m3" className="mt-4 text-[26px] font-semibold leading-8 tracking-[-0.02em] text-white md:text-[40px] md:leading-[48px]">
+                  {t('staticPages.about.team.title')}
+                </LineReveal>
+                <div className="mt-4 grid max-w-2xl gap-4 text-body text-white/85 md:text-body-lg">
+                  <p>{t('staticPages.about.team.p1')}</p>
+                  <p>{t('staticPages.about.team.p2')}</p>
+                </div>
+              </div>
+            </div>
+          </Reveal>
+          <Reveal delay={160} className="lg:col-span-4">
+            <ContactCard
+              variant="panel"
+              className="h-full"
+              title={t('homePage.end.contactTitleMember', 'A question about the platform or our events?')}
+              line={t('homePage.end.contactBodyMember', 'The M3 team answers every request.')}
+              cta={{ label: t('homePage.end.contactCta', 'Write to the team'), to: '/contact' }}
+            />
+          </Reveal>
         </div>
       </section>
     </div>

@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { RefreshCw, Plus } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { RefreshCw, Plus, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import type { Resource, ResourceDraft } from './types';
+import {
+  AdminPageHeader, AdminTableCard, AdminStatusPill, AdminSegmented, AdminEmpty, AdminLoading, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
 
 interface DraftRow extends ResourceDraft {
   submitter_name: string;
@@ -75,46 +76,40 @@ export function AdminResources() {
 
   const pendingDraftsCount = drafts.filter(d => ['submitted', 'review_1', 'review_2'].includes(d.status)).length;
 
-  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+  if (loading) return <AdminLoading />;
 
   const draftStatusBadge = (status: string) => {
-    if (status === 'approved') return <Badge className="bg-green-100 text-green-800 border-green-200">Approved</Badge>;
-    if (status === 'rejected') return <Badge className="bg-red-100 text-red-800 border-red-200">Rejected</Badge>;
-    return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">Pending</Badge>;
+    if (status === 'approved') return <AdminStatusPill tone="success">Approved</AdminStatusPill>;
+    if (status === 'rejected') return <AdminStatusPill tone="danger">Rejected</AdminStatusPill>;
+    return <AdminStatusPill tone="warning">Pending</AdminStatusPill>;
   };
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">{t('admin.resources')} ({resources.length})</h1>
-        <Button onClick={() => navigate('/admin/resources/new')} className="gap-1.5">
-          <Plus className="h-4 w-4" /> Add Resource
-        </Button>
-      </div>
+      <AdminPageHeader
+        title={t('admin.resources')}
+        count={resources.length}
+        description={t('adminUi.pages.resources')}
+        actions={
+          <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => navigate('/admin/resources/new')}>
+            <Plus className="h-4 w-4 mr-1.5" /> Add Resource
+          </Button>
+        }
+      />
 
       {/* Tab switcher: Published / Pending Drafts */}
-      <div className="flex items-center gap-2 mb-4">
-        <Button
-          variant={tab === 'published' ? 'default' : 'outline'}
-          size="sm"
-          className="text-xs gap-1.5"
-          onClick={() => setTab('published')}
-        >
-          Published ({resources.length})
-        </Button>
-        <Button
-          variant={tab === 'drafts' ? 'default' : 'outline'}
-          size="sm"
-          className="text-xs gap-1.5"
-          onClick={() => setTab('drafts')}
-        >
-          Pending Drafts
-          {pendingDraftsCount > 0 && (
-            <span className="bg-yellow-200 text-yellow-800 rounded-full px-1.5 text-[10px] font-bold ml-1">{pendingDraftsCount}</span>
-          )}
-        </Button>
+      <div className="mb-4 flex items-center gap-2">
+        <AdminSegmented
+          label="Resources view"
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: 'published', label: `Published (${resources.length})` },
+            { value: 'drafts', label: 'Pending Drafts', badge: pendingDraftsCount },
+          ]}
+        />
         <div className="ml-auto">
-          <Button variant="ghost" size="sm" onClick={loadAll}>
+          <Button variant="ghost" size="sm" className="h-10 w-10 rounded-pill p-0 text-meta hover:text-navy" onClick={loadAll} aria-label="Refresh">
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
@@ -122,95 +117,99 @@ export function AdminResources() {
 
       {/* =============== PUBLISHED RESOURCES TABLE =============== */}
       {tab === 'published' && (
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="text-left p-4 font-medium">Title</th>
-                    <th className="text-left p-4 font-medium">Type</th>
-                    <th className="text-left p-4 font-medium">Access</th>
-                    <th className="text-left p-4 font-medium">Lang</th>
-                    <th className="text-left p-4 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resources.map(r => (
-                    <tr
-                      key={r.id}
-                      className="border-b cursor-pointer hover:bg-muted/50 transition-colors"
-                      onClick={() => navigate(`/admin/resources/${r.id}`)}
+        <AdminTableCard footer={`${resources.length} resources`}>
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className="text-left">Title</th>
+                <th className="text-left">Type</th>
+                <th className="text-left">Access</th>
+                <th className="text-left">Lang</th>
+                <th className="text-left">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resources.map(r => (
+                <tr
+                  key={r.id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/admin/resources/${r.id}`)}
+                >
+                  <td>
+                    <Link
+                      to={`/admin/resources/${r.id}`}
+                      onClick={e => e.stopPropagation()}
+                      className="rounded-sm font-semibold text-navy focus:outline-none focus-visible:shadow-focus"
                     >
-                      <td className="p-4">
-                        <div className="font-medium">{r.title}</div>
-                        <div className="text-sm text-gray-500 truncate max-w-xs">{r.summary}</div>
-                      </td>
-                      <td className="p-4"><Badge variant="outline">{r.type}</Badge></td>
-                      <td className="p-4"><Badge variant={r.access_level === 'public' ? 'success' : 'info'}>{r.access_level}</Badge></td>
-                      <td className="p-4">{r.language}</td>
-                      <td className="p-4"><Badge variant={r.published ? 'success' : 'secondary'}>{r.published ? 'Published' : 'Draft'}</Badge></td>
-                    </tr>
-                  ))}
-                  {resources.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="p-8 text-center text-gray-400">No resources yet</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                      <span className="card-ul">{r.title}</span>
+                    </Link>
+                    <div className="max-w-md truncate text-[13px] text-meta">{r.summary}</div>
+                  </td>
+                  <td><AdminStatusPill>{r.type}</AdminStatusPill></td>
+                  <td><AdminStatusPill tone={r.access_level === 'public' ? 'success' : 'info'}>{r.access_level}</AdminStatusPill></td>
+                  <td className="text-sm text-ink">{r.language}</td>
+                  <td><AdminStatusPill tone={r.published ? 'success' : 'neutral'}>{r.published ? 'Published' : 'Draft'}</AdminStatusPill></td>
+                </tr>
+              ))}
+              {resources.length === 0 && (
+                <tr>
+                  <td colSpan={5}><AdminEmpty icon={FileText} title="No resources yet" /></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </AdminTableCard>
       )}
 
       {/* =============== DRAFTS TABLE =============== */}
       {tab === 'drafts' && (
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
-                  <tr>
-                    <th className="text-left p-4 font-medium">Title</th>
-                    <th className="text-left p-4 font-medium">Type</th>
-                    <th className="text-left p-4 font-medium">Language</th>
-                    <th className="text-left p-4 font-medium">Status</th>
-                    <th className="text-left p-4 font-medium">Submitted By</th>
-                    <th className="text-left p-4 font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {drafts.map(d => (
-                    <tr
-                      key={d.id}
-                      className="border-b cursor-pointer hover:bg-muted/50 transition-colors"
-                      onClick={() => navigate(`/admin/resources/${d.id}?type=draft`)}
+        <AdminTableCard footer={`${drafts.length} drafts`}>
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th className="text-left">Title</th>
+                <th className="text-left">Type</th>
+                <th className="text-left">Language</th>
+                <th className="text-left">Status</th>
+                <th className="text-left">Submitted By</th>
+                <th className="text-left">Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {drafts.map(d => (
+                <tr
+                  key={d.id}
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/admin/resources/${d.id}?type=draft`)}
+                >
+                  <td>
+                    <Link
+                      to={`/admin/resources/${d.id}?type=draft`}
+                      onClick={e => e.stopPropagation()}
+                      className="block max-w-md truncate rounded-sm font-semibold text-navy focus:outline-none focus-visible:shadow-focus"
                     >
-                      <td className="p-4">
-                        <div className="font-medium max-w-xs truncate">{d.title}</div>
-                        {d.summary && <div className="text-sm text-gray-500 truncate max-w-xs">{d.summary}</div>}
-                      </td>
-                      <td className="p-4"><Badge variant="outline">{d.type || '---'}</Badge></td>
-                      <td className="p-4 text-sm">{d.language || '---'}</td>
-                      <td className="p-4">{draftStatusBadge(d.status)}</td>
-                      <td className="p-4">
-                        <div className="text-sm font-medium">{d.submitter_name}</div>
-                        <div className="text-xs text-gray-500">{d.submitter_email}</div>
-                      </td>
-                      <td className="p-4 text-sm text-gray-500">{new Date(d.created_at).toLocaleDateString()}</td>
-                    </tr>
-                  ))}
-                  {drafts.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="p-8 text-center text-gray-400">No resource drafts</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                      <span className="card-ul">{d.title}</span>
+                    </Link>
+                    {d.summary && <div className="max-w-md truncate text-[13px] text-meta">{d.summary}</div>}
+                  </td>
+                  <td><AdminStatusPill>{d.type || '---'}</AdminStatusPill></td>
+                  <td className="text-sm text-ink">{d.language || '---'}</td>
+                  <td>{draftStatusBadge(d.status)}</td>
+                  <td>
+                    <div className="text-sm font-medium text-ink">{d.submitter_name}</div>
+                    <div className="text-xs text-meta">{d.submitter_email}</div>
+                  </td>
+                  <td className="whitespace-nowrap text-sm text-meta">{new Date(d.created_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+              {drafts.length === 0 && (
+                <tr>
+                  <td colSpan={6}><AdminEmpty icon={FileText} title="No resource drafts" /></td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </AdminTableCard>
       )}
     </div>
   );

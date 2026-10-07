@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  UserCheck, RefreshCw, Search, Download,
+  UserCheck, RefreshCw, Download,
   AlertTriangle, UserPlus, FileCheck, Clock, FileX, FileMinus,
-  ChevronRight,
 } from 'lucide-react';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,6 +23,10 @@ import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { sendNotification } from '@/lib/notifications';
 import { AdminContextBanner } from './AdminContextBanner';
+import {
+  AdminPageHeader, AdminFilterBar, AdminTableCard, AdminKpiCard, AdminLoading, AdminStatusPill, AdminEmpty,
+  ADMIN_BTN, ADMIN_BTN_PRIMARY,
+} from './AdminUI';
 import type { AdminProfile } from './types';
 
 // Marina recommendation counts for partner organizations (informational only)
@@ -306,53 +309,45 @@ export function AdminUsers() {
 
   const getPersonaBadge = (persona: string) => {
     switch (persona) {
-      case 'admin': return <Badge variant="destructive">Admin</Badge>;
-      case 'moderator': return <Badge variant="destructive">Moderator</Badge>;
-      case 'partner': return <Badge variant="success">Partner</Badge>;
-      case 'marina': return <Badge variant="info">Marina</Badge>;
-      case 'media_partner': return <Badge variant="secondary">Media</Badge>;
-      default: return <Badge variant="secondary">{persona}</Badge>;
+      case 'admin': return <AdminStatusPill tone="danger">Admin</AdminStatusPill>;
+      case 'moderator': return <AdminStatusPill tone="danger">Moderator</AdminStatusPill>;
+      case 'partner': return <AdminStatusPill tone="success">Service provider</AdminStatusPill>;
+      case 'marina': return <AdminStatusPill tone="info">Marina</AdminStatusPill>;
+      case 'media_partner': return <AdminStatusPill>Media</AdminStatusPill>;
+      default: return <AdminStatusPill>{persona}</AdminStatusPill>;
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case 'verified': return <Badge variant="success">Verified</Badge>;
-      case 'pending': return <Badge variant="warning">Pending</Badge>;
-      case 'rejected': return <Badge variant="destructive">Rejected</Badge>;
-      case 'suspended': return <Badge variant="destructive">Suspended</Badge>;
-      default: return <Badge variant="secondary">{status}</Badge>;
+      case 'verified': return <AdminStatusPill tone="success">Verified</AdminStatusPill>;
+      case 'pending': return <AdminStatusPill tone="warning">Pending</AdminStatusPill>;
+      case 'rejected': return <AdminStatusPill tone="danger">Rejected</AdminStatusPill>;
+      case 'suspended': return <AdminStatusPill tone="danger">Suspended</AdminStatusPill>;
+      default: return <AdminStatusPill>{status}</AdminStatusPill>;
     }
   };
 
   const getOnboardingBadge = (user: AdminProfile) => {
     // Email not confirmed yet — before they even created a profile
     if (emailStatusMap[user.user_id] === false) {
-      return <Badge variant="outline" className="text-xs gap-1 border-amber-300 text-amber-700 bg-amber-50" title="Account created but email not yet confirmed">
-        <Clock className="h-3 w-3" /> Email unconfirmed
-      </Badge>;
+      return <AdminStatusPill tone="warning" icon={Clock} title="Account created but email not yet confirmed">Email unconfirmed</AdminStatusPill>;
     }
     const stage = user.onboarding_status;
     const hasOrg = !!user.org_id;
     switch (stage) {
       case 'draft':
-        return <Badge variant="outline" className="text-xs gap-1 border-orange-300 text-orange-700 bg-orange-50" title={hasOrg ? 'Persona & profile created, organization form in progress' : 'Persona selected, has not filled organization form yet'}>
-          <Clock className="h-3 w-3" /> {hasOrg ? 'Filling profile' : 'Step 1/3 — persona chosen'}
-        </Badge>;
+        return <AdminStatusPill tone="warning" icon={Clock} title={hasOrg ? 'Persona & profile created, organization form in progress' : 'Step 1/3: persona selected, has not filled the organization form yet'}>
+          {hasOrg ? 'Filling profile' : 'Persona chosen'}
+        </AdminStatusPill>;
       case 'submitted':
-        return <Badge variant="outline" className="text-xs gap-1 border-blue-300 text-blue-700 bg-blue-50" title="Organization form submitted, waiting for admin review">
-          <FileCheck className="h-3 w-3" /> Submitted — awaiting review
-        </Badge>;
+        return <AdminStatusPill tone="info" icon={FileCheck} title="Organization form submitted, waiting for admin review">Awaiting review</AdminStatusPill>;
       case 'under_review':
-        return <Badge variant="outline" className="text-xs gap-1 border-purple-300 text-purple-700 bg-purple-50">
-          <FileCheck className="h-3 w-3" /> Under review
-        </Badge>;
+        return <AdminStatusPill tone="info" icon={FileCheck}>Under review</AdminStatusPill>;
       case 'completed':
-        return <Badge variant="outline" className="text-xs gap-1 border-green-300 text-green-700 bg-green-50">
-          <FileCheck className="h-3 w-3" /> Completed
-        </Badge>;
+        return <AdminStatusPill tone="success" icon={FileCheck}>Completed</AdminStatusPill>;
       default:
-        return <Badge variant="outline" className="text-xs text-gray-500">{stage || '—'}</Badge>;
+        return <AdminStatusPill>{stage || '—'}</AdminStatusPill>;
     }
   };
 
@@ -360,29 +355,27 @@ export function AdminUsers() {
     const ref = referenceStatusMap[userId];
     if (!ref || ref.total === 0) {
       return (
-        <Badge variant="outline" className="text-xs gap-1 border-gray-200 text-gray-400" title="No marina recommendations yet">
-          <FileMinus className="h-3 w-3" /> 0
-        </Badge>
+        <AdminStatusPill icon={FileMinus} title="No marina recommendations yet">0</AdminStatusPill>
       );
     }
     if (ref.confirmed > 0) {
       return (
-        <Badge variant="success" className="text-xs gap-1" title={`${ref.confirmed} confirmed recommendation(s) — latest: ${ref.clientName}`}>
-          <FileCheck className="h-3 w-3" /> {ref.confirmed} confirmed
-        </Badge>
+        <AdminStatusPill tone="success" icon={FileCheck} title={`${ref.confirmed} confirmed recommendation(s) — latest: ${ref.clientName}`}>
+          {ref.confirmed} confirmed
+        </AdminStatusPill>
       );
     }
     if (ref.rejected > 0 && ref.pending === 0) {
       return (
-        <Badge variant="destructive" className="text-xs gap-1" title={`${ref.rejected} declined by marina`}>
-          <FileX className="h-3 w-3" /> {ref.rejected} declined
-        </Badge>
+        <AdminStatusPill tone="danger" icon={FileX} title={`${ref.rejected} declined by marina`}>
+          {ref.rejected} declined
+        </AdminStatusPill>
       );
     }
     return (
-      <Badge variant="warning" className="text-xs gap-1" title={`${ref.pending} pending — latest: ${ref.clientName}`}>
-        <Clock className="h-3 w-3" /> {ref.pending} pending
-      </Badge>
+      <AdminStatusPill tone="warning" icon={Clock} title={`${ref.pending} pending — latest: ${ref.clientName}`}>
+        {ref.pending} pending
+      </AdminStatusPill>
     );
   };
 
@@ -393,24 +386,28 @@ export function AdminUsers() {
     return <Badge className={`${colors.bg} ${colors.text} border ${colors.border} text-xs`}>{label}</Badge>;
   };
 
-  if (loading) return <div className="flex items-center justify-center h-64"><RefreshCw className="h-8 w-8 animate-spin text-gray-400" /></div>;
+  if (loading) return <AdminLoading />;
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">{t('admin.users')} ({users.length})</h1>
-        <div className="flex items-center gap-2">
-          {unconfirmedUsers.length > 0 && (
-            <Button variant={showUnconfirmed ? 'default' : 'outline'} size="sm" onClick={() => setShowUnconfirmed(!showUnconfirmed)}>
-              <AlertTriangle className="h-4 w-4 mr-2" />
-              {unconfirmedUsers.length} Unconfirmed Email{unconfirmedUsers.length > 1 ? 's' : ''}
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={exportCSV}><Download className="h-4 w-4 mr-2" />{t('admin.export')}</Button>
-          <Button variant="outline" size="sm" onClick={() => setInvitePartnerOpen(true)}><UserPlus className="h-4 w-4 mr-2" />Invite Partner</Button>
-          <Button size="sm" onClick={() => setCreateAdminOpen(true)}><UserPlus className="h-4 w-4 mr-2" />Create Admin</Button>
-        </div>
-      </div>
+      <AdminPageHeader
+        title={t('admin.users')}
+        count={users.length}
+        description={t('adminUi.pages.users')}
+        actions={
+          <>
+            {unconfirmedUsers.length > 0 && (
+              <Button variant="outline" size="sm" className={showUnconfirmed ? 'h-10 rounded-pill border-amber-300 bg-amber-50 px-4 text-amber-900 hover:bg-amber-100 hover:text-amber-900' : ADMIN_BTN} onClick={() => setShowUnconfirmed(!showUnconfirmed)}>
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                {unconfirmedUsers.length} Unconfirmed Email{unconfirmedUsers.length > 1 ? 's' : ''}
+              </Button>
+            )}
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={exportCSV}><Download className="h-4 w-4 mr-2" />{t('admin.export')}</Button>
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => setInvitePartnerOpen(true)}><UserPlus className="h-4 w-4 mr-2" />Invite a service provider</Button>
+            <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => setCreateAdminOpen(true)}><UserPlus className="h-4 w-4 mr-2" />Create Admin</Button>
+          </>
+        }
+      />
 
       {/* URL-based filter context banner */}
       {hasUrlFilters && (
@@ -448,7 +445,7 @@ export function AdminUsers() {
                   <div>
                     <span className="font-medium text-gray-900">{u.first_name || u.last_name ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : 'No name'}</span>
                     <span className="text-gray-500 text-sm ml-2">{u.email}</span>
-                    {u.persona && <Badge variant="secondary" className="ml-2 text-xs">{u.persona}</Badge>}
+                    {u.persona && <AdminStatusPill className="ml-2">{u.persona}</AdminStatusPill>}
                   </div>
                   <span className="text-xs text-gray-400">{new Date(u.created_at).toLocaleDateString()}</span>
                 </div>
@@ -459,52 +456,46 @@ export function AdminUsers() {
       )}
       {/* Onboarding progress strip — quick overview of users still in the signup funnel */}
       {inProgressCount > 0 && (
-        <div className="mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <button
-            type="button"
+        <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <AdminKpiCard
+            label="In progress"
+            hint="users still onboarding"
+            value={inProgressCount}
+            selected={onboardingFilter === 'in_progress'}
             onClick={() => setOnboardingFilter(onboardingFilter === 'in_progress' ? 'all' : 'in_progress')}
-            className={`rounded-lg border p-3 text-left transition-colors ${onboardingFilter === 'in_progress' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
-          >
-            <div className="text-xs text-gray-500">In progress</div>
-            <div className="text-2xl font-bold text-orange-700">{inProgressCount}</div>
-            <div className="text-[11px] text-gray-400 mt-0.5">users still onboarding</div>
-          </button>
-          <button
-            type="button"
+          />
+          <AdminKpiCard
+            label="Draft"
+            hint="filling profile (pre-submit)"
+            value={draftCount}
+            selected={onboardingFilter === 'draft'}
             onClick={() => setOnboardingFilter(onboardingFilter === 'draft' ? 'all' : 'draft')}
-            className={`rounded-lg border p-3 text-left transition-colors ${onboardingFilter === 'draft' ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
-          >
-            <div className="text-xs text-gray-500">Draft</div>
-            <div className="text-2xl font-bold text-orange-700">{draftCount}</div>
-            <div className="text-[11px] text-gray-400 mt-0.5">filling profile (pre-submit)</div>
-          </button>
-          <button
-            type="button"
+          />
+          <AdminKpiCard
+            label="Submitted"
+            hint="awaiting your review"
+            value={submittedCount}
+            selected={onboardingFilter === 'submitted'}
             onClick={() => setOnboardingFilter(onboardingFilter === 'submitted' ? 'all' : 'submitted')}
-            className={`rounded-lg border p-3 text-left transition-colors ${onboardingFilter === 'submitted' ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
-          >
-            <div className="text-xs text-gray-500">Submitted</div>
-            <div className="text-2xl font-bold text-blue-700">{submittedCount}</div>
-            <div className="text-[11px] text-gray-400 mt-0.5">awaiting your review</div>
-          </button>
+          />
           {onboardingFilter !== 'all' && (
             <button
               type="button"
               onClick={() => setOnboardingFilter('all')}
-              className="rounded-lg border border-gray-200 bg-white p-3 text-left hover:bg-gray-50 transition-colors"
+              className="rounded-card border border-dashed border-navy/25 bg-white p-4 text-left transition-colors hover:border-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus"
             >
-              <div className="text-xs text-gray-500">Clear filter</div>
-              <div className="text-sm font-medium text-gray-700 mt-2">Show all users</div>
+              <div className="text-[13px] text-meta">Clear filter</div>
+              <div className="mt-1 text-[15px] font-semibold text-navy">Show all users</div>
             </button>
           )}
         </div>
       )}
 
-      <div className="flex gap-4 mb-4 flex-wrap">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input placeholder={t('admin.userDetail.searchPlaceholder')} value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
-        </div>
+      <AdminFilterBar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t('admin.userDetail.searchPlaceholder')}
+      >
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
@@ -527,11 +518,11 @@ export function AdminUsers() {
           </SelectContent>
         </Select>
         <Select value={personaFilter} onValueChange={setPersonaFilter}>
-          <SelectTrigger className="w-40"><SelectValue placeholder="Persona" /></SelectTrigger>
+          <SelectTrigger className="w-48"><SelectValue placeholder="Persona" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="all">All account types</SelectItem>
             <SelectItem value="marina">Marina</SelectItem>
-            <SelectItem value="partner">Partner</SelectItem>
+            <SelectItem value="partner">Service provider</SelectItem>
             <SelectItem value="media_partner">Media</SelectItem>
             <SelectItem value="developer">Developer</SelectItem>
             <SelectItem value="investor">Investor</SelectItem>
@@ -539,22 +530,28 @@ export function AdminUsers() {
             <SelectItem value="admin">Admin</SelectItem>
           </SelectContent>
         </Select>
-      </div>
-      <Card><CardContent className="p-0"><div className="overflow-x-auto"><table className="w-full"><thead className="bg-gray-50 border-b"><tr>
-        <th className="text-left p-4 font-medium">{t('admin.userDetail.name')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.userDetail.organization')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.userDetail.persona')}</th>
-        <th className="text-left p-4 font-medium">Onboarding</th>
-        <th className="text-left p-4 font-medium">Tier</th>
-        <th className="text-left p-4 font-medium">Recommendations</th>
-        <th className="text-left p-4 font-medium">{t('admin.userDetail.accessStatus')}</th>
-        <th className="text-left p-4 font-medium">{t('admin.userDetail.created')}</th>
+      </AdminFilterBar>
+      <AdminTableCard footer={`${filteredUsers.length} of ${users.length} users`}><table className="w-full"><thead><tr>
+        <th className="text-left">{t('admin.userDetail.name')}</th>
+        <th className="text-left">{t('admin.userDetail.organization')}</th>
+        <th className="text-left">{t('admin.userDetail.persona')}</th>
+        <th className="text-left">Onboarding</th>
+        <th className="text-left">Tier</th>
+        <th className="text-left">Recommendations</th>
+        <th className="text-left">{t('admin.userDetail.accessStatus')}</th>
+        <th className="text-left">{t('admin.userDetail.created')}</th>
       </tr></thead><tbody>
         {filteredUsers.map(user => (
-          <tr key={user.user_id} className="border-b hover:bg-muted/50 cursor-pointer transition-colors group" onClick={() => navigate(`/admin/users/${user.user_id}`)}>
-            <td className="p-4">
-              <span className="font-medium text-gray-900 group-hover:text-primary transition-colors">{getUserName(user)}</span>
-              <div className="flex items-center gap-1 text-xs text-gray-500">
+          <tr key={user.user_id} className="cursor-pointer group" onClick={() => navigate(`/admin/users/${user.user_id}`)}>
+            <td>
+              <Link
+                to={`/admin/users/${user.user_id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="rounded-sm font-medium text-navy focus:outline-none focus-visible:shadow-focus"
+              >
+                <span className="card-ul">{getUserName(user)}</span>
+              </Link>
+              <div className="flex items-center gap-1 text-xs text-meta">
                 {user.email || ''}
                 {emailStatusMap[user.user_id] === false && (
                   <span className="inline-flex items-center gap-0.5 text-amber-600" title="Email not confirmed">
@@ -563,14 +560,14 @@ export function AdminUsers() {
                 )}
               </div>
             </td>
-            <td className="p-4 text-sm text-gray-700">{getOrgName(user) || <span className="text-gray-400">---</span>}</td>
-            <td className="p-4">
+            <td className="text-sm text-ink">{getOrgName(user) || <span className="text-meta/60">---</span>}</td>
+            <td>
               <Select value={user.persona} onValueChange={(v) => { if (v !== user.persona) handleChangePersona(user.user_id, v); }}>
-                <SelectTrigger className="w-36 h-8 text-xs" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 w-40 text-xs" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="marina">Marina</SelectItem>
-                  <SelectItem value="partner">Partner</SelectItem>
-                  <SelectItem value="media_partner">Media Partner</SelectItem>
+                  <SelectItem value="partner">Service provider</SelectItem>
+                  <SelectItem value="media_partner">Media</SelectItem>
                   <SelectItem value="developer">Developer</SelectItem>
                   <SelectItem value="investor">Investor</SelectItem>
                   <SelectItem value="moderator">Moderator</SelectItem>
@@ -578,30 +575,28 @@ export function AdminUsers() {
                 </SelectContent>
               </Select>
             </td>
-            <td className="p-4">{getOnboardingBadge(user)}</td>
-            <td className="p-4">{getTierBadge(user.org_tier)}</td>
-            <td className="p-4">
-              {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-gray-300 text-xs">---</span>}
+            <td>{getOnboardingBadge(user)}</td>
+            <td>{getTierBadge(user.org_tier)}</td>
+            <td>
+              {user.persona === 'partner' ? getReferenceBadge(user.user_id) : <span className="text-meta/60 text-xs">---</span>}
             </td>
-            <td className="p-4">
+            <td>
               <Select value={user.access_status} onValueChange={(v) => { v !== user.access_status && updateUserStatus(user.user_id, v); }}>
-                <SelectTrigger className="w-36" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 w-32 text-xs" onClick={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="pending">Pending</SelectItem><SelectItem value="verified">Verified</SelectItem>
                   <SelectItem value="rejected">Rejected</SelectItem><SelectItem value="suspended">Suspended</SelectItem>
                 </SelectContent>
               </Select>
             </td>
-            <td className="p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-500">{new Date(user.created_at).toLocaleDateString()}</span>
-                <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-primary transition-colors" />
-              </div>
+            <td>
+              <span className="whitespace-nowrap text-sm text-meta">{new Date(user.created_at).toLocaleDateString()}</span>
             </td>
           </tr>
         ))}
-        {filteredUsers.length === 0 && <tr><td colSpan={8} className="p-8 text-center text-gray-400">{t('admin.userDetail.noUsersFound', 'No users found')}</td></tr>}
-      </tbody></table></div></CardContent></Card>
+        {filteredUsers.length === 0 && <tr><td colSpan={8}><AdminEmpty icon={UserCheck} title={t('admin.userDetail.noUsersFound', 'No users found')} /></td></tr>}
+      </tbody></table></AdminTableCard>
+
 
       {/* ─── Reject Dialog ─── */}
       <Dialog open={!!rejectingUserId} onOpenChange={() => setRejectingUserId(null)}>
@@ -655,9 +650,9 @@ export function AdminUsers() {
       <Dialog open={invitePartnerOpen} onOpenChange={setInvitePartnerOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Invite a Partner</DialogTitle>
+            <DialogTitle>Invite a service provider</DialogTitle>
             <DialogDescription>
-              Send the onboarding guide email to a partner. They'll receive a short email explaining the 3-step signup process with a direct link to create their account.
+              Send the onboarding guide email to a service provider. They'll receive a short email explaining the 3-step signup process with a direct link to create their account.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -670,7 +665,7 @@ export function AdminUsers() {
               />
             </div>
             <div className="space-y-2">
-              <Label>Partner Email *</Label>
+              <Label>Email *</Label>
               <Input
                 type="email"
                 value={invitePartnerForm.email}

@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Search, Building2, ChevronRight, Users, Globe, MapPin, ExternalLink } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Building2, Globe, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import { supabase } from '@/lib/supabase';
 import { useAdminFilters } from './hooks/useAdminFilters';
 import { AdminContextBanner } from './AdminContextBanner';
+import { AdminPageHeader, AdminFilterBar, AdminTableCard, AdminStatus, AdminEmpty, AdminLoading } from './AdminUI';
 
 interface OrgRow {
   id: string;
@@ -30,20 +30,16 @@ interface OrgRow {
   owner_email: string | null;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  verified: 'bg-green-50 text-green-700 border-green-200',
-  pending: 'bg-amber-50 text-amber-700 border-amber-200',
-  rejected: 'bg-red-50 text-red-700 border-red-200',
-  suspended: 'bg-gray-100 text-gray-600 border-gray-300',
-};
 
 const TYPE_LABELS: Record<string, string> = {
   marina: 'Marina',
-  partner: 'Partner',
+  partner: 'Service provider',
   media_partner: 'Media',
+  investor: 'Investor',
 };
 
 export function AdminOrganizations() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { getFilter, setFilters, hasFilters, clearFilters } = useAdminFilters();
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
@@ -126,36 +122,25 @@ export function AdminOrganizations() {
       ].filter(Boolean).join(', ')
     : '';
 
-  if (loading) return (
-    <div className="flex items-center justify-center h-64">
-      <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
-    </div>
-  );
+  if (loading) return <AdminLoading />;
 
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Organizations ({orgs.length})</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {verified} verified • {pending} pending
-          </p>
-        </div>
-      </div>
+    <div>
+      <AdminPageHeader
+        title="Organizations"
+        count={orgs.length}
+        description={t('adminUi.pages.organizations')}
+        meta={<><span>{verified} verified</span><span aria-hidden="true">•</span><span>{pending} pending</span></>}
+      />
 
       {hasFilters && (
         <AdminContextBanner label={bannerLabel} count={filtered.length} onClear={clearFilters} color="blue" />
       )}
 
       {/* Filters */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, domain, owner..." className="pl-9 h-9" />
-        </div>
+      <AdminFilterBar search={search} onSearchChange={setSearch} searchPlaceholder="Search name, domain, owner...">
         <Select value={statusFilter} onValueChange={v => setFilters({ status: v === 'all' ? '' : v } as any)}>
-          <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All statuses" /></SelectTrigger>
+          <SelectTrigger className="w-40"><SelectValue placeholder="All statuses" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
             <SelectItem value="verified">Verified</SelectItem>
@@ -165,16 +150,16 @@ export function AdminOrganizations() {
           </SelectContent>
         </Select>
         <Select value={typeFilter} onValueChange={v => setFilters({ type: v === 'all' ? '' : v } as any)}>
-          <SelectTrigger className="w-36 h-9"><SelectValue placeholder="All types" /></SelectTrigger>
+          <SelectTrigger className="w-44"><SelectValue placeholder="All types" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Types</SelectItem>
             <SelectItem value="marina">Marina</SelectItem>
-            <SelectItem value="partner">Partner</SelectItem>
+            <SelectItem value="partner">Service provider</SelectItem>
             <SelectItem value="media_partner">Media</SelectItem>
           </SelectContent>
         </Select>
         <Select value={tierFilter} onValueChange={v => setFilters({ tier: v === 'all' ? '' : v } as any)}>
-          <SelectTrigger className="w-44 h-9"><SelectValue placeholder="All tiers" /></SelectTrigger>
+          <SelectTrigger className="w-48"><SelectValue placeholder="All tiers" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Tiers</SelectItem>
             <SelectItem value="member">Member</SelectItem>
@@ -185,95 +170,97 @@ export function AdminOrganizations() {
             <SelectItem value="main_sponsor">Main Sponsor</SelectItem>
           </SelectContent>
         </Select>
-      </div>
+      </AdminFilterBar>
 
       {/* Org rows */}
-      <div className="space-y-2">
-        {filtered.length === 0 ? (
-          <Card className="border-0 shadow-sm">
-            <CardContent className="py-12 text-center text-gray-400">No organizations match your filters</CardContent>
-          </Card>
-        ) : (
-          filtered.map(o => {
-            const tierColors = TIER_COLORS[o.tier as OrgTier];
-            const statusColor = STATUS_COLORS[o.access_status] || STATUS_COLORS.pending;
-            return (
-              <Card key={o.id}
-                className="border-0 shadow-sm hover:shadow-md transition-all cursor-pointer group"
-                onClick={() => navigate(`/admin/organizations/${o.id}`)}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-4">
-                    {/* Logo */}
-                    <div className="h-12 w-12 rounded-xl shrink-0 overflow-hidden bg-white border border-gray-100 flex items-center justify-center">
-                      {o.logo_url ? (
-                        <img src={o.logo_url} alt={o.name} className="h-full w-full object-contain p-0.5" />
-                      ) : (
-                        <Building2 className="h-6 w-6 text-gray-400" />
-                      )}
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                        <span className="text-sm font-semibold text-gray-900 truncate group-hover:text-primary transition-colors">
-                          {o.name}
-                        </span>
-                        <Badge className={`${statusColor} border text-[10px]`}>
-                          {o.access_status}
-                        </Badge>
-                        {o.organization_type && (
-                          <Badge variant="outline" className="text-[10px]">
-                            {TYPE_LABELS[o.organization_type] || o.organization_type}
-                          </Badge>
-                        )}
-                        <Badge className={`${tierColors?.bg || 'bg-gray-50'} ${tierColors?.text || 'text-gray-700'} border ${tierColors?.border || 'border-gray-200'} text-[10px]`}>
-                          {TIER_LABELS[o.tier as OrgTier] || o.tier}
-                        </Badge>
+      <AdminTableCard footer={`${filtered.length} of ${orgs.length} organizations`}>
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className="text-left">Organization</th>
+              <th className="text-left">Type</th>
+              <th className="text-left">Plan</th>
+              <th className="text-left">Access</th>
+              <th className="text-left">Seats</th>
+              <th className="text-left">Location</th>
+              <th className="text-left">Owner</th>
+              <th className="text-left">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 ? (
+              <tr><td colSpan={8}><AdminEmpty icon={Building2} title="No organizations match your filters" /></td></tr>
+            ) : (
+              filtered.map(o => {
+                const tierColors = TIER_COLORS[o.tier as OrgTier];
+                return (
+                  <tr key={o.id} className="group cursor-pointer" onClick={() => navigate(`/admin/organizations/${o.id}`)}>
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-rule bg-white">
+                          {o.logo_url ? (
+                            <img src={o.logo_url} alt="" className="h-full w-full object-contain p-0.5" />
+                          ) : (
+                            <Building2 className="h-5 w-5 text-meta/60" aria-hidden="true" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <Link
+                            to={`/admin/organizations/${o.id}`}
+                            onClick={e => e.stopPropagation()}
+                            className="rounded-sm font-semibold text-navy focus:outline-none focus-visible:shadow-focus"
+                          >
+                            <span className="card-ul">{o.name}</span>
+                          </Link>
+                          {o.primary_domain && (
+                            <div className="flex items-center gap-1 text-xs text-meta">
+                              <Globe className="h-3 w-3 shrink-0" aria-hidden="true" />
+                              <span className="truncate">{o.primary_domain}</span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
-                        <span className="flex items-center gap-1">
-                          <Users className="h-3 w-3" />
-                          {o.member_count}/{o.max_seats} seats
-                        </span>
-                        {o.primary_domain && (
-                          <span className="flex items-center gap-1">
-                            <Globe className="h-3 w-3" />
-                            {o.primary_domain}
-                          </span>
-                        )}
-                        {(o.city || o.country) && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {[o.city, o.country].filter(Boolean).join(', ')}
-                          </span>
-                        )}
-                        {o.owner_name && (
-                          <span className="text-gray-400">
-                            Owner: {o.owner_name}
-                          </span>
-                        )}
-                        <span className="text-gray-400">
+                    </td>
+                    <td className="whitespace-nowrap text-sm text-ink">
+                      {o.organization_type ? (TYPE_LABELS[o.organization_type] || o.organization_type) : <span className="text-meta/60">—</span>}
+                    </td>
+                    <td>
+                      <Badge className={`${tierColors?.bg || 'bg-gray-50'} ${tierColors?.text || 'text-gray-700'} border ${tierColors?.border || 'border-gray-200'} whitespace-nowrap text-[11px]`}>
+                        {TIER_LABELS[o.tier as OrgTier] || o.tier}
+                      </Badge>
+                    </td>
+                    <td><AdminStatus status={o.access_status} /></td>
+                    <td className="whitespace-nowrap text-sm tabular-nums text-ink">{o.member_count}/{o.max_seats}</td>
+                    <td className="text-sm text-ink">
+                      {(o.city || o.country) ? [o.city, o.country].filter(Boolean).join(', ') : <span className="text-meta/60">—</span>}
+                    </td>
+                    <td className="text-sm text-ink">{o.owner_name || <span className="text-meta/60">—</span>}</td>
+                    <td>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="whitespace-nowrap text-sm text-meta">
                           {new Date(o.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </span>
+                        {o.website && (
+                          <a
+                            href={o.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            aria-label={`Open ${o.name} website`}
+                            className="rounded-sm text-meta/60 transition-colors hover:text-navy focus:outline-none focus-visible:shadow-focus"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        )}
                       </div>
-                    </div>
-
-                    {/* Actions */}
-                    {o.website && (
-                      <a href={o.website} target="_blank" rel="noopener noreferrer"
-                        onClick={e => e.stopPropagation()}
-                        className="text-gray-300 hover:text-primary transition-colors">
-                        <ExternalLink className="h-4 w-4" />
-                      </a>
-                    )}
-                    <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-primary transition-colors shrink-0" />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })
-        )}
-      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </AdminTableCard>
     </div>
   );
 }

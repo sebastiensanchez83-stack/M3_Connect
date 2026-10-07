@@ -33,7 +33,10 @@ import { useMotion } from '@/components/motion/MotionProvider';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { CheckList, PhotoFrame, SectionHead, useScrollToHash } from '@/components/content/ContentParts';
 import { BookOpen, Globe, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { registerCopyStrings } from '@/i18n/refonte-copy';
 import { cn } from '@/lib/utils';
+
+registerCopyStrings();
 
 /**
  * Join the network, on the v2 kit. The sign-up itself is unchanged: the same
@@ -92,8 +95,8 @@ export function BecomePartnerPage() {
     {
       id: 'marina',
       label: t('contentPages.join.marinaPill', 'Marinas'),
-      title: t('join.marina.title'),
-      intro: [t('join.marina.desc')],
+      title: t('staticPages.join.marina.title'),
+      intro: [t('staticPages.join.marina.intro')],
       image: PERSONA_IMAGES.marinas,
       focusY: 0.5,
       can: [
@@ -107,10 +110,10 @@ export function BecomePartnerPage() {
     {
       id: 'service-provider',
       label: t('contentPages.join.providerPill', 'Service providers'),
-      title: t('join.partner.title'),
+      title: t('staticPages.join.provider.title'),
       // No audience figure here: few of the listed marinas have an account yet,
       // so "visibility to N marinas" would promise more than the network gives.
-      intro: [t('join.partner.desc')],
+      intro: [t('staticPages.join.provider.intro')],
       image: PERSONA_IMAGES.suppliers,
       focusY: 0.5,
       can: [
@@ -124,10 +127,10 @@ export function BecomePartnerPage() {
     {
       id: 'investor-developer',
       label: t('contentPages.join.investorPill', 'Investors & developers'),
-      title: t('contentPages.join.investorDeveloperTitle', 'Investors & developers'),
+      title: t('staticPages.join.investorDeveloper.title'),
       intro: [
-        t('join.investor.desc', 'Funds, family offices and strategic investors looking at the marina sector.'),
-        t('join.developer.desc', 'Marina developers, real-estate groups and builders shaping the next generation of marinas.'),
+        t('staticPages.join.investorDeveloper.investors'),
+        t('staticPages.join.investorDeveloper.developers'),
       ],
       image: SITE_IMAGES.opportunitiesHero.src,
       focusY: SITE_IMAGES.opportunitiesHero.focusY,
@@ -145,8 +148,8 @@ export function BecomePartnerPage() {
     {
       id: 'media',
       label: t('contentPages.join.mediaPill', 'Media'),
-      title: t('join.mediaPartner.title'),
-      intro: [t('join.mediaPartner.desc')],
+      title: t('staticPages.join.media.title'),
+      intro: [t('staticPages.join.media.intro')],
       image: PERSONA_IMAGES.media,
       focusY: 0.5,
       can: [
@@ -161,30 +164,27 @@ export function BecomePartnerPage() {
   const platformBenefits = [
     {
       icon: Globe,
-      title: t('join.benefit1Title'),
+      title: t('staticPages.join.why.b1Title'),
       desc: figures.countries !== null
-        ? t('join.benefit1DescLive', 'Marinas and service providers in {{countries}} countries.', { countries: formatFigure(figures.countries, figures.manual, i18n.language) })
-        : t('join.benefit1Desc'),
+        ? t('staticPages.join.why.b1DescLive', { countries: formatFigure(figures.countries, figures.manual, i18n.language) })
+        : t('staticPages.join.why.b1Desc'),
     },
-    { icon: ShieldCheck, title: t('join.benefit2Title'), desc: t('join.benefit2Desc') },
-    { icon: BookOpen, title: t('join.benefit3Title'), desc: t('join.benefit3Desc') },
-    { icon: Users, title: t('join.benefit4Title'), desc: t('join.benefit4Desc') },
+    { icon: ShieldCheck, title: t('staticPages.join.why.b2Title'), desc: t('staticPages.join.why.b2Desc') },
+    { icon: BookOpen, title: t('staticPages.join.why.b3Title'), desc: t('staticPages.join.why.b3Desc') },
+    { icon: Users, title: t('staticPages.join.why.b4Title'), desc: t('staticPages.join.why.b4Desc') },
   ];
 
   const processSteps = [
-    { title: t('join.process.step1Title'), body: t('join.process.step1Desc') },
-    { title: t('join.process.step2Title'), body: t('join.process.step2Desc') },
-    { title: t('join.process.step3Title'), body: t('join.process.step3Desc') },
-    { title: t('join.process.step4Title'), body: t('join.process.step4Desc') },
+    { title: t('staticPages.join.steps.step1Title'), body: t('staticPages.join.steps.step1Body') },
+    { title: t('staticPages.join.steps.step2Title'), body: t('staticPages.join.steps.step2Body') },
+    { title: t('staticPages.join.steps.step3Title'), body: t('staticPages.join.steps.step3Body') },
+    { title: t('staticPages.join.steps.step4Title'), body: t('staticPages.join.steps.step4Body') },
   ];
 
-  const faqItems = [
-    { q: t('join.faq.q1'), a: t('join.faq.a1') },
-    { q: t('join.faq.q2'), a: t('join.faq.a2') },
-    { q: t('join.faq.q3'), a: t('join.faq.a3') },
-    { q: t('join.faq.q4'), a: t('join.faq.a4') },
-    { q: t('join.faq.q5'), a: t('join.faq.a5') },
-  ];
+  const faqItems = [1, 2, 3, 4, 5, 6, 7].map((n) => ({
+    q: t(`staticPages.join.faq.q${n}`),
+    a: t(`staticPages.join.faq.a${n}`),
+  }));
 
   const seoTitle = withSiteSuffix(t('seo.join.title', 'Join the marina industry network'));
   const seoDescription = t('seo.join.description', 'Marina, service provider, investor, developer or media: sign up for free. The M3 team checks every company, then opens the features of your profile.');
@@ -213,7 +213,7 @@ export function BecomePartnerPage() {
         icon={UserPlus}
         eyebrow={t('contentPages.join.eyebrow', 'Free for every member')}
         title={t('join.heroTitle')}
-        subtitle={t('join.heroSubtitle')}
+        subtitle={t('staticPages.join.heroSubtitle')}
       >
         <nav aria-label={t('contentPages.join.jumpLabel', 'Go to a profile')}>
           <ul className="flex flex-wrap gap-2">
@@ -284,8 +284,8 @@ export function BecomePartnerPage() {
             id="join-steps"
             number="05"
             eyebrow={t('contentPages.join.stepsEyebrow', 'Getting started')}
-            title={t('join.process.title')}
-            intro={t('join.process.subtitle')}
+            title={t('staticPages.join.steps.title')}
+            intro={t('staticPages.join.steps.intro')}
           />
           <ChannelSteps className="mt-10 md:mt-12" steps={processSteps} />
         </div>
@@ -298,7 +298,7 @@ export function BecomePartnerPage() {
             id="join-why"
             number="06"
             eyebrow={t('contentPages.join.whyEyebrow', 'The network')}
-            title={t('join.whyTitle')}
+            title={t('staticPages.join.why.title')}
           />
           <RevealGroup as="ul" className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4 md:mt-12">
             {platformBenefits.map((b) => (
@@ -336,8 +336,8 @@ export function BecomePartnerPage() {
             id="join-faq"
             number="07"
             eyebrow={t('contentPages.join.faqEyebrow', 'Questions')}
-            title={t('join.faq.title')}
-            intro={t('join.faq.subtitle')}
+            title={t('staticPages.join.faq.title')}
+            intro={t('staticPages.join.faq.subtitle')}
             className="lg:col-span-5"
           />
           <Reveal delay={120} className="lg:col-span-7">
@@ -363,9 +363,9 @@ export function BecomePartnerPage() {
           <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
             <Eyebrow tone="onDark" className="justify-center">{t('contentPages.join.readyEyebrow', 'Ready?')}</Eyebrow>
             <h2 id="join-ready" className="mt-4 text-balance text-[26px] font-semibold leading-8 tracking-[-0.02em] text-white md:text-[40px] md:leading-[48px]">
-              {t('join.readyTitle')}
+              {t('staticPages.join.ready.title')}
             </h2>
-            <p className="mx-auto mt-3 max-w-xl text-body md:text-body-lg text-white/80">{t('join.readySubtitle')}</p>
+            <p className="mx-auto mt-3 max-w-xl text-body md:text-body-lg text-white/80">{t('staticPages.join.ready.subtitle')}</p>
             <div className="mt-8 flex justify-center">
               {user ? (
                 <Button variant="ctaOnDark" onClick={() => navigate(profile ? '/account' : '/onboarding')}>

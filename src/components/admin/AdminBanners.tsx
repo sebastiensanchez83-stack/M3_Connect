@@ -11,6 +11,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAdminFilters } from './hooks/useAdminFilters';
 import { AdminContextBanner } from './AdminContextBanner';
+import { ADMIN_BTN_PRIMARY } from './AdminUI';
 
 interface AdBanner {
   id: string;
@@ -92,7 +93,7 @@ export function AdminBanners() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Ad Banners ({filtered.length})</h1>
-        <Button onClick={() => navigate('/admin/banners/new')} className="gap-1.5">
+        <Button variant="secondary" size="sm" onClick={() => navigate('/admin/banners/new')} className={ADMIN_BTN_PRIMARY + ' gap-1.5'}>
           <Plus className="h-4 w-4" /> Create Banner
         </Button>
       </div>

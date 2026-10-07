@@ -20,6 +20,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
+import { AdminDetailHeader, AdminStatus, AdminStatusPill, ADMIN_BTN_PRIMARY } from './AdminUI';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
@@ -360,34 +361,34 @@ export function AdminOrganizationDetail() {
   return (
     <div className="space-y-6 max-w-4xl">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate('/admin/organizations')}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex items-center gap-3 flex-1">
-          <div className="h-12 w-12 rounded-xl shrink-0 overflow-hidden bg-gray-100 flex items-center justify-center">
+      <AdminDetailHeader
+        back={{ to: '/admin/organizations', label: 'Organizations' }}
+        title={org.name}
+        leading={
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-rule bg-white">
             {org.logo_url ? (
-              <img src={org.logo_url} alt={org.name} className="h-full w-full object-cover" />
+              <img src={org.logo_url} alt="" className="h-full w-full object-contain p-0.5" />
             ) : (
-              <Building2 className="h-6 w-6 text-gray-400" />
+              <Building2 className="h-6 w-6 text-meta/60" aria-hidden="true" />
             )}
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{org.name}</h1>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              <Badge className={`${statusColor} border text-[10px]`}>{org.access_status}</Badge>
-              {org.organization_type && <Badge variant="outline" className="text-[10px]">{org.organization_type}</Badge>}
-              <Badge className={`${tierColors?.bg || 'bg-gray-50'} ${tierColors?.text || 'text-gray-700'} border ${tierColors?.border || 'border-gray-200'} text-[10px]`}>
-                {TIER_LABELS[org.tier as OrgTier] || org.tier}
-              </Badge>
-            </div>
-          </div>
-        </div>
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-          Save Changes
-        </Button>
-      </div>
+        }
+        badges={
+          <>
+            <AdminStatus status={org.access_status} />
+            {org.organization_type && <AdminStatusPill>{org.organization_type === 'partner' ? 'Service provider' : org.organization_type === 'media_partner' ? 'Media' : org.organization_type}</AdminStatusPill>}
+            <Badge className={[tierColors?.bg || 'bg-gray-50', tierColors?.text || 'text-gray-700', 'border', tierColors?.border || 'border-gray-200', 'text-[11px]'].join(' ')}>
+              {TIER_LABELS[org.tier as OrgTier] || org.tier}
+            </Badge>
+          </>
+        }
+        actions={
+          <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+            Save Changes
+          </Button>
+        }
+      />
 
       {/* SM26 event participation linked to this organization (single source: sm_registration) */}
       {id && <SM26ParticipationCard organizationId={id} companyName={org.name} variant="admin" hideWhenEmpty={false} />}

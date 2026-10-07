@@ -22,6 +22,7 @@ import { Separator } from '@/components/ui/separator';
 import { supabase } from '@/lib/supabase';
 import { resizeImage, fileMeta } from '@/lib/image';
 import { eventCover } from '@/lib/siteMedia';
+import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
 import { toast } from '@/hooks/use-toast';
 import type { Event, EventPricingRow } from './types';
 import { DEFAULT_PRICING } from './types';
@@ -434,35 +435,30 @@ export function AdminEventDetail() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/events')} className="gap-1.5">
-            <ArrowLeft className="h-4 w-4" /> Events
-          </Button>
-          <Separator orientation="vertical" className="h-6" />
-          <h1 className="text-xl font-bold text-gray-900">{isNew ? (isWebinar ? 'Create Webinar' : 'Create Event') : form.title || 'Edit Event'}</h1>
-          {!isNew && event && (
-            <>
-              <Badge variant={isOnSite ? 'info' : 'secondary'}>
-                {isOnSite ? 'On-Site' : 'Webinar'}
-              </Badge>
-              {isPast && <Badge variant="outline" className="text-gray-500">Past Event</Badge>}
-              {!form.published && <Badge variant="warning">Draft</Badge>}
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {!isNew && (
-            <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:bg-red-50 gap-1.5">
-              <Trash2 className="h-4 w-4" /> Delete
+      <AdminDetailHeader
+        back={{ to: '/admin/events', label: 'Events' }}
+        title={isNew ? (isWebinar ? 'Create Webinar' : 'Create Event') : form.title || 'Edit Event'}
+        badges={!isNew && event ? (
+          <>
+            <AdminStatusPill tone={isOnSite ? 'navy' : 'neutral'}>{isOnSite ? 'On-Site' : 'Webinar'}</AdminStatusPill>
+            {isPast && <AdminStatusPill>Past Event</AdminStatusPill>}
+            {!form.published && <AdminStatusPill tone="warning">Draft</AdminStatusPill>}
+          </>
+        ) : undefined}
+        actions={
+          <>
+            {!isNew && (
+              <Button variant="outline" size="sm" onClick={handleDelete} className={ADMIN_BTN_DANGER + " gap-1.5"}>
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={handleSave} disabled={saving} className={ADMIN_BTN_PRIMARY + " gap-1.5"}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {isNew ? 'Create Event' : 'Save Changes'}
             </Button>
-          )}
-          <Button onClick={handleSave} disabled={saving} className="gap-1.5">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {isNew ? 'Create Event' : 'Save Changes'}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* ── EVENT TYPE SELECTOR (top of form) ── */}
       <Card className="border-0 shadow-sm">

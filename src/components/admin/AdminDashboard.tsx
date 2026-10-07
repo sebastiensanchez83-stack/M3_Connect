@@ -14,6 +14,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  AdminPageHeader, AdminKpiCard, AdminSectionLabel, AdminStatusPill, ADMIN_BTN,
+} from './AdminUI';
 import { supabase } from '@/lib/supabase';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import {
@@ -93,20 +96,20 @@ interface InsightItem {
 /* ══════════════════════════════ COLORS ══════════════════════════════ */
 
 const PERSONA_COLORS: Record<string, string> = {
-  marina: '#3b82f6', partner: '#10b981', media_partner: '#8b5cf6',
-  individual: '#f59e0b', admin: '#ef4444', moderator: '#ef4444',
+  marina: '#0b2653', partner: '#1f7a8c', media_partner: '#64748b',
+  individual: '#d7a647', admin: '#b91c1c', moderator: '#b91c1c',
 };
 const STATUS_COLORS: Record<string, string> = {
-  verified: '#22c55e', pending: '#eab308',
-  rejected: '#ef4444', suspended: '#6b7280',
+  verified: '#1f7a8c', pending: '#d7a647',
+  rejected: '#b91c1c', suspended: '#64748b',
 };
 const TIER_CHART_COLORS: Record<string, string> = {
-  member: '#9ca3af', innovation_partner: '#3b82f6', associate_partner: '#f59e0b',
-  premium_partner: '#f97316', premium_sponsor: '#a855f7', main_sponsor: '#7c3aed',
+  member: '#94a3b8', innovation_partner: '#4a6fa5', associate_partner: '#1f7a8c',
+  premium_partner: '#d7a647', premium_sponsor: '#0b2653', main_sponsor: '#081d40',
 };
 const LEAD_STATUS_COLORS: Record<string, string> = {
-  new: '#eab308', qualified: '#3b82f6', in_discussion: '#f97316',
-  signed: '#22c55e', rejected: '#ef4444',
+  new: '#d7a647', qualified: '#4a6fa5', in_discussion: '#1f7a8c',
+  signed: '#0b2653', rejected: '#b91c1c',
 };
 
 /* ══════════════════════════════ COMPONENT ══════════════════════════════ */
@@ -353,7 +356,7 @@ export function AdminDashboard() {
 
   /* ─── HELPERS ─── */
 
-  const fmt = (cents: number) => `€${(cents / 100).toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmt = (cents: number) => `€${(cents / 100).toLocaleString('en-GB', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
   const pctChange = (current: number, previous: number) => {
     if (!previous) return current > 0 ? 100 : 0;
@@ -366,15 +369,15 @@ export function AdminDashboard() {
 
   const personaBadge = (persona: string) => {
     const s: Record<string, string> = {
-      admin: 'bg-red-100 text-red-800', moderator: 'bg-red-100 text-red-800',
-      partner: 'bg-emerald-100 text-emerald-800', marina: 'bg-blue-100 text-blue-800',
-      media_partner: 'bg-violet-100 text-violet-800', individual: 'bg-amber-100 text-amber-800',
+      admin: 'bg-red-50 text-red-800', moderator: 'bg-red-50 text-red-800',
+      partner: 'bg-foam text-teal-text', marina: 'bg-chip text-navy',
+      media_partner: 'bg-chip text-meta', individual: 'bg-amber-50 text-amber-900',
     };
     const l: Record<string, string> = {
-      admin: 'Admin', moderator: 'Mod', partner: 'Partner', marina: 'Marina',
+      admin: 'Admin', moderator: 'Mod', partner: 'Provider', marina: 'Marina',
       media_partner: 'Media', individual: 'Individual',
     };
-    return <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${s[persona] || 'bg-gray-100 text-gray-800'}`}>{l[persona] || persona}</span>;
+    return <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${s[persona] || 'bg-chip text-meta'}`}>{l[persona] || persona}</span>;
   };
 
   const statusDot = (status: string) => {
@@ -417,7 +420,7 @@ export function AdminDashboard() {
 
   const personaPieData = [
     { name: 'Marinas', value: stats.marinaCount, color: PERSONA_COLORS.marina },
-    { name: 'Partners', value: stats.partnerCount, color: PERSONA_COLORS.partner },
+    { name: 'Service providers', value: stats.partnerCount, color: PERSONA_COLORS.partner },
     { name: 'Media', value: stats.mediaCount, color: PERSONA_COLORS.media_partner },
     { name: 'Individuals', value: stats.individualCount, color: PERSONA_COLORS.individual },
   ].filter(d => d.value > 0);
@@ -485,161 +488,106 @@ export function AdminDashboard() {
   /* ══════════════════════════════ MODERATOR DASHBOARD ══════════════════════════════ */
 
   if (!isAdmin) {
+    const attention = [
+      stats.pendingResourceDrafts > 0 && {
+        key: 'drafts', icon: FolderOpen, tone: 'warning' as const,
+        title: `${stats.pendingResourceDrafts} resource draft${stats.pendingResourceDrafts !== 1 ? 's' : ''} waiting for review`,
+        hint: 'Review and approve or provide feedback',
+        onClick: () => nav('/admin/resources?tab=drafts'),
+      },
+      stats.newWebinars > 0 && {
+        key: 'webinars', icon: MessageSquare, tone: 'info' as const,
+        title: `${stats.newWebinars} webinar proposal${stats.newWebinars !== 1 ? 's' : ''} to review`,
+        hint: 'Pre-approve proposals matching your sectors',
+        onClick: () => nav('/admin/webinars', { status: 'submitted' }),
+      },
+    ].filter(Boolean) as { key: string; icon: React.ElementType; tone: 'warning' | 'info'; title: string; hint: string; onClick: () => void }[];
+
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         {/* ─── Header ─── */}
-        <div className="rounded-2xl bg-gradient-to-br from-[#0b2653] via-[#143a6b] to-[#1e4f8f] p-5 text-white shadow-xl relative overflow-hidden">
-          <div className="absolute -top-10 -right-10 h-40 w-40 rounded-full bg-white/5" />
-          <div className="absolute -bottom-6 -left-6 h-24 w-24 rounded-full bg-white/5" />
-          <div className="flex justify-between items-center relative z-10">
-            <div>
-              <h1 className="text-xl font-bold">Moderator Dashboard</h1>
-              <p className="text-white/60 text-xs mt-0.5">
-                Welcome back, {profile?.first_name || 'Moderator'} — {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-              </p>
-            </div>
-            <Button variant="ghost" size="sm" onClick={loadDashboard} className="text-white hover:bg-white/20 rounded-xl">
+        <AdminPageHeader
+          className="mb-0"
+          title="Moderator Dashboard"
+          description={t('adminUi.pages.moderatorDashboard')}
+          meta={<span>Welcome back, {profile?.first_name || 'Moderator'} — {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>}
+          actions={
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={loadDashboard}>
               <RefreshCw className="h-4 w-4 mr-2" />Refresh
             </Button>
-          </div>
-        </div>
+          }
+        />
 
         {/* ─── Your Activity Overview ─── */}
         <div>
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <BarChart3 className="h-3.5 w-3.5" /> Your Activity
-          </h3>
+          <AdminSectionLabel icon={BarChart3}>Your Activity</AdminSectionLabel>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {/* Resources Published */}
-            <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-purple-50 to-white"
-                  onClick={() => nav('/admin/resources')}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="h-9 w-9 rounded-xl bg-purple-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <FileText className="h-4.5 w-4.5 text-purple-600" />
-                  </div>
-                </div>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalResources}</p>
-                <p className="text-[10px] text-gray-500 font-medium mt-0.5">Published Resources</p>
-              </CardContent>
-            </Card>
-
-            {/* Pending Drafts */}
-            <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-teal-50 to-white"
-                  onClick={() => nav('/admin/resources?tab=drafts')}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="h-9 w-9 rounded-xl bg-teal-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <FolderOpen className="h-4.5 w-4.5 text-teal-600" />
-                  </div>
-                  {stats.pendingResourceDrafts > 0 && (
-                    <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
-                      {stats.pendingResourceDrafts} pending
-                    </span>
-                  )}
-                </div>
-                <p className="text-2xl font-bold text-gray-900">{stats.pendingResourceDrafts}</p>
-                <p className="text-[10px] text-gray-500 font-medium mt-0.5">Resource Drafts to Review</p>
-              </CardContent>
-            </Card>
-
-            {/* Webinar Proposals */}
-            <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-indigo-50 to-white"
-                  onClick={() => nav('/admin/webinars')}>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="h-9 w-9 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <MessageSquare className="h-4.5 w-4.5 text-indigo-600" />
-                  </div>
-                  {stats.newWebinars > 0 && (
-                    <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
-                      {stats.newWebinars} new
-                    </span>
-                  )}
-                </div>
-                <p className="text-2xl font-bold text-gray-900">{stats.newWebinars}</p>
-                <p className="text-[10px] text-gray-500 font-medium mt-0.5">Webinar Proposals</p>
-              </CardContent>
-            </Card>
-
-            {/* Total Events */}
-            <Card className="group hover:shadow-lg transition-all border-0 shadow-sm bg-gradient-to-br from-pink-50 to-white">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="h-9 w-9 rounded-xl bg-pink-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Calendar className="h-4.5 w-4.5 text-pink-600" />
-                  </div>
-                  {stats.upcomingEvents > 0 && (
-                    <span className="text-[10px] bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded-full">
-                      {stats.upcomingEvents} upcoming
-                    </span>
-                  )}
-                </div>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalEvents}</p>
-                <p className="text-[10px] text-gray-500 font-medium mt-0.5">Total Events</p>
-              </CardContent>
-            </Card>
+            <AdminKpiCard icon={FileText} label="Published Resources" value={stats.totalResources} onClick={() => nav('/admin/resources')} />
+            <AdminKpiCard
+              icon={FolderOpen}
+              label="Resource Drafts to Review"
+              value={stats.pendingResourceDrafts}
+              tone={stats.pendingResourceDrafts > 0 ? 'attention' : 'default'}
+              badge={stats.pendingResourceDrafts > 0 ? <AdminStatusPill tone="warning">{stats.pendingResourceDrafts} pending</AdminStatusPill> : undefined}
+              onClick={() => nav('/admin/resources?tab=drafts')}
+            />
+            <AdminKpiCard
+              icon={MessageSquare}
+              label="Webinar Proposals"
+              value={stats.newWebinars}
+              tone={stats.newWebinars > 0 ? 'attention' : 'default'}
+              badge={stats.newWebinars > 0 ? <AdminStatusPill tone="warning">{stats.newWebinars} new</AdminStatusPill> : undefined}
+              onClick={() => nav('/admin/webinars')}
+            />
+            <AdminKpiCard
+              icon={Calendar}
+              label="Total Events"
+              value={stats.totalEvents}
+              badge={stats.upcomingEvents > 0 ? <AdminStatusPill tone="info">{stats.upcomingEvents} upcoming</AdminStatusPill> : undefined}
+            />
           </div>
         </div>
 
         {/* ─── Action Items ─── */}
-        {(stats.pendingResourceDrafts > 0 || stats.newWebinars > 0) && (
+        {attention.length > 0 && (
           <div>
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-              <AlertCircle className="h-3.5 w-3.5" /> Items Needing Your Attention
-            </h3>
+            <AdminSectionLabel icon={AlertCircle}>Items Needing Your Attention</AdminSectionLabel>
             <div className="space-y-2">
-              {stats.pendingResourceDrafts > 0 && (
-                <button onClick={() => nav('/admin/resources?tab=drafts')}
-                  className="flex items-center gap-3 w-full rounded-xl px-4 py-3 bg-amber-50 hover:bg-amber-100 border border-amber-200/60 transition-all group text-left">
-                  <div className="h-9 w-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                    <FolderOpen className="h-4 w-4 text-amber-600" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-800">{stats.pendingResourceDrafts} resource draft{stats.pendingResourceDrafts !== 1 ? 's' : ''} waiting for review</div>
-                    <div className="text-xs text-gray-500">Review and approve or provide feedback</div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-amber-400 group-hover:text-amber-600" />
+              {attention.map(a => (
+                <button
+                  key={a.key}
+                  type="button"
+                  onClick={a.onClick}
+                  className={`group flex w-full items-center gap-3 rounded-card border px-4 py-3 text-left transition-colors focus:outline-none focus-visible:shadow-focus ${
+                    a.tone === 'warning' ? 'border-amber-200 bg-amber-50 hover:border-amber-300' : 'border-teal/25 bg-foam hover:border-teal/50'
+                  }`}
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-navy">
+                    <a.icon className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14px] font-semibold text-navy">{a.title}</span>
+                    <span className="block text-[13px] text-meta">{a.hint}</span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-meta transition-colors group-hover:text-navy" aria-hidden="true" />
                 </button>
-              )}
-              {stats.newWebinars > 0 && (
-                <button onClick={() => nav('/admin/webinars', { status: 'submitted' })}
-                  className="flex items-center gap-3 w-full rounded-xl px-4 py-3 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/60 transition-all group text-left">
-                  <div className="h-9 w-9 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
-                    <MessageSquare className="h-4 w-4 text-indigo-600" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium text-gray-800">{stats.newWebinars} webinar proposal{stats.newWebinars !== 1 ? 's' : ''} to review</div>
-                    <div className="text-xs text-gray-500">Pre-approve proposals matching your sectors</div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-indigo-400 group-hover:text-indigo-600" />
-                </button>
-              )}
+              ))}
             </div>
           </div>
         )}
 
         {/* ─── Quick Actions ─── */}
         <div>
-          <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Quick Actions</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <Button variant="outline"
-                    className="h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl bg-purple-50 hover:bg-purple-100"
-                    onClick={() => nav('/admin/resources')}>
-              <FileText className="h-5 w-5 text-purple-600" />
-              <span className="text-sm font-medium text-gray-700">Propose Resource</span>
+          <AdminSectionLabel>Quick Actions</AdminSectionLabel>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => nav('/admin/resources')}>
+              <FileText className="h-4 w-4 mr-2" />Propose Resource
             </Button>
-            <Button variant="outline"
-                    className="h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl bg-teal-50 hover:bg-teal-100"
-                    onClick={() => nav('/admin/resources?tab=drafts')}>
-              <FolderOpen className="h-5 w-5 text-teal-600" />
-              <span className="text-sm font-medium text-gray-700">Review Drafts</span>
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => nav('/admin/resources?tab=drafts')}>
+              <FolderOpen className="h-4 w-4 mr-2" />Review Drafts
             </Button>
-            <Button variant="outline"
-                    className="h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl bg-indigo-50 hover:bg-indigo-100"
-                    onClick={() => nav('/admin/webinars')}>
-              <MessageSquare className="h-5 w-5 text-indigo-600" />
-              <span className="text-sm font-medium text-gray-700">Webinar Proposals</span>
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => nav('/admin/webinars')}>
+              <MessageSquare className="h-4 w-4 mr-2" />Webinar Proposals
             </Button>
           </div>
         </div>
@@ -649,218 +597,122 @@ export function AdminDashboard() {
 
   /* ══════════════════════════════ ADMIN RENDER ══════════════════════════════ */
 
+  const priorityItems = [
+    { key: 'users', icon: UserCheck, count: stats.usersWaiting48h, label: 'users waiting >48h', onClick: () => nav('/admin/users', { status: 'pending' }) },
+    { key: 'leads', icon: Target, count: stats.oldLeadsNotContacted, label: 'leads not contacted', onClick: () => nav('/admin/leads', { status: 'new' }) },
+    { key: 'b2b', icon: Link2, count: stats.oldB2BRequests, label: 'B2B unanswered 7d+', onClick: () => nav('/admin/partner-requests') },
+    { key: 'events', icon: Calendar, count: stats.pendingRegistrations, label: 'event approvals', onClick: () => nav('/admin/events') },
+  ].filter(i => i.count > 0);
+
+  const growthPill = (pct: number, withArrow: boolean) => (
+    <AdminStatusPill tone={pct >= 0 ? 'success' : 'danger'} icon={withArrow ? (pct >= 0 ? ArrowUpRight : ArrowDownRight) : undefined}>
+      {pct >= 0 ? '+' : ''}{pct}%
+    </AdminStatusPill>
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
 
       {/* ═══ TOP: PRIORITY STRIP ═══ */}
       {totalUrgent > 0 && (
-        <div className="rounded-2xl bg-gradient-to-r from-red-50 via-amber-50 to-orange-50 border border-red-200/60 p-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="h-7 w-7 rounded-lg bg-red-100 flex items-center justify-center">
-              <AlertTriangle className="h-4 w-4 text-red-600" />
-            </div>
-            <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wider">Priority Actions Required</h2>
-            <Badge variant="destructive" className="ml-auto text-xs">{totalUrgent} urgent</Badge>
+        <section aria-labelledby="admin-priority" className="rounded-card border border-amber-200 bg-amber-50 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-700" aria-hidden="true" />
+            <h2 id="admin-priority" className="text-[15px] font-semibold leading-5 text-navy">Priority Actions Required</h2>
+            <AdminStatusPill tone="danger" className="ml-auto">{totalUrgent} urgent</AdminStatusPill>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
-            {stats.usersWaiting48h > 0 && (
-              <button onClick={() => nav('/admin/users', { status: 'pending' })}
-                className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-red-200/50 group">
-                <div className="h-8 w-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
-                  <UserCheck className="h-4 w-4 text-red-600" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-lg font-bold text-red-700">{stats.usersWaiting48h}</div>
-                  <div className="text-[10px] text-red-600/80 font-medium leading-tight">users waiting &gt;48h</div>
-                </div>
-                <ChevronRight className="h-3.5 w-3.5 text-red-300 ml-auto group-hover:text-red-500 transition-colors" />
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {priorityItems.map(item => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={item.onClick}
+                className="group flex items-center gap-3 rounded-xl border border-amber-200 bg-white px-3 py-2.5 text-left transition-colors hover:border-navy/30 focus:outline-none focus-visible:shadow-focus"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gold/25 text-navy">
+                  <item.icon className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[20px] font-semibold leading-6 tabular-nums text-navy">{item.count}</span>
+                  <span className="block text-[12px] leading-4 text-meta">{item.label}</span>
+                </span>
+                <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-meta transition-colors group-hover:text-navy" aria-hidden="true" />
               </button>
-            )}
-            {stats.oldLeadsNotContacted > 0 && (
-              <button onClick={() => nav('/admin/leads', { status: 'new' })}
-                className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-red-200/50 group">
-                <div className="h-8 w-8 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
-                  <Target className="h-4 w-4 text-red-600" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-lg font-bold text-red-700">{stats.oldLeadsNotContacted}</div>
-                  <div className="text-[10px] text-red-600/80 font-medium leading-tight">leads not contacted</div>
-                </div>
-                <ChevronRight className="h-3.5 w-3.5 text-red-300 ml-auto group-hover:text-red-500 transition-colors" />
-              </button>
-            )}
-            {stats.oldB2BRequests > 0 && (
-              <button onClick={() => nav('/admin/partner-requests')}
-                className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-amber-200/50 group">
-                <div className="h-8 w-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-                  <Link2 className="h-4 w-4 text-amber-600" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-lg font-bold text-amber-700">{stats.oldB2BRequests}</div>
-                  <div className="text-[10px] text-amber-600/80 font-medium leading-tight">B2B unanswered 7d+</div>
-                </div>
-                <ChevronRight className="h-3.5 w-3.5 text-amber-300 ml-auto group-hover:text-amber-500 transition-colors" />
-              </button>
-            )}
-            {stats.pendingRegistrations > 0 && (
-              <button onClick={() => nav('/admin/events')}
-                className="flex items-center gap-2.5 bg-white/80 hover:bg-white rounded-xl px-3 py-2.5 text-left transition-all hover:shadow-md border border-orange-200/50 group">
-                <div className="h-8 w-8 rounded-lg bg-orange-100 flex items-center justify-center shrink-0">
-                  <Calendar className="h-4 w-4 text-orange-600" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-lg font-bold text-orange-700">{stats.pendingRegistrations}</div>
-                  <div className="text-[10px] text-orange-600/80 font-medium leading-tight">event approvals</div>
-                </div>
-                <ChevronRight className="h-3.5 w-3.5 text-orange-300 ml-auto group-hover:text-orange-500 transition-colors" />
-              </button>
-            )}
+            ))}
           </div>
-        </div>
+        </section>
       )}
 
       {/* ═══ HEADER ═══ */}
-      <div className="rounded-2xl bg-gradient-to-br from-[#0b2653] via-[#143a6b] to-[#1e4f8f] p-5 text-white shadow-xl relative overflow-hidden">
-        <div className="absolute -top-10 -right-10 h-40 w-40 rounded-full bg-white/5" />
-        <div className="absolute -bottom-6 -left-6 h-24 w-24 rounded-full bg-white/5" />
-        <div className="flex justify-between items-center relative z-10">
-          <div>
-            <h1 className="text-xl font-bold">{t('admin.dashboard')}</h1>
-            <p className="text-white/60 text-xs mt-0.5">
-              {new Date().toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={loadDashboard} className="text-white hover:bg-white/20 rounded-xl">
+      <AdminPageHeader
+        className="mb-0"
+        title={t('admin.dashboard')}
+        description={t('adminUi.pages.dashboard')}
+        meta={<span>{new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>}
+        actions={
+          <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={loadDashboard}>
             <RefreshCw className="h-4 w-4 mr-2" />Refresh
           </Button>
-        </div>
-      </div>
+        }
+      />
 
       {/* ═══ ROW 1: PERFORMANCE KPIs ═══ */}
       <div>
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <BarChart3 className="h-3.5 w-3.5" /> Performance Snapshot
-        </h3>
+        <AdminSectionLabel icon={BarChart3}>Performance Snapshot</AdminSectionLabel>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {/* Revenue */}
-          <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-emerald-50 to-white"
-                onClick={() => document.getElementById('revenue-chart')?.scrollIntoView({ behavior: 'smooth' })}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="h-9 w-9 rounded-xl bg-emerald-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <DollarSign className="h-4.5 w-4.5 text-emerald-600" />
-                </div>
-                {stats.revenueThisMonthCents > 0 && (
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded-full">
-                    +{fmt(stats.revenueThisMonthCents)} /mo
-                  </span>
-                )}
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{fmt(stats.totalRevenueCents)}</p>
-              <p className="text-[10px] text-gray-500 font-medium mt-0.5">Total Revenue</p>
-            </CardContent>
-          </Card>
-
-          {/* Users */}
-          <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-blue-50 to-white"
-                onClick={() => nav('/admin/users')}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="h-9 w-9 rounded-xl bg-blue-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Users className="h-4.5 w-4.5 text-blue-600" />
-                </div>
-                <span className="text-[10px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full">
-                  {activePct}% active
-                </span>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalUsers}</p>
-              <p className="text-[10px] text-gray-500 font-medium mt-0.5">Total Users</p>
-            </CardContent>
-          </Card>
-
-          {/* Weekly Growth */}
-          <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-indigo-50 to-white"
-                onClick={() => document.getElementById('signup-chart')?.scrollIntoView({ behavior: 'smooth' })}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="h-9 w-9 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <TrendingUp className="h-4.5 w-4.5 text-indigo-600" />
-                </div>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ${
-                  growthWeekly >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                }`}>
-                  {growthWeekly >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                  {growthWeekly >= 0 ? '+' : ''}{growthWeekly}%
-                </span>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{stats.signupsThisWeek}</p>
-              <p className="text-[10px] text-gray-500 font-medium mt-0.5">New This Week</p>
-            </CardContent>
-          </Card>
-
-          {/* Monthly Growth */}
-          <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-violet-50 to-white"
-                onClick={() => document.getElementById('signup-chart')?.scrollIntoView({ behavior: 'smooth' })}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="h-9 w-9 rounded-xl bg-violet-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Activity className="h-4.5 w-4.5 text-violet-600" />
-                </div>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 ${
-                  growthMonthly >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                }`}>
-                  {growthMonthly >= 0 ? '+' : ''}{growthMonthly}%
-                </span>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{stats.signupsThisMonth}</p>
-              <p className="text-[10px] text-gray-500 font-medium mt-0.5">New This Month</p>
-            </CardContent>
-          </Card>
-
-          {/* Orgs */}
-          <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-purple-50 to-white"
-                onClick={() => nav('/admin/sponsorships')}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="h-9 w-9 rounded-xl bg-purple-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Building2 className="h-4.5 w-4.5 text-purple-600" />
-                </div>
-                {stats.pendingSponsorships > 0 && (
-                  <span className="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded-full">
-                    {stats.pendingSponsorships} reqs
-                  </span>
-                )}
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalOrgs}</p>
-              <p className="text-[10px] text-gray-500 font-medium mt-0.5">Organizations</p>
-            </CardContent>
-          </Card>
-
-          {/* B2B Connections */}
-          <Card className="group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm bg-gradient-to-br from-cyan-50 to-white"
-                onClick={() => nav('/admin/partner-requests')}>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="h-9 w-9 rounded-xl bg-cyan-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  <Link2 className="h-4.5 w-4.5 text-cyan-600" />
-                </div>
-              </div>
-              <p className="text-2xl font-bold text-gray-900">{stats.pendingB2B + stats.openRFPs + stats.openConsultations}</p>
-              <p className="text-[10px] text-gray-500 font-medium mt-0.5">Active B2B</p>
-            </CardContent>
-          </Card>
+          <AdminKpiCard
+            icon={DollarSign}
+            label="Total Revenue"
+            value={fmt(stats.totalRevenueCents)}
+            badge={stats.revenueThisMonthCents > 0 ? <AdminStatusPill tone="success">+{fmt(stats.revenueThisMonthCents)} /mo</AdminStatusPill> : undefined}
+            onClick={() => document.getElementById('revenue-chart')?.scrollIntoView({ behavior: 'smooth' })}
+          />
+          <AdminKpiCard
+            icon={Users}
+            label="Total Users"
+            value={stats.totalUsers}
+            badge={<AdminStatusPill tone="success">{activePct}% active</AdminStatusPill>}
+            onClick={() => nav('/admin/users')}
+          />
+          <AdminKpiCard
+            icon={TrendingUp}
+            label="New This Week"
+            value={stats.signupsThisWeek}
+            badge={growthPill(growthWeekly, true)}
+            onClick={() => document.getElementById('signup-chart')?.scrollIntoView({ behavior: 'smooth' })}
+          />
+          <AdminKpiCard
+            icon={Activity}
+            label="New This Month"
+            value={stats.signupsThisMonth}
+            badge={growthPill(growthMonthly, false)}
+            onClick={() => document.getElementById('signup-chart')?.scrollIntoView({ behavior: 'smooth' })}
+          />
+          <AdminKpiCard
+            icon={Building2}
+            label="Organizations"
+            value={stats.totalOrgs}
+            badge={stats.pendingSponsorships > 0 ? <AdminStatusPill tone="warning">{stats.pendingSponsorships} reqs</AdminStatusPill> : undefined}
+            onClick={() => nav('/admin/sponsorships')}
+          />
+          <AdminKpiCard
+            icon={Link2}
+            label="Active B2B"
+            value={stats.pendingB2B + stats.openRFPs + stats.openConsultations}
+            onClick={() => nav('/admin/partner-requests')}
+          />
         </div>
       </div>
 
       {/* ═══ ROW 2: BUSINESS OPPORTUNITIES PIPELINE ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         {/* Leads Funnel */}
-        <Card className="lg:col-span-3 border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer"
+        <Card className="lg:col-span-3 border-0 shadow-sm cursor-pointer"
               onClick={() => nav('/admin/leads', { status: 'new' })}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <Target className="h-4 w-4 text-orange-500" />
+                <Target className="h-4 w-4 text-amber-700" />
                 Opportunities Pipeline
               </CardTitle>
               <div className="flex items-center gap-2">
@@ -921,10 +773,10 @@ export function AdminDashboard() {
                 badge: `${stats.newLeads} new`, color: 'text-amber-600', bg: 'bg-amber-50', icon: Target,
                 link: '/admin/leads', params: {} },
               { label: 'B2B Requests', total: stats.pendingB2B, badge: stats.oldB2BRequests > 0 ? `${stats.oldB2BRequests} urgent` : '',
-                color: 'text-rose-600', bg: 'bg-rose-50', icon: Link2, link: '/admin/partner-requests', params: { status: 'pending' } },
-              { label: 'Open RFPs', total: stats.openRFPs, badge: '', color: 'text-blue-600', bg: 'bg-blue-50',
+                color: 'text-amber-700', bg: 'bg-amber-50', icon: Link2, link: '/admin/partner-requests', params: { status: 'pending' } },
+              { label: 'Open RFPs', total: stats.openRFPs, badge: '', color: 'text-teal', bg: 'bg-chip',
                 icon: FileText, link: '/admin/rfps', params: {} },
-              { label: 'Consultations', total: stats.openConsultations, badge: '', color: 'text-cyan-600', bg: 'bg-cyan-50',
+              { label: 'Consultations', total: stats.openConsultations, badge: '', color: 'text-teal', bg: 'bg-chip',
                 icon: MessageSquare, link: '/admin/consultations', params: {} },
             ].map((item, i) => (
               <button key={i} onClick={() => nav(item.link, item.params)}
@@ -953,11 +805,11 @@ export function AdminDashboard() {
       {/* ═══ ROW 3: USER INTELLIGENCE ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Persona Donut */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => nav('/admin/users')}>
+        <Card className="border-0 shadow-sm cursor-pointer" onClick={() => nav('/admin/users')}>
           <CardHeader className="pb-1">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <Ship className="h-4 w-4 text-blue-500" />
+                <Ship className="h-4 w-4 text-teal" />
                 Ecosystem Breakdown
               </CardTitle>
               <ChevronRight className="h-4 w-4 text-gray-300" />
@@ -1002,7 +854,7 @@ export function AdminDashboard() {
         </Card>
 
         {/* Status Donut */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => nav('/admin/users')}>
+        <Card className="border-0 shadow-sm cursor-pointer" onClick={() => nav('/admin/users')}>
           <CardHeader className="pb-1">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -1045,7 +897,7 @@ export function AdminDashboard() {
         </Card>
 
         {/* User Engagement Segments */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all">
+        <Card className="border-0 shadow-sm">
           <CardHeader className="pb-1">
             <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
               <Star className="h-4 w-4 text-amber-500" />
@@ -1057,7 +909,7 @@ export function AdminDashboard() {
               { icon: CheckCircle, label: 'Active Users', value: stats.verifiedUsers, sub: `${activePct}% of total`,
                 color: 'text-green-600', bg: 'bg-green-50', link: '/admin/users', params: { status: 'verified' } },
               { icon: Flame, label: 'New This Week', value: stats.signupsThisWeek, sub: `vs ${stats.signupsLastWeek} last week`,
-                color: 'text-orange-600', bg: 'bg-orange-50', link: '/admin/users', params: {} },
+                color: 'text-amber-700', bg: 'bg-amber-50', link: '/admin/users', params: {} },
               { icon: UserX, label: 'Inactive (30d+)', value: inactiveUsers, sub: 'verified but dormant',
                 color: 'text-gray-500', bg: 'bg-gray-50', link: '/admin/users', params: { status: 'verified', activity: 'inactive' } },
               { icon: Zap, label: 'Not Activated', value: notActivatedUsers, sub: 'no onboarding completed',
@@ -1082,10 +934,10 @@ export function AdminDashboard() {
       {/* ═══ ROW 4: TREND CHARTS ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Signup Trend */}
-        <Card id="signup-chart" className="border-0 shadow-sm hover:shadow-lg transition-all">
+        <Card id="signup-chart" className="border-0 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-indigo-500" />
+              <TrendingUp className="h-4 w-4 text-teal" />
               Signup Trend (6 months)
             </CardTitle>
           </CardHeader>
@@ -1113,7 +965,7 @@ export function AdminDashboard() {
         </Card>
 
         {/* Revenue Trend */}
-        <Card id="revenue-chart" className="border-0 shadow-sm hover:shadow-lg transition-all">
+        <Card id="revenue-chart" className="border-0 shadow-sm">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-emerald-500" />
@@ -1146,11 +998,11 @@ export function AdminDashboard() {
       </div>
 
       {/* ═══ ROW 5: EVENTS PERFORMANCE ═══ */}
-      <Card className="border-0 shadow-sm hover:shadow-lg transition-all">
+      <Card className="border-0 shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-pink-500" />
+              <Calendar className="h-4 w-4 text-teal" />
               Events Performance
             </CardTitle>
             <Button variant="ghost" size="sm" className="text-xs text-primary h-7 hover:bg-primary/5 rounded-lg"
@@ -1167,7 +1019,7 @@ export function AdminDashboard() {
               {/* Summary bar */}
               <div className="flex items-center gap-4 text-xs text-gray-500 mb-1">
                 <span>{stats.totalEvents} total events</span>
-                <span className="text-blue-600 font-medium">{stats.upcomingEvents} upcoming</span>
+                <span className="text-teal font-medium">{stats.upcomingEvents} upcoming</span>
                 <span>{stats.totalRegistrations} total registrations</span>
               </div>
               {eventPerf.map((evt) => {
@@ -1217,11 +1069,11 @@ export function AdminDashboard() {
       {/* ═══ ROW 6: TIER DISTRIBUTION + INSIGHTS ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Tier Distribution */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all cursor-pointer" onClick={() => nav('/admin/sponsorships')}>
+        <Card className="border-0 shadow-sm cursor-pointer" onClick={() => nav('/admin/sponsorships')}>
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <BarChart3 className="h-4 w-4 text-violet-500" />
+                <BarChart3 className="h-4 w-4 text-teal" />
                 Tier Distribution
               </CardTitle>
               <ChevronRight className="h-4 w-4 text-gray-300" />
@@ -1249,7 +1101,7 @@ export function AdminDashboard() {
         </Card>
 
         {/* AI Insights Widget */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all bg-gradient-to-br from-slate-50 to-white">
+        <Card className="border-0 shadow-sm bg-gradient-to-br from-slate-50 to-white">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
               <Lightbulb className="h-4 w-4 text-amber-500" />
@@ -1269,11 +1121,11 @@ export function AdminDashboard() {
                     danger: 'bg-red-50 border-red-200 text-red-800',
                     warning: 'bg-amber-50 border-amber-200 text-amber-800',
                     success: 'bg-green-50 border-green-200 text-green-800',
-                    info: 'bg-blue-50 border-blue-200 text-blue-800',
+                    info: 'bg-chip border-blue-200 text-navy',
                   };
                   const iconColors = {
                     danger: 'text-red-500', warning: 'text-amber-500',
-                    success: 'text-green-500', info: 'text-blue-500',
+                    success: 'text-green-500', info: 'text-teal',
                   };
                   return (
                     <div key={i} className={`flex items-start gap-2.5 rounded-xl px-3 py-2.5 border text-xs ${colors[insight.type]}`}>
@@ -1290,49 +1142,38 @@ export function AdminDashboard() {
 
       {/* ═══ ROW 7: ACTION ITEMS GRID ═══ */}
       <div>
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <AlertCircle className="h-3.5 w-3.5" /> All Action Items
-        </h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
+        <AdminSectionLabel icon={AlertCircle}>All Action Items</AdminSectionLabel>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {[
-            { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, gradient: 'from-yellow-500 to-amber-500', bg: 'bg-yellow-50', link: '/admin/users', params: { status: 'pending' } },
-            { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, gradient: 'from-pink-500 to-rose-500', bg: 'bg-pink-50', link: '/admin/events', params: { view: 'registrations' } },
-            { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, gradient: 'from-purple-500 to-violet-500', bg: 'bg-purple-50', link: '/admin/sponsorships', params: {} },
-            { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, gradient: 'from-indigo-500 to-blue-500', bg: 'bg-indigo-50', link: '/admin/webinars', params: { status: 'submitted' } },
-            { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, gradient: 'from-teal-500 to-cyan-500', bg: 'bg-teal-50', link: '/admin/resources', params: { tab: 'drafts' } },
-            { label: 'New Projects', value: stats.newProjects, icon: Anchor, gradient: 'from-orange-500 to-red-500', bg: 'bg-orange-50', link: '/admin/projects', params: { status: 'new' } },
-            { label: 'B2B Requests', value: stats.pendingB2B, icon: Link2, gradient: 'from-rose-500 to-red-500', bg: 'bg-rose-50', link: '/admin/partner-requests', params: { status: 'pending' } },
-            { label: 'New Leads', value: stats.newLeads, icon: Target, gradient: 'from-cyan-500 to-blue-500', bg: 'bg-cyan-50', link: '/admin/leads', params: { status: 'new' } },
-          ].map((item, i) => {
-            const active = item.value > 0;
-            return (
-              <Card key={i}
-                className={`group hover:shadow-lg transition-all cursor-pointer border-0 shadow-sm overflow-hidden ${active ? 'ring-1 ring-gray-200' : ''}`}
-                onClick={() => nav(item.link, item.params)}>
-                {active && <div className={`h-1 bg-gradient-to-r ${item.gradient}`} />}
-                <CardContent className="pt-3.5 pb-3 px-3">
-                  <div className="flex flex-col items-center text-center gap-1.5">
-                    <div className={`h-9 w-9 rounded-xl ${item.bg} flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                      <item.icon className={`h-4 w-4 ${active ? 'text-gray-700' : 'text-gray-400'}`} />
-                    </div>
-                    <div className={`text-xl font-bold ${active ? 'text-gray-900' : 'text-gray-300'}`}>{item.value}</div>
-                    <div className="text-[10px] text-gray-500 leading-tight font-medium">{item.label}</div>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+            { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, link: '/admin/users', params: { status: 'pending' } },
+            { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, link: '/admin/events', params: { view: 'registrations' } },
+            { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, link: '/admin/sponsorships', params: {} },
+            { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, link: '/admin/webinars', params: { status: 'submitted' } },
+            { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, link: '/admin/resources', params: { tab: 'drafts' } },
+            { label: 'New Projects', value: stats.newProjects, icon: Anchor, link: '/admin/projects', params: { status: 'new' } },
+            { label: 'B2B Requests', value: stats.pendingB2B, icon: Link2, link: '/admin/partner-requests', params: { status: 'pending' } },
+            { label: 'New Leads', value: stats.newLeads, icon: Target, link: '/admin/leads', params: { status: 'new' } },
+          ].map((item, i) => (
+            <AdminKpiCard
+              key={i}
+              icon={item.icon}
+              label={item.label}
+              value={item.value}
+              tone={item.value > 0 ? 'attention' : 'default'}
+              onClick={() => nav(item.link, item.params)}
+            />
+          ))}
         </div>
       </div>
 
       {/* ═══ ROW 8: RECENT ACTIVITY ═══ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Recent Signups */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all">
+        <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
-                <Users className="h-4 w-4 text-blue-500" /> Recent Signups
+                <Users className="h-4 w-4 text-teal" /> Recent Signups
               </CardTitle>
               <Button variant="ghost" size="sm" className="text-xs text-primary h-7 hover:bg-primary/5 rounded-lg"
                       onClick={() => nav('/admin/users')}>
@@ -1371,7 +1212,7 @@ export function AdminDashboard() {
         </Card>
 
         {/* Recent Payments */}
-        <Card className="border-0 shadow-sm hover:shadow-lg transition-all">
+        <Card className="border-0 shadow-sm">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-bold text-gray-700 flex items-center gap-2">
@@ -1415,20 +1256,20 @@ export function AdminDashboard() {
       </div>
 
       {/* ═══ QUICK ACTIONS ═══ */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Manage Users', icon: Users, link: '/admin/users', color: 'text-blue-600', bg: 'bg-blue-50 hover:bg-blue-100' },
-          { label: 'Add Resource', icon: FileText, link: '/admin/resources', color: 'text-purple-600', bg: 'bg-purple-50 hover:bg-purple-100' },
-          { label: 'Add Event', icon: Calendar, link: '/admin/events', color: 'text-pink-600', bg: 'bg-pink-50 hover:bg-pink-100' },
-          { label: 'Review Drafts', icon: FolderOpen, link: '/admin/resources?tab=drafts', color: 'text-teal-600', bg: 'bg-teal-50 hover:bg-teal-100' },
-        ].map((a, i) => (
-          <Button key={i} variant="outline"
-                  className={`h-auto py-4 flex flex-col gap-2.5 border-0 shadow-sm hover:shadow-md transition-all rounded-xl ${a.bg}`}
-                  onClick={() => nav(a.link)}>
-            <a.icon className={`h-5 w-5 ${a.color}`} />
-            <span className="text-sm font-medium text-gray-700">{a.label}</span>
-          </Button>
-        ))}
+      <div>
+        <AdminSectionLabel>Quick Actions</AdminSectionLabel>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: 'Manage Users', icon: Users, link: '/admin/users' },
+            { label: 'Add Resource', icon: FileText, link: '/admin/resources' },
+            { label: 'Add Event', icon: Calendar, link: '/admin/events' },
+            { label: 'Review Drafts', icon: FolderOpen, link: '/admin/resources?tab=drafts' },
+          ].map((a, i) => (
+            <Button key={i} variant="outline" size="sm" className={ADMIN_BTN} onClick={() => nav(a.link)}>
+              <a.icon className="h-4 w-4 mr-2" />{a.label}
+            </Button>
+          ))}
+        </div>
       </div>
     </div>
   );

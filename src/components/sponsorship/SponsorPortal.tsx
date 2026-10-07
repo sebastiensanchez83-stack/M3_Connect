@@ -1,21 +1,29 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Check, Award, AlertCircle, Clock } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Check, Award, Clock } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import {
   SpSponsor, SpAgreement, SpAgreementBenefit, SpTier,
-  PROGRAM_LABELS, PROGRAM_ORDER, FULFILMENT_STATUS_META,
+  PROGRAM_ORDER,
   formatMoney, formatBenefitValue, isWysPending, deliveredPct,
 } from '@/lib/sponsorship';
+import { CardShell } from '@/components/brand/CardShell';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { FOCUS, MemberEmpty, MemberPanel, RowSkeleton, StatusPill } from '@/components/member/MemberUI';
 import { SponsorBrandAssets } from './SponsorBrandAssets';
 import { DeliverableFiles } from './DeliverableFiles';
+import { FulfilmentPill, PROGRAM_NAMES, ProgressBar, SponsorshipFrame, fmtDate } from './sponsorshipUi';
+import { cn } from '@/lib/utils';
 
 // Sponsor-facing portal: their agreement read-only, live delivery ticks (no
 // emails), upload/link slots for items that need their asset, and a clear view
 // of what's been requested / is still missing.
+//
+// Two homes: the /sponsorship page (`band`: marine band on top, agreement beside
+// the work on wide screens) and the "Sponsorship" tab of the account area, which
+// already has its own page header (no band, one column).
 
-export function SponsorPortal({ sponsorIds }: { sponsorIds: string[] }) {
+export function SponsorPortal({ sponsorIds, band = false }: { sponsorIds: string[]; band?: boolean }) {
   const [sponsor, setSponsor] = useState<SpSponsor | null>(null);
   const [sponsors, setSponsors] = useState<SpSponsor[]>([]);
   const [agreement, setAgreement] = useState<SpAgreement | null>(null);
@@ -63,90 +71,158 @@ export function SponsorPortal({ sponsorIds }: { sponsorIds: string[] }) {
     setItems((bens || []) as SpAgreementBenefit[]);
   };
 
-  if (loading) return <div className="flex items-center justify-center h-[50vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
-  if (!sponsor) return <div className="max-w-2xl mx-auto py-16 text-center text-meta">No sponsorship linked to your account yet.</div>;
+  // Before there is a company to name: in the account tab the page header is already there.
+  const plain = (children: React.ReactNode) => band
+    ? <SponsorshipFrame band icon={Award} eyebrow="Sponsorship" title="Your sponsorship">{children}</SponsorshipFrame>
+    : <div>{children}</div>;
+
+  if (loading) return plain(<CardShell><RowSkeleton rows={3} /></CardShell>);
+  if (!sponsor) {
+    return plain(
+      <CardShell>
+        <MemberEmpty
+          icon={Award}
+          title="No sponsorship linked yet"
+          body="Nothing is linked to your account at the moment. If you expected to see your agreement here, the M3 team can link it."
+          action={<UnderlineLink to="/contact">Contact the M3 team</UnderlineLink>}
+        />
+      </CardShell>,
+    );
+  }
 
   const pct = deliveredPct(items);
+  const doneCount = items.filter(i => i.delivered).length;
   const needed = items.filter(i => i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' && !i.delivered);
   const grouped = PROGRAM_ORDER.map(prog => ({ program: prog, rows: items.filter(i => i.program === prog) })).filter(g => g.rows.length > 0);
 
-  return (
-    <div className="max-w-2xl mx-auto space-y-4">
-      <div>
-        <h1 className="text-2xl font-bold text-navy flex items-center gap-2"><Award className="h-6 w-6 text-primary" /> {sponsor.company_name}</h1>
-        <p className="text-sm text-meta mt-0.5">Your sponsorship benefits and their delivery status.</p>
-      </div>
-
-      {sponsors.length > 1 && (
-        <div className="flex flex-wrap gap-2">
-          {sponsors.map(s => (
-            <button key={s.id} onClick={() => setSponsor(s)} className={`px-3 py-1.5 rounded-lg border text-sm ${s.id === sponsor.id ? 'border-primary bg-chip text-primary font-medium' : 'border-rule text-meta'}`}>{s.company_name}</button>
-          ))}
-        </div>
-      )}
-
-      {agreement && (
-        <Card className="rounded-card shadow-none">
-          <CardContent className="pt-6 space-y-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <div className="text-sm text-meta">{tier?.label || 'Sponsorship'}</div>
-                <div className="text-lg font-bold text-navy">{formatMoney(agreement.negotiated_fee_cents ?? tier?.list_fee_cents, agreement.currency)}<span className="text-xs font-normal text-meta/60"> / term</span></div>
-              </div>
-              {(agreement.term_start || agreement.term_end) && (
-                <div className="text-xs text-meta text-right">{agreement.term_start || '—'} → {agreement.term_end || '—'}</div>
-              )}
-            </div>
-            {items.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between text-xs mb-1"><span className="text-meta">Delivered</span><span className="font-medium text-ink">{items.filter(i => i.delivered).length}/{items.length} · {pct}%</span></div>
-                <div className="h-2 rounded-full bg-chip overflow-hidden"><div className={`h-full rounded-full ${pct === 100 ? 'bg-teal' : 'bg-navy'}`} style={{ width: `${pct}%` }} /></div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {needed.length > 0 && (
-        <Card className="rounded-card shadow-none border-amber-200">
-          <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2 text-amber-800"><AlertCircle className="h-4 w-4" /> We need from you</CardTitle>
-            <CardDescription>Upload a file or paste a link for each item below.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
-            {needed.map(i => (
-              <div key={i.id} className="rounded-lg border border-amber-100 bg-amber-50/40 p-3">
-                <div className="text-sm font-semibold text-navy flex items-center gap-2 flex-wrap">
-                  {i.name}
-                  {i.status === 'REQUESTED_FROM_SPONSOR' && <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-200"><Clock className="h-3 w-3 mr-1" /> Requested</Badge>}
-                </div>
-                <div className="mt-2"><DeliverableFiles sponsorId={sponsor.id} benefitId={i.id} isManager={false} canUpload onChanged={reload} /></div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {grouped.map(g => (
-        <Card className="rounded-card shadow-none" key={g.program}>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">{PROGRAM_LABELS[g.program]}</CardTitle></CardHeader>
-          <CardContent className="space-y-1.5">
-            {g.rows.map(i => (
-              <div key={i.id} className="flex items-center justify-between gap-3 py-1.5 border-b border-rule last:border-0">
-                <div className="min-w-0">
-                  <div className="text-sm text-ink truncate">{i.name}</div>
-                  <div className="text-xs text-meta/60">{formatBenefitValue(i)}</div>
-                </div>
-                <div className="shrink-0">
-                  {isWysPending(i) ? <span className="text-[11px] text-amber-600">pending — event not scheduled</span>
-                    : i.delivered ? <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600"><Check className="h-4 w-4" /> Delivered</span>
-                    : <Badge className={`text-[10px] ${FULFILMENT_STATUS_META[i.status].cls}`}>{FULFILMENT_STATUS_META[i.status].label}</Badge>}
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
+  // The company switcher: only for an account linked to several sponsors.
+  const switcher = sponsors.length > 1 && (
+    <div className="flex flex-wrap gap-2" role="group" aria-label="Sponsor">
+      {sponsors.map(s => (
+        <button
+          key={s.id}
+          type="button"
+          aria-pressed={s.id === sponsor.id}
+          onClick={() => setSponsor(s)}
+          className={cn(
+            'min-h-10 rounded-pill border px-4 text-[14px] font-medium transition-colors',
+            FOCUS,
+            s.id === sponsor.id ? 'border-navy bg-navy text-white' : 'border-rule bg-white text-navy hover:border-navy/40 hover:bg-chip',
+          )}
+        >
+          {s.company_name}
+        </button>
       ))}
-
-      <SponsorBrandAssets sponsorId={sponsor.id} canEdit />
     </div>
+  );
+
+  const summary = agreement && (
+    <MemberPanel title={tier?.label || 'Sponsorship'}>
+      <div className="space-y-5 p-5">
+        <div>
+          <p className="font-signage text-[30px] font-semibold leading-9 tabular-nums text-navy">
+            {formatMoney(agreement.negotiated_fee_cents ?? tier?.list_fee_cents, agreement.currency)}
+            <span className="ml-1.5 font-sans text-[14px] font-normal text-meta">per term</span>
+          </p>
+          {(agreement.term_start || agreement.term_end) && (
+            <p className="mt-1 text-[14px] leading-5 text-meta">{fmtDate(agreement.term_start)} to {fmtDate(agreement.term_end)}</p>
+          )}
+        </div>
+        {items.length > 0 && (
+          <div>
+            <div className="mb-1.5 flex items-center justify-between text-[13px] leading-5">
+              <span className="text-meta">Delivered</span>
+              <span className="font-semibold tabular-nums text-navy">{doneCount} of {items.length} · {pct}%</span>
+            </div>
+            <ProgressBar pct={pct} label={`${doneCount} of ${items.length} delivered`} />
+          </div>
+        )}
+      </div>
+    </MemberPanel>
+  );
+
+  const needs = needed.length > 0 && (
+    <MemberPanel title="We need from you" count={needed.length}>
+      <p className="border-b border-amber-200 bg-amber-50 px-5 py-3 text-[14px] leading-5 text-amber-950">
+        Upload a file or paste a link for each item below.
+      </p>
+      <ul className="divide-y divide-rule">
+        {needed.map(i => (
+          <li key={i.id} className="space-y-3 p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{i.name}</span>
+              {i.status === 'REQUESTED_FROM_SPONSOR' && <StatusPill tone="warning" icon={Clock}>Requested</StatusPill>}
+            </div>
+            <DeliverableFiles sponsorId={sponsor.id} benefitId={i.id} isManager={false} canUpload onChanged={reload} />
+          </li>
+        ))}
+      </ul>
+    </MemberPanel>
+  );
+
+  const programs = grouped.map(g => (
+    <MemberPanel key={g.program} title={PROGRAM_NAMES[g.program]} count={g.rows.length}>
+      <ul className="divide-y divide-rule">
+        {g.rows.map(i => (
+          <li key={i.id} className="flex items-center justify-between gap-4 px-5 py-3.5">
+            <div className="min-w-0">
+              <p className="text-[15px] leading-5 text-ink [overflow-wrap:anywhere]">{i.name}</p>
+              <p className="mt-0.5 text-[13px] leading-[18px] text-meta">{formatBenefitValue(i)}</p>
+            </div>
+            <div className="shrink-0">
+              {isWysPending(i) ? <StatusPill tone="warning">Pending, event not yet scheduled</StatusPill>
+                : i.delivered ? <StatusPill tone="success" icon={Check}>Delivered</StatusPill>
+                : <FulfilmentPill status={i.status} />}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </MemberPanel>
+  ));
+
+  const body = (
+    <>
+      {switcher}
+      <div className={cn(switcher && 'mt-6', band ? 'lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:grid-rows-[auto_1fr] lg:gap-x-8' : '')}>
+        {summary && <div className={cn("mb-6", band && "lg:col-start-2 lg:row-start-1")}>{summary}</div>}
+        <div className={cn("space-y-6", band && "lg:col-start-1 lg:row-span-2 lg:row-start-1")}>
+          {!agreement && (
+            <CardShell>
+              <MemberEmpty icon={Award} title="No agreement yet" body="Your agreement will appear here once the M3 team has set it up." />
+            </CardShell>
+          )}
+          {needs}
+          {programs}
+        </div>
+        <div className={band ? "mt-6 lg:col-start-2 lg:row-start-2 lg:mt-0" : "mt-6"}><SponsorBrandAssets sponsorId={sponsor.id} canEdit /></div>
+      </div>
+    </>
+  );
+
+  if (!band) {
+    // In the account tab: the page header says "Sponsorship"; the company comes first.
+    return (
+      <div>
+        <div className="mb-6 flex items-center gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-chip text-navy"><Award className="h-5 w-5" aria-hidden="true" /></span>
+          <div className="min-w-0">
+            <Eyebrow>Your sponsorship</Eyebrow>
+            <p className="mt-1 text-card-title text-navy [overflow-wrap:anywhere]">{sponsor.company_name}</p>
+          </div>
+        </div>
+        {body}
+      </div>
+    );
+  }
+  return (
+    <SponsorshipFrame
+      band
+      icon={Award}
+      eyebrow="Your sponsorship"
+      title={sponsor.company_name}
+      meta={<span>Your sponsorship benefits and their delivery status.</span>}
+    >
+      {body}
+    </SponsorshipFrame>
   );
 }

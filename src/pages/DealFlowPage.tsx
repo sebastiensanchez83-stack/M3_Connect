@@ -359,7 +359,7 @@ export function DealFlowPage() {
         title="Deal flow"
       >
         <p className="max-w-2xl text-[16px] leading-7">
-          Organizations on Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type. Click into a profile to see the full thesis or send an introduction directly from here.
+          Members of Smart Marina Connect currently raising capital. Filter by your focus sectors, country and capital type, open a profile to read the full thesis, or send an introduction from here.
         </p>
       </MemberHeader>
 
@@ -386,6 +386,7 @@ export function DealFlowPage() {
                 <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-meta" aria-hidden="true" />
                 <input
                   type="text"
+                  aria-label="Search by name or description"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search by name or description"
@@ -393,16 +394,16 @@ export function DealFlowPage() {
                 />
               </div>
               <Select value={orgTypeFilter} onValueChange={setOrgTypeFilter}>
-                <SelectTrigger className="h-11 rounded-field"><SelectValue placeholder="Org type" /></SelectTrigger>
+                <SelectTrigger className="h-11 rounded-field" aria-label="Member type"><SelectValue placeholder="Member type" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All types</SelectItem>
                   <SelectItem value="marina">Marina</SelectItem>
                   <SelectItem value="developer">Developer</SelectItem>
-                  <SelectItem value="partner">Innovation partner</SelectItem>
+                  <SelectItem value="partner">Service provider</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={capitalTypeFilter} onValueChange={setCapitalTypeFilter}>
-                <SelectTrigger className="h-11 rounded-field"><SelectValue placeholder="Capital type" /></SelectTrigger>
+                <SelectTrigger className="h-11 rounded-field" aria-label="Capital type"><SelectValue placeholder="Capital type" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All capital types</SelectItem>
                   {CAPITAL_TYPES.map(t => (
@@ -411,7 +412,7 @@ export function DealFlowPage() {
                 </SelectContent>
               </Select>
               <Select value={countryFilter} onValueChange={setCountryFilter}>
-                <SelectTrigger className="h-11 rounded-field"><SelectValue placeholder="Country" /></SelectTrigger>
+                <SelectTrigger className="h-11 rounded-field" aria-label="Country"><SelectValue placeholder="Country" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All countries</SelectItem>
                   {countryOptions.map(c => (
@@ -429,7 +430,7 @@ export function DealFlowPage() {
                     onChange={(e) => setMatchMyFocus(e.target.checked)}
                     className="rounded border-meta/30 accent-navy"
                   />
-                  Only show orgs in my focus sectors ({investorSectorIds.size} configured)
+                  Only show members in my focus sectors ({investorSectorIds.size} configured)
                 </label>
               </div>
             )}
@@ -453,7 +454,7 @@ export function DealFlowPage() {
               title={orgs.length === 0 ? 'No active raises yet' : 'No matches with these filters'}
               body={orgs.length === 0
                 ? 'When marinas, developers or service providers on the platform switch on "Seeking capital", they show up here.'
-                : 'Try widening your filters or unticking "Only show orgs in my focus sectors".'}
+                : 'Try widening your filters or unticking "Only show members in my focus sectors".'}
             />
           </CardShell>
         ) : (
@@ -573,7 +574,7 @@ export function DealFlowPage() {
             <DialogDescription>
               {interestTarget && (
                 <>
-                  Send a connection request to <strong>{interestTarget.name}</strong>. They'll see your investor profile and can reply directly. Skips the usual sector-matching gate — this is an opt-in deal-flow path.
+                  Send a connection request to <strong>{interestTarget.name}</strong>. They will see your investor profile and can reply to you directly.
                 </>
               )}
             </DialogDescription>
@@ -582,6 +583,7 @@ export function DealFlowPage() {
             <div className="space-y-1.5">
               <Label className="text-sm">Message <span className="text-meta/60 font-normal">(optional)</span></Label>
               <Textarea
+                className="rounded-field"
                 value={interestMessage}
                 onChange={(e) => setInterestMessage(e.target.value)}
                 rows={4}

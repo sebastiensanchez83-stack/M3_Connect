@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { Loader2, Upload, Link2, ExternalLink, Trash2, Image as ImageIcon } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { BTN_OUTLINE, FOCUS, MemberPanel } from '@/components/member/MemberUI';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { useFileDrop } from '@/hooks/useFileDrop';
 import { SPONSORSHIP_BUCKET, SpBrandAsset } from '@/lib/sponsorship';
+import { FIELD, ICON_BTN } from './sponsorshipUi';
+import { cn } from '@/lib/utils';
 
 // Per-sponsor brand-asset locker: logo(s) uploaded once (native or link) and
 // reused by every "logo on X" placement, so we don't re-collect it per item.
@@ -72,41 +74,42 @@ export function SponsorBrandAssets({ sponsorId, canEdit }: { sponsorId: string; 
   };
 
   return (
-    <Card className="rounded-card shadow-none border-0 shadow-sm">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2"><ImageIcon className="h-4 w-4 text-primary" /> Brand assets</CardTitle>
-        <CardDescription>Logos uploaded once and reused by every "logo on…" placement.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        {assets.length === 0 && <p className="text-sm text-meta/60">No brand asset yet.</p>}
+    <MemberPanel title="Brand assets">
+      <div className="space-y-3 p-5">
+        <p className="text-[14px] leading-5 text-meta">Logos uploaded once and reused by every "logo on…" placement.</p>
+        {assets.length === 0 && <p className="text-[14px] leading-5 text-meta">No brand asset yet.</p>}
         {assets.map(a => (
-          <div key={a.id} className="flex items-center justify-between gap-2 rounded-lg border border-rule px-3 py-2">
-            <button onClick={() => view(a)} className="min-w-0 flex items-center gap-2 text-left group">
-              {a.external_url ? <Link2 className="h-4 w-4 text-meta/60 shrink-0" /> : <ImageIcon className="h-4 w-4 text-meta/60 shrink-0" />}
-              <span className="text-sm text-ink truncate group-hover:text-primary">{a.label || a.filename || 'Logo'}</span>
-              <ExternalLink className="h-3 w-3 text-meta/40 shrink-0" />
+          <div key={a.id} className="flex items-center justify-between gap-2 rounded-xl border border-rule bg-white py-0.5 pl-3 pr-1">
+            <button type="button" onClick={() => view(a)} className={cn('group flex min-h-10 min-w-0 flex-1 items-center gap-2 rounded-md text-left', FOCUS)}>
+              {a.external_url ? <Link2 className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" /> : <ImageIcon className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" />}
+              <span className="min-w-0 truncate py-0.5 text-[14px] text-navy"><span className="card-ul">{a.label || a.filename || 'Logo'}</span></span>
+              <ExternalLink className="h-3.5 w-3.5 shrink-0 text-meta" aria-hidden="true" />
+              <span className="sr-only">(opens in a new tab)</span>
             </button>
             {canEdit && (
-              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-meta/40 hover:text-red-600" disabled={busy === a.id} onClick={() => remove(a)}>
-                {busy === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              <Button type="button" size="icon" variant="ghost" className={cn(ICON_BTN, 'text-meta hover:bg-red-50 hover:text-red-700')} disabled={busy === a.id} onClick={() => remove(a)} title="Remove" aria-label="Remove this brand asset">
+                {busy === a.id ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Trash2 className="h-4 w-4" aria-hidden="true" />}
               </Button>
             )}
           </div>
         ))}
         {canEdit && (
-          <div {...dropHandlers} className={`rounded-lg border border-dashed p-2.5 space-y-2 transition-colors ${isDragging ? 'border-primary bg-chip' : 'border-rule'}`}>
-            <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (e.g. Primary logo)" className="h-8 text-sm" />
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={uploading} onClick={() => fileRef.current?.click()}>
-                {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Upload logo
+          <div {...dropHandlers} className={cn('space-y-2 rounded-xl border border-dashed p-3 transition-colors', isDragging ? 'border-navy bg-chip' : 'border-rule')}>
+            <Input value={label} onChange={e => setLabel(e.target.value)} placeholder="Label (e.g. Primary logo)" aria-label="Label for the next logo" className={FIELD} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} disabled={uploading} onClick={() => fileRef.current?.click()}>
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />} Upload logo
               </Button>
-              <Input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="or paste a link…" className="h-8 text-xs flex-1 min-w-[140px]" />
-              <Button size="sm" variant="outline" className="h-8 text-xs" onClick={addLink}>Add link</Button>
+              <span className="text-[13px] text-meta">or drop a file</span>
             </div>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Input value={linkUrl} onChange={e => setLinkUrl(e.target.value)} placeholder="or paste a link…" aria-label="Link to a logo" className={cn(FIELD, 'min-w-[140px] flex-1')} />
+              <Button type="button" variant="outline" className={BTN_OUTLINE} onClick={addLink}>Add link</Button>
+            </div>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" aria-label="Choose a logo file" onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </MemberPanel>
   );
 }

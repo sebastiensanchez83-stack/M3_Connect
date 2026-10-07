@@ -1,27 +1,33 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
-  RefreshCw, ArrowLeft, Check, Loader2, Plus, Trash2, Pencil, Send, RotateCcw,
-  UserPlus, Award, FileDown,
+  RefreshCw, Check, Loader2, Plus, Trash2, Pencil, Send, RotateCcw,
+  UserPlus, Award, FileDown, Building2,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { CardShell } from '@/components/brand/CardShell';
+import { BTN, BTN_OUTLINE, FOCUS, MemberEmpty, MemberPanel, RowSkeleton, StatusPill } from '@/components/member/MemberUI';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   SpSponsor, SpAgreement, SpAgreementBenefit, SpTier, SpProgram, SpValueType,
-  PROGRAM_LABELS, PROGRAM_ORDER, FULFILMENT_STATUS_META, FULFILMENT_STATUSES,
-  SPONSOR_STATUS_CLS, AGREEMENT_STATUS_CLS, SpSponsorStatus, SpAgreementStatus,
+  PROGRAM_ORDER, FULFILMENT_STATUSES,
+  SpSponsorStatus, SpAgreementStatus,
   formatMoney, formatBenefitValue, isWysPending, deliveredPct, SPONSORSHIP_BUCKET,
 } from '@/lib/sponsorship';
 import { SponsorBrandAssets } from './SponsorBrandAssets';
 import { DeliverableFiles } from './DeliverableFiles';
+import {
+  AgreementStatusPill, FIELD, FIELD_LABEL, FulfilmentPill, ICON_BTN, PROGRAM_NAMES,
+  ProgressBar, SponsorStatusPill, SponsorshipFrame,
+} from './sponsorshipUi';
+import { cn } from '@/lib/utils';
 
 const eurosToCents = (s: string): number | null => {
   const n = parseFloat(s.replace(/\s/g, '').replace(',', '.'));
@@ -29,7 +35,9 @@ const eurosToCents = (s: string): number | null => {
 };
 const centsToEuros = (c: number | null | undefined) => (c == null ? '' : String(c / 100));
 
-export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
+// `band` puts the marine band on top (the /sponsorship page); the admin workspace
+// (/admin/sponsorships) brings its own shell and gets a plain heading.
+export function SponsorAgreementDetail({ basePath, band = false }: { basePath: string; band?: boolean }) {
   const { sponsorId } = useParams<{ sponsorId: string }>();
   const navigate = useNavigate();
   const { isModerator } = useAuth(); // M3 staff see the commercial fee; Yacht Club (YCM) do not
@@ -246,10 +254,28 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
     setReportBusy(false);
   };
 
-  if (loading) return <div className="flex items-center justify-center h-[50vh]"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
-  if (!sponsor) return <div className="max-w-3xl mx-auto py-16 text-center text-meta">Sponsor not found. <Link to={basePath} className="text-primary underline">Back</Link></div>;
+  const backTo = { to: basePath, label: 'All sponsors' };
+
+  if (loading) {
+    return (
+      <SponsorshipFrame band={band} icon={Award} eyebrow="Sponsor" title="Sponsor" back={backTo}>
+        <CardShell><RowSkeleton rows={3} /></CardShell>
+      </SponsorshipFrame>
+    );
+  }
+  if (!sponsor) {
+    return (
+      <SponsorshipFrame band={band} icon={Award} eyebrow="Sponsor" title="Sponsor" back={backTo} narrow>
+        <CardShell>
+          <MemberEmpty icon={Building2} title="Sponsor not found" body="It may have been removed, or the link is out of date." />
+        </CardShell>
+      </SponsorshipFrame>
+    );
+  }
 
   const pct = deliveredPct(items);
+  const doneCount = items.filter(i => i.delivered).length;
+  const tierLabel = agreement?.tier_key ? tiers.find(t => t.tier_key === agreement.tier_key)?.label : undefined;
   const grouped = PROGRAM_ORDER.map(prog => {
     const progItems = items.filter(i => i.program === prog);
     const sections = Array.from(new Set(progItems.map(i => i.section || ''))).map(sec => ({
@@ -258,186 +284,236 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
     return { program: prog, count: progItems.length, sections };
   }).filter(g => g.count > 0);
 
-  return (
-    <div className="max-w-3xl mx-auto space-y-4">
-      <Link to={basePath} className="inline-flex items-center gap-1.5 text-sm text-meta hover:text-primary"><ArrowLeft className="h-4 w-4" /> All sponsors</Link>
+  /* ── Sponsor: status, renewal report, contact, portal access ── */
+  const sponsorPanel = (
+    <MemberPanel key={`${sponsor.id}-${formKey}`} title="Sponsor">
+      <div className="space-y-5 p-5">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[9rem] flex-1 space-y-1.5">
+            <Label htmlFor="sp-status" className={FIELD_LABEL}>Status</Label>
+            <Select value={sponsor.status} onValueChange={v => saveSponsor({ status: v as SpSponsorStatus })}>
+              <SelectTrigger id="sp-status" className={FIELD}><SelectValue /></SelectTrigger>
+              <SelectContent>{(['active', 'pending', 'expired'] as SpSponsorStatus[]).map(s => <SelectItem key={s} value={s}><SponsorStatusPill status={s} /></SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          {/* Downloaded, never sent. The document is deliberately incomplete
+              — press coverage, social reach, anything measured outside this
+              platform — so it goes to Victor to finish, not to the sponsor. */}
+          <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} disabled={reportBusy} onClick={buildSponsorReport}>
+            {reportBusy ? <RefreshCw className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FileDown className="h-4 w-4" aria-hidden="true" />}
+            Renewal report
+          </Button>
+        </div>
 
-      {/* Sponsor header */}
-      <Card key={`${sponsor.id}-${formKey}`}>
-        <CardContent className="pt-6 space-y-4">
-          <div className="flex items-start justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="h-11 w-11 rounded-xl bg-chip text-primary flex items-center justify-center shrink-0"><Award className="h-5 w-5" /></div>
-              <div className="min-w-0">
-                <div className="font-bold text-navy text-lg truncate">{sponsor.company_name}</div>
-                {agreement?.tier_key && <div className="text-xs text-meta">{tiers.find(t => t.tier_key === agreement.tier_key)?.label}</div>}
-              </div>
+        {items.length > 0 && (
+          <div>
+            <div className="mb-1.5 flex items-center justify-between text-[13px] leading-5">
+              <span className="text-meta">Fulfilment</span>
+              <span className="font-semibold tabular-nums text-navy">{doneCount} of {items.length} delivered · {pct}%</span>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Downloaded, never sent. The document is deliberately incomplete
-                  — press coverage, social reach, anything measured outside this
-                  platform — so it goes to Victor to finish, not to the sponsor. */}
-              <Button variant="outline" className="h-9 gap-1.5" disabled={reportBusy} onClick={buildSponsorReport}>
-                {reportBusy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                Renewal report
-              </Button>
-              <Select value={sponsor.status} onValueChange={v => saveSponsor({ status: v as SpSponsorStatus })}>
-                <SelectTrigger className="w-32 h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>{(['active', 'pending', 'expired'] as SpSponsorStatus[]).map(s => <SelectItem key={s} value={s}><Badge className={`text-[11px] ${SPONSOR_STATUS_CLS[s]}`}>{s}</Badge></SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+            <ProgressBar pct={pct} label={`${doneCount} of ${items.length} delivered`} />
           </div>
-          {items.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between text-xs mb-1"><span className="text-meta">Fulfilment</span><span className="font-medium text-ink">{items.filter(i => i.delivered).length}/{items.length} delivered · {pct}%</span></div>
-              <div className="h-2 rounded-full bg-chip overflow-hidden"><div className={`h-full rounded-full ${pct === 100 ? 'bg-green-500' : 'bg-primary'}`} style={{ width: `${pct}%` }} /></div>
-            </div>
-          )}
-          <div className="grid sm:grid-cols-2 gap-2">
-            <Input defaultValue={sponsor.primary_contact_name || ''} placeholder="Contact name" onBlur={e => e.target.value !== (sponsor.primary_contact_name || '') && saveSponsor({ primary_contact_name: e.target.value || null })} className="h-9" />
-            <Input defaultValue={sponsor.primary_contact_email || ''} placeholder="Contact email" onBlur={e => e.target.value !== (sponsor.primary_contact_email || '') && saveSponsor({ primary_contact_email: e.target.value || null })} className="h-9" />
+        )}
+
+        <div className={cn('grid gap-3', !band && 'sm:grid-cols-2')}>
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-contact-name" className={FIELD_LABEL}>Contact name</Label>
+            <Input id="sp-contact-name" defaultValue={sponsor.primary_contact_name || ''} onBlur={e => e.target.value !== (sponsor.primary_contact_name || '') && saveSponsor({ primary_contact_name: e.target.value || null })} className={FIELD} />
           </div>
-          <div className="flex items-center gap-2 text-xs text-meta flex-wrap">
-            <UserPlus className="h-3.5 w-3.5" />
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-contact-email" className={FIELD_LABEL}>Contact email</Label>
+            <Input id="sp-contact-email" defaultValue={sponsor.primary_contact_email || ''} onBlur={e => e.target.value !== (sponsor.primary_contact_email || '') && saveSponsor({ primary_contact_email: e.target.value || null })} className={FIELD} />
+          </div>
+        </div>
+
+        <div className="space-y-2.5 border-t border-rule pt-5">
+          <p className="flex items-center gap-2 text-[14px] leading-5 text-ink">
+            <UserPlus className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" />
             <span>{users.length} account{users.length === 1 ? '' : 's'} with portal access</span>
-            <Input value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="contact email…" className="h-8 text-xs w-48" />
-            <Button size="sm" variant="outline" className="h-8 text-xs" disabled={busy || !linkEmail.trim()} onClick={linkUser} title="Link an existing account — no email sent">Link existing</Button>
-            <Button size="sm" className="h-8 text-xs" disabled={busy || !linkEmail.trim()} onClick={inviteUser} title="Create their account and email a set-password link">Invite</Button>
+          </p>
+          <Label htmlFor="sp-link-email" className={FIELD_LABEL}>Contact email to link or invite</Label>
+          <Input id="sp-link-email" value={linkEmail} onChange={e => setLinkEmail(e.target.value)} placeholder="name@company.com" className={FIELD} />
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className={BTN_OUTLINE} disabled={busy || !linkEmail.trim()} onClick={linkUser} title="Link an existing account — no email sent">Link existing</Button>
+            <Button className={BTN} disabled={busy || !linkEmail.trim()} onClick={inviteUser} title="Create their account and email a set-password link">Invite</Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
+    </MemberPanel>
+  );
 
-      {/* Agreement */}
-      {!agreement ? (
-        <Card><CardContent className="py-8 text-center space-y-3">
-          <p className="text-meta">No agreement yet. Build one from a tier template — you can edit every line afterwards.</p>
-          <div className="flex items-center justify-center gap-2">
+  /* ── Agreement ── */
+  const agreementPanel = !agreement ? (
+    <CardShell>
+      <MemberEmpty
+        icon={Award}
+        title="No agreement yet"
+        body="Build one from a tier template. You can edit every line afterwards."
+        action={(
+          <div className="flex w-full max-w-md flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-center">
             <Select value={buildTier} onValueChange={setBuildTier}>
-              <SelectTrigger className="w-52"><SelectValue placeholder="Choose a tier…" /></SelectTrigger>
+              <SelectTrigger className={cn(FIELD, 'sm:w-60')} aria-label="Tier"><SelectValue placeholder="Choose a tier…" /></SelectTrigger>
               <SelectContent>{tiers.map(t => <SelectItem key={t.tier_key} value={t.tier_key}>{t.label} — {formatMoney(t.list_fee_cents)}</SelectItem>)}</SelectContent>
             </Select>
-            <Button className="gap-1.5" disabled={!buildTier || busy} onClick={build}>{busy && <Loader2 className="h-4 w-4 animate-spin" />} Build agreement</Button>
+            <Button className={cn(BTN, 'gap-1.5')} disabled={!buildTier || busy} onClick={build}>{busy && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />} Build agreement</Button>
           </div>
-        </CardContent></Card>
-      ) : (
-        <Card key={`${agreement.id}-${formKey}`}>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <CardTitle className="text-base">Agreement</CardTitle>
-              <div className="flex items-center gap-2">
-                <Badge className={`text-[11px] ${AGREEMENT_STATUS_CLS[agreement.status]}`}>{agreement.status}</Badge>
-                <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" disabled={busy} onClick={renew}><RotateCcw className="h-3.5 w-3.5" /> Renew</Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="grid sm:grid-cols-2 gap-3">
-            <label className="text-xs text-meta">Tier
-              <Select value={agreement.tier_key || ''} onValueChange={v => saveAgreement({ tier_key: v })}>
-                <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="—" /></SelectTrigger>
-                <SelectContent>{tiers.map(t => <SelectItem key={t.tier_key} value={t.tier_key}>{t.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </label>
-            <label className="text-xs text-meta">Status
-              <Select value={agreement.status} onValueChange={v => saveAgreement({ status: v as SpAgreementStatus })}>
-                <SelectTrigger className="mt-1 h-9"><SelectValue /></SelectTrigger>
-                <SelectContent>{(['draft', 'active', 'expired', 'renewed'] as SpAgreementStatus[]).map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-              </Select>
-            </label>
-            {isModerator && (<>
-            <label className="text-xs text-meta">Negotiated fee (€)
-              <Input type="text" defaultValue={centsToEuros(agreement.negotiated_fee_cents)} placeholder={agreement.tier_key ? centsToEuros(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents) : ''}
-                onBlur={e => { const c = eurosToCents(e.target.value); if (c !== agreement.negotiated_fee_cents) saveAgreement({ negotiated_fee_cents: c }); }} className="mt-1 h-9" />
-            </label>
-            <label className="text-xs text-meta">Negotiated renewal fee (€)
-              <Input type="text" defaultValue={centsToEuros(agreement.negotiated_renewal_fee_cents)}
-                onBlur={e => { const c = eurosToCents(e.target.value); if (c !== agreement.negotiated_renewal_fee_cents) saveAgreement({ negotiated_renewal_fee_cents: c }); }} className="mt-1 h-9" />
-            </label>
-            </>)}
-            <label className="text-xs text-meta">Term start
-              <Input type="date" defaultValue={agreement.term_start || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.term_start) saveAgreement({ term_start: v }); }} className="mt-1 h-9" />
-            </label>
-            <label className="text-xs text-meta">Term end
-              <Input type="date" defaultValue={agreement.term_end || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.term_end) saveAgreement({ term_end: v }); }} className="mt-1 h-9" />
-            </label>
-            <label className="text-xs text-meta">Renewal date
-              <Input type="date" defaultValue={agreement.renewal_date || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.renewal_date) saveAgreement({ renewal_date: v }); }} className="mt-1 h-9" />
-            </label>
-            {isModerator && <div className="text-xs text-meta/60 flex items-end pb-2">Tier list fee: {formatMoney(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents)}</div>}
-          </CardContent>
-        </Card>
+        )}
+      />
+    </CardShell>
+  ) : (
+    <MemberPanel
+      key={`${agreement.id}-${formKey}`}
+      title="Agreement"
+      actions={(
+        <div className="flex items-center gap-2">
+          <AgreementStatusPill status={agreement.status} />
+          <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} disabled={busy} onClick={renew}><RotateCcw className="h-4 w-4" aria-hidden="true" /> Renew</Button>
+        </div>
       )}
-
-      {/* Line items grouped by program → section */}
-      {agreement && (
-        <>
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-ink">Entitlements &amp; deliverables</h2>
-            <Button size="sm" variant="outline" className="h-8 gap-1.5 text-xs" onClick={() => setAddOpen(true)}><Plus className="h-3.5 w-3.5" /> Add custom line</Button>
+    >
+      <div className="grid gap-4 p-5 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="sp-ag-tier" className={FIELD_LABEL}>Tier</Label>
+          <Select value={agreement.tier_key || ''} onValueChange={v => saveAgreement({ tier_key: v })}>
+            <SelectTrigger id="sp-ag-tier" className={FIELD}><SelectValue placeholder="—" /></SelectTrigger>
+            <SelectContent>{tiers.map(t => <SelectItem key={t.tier_key} value={t.tier_key}>{t.label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="sp-ag-status" className={FIELD_LABEL}>Status</Label>
+          <Select value={agreement.status} onValueChange={v => saveAgreement({ status: v as SpAgreementStatus })}>
+            <SelectTrigger id="sp-ag-status" className={cn(FIELD, 'capitalize')}><SelectValue /></SelectTrigger>
+            <SelectContent>{(['draft', 'active', 'expired', 'renewed'] as SpAgreementStatus[]).map(s => <SelectItem key={s} value={s} className="capitalize">{s}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        {isModerator && (<>
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-ag-fee" className={FIELD_LABEL}>Negotiated fee (€)</Label>
+            <Input id="sp-ag-fee" type="text" defaultValue={centsToEuros(agreement.negotiated_fee_cents)} placeholder={agreement.tier_key ? centsToEuros(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents) : ''}
+              onBlur={e => { const c = eurosToCents(e.target.value); if (c !== agreement.negotiated_fee_cents) saveAgreement({ negotiated_fee_cents: c }); }} className={FIELD} />
           </div>
-          {grouped.map(g => (
-            <Card key={g.program}>
-              <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2">{PROGRAM_LABELS[g.program]}<span className="text-xs font-normal text-meta/60">{g.count}</span></CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                {g.sections.map(sec => (
-                  <div key={sec.section} className="space-y-2">
-                    {sec.section && <div className="text-[11px] uppercase tracking-wide text-meta/60">{sec.section}</div>}
-                    {sec.rows.map(i => (
-                      <div key={i.id} className="rounded-lg border border-rule p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-navy flex items-center gap-2 flex-wrap">
-                              {i.name}
-                              {i.is_custom && <Badge variant="secondary" className="text-[10px]">custom</Badge>}
-                              {i.draws_from_brand_asset && <Badge variant="secondary" className="text-[10px]">from brand assets</Badge>}
-                              {isWysPending(i) && <Badge className="text-[10px] bg-amber-50 text-amber-700 border-amber-200">pending — event not scheduled</Badge>}
-                            </div>
-                            <div className="text-xs text-meta mt-0.5">{formatBenefitValue(i)}{i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' ? ' · sponsor provides asset' : ''}</div>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button onClick={() => setStatus(i, i.delivered ? 'TODO' : 'DELIVERED')} title={i.delivered ? 'Mark not delivered' : 'Mark delivered'}
-                              className={`h-7 w-7 rounded-full flex items-center justify-center border-2 transition-colors ${i.delivered ? 'bg-green-500 border-green-500 text-white' : 'border-rule text-transparent hover:border-green-300'}`}>
-                              <Check className="h-4 w-4" />
-                            </button>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-meta/60" onClick={() => setEditItem(i)} title="Edit value"><Pencil className="h-3.5 w-3.5" /></Button>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-meta/40 hover:text-red-600" onClick={() => removeItem(i)} title="Remove"><Trash2 className="h-3.5 w-3.5" /></Button>
-                          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-ag-renewal-fee" className={FIELD_LABEL}>Negotiated renewal fee (€)</Label>
+            <Input id="sp-ag-renewal-fee" type="text" defaultValue={centsToEuros(agreement.negotiated_renewal_fee_cents)}
+              onBlur={e => { const c = eurosToCents(e.target.value); if (c !== agreement.negotiated_renewal_fee_cents) saveAgreement({ negotiated_renewal_fee_cents: c }); }} className={FIELD} />
+          </div>
+        </>)}
+        <div className="space-y-1.5">
+          <Label htmlFor="sp-ag-start" className={FIELD_LABEL}>Term start</Label>
+          <Input id="sp-ag-start" type="date" defaultValue={agreement.term_start || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.term_start) saveAgreement({ term_start: v }); }} className={FIELD} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="sp-ag-end" className={FIELD_LABEL}>Term end</Label>
+          <Input id="sp-ag-end" type="date" defaultValue={agreement.term_end || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.term_end) saveAgreement({ term_end: v }); }} className={FIELD} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="sp-ag-renewal" className={FIELD_LABEL}>Renewal date</Label>
+          <Input id="sp-ag-renewal" type="date" defaultValue={agreement.renewal_date || ''} onBlur={e => { const v = e.target.value || null; if (v !== agreement.renewal_date) saveAgreement({ renewal_date: v }); }} className={FIELD} />
+        </div>
+        {isModerator && (
+          <div className="space-y-1.5">
+            <p className={FIELD_LABEL}>Tier list fee</p>
+            <p className="flex h-10 items-center text-[15px] font-medium tabular-nums text-navy">{formatMoney(tiers.find(t => t.tier_key === agreement.tier_key)?.list_fee_cents)}</p>
+          </div>
+        )}
+      </div>
+    </MemberPanel>
+  );
+
+  /* ── Line items grouped by program → section ── */
+  const entitlements = agreement && (
+    <section aria-labelledby="sp-entitlements" className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 id="sp-entitlements" className="text-h3 text-navy">Entitlements &amp; deliverables</h2>
+        <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => setAddOpen(true)}><Plus className="h-4 w-4" aria-hidden="true" /> Add custom line</Button>
+      </div>
+      {grouped.map(g => (
+        <MemberPanel key={g.program} title={PROGRAM_NAMES[g.program]} count={g.count}>
+          {g.sections.map(sec => (
+            <div key={sec.section} className="border-b border-rule last:border-b-0">
+              {sec.section && <h3 className="border-b border-rule bg-page px-5 py-2 text-[12px] font-semibold uppercase leading-4 tracking-[0.08em] text-meta">{sec.section}</h3>}
+              <ul className="divide-y divide-rule">
+                {sec.rows.map(i => (
+                  <li key={i.id} className="space-y-3 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">{i.name}</span>
+                          {i.is_custom && <StatusPill tone="neutral">Custom</StatusPill>}
+                          {i.draws_from_brand_asset && <StatusPill tone="neutral">From brand assets</StatusPill>}
+                          {isWysPending(i) && <StatusPill tone="warning">Pending, event not yet scheduled</StatusPill>}
                         </div>
-                        <div className="flex items-center gap-2 mt-2 flex-wrap">
-                          <Select value={i.status} onValueChange={v => setStatus(i, v as SpAgreementBenefit['status'])}>
-                            <SelectTrigger className="h-7 w-48 text-xs"><SelectValue /></SelectTrigger>
-                            <SelectContent>{FULFILMENT_STATUSES.map(s => <SelectItem key={s} value={s}><Badge className={`text-[10px] ${FULFILMENT_STATUS_META[s].cls}`}>{FULFILMENT_STATUS_META[s].label}</Badge></SelectItem>)}</SelectContent>
-                          </Select>
-                          {i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' && i.status !== 'REQUESTED_FROM_SPONSOR' && !i.delivered && (
-                            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => setStatus(i, 'REQUESTED_FROM_SPONSOR')}><Send className="h-3 w-3" /> Request from sponsor</Button>
-                          )}
-                        </div>
-                        {(i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' || i.requires_file) && (
-                          <div className="mt-2 pt-2 border-t border-gray-50">
-                            <DeliverableFiles sponsorId={sponsor.id} benefitId={i.id} isManager canUpload onChanged={() => load({ silent: true })} />
-                          </div>
-                        )}
+                        <p className="mt-1 text-[13px] leading-[18px] text-meta">{formatBenefitValue(i)}{i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' ? ' · sponsor provides asset' : ''}</p>
                       </div>
-                    ))}
-                  </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setStatus(i, i.delivered ? 'TODO' : 'DELIVERED')}
+                          title={i.delivered ? 'Mark not delivered' : 'Mark delivered'}
+                          aria-label={i.delivered ? `Mark "${i.name}" not delivered` : `Mark "${i.name}" delivered`}
+                          aria-pressed={i.delivered}
+                          className={cn(
+                            'grid h-10 w-10 place-items-center rounded-pill border-2 transition-colors',
+                            FOCUS,
+                            i.delivered ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-meta/30 text-meta/40 hover:border-emerald-600 hover:text-emerald-600',
+                          )}
+                        >
+                          <Check className="h-5 w-5" aria-hidden="true" />
+                        </button>
+                        <Button type="button" size="icon" variant="ghost" className={cn(ICON_BTN, 'text-meta hover:bg-chip hover:text-navy')} onClick={() => setEditItem(i)} title="Edit value" aria-label={`Edit the value of "${i.name}"`}><Pencil className="h-4 w-4" aria-hidden="true" /></Button>
+                        <Button type="button" size="icon" variant="ghost" className={cn(ICON_BTN, 'text-meta hover:bg-red-50 hover:text-red-700')} onClick={() => removeItem(i)} title="Remove" aria-label={`Remove "${i.name}"`}><Trash2 className="h-4 w-4" aria-hidden="true" /></Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Select value={i.status} onValueChange={v => setStatus(i, v as SpAgreementBenefit['status'])}>
+                        <SelectTrigger className={cn(FIELD, 'w-full sm:w-64')} aria-label={`Status of "${i.name}"`}><SelectValue /></SelectTrigger>
+                        <SelectContent>{FULFILMENT_STATUSES.map(s => <SelectItem key={s} value={s}><FulfilmentPill status={s} /></SelectItem>)}</SelectContent>
+                      </Select>
+                      {i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' && i.status !== 'REQUESTED_FROM_SPONSOR' && !i.delivered && (
+                        <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => setStatus(i, 'REQUESTED_FROM_SPONSOR')}><Send className="h-4 w-4" aria-hidden="true" /> Request from sponsor</Button>
+                      )}
+                    </div>
+                    {(i.fulfilment_type === 'SPONSOR_PROVIDES_ASSET' || i.requires_file) && (
+                      <DeliverableFiles sponsorId={sponsor.id} benefitId={i.id} isManager canUpload onChanged={() => load({ silent: true })} />
+                    )}
+                  </li>
                 ))}
-              </CardContent>
-            </Card>
+              </ul>
+            </div>
           ))}
-        </>
-      )}
+        </MemberPanel>
+      ))}
+    </section>
+  );
 
-      <SponsorBrandAssets sponsorId={sponsor.id} canEdit />
+  const dangerZone = (
+    <Button variant="ghost" className={cn(BTN, 'gap-1.5 text-red-700 hover:bg-red-50 hover:text-red-800')} disabled={busy} onClick={removeSponsor}>
+      <Trash2 className="h-4 w-4" aria-hidden="true" /> Remove sponsor
+    </Button>
+  );
 
-      {/* Danger zone */}
-      <div className="pt-2 flex justify-end">
-        <Button variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50 gap-1.5" disabled={busy} onClick={removeSponsor}>
-          <Trash2 className="h-4 w-4" /> Remove sponsor
-        </Button>
+  return (
+    <SponsorshipFrame
+      band={band}
+      icon={Award}
+      eyebrow={tierLabel || 'Sponsor'}
+      title={sponsor.company_name}
+      back={backTo}
+      meta={items.length > 0 ? <span>{doneCount} of {items.length} delivered · {pct}%</span> : undefined}
+    >
+      <div className={cn('space-y-6', band && 'lg:grid lg:grid-cols-[minmax(0,1fr)_21rem] lg:grid-rows-[auto_auto_1fr] lg:gap-x-8 lg:gap-y-6 lg:space-y-0')}>
+        <div className="lg:col-start-2 lg:row-start-1">{sponsorPanel}</div>
+        <div className="space-y-6 lg:col-start-1 lg:row-span-3 lg:row-start-1">
+          {agreementPanel}
+          {entitlements}
+        </div>
+        <div className="lg:col-start-2 lg:row-start-2"><SponsorBrandAssets sponsorId={sponsor.id} canEdit /></div>
+        <div className="flex justify-end lg:col-start-2 lg:row-start-3 lg:items-start">{dangerZone}</div>
       </div>
 
       {editItem && <EditValueDialog item={editItem} onClose={() => setEditItem(null)} onSave={patch => { patchItem(editItem.id, patch); setEditItem(null); }} />}
       {addOpen && agreement && <AddCustomDialog agreementId={agreement.id} nextOrder={(items[items.length - 1]?.display_order || 0) + 1} onClose={() => setAddOpen(false)} onAdded={() => { setAddOpen(false); load(); }} />}
-    </div>
+    </SponsorshipFrame>
   );
 }
 
@@ -457,23 +533,38 @@ function EditValueDialog({ item, onClose, onSave }: { item: SpAgreementBenefit; 
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-sm">
-        <DialogTitle className="text-base">{item.name}</DialogTitle>
-        <div className="space-y-2 pt-2">
+        <DialogHeader>
+          <DialogTitle className="[overflow-wrap:anywhere]">{item.name}</DialogTitle>
+          <DialogDescription>Set the value agreed for this line.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
           {item.value_type === 'BOOLEAN' && (
-            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={bool} onChange={e => setBool(e.target.checked)} /> Included</label>
+            <label className="flex min-h-10 cursor-pointer items-center gap-2.5 text-[15px] text-ink"><input type="checkbox" className="h-4 w-4 accent-navy" checked={bool} onChange={e => setBool(e.target.checked)} /> Included</label>
           )}
           {item.value_type === 'QUANTITY' && (<>
-            <div className="grid grid-cols-2 gap-2">
-              <Input value={qty} onChange={e => setQty(e.target.value)} placeholder="Quantity" inputMode="numeric" />
-              <Input value={qualifier} onChange={e => setQualifier(e.target.value)} placeholder="Qualifier (optional)" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sp-ev-qty" className={FIELD_LABEL}>Quantity</Label>
+                <Input id="sp-ev-qty" className={FIELD} value={qty} onChange={e => setQty(e.target.value)} inputMode="numeric" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sp-ev-qual" className={FIELD_LABEL}>Qualifier (optional)</Label>
+                <Input id="sp-ev-qual" className={FIELD} value={qualifier} onChange={e => setQualifier(e.target.value)} />
+              </div>
             </div>
-            <Input value={text} onChange={e => setText(e.target.value)} placeholder="…or free text (e.g. All key events)" />
-            <p className="text-[11px] text-meta/60">Free text overrides the quantity when set.</p>
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-ev-text" className={FIELD_LABEL}>…or free text</Label>
+              <Input id="sp-ev-text" className={FIELD} value={text} onChange={e => setText(e.target.value)} placeholder="e.g. All key events" />
+              <p className="text-[13px] leading-5 text-meta">Free text overrides the quantity when set.</p>
+            </div>
           </>)}
           {item.value_type === 'LEVEL' && (
-            <Input value={level} onChange={e => setLevel(e.target.value)} placeholder="Level (e.g. Keynote speaker)" />
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-ev-level" className={FIELD_LABEL}>Level</Label>
+              <Input id="sp-ev-level" className={FIELD} value={level} onChange={e => setLevel(e.target.value)} placeholder="e.g. Keynote speaker" />
+            </div>
           )}
-          <div className="flex justify-end gap-2 pt-1"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save}>Save</Button></div>
+          <div className="flex justify-end gap-2 pt-1"><Button variant="outline" className={BTN_OUTLINE} onClick={onClose}>Cancel</Button><Button className={BTN} onClick={save}>Save</Button></div>
         </div>
       </DialogContent>
     </Dialog>
@@ -506,22 +597,37 @@ function AddCustomDialog({ agreementId, nextOrder, onClose, onAdded }: { agreeme
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
       <DialogContent className="max-w-md">
-        <DialogTitle className="text-base">Add custom line</DialogTitle>
-        <div className="space-y-2 pt-2">
-          <Input value={name} onChange={e => setName(e.target.value)} placeholder="Benefit name *" />
-          <Textarea rows={2} value={description} onChange={e => setDescription(e.target.value)} placeholder="Description (optional)" />
-          <div className="grid grid-cols-2 gap-2">
-            <Select value={program} onValueChange={v => setProgram(v as SpProgram)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{PROGRAM_ORDER.map(p => <SelectItem key={p} value={p}>{PROGRAM_LABELS[p]}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={valueType} onValueChange={v => setValueType(v as SpValueType)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="BOOLEAN">Included (yes/no)</SelectItem><SelectItem value="QUANTITY">Quantity</SelectItem><SelectItem value="LEVEL">Level</SelectItem></SelectContent>
-            </Select>
+        <DialogHeader>
+          <DialogTitle>Add custom line</DialogTitle>
+          <DialogDescription>A benefit that is not in the tier template.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-cl-name" className={FIELD_LABEL}>Benefit name *</Label>
+            <Input id="sp-cl-name" className={FIELD} value={name} onChange={e => setName(e.target.value)} />
           </div>
-          <label className="flex items-center gap-2 text-sm text-meta"><input type="checkbox" checked={sponsorAsset} onChange={e => setSponsorAsset(e.target.checked)} /> Sponsor provides an asset (upload / link)</label>
-          <div className="flex justify-end gap-2 pt-1"><Button variant="outline" onClick={onClose}>Cancel</Button><Button className="gap-1.5" disabled={saving} onClick={add}>{saving && <Loader2 className="h-4 w-4 animate-spin" />} Add</Button></div>
+          <div className="space-y-1.5">
+            <Label htmlFor="sp-cl-desc" className={FIELD_LABEL}>Description (optional)</Label>
+            <Textarea id="sp-cl-desc" className={FIELD} rows={2} value={description} onChange={e => setDescription(e.target.value)} />
+          </div>
+          <div className="grid gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-cl-program" className={FIELD_LABEL}>Programme</Label>
+              <Select value={program} onValueChange={v => setProgram(v as SpProgram)}>
+                <SelectTrigger id="sp-cl-program" className={FIELD}><SelectValue /></SelectTrigger>
+                <SelectContent>{PROGRAM_ORDER.map(p => <SelectItem key={p} value={p}>{PROGRAM_NAMES[p]}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sp-cl-type" className={FIELD_LABEL}>Value</Label>
+              <Select value={valueType} onValueChange={v => setValueType(v as SpValueType)}>
+                <SelectTrigger id="sp-cl-type" className={FIELD}><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="BOOLEAN">Included (yes/no)</SelectItem><SelectItem value="QUANTITY">Quantity</SelectItem><SelectItem value="LEVEL">Level</SelectItem></SelectContent>
+              </Select>
+            </div>
+          </div>
+          <label className="flex min-h-10 cursor-pointer items-center gap-2.5 text-[15px] text-ink"><input type="checkbox" className="h-4 w-4 accent-navy" checked={sponsorAsset} onChange={e => setSponsorAsset(e.target.checked)} /> Sponsor provides an asset (upload / link)</label>
+          <div className="flex justify-end gap-2 pt-1"><Button variant="outline" className={BTN_OUTLINE} onClick={onClose}>Cancel</Button><Button className={cn(BTN, 'gap-1.5')} disabled={saving} onClick={add}>{saving && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />} Add</Button></div>
         </div>
       </DialogContent>
     </Dialog>

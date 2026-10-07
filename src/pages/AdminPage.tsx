@@ -1,11 +1,13 @@
 import { useEffect, useState, Suspense } from 'react';
-import { Routes, Route, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Routes, Route, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { RefreshCw, Menu, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { Button } from '@/components/ui/button';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
+import { AdminLoading } from '@/components/admin/AdminUI';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
+import '@/styles/admin-skin.css';
 
 /* ─── Lazy admin sub-pages ───
  * Each admin screen is code-split into its own chunk so the AdminPage bundle
@@ -102,42 +104,59 @@ function KeyedAdminEventDetail() {
 }
 
 function AdminLazyFallback() {
-  return (
-    <div className="flex items-center justify-center h-[50vh]">
-      <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
+  return <AdminLoading className="h-[50vh]" />;
 }
 
 /* ─── Admin / Moderator Page ─── */
 export function AdminPage() {
-  const { loading, isModerator } = useAuth();
+  const { t } = useTranslation();
+  const { loading, isAdmin, isModerator } = useAuth();
+  const { pathname } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Escape closes the phone menu.
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSidebarOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sidebarOpen]);
 
   if (loading) return <div className="flex items-center justify-center h-screen"><RefreshCw className="h-8 w-8 animate-spin text-primary" /></div>;
   if (!isModerator) return null;
 
+  // The SM26 consoles (/admin/sm26*) are frozen: they keep their original
+  // content frame and are not touched by the admin skin. Only the rail around
+  // them follows the new look.
+  const frozen = pathname.startsWith('/admin/sm26');
+
   return (
-    <div className="flex relative">
-      {/* Mobile sidebar toggle */}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="md:hidden fixed top-[72px] left-2 z-50 bg-white shadow-md rounded-lg"
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-      >
-        {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-      </Button>
-      {/* Mobile sidebar overlay */}
-      {sidebarOpen && (
-        <div className="md:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setSidebarOpen(false)}>
-          <div className="w-56 bg-white h-full shadow-xl overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} />
-          </div>
-        </div>
-      )}
+    <div className="flex min-h-[calc(100vh-4rem)] bg-page">
       <AdminSidebar />
-      <div className="flex-1 p-4 md:p-8 bg-gray-50 min-h-[calc(100vh-64px)] overflow-auto">
+      <div className="min-w-0 flex-1">
+        {/* Phone bar: opens the menu (the rail is hidden below md) */}
+        <div className="sticky top-16 z-30 flex h-12 items-center gap-2 border-b border-rule bg-white px-3 md:hidden">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(o => !o)}
+            aria-expanded={sidebarOpen}
+            aria-label={sidebarOpen ? t('adminUi.closeMenu') : t('adminUi.openMenu')}
+            className="grid h-9 w-9 place-items-center rounded-pill text-navy transition-colors hover:bg-chip focus:outline-none focus-visible:shadow-focus"
+          >
+            {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+          <span className="text-[14px] font-semibold text-navy">{isAdmin ? t('adminUi.adminArea') : t('adminUi.moderatorArea')}</span>
+        </div>
+        {/* Phone menu */}
+        {sidebarOpen && (
+          <div className="fixed inset-x-0 bottom-0 top-16 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('adminUi.menu')}>
+            <div className="absolute inset-0 bg-navy-deep/45" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+            <div className="relative h-full w-64 max-w-[85vw] shadow-drawer">
+              <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} />
+            </div>
+          </div>
+        )}
+        <div className={frozen ? 'p-4 md:p-8 bg-gray-50 min-h-[calc(100vh-64px)] overflow-auto' : 'admin-skin mx-auto w-full max-w-[1360px] px-4 py-6 md:px-8 md:py-8'}>
         <Suspense fallback={<AdminLazyFallback />}>
           <Routes>
             <Route path="/" element={<AdminDashboard />} />
@@ -196,6 +215,7 @@ export function AdminPage() {
             <Route path="/settings" element={<AdminOnlyGuard><AdminPlatformSettings /></AdminOnlyGuard>} />
           </Routes>
         </Suspense>
+        </div>
       </div>
     </div>
   );

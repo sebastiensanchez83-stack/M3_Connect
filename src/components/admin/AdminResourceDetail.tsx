@@ -23,6 +23,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import type { Resource, ResourceDraft, SpeakerFormRow, ProfileSearchResult } from './types';
+import { AdminDetailHeader, AdminStatusPill, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY } from './AdminUI';
 
 interface Sector {
   id: string;
@@ -413,17 +414,11 @@ export function AdminResourceDetail() {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/admin/resources')} className="gap-1.5">
-              <ArrowLeft className="h-4 w-4" /> Resources
-            </Button>
-            <Separator orientation="vertical" className="h-6" />
-            <h1 className="text-xl font-bold text-gray-900">{draft.title}</h1>
-            <Badge variant="secondary">Draft</Badge>
-            {draftStatusBadge(draft.status)}
-          </div>
-        </div>
+        <AdminDetailHeader
+          back={{ to: '/admin/resources', label: 'Resources' }}
+          title={draft.title}
+          badges={<><AdminStatusPill>Draft</AdminStatusPill>{draftStatusBadge(draft.status)}</>}
+        />
 
         {/* Draft Meta */}
         <Card className="border-0 shadow-sm">
@@ -538,31 +533,24 @@ export function AdminResourceDetail() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/admin/resources')} className="gap-1.5">
-            <ArrowLeft className="h-4 w-4" /> Resources
-          </Button>
-          <Separator orientation="vertical" className="h-6" />
-          <h1 className="text-xl font-bold text-gray-900">{isNew ? 'Create Resource' : form.title || 'Edit Resource'}</h1>
-          {!isNew && (
-            <Badge variant={form.published ? 'success' : 'secondary'}>
-              {form.published ? 'Published' : 'Draft'}
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {!isNew && (
-            <Button variant="outline" size="sm" onClick={handleDelete} className="text-red-600 hover:bg-red-50 gap-1.5">
-              <Trash2 className="h-4 w-4" /> Delete
+      <AdminDetailHeader
+        back={{ to: '/admin/resources', label: 'Resources' }}
+        title={isNew ? 'Create Resource' : form.title || 'Edit Resource'}
+        badges={!isNew ? <AdminStatusPill tone={form.published ? 'success' : 'neutral'}>{form.published ? 'Published' : 'Draft'}</AdminStatusPill> : undefined}
+        actions={
+          <>
+            {!isNew && (
+              <Button variant="outline" size="sm" onClick={handleDelete} className={ADMIN_BTN_DANGER + " gap-1.5"}>
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+            )}
+            <Button variant="secondary" size="sm" onClick={handleSave} disabled={saving} className={ADMIN_BTN_PRIMARY + " gap-1.5"}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {isNew ? (isAdmin ? 'Create' : 'Submit for Review') : 'Save Changes'}
             </Button>
-          )}
-          <Button onClick={handleSave} disabled={saving} className="gap-1.5">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {isNew ? (isAdmin ? 'Create' : 'Submit for Review') : 'Save Changes'}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* Resource Details */}
       <Card className="border-0 shadow-sm">

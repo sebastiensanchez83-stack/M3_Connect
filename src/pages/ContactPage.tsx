@@ -20,9 +20,13 @@ import { PageHero } from '@/components/ui/PageHero';
 import { ContactCard } from '@/components/brand/ContactCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { Reveal } from '@/components/motion/Reveal';
+import { CheckList } from '@/components/content/ContentParts';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { withSiteSuffix } from '@/lib/seoText';
+import { registerCopyStrings } from '@/i18n/refonte-copy';
 import { cn } from '@/lib/utils';
+
+registerCopyStrings();
 
 interface ContactForm {
   name: string;
@@ -185,10 +189,7 @@ export function ContactPage() {
         icon={Mail}
         eyebrow={t('contentPages.contact.eyebrow', 'Contact')}
         title={t('contact.title', 'Contact us')}
-        subtitle={t(
-          'contact.subtitle',
-          'A question about the platform, your company page or sponsoring one of our events? The M3 team reads every message.'
-        )}
+        subtitle={t('staticPages.contact.subtitle')}
       />
 
       <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 md:py-14">
@@ -202,13 +203,10 @@ export function ContactPage() {
                     <CheckCircle className="h-8 w-8" />
                   </span>
                   <h2 id="contact-form-title" className="text-h2-sm text-navy md:text-h2">
-                    {t('contact.thankYouTitle', 'Thank you!')}
+                    {t('staticPages.contact.thankYouTitle')}
                   </h2>
                   <p className="mx-auto mt-3 max-w-md text-body md:text-body-lg text-ink">
-                    {t(
-                      'contact.thankYouDesc',
-                      'Your message has been sent. The M3 team will read it and get back to you as soon as possible.'
-                    )}
+                    {t('staticPages.contact.thankYouDesc')}
                   </p>
                   <Button
                     variant="ctaOutline"
@@ -220,10 +218,11 @@ export function ContactPage() {
                 </div>
               ) : (
                 <>
-                  <Eyebrow>{t('contentPages.contact.formEyebrow', 'Write to us')}</Eyebrow>
+                  <Eyebrow>{t('staticPages.contact.formEyebrow')}</Eyebrow>
                   <h2 id="contact-form-title" className="mt-3 text-h2-sm text-navy md:text-h2">
-                    {t('contact.formTitle', 'Send us a message')}
+                    {t('staticPages.contact.formTitle')}
                   </h2>
+                  <p className="mt-3 max-w-xl text-body text-ink">{t('staticPages.contact.formIntro')}</p>
                   <p className="mt-2 text-sm text-meta">{t('contentPages.contact.required', 'Fields marked * are required.')}</p>
 
                   <form onSubmit={handleSubmit} className="mt-8 space-y-5" noValidate>
@@ -301,7 +300,7 @@ export function ContactPage() {
                       </Label>
                       <Textarea
                         id="contact-message"
-                        placeholder={t('contact.messagePlaceholder', 'Tell us how we can help…')}
+                        placeholder={t('staticPages.contact.messagePlaceholder')}
                         value={form.message}
                         onChange={(e) => handleChange('message', e.target.value)}
                         rows={6}
@@ -333,6 +332,20 @@ export function ContactPage() {
           <aside aria-label={t('contact.infoTitle', 'Contact information')} className="grid content-start gap-6 lg:col-span-5 xl:col-span-4">
             <Reveal delay={120}>
               <ContactCard line={t('contact.emailNote', 'We usually reply within 24 to 48 hours.')} />
+            </Reveal>
+            <Reveal delay={160}>
+              <div className="rounded-card bg-white p-5 ring-1 ring-inset ring-rule sm:p-6">
+                <h2 className="text-meta-caps">{t('staticPages.contact.helpTitle')}</h2>
+                <CheckList
+                  className="mt-4 gap-2.5"
+                  items={[
+                    t('staticPages.contact.help1'),
+                    t('staticPages.contact.help2'),
+                    t('staticPages.contact.help3'),
+                    t('staticPages.contact.help4'),
+                  ]}
+                />
+              </div>
             </Reveal>
             <Reveal delay={200}>
               <div className="rounded-card bg-white p-5 ring-1 ring-inset ring-rule sm:p-6">

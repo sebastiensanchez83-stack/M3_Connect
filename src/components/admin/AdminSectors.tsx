@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { ADMIN_BTN_PRIMARY } from './AdminUI';
 
 interface Sector {
   id: string;
@@ -205,7 +206,7 @@ export function AdminSectors() {
           <Button variant="outline" size="sm" onClick={loadSectors}>
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </Button>
-          <Button size="sm" onClick={openCreate}>
+          <Button variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={openCreate}>
             <Plus className="h-4 w-4 mr-2" /> Add Sector
           </Button>
         </div>

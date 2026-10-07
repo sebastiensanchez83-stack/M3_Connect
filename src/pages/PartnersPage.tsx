@@ -396,8 +396,8 @@ export function PartnersPage() {
           </div>
         </section>
 
-        {/* ── Join the partners ── Event sponsorship is sold by the M3 team (/tiers
-            compares platform quotas, not event packages), so the card opens the contact form. */}
+        {/* ── Join the partners ── Event sponsorship is sold by the M3 team, so the
+            card opens the contact form on that subject. */}
         <div className="mt-6 grid gap-6 md:grid-cols-2">
           <CtaCard
             icon={HeartHandshake}

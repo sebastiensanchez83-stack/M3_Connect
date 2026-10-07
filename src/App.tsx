@@ -43,7 +43,6 @@ const SubmitRFPPage = lazyWithRetry(() => import('@/pages/SubmitRFPPage').then(m
 const SubmitConsultationPage = lazyWithRetry(() => import('@/pages/SubmitConsultationPage').then(m => ({ default: m.SubmitConsultationPage })));
 const WebinarRequestPage = lazyWithRetry(() => import('@/pages/WebinarRequestPage').then(m => ({ default: m.WebinarRequestPage })));
 const BecomePartnerPage = lazyWithRetry(() => import('@/pages/BecomePartnerPage').then(m => ({ default: m.BecomePartnerPage })));
-const TiersPage = lazyWithRetry(() => import('@/pages/TiersPage').then(m => ({ default: m.TiersPage })));
 const JoinPage = lazyWithRetry(() => import('@/pages/JoinPage').then(m => ({ default: m.JoinPage })));
 const ResetPasswordPage = lazyWithRetry(() => import('@/pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 const WelcomePage = lazyWithRetry(() => import('@/pages/WelcomePage').then(m => ({ default: m.WelcomePage })));
@@ -169,7 +168,10 @@ function App() {
               <Route path="/sponsorship/*" element={<ProtectedRoute><SponsorshipPage /></ProtectedRoute>} />
               <Route path="/partners" element={<PartnersPage />} />
               <Route path="/become-partner" element={<BecomePartnerPage />} />
-              <Route path="/tiers" element={<TiersPage />} />
+              {/* The level comparison is gone: the platform is free and sponsoring is
+                  agreed with the M3 team. netlify.toml answers /tiers with a 301 before
+                  the app loads; this covers links followed inside the app. */}
+              <Route path="/tiers" element={<Navigate to="/contact?subject=partnership" replace />} />
               <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
               {/* The two places a member goes first, promoted out of /account. */}
               <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />

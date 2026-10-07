@@ -580,7 +580,6 @@ export function DashboardPage() {
     references: organization?.organization_type === 'partner',
     sponsorship: access?.sponsor === true,
     press: access?.media === true,
-    pricing: true,
     profile: true,
     notifications: true,
   };

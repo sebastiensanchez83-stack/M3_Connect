@@ -1,6 +1,6 @@
 import {
   Ship, Newspaper, Award, Building2, UserCircle, CalendarDays, Anchor, Radio,
-  ClipboardList, MessageSquare, BadgeCheck, FileText, Inbox, Star, CreditCard, Bell,
+  ClipboardList, MessageSquare, BadgeCheck, FileText, Inbox, Star, Bell,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -20,7 +20,11 @@ import type { LucideIcon } from 'lucide-react';
  * registration — this file only says what each section is and where it lives.
  *
  * Tab values are URLs: notification emails deep-link to /account?tab=<value>,
- * so a value must never be renamed. Labels can change freely.
+ * so a value must never be renamed. Labels can change freely. A retired value
+ * keeps a redirect in AccountPage: ?tab=pricing (the old "Plan & billing",
+ * later "Membership & sponsorship" level comparison, removed because the
+ * platform is free) lands on ?tab=sponsorship for an account linked to a
+ * sponsor, otherwise on ?tab=registrations, where payments due are shown.
  */
 
 export type AccountTab =
@@ -37,7 +41,6 @@ export type AccountTab =
   | 'references'
   | 'sponsorship'
   | 'press'
-  | 'pricing'
   | 'profile'
   | 'notifications';
 
@@ -135,11 +138,6 @@ export const ACCOUNT_SECTIONS: AccountSection[] = [
     value: 'press', group: 'organization', icon: Newspaper,
     labelKey: 'accountNav.press', fallback: 'Press room',
     descKey: 'accountNav.pressDesc', descFallback: 'Media kits and press materials',
-  },
-  {
-    value: 'pricing', group: 'organization', icon: CreditCard,
-    labelKey: 'accountNav.pricing', fallback: 'Membership & sponsorship',
-    descKey: 'accountNav.pricingDesc', descFallback: 'Free membership, event sponsor levels',
   },
   // ── How my account is set up ──
   {

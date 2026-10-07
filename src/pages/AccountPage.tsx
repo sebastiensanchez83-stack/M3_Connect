@@ -25,7 +25,6 @@ import { OrganizationTab } from '@/components/organization/OrganizationTab';
 // PreAuditTab archived — will be deployed later
 // import { PreAuditTab } from '@/components/preaudit/PreAuditTab';
 import { ReferenceRequestForm } from '@/components/references/ReferenceRequestForm';
-import { TiersPage } from '@/pages/TiersPage';
 import { NotificationPreferencesTab } from '@/components/notifications/NotificationPreferencesTab';
 import { ShortlistTab } from '@/components/shortlist/ShortlistTab';
 import { InboxTab } from '@/components/inbox/InboxTab';
@@ -671,6 +670,22 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
     if (!tab || tab === 'dashboard') return <Navigate to="/dashboard" replace />;
   }
 
+  // ?tab=pricing was the level comparison ("Plan & billing", then "Membership
+  // & sponsorship"), retired because the platform is free. Six send-notification
+  // e-mails still link to it ("View Pricing & Payments", "Retry Payment" on
+  // invoice / payment / sponsorship updates), so it lands where amounts due
+  // and payment status actually are: the sponsor portal for an account linked
+  // to a sponsor (sp_sponsor_user), otherwise My registrations. Mid-signup it
+  // goes to the step to finish. Every hook is above this point, so waiting for
+  // sponsorIds with an early return is safe.
+  if (!forceTab && searchParams.get('tab') === 'pricing') {
+    if (profile.onboarding_status === 'draft') {
+      return <Navigate to="/account?tab=complete-registration" replace />;
+    }
+    if (sponsorIds === null) return <LoadingSkeleton variant="page" />;
+    return <Navigate to={sponsorIds.length ? '/account?tab=sponsorship' : '/account?tab=registrations'} replace />;
+  }
+
   /* ------------------------------------------------------------ derived */
 
   const isMarina = profile.persona === 'marina';
@@ -747,7 +762,6 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
     references: isPartnerOrg,
     sponsorship: (sponsorIds?.length ?? 0) > 0,
     press: isMedia === true,
-    pricing: true,
     profile: true,
     notifications: true,
   };
@@ -1651,11 +1665,6 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
     /* ── INBOX (unified) ── */
     case 'inbox':
       content = <InboxTab />;
-      break;
-
-    /* ── PLAN & BILLING ── */
-    case 'pricing':
-      content = <div className={cn(CARD, 'overflow-hidden')}><TiersPage embedded /></div>;
       break;
 
     /* ── SHORTLIST (marina + developer + investor) ── */

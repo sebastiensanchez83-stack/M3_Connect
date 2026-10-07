@@ -132,7 +132,7 @@ export function ContactPage() {
       `Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`
     );
     window.open(
-      `mailto:contact@smartmarinaconnect.com?subject=${mailtoSubject}&body=${mailtoBody}`,
+      `mailto:events@m3monaco.com?subject=${mailtoSubject}&body=${mailtoBody}`,
       '_self'
     );
     toast({
@@ -321,10 +321,10 @@ export function ContactPage() {
             </CardHeader>
             <CardContent>
               <a
-                href="mailto:contact@smartmarinaconnect.com"
+                href="mailto:events@m3monaco.com"
                 className="text-primary hover:underline"
               >
-                contact@smartmarinaconnect.com
+                events@m3monaco.com
               </a>
               <p className="text-sm text-gray-500 mt-2">
                 {t('contact.emailNote', 'We usually reply within 24 to 48 hours.')}

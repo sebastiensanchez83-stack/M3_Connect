@@ -10,7 +10,7 @@
  * What: the title, description, canonical URL, og:* and twitter:* tags, and
  * the JSON-LD of
  *   - the fixed public pages (/, /directory, /resources, /events, /partners,
- *     /become-partner, /opportunities, /about, /contact, /tiers, /sm26,
+ *     /become-partner, /opportunities, /about, /contact, /sm26,
  *     /sm26/vote, /wys26, and the aliases /join, /network, /marketplace);
  *   - /organizations/:slug, /events/:id and /resources/:id, read from
  *     Supabase with the public anon key (netlify/lib/supabase-rest.ts).
@@ -251,7 +251,6 @@ export const config = {
     '/opportunities',
     '/about',
     '/contact',
-    '/tiers',
     '/sm26',
     '/sm26/vote',
     '/wys26',

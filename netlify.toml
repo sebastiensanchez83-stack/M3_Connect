@@ -235,6 +235,23 @@
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
 
+# ── Retired pages ─────────────────────────────────────────────────────
+# Netlify applies the first rule that matches, in file order (public/_redirects
+# would come first; there is none). Every rule here must stay ABOVE the SPA
+# catch-all below, or the catch-all answers 200 with index.html instead.
+#
+# /tiers compared "levels" with introduction quotas. The platform is free and
+# event sponsorship is agreed with the M3 team, so the old URL (search
+# results, old e-mails, bookmarks) goes to the contact form opened on
+# sponsorship. 301: search engines move the old entry over. The app has the
+# same redirect for in-app links (src/App.tsx).
+[[redirects]]
+  from = "/tiers"
+  to = "/contact?subject=partnership"
+  status = 301
+  force = true
+
+# SPA catch-all: keep it last.
 [[redirects]]
   from = "/*"
   to = "/index.html"

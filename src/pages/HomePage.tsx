@@ -1577,7 +1577,7 @@ function PartnersWall({
               {directoryLabel}
             </Link>
           </Button>
-          {/* Sponsoring is sold by the M3 team: /tiers lists platform quotas, not event packages. */}
+          {/* Sponsoring is sold by the M3 team: the contact form, opened on sponsorship. */}
           <Button asChild variant="ghost" className="h-auto min-h-11 whitespace-normal rounded-full px-5 text-primary hover:bg-primary/5 hover:text-primary">
             <Link to="/contact?subject=partnership">
               <HeartHandshake className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />

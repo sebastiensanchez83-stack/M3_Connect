@@ -948,60 +948,6 @@ export const PAGE_STRINGS = {
       "ctaSignup": "Sign up",
       "ctaContact": "Contact us"
     },
-    "tiersPage": {
-      "eyebrow": "Membership & sponsorship",
-      "title": "Free membership, event sponsorship",
-      "subtitle": "Membership is free. Companies that sponsor M3's events get more team seats, more introductions and a sponsor badge on the platform.",
-      "memberLabel": "Member",
-      "free": "Free",
-      "freeNote": "For every member",
-      "sponsor": "Event sponsor",
-      "sponsorNote": "Package agreed with the M3 team",
-      "yourCurrentLevel": "Your current level",
-      "yourLevel": "Your level",
-      "included": "Included",
-      "notIncluded": "Not included",
-      "feature": "Feature",
-      "compareTitle": "Compare the levels",
-      "marinaNote": "Membership is free and a marina can invite its whole team. Sponsoring an event adds visibility.",
-      "contactTitle": "Want to sponsor an event?",
-      "contactBody": "Sponsorship packages are built around each event and your goals. Write to the M3 team and we will put together the right package with you.",
-      "cta": {
-        "signUp": "Sign up",
-        "contactTeam": "Contact the M3 team"
-      },
-      "sections": {
-        "team": "Team",
-        "platform": "Platform access",
-        "business": "Introductions and needs",
-        "visibility": "Visibility and support"
-      },
-      "features": {
-        "connectRequests": "Introduction requests per month",
-        "webinarRequests": "Webinar proposals",
-        "teamMembers": "Team seats",
-        "resources": "Resources",
-        "events": "Events",
-        "sponsorBadge": "Sponsor badge",
-        "prioritySupport": "Priority support",
-        "resourceLibrary": "Resource library",
-        "eventsAccess": "Events",
-        "publicProfile": "Company page",
-        "directory": "Directory",
-        "rfps": "Publish tenders",
-        "consultations": "Expert questions"
-      },
-      "values": {
-        "notIncluded": "Not included",
-        "unlimited": "Unlimited",
-        "fivePerYear": "5 per year",
-        "publicMembers": "Public and members-only",
-        "allContent": "All content",
-        "allEvents": "All events",
-        "allEventsPriority": "All events, priority access",
-        "allEventsVip": "All events, VIP access"
-      }
-    },
     "common": {
       "backToHome": "Back to home",
       "loadFailedTitle": "This page could not be loaded",
@@ -2236,59 +2182,5 @@ export const PAGE_STRINGS = {
       "ctaSignup": "S'inscrire",
       "ctaContact": "Nous contacter"
     },
-    "tiersPage": {
-      "eyebrow": "Adhésion & sponsoring",
-      "title": "Adhésion gratuite, sponsoring d'événements",
-      "subtitle": "L'adhésion est gratuite. Les entreprises qui sponsorisent les événements de M3 ont plus de places d'équipe, plus de mises en relation et un badge sponsor sur la plateforme.",
-      "memberLabel": "Membre",
-      "free": "Gratuit",
-      "freeNote": "Pour tous les membres",
-      "sponsor": "Sponsor",
-      "sponsorNote": "Offre définie avec l'équipe M3",
-      "yourCurrentLevel": "Votre niveau actuel",
-      "yourLevel": "Votre niveau",
-      "included": "Inclus",
-      "notIncluded": "Non inclus",
-      "feature": "Fonctionnalité",
-      "compareTitle": "Comparer les niveaux",
-      "marinaNote": "L'adhésion est gratuite et une marina peut inviter toute son équipe. Sponsoriser un événement vous donne plus de visibilité.",
-      "contactTitle": "Vous souhaitez sponsoriser un événement ?",
-      "contactBody": "Chaque offre de sponsoring est construite autour d'un événement et de vos objectifs. Écrivez à l'équipe M3 : nous la préparons avec vous.",
-      "cta": {
-        "signUp": "S'inscrire",
-        "contactTeam": "Contacter l'équipe M3"
-      },
-      "sections": {
-        "team": "Équipe",
-        "platform": "Accès à la plateforme",
-        "business": "Mises en relation et besoins",
-        "visibility": "Visibilité et assistance"
-      },
-      "features": {
-        "connectRequests": "Demandes de mise en relation par mois",
-        "webinarRequests": "Propositions de webinaire",
-        "teamMembers": "Places dans l'équipe",
-        "resources": "Ressources",
-        "events": "Événements",
-        "sponsorBadge": "Badge sponsor",
-        "prioritySupport": "Assistance prioritaire",
-        "resourceLibrary": "Bibliothèque de ressources",
-        "eventsAccess": "Événements",
-        "publicProfile": "Fiche entreprise",
-        "directory": "Annuaire",
-        "rfps": "Publication d'appels d'offres",
-        "consultations": "Questions d'experts"
-      },
-      "values": {
-        "notIncluded": "Non inclus",
-        "unlimited": "Illimité",
-        "fivePerYear": "5 par an",
-        "publicMembers": "Public et réservé aux membres",
-        "allContent": "Tout le contenu",
-        "allEvents": "Tous les événements",
-        "allEventsPriority": "Tous les événements, accès prioritaire",
-        "allEventsVip": "Tous les événements, accès VIP"
-      }
-    }
   }
 } as const;

@@ -68,10 +68,6 @@ export const SEO_STRINGS = {
         title: 'Contact the Smart Marina Connect team',
         description: 'A question about the platform, your company page or sponsoring an event? Write to the M3 Monaco team behind Smart Marina Connect.',
       },
-      tiers: {
-        title: 'Free membership and event sponsorship',
-        description: 'Membership of Smart Marina Connect is free. Companies that sponsor M3 Monaco’s events get more team seats, more introductions and a sponsor badge.',
-      },
       notFound: {
         title: 'Page not found',
       },
@@ -176,10 +172,6 @@ export const SEO_STRINGS = {
       contact: {
         title: 'Contacter l’équipe Smart Marina Connect',
         description: 'Une question sur la plateforme, la fiche de votre entreprise ou le sponsoring d’un événement ? Écrivez à l’équipe M3 Monaco.',
-      },
-      tiers: {
-        title: 'Adhésion gratuite et sponsoring d’événements',
-        description: 'L’adhésion à Smart Marina Connect est gratuite. Les sponsors des événements de M3 Monaco ont plus de places d’équipe, de mises en relation et un badge.',
       },
       notFound: {
         title: 'Page introuvable',

@@ -196,7 +196,6 @@ const FIXED_PAGES: Record<string, { key: string; canonical: string }> = {
   '/opportunities': { key: 'opportunities', canonical: '/opportunities' },
   '/about': { key: 'about', canonical: '/about' },
   '/contact': { key: 'contact', canonical: '/contact' },
-  '/tiers': { key: 'tiers', canonical: '/tiers' },
   '/sm26': { key: 'sm26', canonical: '/sm26' },
   '/sm26/vote': { key: 'sm26Vote', canonical: '/sm26/vote' },
   '/wys26': { key: 'wys26', canonical: '/wys26' },
@@ -226,7 +225,7 @@ export function fixedPageMeta(pathname: string, themeParam: string | null, tr: S
   };
 }
 
-/** The fixed pages listed in the sitemap. Not /tiers (under review), /sm26* and /wys26 (event utilities), nor the aliases. */
+/** The fixed pages listed in the sitemap. Not /sm26* and /wys26 (event utilities), nor the aliases. (/tiers is retired: a 301 to the contact form, netlify.toml.) */
 export const SITEMAP_FIXED_PATHS: string[] = [
   '/',
   '/directory',

@@ -4,17 +4,20 @@ import { useMotion } from './MotionProvider';
 import { useInView } from './useInView';
 
 /**
- * "Chenal": numbered steps as channel buoys joined by a dashed leading line
- * that draws itself when the list scrolls into view, then each buoy pops in.
+ * Numbered steps: outlined circles (2 px navy border, white fill, navy number)
+ * joined by a teal dashed line. When the list scrolls into view each circle
+ * pops in and the dashed segment after it draws itself towards the next one.
  * Horizontal from lg up, vertical (line on the left) below. An ordered list,
  * so assistive tech reads "1 of 4".
  *
  *   <ChannelSteps steps={[{ title: 'Create your account', body: '…' }, …]} />
+ *
+ * (The CSS keeps its original `chenal` class names; see smc-motion.css.)
  */
 export interface ChannelStep {
   title: string;
   body?: string;
-  /** A Lucide icon or one of the harbour pictograms (anything that takes a className). */
+  /** A Lucide icon (anything that takes a className). */
   icon?: ComponentType<{ className?: string }>;
 }
 
@@ -32,39 +35,32 @@ export function ChannelSteps({
   const { reduced } = useMotion();
   const inView = useInView(ref, { disabled: reduced, threshold: 0.25 });
   const dark = tone === 'dark';
-  const dash = dark ? 'rgba(255,255,255,.45)' : 'rgb(11 38 83 / .35)';
+  const dash = dark ? 'border-white/45' : 'border-teal';
 
   return (
     <div ref={ref} className={cn('chenal relative', inView && 'is-in', className)}>
-      {/* Leading line: vertical on phones, horizontal through the buoys from lg. */}
-      <span
-        aria-hidden="true"
-        className="chenal-line-v absolute bottom-6 left-[21px] top-6 w-0 border-l-2 border-dashed lg:hidden"
-        style={{ borderColor: dash }}
-      />
-      <span
-        aria-hidden="true"
-        className="chenal-line-h absolute left-[22px] top-[21px] hidden h-0 border-t-2 border-dashed lg:block"
-        // From the first buoy's centre to the last one's: n equal columns, 24 px gaps.
-        style={{ borderColor: dash, right: `calc((100% - ${(steps.length - 1) * 24}px) / ${steps.length} - 22px)` }}
-      />
       <ol className="relative grid gap-8 lg:grid-flow-col lg:auto-cols-fr lg:gap-6">
         {steps.map((step, i) => {
           const Icon = step.icon;
+          const last = i === steps.length - 1;
+          // The segment after this step starts as its circle pops in and ends where the next one begins.
+          const segment = { transitionDelay: `${(0.35 + i * 0.25).toFixed(2)}s` } as CSSProperties;
           return (
             <li key={step.title} className="relative flex gap-4 lg:flex-col lg:gap-5" style={{ '--i': i } as CSSProperties}>
+              {!last && (
+                <>
+                  <span aria-hidden="true" style={segment} className={cn('chenal-line-v absolute -bottom-8 left-[19px] top-[44px] w-0 border-l-2 border-dashed lg:hidden', dash)} />
+                  <span aria-hidden="true" style={segment} className={cn('chenal-line-h absolute -right-6 left-[48px] top-[19px] hidden h-0 border-t-2 border-dashed lg:block', dash)} />
+                </>
+              )}
               <span
                 aria-hidden="true"
                 className={cn(
-                  'chenal-buoy relative z-10 grid h-11 w-11 shrink-0 place-items-center rounded-full text-base font-semibold tabular ring-4',
-                  dark ? 'bg-white text-navy ring-navy' : 'bg-navy text-white ring-white',
+                  'chenal-buoy relative z-10 grid h-10 w-10 shrink-0 place-items-center rounded-full border-2 text-base font-bold leading-none tabular',
+                  dark ? 'border-white bg-navy text-white' : 'border-navy bg-white text-navy',
                 )}
               >
                 {i + 1}
-                {/* Topmark: the small cone on a channel buoy. */}
-                <svg viewBox="0 0 12 8" className={cn('absolute -top-2.5 h-2 w-3', dark ? 'text-white' : 'text-navy')}>
-                  <path d="M6 0 12 8H0Z" fill="currentColor" />
-                </svg>
               </span>
               <div className="min-w-0 pt-1.5 lg:pt-0">
                 <h3 className={cn('flex items-center gap-2 text-card-title', dark ? 'text-white' : 'text-navy')}>

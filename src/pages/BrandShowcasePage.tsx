@@ -1,24 +1,24 @@
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, Anchor, Building2, Compass, FileText, Mic2, ShieldCheck, TrendingUp, UserPlus } from 'lucide-react';
+import { Anchor, Compass, FileText, LifeBuoy, Radio, Search, ShieldCheck, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { PageHero } from '@/components/ui/PageHero';
 import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
 import { useNetworkFigures } from '@/lib/networkStats';
 import {
-  Reveal, RevealGroup, LineReveal, Counter, LogoMarquee, BathyPattern, Graticule, WavePanel,
-  ChannelSteps, PontoonTimeline, MotionPauseToggle, useMotion,
+  Reveal, RevealGroup, LineReveal, Counter, LogoMarquee, BathyPattern, Graticule,
+  ChannelSteps, MotionPauseToggle, useMotion,
 } from '@/components/motion';
 import {
-  WaterlineHero, PontoonTag, DepartureBoard, useDepartureRows, SearchField, CapArrow, CardShell, CardMedia,
-  StretchedLink, OrgCard, VerifiedBadge, LogoTile, BuoyTabs, BuoyTabsList, BuoyTabsTrigger, BuoyTabsContent,
-  EventRoute, Eyebrow, ContactCard, HarbourCoordinates, NewsletterField, pontoonTagItems, eventRouteStops,
+  InsetHero, HeroIn, EventNotch, HeroNotch, NotchCard, GiantMarquee, GiantMarqueeBand, AccordionCards, CaptionList,
+  StickyStack, StickyStackMedia, StickyStackBody, BgRevealPanel, UnderlineLink, ArrowDisc, SearchField, NewsletterField,
+  CardShell, CardMedia, StretchedLink, OrgCard, VerifiedBadge, LogoTile, Eyebrow, ContactCard, notchEventItems,
 } from '@/components/brand';
 
 /**
- * DEV ONLY — /__brand. Every token, primitive and SMC device on one page, for
- * review on the dev server. Registered in App.tsx behind import.meta.env.DEV,
+ * DEV ONLY — /__brand. Every token, primitive and brand-kit piece on one page,
+ * for review on the dev server. Registered in App.tsx behind import.meta.env.DEV,
  * so it does not exist in production builds. Sample organisations and sponsors
- * below are placeholders, not real records; the departure board and the
- * figures read the real public data.
+ * below are placeholders, not real records; the figures read the real public data.
  */
 
 const SWATCHES: { name: string; hex: string; cls: string; dark?: boolean }[] = [
@@ -53,49 +53,48 @@ function Section({ id, title, note, children, className }: { id: string; title: 
 export function BrandShowcasePage() {
   const { t } = useTranslation();
   const { reduced, paused } = useMotion();
-  const { rows, loading } = useDepartureRows();
   const { figures } = useNetworkFigures();
 
   const examples = [t('brand.search.ex1'), t('brand.search.ex2'), t('brand.search.ex3'), t('brand.search.ex4')];
+  const events = notchEventItems(t);
 
   return (
     <div className="bg-page">
-      {/* 1 · Waterline hero with the pontoon tag */}
-      <WaterlineHero
+      {/* 1 · Inset hero: photo, veil, H1 lines, marquee along the bottom, notch card, pause control */}
+      <InsetHero
         image={SITE_IMAGES.homeHero}
-        className="min-h-[600px] md:min-h-[min(88vh,820px)]"
-        tag={<PontoonTag items={pontoonTagItems(t)} label={t('brand.tag.label', 'M3 events')} />}
+        marquee={['Smart', 'Sustainable', 'Connected']}
+        notch={<EventNotch items={events} />}
+        labelledBy="brand-hero-title"
       >
-        <div className="max-w-2xl">
-          <Eyebrow tone="onDark">Smart Marina Connect · /__brand</Eyebrow>
-          <LineReveal as="h1" trigger="mount" delay={500} className="mt-4 text-display-sm text-white md:text-display">
+        <div className="max-w-[780px]">
+          <HeroIn>
+            <Eyebrow tone="onDark">Smart Marina Connect · /__brand</Eyebrow>
+          </HeroIn>
+          <LineReveal
+            as="h1"
+            id="brand-hero-title"
+            trigger="mount"
+            delay={200}
+            className="mt-5 text-[36px] font-semibold leading-[42px] tracking-[-0.025em] text-white md:text-[54px] md:leading-[60px] xl:text-[58px] xl:leading-[64px]"
+          >
             Marinas and the companies that serve them, in one network
           </LineReveal>
-          <p className="mt-5 max-w-xl text-body text-white/85 md:text-body-lg">
-            WaterlineHero: wave-edged reveal on load, slow zoom, living waterline, pontoon tag hanging at the bottom right.
-          </p>
-          <SearchField className="mt-8 max-w-xl" examples={examples} />
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button variant="tide">Sign up as a marina <ArrowRight className="h-4 w-4" aria-hidden="true" /></Button>
-            <Button variant="tideOutlineLight">Explore the directory</Button>
-          </div>
+          <HeroIn delay={260} className="mt-5 max-w-[660px] text-[17px] leading-[27px] text-white/85 md:text-[19px] md:leading-[30px]">
+            <p>InsetHero: inset rounded card, parallax photo, marine veil, line reveal, giant marquee, and the notch cut into its bottom left corner (with the countdown for an upcoming event).</p>
+          </HeroIn>
+          <HeroIn delay={340} className="mt-6 max-w-[540px]">
+            <SearchField examples={examples} />
+          </HeroIn>
+          <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
+            <Button variant="ctaOnDark">Sign up</Button>
+            <Button variant="ctaLight">Explore the directory</Button>
+          </HeroIn>
         </div>
-      </WaterlineHero>
-
-      {/* 2 · Departure board on the quay edge */}
-      <div className="relative z-10 mx-auto max-w-7xl px-4 pt-10 sm:px-6 md:pt-6">
-        <div className="md:mr-[360px]">
-          <DepartureBoard
-            rows={rows}
-            loading={loading}
-            title={t('brand.board.title', 'Departures')}
-            subtitle={t('brand.board.subtitle')}
-          />
-        </div>
-        <p className="mt-3 text-xs text-meta">
-          Real data (anonymous read): {loading ? 'loading…' : `${rows.length} rows`}. Motion: {reduced ? 'reduced' : paused ? 'paused' : 'running'}.
-        </p>
-      </div>
+      </InsetHero>
+      <p className="mx-auto max-w-7xl px-4 pt-4 text-xs text-meta sm:px-6">
+        Motion: {reduced ? 'reduced (final states)' : paused ? 'paused' : 'running'}. The header floats over the hero, then turns into a white bar with a thin gold reading line under it that follows the scroll; it hides on scroll down.
+      </p>
 
       <Section id="tokens" title="Tokens" note="CSS variables on :root, wired into Tailwind. shadcn names (primary, secondary, muted, accent, border, ring) point at the same tokens.">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -123,19 +122,25 @@ export function BrandShowcasePage() {
         </div>
       </Section>
 
-      <Section id="buttons" title="Tide buttons (marée) and the original variants" note="Hover or Tab onto them: the water rises with a wavy edge, the text turns as it passes, the arrow nudges 3 px. The shadcn variants below are untouched (admin screens).">
+      <Section
+        id="buttons"
+        title="Rolling CTA buttons and the original variants"
+        note="Hover or Tab onto them: the label slides up while a copy rises from below, the disc turns gold while its arrow leaves to the right and a copy enters from the left (.525 s). The shadcn variants below are untouched (admin screens)."
+      >
         <div className="flex flex-wrap items-center gap-3">
-          <Button variant="tide">Main action <ArrowRight className="h-4 w-4" aria-hidden="true" /></Button>
-          <Button variant="tideNavy">Secondary <ArrowRight className="h-4 w-4" aria-hidden="true" /></Button>
-          <Button variant="tideOutline">Outline</Button>
-          <Button variant="tide" size="sm">Small</Button>
-          <Button variant="tide" size="lg">Large <ArrowRight className="h-5 w-5" aria-hidden="true" /></Button>
-          <Button variant="tide" disabled>Disabled</Button>
+          <Button variant="cta">Main action</Button>
+          <Button variant="ctaNavy">Secondary</Button>
+          <Button variant="ctaOutline">Outline</Button>
+          <Button variant="cta" size="sm">Small</Button>
+          <Button variant="cta" size="lg">Large</Button>
+          <Button variant="cta" arrow={false}>No disc</Button>
+          <Button variant="cta" disabled>Disabled</Button>
+          <Button variant="ctaOutline" size="icon" aria-label="Previous"><Search className="h-[18px] w-[18px]" aria-hidden="true" /></Button>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-card bg-navy p-6">
-          <Button variant="tideLight">On navy / photo <ArrowRight className="h-4 w-4" aria-hidden="true" /></Button>
-          <Button variant="tideOutlineLight">Outline on dark</Button>
-          <Button variant="tide">Main action</Button>
+          <Button variant="ctaOnDark">Main action on navy</Button>
+          <Button variant="ctaWhite">White</Button>
+          <Button variant="ctaLight">Outline on dark</Button>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button>default</Button>
@@ -149,7 +154,18 @@ export function BrandShowcasePage() {
         </div>
       </Section>
 
-      <Section id="figures" title="Counters on a chart graticule" note="Live figures from networkStats; each counts once when it scrolls into view.">
+      <Section id="links" title="Underline links" note="A 1 px rule at 30 %; on hover or focus a 2 px gold line grows from the left (.4 s) and the arrow nudges to the right.">
+        <div className="flex flex-wrap items-center gap-8">
+          <UnderlineLink to="/events">All events</UnderlineLink>
+          <UnderlineLink to="/resources" arrow={false}>No arrow</UnderlineLink>
+          <UnderlineLink href="https://www.m3monaco.com" external>External link</UnderlineLink>
+          <span className="rounded-card bg-navy px-6 py-4">
+            <UnderlineLink to="/events" tone="light">On navy</UnderlineLink>
+          </span>
+        </div>
+      </Section>
+
+      <Section id="figures" title="Counters on a chart graticule" note="Live figures from networkStats; each counts once (900 ms) when it scrolls into view.">
         <div className="relative overflow-hidden rounded-card border border-rule bg-white">
           <Graticule className="absolute inset-0 h-full w-full" />
           <RevealGroup className="relative grid grid-cols-2 divide-rule md:grid-cols-4">
@@ -168,7 +184,13 @@ export function BrandShowcasePage() {
         </div>
       </Section>
 
-      <Section id="reveals" title="Reveals and heading lines">
+      <Section id="reveals" title="Reveals and heading lines" note="Section eyebrows carry a small gold number (01, 02…): #87681b on light, #d7a647 on navy, tabular figures, hidden from screen readers.">
+        <div className="mb-8 flex flex-wrap items-center gap-x-10 gap-y-4">
+          <Eyebrow number="01">Section eyebrow, light</Eyebrow>
+          <div className="rounded-pill bg-navy px-5 py-3">
+            <Eyebrow tone="onDark" number="02">Section eyebrow, navy</Eyebrow>
+          </div>
+        </div>
         <LineReveal as="h3" className="max-w-3xl text-h2-sm text-navy md:text-h2">
           Heading lines rise one after the other out of their mask, then the blocks below fade up, 80 ms apart
         </LineReveal>
@@ -182,7 +204,7 @@ export function BrandShowcasePage() {
         </Reveal>
       </Section>
 
-      <Section id="cards" title="Card grammar, cap arrow and sonar ping" note="Hover a card or Tab to it: lift 3 px, image 1.04, the needle swings from north-east to east and a ping spreads. Sample organisations, not real records.">
+      <Section id="cards" title="Cards and the round arrow" note="Hover a card or Tab to it: it lifts 4 px, its picture scales to 1.05 (.8 s) and the arrow disc fills with gold while the arrow swaps. Sample organisations, not real records.">
         <RevealGroup className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <OrgCard name="Sample Marina Azzurra" href="/directory" type="marina" city="Portofino" country="Italy" verified description="A sample card: initials tile when there is no logo." />
           <OrgCard name="Sample Pontoon Works" href="/directory" type="partner" country="France" verified description="Service provider colour: teal." />
@@ -193,15 +215,13 @@ export function BrandShowcasePage() {
           <CardShell interactive>
             <CardMedia className="aspect-[16/9] bg-navy/10">
               <img src={PERSONA_IMAGES.marinas} alt="" className="h-full w-full object-cover" />
+              <ArrowDisc tone="photo" className="absolute right-3 top-3" />
             </CardMedia>
-            <div className="flex items-end justify-between gap-4 p-5">
-              <div>
-                <p className="text-meta-caps">Resource · Infrastructure</p>
-                <h3 className="mt-1 text-card-title text-navy">
-                  <StretchedLink to="/resources">A picture card on the same grammar</StretchedLink>
-                </h3>
-              </div>
-              <CapArrow />
+            <div className="p-5">
+              <p className="text-meta-caps">Resource · Infrastructure</p>
+              <h3 className="mt-1 text-card-title text-navy">
+                <StretchedLink to="/resources">A picture card with the round arrow in its corner</StretchedLink>
+              </h3>
             </div>
           </CardShell>
           <div className="flex flex-col gap-4 rounded-card bg-navy p-6 text-white">
@@ -214,43 +234,87 @@ export function BrandShowcasePage() {
             <div className="flex flex-wrap items-center gap-3">
               <VerifiedBadge />
               <VerifiedBadge tone="dark" />
-              <span className="cap-hover inline-flex items-center gap-2 text-sm">
-                <CapArrow tone="dark" /> cap-hover outside a card
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="has-ra inline-flex items-center gap-3 rounded-pill bg-white/10 p-2 pr-4 text-sm">
+                <ArrowDisc tone="photo" size="sm" /> Hover this chip (has-ra)
               </span>
+              <ArrowDisc tone="navy" />
+              <ArrowDisc />
             </div>
           </div>
         </div>
       </Section>
 
-      <Section id="tabs" title="Buoy tabs (bouées)" note="Arrow keys move between tabs. The buoy slides under the active one and bobs; the panel arrives with a wave wipe.">
-        <BuoyTabs defaultValue="marinas">
-          <BuoyTabsList aria-label="Profiles">
-            <BuoyTabsTrigger value="marinas"><Anchor className="h-4 w-4" aria-hidden="true" />Marinas</BuoyTabsTrigger>
-            <BuoyTabsTrigger value="providers"><Building2 className="h-4 w-4" aria-hidden="true" />Service providers</BuoyTabsTrigger>
-            <BuoyTabsTrigger value="investors"><TrendingUp className="h-4 w-4" aria-hidden="true" />Investors & developers</BuoyTabsTrigger>
-            <BuoyTabsTrigger value="media"><Mic2 className="h-4 w-4" aria-hidden="true" />Media</BuoyTabsTrigger>
-          </BuoyTabsList>
-          {[
-            { v: 'marinas', img: PERSONA_IMAGES.marinas, title: 'Marinas', cta: 'Sign up as a marina' },
-            { v: 'providers', img: PERSONA_IMAGES.suppliers, title: 'Service providers', cta: 'Sign up as a service provider' },
-            { v: 'investors', img: SITE_IMAGES.dashboardBand.src ?? '', title: 'Investors & developers', cta: 'Sign up as an investor' },
-            { v: 'media', img: PERSONA_IMAGES.media, title: 'Media', cta: 'Sign up as media' },
-          ].map((p) => (
-            <BuoyTabsContent key={p.v} value={p.v}>
-              <div className="grid overflow-hidden rounded-card border border-rule bg-white md:grid-cols-2">
-                <img src={p.img} alt="" className="h-56 w-full object-cover md:h-full" />
-                <div className="p-6 md:p-8">
-                  <h3 className="text-h3 text-navy">{p.title}</h3>
-                  <p className="mt-2 text-body text-meta">Sample panel: what this profile can do comes from the rights grid on the home page.</p>
-                  <Button variant="tide" className="mt-6">{p.cta} <ArrowRight className="h-4 w-4" aria-hidden="true" /></Button>
-                </div>
-              </div>
-            </BuoyTabsContent>
-          ))}
-        </BuoyTabs>
+      <Section id="accordion" title="Accordion cards" note="From 1024 px: collapsed to about 220 px with the title written vertically under a maritime pictogram, the hovered or focused card grows to about 550 px (.6 s) and its caption fades up. Stacked with captions visible below 1024 px; the first tap opens on a touch screen.">
+        <AccordionCards
+          items={[
+            { id: 'marinas', title: 'Marinas', icon: Anchor, image: PERSONA_IMAGES.marinas, dotColor: 'rgb(var(--type-marina))', caption: <CaptionList items={['Publish your needs and consultations', 'Compare service providers', 'Ask for introductions']} />, cta: { label: 'Sign up as a marina', to: '/become-partner' } },
+            { id: 'providers', title: 'Service providers', icon: LifeBuoy, image: PERSONA_IMAGES.suppliers, dotColor: 'rgb(var(--type-provider))', caption: <CaptionList items={['Read the needs marinas publish', 'Present your company in the directory', 'Ask for introductions']} />, cta: { label: 'Sign up as a service provider', to: '/become-partner' } },
+            { id: 'investors', title: 'Investors & developers', icon: Compass, image: SITE_IMAGES.dashboardBand.src, dotColor: 'rgb(var(--type-investor))', caption: <CaptionList items={['Follow marina projects', 'Shortlist organisations', 'Meet them at M3 events']} />, cta: { label: 'Sign up as an investor', to: '/become-partner' } },
+            { id: 'media', title: 'Media', icon: Radio, image: PERSONA_IMAGES.media, dotColor: 'rgb(var(--type-media))', caption: <CaptionList items={['Access resources and replays', 'Follow M3 events', 'Contact the M3 team']} />, cta: { label: 'Sign up as media', to: '/become-partner' } },
+          ]}
+        />
       </Section>
 
-      <Section id="chenal" title="Chenal (numbered buoy steps) and ponton timeline">
+      <BgRevealPanel bathy className="py-14 md:py-20">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6">
+          <Eyebrow tone="onDark">BgRevealPanel</Eyebrow>
+          <p className="mt-3 max-w-2xl text-h3 text-white">The navy background scales from .94 to 1 while it fades in (.9 s), then its content rises (+220 ms).</p>
+          <ContactCard tone="dark" className="mt-8 max-w-2xl" />
+        </div>
+      </BgRevealPanel>
+
+      <GiantMarqueeBand lines={[['Connecting marinas'], ['Monaco', 'Dubai', 'Online']]} />
+
+      <Section id="stack" title="Sticky stack" note="Large photo cards pile up as you scroll: the covered card scales to .94 and darkens. Plain stacked cards under reduced motion.">
+        <StickyStack>
+          {[
+            { id: 's1', title: 'Monaco Smart & Sustainable Marina Rendezvous', kicker: 'Monaco', image: SITE_IMAGES.partnersHero },
+            { id: 's2', title: 'World Yachting Summit', kicker: 'Dubai · by invitation', image: SITE_IMAGES.eventsHero },
+            { id: 's3', title: 'Webinars & replays', kicker: 'Online', image: SITE_IMAGES.resourcesHero },
+          ].map((c) => (
+            <article key={c.id} aria-labelledby={c.id} className="relative flex flex-1 flex-col">
+              <StickyStackMedia image={c.image.src} focusY={c.image.focusY} />
+              <StickyStackBody>
+                <div>
+                  <p className="inline-flex items-center gap-2 rounded-pill bg-white/15 px-3.5 py-1.5 text-[13px] font-semibold ring-1 ring-inset ring-white/30">
+                    <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-gold" />
+                    {c.kicker}
+                  </p>
+                  <h3 id={c.id} className="mt-4 max-w-[760px] text-[28px] font-semibold leading-8 tracking-[-0.02em] md:text-5xl md:leading-[52px]">{c.title}</h3>
+                </div>
+                <div>
+                  <Button asChild variant="ctaLight">
+                    <a href="/events">See the event</a>
+                  </Button>
+                </div>
+              </StickyStackBody>
+            </article>
+          ))}
+        </StickyStack>
+      </Section>
+
+      <Section id="pagehero" title="Page header">
+        <PageHero
+          image={SITE_IMAGES.directoryHero}
+          seed="brand-showcase"
+          icon={Search}
+          title="Directory of marinas and their service providers"
+          subtitle="Compact version of the hero used by every section page: photo, marine veil, sounding lines, breadcrumb, notch from xl."
+          breadcrumbs={[{ label: 'Home', href: '/' }, { label: 'Directory' }]}
+          overlayHeader={false}
+          notch={
+            <HeroNotch label="For marinas" side="right" className="hidden xl:block">
+              <NotchCard
+                item={{ id: 'claim', kicker: 'For marinas', title: 'Is your marina already listed?', meta: 'Claim its profile and complete it', href: '/directory', image: PERSONA_IMAGES.marinas ? { src: PERSONA_IMAGES.marinas, focusY: 0.5 } : null }}
+              />
+            </HeroNotch>
+          }
+        />
+      </Section>
+
+      <Section id="chenal" title="Numbered steps">
         <ChannelSteps
           steps={[
             { title: 'Create your account', body: 'Free, with your work e-mail.', icon: UserPlus },
@@ -259,35 +323,14 @@ export function BrandShowcasePage() {
             { title: 'Meet the network', body: 'Directory, opportunities, events.', icon: Compass },
           ]}
         />
-        <div className="mt-14 max-w-2xl">
-          <PontoonTimeline
-            items={[
-              { time: '09:00', title: 'Welcome coffee', meta: 'Sample session' },
-              { time: '09:30', title: 'Opening keynote', meta: 'Main hall', href: '/events' },
-              { time: '11:00', title: 'Workshops', meta: 'Rooms A–C' },
-              { time: '13:00', title: 'Lunch on the terrace' },
-            ]}
-          />
-        </div>
       </Section>
 
-      <Section id="panel" title="Wave panel, sounding lines, contact card">
-        <WavePanel bathy className="rounded-card px-6 py-12 md:px-12">
-          <Eyebrow tone="onDark">Wave panel</Eyebrow>
-          <p className="mt-3 max-w-2xl text-h3 text-white">The navy background rises with a wave edge when the panel enters the view, then its content fades up.</p>
-          <ContactCard tone="dark" className="mt-8 max-w-2xl" />
-        </WavePanel>
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="relative h-56 overflow-hidden rounded-card bg-white ring-1 ring-rule">
-            <BathyPattern tone="navy" opacity={0.12} drift seed={9} className="absolute inset-0" />
-            <p className="relative p-6 text-sm text-meta">BathyPattern tone="navy" on light, drifting.</p>
-          </div>
-          <ContactCard />
+      <Section id="marquee" title="Giant marquee and the logo marquee" note="Giant text: pushed by the page's scroll speed, stops on hover. Logos: placeholders, pause on hover and focus; a static wall under reduced motion.">
+        <div className="overflow-hidden rounded-card bg-navy-deep py-6">
+          <GiantMarquee items={['Smart', 'Sustainable', 'Connected']} variant="hero" speed={55} />
         </div>
-      </Section>
-
-      <Section id="marquee" title="Sponsor marquee, by tier" note="Placeholders. Pauses on hover and focus; static wall under reduced motion.">
         <LogoMarquee
+          className="mt-8"
           label="Event partners (sample)"
           groups={[
             { tier: 'Platinum', logos: [{ name: 'Sponsor One' }, { name: 'Sponsor Two' }] },
@@ -297,24 +340,24 @@ export function BrandShowcasePage() {
         />
       </Section>
 
-      {/* 8 · The route */}
-      <EventRoute
-        headingId="route-heading"
-        stops={eventRouteStops(t)}
-        eyebrow={t('brand.route.eyebrow')}
-        title={t('brand.route.title')}
-        intro={t('brand.route.intro')}
-      />
-
-      <Section id="footer-pieces" title="Horizon pieces and motion control" note="The footer below is the real Horizon footer. The global pause stops every loop on the site (WCAG 2.2.2).">
+      <Section id="inputs" title="Search pill, newsletter and motion control" note="The footer below is the real footer: giant signature, drifting sounding lines, newsletter. The global pause stops every loop on the site (WCAG 2.2.2).">
         <div className="grid gap-6 md:grid-cols-2">
-          <div className="rounded-card bg-navy-deep p-6">
-            <HarbourCoordinates />
-            <NewsletterField className="mt-6" />
+          <div className="space-y-4 rounded-card border border-rule bg-white p-6">
+            <SearchField tone="light" examples={examples} />
+            <SearchField tone="light" size="md" placeholder="Toolbar size (48 px)" />
+            <div className="relative h-40 overflow-hidden rounded-card bg-navy-deep">
+              <BathyPattern seed={9} drift className="absolute inset-0" />
+              <p className="relative p-6 text-sm text-white/80">BathyPattern drifting, on navy.</p>
+            </div>
           </div>
-          <div className="flex items-center gap-4 rounded-card border border-rule bg-white p-6">
-            <MotionPauseToggle tone="light" withLabel />
-            <MotionPauseToggle tone="light" />
+          <div className="space-y-6">
+            <div className="rounded-card bg-navy-deep p-6">
+              <NewsletterField hideLabel />
+            </div>
+            <div className="flex items-center gap-4 rounded-card border border-rule bg-white p-6">
+              <MotionPauseToggle tone="light" withLabel />
+              <MotionPauseToggle tone="light" />
+            </div>
           </div>
         </div>
       </Section>

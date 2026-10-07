@@ -31,15 +31,16 @@ export function useHeaderHero(): HTMLElement | null {
   return useSyncExternalStore(subscribe, () => hero, () => null);
 }
 
-/** True when `el` starts at the very top of <main id="main-content">. */
+/** True when `el` starts at the top of <main id="main-content"> (an inset hero keeps its 12 px margin above it). */
 function isAtTopOfMain(el: HTMLElement): boolean {
   const main = document.getElementById('main-content');
   if (!main || !main.contains(el)) return false;
-  return Math.abs(el.getBoundingClientRect().top - main.getBoundingClientRect().top) < 2;
+  const offset = el.getBoundingClientRect().top - main.getBoundingClientRect().top;
+  return offset > -2 && offset <= 16;
 }
 
 /**
- * Called by WaterlineHero and PageHero. Returns whether the header now overlaps
+ * Called by InsetHero and PageHero. Returns whether the header now overlaps
  * this hero, so the hero can add room for it (padding-top = header height).
  */
 export function useRegisterHeaderHero(ref: RefObject<HTMLElement>, enabled = true): boolean {

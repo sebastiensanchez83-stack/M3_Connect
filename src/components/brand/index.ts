@@ -1,28 +1,32 @@
 /**
- * SMC brand devices (refonte, Oct 2026): our own harbour vocabulary, not the
- * Solar Impulse signatures. Dev showcase: /__brand (dev server only).
+ * SMC brand kit (refonte, Oct 2026): the "v2" look, in the spirit of the Solar
+ * Impulse Foundation site. Dev showcase: /__brand (dev server only).
  *
- *  1. WaterlineHero + PontoonTag       hero "ligne d'eau" with the pontoon tag
- *  2. DepartureBoard + useDepartureRows split-flap departures board (real data)
- *  3. SearchField                      plain magnifier, typed placeholder
- *  4. HorizonEdge, HarbourCoordinates,
- *     NewsletterField                  the "horizon" footer pieces
- *  5. Button variant="tide…"           in src/components/ui/button.tsx
- *  6. CapArrow + CardShell / OrgCard   inline compass needle with a radar sweep, berth-card grammar
- *  7. BuoyTabs                         labels on a mooring line, a buoy under the active one, wave wipe
- *  8. EventRoute                       Monaco → Dubai → online scroll route
+ *  1. Button variant="cta…"            rolling label + arrow disc, in src/components/ui/button.tsx
+ *  2. ArrowDisc + CardShell / OrgCard  round arrow with a gold disc that grows, card lift 4 px, picture 1.05
+ *  3. InsetHero + HeroIn               inset rounded hero: photo, veil, H1 lines, marquee, notch
+ *  4. EventNotch / HeroNotch / NotchCard   the card cut into the hero's corner (M3 events turning every 6 s)
+ *  5. GiantMarquee / GiantMarqueeBand  giant sliding text, nudged by the scroll speed
+ *  6. AccordionCards                   photo cards that open on hover or focus
+ *  7. StickyStack                      large photo cards piling up on scroll
+ *  8. BgRevealPanel                    navy panel whose background scales in
+ *  9. UnderlineLink                    gold line growing from the left + right arrow
+ * 10. SearchField                      the search pill: gold compass, typed placeholder
+ * 11. NewsletterField                  e-mail pill, unticked consent
+ * Layout pieces (Navbar, Footer, PageHero) live in components/layout and components/ui.
  */
-export { WaterlineHero } from './WaterlineHero';
-export { PontoonTag, type PontoonTagItem } from './PontoonTag';
-export { DepartureBoard, fitBoardText, type BoardRow } from './DepartureBoard';
-export { useDepartureRows } from './useDepartureRows';
+export { ArrowDisc } from './ArrowDisc';
+export { UnderlineLink, type UnderlineLinkProps } from './UnderlineLink';
+export { GiantMarquee, GiantMarqueeBand } from './GiantMarquee';
+export { InsetHero, HeroIn } from './InsetHero';
+export { EventNotch, HeroNotch, NotchCard, type NotchItem } from './EventNotch';
+export { AccordionCards, CaptionList, type AccordionItem } from './AccordionCards';
+export { StickyStack, StickyStackMedia, StickyStackBody } from './StickyStack';
+export { BgRevealPanel } from './BgRevealPanel';
 export { SearchField } from './SearchField';
-export { HorizonEdge, HarbourCoordinates, NewsletterField } from './Horizon';
-export { CapArrow } from './CapArrow';
+export { NewsletterField } from './NewsletterField';
 export { CardShell, CardMedia, StretchedLink, type OrgTypeTone } from './CardShell';
 export { OrgCard, LogoTile, VerifiedBadge, orgTypeTone, useOrgTypeLabel } from './OrgCard';
-export { BuoyTabs, BuoyTabsList, BuoyTabsTrigger, BuoyTabsContent } from './BuoyTabs';
-export { EventRoute, type RouteStop } from './EventRoute';
-export { pontoonTagItems, eventRouteStops, RENDEZVOUS_2026_PATH, WEBINARS_PATH } from './m3Events';
-export { Eyebrow } from './Eyebrow';
+export { notchEventItems, RENDEZVOUS_2026_PATH, WEBINARS_PATH } from './m3Events';
+export { Eyebrow, SectionNo } from './Eyebrow';
 export { ContactCard, M3_PUBLIC_EMAIL } from './ContactCard';

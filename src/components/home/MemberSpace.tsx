@@ -104,10 +104,9 @@ export function MemberSpace({
                 {t('homeSections.dashboardBody', 'Requests to answer, your next events and open opportunities — all in one place.')}
               </p>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-                <Button asChild variant="tide">
+                <Button asChild variant="cta">
                   <Link to="/dashboard">
                     {t('homeSections.dashboardCta', 'Open my dashboard')}
-                    <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
                   </Link>
                 </Button>
                 <nav aria-label={t('homeSections.shortcuts', 'Shortcuts')} className="flex flex-wrap gap-2">

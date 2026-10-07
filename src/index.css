@@ -40,8 +40,15 @@
     --focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px #0b2653;
     --ease-out-smc: cubic-bezier(.215, .61, .355, 1);
     --ease-swing: cubic-bezier(.34, 1.56, .64, 1);
-    /* Height of the sticky header while it shows; 0 while it is tucked away on scroll down. */
-    --header-h: 64px;
+    /* Rolling CTA buttons and round arrow discs. */
+    --ease-cta: cubic-bezier(.625, .05, 0, 1);
+    /* Accordion photo cards. */
+    --ease-acc: cubic-bezier(.38, .005, .215, 1);
+    /* The floating header bar: 72 px from the top edge on phones (8 + 64), 84 px from md (12 + 72);
+       64 px on working screens (html[data-header-compact]). */
+    --header-full: 72px;
+    /* Where the bar's lower edge sits while it shows; 0 while it is tucked away on scroll down. */
+    --header-h: var(--header-full);
 
     /* shadcn variables (HSL), mapped onto the tokens above */
     --background: 0 0% 100%;
@@ -65,14 +72,22 @@
     --ring: 218 77% 18%;                /* navy: ring-2 + ring-offset-2 = the double focus ring */
     --radius: 0.75rem;                  /* 12 px fields; cards use rounded-card (16 px) */
   }
+  @media (min-width: 768px) {
+    :root {
+      --header-full: 84px;
+    }
+  }
+  html[data-header-compact] {
+    --header-full: 64px;
+  }
   html[data-header-hidden] {
     --header-h: 0px;
   }
-  /* Keyboard focus and anchor jumps never land under the sticky header (64 px,
-     back on any upward move) or a page's own sticky bar: a page sets
-     --sticky-offset to its bar's height while it is mounted (WCAG 2.4.11). */
+  /* Keyboard focus and anchor jumps never land under the sticky header (back on
+     any upward move) or a page's own sticky bar: a page sets --sticky-offset to
+     its bar's height while it is mounted (WCAG 2.4.11). */
   html {
-    scroll-padding-top: calc(64px + var(--sticky-offset, 0px) + 12px);
+    scroll-padding-top: calc(var(--header-full) + var(--sticky-offset, 0px) + 12px);
   }
 }
 

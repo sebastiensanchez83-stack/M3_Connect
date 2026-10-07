@@ -148,6 +148,10 @@ export default {
         'out-smc': 'cubic-bezier(.215, .61, .355, 1)',
         // Compass needle and buoy: a little overshoot.
         'swing': 'cubic-bezier(.34, 1.56, .64, 1)',
+        // Rolling CTA buttons and round arrow discs.
+        'cta': 'cubic-bezier(.625, .05, 0, 1)',
+        // Accordion photo cards.
+        'acc': 'cubic-bezier(.38, .005, .215, 1)',
       },
       keyframes: {
         "accordion-down": {

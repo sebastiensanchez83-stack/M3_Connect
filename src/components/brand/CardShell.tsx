@@ -5,8 +5,8 @@ import { cn } from '@/lib/utils';
 /**
  * One card grammar for every list (directory, resources, events, home):
  * white, 16 px radius, a hairline border, no shadow at rest. Interactive cards
- * lift 3 px with a soft shadow on hover / keyboard focus, their picture zooms
- * to 1.04 (`CardMedia`) and the cap needle after their link's words swings east.
+ * lift 4 px with a soft shadow on hover / keyboard focus (.8 s), their picture
+ * zooms to 1.05 (`CardMedia`) and their round arrow (`ArrowDisc`) fills with gold.
  *
  * The whole card is one link through `StretchedLink` (its ::after covers the
  * card); other links inside stay clickable when given `relative z-10`.
@@ -27,12 +27,11 @@ export function CardShell({
   children,
 }: {
   as?: ElementType;
-  /** Hover lift + `group` for CapArrow and CardMedia. */
+  /** Hover lift + `group` / `has-ra` for ArrowDisc and CardMedia. */
   interactive?: boolean;
   /**
-   * Kept for compatibility, draws nothing: the organisation type is now flown
-   * as a burgee next to the written type (TypeFlagLabel in OrgCard.tsx), not as
-   * a coloured bar across the top.
+   * Kept for compatibility, draws nothing: the organisation type is shown by
+   * the cover and its coloured bar (OrgCover in OrgCard.tsx), not by the shell.
    */
   typeColor?: OrgTypeTone | null;
   /** 'light' white card; 'navy' card on light pages; 'glass' on navy panels. */
@@ -47,7 +46,7 @@ export function CardShell({
         tone === 'light' && 'border border-rule bg-white text-ink',
         tone === 'navy' && 'bg-navy text-white',
         tone === 'glass' && 'bg-white/[0.07] text-white ring-1 ring-inset ring-white/15',
-        interactive && 'card-lift group',
+        interactive && 'card-lift group has-ra',
         className,
       )}
     >

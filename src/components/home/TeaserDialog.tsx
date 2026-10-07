@@ -7,12 +7,15 @@ import { cn } from '@/lib/utils';
 import { TeaserVideo, useTeaserAvailable } from './TeaserVideo';
 
 /**
- * "Watch the teaser" in the hero: a quiet button that opens the platform teaser
- * in a dialog and plays it, on click only. The 38 MB film is never a
- * background video, and nothing of it loads before the click (only a HEAD
- * request checks that the file exists). The button only appears once it does.
- * Closing the dialog (Escape, the close button, a click outside) stops the film
- * and returns focus to the button.
+ * "Watch the teaser": a quiet button that opens the platform teaser in a
+ * dialog and plays it, on click only. The 38 MB film is never a background
+ * video, and nothing of it loads before the click (only a HEAD request checks
+ * that the file exists). The button only appears once it does. Closing the
+ * dialog (Escape, the close button, a click outside) stops the film and
+ * returns focus to the button.
+ *
+ * It sits on the Rendezvous card of the events stack: a frosted pill with a
+ * gold play disc, "Watch the teaser" and the film's length.
  */
 export function TeaserButton({ className }: { className?: string }) {
   const { t } = useTranslation();
@@ -25,12 +28,12 @@ export function TeaserButton({ className }: { className?: string }) {
         <button
           type="button"
           className={cn(
-            'focus-ring group inline-flex h-12 items-center gap-3 rounded-pill pl-1.5 pr-4 text-[15px] font-semibold text-white transition-colors hover:bg-white/10',
+            'focus-ring group inline-flex h-11 items-center gap-2.5 rounded-pill bg-white/[.14] pl-1.5 pr-4 text-[15px] font-semibold text-white ring-1 ring-inset ring-white/30 transition-colors [transition-duration:400ms] hover:bg-white/25',
             className,
           )}
         >
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-white/15 ring-1 ring-inset ring-white/40 transition-colors group-hover:bg-white group-hover:text-navy">
-            <Play className="ml-0.5 h-4 w-4 fill-current" aria-hidden="true" />
+          <span className="grid h-8 w-8 place-items-center rounded-full bg-gold text-navy">
+            <Play className="ml-0.5 h-3.5 w-3.5 fill-current" aria-hidden="true" />
           </span>
           {t('home.teaserWatch', 'Watch the teaser')}
           <span className="font-normal tabular text-white/85">{TEASER.duration}</span>

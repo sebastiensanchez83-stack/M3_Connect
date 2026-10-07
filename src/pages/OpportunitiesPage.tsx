@@ -747,7 +747,7 @@ export function OpportunitiesPage() {
         )}
       </FilterBar>
 
-      <div ref={resultsRef} className="container mx-auto px-4 pb-16 pt-6">
+      <div ref={resultsRef} className="mx-auto w-full max-w-7xl px-4 sm:px-6 pb-16 pt-6">
         <AdBanner placement="marketplace" className="mb-6" />
 
         {/* ── What this kind is, how many, and the way to publish one ── */}

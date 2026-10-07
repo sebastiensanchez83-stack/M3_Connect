@@ -205,7 +205,7 @@ export function BecomePartnerPage() {
 
       {/* How It Works — Process Steps */}
       <section className="py-16 bg-white">
-        <div className="container mx-auto px-4">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
           <h2 className="text-3xl font-bold text-center text-primary mb-4">{t('join.process.title')}</h2>
           <p className="text-gray-600 text-center mb-12 max-w-xl mx-auto">{t('join.process.subtitle')}</p>
 
@@ -235,7 +235,7 @@ export function BecomePartnerPage() {
 
       {/* Member Types */}
       <section className="py-16 bg-gray-50">
-        <div className="container mx-auto px-4">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
           <h2 className="text-3xl font-bold text-center text-primary mb-4">{t('join.chooseProfile')}</h2>
           <p className="text-gray-600 text-center mb-12 max-w-xl mx-auto">
             {t('join.chooseProfileDesc')}
@@ -274,7 +274,7 @@ export function BecomePartnerPage() {
 
       {/* Platform Benefits */}
       <section className="py-16 bg-white">
-        <div className="container mx-auto px-4">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
           <h2 className="text-3xl font-bold text-center text-primary mb-12">{t('join.whyTitle')}</h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
             {platformBenefits.map((b, i) => (
@@ -292,7 +292,7 @@ export function BecomePartnerPage() {
 
       {/* Live Stats */}
       <section className="py-12 bg-primary text-white">
-        <div className="container mx-auto px-4">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
           <div className="grid grid-cols-3 gap-8 text-center max-w-3xl mx-auto">
             {statItems.map((s) => (
               <div key={s.key}>
@@ -311,7 +311,7 @@ export function BecomePartnerPage() {
 
       {/* FAQ Section */}
       <section className="py-16 bg-gray-50">
-        <div className="container mx-auto px-4">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
           <h2 className="text-3xl font-bold text-center text-primary mb-4">{t('join.faq.title')}</h2>
           <p className="text-gray-600 text-center mb-10 max-w-xl mx-auto">{t('join.faq.subtitle')}</p>
 
@@ -334,7 +334,7 @@ export function BecomePartnerPage() {
 
       {/* CTA */}
       <section className="py-16 text-center bg-white">
-        <div className="container mx-auto px-4">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
           <h2 className="text-3xl font-bold text-primary mb-4">{t('join.readyTitle')}</h2>
           <p className="text-gray-600 mb-8 max-w-xl mx-auto">
             {t('join.readySubtitle')}

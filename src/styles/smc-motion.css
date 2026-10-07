@@ -2,7 +2,7 @@
  * Smart Marina Connect — motion and brand devices (refonte, Oct 2026).
  *
  * Loaded once from main.tsx, after index.css, outside Tailwind's layers, so a
- * rule here wins over a utility of the same specificity (the tide button's own
+ * rule here wins over a utility of the same specificity (the CTA button's own
  * transition over `transition-colors`, the sticky offset over `top-16`…).
  *
  * Three switches govern everything below:
@@ -11,10 +11,14 @@
  *    loops (.motion-loop) freeze; one-off entrances still finish;
  *  - .motion-loop marks an element whose animation runs forever.
  *
- * Only transform, opacity and clip-path are animated. The SMC devices are ours:
- * waterline, departure board, tide, cap, buoys, route. None of the Solar
- * Impulse signatures (notch card, giant marquee text, rolling labels, growing
- * discs, accordion cards, stacked cards, giant footer wordmark) belong here.
+ * Only transform, opacity and clip-path are animated (plus the width of the
+ * accordion cards, as on the reference). Since 7 Oct 2026 the target look is the
+ * "v2" mockups, in the spirit of the Solar Impulse Foundation site: rolling CTA
+ * buttons, round arrow discs, underline links, notch card, giant marquee,
+ * accordion and stacked cards, bg-reveal panels, giant footer signature. The
+ * nautical devices of the first pass (tide button, cap arrow, wave panel, wave
+ * edges, waterline hero, departure board, pontoon tag, buoy tabs, event route)
+ * are gone.
  */
 
 /* ─── Keyframes ───────────────────────────────────────────────────────────── */
@@ -27,55 +31,13 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
-/* A wave-edged curtain rising from the bottom (hero reveal, navy panels). Generated: 25-point edge, phase shifts while it rises. */
-@keyframes smc-wave-rise {
-  from { clip-path: polygon(0% 100%, 100% 100%, 100% 106%, 95.83% 107.15%, 91.67% 108.12%, 87.5% 108.77%, 83.33% 109%, 79.17% 108.77%, 75% 108.12%, 70.83% 107.15%, 66.67% 106%, 62.5% 104.85%, 58.33% 103.88%, 54.17% 103.23%, 50% 103%, 45.83% 103.23%, 41.67% 103.88%, 37.5% 104.85%, 33.33% 106%, 29.17% 107.15%, 25% 108.12%, 20.83% 108.77%, 16.67% 109%, 12.5% 108.77%, 8.33% 108.12%, 4.17% 107.15%, 0% 106%); }
-  to { clip-path: polygon(0% 100%, 100% 100%, 100% -6%, 95.83% -7.15%, 91.67% -8.12%, 87.5% -8.77%, 83.33% -9%, 79.17% -8.77%, 75% -8.12%, 70.83% -7.15%, 66.67% -6%, 62.5% -4.85%, 58.33% -3.88%, 54.17% -3.23%, 50% -3%, 45.83% -3.23%, 41.67% -3.88%, 37.5% -4.85%, 33.33% -6%, 29.17% -7.15%, 25% -8.12%, 20.83% -8.77%, 16.67% -9%, 12.5% -8.77%, 8.33% -8.12%, 4.17% -7.15%, 0% -6%); }
-}
-/* A wave-edged wipe from left to right (buoy tab panels). */
-@keyframes smc-wave-wipe {
-  from { clip-path: polygon(0% 0%, -6% 0%, -5.04% 5%, -4.23% 10%, -3.69% 15%, -3.5% 20%, -3.69% 25%, -4.23% 30%, -5.04% 35%, -6% 40%, -6.96% 45%, -7.77% 50%, -8.31% 55%, -8.5% 60%, -8.31% 65%, -7.77% 70%, -6.96% 75%, -6% 80%, -5.04% 85%, -4.23% 90%, -3.69% 95%, -3.5% 100%, 0% 100%); }
-  to { clip-path: polygon(0% 0%, 106% 0%, 105.04% 5%, 104.23% 10%, 103.69% 15%, 103.5% 20%, 103.69% 25%, 104.23% 30%, 105.04% 35%, 106% 40%, 106.96% 45%, 107.77% 50%, 108.31% 55%, 108.5% 60%, 108.31% 65%, 107.77% 70%, 106.96% 75%, 106% 80%, 105.04% 85%, 104.23% 90%, 103.69% 95%, 103.5% 100%, 0% 100%); }
-}
-@keyframes smc-wave-drift {
-  from { transform: translate3d(0, 0, 0); }
-  to { transform: translate3d(-50%, 0, 0); }
-}
-@keyframes smc-wave-drift-reverse {
-  from { transform: translate3d(-50%, 0, 0); }
-  to { transform: translate3d(0, 0, 0); }
-}
-@keyframes smc-ken-burns {
-  from { transform: scale(1.02) translate3d(0, 0, 0); }
-  to { transform: scale(1.1) translate3d(-1.2%, -1%, 0); }
-}
 @keyframes smc-bathy-drift {
   from { transform: translate3d(0, 0, 0) scale(1.04); }
   to { transform: translate3d(-3%, 2%, 0) scale(1.1); }
 }
-@keyframes smc-bob {
-  0%, 100% { transform: translate3d(0, -2px, 0); }
-  50% { transform: translate3d(0, 2px, 0); }
-}
-/* The cap's radar sweep: a narrow wedge that turns with the needle, NE → E, and fades. */
-@keyframes smc-sweep {
-  0% { transform: rotate(-60deg); opacity: 0; }
-  20% { opacity: 0.5; }
-  100% { transform: rotate(6deg); opacity: 0; }
-}
-/* A berth card docks once: it rises from below its short waterline, then stays still. */
-@keyframes smc-dock {
-  from { opacity: 0; transform: translate3d(0, 28px, 0); }
-  to { opacity: 1; transform: none; }
-}
-@keyframes smc-wake {
-  0% { opacity: 0; transform: scaleX(0.2); }
-  35% { opacity: 0.9; }
-  100% { opacity: 0; transform: scaleX(1); }
-}
-@keyframes smc-route-pulse {
-  0% { transform: scale(1); opacity: 0.6; }
-  70%, 100% { transform: scale(2.6); opacity: 0; }
+@keyframes smc-bathy-drift-b {
+  from { transform: scaleX(-1) translate3d(0, 0, 0) scale(1.04); }
+  to { transform: scaleX(-1) translate3d(3%, -2%, 0) scale(1.1); }
 }
 @keyframes smc-marquee {
   from { transform: translate3d(0, 0, 0); }
@@ -84,47 +46,6 @@
 @keyframes smc-caret {
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
-}
-@keyframes smc-tide-drift {
-  to {
-    -webkit-mask-position: 48px 0, 0 9px;
-    mask-position: 48px 0, 0 9px;
-  }
-}
-/* Damped pendulum, ±1.5° around the tag's resting tilt (-2°): on load (a) and on
-   hover (b). Two names so hover restarts it. */
-@keyframes smc-tag-swing-a {
-  0% { transform: rotate(-2deg); }
-  14% { transform: rotate(-0.5deg); }
-  34% { transform: rotate(-3.2deg); }
-  54% { transform: rotate(-1.2deg); }
-  74% { transform: rotate(-2.4deg); }
-  100% { transform: rotate(-2deg); }
-}
-@keyframes smc-tag-swing-b {
-  0% { transform: rotate(-2deg); }
-  14% { transform: rotate(-0.5deg); }
-  34% { transform: rotate(-3.2deg); }
-  54% { transform: rotate(-1.2deg); }
-  74% { transform: rotate(-2.4deg); }
-  100% { transform: rotate(-2deg); }
-}
-@keyframes smc-tag-flip-out {
-  to { transform: rotateX(90deg); opacity: 0.3; }
-}
-@keyframes smc-tag-flip-in {
-  from { transform: rotateX(-90deg); opacity: 0.3; }
-  to { transform: none; opacity: 1; }
-}
-/* Split-flap: the old top half folds down, then the new bottom half drops into place.
-   The perspective sits in the transform itself, so no flap needs its own 3D context. */
-@keyframes smc-flap-top {
-  from { transform: perspective(260px) rotateX(0deg); }
-  to { transform: perspective(260px) rotateX(-90deg); }
-}
-@keyframes smc-flap-bottom {
-  from { transform: perspective(260px) rotateX(90deg); }
-  to { transform: perspective(260px) rotateX(0deg); }
 }
 @keyframes smc-pop {
   from { opacity: 0; transform: scale(0.6); }
@@ -185,82 +106,169 @@
   animation: smc-fade-up 0.9s var(--ease-out-smc) var(--enter-delay, 0.4s) both;
 }
 
-/* ─── Waves ───────────────────────────────────────────────────────────────── */
+/* ─── Sounding lines ──────────────────────────────────────────────────────── */
 
-.wave-drift { animation: smc-wave-drift var(--wave-period, 7s) linear infinite; }
-.wave-drift-reverse { animation: smc-wave-drift-reverse var(--wave-period, 9s) linear infinite; }
-.ken-burns {
-  transform-origin: 60% 40%;
-  animation: smc-ken-burns 20s ease-in-out infinite alternate;
-}
 .bathy-drift { animation: smc-bathy-drift 60s ease-in-out infinite alternate; }
-.waterline-reveal { animation: smc-wave-rise 1.2s cubic-bezier(.65, 0, .35, 1) both; }
+.bathy-drift-b { animation: smc-bathy-drift-b 70s ease-in-out infinite alternate; }
 
-/* Navy panel revealed by a rising wave edge (instead of a scale-in). */
-.wave-panel:not(.is-in) .wave-panel-bg { clip-path: inset(100% 0 0 0); }
-.wave-panel.is-in .wave-panel-bg { animation: smc-wave-rise 1.1s cubic-bezier(.65, 0, .35, 1) both; }
 
-/* ─── Tide button ("marée") ───────────────────────────────────────────────── */
-/* The fill rises from the bottom with a wavy top that drifts sideways; the text
-   changes colour as the water passes it; a trailing arrow nudges 3 px. Colours
-   come from the variant (src/components/ui/button.tsx) through --tide-fill and
-   --tide-fg-hover. */
+/* ─── Kit v2 · 1. Rolling CTA buttons ─────────────────────────────────────── */
+/* The label slides up while a copy rises from below; the round disc on the right
+   turns gold while its arrow leaves to the right and a copy
+   comes in from the left (.525 s, cubic-bezier(.625,.05,0,1)). Same on
+   keyboard focus. Geometry and rest colours come from the Button variants
+   (src/components/ui/button.tsx); the hover colours come from these variables:
+   --cta-bg-h, --cta-border-h, --cta-fg-h, --cta-disc-bg, --cta-disc-fg,
+   --cta-disc-bg-h, --cta-disc-fg-h, and --cta-disc (disc diameter). */
 
-.tide {
-  --tide-wave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='10' viewBox='0 0 48 10'%3E%3Cpath d='M0 10V5Q6 0 12 5T24 5T36 5T48 5V10Z'/%3E%3C/svg%3E");
+.cta {
   position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  transition: color 0.2s linear 0.14s, box-shadow 0.2s ease;
+  transition:
+    background-color 0.525s var(--ease-cta),
+    color 0.525s var(--ease-cta),
+    border-color 0.525s var(--ease-cta);
 }
-.tide::before {
+.cta-l {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  height: 1.25em;
+  line-height: 1.25em;
+}
+.cta-t {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  transition: transform 0.525s var(--ease-cta);
+}
+.cta-c {
+  position: absolute;
+  left: 0;
+  top: 100%;
+}
+.cta-d {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--cta-disc, 38px);
+  height: var(--cta-disc, 38px);
+  border-radius: 999px;
+  overflow: hidden;
+  background-color: var(--cta-disc-bg, #0b2653);
+  color: var(--cta-disc-fg, #fff);
+  transition: background-color 0.525s var(--ease-cta), color 0.525s var(--ease-cta);
+}
+.cta-d > svg {
+  grid-area: 1 / 1;
+  width: 47%;
+  height: 47%;
+  transition: transform 0.525s var(--ease-cta);
+}
+.cta-d > .cta-a2 { transform: translate3d(-160%, 0, 0); }
+.cta:hover,
+.cta:focus-visible,
+.cta[data-state="open"] {
+  background-color: var(--cta-bg-h);
+  border-color: var(--cta-border-h, var(--cta-bg-h));
+  color: var(--cta-fg-h);
+}
+/* Only a label that rolls (.cta-roll, with its copy) slides up. */
+.cta:hover .cta-roll .cta-t,
+.cta:focus-visible .cta-roll .cta-t,
+.cta[data-state="open"] .cta-roll .cta-t { transform: translate3d(0, -100%, 0); }
+.cta:hover .cta-d,
+.cta:focus-visible .cta-d,
+.cta[data-state="open"] .cta-d {
+  background-color: var(--cta-disc-bg-h, rgb(var(--gold)));
+  color: var(--cta-disc-fg-h, rgb(var(--navy)));
+}
+.cta:hover .cta-a1,
+.cta:focus-visible .cta-a1,
+.cta[data-state="open"] .cta-a1 { transform: translate3d(160%, 0, 0); }
+.cta:hover .cta-a2,
+.cta:focus-visible .cta-a2,
+.cta[data-state="open"] .cta-a2 { transform: none; }
+
+/* ─── Kit v2 · 2. Round arrow disc on cards ───────────────────────────────── */
+/* A gold disc grows from the centre when the card (any `has-ra` or `group`
+   ancestor) is hovered or holds focus, while the arrow leaves to the right and a
+   copy enters from the left. The card itself lifts 4 px and its picture scales to
+   1.05 (.8 s, ease-out). */
+
+/* Zero specificity: a `position` utility (absolute, in a card's corner) must win over this default. */
+:where(.arrow-disc) { position: relative; }
+.arrow-disc {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #fff;
+  color: rgb(var(--navy));
+  box-shadow: inset 0 0 0 1px rgba(11, 38, 83, 0.1);
+  transition: color 0.525s var(--ease-cta);
+}
+.arrow-disc::before {
   content: "";
   position: absolute;
-  z-index: -1;
-  left: -1px;
-  right: -1px;
-  bottom: -1px;
-  height: calc(100% + 14px);
-  background-color: var(--tide-fill, rgb(var(--navy)));
-  -webkit-mask: var(--tide-wave) repeat-x 0 0 / 48px 10px, linear-gradient(#000 0 0) no-repeat 0 9px / 100% calc(100% - 9px);
-  mask: var(--tide-wave) repeat-x 0 0 / 48px 10px, linear-gradient(#000 0 0) no-repeat 0 9px / 100% calc(100% - 9px);
-  transform: translate3d(0, 100%, 0);
-  transition: transform 0.5s var(--ease-out-smc);
-  pointer-events: none;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(var(--gold));
+  transform: scale(0);
+  transition: transform 0.525s var(--ease-cta);
 }
-.tide:hover::before,
-.tide:focus-visible::before,
-.tide[data-state="open"]::before {
-  transform: translate3d(0, 0, 0);
-  animation: smc-tide-drift 1.4s linear infinite;
+.arrow-disc > svg {
+  position: relative;
+  grid-area: 1 / 1;
+  width: 20px;
+  height: 20px;
+  transition: transform 0.525s var(--ease-cta);
 }
-.tide:hover,
-.tide:focus-visible,
-.tide[data-state="open"] {
-  color: var(--tide-fg-hover, #fff);
+.arrow-disc > .ad-a2 { transform: translate3d(-160%, 0, 0); }
+.arrow-disc--sm { width: 36px; height: 36px; }
+.arrow-disc--sm > svg { width: 18px; height: 18px; }
+.arrow-disc--photo {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
 }
-.tide > svg:last-child:not(:first-child) {
-  transition: transform 0.3s var(--ease-out-smc);
+.arrow-disc--navy {
+  background: rgb(var(--navy));
+  color: #fff;
+  box-shadow: none;
 }
-.tide:hover > svg:last-child:not(:first-child),
-.tide:focus-visible > svg:last-child:not(:first-child) {
-  transform: translate3d(3px, 0, 0);
-}
-.tide:disabled::before {
-  display: none;
-}
-
-/* ─── Cards and the "cap" compass arrow ───────────────────────────────────── */
+.group:hover .arrow-disc,
+.group:focus-within .arrow-disc,
+.has-ra:hover .arrow-disc,
+.has-ra:focus-within .arrow-disc { color: rgb(var(--navy)); }
+.group:hover .arrow-disc::before,
+.group:focus-within .arrow-disc::before,
+.has-ra:hover .arrow-disc::before,
+.has-ra:focus-within .arrow-disc::before { transform: scale(1); }
+.group:hover .arrow-disc > .ad-a1,
+.group:focus-within .arrow-disc > .ad-a1,
+.has-ra:hover .arrow-disc > .ad-a1,
+.has-ra:focus-within .arrow-disc > .ad-a1 { transform: translate3d(160%, 0, 0); }
+.group:hover .arrow-disc > .ad-a2,
+.group:focus-within .arrow-disc > .ad-a2,
+.has-ra:hover .arrow-disc > .ad-a2,
+.has-ra:focus-within .arrow-disc > .ad-a2 { transform: none; }
 
 .card-lift {
-  transition: transform 0.3s var(--ease-out-smc), box-shadow 0.3s var(--ease-out-smc), border-color 0.3s var(--ease-out-smc);
+  transition: transform 0.8s var(--ease-out-smc), box-shadow 0.8s var(--ease-out-smc), border-color 0.4s var(--ease-out-smc);
 }
 .card-lift:hover {
-  transform: translate3d(0, -3px, 0);
+  transform: translate3d(0, -4px, 0);
   box-shadow: var(--shadow-hover);
 }
 .card-lift:has(:focus-visible) {
-  transform: translate3d(0, -3px, 0);
+  transform: translate3d(0, -4px, 0);
   box-shadow: var(--shadow-hover);
 }
 /* Keyboard focus on a card's stretched link rings the whole card (outside, never clipped). */
@@ -274,177 +282,466 @@
   overflow: hidden;
 }
 .card-media img {
-  transition: transform 0.6s var(--ease-out-smc);
+  transition: transform 0.8s var(--ease-out-smc);
 }
-.card-lift:hover .card-media img {
-  transform: scale(1.04);
+.card-lift:hover .card-media img,
+.card-lift:has(:focus-visible) .card-media img {
+  transform: scale(1.05);
 }
 
-/* An inline compass rose: four ticks, no ring, no disc; a lozenge needle (filled
-   pointing half, outlined tail) points north-east at rest and swings east with a
-   little overshoot when its card is hovered or focused, while a narrow radar
-   wedge sweeps once under it. It sits after the words of a link ("Read",
-   "View profile"), never alone in a card corner. */
-.cap {
+/* ─── Kit v2 · 12. Underline links ────────────────────────────────────────── */
+/* A 1 px rule at 30 % always; on hover and focus a 2 px gold line grows from
+   the left (.4 s) and the small arrow nudges right (+80 ms). Markup:
+   <a class="uline"><span class="uline-t">Label</span><svg class="uline-a"/></a>
+   or the <UnderlineLink> component. */
+
+.uline {
   position: relative;
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  color: rgb(var(--navy));
+  border-radius: 4px;
 }
-.cap > * {
-  grid-area: 1 / 1;
-}
-.cap-needle {
-  transform: rotate(-45deg);
-  transition: transform 0.6s var(--ease-swing);
-}
-.cap-sweep {
-  opacity: 0;
-  transform: rotate(-60deg);
-  pointer-events: none;
-}
-.group:hover .cap-needle,
-.group:focus-visible .cap-needle,
-.cap-hover:hover .cap-needle,
-.cap-hover:focus-visible .cap-needle {
-  transform: rotate(0deg);
-}
-.group:has(:focus-visible) .cap-needle {
-  transform: rotate(0deg);
-}
-.group:hover .cap-sweep,
-.group:focus-visible .cap-sweep,
-.cap-hover:hover .cap-sweep,
-.cap-hover:focus-visible .cap-sweep {
-  animation: smc-sweep 0.8s var(--ease-out-smc) 1 both;
-}
-.group:has(:focus-visible) .cap-sweep {
-  animation: smc-sweep 0.8s var(--ease-out-smc) 1 both;
-}
-
-/* ─── Buoy tabs ("bouées") ────────────────────────────────────────────────── */
-
-.buoy-marker {
-  transition: transform 0.45s var(--ease-swing), opacity 0.2s linear;
-}
-/* The mooring line the labels sit on: a thin rope drawn as a slack wave. */
-.mooring-line {
-  height: 6px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='6' viewBox='0 0 24 6'%3E%3Cpath d='M0 3Q6 0.6 12 3T24 3' fill='none' stroke='%230b2653' stroke-opacity='.34' stroke-width='1.2'/%3E%3C/svg%3E");
-  background-repeat: repeat-x;
-  background-size: 24px 6px;
-}
-.mooring-line-dark {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='6' viewBox='0 0 24 6'%3E%3Cpath d='M0 3Q6 0.6 12 3T24 3' fill='none' stroke='%23ffffff' stroke-opacity='.45' stroke-width='1.2'/%3E%3C/svg%3E");
-}
-.buoy-bob { animation: smc-bob 3.2s ease-in-out infinite; }
-/* `backwards`, not `both`: once the wipe is over the clip-path must go, or it
-   clips the panel's own focus ring (drawn outside its box). */
-.buoy-panel[data-state="active"] {
-  animation: smc-wave-wipe 0.6s var(--ease-out-smc) backwards;
-}
-
-/* ─── Departure board (split-flap) ────────────────────────────────────────── */
-
-.flap {
-  position: relative;
-  display: inline-block;
-  width: 0.78em;
-  height: 1.5em;
-  line-height: 1.5em;
-  margin-right: 0.08em;
-  border-radius: 0.12em;
-  background: #10306a;
-  color: #f3efe2;
-  text-align: center;
-  vertical-align: top;
-  font-variant-numeric: tabular-nums;
-}
-.flap::after {
+.uline-t { position: relative; }
+.uline-t::before,
+.uline-t::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  top: 50%;
-  height: 1px;
-  background: rgba(3, 12, 30, 0.6);
+  bottom: -3px;
   pointer-events: none;
-  z-index: 3;
 }
-.flap-half {
+.uline-t::before { height: 1px; background: currentColor; opacity: 0.3; }
+.uline-t::after {
+  height: 2px;
+  background: rgb(var(--gold));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s var(--ease-out-smc);
+}
+.uline:hover .uline-t::after,
+.uline:focus-visible .uline-t::after,
+.uline[aria-current="page"] .uline-t::after { transform: scaleX(1); }
+.uline-a {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: rgb(var(--gold-hover));
+  transition: transform 0.4s var(--ease-out-smc) 0.08s;
+}
+.uline:hover .uline-a,
+.uline:focus-visible .uline-a { transform: translate3d(3px, 0, 0); }
+.uline--light { color: #fff; }
+.uline--light .uline-a { color: rgb(var(--gold)); }
+.uline--nav { color: inherit; font-weight: 500; padding: 8px 2px; }
+.uline--nav .uline-t::before,
+.uline--plain .uline-t::before { display: none; }
+.uline--foot { color: rgba(255, 255, 255, 0.8); font-weight: 400; }
+.uline--foot:hover,
+.uline--foot:focus-visible { color: #fff; }
+.uline:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.uline--light:focus-visible { box-shadow: 0 0 0 2px rgb(var(--navy-deep)), 0 0 0 4px #fff; }
+
+/* ─── Kit v2 · 4 and 5. Inset hero, notch card, giant marquee ─────────────── */
+
+.hero-media-layer { will-change: transform; }
+.hero-video { opacity: 0; transition: opacity 0.8s var(--ease-out-smc); }
+.hero-video.is-playing { opacity: 1; }
+/* The hero's bottom LEFT corner is cut out around the notch: the notch paints the page colour
+   (--notch-bg, read from behind the hero) with two inverse radii. */
+.hero-notch {
+  --r: 20px;
   position: absolute;
   left: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 300px;
+  padding: 8px 8px 0 0;
+  background: var(--notch-bg, rgb(var(--page)));
+  border-top-right-radius: var(--r);
+  /* Rises on load (.9 s, +.7 s). */
+  animation: smc-notch-in 0.9s var(--ease-out-smc) 0.7s both;
+}
+.hero-notch::before,
+.hero-notch::after {
+  content: "";
+  position: absolute;
+  width: var(--r);
+  height: var(--r);
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 0, transparent calc(var(--r) - 0.6px), var(--notch-bg, rgb(var(--page))) var(--r));
+}
+.hero-notch::before { left: 0; top: calc(-1 * var(--r)); }
+.hero-notch::after { right: calc(-1 * var(--r)); bottom: 0; }
+@media (min-width: 768px) {
+  .hero-notch { --r: 24px; width: 388px; padding: 12px 12px 0 0; }
+}
+/* PageHero's compact heroes (the directory) keep their notch at the bottom RIGHT:
+   their text runs along the bottom left, so a left notch would sit on it. */
+.hero-notch--right {
+  left: auto;
   right: 0;
-  height: 50%;
-  overflow: hidden;
-  background: inherit;
-  border-radius: inherit;
-  backface-visibility: hidden;
+  padding: 8px 0 0 8px;
+  border-top-right-radius: 0;
+  border-top-left-radius: var(--r);
 }
-.flap-half > span {
+.hero-notch--right::before,
+.hero-notch--right::after {
+  background: radial-gradient(circle at 0 0, transparent calc(var(--r) - 0.6px), var(--notch-bg, rgb(var(--page))) var(--r));
+}
+.hero-notch--right::before { left: auto; right: 0; top: calc(-1 * var(--r)); }
+.hero-notch--right::after { right: auto; left: calc(-1 * var(--r)); bottom: 0; }
+@media (min-width: 768px) {
+  .hero-notch--right { padding: 12px 0 0 12px; }
+}
+/* Home hero, from xl: the notch takes the bottom left corner (388 px, plus its 24 px
+   fillet), so the commitments line starts to its right, whatever the page width. */
+@media (min-width: 1280px) {
+  .hero-after-notch {
+    margin-left: max(0px, calc(412px - (100vw - 24px - min(100vw - 24px, 1280px)) / 2));
+  }
+}
+.notch-card {
+  position: relative;
   display: block;
-  height: 1.5em;
-  line-height: 1.5em;
+  height: 176px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgb(var(--navy));
+  color: #fff;
 }
-/* Live figures (FlapFigure): shorter tiles for big digits. */
-.flap-tight,
-.flap-tight .flap-half > span {
-  height: 1.24em;
-  line-height: 1.24em;
+@media (min-width: 768px) { .notch-card { height: 216px; border-radius: 16px; } }
+.notch-slide {
+  position: absolute;
+  inset: 0;
+  display: block;
+  border-radius: inherit;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.6s var(--ease-out-smc), visibility 0s linear 0.6s;
 }
-.flap-tight { width: 0.72em; margin-right: 0.06em; }
-.flap-top,
-.flap-fold-top { top: 0; }
-.flap-bottom,
-.flap-fold-bottom { bottom: 0; }
-.flap-bottom > span,
-.flap-fold-bottom > span { transform: translate3d(0, -50%, 0); }
-.flap-fold-top {
-  z-index: 2;
-  transform-origin: 50% 100%;
-  animation: smc-flap-top 0.16s ease-in var(--d, 0ms) both;
+.notch-slide.is-active { opacity: 1; visibility: visible; transition: opacity 0.6s var(--ease-out-smc), visibility 0s; }
+.notch-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.1);
+  transition: transform 6.6s linear;
 }
-.flap-fold-bottom {
-  z-index: 2;
-  transform-origin: 50% 0%;
-  animation: smc-flap-bottom 0.2s cubic-bezier(.3, 1.4, .6, 1) calc(var(--d, 0ms) + 0.15s) both;
+.notch-slide.is-active .notch-img { transform: scale(1); }
+.notch-card--single .notch-img { transform: none; transition: none; }
+.notch-shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(8, 29, 64, 0.94) 0%, rgba(8, 29, 64, 0.55) 55%, rgba(8, 29, 64, 0.25) 100%);
+}
+.notch-txt { position: absolute; left: 14px; right: 14px; bottom: 12px; display: grid; gap: 2px; }
+.notch-k { font-size: 11px; line-height: 14px; font-weight: 600; color: rgb(var(--gold)); }
+.notch-t { font-size: 17px; line-height: 21px; font-weight: 600; letter-spacing: -0.01em; }
+.notch-m { font-size: 12px; line-height: 16px; color: rgba(255, 255, 255, 0.85); }
+.notch-cd { color: rgb(var(--gold)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.notch-cd-sep { color: rgba(255, 255, 255, 0.6); }
+@media (min-width: 768px) {
+  .notch-txt { left: 18px; right: 18px; bottom: 16px; gap: 4px; }
+  .notch-k { font-size: 12px; line-height: 16px; letter-spacing: 0.02em; }
+  .notch-t { font-size: 22px; line-height: 27px; }
+  .notch-m { font-size: 14px; line-height: 20px; }
+}
+.notch-ra { position: absolute; right: 10px; top: 24px; }
+@media (min-width: 768px) { .notch-ra { right: 14px; top: 30px; } }
+.notch-card--single .notch-ra { top: 14px; }
+.notch-segs { position: absolute; left: 10px; right: 10px; top: 4px; z-index: 4; display: flex; gap: 6px; }
+@media (min-width: 768px) { .notch-segs { left: 14px; right: 14px; top: 8px; } }
+.notch-seg { position: relative; flex: 1; height: 18px; border-radius: 4px; }
+.notch-seg::before,
+.notch-seg > i { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 3px; border-radius: 3px; }
+.notch-seg::before { background: rgba(255, 255, 255, 0.3); }
+.notch-seg > i { background: #fff; transform: scaleX(0); transform-origin: left; }
+.notch-seg.is-done > i,
+.notch-seg.is-active > i { transform: scaleX(1); }
+.notch-seg.is-active.is-running > i { animation: smc-seg var(--notch-interval, 6s) linear both; }
+.hero-notch:hover .notch-seg > i,
+.hero-notch:focus-within .notch-seg > i { animation-play-state: paused; }
+.notch-seg:focus-visible { outline: none; box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(var(--navy)); }
+@keyframes smc-seg {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+/* Entrance on load: the marquee fades in (1.2 s, +.5 s). */
+.hero-enter-fade { animation: smc-fade-in 1.2s var(--ease-out-smc) 0.5s both; }
+@keyframes smc-notch-in {
+  from { opacity: 0; transform: translate3d(0, 40px, 0); }
+  to { opacity: 1; transform: none; }
+}
+/* Page-header settle: the photo eases from 1.08 to 1 on load (1.8 s). */
+.hero-settle { animation: smc-settle 1.8s var(--ease-out-smc) both; }
+@keyframes smc-settle {
+  from { transform: scale(1.08); }
+  to { transform: none; }
 }
 
-/* ─── Pontoon tag ─────────────────────────────────────────────────────────── */
+.gmq { position: relative; overflow: hidden; white-space: nowrap; }
+.gmq-track { display: inline-flex; align-items: center; will-change: transform; }
+.gmq-item { flex: none; padding-right: 0.3em; }
+.gmq-sep { color: var(--gmq-sep, rgb(var(--gold))); padding-inline: 0.12em; }
 
-/* At rest the tag hangs a little askew (-2°), so the ±1.5° swing reads as hanging. */
-.pontoon-swing { transform-origin: 50% 0; transform: rotate(-2deg); }
-.pontoon-swing.is-loading { animation: smc-tag-swing-a 2.4s ease-in-out 1s both; }
-.pontoon:hover .pontoon-swing { animation: smc-tag-swing-b 2s ease-in-out both; }
-.pontoon-slide {
-  backface-visibility: hidden;
-  transform-origin: 50% 50%;
-}
-.pontoon-slide.is-leaving { animation: smc-tag-flip-out 0.3s ease-in both; }
-.pontoon-slide.is-entering { animation: smc-tag-flip-in 0.42s var(--ease-out-smc) 0.26s both; }
+/* ─── Kit v2 · 6. Accordion photo cards ───────────────────────────────────── */
+/* Stacked with their captions visible below 1024 px. From 1024 px: a row 500 px
+   tall, cards collapsed to ~220 px and the hovered or focused one grows to ~550
+   px (flex-grow 1 → 2.75, .6 s cubic-bezier(.38,.005,.215,1)); its caption fades
+   up (.45 s, +180 ms). The caption has the final width of an open card from the
+   start (--acc-cap-w), so its text never re-wraps during the growth. */
 
-/* ─── Signposts (end of the home page) ────────────────────────────────────── */
-/* Finger boards on a pontoon post: each swings a few degrees about the post on
-   hover or keyboard focus, and its arrow nudges. */
-.signpost-board {
-  transform-origin: 0 50%;
-  transition: transform 0.6s var(--ease-swing), background-color 0.2s linear;
+.acc { display: grid; gap: 16px; }
+@media (min-width: 640px) { .acc { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.acc-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 400px;
+  padding: 22px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgb(var(--navy));
+  color: #fff;
+  isolation: isolate;
 }
-.signpost-board:hover,
-.signpost-board:focus-visible {
-  transform: rotate(-3deg);
+.acc-img {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.8s var(--ease-out-smc);
 }
-li:nth-child(even) > .signpost-board:hover,
-li:nth-child(even) > .signpost-board:focus-visible {
-  transform: rotate(2.5deg);
+.acc-veil {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(to top, rgba(8, 29, 64, 0.95) 0%, rgba(8, 29, 64, 0.72) 45%, rgba(8, 29, 64, 0.25) 75%, rgba(8, 29, 64, 0.45) 100%);
+}
+.acc-cap { margin-top: 24px; padding-right: 56px; }
+/* Stacked: horizontal titles only (the vertical title and the pictogram are for the collapsed row, from 1024 px). */
+.acc-pic,
+.acc-vt { display: none; }
+@media (min-width: 1024px) {
+  .acc { display: flex; grid-template-columns: none; gap: 16px; height: 500px; container-type: inline-size; }
+  .acc-card { flex: 1 1 0; min-width: 0; min-height: 0; transition: flex-grow 0.6s var(--ease-acc); }
+  .acc-card.is-open { flex-grow: 2.75; }
+  .acc-cap {
+    width: var(--acc-cap-w, 380px);
+    max-width: none;
+    flex: none;
+    opacity: 0;
+    transform: translate3d(0, 16px, 0);
+    transition: opacity 0.3s var(--ease-out-smc), transform 0.3s var(--ease-out-smc);
+  }
+  .acc-card.is-open .acc-cap {
+    opacity: 1;
+    transform: none;
+    transition: opacity 0.45s var(--ease-out-smc) 0.18s, transform 0.45s var(--ease-out-smc) 0.18s;
+  }
+  .acc-card:hover .acc-img { transform: scale(1.05); }
+  /* A collapsed card: a maritime pictogram at the top and the title written
+     bottom to top along the left edge; an open card shows the horizontal title.
+     The horizontal title (the real heading) stays in the tree, only faded. */
+  .acc-pic {
+    position: absolute;
+    left: 22px;
+    top: 22px;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    color: rgb(var(--gold));
+    background: rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    transition: opacity 0.3s var(--ease-out-smc) 0.15s;
+  }
+  .acc-pic > svg { width: 22px; height: 22px; }
+  .acc-vt {
+    position: absolute;
+    left: 22px;
+    bottom: 22px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    white-space: nowrap;
+    font-size: 20px;
+    line-height: 25px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    transition: opacity 0.3s var(--ease-out-smc) 0.15s;
+  }
+  .acc-vt-dot {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    box-shadow: 0 0 0 1.5px #fff;
+  }
+  .acc-title { transition: opacity 0.45s var(--ease-out-smc) 0.18s; }
+  .acc-card:not(.is-open) .acc-title { opacity: 0; transition: opacity 0.15s var(--ease-out-smc); }
+  .acc-card.is-open .acc-pic,
+  .acc-card.is-open .acc-vt { opacity: 0; transition: opacity 0.15s var(--ease-out-smc); pointer-events: none; }
 }
 
-/* ─── Berths (service providers moored along a walkway) ───────────────────── */
-.berths:not(.is-in) .berth-card { opacity: 0; transform: translate3d(0, 28px, 0); }
-.berths.is-in .berth-card { animation: smc-dock 0.7s var(--ease-out-smc) calc(var(--i, 0) * 80ms) both; }
-.berth-wake { opacity: 0; transform-origin: 50% 50%; }
-.berths.is-in .berth-wake { animation: smc-wake 1.2s ease-out calc(var(--i, 0) * 80ms + 0.25s) both; }
+/* ─── Kit v2 · 7. Sticky stack ────────────────────────────────────────────── */
+
+.stk { --stk-top: 84px; display: grid; gap: 24px; }
+@media (min-width: 768px) { .stk { --stk-top: 104px; } }
+.stk:not(.is-flat) { gap: 12vh; }
+.stk-card { position: relative; display: flex; min-height: clamp(560px, 76svh, 680px); }
+@media (min-width: 768px) { .stk-card { min-height: clamp(540px, 72vh, 720px); } }
+.stk:not(.is-flat) .stk-card { position: sticky; top: calc(var(--stk-top) + var(--i, 0) * 14px); }
+.stk.is-flat .stk-card { min-height: 520px; }
+.stk-inner {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 24px;
+  overflow: hidden;
+  background: rgb(var(--navy));
+  color: #fff;
+  transform-origin: 50% 0;
+  isolation: isolate;
+  box-shadow: 0 -18px 40px rgba(8, 29, 64, 0.18);
+}
+.stk-media { position: absolute; inset: 0; z-index: -2; overflow: hidden; }
+.stk-media > .stk-px { position: absolute; left: 0; right: 0; top: -40px; bottom: -40px; }
+.stk-media img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  transition: transform 0.8s var(--ease-out-smc);
+}
+.stk-card:hover .stk-media img { transform: scale(1.04); }
+.stk-veil {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(to top, rgba(8, 29, 64, 0.96) 0%, rgba(8, 29, 64, 0.8) 42%, rgba(8, 29, 64, 0.58) 72%, rgba(8, 29, 64, 0.78) 100%);
+}
+@media (min-width: 1024px) {
+  .stk-veil {
+    background: linear-gradient(90deg, rgba(8, 29, 64, 0.95) 0%, rgba(8, 29, 64, 0.82) 40%, rgba(8, 29, 64, 0.25) 80%),
+      linear-gradient(to top, rgba(8, 29, 64, 0.6), rgba(8, 29, 64, 0) 50%);
+  }
+}
+.stk-shade { position: absolute; inset: 0; z-index: 6; background: #040d1f; opacity: 0; pointer-events: none; }
+
+/* ─── Kit v2 · 8. Bg-reveal panel ─────────────────────────────────────────── */
+/* The navy background scales from .94 to 1 while it fades in (.9 s), then the
+   content fades up (+220 ms). */
+
+.bgr .bgr-bg {
+  transition: transform 0.9s var(--ease-out-smc), opacity 0.9s var(--ease-out-smc);
+}
+.bgr:not(.is-in) .bgr-bg { transform: scale(0.94); opacity: 0; }
+.bgr .bgr-content {
+  transition: opacity 0.8s var(--ease-out-smc) 0.22s, transform 0.8s var(--ease-out-smc) 0.22s;
+}
+.bgr:not(.is-in) .bgr-content { opacity: 0; transform: translate3d(0, 24px, 0); }
+
+/* ─── Kit v2 · 9. Footer signature: lines rising out of a mask ────────────── */
+
+.rise-line { display: block; overflow: hidden; padding-block: 0.02em 0.1em; }
+.rise-line > span {
+  display: block;
+  transform: translate3d(0, 120%, 0);
+  transition: transform 0.9s var(--ease-out-smc) calc(var(--li, 0) * 90ms);
+}
+.is-in .rise-line > span { transform: none; }
+
+/* ─── Kit v2 · 1. Header: sheet links cascade in (40 ms apart) ────────────── */
+
+[data-state="open"] .sheet-link-in {
+  animation: smc-sheet-link 0.5s var(--ease-out-smc) both;
+  animation-delay: calc(var(--i, 0) * 40ms + 120ms);
+}
+@keyframes smc-sheet-link {
+  from { opacity: 0; transform: translate3d(24px, 0, 0); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ─── Kit v2 · 9. Footer social buttons ───────────────────────────────────── */
+
+.social-disc {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  overflow: hidden;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  transition: color 0.4s var(--ease-out-smc);
+}
+.social-disc::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(var(--gold));
+  transform: scale(0);
+  transition: transform 0.525s var(--ease-cta);
+}
+.social-disc > svg { position: relative; }
+.social-disc:hover,
+.social-disc:focus-visible { color: rgb(var(--navy)); }
+.social-disc:hover::before,
+.social-disc:focus-visible::before { transform: scale(1); }
+
+/* ─── Organization cards (OrgCard on Home, DirectoryCard on /directory) ───── */
+
+/* The cover scales to 1.05 (.8 s) and its sounding lines slide (1.2 s) when the card is hovered or focused. */
+.dir-cover-art {
+  transition: transform 0.8s var(--ease-out-smc);
+}
+.dir-cover-lines {
+  transition: transform 1.2s var(--ease-out-smc);
+}
+.card-lift:hover .dir-cover-art,
+.card-lift:has(:focus-visible) .dir-cover-art {
+  transform: scale(1.05);
+}
+.card-lift:hover .dir-cover-lines,
+.card-lift:has(:focus-visible) .dir-cover-lines {
+  transform: translate3d(-12px, 5px, 0);
+}
+
+/* The bar in the type's colour traces itself (.9 s, 250 ms after the card starts to arrive). */
+.dir-card-bar {
+  transform-origin: left;
+  transition: transform 0.9s var(--ease-out-smc) calc(var(--reveal-delay, 0ms) + 250ms);
+}
+.reveal:not(.is-in) .dir-card-bar {
+  transform: scaleX(0);
+}
+
+/* "View profile" is the card's cue: its gold line grows when the card is hovered or focused. */
+.has-ra:hover .dir-see .uline-t::after,
+.has-ra:focus-within .dir-see .uline-t::after {
+  transform: scaleX(1);
+}
 
 /* ─── Logo marquee (sponsors, grouped by tier) ────────────────────────────── */
 
@@ -452,36 +749,17 @@ li:nth-child(even) > .signpost-board:focus-visible {
 .logo-marquee:hover .logo-marquee-track,
 .logo-marquee:focus-within .logo-marquee-track { animation-play-state: paused; }
 
-/* ─── Chenal (numbered buoy steps) and pontoon timeline ───────────────────── */
+/* ─── Numbered steps (ChannelSteps) ───────────────────────────────────────── */
 
+/* Each dashed segment draws after its circle pops in (the delay is set inline, per step). */
 .chenal-line-h,
-.chenal-line-v { transition: clip-path 1.6s var(--ease-out-smc) 0.2s; }
+.chenal-line-v { transition: clip-path 0.9s var(--ease-out-smc) 0.35s; }
 .chenal:not(.is-in) .chenal-line-h { clip-path: inset(0 100% 0 0); }
 .chenal:not(.is-in) .chenal-line-v { clip-path: inset(0 0 100% 0); }
 .chenal.is-in .chenal-line-h,
 .chenal.is-in .chenal-line-v { clip-path: inset(0 0 0 0); }
 .chenal:not(.is-in) .chenal-buoy { opacity: 0; transform: scale(0.6); }
 .chenal.is-in .chenal-buoy { animation: smc-pop 0.5s var(--ease-swing) calc(0.3s + var(--i, 0) * 0.25s) both; }
-
-/* ─── Event route ─────────────────────────────────────────────────────────── */
-
-.route-pulse {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: smc-route-pulse 2.4s ease-out infinite;
-}
-.route-card {
-  transition: opacity 0.6s var(--ease-out-smc), transform 0.6s var(--ease-out-smc);
-}
-.route-card:not(.is-on) {
-  opacity: 0;
-  transform: translate3d(32px, 0, 0);
-}
-/* A keyboard user may reach a card before the boat does: it shows itself. */
-.route-card:focus-within {
-  opacity: 1;
-  transform: none;
-}
 
 /* ─── Typed placeholder caret ─────────────────────────────────────────────── */
 
@@ -514,10 +792,9 @@ html[data-motion-paused] .motion-loop,
 html[data-motion-paused] .motion-loop::before,
 html[data-motion-paused] .motion-loop::after,
 html[data-motion-paused] .logo-marquee-track,
-html[data-motion-paused] .buoy-bob,
-html[data-motion-paused] .route-pulse,
 html[data-motion-paused] .typed-caret,
-html[data-motion-paused] .tide::before {
+html[data-motion-paused] .notch-seg > i,
+html[data-motion-paused] .bathy-drift-b {
   animation-play-state: paused !important;
 }
 
@@ -536,63 +813,82 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .motion-loop,
   .motion-loop::before,
   .motion-loop::after,
-  .ken-burns,
-  .wave-drift,
-  .wave-drift-reverse,
   .bathy-drift,
-  .buoy-bob,
-  .route-pulse,
+  .bathy-drift-b,
   .logo-marquee-track,
-  .typed-caret,
-  .pontoon-swing,
-  .pontoon-slide,
-  .flap-fold-top,
-  .flap-fold-bottom,
-  .cap-sweep,
-  .berth-wake {
-    animation: none !important;
-  }
-  .berth-card {
-    opacity: 1 !important;
-    transform: none !important;
+  .typed-caret {
     animation: none !important;
   }
   .reveal,
   .reveal-group > *,
   .line-reveal .lr-i,
   .enter-up,
-  .waterline-reveal,
-  .wave-panel-bg,
-  .buoy-panel,
+  .hero-notch,
+  .hero-enter-fade,
+  .hero-settle,
+  .bgr .bgr-bg,
+  .bgr .bgr-content,
+  .rise-line > span,
   .chenal-line-h,
   .chenal-line-v,
-  .chenal-buoy,
-  .route-card {
+  .chenal-buoy {
     opacity: 1 !important;
     transform: none !important;
     clip-path: none !important;
     animation: none !important;
     transition: none !important;
   }
-  .tide,
-  .tide::before,
-  .tide > svg,
+  .card-lift:hover .dir-cover-art,
+  .card-lift:hover .dir-cover-lines,
+  .card-lift:has(:focus-visible) .dir-cover-art,
+  .card-lift:has(:focus-visible) .dir-cover-lines,
+  .notch-img {
+    transform: none !important;
+    transition: none !important;
+  }
+  .notch-seg.is-active.is-running > i {
+    animation: none !important;
+    transform: scaleX(1);
+  }
+  .acc-card.is-open {
+    flex-grow: 1 !important;
+  }
+  .acc-cap {
+    width: auto !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  /* Cards stay equal and open: the horizontal title shows, the collapsed-card extras do not. */
+  .acc-pic,
+  .acc-vt {
+    display: none !important;
+  }
+  .acc-title {
+    opacity: 1 !important;
+  }
+  .dir-cover-art,
+  .dir-cover-lines,
+  .dir-card-bar,
+  .cta,
+  .cta-t,
+  .cta-d,
+  .cta-d > svg,
+  .arrow-disc,
+  .arrow-disc::before,
+  .arrow-disc > svg,
+  .uline-t::after,
+  .uline-a,
   .card-lift,
   .card-media img,
-  .cap-needle,
-  .signpost-board,
-  .buoy-marker,
+  .acc-card,
+  .acc-cap,
+  .acc-img,
+  .stk-media img,
+  .social-disc,
+  .social-disc::before,
   .sticky.top-16,
   .sticky.top-20 {
     transition: none !important;
-  }
-  .tide:hover::before,
-  .tide:focus-visible::before {
-    animation: none !important;
-  }
-  .flap-fold-top,
-  .flap-fold-bottom {
-    display: none;
   }
 }
 
@@ -601,9 +897,9 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .reveal-group > *,
   .line-reveal .lr-i,
   .enter-up,
-  .waterline-reveal,
-  .wave-panel-bg,
-  .route-card {
+  .bgr .bgr-bg,
+  .bgr .bgr-content,
+  .rise-line > span {
     opacity: 1 !important;
     transform: none !important;
     clip-path: none !important;

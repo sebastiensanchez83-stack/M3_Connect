@@ -77,6 +77,7 @@ export function BathyPattern({
   tone = 'white',
   opacity,
   drift = false,
+  driftReverse = false,
   strokeWidth = 1,
 }: {
   className?: string;
@@ -89,6 +90,8 @@ export function BathyPattern({
   opacity?: number;
   /** Very slow drift (60 s). */
   drift?: boolean;
+  /** The same, mirrored and in the other direction (70 s): lay it over a `drift` one. */
+  driftReverse?: boolean;
   strokeWidth?: number;
 }) {
   const paths = useMemo(() => {
@@ -106,7 +109,7 @@ export function BathyPattern({
       <svg
         viewBox="0 0 800 600"
         preserveAspectRatio="xMidYMid slice"
-        className={cn('h-full w-full', drift && 'bathy-drift motion-loop')}
+        className={cn('h-full w-full', drift && 'bathy-drift motion-loop', driftReverse && 'bathy-drift-b motion-loop')}
         fill="none"
         stroke={stroke}
         strokeOpacity={strokeOpacity}

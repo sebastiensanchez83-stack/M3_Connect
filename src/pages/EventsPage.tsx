@@ -609,11 +609,11 @@ export function EventsPage() {
         ))}
       </FilterBar>
 
-      <div className="container mx-auto px-4 pt-6">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-6">
         <AdBanner placement="events" className="mb-2" />
       </div>
 
-      <div ref={listRef} className="container mx-auto space-y-12 px-4 pb-16 pt-6">
+      <div ref={listRef} className="mx-auto w-full max-w-7xl px-4 sm:px-6 space-y-12 pb-16 pt-6">
         {loading ? (
           <LoadingSkeleton variant="card" count={3} />
         ) : anyFilter && filtered.length === 0 && !showWys ? (

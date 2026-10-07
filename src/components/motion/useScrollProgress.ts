@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
  *    viewport, 1 when its bottom leaves at the top (parallax, progress bars).
  *
  * Pass a callback to drive styles directly (no React render per frame), e.g.
- * EventRoute moves its boat with it. `useScrollProgressValue` is the state
+ * the scroll-linked rows move with it. `useScrollProgressValue` is the state
  * flavour, for when a re-render per change is fine.
  */
 export type ScrollProgressMode = 'pin' | 'through';

@@ -1,11 +1,66 @@
 /*
- * Directory page (src/pages/DirectoryPage.tsx), refonte Oct 2026.
- * Only transform and opacity move. Reduced motion: final states at once.
+ * Directory page (src/pages/DirectoryPage.tsx) and its sheet
+ * (src/components/directory/SheetDrawer.tsx), refonte Oct 2026, v2 kit.
+ * Only transform and opacity move, the segmented cursor's width being the one
+ * exception. Reduced motion: final states at once (see the end of the file).
  */
 
-/* Active-filter chips scale and fade in; a removed chip shrinks away (0.32 s)
-   before it leaves the DOM. `backwards`: once in, the chip rests on its own
-   styles, so the exit transition starts from them. */
+/* ── Toolbar ─────────────────────────────────────────────────────────────── */
+
+/* The toolbar sticks under the floating header (its `top` follows --header-h,
+   smc-motion.css). Behind the header, once it sticks, a page-coloured shelf
+   keeps the cards that scroll up from showing between the bar's rounded edges. */
+.dir-toolbar::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 120px;
+  background: rgb(var(--page) / 0.94);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s var(--ease-out-smc);
+}
+.dir-toolbar.is-stuck {
+  box-shadow: 0 10px 24px rgba(11, 38, 83, 0.06);
+}
+.dir-toolbar.is-stuck::before {
+  opacity: 1;
+}
+
+/* Segmented control: the white cursor slides between the segments. */
+.dir-seg-cursor {
+  transition: transform 0.32s var(--ease-out-smc), width 0.32s var(--ease-out-smc);
+}
+.dir-seg-cursor.no-anim {
+  transition: none;
+}
+/* Below xl the row scrolls sideways: its edges fade. */
+@media (max-width: 1279px) {
+  .dir-seg-wrap {
+    -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%);
+  }
+}
+
+/* The Filters count bumps (x1.3, .45 s) each time it changes. */
+@keyframes dir-bump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+.dir-bump {
+  animation: dir-bump 0.45s var(--ease-out-smc);
+}
+
+/* ── Active-filter chips ─────────────────────────────────────────────────── */
+
+/* Chips scale and fade in; a removed chip shrinks away (0.32 s) before it leaves
+   the DOM. `backwards`: once in, the chip rests on its own styles, so the exit
+   transition starts from them. */
 @keyframes dir-chip-in {
   from { opacity: 0; transform: scale(0.8); }
   to { opacity: 1; transform: none; }
@@ -19,15 +74,11 @@
   transform: scale(0.8);
 }
 
-/* The type panel keeps its wave wipe (BuoyTabsContent), but drops the clip once
-   it has played, so the cards' hover shadow and focus ring at its edges are
-   never cut. */
-.dir-panel.buoy-panel[data-state="active"] {
-  animation-fill-mode: backwards;
-}
+/* ── Collections carousel ────────────────────────────────────────────────── */
 
-/* Collections carousel: native scrolling, no visible scrollbar (the progress
-   rule under it says where you are). */
+/* Native scrolling and snapping, no visible scrollbar (the progress rule under
+   it says where you are). A mouse drags the row (DirectoryPage CollectionsRow):
+   the snapping is off while it does. */
 .dir-collections {
   scrollbar-width: none;
   overscroll-behavior-x: contain;
@@ -35,10 +86,262 @@
 .dir-collections::-webkit-scrollbar {
   display: none;
 }
+.dir-collections img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .dir-collections {
+    cursor: grab;
+  }
+}
+.dir-collections.is-dragging {
+  scroll-snap-type: none;
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dir-collections.is-dragging .dir-tile {
+  pointer-events: none;
+}
+.dir-tile-img {
+  transition: transform 0.8s var(--ease-out-smc);
+}
+.dir-tile:hover .dir-tile-img,
+.dir-tile:focus-visible .dir-tile-img {
+  transform: scale(1.05);
+}
+
+/* ── Organization cards ──────────────────────────────────────────────────── */
+
+/* The shortlist star, over the cover under the round arrow: frosted glass, white when hovered,
+   gold with a navy outline once the company is on the shortlist. It wraps either our own button
+   (visitors) or BookmarkButton (members), so the rules target the button inside. */
+.dir-star > button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  cursor: pointer;
+  transition: background-color 0.4s var(--ease-out-smc), color 0.4s var(--ease-out-smc);
+}
+/* A 44 px target around the 36 px disc. */
+.dir-star > button::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+.dir-star > button svg {
+  width: 18px;
+  height: 18px;
+  color: currentColor;
+  transition: fill 0.3s var(--ease-out-smc);
+}
+.dir-star > button:hover,
+.dir-star > button:focus-visible {
+  background: #fff;
+  color: rgb(var(--navy));
+}
+.dir-star > button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.dir-star > button svg.fill-amber-400 {
+  fill: rgb(var(--gold));
+  color: rgb(var(--navy));
+}
+.dir-star > button:disabled {
+  opacity: 0.7;
+}
+
+/* ── SEO block, Opportunities tile ───────────────────────────────────────── */
+
+/* A pill that fills with navy from below on hover (.525 s). */
+.dir-theme-link {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgb(var(--rule));
+  font-size: 14px;
+  font-weight: 500;
+  color: rgb(var(--navy));
+  transition: color 0.45s var(--ease-cta);
+}
+.dir-theme-link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: rgb(var(--navy));
+  transform: translate3d(0, 101%, 0);
+  transition: transform 0.525s var(--ease-cta);
+}
+.dir-theme-link svg {
+  color: rgb(var(--gold-hover));
+  transition: transform 0.4s var(--ease-out-smc), color 0.4s var(--ease-out-smc);
+}
+.dir-theme-link:hover,
+.dir-theme-link:focus-visible {
+  color: #fff;
+}
+.dir-theme-link:hover::before,
+.dir-theme-link:focus-visible::before {
+  transform: none;
+}
+.dir-theme-link:hover svg,
+.dir-theme-link:focus-visible svg {
+  color: rgb(var(--gold));
+  transform: translate3d(3px, 0, 0);
+}
+
+.dir-opp-img {
+  transition: transform 0.8s var(--ease-out-smc);
+}
+.dir-opp:hover .dir-opp-img,
+.dir-opp:focus-visible .dir-opp-img {
+  transform: scale(1.05);
+}
+/* The tile is the link: its underline cue answers to the tile. */
+.dir-opp:hover .uline-t::after,
+.dir-opp:focus-visible .uline-t::after {
+  transform: scaleX(1);
+}
+.dir-opp:hover .uline-a,
+.dir-opp:focus-visible .uline-a {
+  transform: translate3d(3px, 0, 0);
+}
+
+/* ── Sheets (Filters, shortlist) ─────────────────────────────────────────── */
+
+/* .6 s, cubic-bezier(.38,.005,.215,1): the panel slides in from the right
+   (from the bottom below 640 px) over a veil that fades in; the groups inside
+   rise one after the other (.5 s, 45 ms apart, after 180 ms). */
+@keyframes dir-veil-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes dir-veil-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes dir-sheet-in {
+  from { transform: translate3d(calc(100% + 24px), 0, 0); }
+  to { transform: none; }
+}
+@keyframes dir-sheet-out {
+  from { transform: none; }
+  to { transform: translate3d(calc(100% + 24px), 0, 0); }
+}
+@keyframes dir-sheet-up-in {
+  from { transform: translate3d(0, 100%, 0); }
+  to { transform: none; }
+}
+@keyframes dir-sheet-up-out {
+  from { transform: none; }
+  to { transform: translate3d(0, 100%, 0); }
+}
+@keyframes dir-group-in {
+  from { opacity: 0; transform: translate3d(0, 16px, 0); }
+  to { opacity: 1; transform: none; }
+}
+.dir-sheet-veil[data-state="open"] {
+  animation: dir-veil-in 0.6s var(--ease-acc) both;
+}
+.dir-sheet-veil[data-state="closed"] {
+  animation: dir-veil-out 0.6s var(--ease-acc) both;
+}
+.dir-sheet[data-state="open"] {
+  animation: dir-sheet-up-in 0.6s var(--ease-acc) both;
+}
+.dir-sheet[data-state="closed"] {
+  animation: dir-sheet-up-out 0.6s var(--ease-acc) both;
+}
+@media (min-width: 640px) {
+  .dir-sheet[data-state="open"] {
+    animation-name: dir-sheet-in;
+  }
+  .dir-sheet[data-state="closed"] {
+    animation-name: dir-sheet-out;
+  }
+}
+.dir-sheet[data-state="open"] .drawer-group {
+  animation: dir-group-in 0.5s var(--ease-out-smc) calc(180ms + var(--i, 0) * 45ms) both;
+}
+
+/* The close button: a navy disc grows from the centre, the cross turns a quarter. */
+.dir-sheet-close {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  overflow: hidden;
+  transition: color 0.4s var(--ease-out-smc);
+}
+.dir-sheet-close::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(var(--navy));
+  transform: scale(0);
+  transition: transform 0.525s var(--ease-cta);
+}
+.dir-sheet-close svg {
+  position: relative;
+  transition: transform 0.525s var(--ease-cta);
+}
+.dir-sheet-close:hover {
+  color: #fff;
+}
+.dir-sheet-close:hover::before {
+  transform: scale(1);
+}
+.dir-sheet-close:hover svg {
+  transform: rotate(90deg);
+}
+
+/* ── Reduced motion: final states, nothing moves ─────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .dir-chip {
+  .dir-chip,
+  .dir-bump,
+  .dir-sheet-veil,
+  .dir-sheet,
+  .dir-sheet[data-state="open"] .drawer-group {
     animation: none !important;
     transition: none !important;
+  }
+  .dir-seg-cursor,
+  .dir-tile-img,
+  .dir-opp-img,
+  .dir-theme-link,
+  .dir-theme-link::before,
+  .dir-sheet-close::before,
+  .dir-sheet-close svg {
+    transition: none !important;
+  }
+  .dir-tile:hover .dir-tile-img,
+  .dir-tile:focus-visible .dir-tile-img,
+  .dir-opp:hover .dir-opp-img {
+    transform: none !important;
   }
 }

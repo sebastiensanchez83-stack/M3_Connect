@@ -304,7 +304,7 @@ export function ResourcesPage() {
       </PageHero>
 
       {/* ── Themes: the way in ── */}
-      <section className="container mx-auto px-4 pt-8" aria-labelledby="themes-heading">
+      <section className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-8" aria-labelledby="themes-heading">
         <h2 id="themes-heading" className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500">
           {t('resources.browseByTheme')}
         </h2>
@@ -387,12 +387,12 @@ export function ResourcesPage() {
           )}
       </FilterBar>
 
-      <div className="container mx-auto px-4 pt-6">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-6">
         <AdBanner placement="resources" className="mb-2" />
       </div>
 
       {/* ── Results ── */}
-      <div ref={resultsRef} className="container mx-auto px-4 pb-16 pt-6">
+      <div ref={resultsRef} className="mx-auto w-full max-w-7xl px-4 sm:px-6 pb-16 pt-6">
         {loading ? (
           <LoadingSkeleton variant="card" count={6} />
         ) : filtered.length === 0 ? (

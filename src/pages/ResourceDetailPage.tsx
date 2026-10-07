@@ -140,7 +140,7 @@ export function ResourceDetailPage() {
   };
 
   const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString(undefined, {
+    return new Date(date).toLocaleDateString('en-GB', {
       year: 'numeric', month: 'long', day: 'numeric',
     });
   };
@@ -173,12 +173,12 @@ export function ResourceDetailPage() {
           in the 16:10 thumbnail cards without surprises. */}
       <div className="relative">
         {resource.thumbnail_url ? (
-          <div className="max-w-7xl mx-auto relative aspect-[3/1] min-h-[14rem] overflow-hidden">
+          <div className="w-full max-w-7xl mx-auto relative aspect-[3/1] min-h-[14rem] overflow-hidden">
             <img src={resource.thumbnail_url} alt={resource.title} className="w-full h-full object-cover object-center" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
           </div>
         ) : (
-          <div className="max-w-7xl mx-auto relative aspect-[3/1] min-h-[14rem] overflow-hidden bg-gradient-to-br from-[#0b2653] to-[#143a6b]">
+          <div className="w-full max-w-7xl mx-auto relative aspect-[3/1] min-h-[14rem] overflow-hidden bg-gradient-to-br from-[#0b2653] to-[#143a6b]">
             <div className="absolute inset-0 flex items-center justify-center opacity-10">
               <FileText className="h-40 w-40 text-white" />
             </div>

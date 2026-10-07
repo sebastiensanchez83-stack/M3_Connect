@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { LucideIcon } from 'lucide-react';
 import {
-  AlertTriangle, Anchor, ArrowRight, Briefcase, Building2, Check, ChevronDown, ChevronLeft, ChevronRight,
-  Compass, HardHat, MapPin, Newspaper, Search, SlidersHorizontal, TrendingUp, Users,
+  AlertTriangle, ArrowRight, Building2, Check, ChevronDown, ChevronLeft, ChevronRight,
+  Compass, MapPin, Search, SlidersHorizontal, Star, Users,
 } from 'lucide-react';
 import i18next from '@/i18n';
 import { DIRECTORY_STRINGS } from '@/i18n/directory';
 import { Seo } from '@/components/seo/Seo';
 import { themedPath } from '@/lib/seoMeta';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/PageHero';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -19,24 +18,28 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { LineReveal } from '@/components/motion/LineReveal';
-import { WavePanel } from '@/components/motion/WavePanel';
+import { Counter } from '@/components/motion/Counter';
 import { BathyPattern } from '@/components/motion/BathyPattern';
-import { Graticule } from '@/components/motion/Graticule';
 import { useMotion } from '@/components/motion/MotionProvider';
+import { useMediaQuery } from '@/components/motion/useReducedMotion';
+import { useParallax } from '@/components/motion/useParallax';
+import { subscribeScroll } from '@/components/motion/scrollLoop';
+import { BgRevealPanel } from '@/components/brand/BgRevealPanel';
 import { SearchField } from '@/components/brand/SearchField';
-import { CapArrow } from '@/components/brand/CapArrow';
+import { ArrowDisc } from '@/components/brand/ArrowDisc';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { GiantMarqueeBand } from '@/components/brand/GiantMarquee';
+import { HeroNotch } from '@/components/brand/EventNotch';
+import { notchEventItems } from '@/components/brand/m3Events';
 import { CardShell, StretchedLink } from '@/components/brand/CardShell';
-import { BerthBand, LogoTile, TypeFlagLabel, TypePennant, VerifiedMark, ViewProfileCue } from '@/components/brand/OrgCard';
-import { FlapFigure } from '@/components/brand/FlapFigure';
-import { ThemeFlag } from '@/components/brand/ThemeFlag';
-import { BuoyTabs, BuoyTabsContent, BuoyTabsList, BuoyTabsTrigger } from '@/components/brand/BuoyTabs';
-import { Eyebrow, WaveMark } from '@/components/brand/Eyebrow';
-import { Drawer } from '@/components/brand/Drawer';
+import { OrgCover, VerifiedPill, TYPE_RGB, orgTypeTone, seedOf, useOrgTypeLabel } from '@/components/brand/OrgCard';
+import { Eyebrow } from '@/components/brand/Eyebrow';
 import { M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
+import { SheetDrawer } from '@/components/directory/SheetDrawer';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
-import { SITE_IMAGES } from '@/lib/siteMedia';
+import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
 import { useNetworkFigures, formatFigure, countryKey, countryKeysOf, countryParts, rawCountryOf } from '@/lib/networkStats';
 import { bestSpelling, countrySlug, localizedCountryName } from '@/lib/countryNames';
 import { withSiteSuffix } from '@/lib/seoText';
@@ -53,23 +56,26 @@ for (const lng of ['en', 'fr'] as const) {
 /**
  * The directory: who is on Smart Marina Connect. Served at /directory.
  *
- * Refonte (Oct 2026), on the SMC devices (never the Solar Impulse ones):
- *   - a compact PageHero (waterline edge) with the live figures counting once;
- *   - a sticky toolbar that rises with the header when it tucks away: search
- *     (plain magnifier, typed example searches), the type as "bouées" buoy
- *     tabs with live counts, "Members only", the Filters drawer and the sort;
+ * Refonte (Oct 2026), on the v2 kit (the Solar Impulse spirit Victor chose):
+ *   - a compact inset PageHero (photo, line-revealed H1) with the live figures
+ *     counting once, and a notch card for marinas that are listed but unclaimed
+ *     (from 1280 px);
+ *   - a sticky toolbar that follows the header (it rises when the header tucks
+ *     away, and a page-coloured shelf backs it when it sticks): the search pill,
+ *     the type as a segmented control whose white cursor slides between live
+ *     counts, "Members only", the Filters sheet and the sort;
  *   - active filters as chips that scale in and out;
- *   - M3 selections: shareable filter URLs built from data that exists
- *     (newest members, marinas on the platform, the six themes), drawn as
- *     chart cartouches;
- *   - one "berth card" grammar (a band of sounding lines, the type flown as a
- *     burgee, logo beside the name, "Verified member" as words in the meta
- *     row only for organizations that have an owner, "View profile" and the
- *     cap needle), and a labelled shortlist button in the card's footer
- *     (members: BookmarkButton; visitors: a drawer explaining the shortlist
- *     with Sign in / Sign up);
- *   - a wide "Run a marina? Publish your need" panel, the SEO text with the six
- *     theme pages, and the "Is your marina listed? Claim it" card.
+ *   - M3 selections: shareable filter URLs built from data that exists (newest
+ *     members, marinas on the platform, the six themes) plus the World Yachting
+ *     Summit, as photo tiles with a round arrow in a carousel you can drag;
+ *   - one organization card: a cover (type colours, sounding lines, the type's
+ *     icon), the round arrow and the shortlist star over it, a bar in the
+ *     type's colour that traces itself, the logo straddling the cover, "View
+ *     profile" underlined on hover. Visitors get a star that opens a sheet
+ *     explaining the shortlist (Sign in / Sign up); members a BookmarkButton;
+ *   - a wide "Run a marina? Publish your need" panel, a giant marquee, the SEO
+ *     text with the six theme pages, an Opportunities tile and the "Is your
+ *     marina listed? Claim it" card.
  *
  * Every filter lives in the URL (?q=&type=&theme=&sector=&country=&joined=1
  * &mine=1&sort=), and a param with nothing on screen to show it is ignored,
@@ -134,18 +140,17 @@ type TFn = ReturnType<typeof useTranslation>['t'];
 
 interface TypeFacet {
   key: TypeKey;
-  icon: LucideIcon;
-  /** Plural, for the buoy tabs. */
+  /** Plural, for the segmented control. */
   labelKey: string;
   fallback: string;
 }
 
 const TYPE_FACETS: TypeFacet[] = [
-  { key: 'marina', icon: Anchor, labelKey: 'directory.types.marina', fallback: 'Marinas' },
-  { key: 'partner', icon: Briefcase, labelKey: 'directory.types.partner', fallback: 'Service providers' },
-  { key: 'investor', icon: TrendingUp, labelKey: 'directory.types.investor', fallback: 'Investors' },
-  { key: 'developer', icon: HardHat, labelKey: 'directory.types.developer', fallback: 'Developers' },
-  { key: 'media_partner', icon: Newspaper, labelKey: 'directory.types.media_partner', fallback: 'Media' },
+  { key: 'marina', labelKey: 'directory.types.marina', fallback: 'Marinas' },
+  { key: 'partner', labelKey: 'directory.types.partner', fallback: 'Service providers' },
+  { key: 'investor', labelKey: 'directory.types.investor', fallback: 'Investors' },
+  { key: 'developer', labelKey: 'directory.types.developer', fallback: 'Developers' },
+  { key: 'media_partner', labelKey: 'directory.types.media_partner', fallback: 'Media' },
 ];
 const FACET_BY_KEY = new Map(TYPE_FACETS.map((f) => [f.key as string, f]));
 
@@ -172,8 +177,12 @@ const isPaying = (tier: string) => (SPONSOR_TIERS as string[]).includes(tier);
 
 const PAGE_SIZE = 24;
 
-/** The navbar's height while it shows (src/components/layout/Navbar.tsx). */
-const HEADER_H = 64;
+/** The header band's height while it shows: 72 px on phones, 84 px from md (--header-full, index.css). */
+function headerBand(): number {
+  if (typeof document === 'undefined') return 72;
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--header-full'));
+  return Number.isFinite(v) && v > 0 ? v : 72;
+}
 
 /** Search text: lower case, accents dropped, so "electricite" finds "Électricité". */
 const fold = (s: string) => s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
@@ -189,13 +198,6 @@ function countThemes(list: Indexed[]): Record<ThemeKey, number> {
 const FILTER_PARAMS = ['type', 'theme', 'sector', 'country', 'joined', 'mine', 'q', 'sort'];
 function filterSignature(search: URLSearchParams): string {
   return FILTER_PARAMS.map((k) => `${k}=${search.getAll(k).join(',')}`).join('&');
-}
-
-/** Small stable hash, for the cover's sounding-line drawing. */
-function seedOf(id: string): number {
-  let h = 0;
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-  return (Math.abs(h) % 97) + 1;
 }
 
 /* ─── Page ───────────────────────────────────────────────────────── */
@@ -228,7 +230,11 @@ export function DirectoryPage() {
   const resultsRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
   const filtersButtonRef = useRef<HTMLButtonElement>(null);
+  const filtersRoundRef = useRef<HTMLButtonElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const pendingScroll = useRef(false);
+  /** The toolbar is stuck under the header: a page-coloured shelf backs it, with a soft shadow. */
+  const [stuck, setStuck] = useState(false);
 
   // Keyboard focus moving up must not land under the sticky toolbar: its height
   // feeds the page's scroll-padding (index.css) while the directory is mounted.
@@ -247,6 +253,19 @@ export function DirectoryPage() {
       ro?.disconnect();
       root.style.removeProperty('--sticky-offset');
     };
+  }, []);
+
+  // Stuck state: the sentinel above the toolbar has scrolled up to where the toolbar sits
+  // (its computed top follows the header: --header-h is 0 while the header is tucked away).
+  useEffect(() => {
+    const bar = toolbarRef.current;
+    const sentinel = sentinelRef.current;
+    if (!bar || !sentinel) return;
+    return subscribeScroll(() => {
+      const top = parseFloat(getComputedStyle(bar).top) || 0;
+      const next = sentinel.getBoundingClientRect().top <= top + 0.5;
+      setStuck((prev) => (prev === next ? prev : next));
+    });
   }, []);
 
   // ---------------------------------------------------------------- URL state
@@ -582,8 +601,8 @@ export function DirectoryPage() {
   const shownCount = featured.length + visible.length;
 
   // A new filter starts from the first batch again.
-  const replayKey = `${activeTheme?.key ?? ''}|${activeSector ?? ''}|${activeMine}|${joinedOnly}|${activeCountriesKey}|${sort}`;
-  const filterKey = `${activeType ?? ''}|${replayKey}`;
+  const replayKey = `${activeType ?? ''}|${activeTheme?.key ?? ''}|${activeSector ?? ''}|${activeMine}|${joinedOnly}|${activeCountriesKey}|${sort}`;
+  const filterKey = replayKey;
   useEffect(() => { setLimit(PAGE_SIZE); }, [filterKey, query]);
 
   /**
@@ -596,7 +615,7 @@ export function DirectoryPage() {
     const bar = toolbarRef.current?.offsetHeight ?? 0;
     const base = el.getBoundingClientRect().top + window.scrollY - bar - 12;
     const goingUp = base < window.scrollY;
-    const top = Math.max(0, goingUp ? base - HEADER_H : base);
+    const top = Math.max(0, goingUp ? base - headerBand() : base);
     if (onlyIfBelow && window.scrollY <= top) return;
     window.scrollTo({ top, behavior: reduced ? 'auto' : 'smooth' });
   }, [reduced]);
@@ -690,8 +709,8 @@ export function DirectoryPage() {
         kicker: t('directory.collections.newMembersKicker', 'Network'),
         title: t('directory.collections.newMembers', 'Newest members'),
         search: '?joined=1&sort=recent',
-        icon: Users,
         count: joined.length,
+        image: SITE_IMAGES.joinHero,
       });
     }
     const marinas = joined.filter((o) => o.organization_type === 'marina').length;
@@ -701,9 +720,21 @@ export function DirectoryPage() {
         kicker: t('directory.collections.marinasKicker', 'Marinas'),
         title: t('directory.collections.marinas', 'Marinas on the platform'),
         search: '?type=marina&joined=1',
-        icon: Anchor,
-        orgType: 'marina',
         count: marinas,
+        image: { src: PERSONA_IMAGES.marinas, focusY: 0.5 },
+      });
+    }
+    // The three M3 meeting points sit side by side: the Summit has no list of its
+    // own to filter by (it is by invitation), so its tile leads to its page.
+    const wys = notchEventItems(t).find((i) => i.id === 'wys26');
+    if (wys) {
+      list.push({
+        key: 'wys26',
+        kicker: t('brand.events.wys.kicker', 'Dubai · 27 November 2026'),
+        title: wys.title,
+        to: wys.href,
+        pill: t('directory.collections.byInvitation', 'By invitation'),
+        image: wys.image,
       });
     }
     const counts = countThemes(indexed);
@@ -714,16 +745,15 @@ export function DirectoryPage() {
         kicker: t('directory.collections.themeKicker', 'Theme'),
         title: themeLabel(th),
         search: `?theme=${th.key}`,
-        icon: th.icon,
-        theme: th.key,
         count: counts[th.key],
+        image: th.image ? { src: th.image, focusY: th.imageFocusY } : null,
       });
     }
     return list;
   }, [indexed, t, themeLabel]);
 
   const currentSignature = filterSignature(params);
-  const currentCollection = collections.find((c) => filterSignature(new URLSearchParams(c.search)) === currentSignature)?.key ?? null;
+  const currentCollection = collections.find((c) => c.search && filterSignature(new URLSearchParams(c.search)) === currentSignature)?.key ?? null;
 
   const pickCollection = (key: string) => {
     if (key === currentCollection) {
@@ -794,6 +824,36 @@ export function DirectoryPage() {
   /** Counts show only once the list is really in (never "0" after a failed load). */
   const dataReady = !loading && !loadFailed;
   const cardProps = { openTheme: activeTheme, activeSector, sectorLabel, themeLabel, visitor, onVisitorStar: openShortlist };
+  // Cards in one row arrive 80 ms apart: how many fit in a row depends on the grid.
+  const columns = useColumns();
+
+  const segItems: SegItem[] = [
+    { value: 'all', label: t('directory.types.all', 'All'), count: dataReady ? indexed.length : null },
+    ...facets.map((f) => ({ value: f.key as string, label: t(f.labelKey, f.fallback), count: typeCounts[f.key] ?? 0 })),
+  ];
+
+  /** Back to the filter button the reader can see (the round one on phones, the labelled one from xl). */
+  const focusFilters = useCallback(() => {
+    const els = [filtersButtonRef.current, filtersRoundRef.current];
+    (els.find((el) => el && el.offsetParent !== null) ?? els[0])?.focus();
+  }, []);
+
+  const filtersAria = drawerFilterCount > 0
+    ? t('directory.filters.openCount', { count: drawerFilterCount, defaultValue: 'Filters, {{count}} active' })
+    : t('directory.filters.open', 'Filters');
+
+  const marqueeLines = useMemo<[string[], string[]]>(() => [
+    [t('directory.marquee.title', 'The marina industry directory')],
+    liveFigures
+      ? [
+          t('directory.marquee.marinas', { value: liveFigures.marinas, defaultValue: '{{value}} marinas' }),
+          t('directory.marquee.providers', { value: liveFigures.suppliers, defaultValue: '{{value}} service providers' }),
+          t('directory.marquee.countries', { value: liveFigures.countries, defaultValue: '{{value}} countries' }),
+        ]
+      : TYPE_FACETS.map((f) => t(f.labelKey, f.fallback)),
+    // The figures are strings of the live counts: depend on them, not on the object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [t, liveFigures?.marinas, liveFigures?.suppliers, liveFigures?.countries]);
 
   // ---------------------------------------------------------------- render
   return (
@@ -807,32 +867,30 @@ export function DirectoryPage() {
         eyebrow={t('directory.eyebrow', "Who's who")}
         title={t('directory.title', 'Marina & service provider directory')}
         subtitle={t('directory.subtitle', 'Marinas, service providers, investors and media. Filter by theme or country, shortlist the companies you need and request an introduction from their page.')}
-        belowColor="rgb(246, 247, 249)"
+        notch={<ClaimNotch />}
       >
         <HeroFigures marinas={figures.marinas} providers={figures.partners} countries={figures.countries} manual={figures.manual} />
       </PageHero>
 
-      <BuoyTabs
-        value={tabValue}
-        onValueChange={(v) => selectType(v === 'all' ? null : (v as TypeKey))}
-        activationMode="manual"
-      >
-        {/* ── Toolbar: sticks under the header and rises with it when it tucks away ── */}
+      <div className="mt-3 md:mt-4">
+        <div ref={sentinelRef} aria-hidden="true" />
+
+        {/* ── Toolbar: sticks under the header, rises with it when it tucks away ── */}
         <div
           ref={toolbarRef}
           role="region"
           aria-label={t('directory.toolbarLabel', 'Search and filter the directory')}
-          className="sticky top-16 z-30 border-b border-rule bg-page/95 backdrop-blur-md"
+          className={cn('dir-toolbar sticky top-16 z-30 border-b border-rule bg-page/95 backdrop-blur-md', stuck && 'is-stuck')}
         >
-          {/* Always mounted (the results panel remounts per type): a screen
+          {/* Always mounted (the results panel changes with the type): a screen
               reader hears the new count after each filter or search. */}
           <p className="sr-only" aria-live="polite" aria-atomic="true">
             {dataReady ? t('directory.results', { count: filtered.length, defaultValue: '{{count}} organizations' }) : ''}
           </p>
-          <div className="container mx-auto px-4 pt-3">
-            <div className="flex items-center gap-2 sm:gap-3">
+          <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 xl:flex-nowrap">
               <SearchField
-                className="min-w-0 flex-1 lg:max-w-[560px]"
+                className="order-1 min-w-0 flex-1 xl:w-[400px] xl:flex-none"
                 tone="light"
                 size="md"
                 inputId="directory-search"
@@ -846,68 +904,84 @@ export function DirectoryPage() {
                 placeholder={t('directory.searchPlaceholder', 'Name, service, country…')}
                 label={t('directory.searchLabel', 'Search the directory')}
               />
-              <Button
-                ref={filtersButtonRef}
+
+              {/* Phones and tablets: the Filters button is a round one next to the search. */}
+              <button
+                ref={filtersRoundRef}
                 type="button"
-                variant="tideOutline"
                 onClick={() => setFiltersOpen(true)}
                 aria-haspopup="dialog"
                 aria-expanded={filtersOpen}
-                aria-label={drawerFilterCount > 0
-                  ? t('directory.filters.openCount', { count: drawerFilterCount, defaultValue: 'Filters, {{count}} active' })
-                  : t('directory.filters.open', 'Filters')}
-                // Labelled on every screen. The tide button clips its overflow (the water), so the count sits inside it.
-                className="shrink-0 px-3.5 sm:px-5"
+                aria-label={filtersAria}
+                className="order-2 relative inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-pill border-[1.5px] border-navy bg-white text-navy transition-colors duration-300 hover:bg-navy hover:text-white focus-visible:shadow-focus focus-visible:outline-none xl:hidden"
               >
-                <SlidersHorizontal className="h-[18px] w-[18px]" aria-hidden="true" />
-                <span>{t('directory.filters.open', 'Filters')}</span>
+                <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
                 {drawerFilterCount > 0 && (
                   <span
+                    key={drawerFilterCount}
                     aria-hidden="true"
-                    className="tabular grid h-5 min-w-5 place-items-center rounded-pill bg-gold px-1.5 text-[12px] font-semibold leading-none text-navy"
+                    className="dir-bump tabular absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-pill bg-navy px-1.5 text-[12px] font-semibold leading-none text-white shadow-[0_0_0_2px_rgb(var(--page))]"
                   >
                     {drawerFilterCount}
                   </span>
                 )}
-              </Button>
-              <SortSelect className="ml-auto hidden lg:inline-flex" value={sort} options={sortOptions} onChange={setSort} />
-            </div>
+              </button>
 
-            <div className="mt-2 flex items-start gap-4">
-              <BuoyTabsList
-                aria-label={t('directory.typeGroup', 'Type of organization')}
-                // Edge to edge on phones (the row scrolls sideways), so max-w-none.
-                wrapperClassName="-mx-4 min-w-0 max-w-none flex-1 px-4 pb-6 lg:mx-0 lg:max-w-full lg:flex-none lg:px-0"
-              >
-                <BuoyTabsTrigger value="all">
-                  {t('directory.types.all', 'All')}
-                  <TabCount value={dataReady ? indexed.length : null} />
-                </BuoyTabsTrigger>
-                {facets.map((f) => (
-                  <BuoyTabsTrigger key={f.key} value={f.key}>
-                    {t(f.labelKey, f.fallback)}
-                    <TabCount value={typeCounts[f.key] ?? 0} />
-                  </BuoyTabsTrigger>
-                ))}
-                {loading && [0, 1, 2].map((i) => (
-                  <span key={i} aria-hidden="true" className="mx-1 h-6 w-24 animate-pulse rounded-pill bg-white/70 motion-reduce:animate-none" />
-                ))}
-              </BuoyTabsList>
+              <div className="order-3 min-w-0 basis-full grow xl:basis-auto xl:grow-0">
+                <SegmentedTabs
+                  items={segItems}
+                  value={tabValue}
+                  onChange={(v) => selectType(v === 'all' ? null : (v as TypeKey))}
+                  label={t('directory.typeGroup', 'Type of organization')}
+                  panelId="directory-panel"
+                  loading={loading}
+                />
+              </div>
+
               <MembersSwitch
-                className="ml-auto mt-0.5 hidden lg:inline-flex"
+                className="order-4 hidden xl:inline-flex"
                 checked={joinedOnly}
                 count={dataReady ? derived.joinedAvailable : undefined}
                 onToggle={() => update({ joined: joinedOnly ? null : '1' })}
               />
             </div>
+
+            <div className="mt-2.5 hidden items-center gap-3 xl:flex">
+              <Button
+                ref={filtersButtonRef}
+                type="button"
+                variant="ctaOutline"
+                size="sm"
+                arrow={false}
+                roll={false}
+                onClick={() => setFiltersOpen(true)}
+                aria-haspopup="dialog"
+                aria-expanded={filtersOpen}
+                aria-label={filtersAria}
+                className="group shrink-0 gap-2 px-4"
+              >
+                <SlidersHorizontal className="h-[18px] w-[18px]" aria-hidden="true" />
+                <span>{t('directory.filters.open', 'Filters')}</span>
+                {drawerFilterCount > 0 && (
+                  <span
+                    key={drawerFilterCount}
+                    aria-hidden="true"
+                    className="dir-bump tabular grid h-5 min-w-5 place-items-center rounded-pill bg-navy px-1.5 text-[12px] font-semibold leading-none text-white transition-colors duration-300 group-hover:bg-gold group-hover:text-navy"
+                  >
+                    {drawerFilterCount}
+                  </span>
+                )}
+              </Button>
+              <SortSelect className="ml-auto" value={sort} options={sortOptions} onChange={setSort} />
+            </div>
           </div>
         </div>
 
-        <div className="container mx-auto px-4">
+        <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
           {/* ── Active filters: chips that scale in and out ── */}
           <div className="flex flex-wrap items-center gap-2 pt-4">
             <MembersSwitch
-              className="-ml-1.5 lg:hidden"
+              className="-ml-1.5 xl:hidden"
               checked={joinedOnly}
               count={dataReady ? derived.joinedAvailable : undefined}
               onToggle={() => update({ joined: joinedOnly ? null : '1' })}
@@ -916,13 +990,13 @@ export function DirectoryPage() {
               items={chips}
               label={t('directory.filters.active', 'Active filters:')}
               removeLabel={(label) => t('directory.filters.remove', { label, defaultValue: 'Remove the filter: {{label}}' })}
-              fallbackFocus={filtersButtonRef}
+              fallbackFocus={focusFilters}
             />
             {anyFilter && (
               <button
                 type="button"
                 onClick={clearAll}
-                className="focus-ring inline-flex min-h-10 items-center rounded-badge px-1.5 text-sm font-semibold text-gold-text underline underline-offset-[3px] transition-colors hover:text-navy"
+                className="dir-chip focus-ring inline-flex min-h-10 items-center rounded-badge px-1.5 text-sm font-semibold text-gold-text underline underline-offset-[3px] transition-colors hover:text-navy"
               >
                 {t('directory.clearFilters', 'Clear filters')}
               </button>
@@ -939,14 +1013,14 @@ export function DirectoryPage() {
           </div>
         </div>
 
-        {/* ── Results: the type panel arrives with a wave wipe ── */}
-        <BuoyTabsContent key={tabValue} value={tabValue} className="dir-panel mt-0 rounded-none">
-          <div ref={resultsRef} id="directory-results" className="container mx-auto px-4 pb-6 pt-6">
+        {/* ── Results ── */}
+        <div role="tabpanel" id="directory-panel" aria-labelledby={`dir-tab-${tabValue}`}>
+          <div ref={resultsRef} id="directory-results" className="mx-auto w-full max-w-7xl px-4 sm:px-6 pb-6 pt-6">
             <h2 className="sr-only">{t('directory.resultsHeading', 'Organizations')}</h2>
             {loading ? (
               <>
                 <p role="status" className="sr-only">{t('directory.states.loading', 'Loading the directory…')}</p>
-                <ul aria-hidden="true" className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                <ul aria-hidden="true" className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                   {Array.from({ length: 6 }, (_, i) => <CardSkeleton key={i} />)}
                 </ul>
               </>
@@ -957,13 +1031,12 @@ export function DirectoryPage() {
                 </span>
                 <p className="text-h3 text-navy">{t('directory.states.errorTitle', 'The directory could not be loaded.')}</p>
                 <p className="mt-2 text-body text-meta">{t('directory.states.errorBody', 'Check your connection, then try again.')}</p>
-                <Button variant="tideNavy" className="mt-6" onClick={() => setReloadKey((k) => k + 1)}>
+                <Button variant="ctaNavy" className="mt-6" onClick={() => setReloadKey((k) => k + 1)}>
                   {t('directory.states.retry', 'Try again')}
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </div>
             ) : filtered.length === 0 ? (
-              <div className="mx-auto max-w-xl rounded-card border border-dashed border-rule bg-white px-6 py-12 text-center">
+              <div className="mx-auto max-w-xl rounded-[24px] border border-dashed border-rule bg-white px-6 py-12 text-center">
                 <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-pill bg-chip text-navy">
                   {orgs.length === 0 ? <Building2 className="h-6 w-6" aria-hidden="true" /> : <Search className="h-6 w-6" aria-hidden="true" />}
                 </span>
@@ -977,12 +1050,12 @@ export function DirectoryPage() {
                     <p className="mt-2 text-body text-meta">{t('directory.states.noMatchHint', 'Try another word, or remove a filter.')}</p>
                     <div className="mt-6 flex flex-wrap justify-center gap-3">
                       {tokens.length > 0 && (
-                        <Button variant="tideOutline" onClick={() => update({ q: null })}>
+                        <Button variant="ctaOutline" onClick={() => update({ q: null })}>
                           {t('directory.states.clearSearch', 'Clear the search')}
                         </Button>
                       )}
                       {narrowed && (
-                        <Button variant="tideNavy" onClick={clearAll}>
+                        <Button variant="ctaNavy" onClick={clearAll}>
                           {t('directory.clearFilters', 'Clear filters')}
                         </Button>
                       )}
@@ -1009,7 +1082,7 @@ export function DirectoryPage() {
                 {featured.length > 0 && (
                   <section
                     aria-labelledby="directory-featured-heading"
-                    className="mt-5 rounded-card border border-rule bg-white p-4 sm:p-6"
+                    className="mt-5 rounded-[24px] border border-rule bg-white p-4 sm:p-6"
                   >
                     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
                       <div className="min-w-[12rem] flex-1">
@@ -1018,14 +1091,13 @@ export function DirectoryPage() {
                         </h2>
                         <p className="mt-1 text-sm text-meta">{t('directory.featuredDesc', "Companies that sponsor M3's events")}</p>
                       </div>
-                      <Link to="/partners" className={buttonVariants({ variant: 'tideOutline', size: 'sm' })}>
-                        {t('directory.featuredAll', 'All partners')}
-                        <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                      </Link>
+                      <Button asChild variant="ctaOutline" size="sm">
+                        <Link to="/partners">{t('directory.featuredAll', 'All partners')}</Link>
+                      </Button>
                     </div>
-                    <ul className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                    <ul className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
                       {featured.map((o, i) => (
-                        <Reveal as="li" key={o.id} delay={(i % 3) * 80} className="flex">
+                        <Reveal as="li" key={o.id} delay={(i % Math.min(columns, 3)) * 80} className="flex min-w-0">
                           <DirectoryCard org={o} {...cardProps} />
                         </Reveal>
                       ))}
@@ -1034,7 +1106,7 @@ export function DirectoryPage() {
                 )}
 
                 {visible.length > 0 && (
-                  <ul ref={listRef} className="mt-5 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+                  <ul ref={listRef} className="mt-5 grid grid-cols-1 grid-flow-row-dense gap-6 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                     {visible.map((o, i) => (
                       <FragmentWithNeed
                         key={o.id}
@@ -1046,7 +1118,7 @@ export function DirectoryPage() {
                           />
                         }
                       >
-                        <Reveal as="li" delay={(i % 3) * 80} className="flex">
+                        <Reveal as="li" delay={(i % columns) * 80} className="flex min-w-0">
                           <DirectoryCard org={o} {...cardProps} />
                         </Reveal>
                       </FragmentWithNeed>
@@ -1055,94 +1127,65 @@ export function DirectoryPage() {
                 )}
 
                 {rest.length > visible.length && (
-                  <div className="mt-10 flex flex-col items-center gap-3">
-                    <p className="text-sm text-meta">
-                      {t('directory.shownOf', 'Showing {{shown}} of {{total}}', { shown: shownCount, total: filtered.length })}
-                    </p>
-                    <Button variant="tideOutline" onClick={() => setLimit((n) => n + PAGE_SIZE)}>
-                      {t('directory.showMore', 'Show more')}
+                  <div className="mt-10 flex justify-center">
+                    <Button variant="ctaOutline" onClick={() => setLimit((n) => n + PAGE_SIZE)}>
+                      {t('directory.showMore', 'Show more')}{' '}
+                      <span className="font-medium opacity-70">
+                        ({t('directory.shownOfShort', { shown: shownCount, total: filtered.length, defaultValue: '{{shown}} of {{total}}' })})
+                      </span>
                     </Button>
                   </div>
                 )}
               </>
             )}
           </div>
-        </BuoyTabsContent>
-      </BuoyTabs>
-
-      {/* ── SEO text with the six theme pages, and "claim your marina" ── */}
-      <div className="container mx-auto px-4 pb-20 pt-14 md:pb-28 md:pt-20">
-        <div className="grid gap-10 lg:grid-cols-12 lg:gap-12">
-          <section aria-labelledby="directory-seo-heading" className="lg:col-span-7">
-            <Reveal>
-              <Eyebrow>{t('directory.seo.eyebrow', 'Directory')}</Eyebrow>
-            </Reveal>
-            <LineReveal as="h2" id="directory-seo-heading" className="mt-3 text-h2-sm text-navy md:text-h2">
-              {t('directory.seo.title', 'Find a service provider for your marina')}
-            </LineReveal>
-            <Reveal delay={120}>
-              <p className="mt-4 text-body text-ink md:text-body-lg">
-                {t('directory.seo.p1', 'The Smart Marina Connect directory brings together marinas and the companies that equip and run them: pontoons and dredging, shore power, harbour office software, design, insurance and more. Every member is checked by the M3 team, which organises the industry’s events in Monaco, in Dubai and online.')}
-              </p>
-              <p className="mt-3 text-body text-ink md:text-body-lg">
-                {t('directory.seo.p2', 'Filter by theme or country, shortlist the companies you need, then request an introduction from their page: the request lands in their inbox.')}
-              </p>
-            </Reveal>
-            <p className="text-meta-caps mt-8">{t('directory.seo.themes', 'Explore by theme')}</p>
-            <RevealGroup as="ul" step={60} className="mt-3 flex flex-wrap gap-2">
-              {THEMES.map((th) => (
-                <li key={th.key}>
-                  <Link
-                    to={themedPath('/directory', th.key)}
-                    className="focus-ring inline-flex h-11 items-center gap-2 rounded-field border border-rule bg-white px-3.5 text-sm font-medium text-navy transition-colors hover:border-navy/40 md:h-10"
-                  >
-                    <ThemeFlag theme={th.key} />
-                    {themeLabel(th)}
-                    <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-                  </Link>
-                </li>
-              ))}
-            </RevealGroup>
-          </section>
-
-          {/* The harbour office plate (the same form as the home page's ContactCard). */}
-          <Reveal as="aside" aria-labelledby="directory-claim-heading" className="relative self-start rounded-field bg-white p-6 ring-1 ring-inset ring-rule md:p-8 lg:col-span-5">
-            <span aria-hidden="true" className="pointer-events-none absolute inset-1.5 rounded-[8px] border border-[#c9a24f]/70" />
-            <p className="relative font-signage text-[13px] font-semibold uppercase tracking-[0.16em] text-gold-text">
-              {t('brand.contact.office', 'Harbour office · M3 Monaco')}
-            </p>
-            <h2 id="directory-claim-heading" className="relative mt-3 text-h3 text-navy">
-              {t('directory.claim.title', 'Is your marina listed? Claim it')}
-            </h2>
-            <p className="relative mt-3 text-[15px] leading-6 text-ink/85">
-              {t('directory.claim.body', 'Most marinas in the directory were listed by the M3 team before they had an account. Claim your marina’s page to complete it and keep it up to date: the M3 team checks every request before handing the page over.')}
-            </p>
-            <div className="relative mt-6 flex items-center gap-4">
-              <span aria-hidden="true" className="grid h-14 w-14 shrink-0 place-items-center rounded-[6px] border-2 border-[#c9a24f] bg-page font-signage text-[22px] font-semibold tracking-[0.06em] text-navy">
-                VM
-              </span>
-              <div className="min-w-0">
-                <p className="text-card-title text-navy">Victor Meyer</p>
-                <a href={`mailto:${M3_PUBLIC_EMAIL}`} className="focus-ring rounded-badge text-sm text-navy underline underline-offset-2 hover:text-teal-text">
-                  {M3_PUBLIC_EMAIL}
-                </a>
-              </div>
-            </div>
-            <div className="relative mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-              <a href={claimHref} className={buttonVariants({ variant: 'tide' })}>
-                {t('directory.claim.cta', 'Claim my marina')}
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
-              </a>
-              <Link to="/contact" className="focus-ring inline-flex min-h-11 items-center rounded-badge text-sm font-semibold text-navy underline underline-offset-4 hover:text-teal-text">
-                {t('directory.claim.question', 'Ask a question')}
-              </Link>
-            </div>
-          </Reveal>
         </div>
       </div>
 
-      {/* ── Filters drawer ── */}
-      <Drawer
+      {/* ── Giant marquee: the editorial break between the list and the text ── */}
+      <GiantMarqueeBand className="mt-14 md:mt-20" lines={marqueeLines} />
+
+      {/* ── SEO text with the six theme pages, the Opportunities tile and "claim your marina" ── */}
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pb-16 md:pb-24">
+        <section aria-labelledby="directory-seo-heading" className="mt-6 max-w-[760px] md:mt-10">
+          <Reveal>
+            <Eyebrow number={!loading && !loadFailed && collections.length > 0 ? '02' : '01'}>{t('directory.seo.eyebrow', 'Directory')}</Eyebrow>
+          </Reveal>
+          <LineReveal as="h2" id="directory-seo-heading" className="mt-3 text-h2-sm text-navy md:text-h2">
+            {t('directory.seo.title', 'Find a service provider for your marina')}
+          </LineReveal>
+          <Reveal delay={120}>
+            <p className="mt-4 text-[15px] leading-[26px] text-ink md:text-[16px] md:leading-[27px]">
+              {t('directory.seo.p1', 'The Smart Marina Connect directory brings together marinas and the companies that equip and run them: pontoons and dredging, shore power, harbour office software, design, insurance and more. Every member is checked by the M3 team, which organises the industry’s events in Monaco, in Dubai and online.')}
+            </p>
+            <p className="mt-3 text-[15px] leading-[26px] text-ink md:text-[16px] md:leading-[27px]">
+              {t('directory.seo.p2', 'Filter by theme or country, shortlist the companies you need, then request an introduction from their page: the request lands in their inbox.')}
+            </p>
+          </Reveal>
+          <p className="text-meta-caps mt-7">{t('directory.seo.themes', 'Explore by theme')}</p>
+          <RevealGroup as="ul" step={60} className="mt-3 flex flex-wrap gap-2">
+            {THEMES.map((th) => (
+              <li key={th.key}>
+                <Link to={themedPath('/directory', th.key)} className="dir-theme-link focus-ring">
+                  {themeLabel(th)}
+                  <ArrowRight className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden="true" />
+                </Link>
+              </li>
+            ))}
+          </RevealGroup>
+        </section>
+
+        <section
+          aria-label={t('directory.aside.label', 'Opportunities and claiming a marina page')}
+          className="mt-14 grid grid-cols-1 gap-6 md:mt-20 lg:grid-cols-12"
+        >
+          <OpportunitiesTile className="lg:col-span-8" />
+          <ClaimCard claimHref={claimHref} className="lg:col-span-4" />
+        </section>
+      </div>
+
+      {/* ── Filters sheet ── */}
+      <SheetDrawer
         open={filtersOpen}
         onOpenChange={setFiltersOpen}
         title={t('directory.filters.title', 'Filters')}
@@ -1158,9 +1201,8 @@ export function DirectoryPage() {
         ) : null}
         footer={(
           // Every choice applies at once (the counts are live): the footer only closes.
-          <Button variant="tide" className="w-full justify-between" onClick={() => { setFiltersOpen(false); window.setTimeout(() => scrollToResults(true), 320); }}>
+          <Button variant="cta" className="w-full justify-between" onClick={() => { setFiltersOpen(false); window.setTimeout(() => scrollToResults(true), 320); }}>
             {t('directory.filters.done', { count: filtered.length, defaultValue: 'Done · {{count}} organizations' })}
-            <Check className="h-4 w-4" aria-hidden="true" />
           </Button>
         )}
       >
@@ -1194,10 +1236,10 @@ export function DirectoryPage() {
           onCountry={toggleCountry}
           onClearCountries={() => update({ country: null })}
         />
-      </Drawer>
+      </SheetDrawer>
 
-      {/* ── Visitor shortlist drawer ── */}
-      <Drawer
+      {/* ── Visitor shortlist sheet ── */}
+      <SheetDrawer
         open={shortlistOpen}
         onOpenChange={setShortlistOpen}
         width="sm"
@@ -1206,30 +1248,29 @@ export function DirectoryPage() {
       >
         <div className="py-6">
           <p className="drawer-group text-body text-ink" style={{ '--i': 0 } as CSSProperties}>
-            {t('directory.shortlist.intro', 'A berth for the companies you want to call back: keep them here and find them again before your next tender.')}
+            {t('directory.shortlist.intro', 'Keep the companies you want to call back here, and find them again before your next tender.')}
           </p>
-          <div className="drawer-group mt-5 rounded-field border-2 border-dashed border-rule px-6 py-10 text-center" style={{ '--i': 1 } as CSSProperties}>
-            <AnchorMark className="mx-auto h-6 w-6 text-navy" />
-            <p className="mt-3 text-[15px] leading-6 text-meta">{t('directory.shortlist.empty', 'Nothing moored yet: tap the anchor on a company to keep it here.')}</p>
+          <div className="drawer-group mt-5 rounded-[12px] border-2 border-dashed border-rule px-6 py-10 text-center" style={{ '--i': 1 } as CSSProperties}>
+            <Star className="mx-auto h-6 w-6 text-navy" aria-hidden="true" />
+            <p className="mt-3 text-[15px] leading-6 text-meta">{t('directory.shortlist.empty', 'Nothing here yet: tap the star on a company to keep it here.')}</p>
           </div>
           <hr className="my-6 border-rule" />
           <div className="drawer-group" style={{ '--i': 2 } as CSSProperties}>
             <p className="text-base font-semibold leading-6 text-navy">
               {shortlistFor
-                ? t('directory.shortlist.signInTo', { name: shortlistFor.name, defaultValue: 'To moor {{name}} here, sign in.' })
+                ? t('directory.shortlist.signInTo', { name: shortlistFor.name, defaultValue: 'To add {{name}} to your shortlist, sign in.' })
                 : t('directory.shortlist.signInGeneric', 'Sign in to keep your shortlist.')}
             </p>
             <p className="mt-1 text-sm text-meta">{t('directory.shortlist.who', 'Free for marinas, developers and investors with an account.')}</p>
-            <Button variant="tide" className="mt-5 w-full" onClick={() => openSignup()}>
+            <Button variant="cta" className="mt-5 w-full justify-between" onClick={() => openSignup()}>
               {t('directory.shortlist.signUp', 'Create a free account')}
-              <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>
-            <Button variant="tideOutline" className="mt-3 w-full" onClick={openLogin}>
+            <Button variant="ctaOutline" className="mt-3 w-full justify-between" onClick={openLogin}>
               {t('directory.shortlist.signIn', 'Sign in')}
             </Button>
           </div>
         </div>
-      </Drawer>
+      </SheetDrawer>
 
       {/* ── Sign in / sign up (visitors) ── */}
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
@@ -1256,6 +1297,14 @@ export function DirectoryPage() {
 
 /* ─── Pieces ─────────────────────────────────────────────────────── */
 
+/** How many cards fit in a row of the results grid (1, 2, 3, 4 at md, lg, 2xl): cards in a row arrive 80 ms apart. */
+function useColumns(): number {
+  const wide = useMediaQuery('(min-width: 1536px)');
+  const lg = useMediaQuery('(min-width: 1024px)');
+  const md = useMediaQuery('(min-width: 768px)');
+  return wide ? 4 : lg ? 3 : md ? 2 : 1;
+}
+
 /** A card, and after it (once) the wide "publish your need" panel. */
 function FragmentWithNeed({ need, needPanel, children }: { need: boolean; needPanel: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -1266,7 +1315,7 @@ function FragmentWithNeed({ need, needPanel, children }: { need: boolean; needPa
   );
 }
 
-/** The live figures under the hero title: they count once, tabular. */
+/** The live figures under the hero title: they count once, tabular, light weight. */
 function HeroFigures({ marinas, providers, countries, manual }: { marinas: number | null; providers: number | null; countries: number | null; manual: boolean }) {
   const { t } = useTranslation();
   const items: [string, number | null, string][] = [
@@ -1274,13 +1323,14 @@ function HeroFigures({ marinas, providers, countries, manual }: { marinas: numbe
     ['providers', providers, t('directory.figures.providers', 'service providers')],
     ['countries', countries, t('directory.figures.countries', 'countries')],
   ];
+  // On phones the pause control sits at the card's bottom right: the figures stop short of it and their labels wrap.
   return (
-    <dl aria-label={t('directory.figures.label', 'The directory in figures')} className="flex flex-wrap gap-y-3">
+    <dl aria-label={t('directory.figures.label', 'The directory in figures')} className="flex max-w-[calc(100%-52px)] gap-y-3 md:max-w-none md:flex-wrap">
       {items.map(([key, value, label], i) => (
-        <div key={key} className={cn('flex flex-col-reverse pr-5 sm:pr-8', i > 0 && 'border-l border-white/25 pl-5 sm:pl-8')}>
-          <dt className="mt-1.5 font-signage text-[13px] font-semibold uppercase leading-4 tracking-[0.1em] text-white/80">{label}</dt>
-          <dd className="text-[24px] text-white sm:text-[30px]">
-            <FlapFigure value={value} suffix={manual ? '+' : ''} />
+        <div key={key} className={cn('flex min-w-0 flex-col-reverse pr-4 md:pr-7', i > 0 && 'border-l border-white/25 pl-4 md:pl-7')}>
+          <dt className="mt-0.5 text-[13px] leading-[18px] text-white/80">{label}</dt>
+          <dd className="text-[30px] font-light leading-[34px] tracking-[-0.02em] text-white md:text-[40px] md:leading-[44px]">
+            <Counter value={value} suffix={manual ? '+' : ''} />
           </dd>
         </div>
       ))}
@@ -1288,13 +1338,170 @@ function HeroFigures({ marinas, providers, countries, manual }: { marinas: numbe
   );
 }
 
-/** The count in a buoy tab: plain tabular meta text after the label. */
-function TabCount({ value }: { value: number | null }) {
-  if (value === null) return null;
-  return <span className="tabular text-[13px] font-normal text-meta">{value}</span>;
+/** The card cut into the hero's corner from 1280 px: marinas that are listed without an account are invited to claim the page. */
+function ClaimNotch() {
+  const { t } = useTranslation();
+  const { reduced } = useMotion();
+  return (
+    <HeroNotch label={t('directory.notch.label', 'For marinas')} side="right" className="hidden xl:block">
+      <a
+        href="#directory-claim"
+        onClick={(e) => {
+          const target = document.getElementById('directory-claim');
+          if (!target) return;
+          e.preventDefault();
+          target.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'center' });
+        }}
+        className="notch-card notch-card--single has-ra"
+      >
+        <img src={PERSONA_IMAGES.marinas} alt="" className="notch-img" loading="eager" />
+        <span className="notch-shade" aria-hidden="true" />
+        <span className="notch-txt">
+          <span className="notch-k">{t('directory.notch.kicker', 'For marinas')}</span>
+          <span className="notch-t">{t('directory.notch.title', 'Is your marina already listed?')}</span>
+          <span className="notch-m">{t('directory.notch.meta', 'Claim its page and complete it')}</span>
+        </span>
+        <ArrowDisc tone="photo" size="sm" className="notch-ra" />
+      </a>
+    </HeroNotch>
+  );
 }
 
-/** "Members only": a real switch (role="switch"), gold when on. */
+/* ── Segmented control: the type, with a white cursor that slides ── */
+
+interface SegItem {
+  value: string;
+  label: string;
+  /** Live count; null while the list is loading. */
+  count: number | null;
+}
+
+/**
+ * The type of organization as a segmented control (tabs): a white pill slides
+ * from one segment to the next (.32 s) behind the labels. Arrow keys, Home and
+ * End move focus along the tabs and Enter or Space picks one (manual
+ * activation: choosing a type changes the URL and the list). On narrow screens
+ * the row scrolls sideways, edges faded, and keeps the chosen tab in view.
+ * Under reduced motion the cursor jumps.
+ */
+function SegmentedTabs({ items, value, onChange, label, panelId, loading }: {
+  items: SegItem[];
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  panelId: string;
+  loading: boolean;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const segRef = useRef<HTMLDivElement>(null);
+  const cursorRef = useRef<HTMLSpanElement>(null);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [ready, setReady] = useState(false);
+
+  const place = useCallback(() => {
+    const cursor = cursorRef.current;
+    const tab = tabRefs.current[value];
+    if (!cursor || !tab) return;
+    cursor.style.width = `${tab.offsetWidth}px`;
+    cursor.style.transform = `translate3d(${tab.offsetLeft}px, 0, 0)`;
+  }, [value]);
+
+  // Every render: a count arriving or a weight change moves the tab's edges.
+  useLayoutEffect(() => { place(); });
+
+  useEffect(() => {
+    const seg = segRef.current;
+    if (!seg) return;
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(place);
+      ro.observe(seg);
+    }
+    document.fonts?.ready.then(place).catch(() => {});
+    // The first position is not animated: the cursor starts where it belongs.
+    const frame = requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)));
+    return () => {
+      ro?.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [place]);
+
+  // Keep the chosen tab in sight when the row scrolls sideways.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const tab = tabRefs.current[value];
+    if (!wrap || !tab || wrap.scrollWidth <= wrap.clientWidth) return;
+    const left = tab.offsetLeft;
+    const right = left + tab.offsetWidth;
+    if (left < wrap.scrollLeft) wrap.scrollLeft = Math.max(0, left - 16);
+    else if (right > wrap.scrollLeft + wrap.clientWidth - 48) wrap.scrollLeft = right - wrap.clientWidth + 64;
+  }, [value]);
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const order = items.map((i) => i.value);
+    const at = order.indexOf(document.activeElement?.getAttribute('data-seg') ?? '');
+    if (at < 0) return;
+    let next = -1;
+    if (e.key === 'ArrowRight') next = (at + 1) % order.length;
+    else if (e.key === 'ArrowLeft') next = (at - 1 + order.length) % order.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = order.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    tabRefs.current[order[next]]?.focus();
+  };
+
+  return (
+    <div ref={wrapRef} className="dir-seg-wrap no-scrollbar -mx-4 overflow-x-auto px-4 xl:mx-0 xl:overflow-visible xl:px-0">
+      <div
+        ref={segRef}
+        role="tablist"
+        aria-label={label}
+        onKeyDown={onKeyDown}
+        className="relative inline-flex h-11 items-center rounded-pill bg-[#e9edf3] p-1"
+      >
+        <span
+          ref={cursorRef}
+          aria-hidden="true"
+          className={cn('dir-seg-cursor pointer-events-none absolute left-0 top-1 h-9 w-0 rounded-pill bg-white shadow-[0_1px_3px_rgba(11,38,83,.10)]', !ready && 'no-anim')}
+        />
+        {items.map((item) => {
+          const selected = item.value === value;
+          return (
+            <button
+              key={item.value}
+              ref={(el) => { tabRefs.current[item.value] = el; }}
+              type="button"
+              role="tab"
+              id={`dir-tab-${item.value}`}
+              data-seg={item.value}
+              aria-selected={selected}
+              aria-controls={panelId}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => onChange(item.value)}
+              className={cn(
+                'relative z-[1] inline-flex h-9 items-center gap-[7px] whitespace-nowrap rounded-pill px-3.5 text-sm transition-colors duration-300 focus-visible:shadow-focus focus-visible:outline-none',
+                selected ? 'font-semibold text-navy' : 'font-medium text-[#374151] hover:text-navy',
+              )}
+            >
+              {item.label}
+              {item.count !== null && (
+                <span className="tabular inline-flex h-5 min-w-6 items-center justify-center rounded-pill bg-chip px-1.5 text-[12px] font-semibold leading-5 text-navy">
+                  {item.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+        {loading && [0, 1, 2].map((i) => (
+          <span key={i} aria-hidden="true" className="mx-1.5 h-5 w-20 animate-pulse rounded-pill bg-white/70 motion-reduce:animate-none" />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** "Members only": a real switch (role="switch"), gold when on; the knob rolls (.35 s). */
 function MembersSwitch({ checked, count, onToggle, className }: { checked: boolean; count?: number; onToggle: () => void; className?: string }) {
   const { t } = useTranslation();
   return (
@@ -1304,7 +1511,7 @@ function MembersSwitch({ checked, count, onToggle, className }: { checked: boole
       aria-checked={checked}
       onClick={onToggle}
       title={t('directory.onPlatformHint', 'Show only organizations whose team has an account on the platform')}
-      className={cn('focus-ring inline-flex h-10 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-pill px-1.5 text-sm font-medium text-ink', className)}
+      className={cn('focus-ring inline-flex h-11 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-pill px-1.5 text-sm font-medium text-ink', className)}
     >
       <span
         aria-hidden="true"
@@ -1315,7 +1522,7 @@ function MembersSwitch({ checked, count, onToggle, className }: { checked: boole
       >
         <span
           className={cn(
-            'absolute left-[3px] top-[3px] h-[15px] w-[15px] rounded-pill transition-transform duration-300 ease-swing motion-reduce:transition-none',
+            'absolute left-[3px] top-[3px] h-[15px] w-[15px] rounded-pill transition-[transform,background-color] duration-300 ease-cta motion-reduce:transition-none',
             checked ? 'translate-x-4 bg-navy' : 'bg-checkbox',
           )}
         />
@@ -1334,7 +1541,7 @@ function SortSelect({ value, options, onChange, className }: {
 }) {
   const { t } = useTranslation();
   return (
-    <label className={cn('relative h-12 shrink-0 items-center rounded-field border border-checkbox bg-white pl-4 pr-9 focus-within:border-navy focus-within:shadow-focus', className)}>
+    <label className={cn('relative inline-flex h-11 shrink-0 items-center rounded-pill border border-rule bg-white pl-4 pr-9 focus-within:shadow-focus', className)}>
       <span className="mr-1.5 text-sm text-meta">{t('directory.sort.label', 'Sort:')}</span>
       <select
         value={value}
@@ -1394,7 +1601,7 @@ function AnimatedChips({ items, label, removeLabel, fallbackFocus }: {
   items: ChipItem[];
   label: string;
   removeLabel: (label: string) => string;
-  fallbackFocus: React.RefObject<HTMLButtonElement>;
+  fallbackFocus: () => void;
 }) {
   const { reduced } = useMotion();
   const ref = useRef<HTMLUListElement>(null);
@@ -1426,7 +1633,9 @@ function AnimatedChips({ items, label, removeLabel, fallbackFocus }: {
     requestAnimationFrame(() => {
       const buttons = ref.current?.querySelectorAll<HTMLButtonElement>('button[data-chip]:not([data-out])');
       const others = buttons ? [...buttons].filter((b) => b.dataset.chip !== item.id) : [];
-      (others[index] ?? others[index - 1] ?? fallbackFocus.current)?.focus();
+      const target = others[index] ?? others[index - 1];
+      if (target) target.focus();
+      else fallbackFocus();
     });
   };
 
@@ -1438,7 +1647,7 @@ function AnimatedChips({ items, label, removeLabel, fallbackFocus }: {
           <li
             key={item.id}
             aria-hidden={item.out || undefined}
-            className={cn('dir-chip inline-flex h-9 items-center gap-0.5 rounded-pill bg-chip pl-3.5 pr-1 text-sm font-medium text-navy', item.out && 'is-out pointer-events-none')}
+            className={cn('dir-chip inline-flex h-8 items-center gap-0.5 rounded-pill bg-chip pl-3 pr-1 text-sm font-medium text-navy', item.out && 'is-out pointer-events-none')}
           >
             {item.label}
             <button
@@ -1448,7 +1657,7 @@ function AnimatedChips({ items, label, removeLabel, fallbackFocus }: {
               tabIndex={item.out ? -1 : undefined}
               onClick={() => remove(item)}
               aria-label={removeLabel(item.label)}
-              className="grid h-7 w-7 place-items-center rounded-pill text-navy transition-colors hover:bg-white focus-visible:shadow-focus focus-visible:outline-none"
+              className="grid h-6 w-6 place-items-center rounded-pill text-navy transition-colors duration-300 hover:bg-white focus-visible:shadow-focus focus-visible:outline-none"
             >
               <XSmall />
             </button>
@@ -1473,21 +1682,23 @@ interface Collection {
   key: string;
   kicker: string;
   title: string;
-  /** The filter URL's query string, e.g. "?theme=energy". */
-  search: string;
-  icon: LucideIcon;
-  count: number;
-  /** The flag the cartouche flies: a theme's signal flag, a type's burgee, else a waterline. */
-  theme?: ThemeKey;
-  orgType?: string;
+  /** The filter URL's query string, e.g. "?theme=energy". Absent for a tile that leads to another page. */
+  search?: string;
+  /** A page of this site, for a tile that is not a filter (the Summit). */
+  to?: string;
+  /** Organizations in the selection; the tile shows it after its kicker. */
+  count?: number;
+  /** A small glass label at the tile's top left. */
+  pill?: string;
+  image: { src: string | null; focusY?: number } | null;
 }
 
 /**
- * M3 selections as shareable filter URLs, drawn as chart cartouches (navy, a
- * graticule and sounding lines, a framed title in the signage face, the
- * organisation count in the board's tabular caps and the cap needle after it),
- * in a scroll-snap row: native swiping and trackpad scrolling, square buttons
- * from md up, and a thin rule that says where you are.
+ * M3 selections as shareable filter URLs, drawn as photo tiles (a veil, the
+ * kicker in gold and the title at the foot, a round arrow at the corner) in a
+ * scroll-snap carousel: native swiping and trackpad scrolling, a mouse can drag
+ * the row (it keeps a little momentum, then settles on the nearest tile), round
+ * buttons from md up, and a thin rule that says where you are.
  */
 function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; currentKey: string | null; onPick: (key: string) => void }) {
   const { t } = useTranslation();
@@ -1530,6 +1741,76 @@ function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; cu
     };
   }, [items.length]);
 
+  // Dragging with a mouse: the row follows the pointer, keeps a little momentum on
+  // release, then settles on the nearest tile. Touch keeps its native swipe.
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+    let drag: { x: number; scroll: number; moved: boolean; id: number; lastX: number; lastT: number; v: number } | null = null;
+    let suppressClick = false;
+    const snapPoints = () => {
+      const pad = parseFloat(getComputedStyle(row).paddingLeft) || 0;
+      const max = row.scrollWidth - row.clientWidth;
+      return [...row.children].map((li) => clamp((li as HTMLElement).offsetLeft - pad, 0, max));
+    };
+    const nearest = (x: number) => {
+      const pts = snapPoints();
+      return pts.reduce((best, p) => (Math.abs(p - x) < Math.abs(best - x) ? p : best), pts[0] ?? 0);
+    };
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      drag = { x: e.clientX, scroll: row.scrollLeft, moved: false, id: e.pointerId, lastX: e.clientX, lastT: performance.now(), v: 0 };
+    };
+    const move = (e: PointerEvent) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      if (!drag.moved) {
+        if (Math.abs(dx) < 6) return;
+        drag.moved = true;
+        row.classList.add('is-dragging');
+        try { row.setPointerCapture(drag.id); } catch { /* nothing to capture */ }
+      }
+      const now = performance.now();
+      const dt = Math.max(1, now - drag.lastT);
+      drag.v = drag.v * 0.6 + ((e.clientX - drag.lastX) / dt) * 0.4;
+      drag.lastX = e.clientX;
+      drag.lastT = now;
+      row.scrollLeft = drag.scroll - dx;
+    };
+    const end = () => {
+      if (!drag) return;
+      const d = drag;
+      drag = null;
+      if (!d.moved) return;
+      suppressClick = true;
+      window.setTimeout(() => { suppressClick = false; }, 60);
+      const target = nearest(row.scrollLeft - (reduced ? 0 : d.v * 260));
+      row.classList.remove('is-dragging');
+      row.scrollTo({ left: target, behavior: reduced ? 'auto' : 'smooth' });
+    };
+    const noDrag = (e: Event) => e.preventDefault();
+    const swallow = (e: MouseEvent) => {
+      if (suppressClick) { e.preventDefault(); e.stopPropagation(); }
+    };
+    row.addEventListener('pointerdown', down);
+    row.addEventListener('pointermove', move);
+    row.addEventListener('pointerup', end);
+    row.addEventListener('pointercancel', end);
+    row.addEventListener('lostpointercapture', end);
+    row.addEventListener('dragstart', noDrag);
+    row.addEventListener('click', swallow, true);
+    return () => {
+      row.removeEventListener('pointerdown', down);
+      row.removeEventListener('pointermove', move);
+      row.removeEventListener('pointerup', end);
+      row.removeEventListener('pointercancel', end);
+      row.removeEventListener('lostpointercapture', end);
+      row.removeEventListener('dragstart', noDrag);
+      row.removeEventListener('click', swallow, true);
+    };
+  }, [items.length, reduced]);
+
   const page = (dir: -1 | 1) => {
     const row = rowRef.current;
     if (row) row.scrollBy({ left: dir * row.clientWidth * 0.85, behavior: reduced ? 'auto' : 'smooth' });
@@ -1540,17 +1821,17 @@ function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; cu
       <div className="flex items-end justify-between gap-4">
         <div>
           <Reveal>
-            <Eyebrow>{t('directory.collections.eyebrow', 'M3 selections')}</Eyebrow>
+            <Eyebrow number="01">{t('directory.collections.eyebrow', 'M3 selections')}</Eyebrow>
           </Reveal>
           <LineReveal as="h2" id="directory-collections-heading" className="mt-2 text-[20px] font-semibold leading-[26px] text-navy md:text-[24px] md:leading-[30px]">
             {t('directory.collections.title', 'Selections by the M3 team')}
           </LineReveal>
         </div>
         <div className={cn('hidden shrink-0 gap-2', edges.overflow && 'md:flex')}>
-          <Button variant="tideOutline" size="icon" className="h-10 w-10 rounded-field md:h-10 md:w-10" disabled={edges.start} onClick={() => page(-1)} aria-label={t('directory.collections.prev', 'Previous selections')}>
+          <Button variant="ctaOutline" size="icon" className="h-10 w-10 md:h-10 md:w-10" disabled={edges.start} onClick={() => page(-1)} aria-label={t('directory.collections.prev', 'Previous selections')}>
             <ChevronLeft className="h-[18px] w-[18px]" aria-hidden="true" />
           </Button>
-          <Button variant="tideOutline" size="icon" className="h-10 w-10 rounded-field md:h-10 md:w-10" disabled={edges.end} onClick={() => page(1)} aria-label={t('directory.collections.next', 'Next selections')}>
+          <Button variant="ctaOutline" size="icon" className="h-10 w-10 md:h-10 md:w-10" disabled={edges.end} onClick={() => page(1)} aria-label={t('directory.collections.next', 'Next selections')}>
             <ChevronRight className="h-[18px] w-[18px]" aria-hidden="true" />
           </Button>
         </div>
@@ -1559,51 +1840,69 @@ function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; cu
       <ul
         ref={rowRef}
         aria-label={t('directory.collections.label', 'M3 selections')}
-        className="dir-collections -mx-4 mt-3 flex snap-x snap-mandatory scroll-px-4 gap-4 overflow-x-auto px-4 pb-2 pt-2"
+        className="dir-collections -mx-4 mt-4 flex snap-x snap-mandatory scroll-px-4 gap-4 overflow-x-auto px-4 pb-2.5 pt-1.5"
       >
         {items.map((item, i) => {
           const current = item.key === currentKey;
+          const kicker = item.count !== undefined
+            ? `${item.kicker} · ${t('directory.collections.count', { count: item.count, defaultValue: '{{count}} organizations' })}`
+            : item.kicker;
+          const className = 'dir-tile group has-ra relative isolate block h-[176px] w-[256px] overflow-hidden rounded-card bg-navy text-white outline-none focus-visible:shadow-focus md:h-[200px] md:w-[296px]';
+          const inner = (
+            <>
+              <span aria-hidden="true" className="absolute inset-0 -z-20 bg-[linear-gradient(135deg,#081d40,#1f7a8c)]">
+                {item.image?.src && (
+                  <img
+                    src={item.image.src}
+                    alt=""
+                    loading="lazy"
+                    draggable={false}
+                    className="dir-tile-img absolute inset-0 h-full w-full object-cover"
+                    style={{ objectPosition: `50% ${Math.round((item.image.focusY ?? 0.5) * 100)}%` }}
+                  />
+                )}
+              </span>
+              <span aria-hidden="true" className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(8,29,64,.45)_0%,rgba(8,29,64,0)_34%,rgba(8,29,64,.2)_52%,rgba(8,29,64,.92)_100%)]" />
+              {item.pill && (
+                <span className="absolute left-3 top-3 inline-flex h-[26px] items-center rounded-pill bg-white/20 px-2.5 text-[12px] font-semibold text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,.3)] backdrop-blur-md">
+                  {item.pill}
+                </span>
+              )}
+              {/* In a positioned span: .arrow-disc sets its own position: relative, which beats a Tailwind `absolute`. */}
+              <span aria-hidden="true" className="absolute right-3 top-3"><ArrowDisc tone="photo" size="sm" /></span>
+              <span className="absolute inset-x-4 bottom-3.5 grid gap-[3px]">
+                <span className="text-[12px] font-semibold leading-4 tracking-[0.02em] text-gold">{kicker}</span>
+                <span className="text-[17px] font-semibold leading-[22px] tracking-[-0.01em]">{item.title}</span>
+              </span>
+              {current && (
+                <>
+                  <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-card shadow-[inset_0_0_0_2px_rgb(215_166_71),inset_0_0_0_4px_rgb(11_38_83)]" />
+                  <span className="sr-only">({t('directory.collections.current', 'current selection')})</span>
+                </>
+              )}
+            </>
+          );
           return (
             <Reveal as="li" key={item.key} delay={Math.min(i, 5) * 80} className="shrink-0 snap-start">
-              <Link
-                to={{ pathname: '/directory', search: item.search }}
-                onClick={() => onPick(item.key)}
-                aria-current={current ? 'true' : undefined}
-                draggable={false}
-                className="card-lift group relative isolate flex h-[168px] w-[256px] flex-col justify-between overflow-hidden rounded-card bg-navy-deep p-5 text-white outline-none focus-visible:shadow-focus md:h-[180px] md:w-[284px]"
-              >
-                {/* The chart: graticule and sounding lines, inside a cartouche frame. */}
-                <Graticule tone="white" cell={28} opacity={0.08} className="absolute inset-0 -z-10 h-full w-full" />
-                <BathyPattern seed={seedOf(item.key)} rings={7} opacity={0.12} className="absolute inset-0 -z-10" />
-                <span aria-hidden="true" className="pointer-events-none absolute inset-2 rounded-[10px] border border-white/20" />
-                <span className="relative flex items-center gap-2 font-signage text-[12px] font-semibold uppercase tracking-[0.14em] text-white/75">
-                  {item.theme ? (
-                    <ThemeFlag theme={item.theme} className="ring-white/40" />
-                  ) : item.orgType ? (
-                    <TypePennant type={item.orgType} className="h-3 w-5 [&>path:first-child]:fill-white" />
-                  ) : (
-                    <WaveMark tone="onDark" />
-                  )}
-                  {item.kicker}
-                </span>
-                <span className="relative font-signage text-[21px] font-semibold uppercase leading-[24px] tracking-[0.04em]">{item.title}</span>
-                <span className="relative flex items-center gap-2 font-signage text-[13px] font-semibold uppercase tabular tracking-[0.12em] text-[#9fd6df]">
-                  {t('directory.collections.count', { count: item.count, defaultValue: '{{count}} organizations' })}
-                  <CapArrow size="sm" tone="dark" />
-                </span>
-                {current && (
-                  <>
-                    <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-card shadow-[inset_0_0_0_2px_rgb(215_166_71),inset_0_0_0_4px_rgb(11_38_83)]" />
-                    <span className="sr-only">({t('directory.collections.current', 'current selection')})</span>
-                  </>
-                )}
-              </Link>
+              {item.to ? (
+                <Link to={item.to} draggable={false} className={className}>{inner}</Link>
+              ) : (
+                <Link
+                  to={{ pathname: '/directory', search: item.search }}
+                  onClick={() => onPick(item.key)}
+                  aria-current={current ? 'true' : undefined}
+                  draggable={false}
+                  className={className}
+                >
+                  {inner}
+                </Link>
+              )}
             </Reveal>
           );
         })}
       </ul>
-      <div aria-hidden="true" className={cn('relative mt-2 h-0.5 overflow-hidden rounded-pill bg-rule', !edges.overflow && 'invisible')}>
-        <span ref={barRef} className="absolute inset-y-0 left-0 w-1/3 rounded-pill bg-navy will-change-transform" />
+      <div aria-hidden="true" className={cn('relative mt-2.5 h-0.5 overflow-hidden rounded-pill bg-rule', !edges.overflow && 'invisible')}>
+        <span ref={barRef} className="absolute inset-y-0 left-0 w-2/5 rounded-pill bg-navy will-change-transform" />
       </div>
     </section>
   );
@@ -1616,7 +1915,6 @@ function CardSkeleton() {
     <li className="overflow-hidden rounded-card border border-rule bg-white">
       <div className="h-32 animate-pulse bg-chip motion-reduce:animate-none" />
       <div className="space-y-3 px-5 pb-6 pt-10">
-        <div className="h-3 w-24 animate-pulse rounded-pill bg-chip motion-reduce:animate-none" />
         <div className="h-5 w-3/4 animate-pulse rounded-pill bg-chip motion-reduce:animate-none" />
         <div className="h-3 w-1/2 animate-pulse rounded-pill bg-chip motion-reduce:animate-none" />
         <div className="h-3 w-full animate-pulse rounded-pill bg-chip motion-reduce:animate-none" />
@@ -1626,26 +1924,20 @@ function CardSkeleton() {
   );
 }
 
-/** A bookmark with an anchor in it: the shortlist's own glyph. */
-function AnchorMark({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M6 3h12v18l-6-4-6 4z" />
-      <circle cx="12" cy="7.6" r="1.3" />
-      <path d="M12 8.9v5.4M9.2 12.2c.2 1.5 1.4 2.4 2.8 2.4s2.6-.9 2.8-2.4M10.4 10.4h3.2" />
-    </svg>
-  );
-}
-
 /**
- * One organization, as a berth card (OrgCard's grammar): a band of sounding
- * lines with nothing on it, the type flown as a burgee at the card's left edge,
- * the logo beside the name, a meta row (place, "Verified member" as words for
- * organizations that have an owner, the sponsor tier, the team on the
- * platform), the blurb, up to two theme or sector chips, and a footer with the
- * labelled shortlist button and "View profile" with the cap needle. The name
- * is the link and stretches over the whole card; the shortlist button sits
- * above it. The profile it leads to is where members send a connection request.
+ * One organization: a cover (type colours, sounding lines that slide on hover,
+ * the type's icon), the round arrow and the shortlist star over it, a bar in the
+ * type's colour that traces itself as the card arrives, the logo straddling the
+ * cover, then the name, the type and place, the team on the platform, the
+ * blurb, up to two theme or sector chips and "View profile", underlined on
+ * hover. The name is the link and stretches over the whole card; the shortlist
+ * star sits above it. The profile it leads to is where members send a
+ * connection request.
+ *
+ * "Verified member" is a badge only for organizations that have an owner.
+ * Visitors get a star that opens the shortlist sheet; members a BookmarkButton
+ * (it loads its own org_bookmarks row and renders only for marina, developer
+ * and investor members).
  */
 function DirectoryCard({
   org, openTheme, activeSector, sectorLabel, themeLabel, visitor, onVisitorStar,
@@ -1661,11 +1953,12 @@ function DirectoryCard({
   const { t } = useTranslation();
   const blurb = org.description || org.audience_description;
   const paying = isPaying(org.tier);
+  const tone = orgTypeTone(org.organization_type);
 
   // What the card is about, in up to two chips. In the whole directory that is
-  // its themes (with their flags); inside an open theme every card would repeat
-  // the same name, so the chips name its sectors within that theme instead.
-  let chips: { key: string; label: string; theme?: ThemeKey }[];
+  // its themes; inside an open theme every card would repeat the same name, so
+  // the chips name its sectors within that theme instead.
+  let chips: { key: string; label: string }[];
   let more = 0;
   if (openTheme) {
     const inTheme = org.sectorSlugs.filter((s) => openTheme.sectors.includes(s));
@@ -1675,38 +1968,63 @@ function DirectoryCard({
     chips = ordered.slice(0, 2).map((slug) => ({ key: slug, label: sectorLabel(slug) }));
     more = Math.max(0, ordered.length - 2);
   } else {
-    chips = org.themes.slice(0, 2).map((k) => { const th = getTheme(k)!; return { key: k, label: themeLabel(th), theme: k }; });
+    chips = org.themes.slice(0, 2).map((k) => ({ key: k, label: themeLabel(getTheme(k)!) }));
     more = Math.max(0, org.themes.length - 2);
   }
 
-  const shortlistLabel = t('directory.shortlist.button', 'Shortlist');
-
   return (
-    <CardShell interactive className="h-full w-full">
-      <BerthBand seed={org.id} />
+    <CardShell interactive className="h-full w-full min-w-0">
+      <OrgCover id={org.id} type={org.organization_type} name={org.name} logoUrl={org.logo_url}>
+        {(org.claimed || paying) && (
+          <div className="pointer-events-none absolute left-3 right-[60px] top-3 z-[2] flex flex-wrap gap-1.5">
+            {org.claimed && <VerifiedPill />}
+            {paying && (
+              <span className="inline-flex h-[22px] items-center whitespace-nowrap rounded-badge bg-white px-2 text-[11px] font-semibold uppercase leading-none tracking-[0.05em] text-navy shadow-[inset_0_0_0_1px_rgb(11_38_83)]">
+                {t(`sharedUi.sponsorBadge.tiers.${org.tier}`, TIER_LABELS[org.tier as OrgTier] ?? org.tier)}
+              </span>
+            )}
+          </div>
+        )}
 
-      <div className="flex flex-1 flex-col px-5 pb-4 pt-4">
-        <TypeFlagLabel type={org.organization_type} />
-        <div className="mt-3 flex items-start gap-3">
-          <LogoTile src={org.logo_url} name={org.name} type={org.organization_type} size={48} />
-          <h3 className="min-w-0 pt-0.5 text-card-title text-navy">
-            <StretchedLink to={`/organizations/${org.slug}`} className="line-clamp-2">{org.name}</StretchedLink>
-          </h3>
-        </div>
+        <span aria-hidden="true" className="pointer-events-none absolute right-3 top-3 z-[2]"><ArrowDisc tone="photo" size="sm" /></span>
 
-        <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-meta">
-          {org.place && (
-            <span className="inline-flex min-w-0 max-w-full items-center gap-1">
-              <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{org.place}</span>
-            </span>
+        {/* Above the stretched link, so it toggles instead of navigating. */}
+        <span className="dir-star absolute right-3 top-14 z-[3]">
+          {visitor ? (
+            <button
+              type="button"
+              onClick={() => onVisitorStar(org.name)}
+              aria-haspopup="dialog"
+              aria-label={t('directory.shortlist.buttonLabel', { name: org.name, defaultValue: 'Shortlist: {{name}}' })}
+            >
+              <Star className="h-[18px] w-[18px]" aria-hidden="true" />
+            </button>
+          ) : (
+            <BookmarkButton organizationId={org.id} organizationName={org.name} />
           )}
-          {org.claimed && <VerifiedMark />}
-          {paying && (
-            <span className="font-signage text-[12px] font-semibold uppercase tracking-[0.1em] text-navy">
-              {t(`sharedUi.sponsorBadge.tiers.${org.tier}`, TIER_LABELS[org.tier as OrgTier] ?? org.tier)}
-            </span>
-          )}
+        </span>
+      </OrgCover>
+
+      <div className="flex flex-1 flex-col px-5 pb-5 pt-9">
+        <h3 className="text-card-title text-navy">
+          <StretchedLink to={`/organizations/${org.slug}`} className="line-clamp-2">{org.name}</StretchedLink>
+        </h3>
+
+        <p className="mt-1.5 flex items-center gap-2 text-sm leading-5 text-meta">
+          <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-pill" style={{ background: TYPE_RGB[tone] }} />
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="shrink-0">{typeOne(t, org.organization_type)}</span>
+            {org.place && (
+              <>
+                <span aria-hidden="true">·</span>
+                <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{org.place}</span>
+              </>
+            )}
+          </span>
+        </p>
+
+        <p className="mt-1 text-[13px] leading-[18px] text-meta">
           {org.member_count > 0 ? (
             <span className="inline-flex items-center gap-1">
               <Users className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1719,51 +2037,30 @@ function DirectoryCard({
           )}
         </p>
 
-        {blurb && <p className="mt-3 line-clamp-3 text-sm leading-5 text-ink/80">{blurb}</p>}
+        {blurb && <p className="mt-3 line-clamp-3 text-sm leading-5 text-[#374151]">{blurb}</p>}
 
-        {chips.length > 0 && (
-          <ul
-            aria-label={openTheme ? t('directory.card.sectors', 'Sectors') : t('directory.card.themes', 'Themes')}
-            className="mt-3 flex flex-wrap gap-1.5"
-          >
-            {chips.map((c) => (
-              <li key={c.key} className="inline-flex h-6 max-w-full items-center gap-1.5 rounded-badge bg-chip px-2 text-[12px] font-medium text-navy">
-                {c.theme && <ThemeFlag theme={c.theme} className="h-2.5 w-[15px]" />}
-                <span className="truncate">{c.label}</span>
-              </li>
-            ))}
-            {more > 0 && (
-              <li className="inline-flex h-6 items-center rounded-badge bg-page px-2 text-[12px] font-medium text-meta">
-                <span aria-hidden="true">+{more}</span>
-                <span className="sr-only">{t('directory.card.more', { count: more, defaultValue: 'and {{count}} more' })}</span>
-              </li>
-            )}
-          </ul>
-        )}
-
-        <div className="mt-auto pt-4">
-          <div className="flex items-center justify-between gap-3 border-t border-rule pt-3">
-            {/* Above the stretched link, so it toggles instead of navigating. */}
-            {visitor ? (
-              <button
-                type="button"
-                onClick={() => onVisitorStar(org.name)}
-                aria-haspopup="dialog"
-                aria-label={t('directory.shortlist.buttonLabel', { name: org.name, defaultValue: 'Shortlist: {{name}}' })}
-                className="relative z-10 -ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-field px-2 text-sm font-semibold text-navy transition-colors hover:bg-chip focus-visible:shadow-focus focus-visible:outline-none md:min-h-9"
-              >
-                <AnchorMark className="h-[18px] w-[18px]" />
-                {shortlistLabel}
-              </button>
-            ) : (
-              // Loads its own org_bookmarks row and renders only for marina,
-              // developer and investor members (BookmarkButton).
-              <span className="relative z-10 -ml-1.5">
-                <BookmarkButton organizationId={org.id} organizationName={org.name} className="h-11 w-11 md:h-9 md:w-9" />
-              </span>
-            )}
-            <ViewProfileCue />
-          </div>
+        <div className="mt-auto flex items-end justify-between gap-3 pt-[18px]">
+          {chips.length > 0 ? (
+            <ul
+              aria-label={openTheme ? t('directory.card.sectors', 'Sectors') : t('directory.card.themes', 'Themes')}
+              className="flex min-w-0 flex-wrap gap-1.5"
+            >
+              {chips.map((c) => (
+                <li key={c.key} className="inline-flex h-6 max-w-full items-center rounded-pill bg-chip px-2.5 text-[12px] font-medium text-navy">
+                  <span className="truncate">{c.label}</span>
+                </li>
+              ))}
+              {more > 0 && (
+                <li className="inline-flex h-6 items-center rounded-pill bg-chip px-2.5 text-[12px] font-medium text-navy">
+                  <span aria-hidden="true">+{more}</span>
+                  <span className="sr-only">{t('directory.card.more', { count: more, defaultValue: 'and {{count}} more' })}</span>
+                </li>
+              )}
+            </ul>
+          ) : <span />}
+          <span aria-hidden="true" className="dir-see uline uline--plain shrink-0 text-sm">
+            <span className="uline-t">{t('directory.viewProfile', 'View profile')}</span>
+          </span>
         </div>
       </div>
     </CardShell>
@@ -1771,9 +2068,10 @@ function DirectoryCard({
 }
 
 /**
- * The wide "Run a marina? Publish your need" panel, a navy panel revealed by a
- * rising wave edge. Members who can publish go to the form; visitors sign up
- * as a marina; other members do not see it.
+ * The wide "Run a marina? Publish your need" panel: a navy background that
+ * scales in while the text rises, sounding lines drifting over it. Members who
+ * can publish go to the form; visitors sign up as a marina; other members do
+ * not see it.
  */
 function NeedPanel({ marinaLike, onSignup }: { marinaLike: boolean; onSignup: () => void }) {
   const { t } = useTranslation();
@@ -1785,11 +2083,11 @@ function NeedPanel({ marinaLike, onSignup }: { marinaLike: boolean; onSignup: ()
   ];
   return (
     <li className="col-span-full">
-      <WavePanel as="div" tone="navy" bathy bathySeed={11} role="group" aria-labelledby="directory-need-heading" className="rounded-card px-6 py-8 md:px-10 md:py-10">
+      <BgRevealPanel as="div" tone="navy" bathy bathySeed={11} role="group" aria-labelledby="directory-need-heading" className="mx-0 rounded-[24px] px-6 py-8 md:mx-0 md:rounded-[24px] md:px-10 md:py-10">
         <div className="flex flex-col gap-7 lg:flex-row lg:items-center lg:justify-between lg:gap-12">
           <div className="max-w-[680px]">
             <Eyebrow tone="onDark">{t('directory.need.eyebrow', 'For marinas')}</Eyebrow>
-            <h3 id="directory-need-heading" className="mt-3 text-[22px] font-semibold leading-[30px] tracking-[-0.01em] text-white md:text-[28px] md:leading-9">
+            <h3 id="directory-need-heading" className="mt-3 text-[22px] font-semibold leading-[30px] tracking-[-0.01em] text-white md:text-[30px] md:leading-[38px]">
               {t('directory.need.title', 'Run a marina? Publish your need and the verified service providers come to you.')}
             </h3>
             <ul aria-label={t('directory.need.examplesLabel', 'Examples of needs')} className="mt-5 flex flex-wrap gap-2">
@@ -1800,23 +2098,103 @@ function NeedPanel({ marinaLike, onSignup }: { marinaLike: boolean; onSignup: ()
           </div>
           <div className="flex shrink-0 flex-col items-start gap-3">
             {marinaLike ? (
-              <Link to="/submit-project" className={buttonVariants({ variant: 'tideOnDark' })}>
-                {t('directory.need.cta', 'Publish a need')}
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
-              </Link>
+              <Button asChild variant="ctaOnDark">
+                <Link to="/submit-project">{t('directory.need.cta', 'Publish a need')}</Link>
+              </Button>
             ) : (
-              <Button variant="tideOnDark" onClick={onSignup}>
+              <Button variant="ctaOnDark" onClick={onSignup}>
                 {t('directory.need.ctaVisitor', 'Sign up as a marina')}
-                <ArrowRight className="h-4 w-4" aria-hidden="true" />
               </Button>
             )}
-            <Link to="/opportunities" className="focus-ring rounded-badge text-sm font-semibold text-white underline underline-offset-4 hover:text-white/80">
-              {t('directory.need.how', 'How opportunities work')}
-            </Link>
+            <UnderlineLink to="/opportunities" tone="light">{t('directory.need.how', 'How opportunities work')}</UnderlineLink>
           </div>
         </div>
-      </WavePanel>
+      </BgRevealPanel>
     </li>
+  );
+}
+
+/**
+ * The Opportunities tile: a photo that moves a little slower than the page, a
+ * veil, the round arrow, the title and a line saying how it works. The whole
+ * tile is the link.
+ */
+function OpportunitiesTile({ className }: { className?: string }) {
+  const { t } = useTranslation();
+  const pxRef = useRef<HTMLDivElement>(null);
+  useParallax(pxRef, { max: 24 });
+  const image = SITE_IMAGES.opportunitiesHero;
+  return (
+    <Reveal className={cn('flex', className)}>
+      <Link
+        to="/opportunities"
+        className="dir-opp group has-ra relative isolate flex min-h-[320px] w-full overflow-hidden rounded-[24px] bg-navy text-white outline-none focus-visible:shadow-focus"
+      >
+        <div ref={pxRef} aria-hidden="true" className="absolute inset-x-0 -bottom-6 -top-6 -z-20">
+          <img
+            src={image.src ?? undefined}
+            alt=""
+            loading="lazy"
+            className="dir-opp-img h-full w-full object-cover"
+            style={{ objectPosition: `50% ${Math.round((image.focusY ?? 0.5) * 100)}%` }}
+          />
+        </div>
+        <span aria-hidden="true" className="absolute inset-0 -z-10 bg-[linear-gradient(0deg,rgba(8,29,64,.94)_0%,rgba(8,29,64,.58)_45%,rgba(8,29,64,.1)_100%)]" />
+        <span aria-hidden="true" className="absolute right-4 top-4"><ArrowDisc tone="photo" /></span>
+        <span className="mt-auto block p-6 md:p-8">
+          <Eyebrow tone="onDark" as="span">{t('directory.opp.eyebrow', 'For members')}</Eyebrow>
+          <span className="mt-2 block text-[26px] font-semibold leading-8 md:text-[34px] md:leading-[42px]">{t('directory.opp.title', 'Opportunities')}</span>
+          <span className="mt-2 block max-w-[520px] text-[15px] leading-6 text-white/85">
+            {t('directory.opp.body', 'Tenders, consultations and projects: marinas publish their needs and member service providers respond.')}
+          </span>
+          <span className="uline uline--light mt-4">
+            <span className="uline-t">{t('directory.opp.cta', 'How it works')}</span>
+            <ArrowRight className="uline-a" strokeWidth={2.25} aria-hidden="true" />
+          </span>
+        </span>
+      </Link>
+    </Reveal>
+  );
+}
+
+/**
+ * "Is your marina listed? Claim it": navy, sounding lines drifting behind, the
+ * contact (Victor Meyer, M3 Monaco), a white rolling button that opens a
+ * prepared e-mail to the public M3 address, and a link to the contact page.
+ */
+function ClaimCard({ claimHref, className }: { claimHref: string; className?: string }) {
+  const { t } = useTranslation();
+  return (
+    <Reveal
+      as="aside"
+      id="directory-claim"
+      aria-labelledby="directory-claim-heading"
+      className={cn('relative isolate overflow-hidden rounded-[24px] bg-navy p-6 text-white md:p-8', className)}
+    >
+      <BathyPattern seed={7} drift className="absolute inset-0 -z-10" />
+      <Eyebrow tone="onDark">{t('directory.claim.eyebrow', 'For marinas')}</Eyebrow>
+      <h2 id="directory-claim-heading" className="mt-3 text-[22px] font-semibold leading-7">
+        {t('directory.claim.title', 'Is your marina listed? Claim it')}
+      </h2>
+      <p className="mt-3 text-[15px] leading-6 text-white/85">
+        {t('directory.claim.body', 'Most marinas in the directory were listed by the M3 team before they had an account. Claim your marina’s page to complete it and keep it up to date: the M3 team checks every request before handing the page over.')}
+      </p>
+      <div className="mt-6 flex items-center gap-4">
+        <span aria-hidden="true" className="grid h-16 w-16 shrink-0 place-items-center rounded-pill bg-teal text-[20px] font-semibold tracking-[0.02em] text-white shadow-[0_0_0_4px_rgba(255,255,255,.14)]">
+          VM
+        </span>
+        <div>
+          <p className="text-base font-semibold leading-[22px]">Victor Meyer</p>
+          <p className="mt-0.5 text-sm leading-5 text-white/80">M3 Monaco</p>
+        </div>
+      </div>
+      <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+        <Button asChild variant="ctaWhite">
+          <a href={claimHref}>{t('directory.claim.cta', 'Claim my marina')}</a>
+        </Button>
+        <UnderlineLink to="/contact" tone="light">{t('directory.claim.question', 'Ask a question')}</UnderlineLink>
+      </div>
+    </Reveal>
   );
 }
 
@@ -1932,8 +2310,8 @@ function FiltersBody(props: {
 
   return (
     <div>
-      {/* Sort: in the toolbar from lg up; here below. */}
-      <FilterGroup index={0} labelId="dir-f-sort" title={t('directory.filters.sort', 'Sort')} className="lg:hidden">
+      {/* Sort: in the toolbar from xl up; here below. */}
+      <FilterGroup index={0} labelId="dir-f-sort" title={t('directory.filters.sort', 'Sort')} className="xl:hidden">
         <div role="radiogroup" aria-labelledby="dir-f-sort">
           {props.sortOptions.map((o) => (
             <OptionRow key={o.value} type="radio" name="dir-sort" checked={props.sort === o.value} onChange={() => props.onSort(o.value)} label={o.long} />

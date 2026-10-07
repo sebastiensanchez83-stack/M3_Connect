@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import * as SheetPrimitive from '@radix-ui/react-dialog';
@@ -24,7 +24,7 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
 import {
-  Menu, X, Globe, ChevronDown, Plus, Inbox, ArrowRight,
+  Menu, X, ChevronDown, Plus, Inbox,
   Building2, UserPlus, LogOut, Settings, Shield, Check, LayoutDashboard,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
@@ -38,6 +38,8 @@ import { SITE_IMAGES } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
 import { useMotion } from '@/components/motion/MotionProvider';
 import { useHeaderHero } from './headerOverlay';
+import { ReadingProgress } from './ReadingProgress';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
 
 /** The avatar menu's shortcuts into the member area — the everyday ones only; the full map is the account menu. */
 const AVATAR_TABS: AccountTab[] = ['registrations', 'organization', 'profile', 'notifications'];
@@ -45,8 +47,8 @@ const AVATAR_SECTIONS = AVATAR_TABS
   .map((tab) => ACCOUNT_SECTIONS.find((s) => s.value === tab))
   .filter((s): s is (typeof ACCOUNT_SECTIONS)[number] => !!s);
 
-/** The header's height in px (h-16). Pages stick their own bars under it (top-16). */
-const HEADER_H = 64;
+/** The hero counts as "under the bar" until its bottom edge is this far from the top of the viewport. */
+const HERO_EDGE = 96;
 
 /**
  * Working screens keep the header in place: consoles, the account area, event
@@ -66,29 +68,33 @@ function focusIsVisible(el: EventTarget | null): boolean {
 }
 
 /**
- * The site header: full width, sticky.
+ * The site header: a bar that floats 12 px (8 px on phones) from the edges.
  *
- *  - Over a registered hero (WaterlineHero, PageHero at the top of the page) it
- *    overlaps the picture with the white logo and wordmark: fully transparent
- *    only at the very top of the page, navy-tinted (blurred) as soon as the
- *    page scrolls while the hero is still under it, so the hero's own text never
- *    runs under bare links, and solid white with a thin bottom rule once the
- *    hero has gone. Elsewhere it is solid white from the start. The first state
- *    of a page is never animated (no white bar fading out over the hero on load).
- *  - It tucks away when the reader scrolls down and comes back on scroll up,
- *    but never while KEYBOARD focus is inside it or one of its menus or
- *    dialogs is open, and never under reduced motion. (A mouse click on a
- *    header link leaves that link focused: that must not pin it for the rest
- *    of the visit.) While it is away, --header-h is 0 so the pages' own sticky
- *    bars rise with it.
- *  - Visitors get the "Sign up" tide button: white over the hero (the hero has
- *    its own gold one: one gold action per screen), gold once the bar is solid.
+ *  - Over a registered hero (InsetHero, PageHero at the top of the page) the bar
+ *    is transparent with the white logo and wordmark; the hero is not pushed
+ *    down. Fully clear only at the very top of the page: as soon as the page
+ *    scrolls while the hero is still under it (the header coming back on a
+ *    scroll up), a navy tint keeps the links readable over the hero's text.
+ *    Once the hero has gone the bar turns white: rounded (16 px), a soft shadow,
+ *    colour logo. Elsewhere it is white from the start. The first state of a
+ *    page is never animated (no white bar fading out over the hero on load).
+ *  - It tucks away when the reader scrolls down and comes back on scroll up
+ *    (translateY -140 %, .35 s), but never while KEYBOARD focus is inside it or
+ *    one of its menus or dialogs is open, and never under reduced motion. (A
+ *    mouse click on a header link leaves that link focused: that must not pin it
+ *    for the rest of the visit.) While it is away, --header-h is 0 so the pages'
+ *    own sticky bars rise with it.
+ *  - Working screens (PINNED_HEADER_ROUTES: consoles, account, SM26…) keep it in
+ *    place and compact (a 56 px bar in a 64 px band, html[data-header-compact]),
+ *    because those pages compute their own offsets from a 64 px header.
+ *  - Visitors get the rolling "Sign up" button: white over the hero (the hero has
+ *    its own gold one: one gold action per screen), gold once the bar is white.
  *    Members get Create, Inbox and their avatar menu; admins and moderators
  *    their panel. Under lg the links move to a full-height sheet (focus
- *    trapped, Esc closes).
+ *    trapped, Esc closes, links cascading in 40 ms apart).
  */
 export function Navbar() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { user, profile, signOut, isVerified, isAdmin, isModerator, organization, organizations, setActiveOrganization } = useAuth();
   const { isFeatureEnabled } = useEntitlements();
   const navigate = useNavigate();
@@ -104,7 +110,7 @@ export function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [overHero, setOverHero] = useState(true);
   const [hidden, setHidden] = useState(false);
-  // The home page always opens on its waterline hero: start transparent there, so
+  // The home page always opens on its photo hero: start transparent there, so
   // the very first paint is not a white bar that the hero then turns transparent.
   const [heroHint, setHeroHint] = useState(() => location.pathname === '/');
   // Transitions only once a page's first state is painted (two frames after the
@@ -132,7 +138,7 @@ export function Navbar() {
       const y = window.scrollY;
       setScrolled(y > 8);
       // Without a hero the value does not matter (no overlay): leave it for the home hint.
-      if (hero) setOverHero(hero.getBoundingClientRect().bottom > HEADER_H + 8);
+      if (hero) setOverHero(hero.getBoundingClientRect().bottom > HERO_EDGE);
       const dy = y - lastY;
       lastY = y;
       if (dy > 0) travel = Math.max(0, travel) + dy;
@@ -185,6 +191,14 @@ export function Navbar() {
     return () => window.clearTimeout(timer);
   }, [hero, heroHint]);
 
+  // Working screens keep a 64 px band (see --header-full in index.css).
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (keepPut) root.setAttribute('data-header-compact', '');
+    else root.removeAttribute('data-header-compact');
+    return () => root.removeAttribute('data-header-compact');
+  }, [keepPut]);
+
   // Pages' sticky bars follow the header (see .sticky.top-16 in smc-motion.css).
   useEffect(() => {
     const root = document.documentElement;
@@ -225,11 +239,6 @@ export function Navbar() {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
-  const toggleLanguage = () => {
-    const newLang = i18n.language === 'en' ? 'fr' : 'en';
-    i18n.changeLanguage(newLang);
-  };
-
   const handleLogout = async () => {
     await signOut();
     toast({ title: t('auth.logoutSuccess') });
@@ -269,11 +278,14 @@ export function Navbar() {
   const clear = transparent && !scrolled;
   /** Scrolled, hero still under the bar: a navy tint keeps the links readable over the hero's text. */
   const tinted = transparent && scrolled;
-  const fade = settled ? 'transition-opacity duration-300' : '';
+  /** Transitions only once the page's first state is painted. */
+  const fade = settled ? 'transition-opacity duration-[350ms] ease-out-smc' : '';
   const iconBtn = cn(
     'h-10 w-10 p-0 rounded-full transition-colors',
     transparent ? 'text-white/85 hover:bg-white/15 hover:text-white' : 'text-meta hover:bg-chip hover:text-navy',
   );
+  /** Under lg the sign-up button loses its round arrow (not enough room). */
+  const compactCta = 'max-lg:gap-0 max-lg:pr-4 max-lg:[&_.cta-d]:hidden';
 
   return (
     <header
@@ -281,24 +293,40 @@ export function Navbar() {
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusInside(false);
       }}
+      // A zero-height band over a hero (the bar floats on top of it), else the band the bar sits in (64 px on
+      // working screens, 72 px on phones, 84 px from md): only the bar itself takes pointer events.
       className={cn(
-        // Exactly 64 px (no border: the rule is an inset shadow), so the -mb-16
-        // overlap leaves no white line above the hero.
-        'sticky top-0 z-50 w-full',
-        settled && 'transition-[transform,background-color,box-shadow] duration-300 ease-out-smc',
-        overlay && '-mb-16',
-        clear && 'bg-transparent',
-        tinted && 'bg-navy-deep/85 backdrop-blur-md',
-        !transparent && 'bg-white',
-        !transparent && (scrolled
-          ? 'shadow-[inset_0_-1px_0_rgb(var(--rule)),0_6px_20px_rgba(11,38,83,0.06)]'
-          : 'shadow-[inset_0_-1px_0_rgb(var(--rule))]'),
-        hidden && '-translate-y-full',
+        'pointer-events-none sticky top-0 z-50 w-full',
+        overlay ? 'h-0' : keepPut ? 'h-16' : 'h-[72px] md:h-[84px]',
       )}
     >
-      <nav aria-label="Main navigation">
-      <div className="container mx-auto px-4">
-        <div className="flex h-16 items-center justify-between gap-2">
+      <div
+        className={cn(
+          'pointer-events-auto absolute',
+          keepPut ? 'inset-x-2 top-1 h-14 rounded-xl' : 'inset-x-2 top-2 h-16 rounded-2xl md:inset-x-3 md:top-3 md:h-[72px]',
+          settled && 'transition-[transform,color] duration-[350ms] ease-out-smc',
+          transparent ? 'text-white' : 'text-navy',
+          hidden && '-translate-y-[140%]',
+        )}
+      >
+        {/* The bar's backgrounds fade in and out: white and soft shadow once the hero is gone, a navy tint over it. */}
+        <span
+          aria-hidden="true"
+          className={cn(
+            'absolute inset-0 rounded-[inherit] bg-white shadow-[0_12px_32px_rgba(11,38,83,.12),0_0_0_1px_rgba(11,38,83,.05)]',
+            fade,
+            transparent ? 'opacity-0' : 'opacity-100',
+          )}
+        />
+        <span
+          aria-hidden="true"
+          className={cn('absolute inset-0 rounded-[inherit] bg-navy-deep/80 backdrop-blur-md', fade, tinted ? 'opacity-100' : 'opacity-0', clear && 'opacity-0')}
+        />
+        {/* The gold reading line under the floating bar (not on working screens, where the header is pinned). */}
+        {!keepPut && <ReadingProgress />}
+      <nav aria-label="Main navigation" className="relative h-full">
+      <div className="mx-auto h-full max-w-7xl px-2 md:px-6">
+        <div className="flex h-full items-center justify-between gap-2">
           {/* Logo — signed-in members land on their dashboard, visitors on the
               marketing homepage. White over a hero, colour on white. */}
           <Link
@@ -320,8 +348,8 @@ export function Navbar() {
             </span>
             <span
               className={cn(
-                'hidden font-wordmark text-xl font-semibold tracking-[-0.01em] sm:inline',
-                settled && 'transition-colors duration-300',
+                'inline font-wordmark text-[18px] font-semibold tracking-[-0.01em] sm:text-xl',
+                settled && 'transition-colors duration-[350ms]',
                 transparent ? 'text-white' : 'text-navy',
               )}
             >
@@ -329,30 +357,20 @@ export function Navbar() {
             </span>
           </Link>
 
-          {/* Desktop navigation */}
-          <div className="hidden lg:flex lg:items-center lg:gap-0.5">
+          {/* Desktop navigation: a gold line grows under the label on hover and focus (and stays under the current page). */}
+          <div className="hidden lg:flex lg:items-center lg:gap-7">
             {navItems.map((link) => {
               const on = active(link.href);
               return (
-                <Link
+                <UnderlineLink
                   key={link.href}
                   to={link.href}
+                  nav
                   aria-current={on ? 'page' : undefined}
-                  className={cn(
-                    'focus-ring relative rounded-full px-3 py-2 text-[15px] font-medium transition-colors duration-200',
-                    transparent
-                      ? on ? 'text-white' : 'text-white/80 hover:bg-white/10 hover:text-white'
-                      : on ? 'text-navy' : 'text-ink/75 hover:bg-chip hover:text-navy',
-                  )}
+                  className={cn(transparent ? (on ? 'text-white' : 'text-white/85 hover:text-white') : on ? 'text-navy' : 'text-ink/75 hover:text-navy')}
                 >
                   {t(link.labelKey, link.fallback)}
-                  {on && (
-                    <span
-                      aria-hidden="true"
-                      className={cn('absolute bottom-0.5 left-1/2 h-0.5 w-5 -translate-x-1/2 rounded-full', transparent ? 'bg-white' : 'bg-gold')}
-                    />
-                  )}
-                </Link>
+                </UnderlineLink>
               );
             })}
           </div>
@@ -364,7 +382,7 @@ export function Navbar() {
             {user && createActions.length > 0 && (
               <DropdownMenu open={createOpen} onOpenChange={setCreateOpen}>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="tideNavy" size="sm" className="hidden md:inline-flex">
+                  <Button variant="ctaNavy" size="sm" arrow={false} roll={false} className="hidden px-4 md:inline-flex">
                     <Plus className="h-4 w-4" aria-hidden="true" />
                     <span>{t('nav.create', 'Create')}</span>
                     <ChevronDown className="h-3.5 w-3.5 opacity-70" aria-hidden="true" />
@@ -402,23 +420,6 @@ export function Navbar() {
                 </Link>
               </Button>
             )}
-
-            {/* Language toggle */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={toggleLanguage}
-              // The visible "FR"/"EN" is part of the name (WCAG 2.5.3).
-              aria-label={i18n.language === 'en'
-                ? t('brand.header.switchToFr', 'FR, switch to French')
-                : t('brand.header.switchToEn', 'EN, switch to English')}
-              className={cn('hidden gap-1 sm:flex', iconBtn, 'w-auto px-2.5')}
-            >
-              <Globe className="h-4 w-4" aria-hidden="true" />
-              <span className="text-xs font-semibold uppercase tracking-[0.06em]">
-                {i18n.language === 'en' ? 'FR' : 'EN'}
-              </span>
-            </Button>
 
             {/* Auth buttons / User menu */}
             {user ? (
@@ -521,14 +522,13 @@ export function Navbar() {
                   {t('nav.login')}
                 </Button>
                 <Button
-                  // White over the hero (whose own Sign up is the gold one), gold once the bar is solid.
-                  variant={transparent ? 'tideLight' : 'tide'}
+                  // White over the hero (whose own Sign up is the gold one), gold once the bar is white.
+                  variant={transparent ? 'ctaWhite' : 'cta'}
                   size="sm"
                   onClick={() => setSignupOpen(true)}
-                  className="px-4 sm:px-5"
+                  className={compactCta}
                 >
                   {t('nav.signup')}
-                  <ArrowRight className="hidden h-4 w-4 sm:block" aria-hidden="true" />
                 </Button>
               </div>
             )}
@@ -569,7 +569,7 @@ export function Navbar() {
                       Partners, Network and Become a Member. */}
                   <nav aria-label={t('brand.header.mobileNav', 'Menu')} className="flex-1 overflow-y-auto px-3 pb-8 pt-3">
                     <div className="space-y-1">
-                      {navItems.map((link) => {
+                      {navItems.map((link, i) => {
                         const Icon = link.icon;
                         const on = active(link.href);
                         return (
@@ -577,8 +577,9 @@ export function Navbar() {
                             key={link.href}
                             to={link.href}
                             aria-current={on ? 'page' : undefined}
+                            style={{ '--i': i } as React.CSSProperties}
                             className={cn(
-                              'focus-ring flex items-start gap-3 rounded-field px-3 py-2.5 transition-colors',
+                              'sheet-link-in focus-ring flex items-start gap-3 rounded-field px-3 py-2.5 transition-colors',
                               on ? 'bg-chip text-navy' : 'text-ink hover:bg-page',
                             )}
                             onClick={() => setMobileMenuOpen(false)}
@@ -596,7 +597,8 @@ export function Navbar() {
                       {!user && (
                         <Link
                           to={JOIN_ITEM.href}
-                          className="focus-ring flex items-start gap-3 rounded-field px-3 py-2.5 text-ink hover:bg-page"
+                          style={{ '--i': navItems.length } as React.CSSProperties}
+                          className="sheet-link-in focus-ring flex items-start gap-3 rounded-field px-3 py-2.5 text-ink hover:bg-page"
                           onClick={() => setMobileMenuOpen(false)}
                         >
                           <UserPlus className="mt-0.5 h-5 w-5 shrink-0 text-navy/80" aria-hidden="true" />
@@ -631,10 +633,6 @@ export function Navbar() {
 
                     {/* Account & settings */}
                     <div className="mt-3 space-y-1 border-t border-rule pt-3">
-                      <button onClick={toggleLanguage} className="focus-ring flex w-full items-center gap-3 rounded-field px-3 py-2.5 text-left text-sm text-ink hover:bg-page">
-                        <Globe className="h-4 w-4 text-meta" />
-                        {i18n.language === 'en' ? 'Français' : 'English'}
-                      </button>
                       {user ? (
                         <>
                           <Link to="/inbox" className="focus-ring flex items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
@@ -658,10 +656,10 @@ export function Navbar() {
                         </>
                       ) : (
                         <div className="flex gap-2 px-1 pt-3">
-                          <Button variant="tideOutline" size="sm" className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
+                          <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
                             {t('nav.login')}
                           </Button>
-                          <Button variant="tide" size="sm" className="flex-1" onClick={() => { setSignupOpen(true); setMobileMenuOpen(false); }}>
+                          <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupOpen(true); setMobileMenuOpen(false); }}>
                             {t('nav.signup')}
                           </Button>
                         </div>
@@ -675,6 +673,7 @@ export function Navbar() {
         </div>
       </div>
       </nav>
+      </div>
 
       {/* Login Dialog */}
       <Dialog open={loginOpen} onOpenChange={setLoginOpen}>

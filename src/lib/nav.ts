@@ -36,6 +36,14 @@ export interface NavItem {
 /** Signed out: what we are and what's inside, nothing that needs an account. */
 export const PUBLIC_NAV: NavItem[] = [
   {
+    href: '/directory',
+    labelKey: 'nav.directory',
+    fallback: 'Directory',
+    descKey: 'nav.directoryDesc',
+    descFallback: 'Marinas, service providers, investors and media',
+    icon: Compass,
+  },
+  {
     href: '/resources',
     labelKey: 'nav.resources',
     fallback: 'Resources',

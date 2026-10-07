@@ -1,14 +1,14 @@
-import { Link } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal } from '@/components/motion/Reveal';
 
 /**
- * The heading of a home page section: teal-dot eyebrow, an H2 whose lines rise
- * out of their mask, an optional intro, and an optional "see all" link on the
- * right (under the title on phones).
+ * The heading of a home page section: dot eyebrow, an H2 whose lines rise out
+ * of their mask (26/32 on phones, 40/48 from md; 22/28 for a side column), an
+ * optional intro, and an optional "see all" underline link on the right (under
+ * the title on phones).
  */
 export function HomeHeading({
   id,
@@ -26,7 +26,7 @@ export function HomeHeading({
   intro?: string;
   link?: { to: string; label: string };
   tone?: 'light' | 'dark';
-  /** 'section' = H2 32/40 (24/30 on phones); 'column' = H3 size, for a side column. */
+  /** 'section' = H2 26/32 → 40/48; 'column' = H3 22/28, for a side column. */
   size?: 'section' | 'column';
   className?: string;
 }) {
@@ -34,30 +34,42 @@ export function HomeHeading({
   return (
     <div className={cn('flex flex-wrap items-end justify-between gap-x-8 gap-y-4', className)}>
       <div className="max-w-3xl">
-        {eyebrow && <Eyebrow tone={dark ? 'onDark' : 'default'}>{eyebrow}</Eyebrow>}
+        {eyebrow && (
+          <Reveal>
+            <Eyebrow tone={dark ? 'onDark' : 'default'}>{eyebrow}</Eyebrow>
+          </Reveal>
+        )}
         <LineReveal
           as="h2"
           id={id}
           className={cn(
-            eyebrow && 'mt-3',
-            size === 'section' ? 'text-h2-sm md:text-h2' : 'text-h3',
+            eyebrow && (size === 'section' ? 'mt-4' : 'mt-2'),
+            size === 'section'
+              ? 'text-balance text-[26px] font-semibold leading-8 tracking-[-0.02em] md:text-[40px] md:leading-[48px]'
+              : 'text-[22px] font-semibold leading-7 tracking-[-0.01em]',
             dark ? 'text-white' : 'text-navy',
           )}
         >
           {title}
         </LineReveal>
         {intro && (
-          <Reveal as="p" delay={120} className={cn('mt-3 max-w-2xl text-body md:text-body-lg', dark ? 'text-white/80' : 'text-meta')}>
+          <Reveal as="p" delay={120} className={cn('mt-3 max-w-2xl text-body md:text-body-lg', dark ? 'text-white/80' : 'text-ink')}>
             {intro}
           </Reveal>
         )}
       </div>
-      {link && <TextLink to={link.to} tone={tone}>{link.label}</TextLink>}
+      {link && (
+        <Reveal delay={160}>
+          <TextLink to={link.to} tone={dark ? 'dark' : 'light'}>
+            {link.label}
+          </TextLink>
+        </Reveal>
+      )}
     </div>
   );
 }
 
-/** A quiet text link with an arrow that nudges on hover and keyboard focus. */
+/** The refonte's text link (gold line growing from the left, arrow). `tone="dark"` = on navy. */
 export function TextLink({
   to,
   children,
@@ -66,23 +78,13 @@ export function TextLink({
 }: {
   to: string;
   children: React.ReactNode;
+  /** 'light' = a light page (navy link); 'dark' = a navy panel or photo (white link). */
   tone?: 'light' | 'dark';
   className?: string;
 }) {
   return (
-    <Link
-      to={to}
-      className={cn(
-        'focus-ring group inline-flex min-h-10 items-center gap-1.5 rounded-field text-sm font-semibold underline-offset-4 hover:underline',
-        tone === 'dark' ? 'text-white' : 'text-navy',
-        className,
-      )}
-    >
+    <UnderlineLink to={to} tone={tone === 'dark' ? 'light' : 'dark'} className={className}>
       {children}
-      <ArrowRight
-        className="h-4 w-4 shrink-0 transition-transform duration-300 ease-out-smc group-hover:translate-x-[3px] group-focus-visible:translate-x-[3px]"
-        aria-hidden="true"
-      />
-    </Link>
+    </UnderlineLink>
   );
 }

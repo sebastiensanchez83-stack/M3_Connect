@@ -4,7 +4,6 @@ import { supabase, setAuthListener } from '@/lib/supabase'
 import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 import { getStoredInvite } from '@/lib/invite-store'
 import { notifyAdmin } from '@/lib/notifications'
-import i18n from '@/i18n'
 
 interface AuthContextType {
   user: User | null
@@ -367,8 +366,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           company_website: companyWebsite || '',
           detected_org_id: detectedOrgId || '',
           job_title: jobTitle || '',
-          // Language of the auth e-mails (send-email hook), re-sends included.
-          lang: i18n.language?.startsWith('fr') ? 'fr' : 'en',
+          // Language of the auth e-mails (send-email hook), re-sends included: English only.
+          lang: 'en',
         },
       },
     })

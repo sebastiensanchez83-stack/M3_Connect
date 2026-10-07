@@ -1,28 +1,27 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Search, X } from 'lucide-react';
+import { Compass, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMotion } from '@/components/motion/MotionProvider';
 import { useOnScreen } from '@/components/motion/useInView';
 
 /**
- * The directory search, with a plain magnifier (no sparkle: there is no AI
- * behind it) and an optional typed placeholder: example searches appear
- * letter by letter, pause, and give way to the next one. The typing stops for
- * good as soon as the field gets focus or holds text, and never runs under
- * reduced motion or while motion is paused (the static placeholder shows).
+ * The search pill of the refonte: a white pill with a gold compass at its left,
+ * the field, and a round navy button with a magnifier that turns gold on hover.
+ * Example searches are typed into the placeholder letter by letter (55 ms a
+ * letter, a 1.6 s pause, erased at 22 ms a letter) and give way to the next one;
+ * the typing stops for good as soon as the field gets focus or holds text, runs
+ * only while the field is on screen, and never runs under reduced motion or
+ * while motion is paused (the static placeholder shows).
  *
  * Submitting goes to the directory search (/directory?q=…) unless `onSearch`
  * is given. A real <form role="search">, so Enter on a phone keyboard works.
- * A field, not a pill: 12 px corners. In the hero (size lg) the submit is a
- * labelled tide button ("Search"); in a toolbar (size md) the magnifier itself
- * is the submit button. The typing runs only while the field is on screen.
  *
  * Pages that filter as you type (the directory itself) pass `value` and
  * `onValueChange`: the field is then controlled and gets a clear button.
- * `size="md"` (48 px) fits a toolbar. Both are optional; without them the
- * field behaves as before.
+ * `size="md"` (48 px) fits a toolbar; `size="lg"` (56 px) a hero. Both are
+ * optional; without them the field behaves as before.
  */
 export function SearchField({
   examples,
@@ -57,7 +56,7 @@ export function SearchField({
   param?: string;
   /** Replaces the navigation (e.g. filter in place). */
   onSearch?: (query: string) => void;
-  /** 'onPhoto' = white pill over a hero; 'light' = bordered field on white. */
+  /** 'onPhoto' = white pill over a hero; 'light' = bordered pill on white. */
   tone?: 'onPhoto' | 'light';
   className?: string;
 }) {
@@ -98,23 +97,23 @@ export function SearchField({
         setTyped(word.slice(0, pos));
         if (pos >= word.length) {
           deleting = true;
-          timer = window.setTimeout(step, 1700);
+          timer = window.setTimeout(step, 1600);
           return;
         }
-        timer = window.setTimeout(step, 55 + ((pos * 13) % 40));
+        timer = window.setTimeout(step, 55);
       } else {
         pos -= 1;
         setTyped(word.slice(0, pos));
         if (pos <= 0) {
           deleting = false;
           ex += 1;
-          timer = window.setTimeout(step, 420);
+          timer = window.setTimeout(step, 450);
           return;
         }
-        timer = window.setTimeout(step, 28);
+        timer = window.setTimeout(step, 22);
       }
     };
-    timer = window.setTimeout(step, 900);
+    timer = window.setTimeout(step, 1200);
     return () => {
       alive = false;
       window.clearTimeout(timer);
@@ -141,28 +140,16 @@ export function SearchField({
       </label>
       <div
         className={cn(
-          'flex items-center gap-2 rounded-field transition-shadow',
-          md ? 'h-12 pl-1 pr-1.5' : 'h-14 pl-4 pr-1.5',
+          'flex items-center gap-2 rounded-full pl-5 pr-1.5 transition-[border-color,box-shadow] duration-300 ease-out-smc',
+          md ? 'h-12' : 'h-14',
           onPhoto
-            // A solid gold ring on focus: 7:1 against the navy hero.
-            ? 'bg-white text-navy focus-within:shadow-[0_0_0_3px_#d7a647]'
+            // A gold ring on focus: visible against the navy hero.
+            ? 'border-2 border-white bg-white text-navy focus-within:border-gold focus-within:shadow-[0_0_0_4px_rgba(215,166,71,.35)]'
             // #6b7588 edge: 4.6:1 against white and the page grey.
             : 'border border-checkbox bg-white text-navy focus-within:border-navy focus-within:shadow-focus',
         )}
       >
-        {md ? (
-          // In a toolbar the magnifier is the submit button.
-          <button
-            type="submit"
-            aria-label={t('brand.search.submit', 'Search')}
-            title={t('brand.search.submit', 'Search')}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-[10px] text-navy transition-colors hover:bg-chip focus-visible:shadow-focus focus-visible:outline-none md:h-10 md:w-10"
-          >
-            <Search className="h-5 w-5" aria-hidden="true" />
-          </button>
-        ) : (
-          <Search className="h-5 w-5 shrink-0 text-meta" aria-hidden="true" />
-        )}
+        <Compass className="h-5 w-5 shrink-0 text-gold-hover" aria-hidden="true" />
         <div className="relative min-w-0 flex-1">
           <input
             ref={inputRef}
@@ -207,14 +194,17 @@ export function SearchField({
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         )}
-        {!md && (
-          <button
-            type="submit"
-            className="tide inline-flex h-11 shrink-0 items-center gap-2 rounded-[10px] bg-navy px-4 text-[15px] font-semibold text-white [--tide-fg-hover:rgb(11_38_83)] [--tide-fill:rgb(215_166_71)] focus-visible:shadow-focus focus-visible:outline-none sm:px-5"
-          >
-            {t('brand.search.submit', 'Search')}
-          </button>
-        )}
+        <button
+          type="submit"
+          aria-label={t('brand.search.submit', 'Search')}
+          title={t('brand.search.submit', 'Search')}
+          className={cn(
+            'grid shrink-0 place-items-center rounded-full bg-navy text-white transition-colors duration-[400ms] ease-out-smc hover:bg-gold hover:text-navy focus-visible:bg-gold focus-visible:text-navy focus-visible:shadow-focus focus-visible:outline-none',
+            md ? 'h-9 w-9' : 'h-11 w-11',
+          )}
+        >
+          <Search className="h-5 w-5" aria-hidden="true" />
+        </button>
       </div>
     </form>
   );

@@ -893,7 +893,7 @@ export function EventDetailPage() {
           className="absolute inset-0"
         />
         <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#0b2653]/95 via-[#0b2653]/80 to-[#0b2653]/55" />
-        <div className="relative container mx-auto px-4 pb-10 pt-6 sm:pb-14">
+        <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-6 pb-10 pt-6 sm:pb-14">
           <Link
             to="/events"
             className="inline-flex min-h-10 items-center gap-1 rounded-lg pr-2 text-sm text-white/85 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
@@ -991,7 +991,7 @@ export function EventDetailPage() {
       </section>
 
       {/* ── Content ── */}
-      <div className="container mx-auto px-4 py-8 lg:py-12">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-8 lg:py-12">
         <div className="grid gap-6 lg:grid-cols-3 lg:gap-8">
           {/* Participation: first on phones, sticky sidebar on desktop. */}
           <aside className="lg:col-start-3 lg:row-start-1">
@@ -1235,7 +1235,7 @@ export function EventDetailPage() {
           className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 shadow-[0_-4px_16px_rgba(11,38,83,0.08)] backdrop-blur lg:hidden"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-          <div className="container mx-auto flex items-center gap-3 px-4 py-3">
+          <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 flex items-center gap-3 py-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-gray-900">{event.title}</p>
               <p className="flex items-center gap-1 truncate text-xs text-gray-600">

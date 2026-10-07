@@ -2547,6 +2547,9 @@ const resources = {
   },
 };
 
+// The platform is English only. No language detector (browser locale and any
+// stored choice are ignored), no language switcher anywhere in the UI. The French
+// resources stay registered below, dormant, in case a second language comes back.
 i18n
   .use(initReactI18next)
   .init({
@@ -2557,6 +2560,11 @@ i18n
       escapeValue: false,
     },
   });
+
+// A French choice stored by an earlier build ('i18nextLng', the key
+// i18next-browser-languagedetector uses) is dropped, and the document is English.
+try { window.localStorage.removeItem('i18nextLng'); } catch { /* storage blocked: nothing to clean */ }
+if (typeof document !== 'undefined') document.documentElement.lang = 'en';
 
 // Strings of the pages rebuilt in October 2026 live in their own module so this
 // file stays editable by hand. Deep merge, no overwrite: a key defined above wins.

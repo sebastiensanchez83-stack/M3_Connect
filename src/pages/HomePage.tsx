@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
-import { AlertCircle, ArrowRight } from 'lucide-react';
+import { AlertCircle, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -10,56 +10,54 @@ import { SITE_IMAGES } from '@/lib/siteMedia';
 import { THEMES, themesForSectors, type ThemeKey } from '@/lib/themes';
 import { networkFigures, formatFigure, type OrgFigureRow } from '@/lib/networkStats';
 import { SPONSOR_TIERS, isSponsorTier, type OrgTier } from '@/types/database';
-import { WaterlineHero } from '@/components/brand/WaterlineHero';
-import { PontoonTag } from '@/components/brand/PontoonTag';
+import { InsetHero, HeroIn } from '@/components/brand/InsetHero';
+import { EventNotch } from '@/components/brand/EventNotch';
 import { SearchField } from '@/components/brand/SearchField';
-import { Eyebrow, WaveMark } from '@/components/brand/Eyebrow';
-import { pontoonTagItems } from '@/components/brand/m3Events';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { notchEventItems } from '@/components/brand/m3Events';
 import { LineReveal } from '@/components/motion/LineReveal';
-import { TeaserButton } from '@/components/home/TeaserDialog';
-import { QuayBand, type QuayFigures } from '@/components/home/QuayBand';
+import { FiguresBand, type HomeFigures } from '@/components/home/FiguresBand';
 import type { ProviderCardData } from '@/components/home/NeedPanel';
-import type { HomeResource } from '@/components/home/ResourcesLogbook';
+import type { HomeResource } from '@/components/home/ResourcesAgenda';
 import type { SponsorLogo } from '@/components/home/SponsorsBand';
 import { MemberSpace, type PersonalEvent, type PersonalResource } from '@/components/home/MemberSpace';
 
-// Everything below the quay is its own chunk: the entry bundle (every route,
-// /admin and /sm26 included) does not carry the home page's lower sections.
+// Everything below the figures band is its own chunk: the entry bundle (every
+// route, /admin and /sm26 included) does not carry the home page's lower sections.
 const HomeBelowFold = lazy(() => import('@/components/home/HomeBelowFold'));
 
 /**
- * The homepage (refonte, Oct 2026), built from the SMC brand devices — our own
- * harbour vocabulary, ordered around what only SMC has:
+ * The homepage (refonte v2, Oct 2026), in the spirit of the Solar Impulse
+ * Foundation site: large photography, slow scroll-linked motion, one gold action.
  *
- *   waterline hero + pontoon tag (the three M3 events)          — everyone
- *   quay: departures board (real rows) + live figures on flaps  — everyone
- *   member band: dashboard door, counters, personal feeds       — signed in
- *   route Monaco → Dubai → online                               — everyone
- *   "What you can do": buoy tabs per profile (rights grid)      — visitors
- *   "Run a marina?": notice to service providers + berths       — visitors and marinas
- *   latest resources, as a logbook                              — everyone
- *   "How it works": channel buoys with harbour pictograms       — visitors
- *   event sponsors, logo band by tier                           — everyone
- *   signpost + harbour office strip                             — everyone
- *   horizon footer (global)
+ *   inset hero: photo, H1 by lines, live-figures sentence, search, buttons,
+ *               giant marquee, notch card turning the three M3 events  — everyone
+ *   figures band: graticule, ruler that draws itself, counters         — everyone
+ *   member band: dashboard door, counters, personal feeds               — signed in
+ *   who it is for: photo cards in an accordion                          — visitors
+ *   "Run a marina?": need form preview + a row of members following the scroll
+ *                                                          — visitors and marinas
+ *   latest articles + agenda                                            — everyone
+ *   giant editorial marquee, then "Our events": a sticky stack        — everyone
+ *   how it works: channel steps                                         — visitors
+ *   event sponsors, logo tiles by tier                                  — everyone
+ *   directory and resources tiles + contact panel                       — everyone
  *
- * Everything from the route down is a lazy chunk (HomeBelowFold).
+ * Everything from the profiles down is a lazy chunk (HomeBelowFold).
  *
  * Figures are live counts (networkStats) unless an admin sets
  * display_stats.override, in which case they show as "N+". The M3 events
  * (World Yachting Summit in Dubai, 27 Nov 2026, by invitation; webinars; the
- * Rendezvous) are carried by the pontoon tag, the departures board and the
- * route; they are not repeated as an agenda. The platform teaser plays only
- * when asked, in a dialog.
+ * Rendezvous) are carried by the notch, the agenda and the events stack, all
+ * three side by side: the platform is not the Rendezvous' own site. The
+ * platform teaser plays only when asked, in a dialog on the Rendezvous card.
  */
 
 /* ─── Model ──────────────────────────────────────────────────────── */
 
-type HomeStats = QuayFigures;
+type HomeStats = HomeFigures;
 
 type FeaturedOrgRow = { id: string; slug: string; name: string; logo_url: string | null; tier: OrgTier | null; organization_type: string | null };
-
-const PAGE_BG = 'rgb(246 247 249)';
 
 /* ─── Helpers ────────────────────────────────────────────────────── */
 
@@ -400,78 +398,112 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [i18n.language],
   );
-  const tag = <PontoonTag items={pontoonTagItems(t)} label={t('brand.tag.label', 'M3 events')} />;
+  // The notch card turns the three M3 events (WYS while upcoming, webinars, the Rendezvous).
+  const notch = useMemo(() => <EventNotch items={notchEventItems(t)} />, [t]);
+  const marquee = useMemo(
+    () => [t('brand.hero.marquee1', 'Smart'), t('brand.hero.marquee2', 'Sustainable'), t('brand.hero.marquee3', 'Connected')],
+    [t],
+  );
 
   // "Run a marina?" speaks to visitors and to marinas; for a signed-in marina it opens the real forms.
   const showNeedPanel = !user || persona === 'marina';
 
+  // The end tiles' lines: "180 marinas and 66 service providers in 45 countries", "30 resources in six themes".
   const directoryLine = liveFigures
     ? t('homePage.end.directoryLive', liveFigures)
     : t('homePage.end.directory', 'Marinas, service providers, investors and media');
-  // The signpost's boards: "Directory · 180 marinas", "Resources · 30 resources".
-  const directorySign = liveFigures
-    ? t('homePage.end.signMarinas', { marinas: liveFigures.marinas, defaultValue: '{{marinas}} marinas' })
-    : null;
-  const resourcesSign = !publicLoading && stats.resources !== null && !stats.manual
-    ? t('homePage.end.signResources', { count: stats.resources, defaultValue: '{{count}} resources' })
-    : null;
+  const resourcesLine = !publicLoading && stats.resources !== null && !stats.manual
+    ? t('homePage.end.resourcesLive', { count: stats.resources, defaultValue: '{{count}} resources in six themes' })
+    : t('homePage.end.resources', 'Articles, guides and replays in six themes');
+
+  const trust = [
+    t('home.trustFree', 'Free for every member'),
+    t('home.trustVerified', 'Every member checked by the M3 team'),
+    t('home.trustEvents', 'By M3 Monaco, organiser of industry events in Monaco, Dubai and online'),
+  ];
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col bg-page">
       <Seo title={seoTitle} description={seoDescription} path="/" />
 
-      {/* ════════════ Waterline hero ════════════ */}
-      <WaterlineHero
+      {/* ════════════ Inset hero ════════════ */}
+      <InsetHero
         image={SITE_IMAGES.homeHero}
         seed="home-hero"
         labelledBy="home-hero-title"
-        belowColor={PAGE_BG}
-        // Above the quay band, so the pontoon tag hanging over the waterline is not covered.
-        className={user ? "z-10 md:min-h-[min(72vh,680px)]" : "z-10 md:min-h-[min(92vh,860px)]"}
-        tag={tag}
+        marquee={marquee}
+        notch={notch}
+        className={user ? 'md:min-h-[min(calc(100svh-52px),760px)]' : undefined}
       >
         {!user ? (
-          <div className="max-w-3xl">
-            <Eyebrow tone="onDark">{t('homePage.hero.eyebrow', 'Smart Marina Connect · by M3 Monaco')}</Eyebrow>
-            <LineReveal as="h1" id="home-hero-title" trigger="mount" delay={500} className="mt-4 text-display-sm text-white md:text-display">
-              {t('home.heroTitle', 'Marinas and the companies that serve them, in one network')}
-            </LineReveal>
-            <p className="mt-5 max-w-2xl text-body text-white/90 md:text-body-lg">
-              {liveFigures
-                ? t('home.heroSubtitleLive', liveFigures)
-                : t('home.heroSubtitle', "Marinas publish their needs, service providers answer them, and everyone meets at M3's events in Monaco, Dubai and online.")}
-            </p>
-            <SearchField className="mt-8 max-w-xl" examples={searchExamples} />
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              {/* On the navy hero: gold with WHITE water, so it never vanishes on hover/focus. */}
-              <Button asChild variant="tideOnDark" size="lg">
-                <Link to="/become-partner">
-                  {t('home.joinNowFree', 'Sign up')}
-                  <ArrowRight className="h-5 w-5" aria-hidden="true" />
-                </Link>
-              </Button>
-              <Button asChild variant="tideOutlineLight" size="lg">
-                <Link to="/directory">{t('home.exploreDirectory', 'Explore the directory')}</Link>
-              </Button>
-              <TeaserButton />
+          <>
+            <div className="max-w-[780px]">
+              <HeroIn>
+                <Eyebrow tone="onDark">{t('homePage.hero.eyebrow', 'Smart Marina Connect · by M3 Monaco')}</Eyebrow>
+              </HeroIn>
+              <LineReveal
+                as="h1"
+                id="home-hero-title"
+                trigger="mount"
+                delay={160}
+                className="mt-5 text-balance text-[36px] font-semibold leading-[42px] tracking-[-0.025em] text-white md:text-[54px] md:leading-[60px] xl:text-[58px] xl:leading-[64px]"
+              >
+                {t('home.heroTitle', 'Marinas and the companies that serve them, in one network')}
+              </LineReveal>
+              <HeroIn as="p" delay={260} className="mt-5 max-w-[660px] text-[17px] leading-[27px] text-white/85 md:text-[19px] md:leading-[30px]">
+                {liveFigures
+                  ? t('home.heroSubtitleLive', liveFigures)
+                  : t('home.heroSubtitle', "Marinas publish their needs, service providers answer them, and everyone meets at M3's events in Monaco, Dubai and online.")}
+              </HeroIn>
+              <HeroIn delay={340} className="mt-6 max-w-[540px]">
+                <SearchField examples={searchExamples} />
+              </HeroIn>
+              <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
+                {/* On the navy hero: gold with WHITE water, so it never vanishes on hover/focus. */}
+                <Button asChild variant="ctaOnDark" size="lg">
+                  <Link to="/become-partner">{t('home.joinNowFree', 'Sign up')}</Link>
+                </Button>
+                <Button asChild variant="ctaLight" size="lg">
+                  <Link to="/directory">{t('home.exploreDirectory', 'Explore the directory')}</Link>
+                </Button>
+              </HeroIn>
             </div>
-            <ul aria-label={t('homePage.hero.trustLabel', 'Why join')} className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-white/90">
-              {[
-                t('home.trustFree', 'Free for every member'),
-                t('home.trustVerified', 'Every member checked by the M3 team'),
-                t('home.trustEvents', 'By M3 Monaco, organiser of industry events in Monaco, Dubai and online'),
-              ].map((line) => (
-                <li key={line} className="flex items-start gap-2">
-                  <WaveMark tone="onDark" className="mt-1.5" />
+            <HeroIn
+              as="ul"
+              delay={500}
+              aria-label={t('homePage.hero.trustLabel', 'Why join')}
+              // From xl the notch takes the bottom left corner: the commitments start after it (.hero-after-notch).
+              className="hero-after-notch mt-7 grid max-w-[880px] gap-3 text-[14px] leading-5 text-white/85 md:grid-cols-[0.78fr_1fr_1.6fr] md:gap-0"
+            >
+              {trust.map((line, i) => (
+                <li
+                  key={line}
+                  className={
+                    i === 0
+                      ? 'flex gap-2.5 md:pr-5'
+                      : i === 1
+                        ? 'flex gap-2.5 md:border-l md:border-white/25 md:px-5'
+                        : 'flex gap-2.5 md:border-l md:border-white/25 md:pl-5'
+                  }
+                >
+                  <Check className="mt-px h-[18px] w-[18px] shrink-0 text-gold" strokeWidth={2.5} aria-hidden="true" />
                   {line}
                 </li>
               ))}
-            </ul>
-          </div>
+            </HeroIn>
+          </>
         ) : (
-          <div className="max-w-3xl">
-            <Eyebrow tone="onDark">{t('homePage.hero.memberEyebrow', 'Smart Marina Connect · your network')}</Eyebrow>
-            <LineReveal as="h1" id="home-hero-title" trigger="mount" delay={500} className="mt-4 text-display-sm text-white md:text-display">
+          <div className="max-w-[780px]">
+            <HeroIn>
+              <Eyebrow tone="onDark">{t('homePage.hero.memberEyebrow', 'Smart Marina Connect · your network')}</Eyebrow>
+            </HeroIn>
+            <LineReveal
+              as="h1"
+              id="home-hero-title"
+              trigger="mount"
+              delay={160}
+              className="mt-5 text-balance text-[36px] font-semibold leading-[42px] tracking-[-0.025em] text-white md:text-[54px] md:leading-[60px] xl:text-[58px] xl:leading-[64px]"
+            >
               {`${t('home.welcomeBack', 'Welcome back')}${profile?.first_name ? `, ${profile.first_name}` : ''}!`}
             </LineReveal>
             {profileTimedOut && !profile && (
@@ -488,27 +520,26 @@ export function HomePage() {
                 </button>
               </div>
             )}
-            <p className="mt-5 max-w-2xl text-body text-white/85 md:text-body-lg">
+            <HeroIn as="p" delay={260} className="mt-5 max-w-[660px] text-[17px] leading-[27px] text-white/85 md:text-[19px] md:leading-[30px]">
               {t('home.personalizedSubtitle', "Here's what's happening in the marina industry for you.")}
-            </p>
-            <SearchField className="mt-8 max-w-xl" examples={searchExamples} />
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <Button asChild variant="tideOnDark" size="lg">
-                <Link to="/resources">
-                  {t('home.exploreResources', 'Explore resources')}
-                  <ArrowRight className="h-5 w-5" aria-hidden="true" />
-                </Link>
+            </HeroIn>
+            <HeroIn delay={340} className="mt-6 max-w-[540px]">
+              <SearchField examples={searchExamples} />
+            </HeroIn>
+            <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
+              <Button asChild variant="ctaOnDark" size="lg">
+                <Link to="/resources">{t('home.exploreResources', 'Explore resources')}</Link>
               </Button>
-              <Button asChild variant="tideOutlineLight" size="lg">
+              <Button asChild variant="ctaLight" size="lg">
                 <Link to="/dashboard">{t('nav.dashboard', 'Dashboard')}</Link>
               </Button>
-            </div>
+            </HeroIn>
           </div>
         )}
-      </WaterlineHero>
+      </InsetHero>
 
-      {/* ════════════ Quay edge: departures board + live figures ════════════ */}
-      <QuayBand figures={stats} loading={publicLoading} />
+      {/* ════════════ Figures band: graticule, ruler, counters ════════════ */}
+      <FiguresBand figures={stats} loading={publicLoading} className={user ? 'pb-10 md:pb-12' : undefined} />
 
       {/* ════════════ Signed in: the member's own band ════════════ */}
       {user && (
@@ -526,7 +557,7 @@ export function HomePage() {
         />
       )}
 
-      {/* ════════════ Below the quay: its own chunk ════════════ */}
+      {/* ════════════ Below the figures: its own chunk ════════════ */}
       <Suspense fallback={<div aria-hidden="true" className="min-h-[220vh] bg-page" />}>
         <HomeBelowFold
           signedIn={!!user}
@@ -539,8 +570,7 @@ export function HomePage() {
           loading={publicLoading}
           lang={lang}
           directoryLine={directoryLine}
-          directorySign={directorySign}
-          resourcesSign={resourcesSign}
+          resourcesLine={resourcesLine}
         />
       </Suspense>
     </div>

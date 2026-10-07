@@ -266,7 +266,7 @@ export function PartnersPage() {
         </form>
       </PageHero>
 
-      <div className="container mx-auto px-4 pt-8">
+      <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 pt-8">
         {/* Result count + the chip that undoes the search. */}
         {!loading && partners.length > 0 && (
           <div className="mb-6 flex flex-wrap items-center gap-2">

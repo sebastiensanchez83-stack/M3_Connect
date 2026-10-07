@@ -1,0 +1,14 @@
+/*
+ * Drawer (src/components/brand/Drawer.tsx): its groups fade up one after the
+ * other once the panel has slid in. Only opacity and transform. The keyframes
+ * (smc-fade-up) live in smc-motion.css.
+ */
+.smc-drawer[data-state="open"] .drawer-group {
+  animation: smc-fade-up 0.5s var(--ease-out-smc) calc(140ms + var(--i, 0) * 60ms) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .smc-drawer[data-state="open"] .drawer-group {
+    animation: none !important;
+  }
+}

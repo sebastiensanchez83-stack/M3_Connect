@@ -2,6 +2,8 @@ import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
 import { PAGE_STRINGS } from './pages';
 import { SEO_STRINGS } from './seo';
+import { BRAND_STRINGS } from './brand';
+import { HOME_STRINGS } from './home';
 
 const resources = {
   en: {
@@ -2563,6 +2565,12 @@ i18n
 for (const lng of ['en', 'fr'] as const) {
   i18n.addResourceBundle(lng, 'translation', PAGE_STRINGS[lng], true, false);
   i18n.addResourceBundle(lng, 'translation', SEO_STRINGS[lng], true, false);
+  // Refonte brand devices and layout (header, footer, board, route…): src/i18n/brand.ts.
+  i18n.addResourceBundle(lng, 'translation', BRAND_STRINGS[lng], true, false);
+  // Refonte home page sections (quay figures, profiles, need panel, sponsors, end tiles): src/i18n/home.ts.
+  i18n.addResourceBundle(lng, 'translation', HOME_STRINGS[lng], true, false);
+  // The refonte directory's strings (src/i18n/directory.ts) are registered by the
+  // lazy DirectoryPage itself, so they stay out of the entry bundle.
 }
 
 export default i18n;

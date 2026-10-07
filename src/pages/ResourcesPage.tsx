@@ -20,6 +20,7 @@ import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { readMinutes } from '@/lib/readTime';
 import { withSiteSuffix } from '@/lib/seoText';
+import { scrollTopUnderBars } from '@/lib/scrollTarget';
 
 /**
  * The resource library, browsed by theme.
@@ -65,7 +66,8 @@ interface Indexed extends Resource {
 }
 
 /** Navbar (64 px) + filter toolbar (~57 px): where the list should start when scrolled to. */
-const STICKY_OFFSET = 64 + 57;
+/** The sticky filter bar's height; the header's 64 px are added on the way up only (scrollTopUnderBars). */
+const FILTER_BAR_H = 57;
 
 /** Speakers in display order — on a copy, never sorting the fetched array in place. */
 function speakerNames(r: Resource): string {
@@ -222,13 +224,13 @@ export function ResourcesPage() {
     lastFilterKey.current = filterKey;
     const el = resultsRef.current;
     if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - STICKY_OFFSET;
+    const top = scrollTopUnderBars(el, FILTER_BAR_H, 0);
     if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
   }, [filterKey]);
 
   const scrollToResults = () => {
     const el = resultsRef.current;
-    if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - STICKY_OFFSET, behavior: 'smooth' });
+    if (el) window.scrollTo({ top: scrollTopUnderBars(el, FILTER_BAR_H, 0), behavior: 'smooth' });
   };
   // "Featured" only means something on the untouched library.
   const featured = !anyFilter ? filtered[0] ?? null : null;

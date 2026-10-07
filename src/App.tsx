@@ -74,10 +74,17 @@ const SM26YVPage = lazyWithRetry(() => import('@/pages/SM26YVPage').then(m => ({
 const SM26ConnectPage = lazyWithRetry(() => import('@/pages/SM26ConnectPage').then(m => ({ default: m.SM26ConnectPage })));
 const SM26HubPage = lazyWithRetry(() => import('@/pages/SM26HubPage').then(m => ({ default: m.SM26HubPage })));
 const SponsorshipPage = lazyWithRetry(() => import('@/pages/SponsorshipPage').then(m => ({ default: m.SponsorshipPage })));
+// Dev-only showcase of the refonte's brand kit (/__brand). import.meta.env.DEV is false in
+// production builds, so the route and its chunk are dropped there entirely.
+const BrandShowcasePage = import.meta.env.DEV
+  ? lazyWithRetry(() => import('@/pages/BrandShowcasePage').then(m => ({ default: m.BrandShowcasePage })))
+  : null;
 
 function LazyFallback() {
   return (
-    <div className="flex items-center justify-center h-[60vh]">
+    // A full screen, so the footer stays below the fold while a route's chunk loads
+    // (with 60vh the tall horizon footer showed, then jumped down: CLS ≈ 1).
+    <div className="flex min-h-[100svh] items-center justify-center">
       <RefreshCw className="h-8 w-8 animate-spin text-primary" />
     </div>
   );
@@ -209,6 +216,7 @@ function App() {
               <Route path="/conditions-commerciales" element={<ConditionsCommercialesPage />} />
               <Route path="/cgv" element={<Navigate to="/conditions-commerciales" replace />} />
               <Route path="/cookies" element={<CookiePolicyPage />} />
+              {BrandShowcasePage && <Route path="/__brand" element={<BrandShowcasePage />} />}
               <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>

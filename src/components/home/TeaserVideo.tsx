@@ -16,20 +16,37 @@ import { cn } from '@/lib/utils';
  * renamed, bucket emptied) the still stays on its own as an illustration — the
  * page never shows a play button that leads nowhere, and the layout does not
  * jump when the answer comes back.
+ *
+ * Refonte (Oct 2026): the home page shows a "Watch the teaser" button only once
+ * `useTeaserAvailable()` has confirmed the file, and opens this player in a
+ * dialog with `autoPlay` — the click on that button is the visitor's request,
+ * so the film starts straight away. It is never a background video.
  */
-export function TeaserVideo({ className }: { className?: string }) {
-  const { t } = useTranslation();
+export function useTeaserAvailable(enabled = true): boolean {
   const [available, setAvailable] = useState(false);
-  const [playing, setPlaying] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
     fetch(TEASER.src, { method: 'HEAD' })
       .then((res) => { if (alive) setAvailable(res.ok); })
       .catch(() => { /* offline or blocked: keep the still */ });
     return () => { alive = false; };
-  }, []);
+  }, [enabled]);
+  return available;
+}
+
+export function TeaserVideo({ className, autoPlay = false }: {
+  className?: string;
+  /** Start playing at once (the player was opened by a click on "Watch the teaser"). */
+  autoPlay?: boolean;
+}) {
+  const { t } = useTranslation();
+  const checked = useTeaserAvailable(!autoPlay);
+  // Opened on purpose: the button only exists once the file was found.
+  const [failed, setFailed] = useState(false);
+  const available = (checked || autoPlay) && !failed;
+  const [playing, setPlaying] = useState(autoPlay);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     if (playing) videoRef.current?.play().catch(() => { /* the controls are there to retry */ });
@@ -51,7 +68,7 @@ export function TeaserVideo({ className }: { className?: string }) {
           playsInline
           preload="auto"
           className="h-full w-full bg-black"
-          onError={() => { setPlaying(false); setAvailable(false); }}
+          onError={() => { setPlaying(false); setFailed(true); }}
         >
           {t('home.teaserUnsupported', 'Your browser cannot play this video.')}
         </video>

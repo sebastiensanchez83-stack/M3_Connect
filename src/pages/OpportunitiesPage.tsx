@@ -29,6 +29,7 @@ import { SITE_IMAGES } from '@/lib/siteMedia';
 import { CREATE_ACTIONS, canCreate, type CreateAction, type CreateCapability } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
+import { scrollTopUnderBars } from '@/lib/scrollTarget';
 
 /**
  * Open business published by verified marinas: RFPs, consultation requests and
@@ -195,7 +196,8 @@ const PROJECT_STATUS_FALLBACK: Record<string, string> = {
 };
 
 /** Navbar (64 px) + the sticky filter bar (~61 px). */
-const STICKY_OFFSET = 64 + 61;
+/** The sticky filter bar's height; the header's 64 px are added on the way up only (scrollTopUnderBars). */
+const FILTER_BAR_H = 61;
 
 const EMPTY_ITEMS: { rfps: RfpCard[]; consultations: ConsultationCard[]; projects: ProjectCard[] } = {
   rfps: [],
@@ -636,7 +638,7 @@ export function OpportunitiesPage() {
     lastFilterKey.current = filterKey;
     const el = resultsRef.current;
     if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - STICKY_OFFSET;
+    const top = scrollTopUnderBars(el, FILTER_BAR_H, 0);
     if (window.scrollY > top) window.scrollTo({ top, behavior: 'smooth' });
   }, [filterKey]);
 

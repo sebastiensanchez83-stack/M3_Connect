@@ -30,7 +30,7 @@ export function ConditionsCommercialesPage() {
           <section>
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Article 2 — Nature of Offers</h2>
             <p>Smart Marina Connect may market, among other things, memberships, premium access, partner or certified partner profiles, media partner spaces, visibility campaigns, editorial placements, sponsorships, access to specific content or workshops, attendance or exhibition packages, and any other professional offer defined by M3.</p>
-            <p className="mt-2">The exact content of each offer, its scope, duration, price, access level, specific terms, and any limitations are defined in the applicable commercial proposal, purchase order, insertion order, or pricing page.</p>
+            <p className="mt-2">The exact content of each offer, its scope, duration, price, access level, specific terms, and any limitations are defined in the applicable commercial proposal, purchase order, insertion order, or sponsorship offer sent by M3, which may be requested through the <Link to="/contact?subject=partnership" className="text-primary hover:underline">contact page</Link>.</p>
           </section>
 
           {/* Article 3 */}
@@ -125,7 +125,7 @@ export function ConditionsCommercialesPage() {
 
           {/* Contact */}
           <section className="border-t pt-6">
-            <p className="text-sm text-gray-500">For any questions regarding these commercial terms, please contact: <a href="mailto:contact@smartmarinaconnect.com" className="text-primary hover:underline">contact@smartmarinaconnect.com</a></p>
+            <p className="text-sm text-gray-500">For any questions regarding these commercial terms, please contact: <a href="mailto:events@m3monaco.com" className="text-primary hover:underline">events@m3monaco.com</a></p>
           </section>
         </div>
       </div>

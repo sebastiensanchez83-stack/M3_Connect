@@ -26,6 +26,7 @@ import { accountHref } from '@/lib/accountNav';
 import { canCreate } from '@/lib/nav';
 import { cn, downloadICS } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
+import { scrollTopUnderBars } from '@/lib/scrollTarget';
 
 /**
  * Events and webinars.
@@ -333,8 +334,8 @@ export function EventsPage() {
   const filterBarRef = useRef<HTMLDivElement>(null);
   const scrollTargetTop = (el: HTMLElement) => {
     const bar = filterBarRef.current?.nextElementSibling as HTMLElement | null;
-    const offset = NAVBAR_HEIGHT + (bar?.getBoundingClientRect().height ?? 61) + 8;
-    return el.getBoundingClientRect().top + window.scrollY - offset;
+    // The header (NAVBAR_HEIGHT) only counts on the way up: it tucks away on the way down.
+    return scrollTopUnderBars(el, bar?.getBoundingClientRect().height ?? 61, 8);
   };
 
   const pastRef = useRef<HTMLElement>(null);

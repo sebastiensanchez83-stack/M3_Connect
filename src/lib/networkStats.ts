@@ -39,7 +39,8 @@ const COUNTRY_ALIASES: Record<string, string> = {
   bresil: 'brazil', suisse: 'switzerland', mexique: 'mexico',
 };
 
-function countryKey(raw: string): string {
+/** One spelling of a country → its folded key ("The Netherlands", "Pays-Bas" → "netherlands"). */
+export function countryKey(raw: string): string {
   const k = raw
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -50,18 +51,32 @@ function countryKey(raw: string): string {
   return COUNTRY_ALIASES[k] ?? k;
 }
 
+/** The raw country spelling of an organization: its country, else its headquarters' country. */
+export function rawCountryOf(row: { country: string | null; headquarters_country: string | null }): string {
+  return row.country?.trim() || row.headquarters_country?.trim() || '';
+}
+
+/**
+ * The spellings one country field holds: "Spain/France", "Spain -UAE" are one
+ * organization in two countries. A bare hyphen inside a name ("Pays-Bas",
+ * "Guinea-Bissau") is left alone. Spellings too short to be a country are dropped.
+ */
+export function countryParts(raw: string): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/\s*[/,;&]\s*|\s+-\s*|\s*-\s+/)
+    .map((part) => part.trim())
+    .filter((part) => countryKey(part).length > 1);
+}
+
+/** The folded country keys of one organization (used by the directory's country filter). */
+export function countryKeysOf(row: { country: string | null; headquarters_country: string | null }): string[] {
+  return [...new Set(countryParts(rawCountryOf(row)).map(countryKey))];
+}
+
 export function countCountries(rows: { country: string | null; headquarters_country: string | null }[]): number {
   const seen = new Set<string>();
-  for (const r of rows) {
-    const raw = r.country?.trim() || r.headquarters_country?.trim() || '';
-    if (!raw) continue;
-    // "Spain/France", "Spain -UAE": one organization, two countries. A bare
-    // hyphen inside a name ("Pays-Bas", "Guinea-Bissau") is left alone.
-    for (const part of raw.split(/\s*[/,;&]\s*|\s+-\s*|\s*-\s+/)) {
-      const k = countryKey(part);
-      if (k.length > 1) seen.add(k);
-    }
-  }
+  for (const r of rows) for (const k of countryKeysOf(r)) seen.add(k);
   return seen.size;
 }
 

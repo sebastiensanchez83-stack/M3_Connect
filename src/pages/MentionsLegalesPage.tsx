@@ -84,7 +84,7 @@ export function MentionsLegalesPage() {
 
           {/* Contact */}
           <section className="border-t pt-6">
-            <p className="text-sm text-gray-500">For any questions, please contact: <a href="mailto:contact@smartmarinaconnect.com" className="text-primary hover:underline">contact@smartmarinaconnect.com</a></p>
+            <p className="text-sm text-gray-500">For any questions, please contact: <a href="mailto:events@m3monaco.com" className="text-primary hover:underline">events@m3monaco.com</a></p>
           </section>
         </div>
       </div>

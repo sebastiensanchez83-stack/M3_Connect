@@ -1,0 +1,44 @@
+/*
+ * Directory page (src/pages/DirectoryPage.tsx), refonte Oct 2026.
+ * Only transform and opacity move. Reduced motion: final states at once.
+ */
+
+/* Active-filter chips scale and fade in; a removed chip shrinks away (0.32 s)
+   before it leaves the DOM. `backwards`: once in, the chip rests on its own
+   styles, so the exit transition starts from them. */
+@keyframes dir-chip-in {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: none; }
+}
+.dir-chip {
+  animation: dir-chip-in 0.32s var(--ease-out-smc) backwards;
+  transition: opacity 0.32s var(--ease-out-smc), transform 0.32s var(--ease-out-smc);
+}
+.dir-chip.is-out {
+  opacity: 0;
+  transform: scale(0.8);
+}
+
+/* The type panel keeps its wave wipe (BuoyTabsContent), but drops the clip once
+   it has played, so the cards' hover shadow and focus ring at its edges are
+   never cut. */
+.dir-panel.buoy-panel[data-state="active"] {
+  animation-fill-mode: backwards;
+}
+
+/* Collections carousel: native scrolling, no visible scrollbar (the progress
+   rule under it says where you are). */
+.dir-collections {
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.dir-collections::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dir-chip {
+    animation: none !important;
+    transition: none !important;
+  }
+}

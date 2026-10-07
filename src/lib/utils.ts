@@ -1,5 +1,22 @@
 import { type ClassValue, clsx } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { extendTailwindMerge } from "tailwind-merge"
+
+/**
+ * tailwind-merge only knows Tailwind's default scale. Without this, our own
+ * tokens (tailwind.config.js) would be misread: `text-card-title text-navy`
+ * would look like two text colours and lose the font size, and
+ * `rounded-md rounded-card` would keep both radii.
+ */
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      "font-size": [{ text: ["display", "display-sm", "h1", "h1-sm", "h2", "h2-sm", "h3", "card-title", "body-lg", "body", "figure", "meta-caps"] }],
+      "font-family": [{ font: ["sans", "wordmark", "signage"] }],
+      rounded: [{ rounded: ["badge", "field", "card", "pill"] }],
+      shadow: [{ shadow: ["hover", "drawer", "focus"] }],
+    },
+  },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

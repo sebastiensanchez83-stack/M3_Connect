@@ -71,9 +71,9 @@ export function AdminUserDetail() {
   // Feature entitlements
   const FEATURE_DEFINITIONS: { key: string; label: string; description: string; personas?: string[] }[] = [
     { key: 'marketplace_access', label: 'Marketplace Access', description: 'Browse marketplace & express interest' },
-    { key: 'submit_project', label: 'Submit Projects', description: 'Submit marina projects', personas: ['marina'] },
-    { key: 'submit_rfp', label: 'Submit RFPs', description: 'Create Requests for Proposals', personas: ['marina'] },
-    { key: 'submit_consultation', label: 'Submit Consultations', description: 'Create consultation requests', personas: ['marina'] },
+    { key: 'submit_project', label: 'Submit Projects', description: 'Submit marina projects', personas: ['marina', 'developer'] },
+    { key: 'submit_rfp', label: 'Submit RFPs', description: 'Create Requests for Proposals', personas: ['marina', 'developer'] },
+    { key: 'submit_consultation', label: 'Submit Consultations', description: 'Create consultation requests', personas: ['marina', 'developer'] },
     { key: 'request_webinar', label: 'Propose Webinars', description: 'Propose and host webinars' },
     { key: 'b2b_matching', label: 'B2B Matching', description: 'Send & receive partner connection requests' },
     { key: 'analytics_dashboard', label: 'Analytics Dashboard', description: 'View profile analytics & insights' },

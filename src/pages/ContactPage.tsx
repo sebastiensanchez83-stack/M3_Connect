@@ -45,6 +45,12 @@ export function ContactPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof ContactForm, string>>>({});
+  // Honeypot: people never see this field; a value means a bot (the function then
+  // answers ok without storing or sending anything).
+  const [honeypot, setHoneypot] = useState('');
+  // Why the last send did not go through: shown above the button. 'invalid' = the
+  // server refused the fields (400): retrying the same input will not help.
+  const [submitError, setSubmitError] = useState<'invalid' | 'rate_limited' | 'failed' | null>(null);
 
   function validate(): boolean {
     const newErrors: Partial<Record<keyof ContactForm, string>> = {};
@@ -55,7 +61,7 @@ export function ContactPage() {
 
     if (!form.email.trim()) {
       newErrors.email = t('contact.errorEmail', 'Please enter your email');
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@.]{2,}$/.test(form.email.trim())) {
       newErrors.email = t('contact.errorEmailInvalid', 'Please enter a valid email address');
     }
 
@@ -65,7 +71,8 @@ export function ContactPage() {
 
     if (!form.message.trim()) {
       newErrors.message = t('contact.errorMessage', 'Please enter a message');
-    } else if (form.message.trim().length < 10) {
+    } else if (Array.from(form.message.trim()).length < 10) {
+      // Characters as the server counts them (code points: an emoji is one).
       newErrors.message = t('contact.errorMessageShort', 'Message must be at least 10 characters');
     }
 
@@ -73,26 +80,37 @@ export function ContactPage() {
     return Object.keys(newErrors).length === 0;
   }
 
+  // The edge function contact-submit stores the message and e-mails it to
+  // events@m3monaco.com. The thank-you screen is shown only on { ok: true }.
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
 
     if (!validate()) return;
 
     setSubmitting(true);
+    setSubmitError(null);
 
     try {
-      // Try to insert into contact_submissions table
-      const { error } = await supabase.from('contact_submissions').insert({
-        name: form.name.trim(),
-        email: form.email.trim(),
-        subject: form.subject,
-        message: form.message.trim(),
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean }>('contact-submit', {
+        body: {
+          name: form.name.trim(),
+          email: form.email.trim(),
+          subject: form.subject,
+          message: form.message.trim(),
+          source: window.location.pathname.slice(0, 200),
+          website: honeypot,
+        },
       });
 
       if (error) {
-        // If table doesn't exist or insert fails, fall back to mailto
-        console.warn('contact_submissions insert failed, falling back to mailto:', error.message);
-        fallbackMailto();
+        // supabase-js wraps any non-2xx answer; the status is on error.context.
+        const status = (error as { context?: { status?: number } }).context?.status;
+        setSubmitError(status === 400 ? 'invalid' : status === 429 ? 'rate_limited' : 'failed');
+        return;
+      }
+      if (data?.ok !== true) {
+        setSubmitError('failed');
         return;
       }
 
@@ -106,31 +124,10 @@ export function ContactPage() {
       });
     } catch (err) {
       console.error('Contact form error:', err);
-      fallbackMailto();
+      setSubmitError('failed');
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function fallbackMailto() {
-    const subjectLabel =
-      SUBJECT_OPTIONS.find((s) => s.value === form.subject)?.fallback || form.subject;
-    const mailtoSubject = encodeURIComponent(`[Smart Marina Connect] ${subjectLabel}`);
-    const mailtoBody = encodeURIComponent(
-      `Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`
-    );
-    window.open(
-      `mailto:contact@smartmarinaconnect.com?subject=${mailtoSubject}&body=${mailtoBody}`,
-      '_self'
-    );
-    toast({
-      title: t('contact.mailtoTitle', 'Opening Email Client'),
-      description: t(
-        'contact.mailtoDesc',
-        'Your default email client will open with a pre-filled message.'
-      ),
-    });
-    setSubmitted(true);
   }
 
   function handleChange(field: keyof ContactForm, value: string) {
@@ -154,7 +151,7 @@ export function ContactPage() {
               'Your message has been sent successfully. Our team will review your inquiry and get back to you as soon as possible.'
             )}
           </p>
-          <Button onClick={() => { setSubmitted(false); setForm({ name: '', email: '', subject: '', message: '' }); }}>
+          <Button onClick={() => { setSubmitted(false); setSubmitError(null); setHoneypot(''); setForm({ name: '', email: '', subject: '', message: '' }); }}>
             {t('contact.sendAnother', 'Send Another Message')}
           </Button>
         </div>
@@ -203,6 +200,7 @@ export function ContactPage() {
                     id="contact-name"
                     type="text"
                     placeholder={t('contact.namePlaceholder', 'Your full name')}
+                    maxLength={120}
                     value={form.name}
                     onChange={(e) => handleChange('name', e.target.value)}
                     className={errors.name ? 'border-red-500' : ''}
@@ -221,6 +219,7 @@ export function ContactPage() {
                     id="contact-email"
                     type="email"
                     placeholder={t('contact.emailPlaceholder', 'your.email@example.com')}
+                    maxLength={254}
                     value={form.email}
                     onChange={(e) => handleChange('email', e.target.value)}
                     className={errors.email ? 'border-red-500' : ''}
@@ -268,6 +267,7 @@ export function ContactPage() {
                   <Textarea
                     id="contact-message"
                     placeholder={t('contact.messagePlaceholder', 'Tell us how we can help...')}
+                    maxLength={5000}
                     value={form.message}
                     onChange={(e) => handleChange('message', e.target.value)}
                     rows={6}
@@ -277,6 +277,43 @@ export function ContactPage() {
                     <p className="text-sm text-red-500">{errors.message}</p>
                   )}
                 </div>
+
+                {/* Honeypot (sent as "website"): off-screen, hidden from assistive
+                    tech, out of the tab order. Its name and label avoid the words
+                    browsers autofill (website, url, company...), so a real visitor's
+                    autofill never fills it and gets their message silently dropped. */}
+                <div
+                  aria-hidden="true"
+                  style={{ position: 'absolute', left: '-10000px', top: 'auto', width: '1px', height: '1px', overflow: 'hidden' }}
+                >
+                  <label htmlFor="contact-hp-field">Leave this field empty</label>
+                  <input
+                    id="contact-hp-field"
+                    name="contact_hp_field"
+                    type="text"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    aria-hidden="true"
+                    value={honeypot}
+                    onChange={(e) => setHoneypot(e.target.value)}
+                  />
+                </div>
+
+                {submitError && (
+                  <div
+                    role="alert"
+                    className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+                  >
+                    {submitError === 'invalid'
+                      ? t('contact.errorInvalid', 'Please check your e-mail address and message. If it still does not go through, write to us at')
+                      : submitError === 'rate_limited'
+                        ? t('contact.errorRateLimited', 'Too many messages, please try again later or write to')
+                        : t('contact.errorSendFailed', 'Your message could not be sent. Please try again in a moment, or write to us at')}{' '}
+                    <a href="mailto:events@m3monaco.com" className="font-medium underline">
+                      events@m3monaco.com
+                    </a>
+                  </div>
+                )}
 
                 <Button type="submit" disabled={submitting} className="w-full sm:w-auto">
                   {submitting ? (
@@ -309,10 +346,10 @@ export function ContactPage() {
             </CardHeader>
             <CardContent>
               <a
-                href="mailto:contact@smartmarinaconnect.com"
+                href="mailto:events@m3monaco.com"
                 className="text-primary hover:underline"
               >
-                contact@smartmarinaconnect.com
+                events@m3monaco.com
               </a>
               <p className="text-sm text-gray-500 mt-2">
                 {t('contact.emailNote', 'We typically respond within 24-48 hours.')}

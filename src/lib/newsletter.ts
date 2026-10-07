@@ -1,0 +1,22 @@
+import { supabase } from '@/lib/supabase';
+
+/**
+ * Subscribes an address to the Smart Marina Connect newsletter through the
+ * `newsletter-subscribe` edge function (Mailchimp, double opt-in: the address is
+ * only subscribed once its owner clicks the confirmation e-mail).
+ *
+ *   POST { email, consent: true, source, website }
+ *   200 { ok: true } | 400 { error: 'invalid' } | 429 { error: 'rate_limited' } | 500 { error: 'server' }
+ *
+ * Resolves only on { ok: true }; any other answer throws, and the form says
+ * "Subscription failed — please try again later". Nothing is sent by e-mail
+ * client and nothing is stored by the site.
+ */
+export type NewsletterSource = 'footer' | 'home' | 'events' | 'resources' | 'other';
+
+export async function subscribeToNewsletter(email: string, source: NewsletterSource, website = ''): Promise<void> {
+  const { data, error } = await supabase.functions.invoke('newsletter-subscribe', {
+    body: { email: email.trim(), consent: true, source, website },
+  });
+  if (error || (data as { ok?: unknown } | null)?.ok !== true) throw new Error('newsletter-subscribe failed');
+}

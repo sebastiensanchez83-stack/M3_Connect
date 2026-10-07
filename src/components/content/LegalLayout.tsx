@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Seo } from '@/components/seo/Seo';
+import { plainPageMeta } from '@/lib/seoMeta';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { subscribeScroll } from '@/components/motion/scrollLoop';
@@ -70,8 +72,11 @@ export function LegalLayout({
     });
   }, []);
 
+  // Title, description and canonical URL of the document: the table the edge function reads (src/lib/seoMeta.ts).
+  const meta = plainPageMeta(path);
   return (
     <div className="min-h-screen bg-page">
+      {meta && <Seo {...meta} />}
       <header className="mx-auto max-w-7xl px-4 pb-8 pt-8 sm:px-6 md:pb-10 md:pt-12">
         <nav aria-label={t('brand.breadcrumb', 'Breadcrumb')} className="text-[14px] leading-5 text-meta">
           <ol className="flex flex-wrap items-center gap-2">

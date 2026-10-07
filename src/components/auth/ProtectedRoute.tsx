@@ -8,8 +8,13 @@ import { Lock } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { LoginForm } from '@/components/auth/LoginForm';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { signInDestination } from '@/lib/signInDestination';
+import { registerFlowsStrings } from '@/i18n/refonte-flows';
 import { AuthLoading, AuthShell } from '@/components/auth/AuthShell';
 import { readAuthLanding, scrubAuthLandingUrl, type AuthLanding } from '@/components/auth/AuthRedirector';
+
+registerFlowsStrings();
 
 /** Show a toast once per redirect reason */
 function RedirectWithToast({ to, message }: { to: string; message: string }) {
@@ -67,21 +72,24 @@ export function ProtectedRoute({
 
   // Signed out, back from a confirmation link that could not sign in here.
   const landing = user ? null : readAuthLanding();
-  // A sign-in from the notice's form flips `loading` on; keep the form mounted
+  // A sign-in from the in-place form flips `loading` on; keep the form mounted
   // through it, or a failed attempt would come back as an empty form.
-  const landingShown = useRef(false);
+  const formShown = useRef(false);
 
-  if ((loading || (bypassEntitlement && entitlementsLoading)) && !(landing && landingShown.current)) {
-    return <AuthLoading />;
+  // Full-screen height, not the 60vh default: the sign-in hero that replaces this (or the page itself) is taller,
+  // and a shorter loader would push the footer down when it arrives (CLS).
+  if ((loading || (bypassEntitlement && entitlementsLoading)) && !(formShown.current && !user)) {
+    return <AuthLoading className="min-h-[100svh]" />;
   }
 
-  // Check auth
+  // Check auth. A visitor who follows a link to a members' page (an e-mail
+  // button, a bookmark) is not thrown to the home page with a red toast: the
+  // sign-in form stands where the page would be, and the page itself appears
+  // as soon as the session exists. `showLocked` pages do the same: signing in
+  // is the way forward, whatever they say to someone who is signed in.
   if (requireAuth && !user) {
-    if (landing) {
-      landingShown.current = true;
-      return <AuthLandingNotice landing={landing} />;
-    }
-    return showLocked ? <LockedState message={lockedMessage || 'Please log in to access this page.'} /> : <RedirectWithToast to={redirectTo} message="Please log in to access this page." />;
+    formShown.current = true;
+    return <SignInInPlace landing={landing} />;
   }
 
   // Check verified
@@ -112,16 +120,28 @@ export function ProtectedRoute({
 }
 
 /**
- * A sign-up confirmation link opened where it cannot sign in — another browser
- * or device (PKCE: no code verifier there), or expired / already used. Say what
- * happened and offer the login in place; once signed in, the page itself renders.
+ * The sign-in form in place of a members' page, for a visitor who is signed out:
+ * the page they asked for (kept in `?next=` of the e-mailed links, see
+ * signInDestination) shows as soon as they are in.
+ *
+ * Also what a sign-up confirmation link opened where it cannot sign in shows —
+ * another browser or device (PKCE: no code verifier there), or expired / already
+ * used: it says what happened and offers the login in place.
  */
-function AuthLandingNotice({ landing }: { landing: AuthLanding }) {
+function SignInInPlace({ landing }: { landing: AuthLanding | null }) {
   const { t } = useTranslation();
   useEffect(() => { scrubAuthLandingUrl(); }, []);
   return (
-    <AuthShell title={t('auth.login')}>
-      <LoginForm showConfirmedBanner={landing === 'confirmed'} linkError={landing === 'link-error'} />
+    <AuthShell title={t('auth.login')} lead={landing ? undefined : t('flows.signIn.lead')}>
+      <LoginForm
+        showConfirmedBanner={landing === 'confirmed'}
+        linkError={landing === 'link-error'}
+        next={signInDestination()}
+      />
+      <p className="mt-6 text-center text-sm text-meta">
+        {t('flows.signIn.noAccount')}{' '}
+        <UnderlineLink to="/become-partner" arrow={false}>{t('nav.becomePartner', 'Join the network')}</UnderlineLink>
+      </p>
     </AuthShell>
   );
 }

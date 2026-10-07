@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/logo-color.png" />
+    <!-- Square icons made from the S symbol (public/icons): Google wants a square favicon in a multiple of 48 px. -->
+    <link rel="icon" type="image/png" sizes="48x48" href="/icons/favicon-48.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Default title and description: filled in at build time from seo.home (src/i18n/seo.ts, English), see vite.config.ts. -->
     <title>__SEO_HOME_TITLE__</title>
@@ -35,7 +37,7 @@
 
     <!-- PWA / Mobile -->
     <meta name="theme-color" content="#0b2653" />
-    <link rel="apple-touch-icon" href="/logo-color.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
 
     <!-- UI font: the latin file of Inter (self-hosted, src/main.tsx), fetched at once rather than
@@ -72,7 +74,7 @@
           "@id": "https://smartmarinaconnect.com/#organization",
           "name": "Smart Marina Connect",
           "url": "https://smartmarinaconnect.com/",
-          "logo": "https://smartmarinaconnect.com/logo-color.png",
+          "logo": "https://smartmarinaconnect.com/icons/icon-512.png",
           "description": "__SEO_HOME_DESCRIPTION_JSON__",
           "email": "events@m3monaco.com",
           "contactPoint": {

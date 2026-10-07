@@ -967,7 +967,7 @@ export function OrganizationTab() {
               {(profile?.persona === 'partner' || profile?.persona === 'media_partner') && (
                 <p className="text-sm text-meta">
                   {t('org.sponsorFreeNote', 'Membership is free. Want to sponsor an event?')}{' '}
-                  <Link to="/contact?subject=partnership" className="font-medium text-primary underline">
+                  <Link to="/sponsor" className="font-medium text-primary underline">
                     {t('org.sponsorContactLink', 'Contact the M3 team')}
                   </Link>
                 </p>
@@ -1239,7 +1239,7 @@ export function OrganizationTab() {
               <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">{t('org.generalDetails', 'General Details')}</h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                 <div>
-                  <span className="text-meta block">{t('org.orgType', 'Organization Type')}</span>
+                  <span className="text-meta block">{t('org.orgType', 'Organisation Type')}</span>
                   <span className="font-medium capitalize">{org.organization_type?.replace('_', ' ') || '—'}</span>
                 </div>
                 <div>
@@ -2159,11 +2159,11 @@ export function OrganizationTab() {
               <Button variant="outline" onClick={() => setUpgradeOpen(false)}>
                 {t('org.sponsorDialog.close', 'Close')}
               </Button>
-              {/* The contact form, like every other "Sponsor an event" entry
-                  point: it works without a mail app and lands in
-                  contact_submissions. The address stays visible below. */}
+              {/* The sponsorship page, like every other "Sponsor an event" entry
+                  point: it explains the visibility sponsors get and takes the
+                  deck request. The address stays visible below. */}
               <Button asChild className="bg-primary hover:bg-primary/90">
-                <Link to="/contact?subject=partnership" onClick={() => setUpgradeOpen(false)}>
+                <Link to="/sponsor" onClick={() => setUpgradeOpen(false)}>
                   <Mail className="h-4 w-4 mr-2" /> {t('org.sponsorDialog.contact', 'Contact the M3 team')}
                 </Link>
               </Button>

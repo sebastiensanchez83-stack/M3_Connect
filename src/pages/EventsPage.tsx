@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { AdBanner } from '@/components/ui/AdBanner';
+import { LoadErrorPanel } from '@/components/ui/LoadErrorPanel';
 import { PageHero } from '@/components/ui/PageHero';
 import { CardShell } from '@/components/brand/CardShell';
 import { ContactCard } from '@/components/brand/ContactCard';
@@ -84,6 +85,10 @@ export function EventsPage() {
 
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed read is not "no events": the list says so (with a retry) instead of "0 events".
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const loadedOnce = useRef(false);
   const [registeredEvents, setRegisteredEvents] = useState<string[]>([]);
   const [sectorSlugsByEvent, setSectorSlugsByEvent] = useState<Record<string, string[]>>({});
   const [smPaths, setSmPaths] = useState<Record<string, string>>({});
@@ -101,6 +106,8 @@ export function EventsPage() {
   // ---------------------------------------------------------------- data
   useEffect(() => {
     let alive = true;
+    // "Try again" shows the skeleton again; a refresh after a first good load swaps the data in place.
+    if (!loadedOnce.current) { setLoading(true); setLoadFailed(false); }
     (async () => {
       const { data, error } = await supabase
         .from('events')
@@ -109,10 +116,14 @@ export function EventsPage() {
       if (!alive) return;
 
       if (error) {
-        toast({ title: t('eventsPage.errorLoading', 'Error loading events'), variant: 'destructive' });
+        if (import.meta.env.DEV) console.error('Error loading events:', error);
+        // A list already on screen stays; a first load shows the error panel.
+        if (!loadedOnce.current) setLoadFailed(true);
         setLoading(false);
         return;
       }
+      loadedOnce.current = true;
+      setLoadFailed(false);
 
       // Unpublished events stay hidden unless the viewer is an admin/moderator.
       const allEvents = (data || []) as Event[];
@@ -142,7 +153,7 @@ export function EventsPage() {
       setLoading(false);
     })();
     return () => { alive = false; };
-  }, [isModerator]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isModerator, reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The member's own registrations (and exhibition requests), for the
   // "Registered" badge, the join link and the "My events" filter.
@@ -561,7 +572,7 @@ export function EventsPage() {
       >
         <div className="no-scrollbar mx-auto flex w-full max-w-7xl items-center gap-2 overflow-x-auto px-4 py-3 sm:px-6 md:flex-wrap md:overflow-visible">
           <span className="shrink-0 pr-1 text-sm font-semibold text-navy" aria-live="polite">
-            {loading ? '…' : t('eventsPage.results', { count: filtered.length, defaultValue_one: '{{count}} event', defaultValue_other: '{{count}} events' })}
+            {loading ? '…' : loadFailed ? '' : t('eventsPage.results', { count: filtered.length, defaultValue_one: '{{count}} event', defaultValue_other: '{{count}} events' })}
           </span>
 
           {anyFilter && (
@@ -619,6 +630,11 @@ export function EventsPage() {
       <div ref={listRef} className="mx-auto w-full max-w-7xl space-y-16 px-4 pb-16 pt-8 sm:px-6 md:space-y-24 md:pb-24 md:pt-12">
         {loading ? (
           <LoadingSkeleton variant="card" count={3} />
+        ) : loadFailed ? (
+          <LoadErrorPanel
+            title={t('loadError.events', 'The events could not be loaded.')}
+            onRetry={() => setReloadKey((k) => k + 1)}
+          />
         ) : noMatch ? (
           <CardShell className="items-center px-6 py-16 text-center">
             <span className="mb-4 grid h-14 w-14 place-items-center rounded-full bg-chip text-navy">

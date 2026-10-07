@@ -408,7 +408,7 @@ export function HomePage() {
   const seoTitle = t('seo.home.title', 'Smart Marina Connect — The marina industry network');
   const seoDescription = liveFigures
     ? t('seo.home.descriptionLive', liveFigures)
-    : t('seo.home.description', 'Free B2B network for marinas and their service providers, with industry events in Monaco, Dubai and online. Every member checked by M3.');
+    : t('seo.home.description', 'Free B2B network for marinas and their service providers, with industry events in Monaco, Dubai and online. Companies reviewed by M3.');
 
   const searchExamples = useMemo(
     () => [t('brand.search.ex1'), t('brand.search.ex2'), t('brand.search.ex3'), t('brand.search.ex4')],
@@ -470,7 +470,7 @@ export function HomePage() {
 
   const trust = [
     t('home.trustFree', 'Free for every member'),
-    t('home.trustVerified', 'Every member checked by the M3 team'),
+    t('home.trustVerified', 'Open to marinas, service providers, investors and media'),
     t('home.trustEvents', 'By M3 Monaco, organiser of the Monaco Smart & Sustainable Marina Rendezvous and the World Yachting Summit'),
   ];
 
@@ -575,7 +575,11 @@ export function HomePage() {
       </SplitHero>
 
       {/* ════════════ News band: figures, events, newest members, latest article ════════════ */}
-      <NewsBand items={newsItems} />
+      {/* The band waits for its data, with its height kept (49 px, 57 px from md: 48/56 plus the rule): the figures and
+          members used to arrive in front of the events already scrolling, a 560 px jump of the whole row (CLS 0.3). */}
+      {publicLoading
+        ? <div aria-hidden="true" className="h-[49px] border-b border-rule bg-white md:h-[57px]" />
+        : <NewsBand items={newsItems} />}
 
       {/* ════════════ Figures band: graticule, ruler, counters ════════════ */}
       <FiguresBand figures={stats} loading={publicLoading} className={user ? 'pb-10 md:pb-12' : undefined} />

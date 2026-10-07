@@ -241,7 +241,7 @@ export function AdminOrganizationDetail() {
       if (codeError) {
         // Keep the typed code on screen so it can be corrected.
         toast({
-          title: t('admin.orgClaimCode.saveFailed', 'Organization updated, but the claim code was not saved'),
+          title: t('admin.orgClaimCode.saveFailed', 'Organisation updated, but the claim code was not saved'),
           description: codeError.message,
           variant: 'destructive',
         });

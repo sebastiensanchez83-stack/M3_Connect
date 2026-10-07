@@ -15,6 +15,11 @@ interface LoginFormProps {
   showConfirmedBanner?: boolean;
   /** Arrived from a confirmation link that failed (expired, already used): say so and offer a new one. */
   linkError?: boolean;
+  /**
+   * Where the visitor was heading (a path on this site, already through safeNext): it rides on the
+   * e-mailed sign-in and password-reset links as ?next=, which /welcome and /reset-password follow.
+   */
+  next?: string | null;
 }
 
 // GoTrue refuses a second confirmation mail to the same address within ~60 s.
@@ -33,6 +38,17 @@ export function confirmationRedirectTo(): string {
  * hook writes the e-mail in that language when the account has none stored
  * (claim-code, SM26 and invited accounts, and every account older than that).
  */
+function withNext(url: string, next: string | null | undefined): string {
+  if (!next) return url;
+  try {
+    const target = new URL(url, window.location.origin);
+    target.searchParams.set('next', next);
+    return target.toString();
+  } catch {
+    return url;
+  }
+}
+
 function withMailLang(url: string, language: string | undefined): string {
   try {
     const target = new URL(url, window.location.origin);
@@ -75,7 +91,7 @@ export function ResendConfirmationButton({ email, redirectTo, label, justSent = 
     if (sending || cooldown > 0) return;
     const address = email.trim();
     if (!address) {
-      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your email address'), variant: 'destructive' });
+      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your e-mail address'), variant: 'destructive' });
       return;
     }
     setSending(true);
@@ -113,7 +129,7 @@ export function ResendConfirmationButton({ email, redirectTo, label, justSent = 
   );
 }
 
-export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkError }: LoginFormProps) {
+export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkError, next }: LoginFormProps) {
   const { t, i18n } = useTranslation();
   const { signIn } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -155,19 +171,19 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
-      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your email address'), variant: 'destructive' });
+      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your e-mail address'), variant: 'destructive' });
       return;
     }
     setForgotLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: withMailLang(`${window.location.origin}/reset-password`, i18n.language),
+      redirectTo: withMailLang(withNext(`${window.location.origin}/reset-password`, next), i18n.language),
     });
     setForgotLoading(false);
     if (error) {
       toast({ title: t('common.error'), description: error.message, variant: 'destructive' });
     } else {
       setForgotSent(true);
-      toast({ title: t('auth.resetEmailSent', 'Reset email sent'), description: t('auth.checkEmailForReset', 'Check your email for a password reset link.') });
+      toast({ title: t('auth.resetEmailSent', 'Reset e-mail sent'), description: t('auth.checkEmailForReset', 'Check your e-mail for a password reset link.') });
     }
   };
 
@@ -176,13 +192,13 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   // get wrong — which is what most people stuck at this screen actually want.
   const handleMagicLink = async () => {
     if (!email) {
-      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your email address'), variant: 'destructive' });
+      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your e-mail address'), variant: 'destructive' });
       return;
     }
     setMagicLoading(true);
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { shouldCreateUser: false, emailRedirectTo: withMailLang(`${window.location.origin}/welcome`, i18n.language) },
+      options: { shouldCreateUser: false, emailRedirectTo: withMailLang(withNext(`${window.location.origin}/welcome`, next), i18n.language) },
     });
     setMagicLoading(false);
     if (error) {
@@ -195,7 +211,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   if (forgotMode) {
     return (
       <form onSubmit={handleForgotPassword} className="space-y-5">
-        <p className="text-sm leading-6 text-meta">{t('auth.forgotPasswordDesc', 'Enter your email and we\'ll send you a link to reset your password.')}</p>
+        <p className="text-sm leading-6 text-meta">{t('auth.forgotPasswordDesc', 'Enter your e-mail and we\'ll send you a link to reset your password.')}</p>
         <div className="space-y-2">
           <AuthLabel htmlFor="forgot-email">{t('auth.email')}</AuthLabel>
           <AuthInput
@@ -213,7 +229,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
               <p className="font-semibold text-navy">
                 {magicSent
                   ? t('auth.signInLinkSent', 'Sign-in link sent — check your inbox.')
-                  : t('auth.resetEmailSent', 'Reset email sent! Check your inbox.')}
+                  : t('auth.resetEmailSent', 'Reset e-mail sent! Check your inbox.')}
               </p>
               <p className="text-[13px] text-meta">
                 {t('auth.linkAnyDevice', 'The link opens on any device — phone or computer. If it is not there in a minute, check your spam folder.')}
@@ -231,7 +247,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
             {/* The way out for anyone who has already fought the password twice. */}
             <OrDivider>{t('auth.or', 'or')}</OrDivider>
             <Button type="button" variant="ctaOutline" className="w-full justify-between" disabled={forgotLoading || magicLoading} onClick={handleMagicLink}>
-              {magicLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.emailSignInLink', 'Email me a sign-in link instead')}
+              {magicLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.emailSignInLink', 'E-mail me a sign-in link instead')}
             </Button>
             <FieldHint className="text-center">
               {t('auth.signInLinkHint', 'Signs you straight in — no password needed.')}

@@ -70,6 +70,19 @@
 # page, never an error page. onError cannot be set in this file. Do not
 # declare it here too.
 
+# ── Search engines: previews are never indexed ────────────────────────
+# This file cannot depend on the host or the deploy context, so a rule here
+# would also hit the production site. Two mechanisms, both outside it:
+#  - netlify/edge-functions/seo.ts: on any host that is not smartmarinaconnect.com
+#    (deploy previews, branch deploys such as refonte--m3connectv2.netlify.app,
+#    *.netlify.app) every page it serves carries X-Robots-Tag: noindex, nofollow
+#    and a robots noindex tag, and the browser-side <Seo> says noindex too;
+#  - scripts/preview-noindex.mjs, the "postbuild" hook of `npm run build`: when
+#    Netlify's CONTEXT is not "production", it appends a catch-all
+#    X-Robots-Tag rule to dist/_headers, which covers every other path.
+# Both do nothing on production. Do not add a Disallow to robots.txt for this:
+# a robot that may not fetch a page never reads its noindex.
+
 # ── Search engines: private, personal and token pages ─────────────────
 # X-Robots-Tag works without JavaScript, for every robot. These paths must not
 # be Disallowed in robots.txt: a robot that may not fetch a page never sees

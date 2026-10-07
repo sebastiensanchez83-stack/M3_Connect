@@ -14,12 +14,16 @@ import i18next from '@/i18n';
  * Registered by the three pages themselves (registerCopyStrings), like the
  * directory's strings, so the main i18n file is not touched.
  *
- * Facts only: nothing here that the site did not already say (free platform,
- * every company and person checked by M3, 24 to 48 business hours, the
- * Rendezvous' 6th edition with more than 250 participants and its 7th edition
- * in 2027, the World Yachting Summit on 27 November 2026 by invitation).
- * Vocabulary: "members" for every registered organisation; "partners" would
- * mean paying event sponsors, so it is not used.
+ * Facts only: nothing here that the site cannot back up today. The M3 team
+ * reviews each company before marking it as verified, and says so once or twice
+ * per page; the full promise (every person checked, an event registration that
+ * also creates your account) waits for the unified registration. The sign-up
+ * review delay (24 to 48 business hours) is the one the Join page and the
+ * pending-account banners state. Also true: the platform is free, the
+ * Rendezvous' 6th edition had more than 250 participants and its 7th edition
+ * returns in 2027, the World Yachting Summit is on 27 November 2026 by
+ * invitation. Vocabulary: "members" for every registered organisation;
+ * "partners" would mean paying event sponsors, so it is not used.
  */
 export const COPY_STRINGS = {
   en: {
@@ -35,14 +39,14 @@ export const COPY_STRINGS = {
           body1:
             'Smart Marina Connect puts both sides in one network. Marinas publish their tenders, projects and questions for experts. Service providers read them, answer them and request introductions.',
           body2:
-            'The network is free. The M3 team checks every company and every person, so you know who you are talking to. The same people then meet at M3 events, in Monaco, in Dubai and online.',
+            'The network is free. The same companies and people then meet at M3 events, in Monaco, in Dubai and online.',
         },
         platform: {
           eyebrow: 'The platform',
           title: 'What you find on the platform',
           directory: {
             title: 'Directory',
-            desc: 'Marinas, service providers, investors and media, each with a company page checked by M3. Search by name, theme or country.',
+            desc: 'Marinas, service providers, investors and media, each with a company page. Search by name, theme or country.',
           },
           opportunities: {
             title: 'Opportunities',
@@ -57,7 +61,7 @@ export const COPY_STRINGS = {
           eyebrow: 'Who it is for',
           title: 'What members can do, by profile',
           intro:
-            'Each profile opens different features once the M3 team has checked your company. Every profile below can request introductions and propose a webinar.',
+            'Each profile opens different features once your company is verified. Every profile below can request introductions and propose a webinar.',
           marinas: {
             title: 'Marinas',
             who: 'Marina operators and managers, recreational ports and nautical facilities.',
@@ -77,19 +81,19 @@ export const COPY_STRINGS = {
         },
         check: {
           eyebrow: 'How we check',
-          title: 'Every member is checked by the M3 team',
-          intro: 'Membership is free. Access is not automatic: the M3 team reviews each sign-up before it opens.',
+          title: 'Companies are reviewed by the M3 team',
+          intro: 'Membership is free. Access is not automatic: it opens once your company has been reviewed.',
           company: {
-            title: 'Every company',
-            desc: "The M3 team reads each company's details before its page appears in the directory.",
+            title: 'Each company',
+            desc: "The M3 team reviews each company's details before marking it as verified.",
           },
           person: {
-            title: 'Every person',
-            desc: 'Each person is checked too, so you know who is behind a message or an introduction request.',
+            title: 'Help to get set up',
+            desc: 'The M3 team helps you set up your company page and answers your questions.',
           },
           access: {
             title: 'Then access opens',
-            desc: 'You get an e-mail when your profile is checked, usually within 24 to 48 business hours. The features of your profile then open.',
+            desc: 'You get an e-mail when your company is verified, usually within 24 to 48 business hours. The features of your profile then open.',
           },
         },
         events: {
@@ -126,16 +130,16 @@ export const COPY_STRINGS = {
       },
       join: {
         heroSubtitle:
-          'Choose your profile: marina, service provider, investor, developer or media. Signing up is free. The M3 team checks every company and every person, then opens the features of your profile.',
+          'Choose your profile: marina, service provider, investor, developer or media. Signing up is free, and each profile opens different features.',
         marina: {
           title: 'Publish what you need. Service providers answer.',
           intro:
-            'For marina operators and managers, recreational ports and nautical facilities. Describe a need in a few lines, and checked service providers can answer.',
+            'For marina operators and managers, recreational ports and nautical facilities. Describe a need in a few lines, and service providers can answer.',
         },
         provider: {
           title: 'Show your company to marinas. Answer what they publish.',
           intro:
-            'For technology providers, consultants and service companies that work for marinas. Your company page goes in the directory marinas use, once the M3 team has checked it.',
+            'For technology providers, consultants and service companies that work for marinas. Your company page goes in the directory marinas use.',
         },
         investorDeveloper: {
           title: 'Follow the projects marinas publish. Publish yours.',
@@ -143,7 +147,7 @@ export const COPY_STRINGS = {
           developers: 'For marina developers, real-estate groups and builders working on the next marinas.',
         },
         media: {
-          title: 'Follow the sector. Get accredited for our events.',
+          title: 'Follow the sector. Ask about press accreditation for our events.',
           intro: 'For journalists and publications covering marinas, yachting and the maritime sector.',
         },
         steps: {
@@ -153,9 +157,9 @@ export const COPY_STRINGS = {
           step1Body: 'Pick your profile and create your account. It takes a few minutes.',
           step2Title: 'Describe your company',
           step2Body: "Add your company's details, or join your company if it is already listed.",
-          step3Title: 'M3 checks',
+          step3Title: 'M3 reviews',
           step3Body:
-            'The M3 team checks every company and every person. You get an e-mail when it is done, usually within 24 to 48 business hours.',
+            'The M3 team reviews your company and marks it as verified. You get an e-mail when it is done, usually within 24 to 48 business hours.',
           step4Title: 'Use the network',
           step4Body: 'The features of your profile open: directory, opportunities, events and resources.',
         },
@@ -164,8 +168,8 @@ export const COPY_STRINGS = {
           b1Title: 'An international network',
           b1Desc: 'Marinas and service providers from different countries.',
           b1DescLive: 'Marinas and service providers in {{countries}} countries.',
-          b2Title: 'Every member checked',
-          b2Desc: 'The M3 team checks each company and each person before opening access.',
+          b2Title: 'Meet at M3 events',
+          b2Desc: 'Marinas and service providers meet at M3 events, in Monaco, in Dubai and online.',
           b3Title: 'Knowledge you can use',
           b3Desc: 'Articles, guides and replays in six themes, and the needs marinas publish.',
           b4Title: 'A team to write to',
@@ -179,9 +183,9 @@ export const COPY_STRINGS = {
           q2: 'Who can join?',
           a2: 'Marinas and ports, service providers, investors, developers and media covering the maritime sector. Each profile opens different features.',
           q3: 'What happens after I sign up?',
-          a3: 'You describe your company. The M3 team checks the company and you, usually within 24 to 48 business hours, and sends you an e-mail. The features of your profile then open.',
-          q4: 'What can I read before I am checked?',
-          a4: 'Public articles are open to everyone. Member-only and marina-only content needs a checked profile.',
+          a3: 'You describe your company. The M3 team reviews it, usually within 24 to 48 business hours, and sends you an e-mail. The features of your profile then open.',
+          q4: 'What can I read before my account is verified?',
+          a4: 'Public articles are open to everyone. Member-only and marina-only content opens once your account is verified.',
           q5: 'My company is already listed. Can I join it?',
           a5: 'Yes. When you describe your company, you can join it if it is already listed.',
           q6: 'Can I sponsor an event?',
@@ -191,7 +195,7 @@ export const COPY_STRINGS = {
         },
         ready: {
           title: 'Ready to join?',
-          subtitle: 'Sign up for free. The M3 team checks your company, then opens your access.',
+          subtitle: 'Sign up for free and describe your company in a few minutes.',
         },
       },
     },

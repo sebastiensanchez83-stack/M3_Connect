@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type ElementType, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
+import { plainPageMeta } from '@/lib/seoMeta';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -111,6 +112,9 @@ interface DraftShape {
   imageConsent?: boolean;
   terms?: boolean;
 }
+
+/** The head of /sm26/register (noindex), from the table the edge function reads. */
+const registerHead = plainPageMeta('/sm26/register');
 
 export function SM26RegisterPage() {
   const { user, profile, organization } = useAuth();
@@ -793,7 +797,7 @@ export function SM26RegisterPage() {
   if (!regOpen) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <Helmet><title>{t('sm26Register.closed.pageTitle', 'Registrations closed — Monaco Smart & Sustainable Marina Rendezvous 2026')}</title></Helmet>
+        <Seo title={t('sm26Register.closed.pageTitle', 'Registrations closed — Monaco Smart & Sustainable Marina Rendezvous 2026')} noindex />
         <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
           <div className="container mx-auto px-4 py-12">
             <div className="mb-4"><SM26BackLink to="/events" label={t('sm26Register.closed.back', 'Back to events')} light /></div>
@@ -838,7 +842,8 @@ export function SM26RegisterPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet><title>Register — Smart &amp; Sustainable Marina Rendezvous 2026</title></Helmet>
+      {/* Kept out of search results (noindex): a form, closed for an edition that has taken place. Words: src/lib/seoMeta.ts. */}
+      {registerHead && <Seo {...registerHead} />}
 
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-12">

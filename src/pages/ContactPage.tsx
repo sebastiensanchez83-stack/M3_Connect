@@ -15,7 +15,8 @@ import {
 import { toast } from '@/hooks/use-toast';
 import { Mail, MapPin, CheckCircle } from 'lucide-react';
 import { Seo } from '@/components/seo/Seo';
-import { supabase } from '@/lib/supabase';
+import { submitContact, currentSource } from '@/lib/contactSubmit';
+import { ContactFailure, Honeypot } from '@/components/contact/ContactParts';
 import { PageHero } from '@/components/ui/PageHero';
 import { ContactCard } from '@/components/brand/ContactCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
@@ -24,13 +25,16 @@ import { CheckList } from '@/components/content/ContentParts';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { withSiteSuffix } from '@/lib/seoText';
 import { registerCopyStrings } from '@/i18n/refonte-copy';
+import { registerFlowsStrings } from '@/i18n/refonte-flows';
 import { cn } from '@/lib/utils';
 
 registerCopyStrings();
+registerFlowsStrings();
 
 interface ContactForm {
   name: string;
   email: string;
+  company: string;
   subject: string;
   message: string;
 }
@@ -56,11 +60,17 @@ export function ContactPage() {
   const [form, setForm] = useState<ContactForm>({
     name: '',
     email: '',
+    company: '',
     subject: presetSubject,
     message: '',
   });
+  // The honeypot of the contact function: a field no person sees (see ContactParts).
+  const [website, setWebsite] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // Why the last attempt did not go, or null. Never a silent success: the form
+  // stays filled and the e-mail address is offered next to the message.
+  const [failure, setFailure] = useState<Exclude<Awaited<ReturnType<typeof submitContact>>, { ok: true }>['reason'] | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof ContactForm, string>>>({});
 
   // Following such a link while already on /contact (the footer is on every
@@ -74,12 +84,14 @@ export function ContactPage() {
 
     if (!form.name.trim()) {
       newErrors.name = t('contact.errorName', 'Please enter your name');
+    } else if (form.name.trim().length > 120) {
+      newErrors.name = t('contact.errorNameLong', 'Your name is too long (120 characters at most)');
     }
 
     if (!form.email.trim()) {
-      newErrors.email = t('contact.errorEmail', 'Please enter your email');
+      newErrors.email = t('contact.errorEmail', 'Please enter your e-mail');
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      newErrors.email = t('contact.errorEmailInvalid', 'Please enter a valid email address');
+      newErrors.email = t('contact.errorEmailInvalid', 'Please enter a valid e-mail address');
     }
 
     if (!form.subject) {
@@ -90,6 +102,8 @@ export function ContactPage() {
       newErrors.message = t('contact.errorMessage', 'Please enter a message');
     } else if (form.message.trim().length < 10) {
       newErrors.message = t('contact.errorMessageShort', 'Your message must be at least 10 characters long');
+    } else if (form.message.trim().length > 5000) {
+      newErrors.message = t('contact.errorMessageLong', 'Your message is too long (5,000 characters at most)');
     }
 
     setErrors(newErrors);
@@ -98,62 +112,39 @@ export function ContactPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
 
     if (!validate()) return;
 
     setSubmitting(true);
+    setFailure(null);
 
-    try {
-      // Try to insert into contact_submissions table
-      const { error } = await supabase.from('contact_submissions').insert({
-        name: form.name.trim(),
-        email: form.email.trim(),
-        subject: form.subject,
-        message: form.message.trim(),
-      });
+    // The contact-submit function stores the message and e-mails the M3 team.
+    // "Sent" is shown only when it answers { ok: true }.
+    const result = await submitContact({
+      name: form.name,
+      email: form.email,
+      company: form.company,
+      subject: form.subject,
+      message: form.message,
+      source: currentSource(),
+      website,
+    });
+    setSubmitting(false);
 
-      if (error) {
-        // If table doesn't exist or insert fails, fall back to mailto
-        console.warn('contact_submissions insert failed, falling back to mailto:', error.message);
-        fallbackMailto();
-        return;
-      }
-
-      setSubmitted(true);
-      toast({
-        title: t('contact.successTitle', 'Message sent'),
-        description: t(
-          'contact.successDesc',
-          'Thank you. The M3 team will get back to you shortly.'
-        ),
-      });
-    } catch (err) {
-      console.error('Contact form error:', err);
-      fallbackMailto();
-    } finally {
-      setSubmitting(false);
+    if (!result.ok) {
+      setFailure(result.reason);
+      return;
     }
-  }
 
-  function fallbackMailto() {
-    const subjectLabel =
-      SUBJECT_OPTIONS.find((s) => s.value === form.subject)?.fallback || form.subject;
-    const mailtoSubject = encodeURIComponent(`[Smart Marina Connect] ${subjectLabel}`);
-    const mailtoBody = encodeURIComponent(
-      `Name: ${form.name}\nEmail: ${form.email}\n\n${form.message}`
-    );
-    window.open(
-      `mailto:events@m3monaco.com?subject=${mailtoSubject}&body=${mailtoBody}`,
-      '_self'
-    );
+    setSubmitted(true);
     toast({
-      title: t('contact.mailtoTitle', 'Opening your email app'),
+      title: t('contact.successTitle', 'Message sent'),
       description: t(
-        'contact.mailtoDesc',
-        'Your email app will open with the message ready to send.'
+        'contact.successDesc',
+        'Thank you. The M3 team will get back to you shortly.'
       ),
     });
-    setSubmitted(true);
   }
 
   function handleChange(field: keyof ContactForm, value: string) {
@@ -211,7 +202,7 @@ export function ContactPage() {
                   <Button
                     variant="ctaOutline"
                     className="mt-8"
-                    onClick={() => { setSubmitted(false); setForm({ name: '', email: '', subject: '', message: '' }); }}
+                    onClick={() => { setSubmitted(false); setFailure(null); setWebsite(''); setForm({ name: '', email: '', company: '', subject: '', message: '' }); }}
                   >
                     {t('contact.sendAnother', 'Send another message')}
                   </Button>
@@ -248,7 +239,7 @@ export function ContactPage() {
                       {/* Email */}
                       <div className="space-y-2">
                         <Label htmlFor="contact-email" className="text-sm font-semibold text-navy">
-                          {t('contact.emailLabel', 'Email address')} {required}
+                          {t('contact.emailLabel', 'E-mail address')} {required}
                         </Label>
                         <Input
                           id="contact-email"
@@ -264,6 +255,7 @@ export function ContactPage() {
                       </div>
                     </div>
 
+                    <div className="grid gap-5 sm:grid-cols-2">
                     {/* Subject */}
                     <div className="space-y-2">
                       <Label htmlFor="contact-subject" className="text-sm font-semibold text-navy">
@@ -293,6 +285,24 @@ export function ContactPage() {
                       {fieldError('subject')}
                     </div>
 
+                    {/* Company (optional) */}
+                    <div className="space-y-2">
+                      <Label htmlFor="contact-company" className="text-sm font-semibold text-navy">
+                        {t('flows.contact.company')} <span className="font-normal text-meta">({t('flows.contact.optional')})</span>
+                      </Label>
+                      <Input
+                        id="contact-company"
+                        type="text"
+                        autoComplete="organization"
+                        maxLength={160}
+                        placeholder={t('flows.contact.companyPlaceholder')}
+                        value={form.company}
+                        onChange={(e) => handleChange('company', e.target.value)}
+                        className={FIELD}
+                      />
+                    </div>
+                    </div>
+
                     {/* Message */}
                     <div className="space-y-2">
                       <Label htmlFor="contact-message" className="text-sm font-semibold text-navy">
@@ -309,6 +319,10 @@ export function ContactPage() {
                       />
                       {fieldError('message')}
                     </div>
+
+                    <Honeypot value={website} onChange={setWebsite} />
+
+                    {failure && <ContactFailure id="contact-failure" reason={failure} />}
 
                     <div className="pt-2">
                       <Button

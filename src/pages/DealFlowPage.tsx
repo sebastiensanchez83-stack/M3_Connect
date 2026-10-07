@@ -309,7 +309,7 @@ export function DealFlowPage() {
     }
   };
 
-  if (authLoading) return <LoadingSkeleton variant="page" />;
+  if (authLoading) return <LoadingSkeleton variant="screen" />;
 
   if (!user) return <Navigate to="/" replace />;
 

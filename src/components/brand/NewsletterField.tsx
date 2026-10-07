@@ -4,27 +4,34 @@ import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { M3_PUBLIC_EMAIL } from './ContactCard';
+import { Honeypot } from '@/components/contact/ContactParts';
+import { subscribeToNewsletter, type NewsletterSource } from '@/lib/newsletter';
+import { registerFlowsStrings } from '@/i18n/refonte-flows';
+
+registerFlowsStrings();
 
 /**
  * Newsletter sign-up, as in the footer: an e-mail pill (58 px) with a rolling
  * gold button at its right end (a round arrow on phones), and an UNTICKED
  * consent box (required) under it.
  *
- * Where the consent lives (Mailchimp double opt-in, or SMC read by the CRM) is
- * still to be decided with Sébastien, so there is no subscription backend yet.
- * Until `onSubscribe` is wired, submitting opens a prepared e-mail to the M3
- * team (events@m3monaco.com) with the address and the consent sentence: honest,
- * and nothing is stored by the site.
+ * Submitting subscribes through the newsletter-subscribe function (Mailchimp,
+ * double opt-in: the confirmation e-mail is what subscribes the address). The
+ * consent box is required. Any failure says "Subscription failed — please try
+ * again later": there is no mailto fallback, and the site stores nothing.
+ * `onSubscribe` replaces the call (the brand showcase page uses it).
  */
 export function NewsletterField({
   onSubscribe,
+  source = 'footer',
   tone = 'dark',
   hideLabel = false,
   className,
 }: {
-  /** The real subscription, once decided. Throw to show the error message. */
+  /** Replaces the real subscription. Throw to show the error message. */
   onSubscribe?: (email: string) => Promise<void> | void;
+  /** Where the form sits: becomes the SOURCE merge field and a tag in Mailchimp. */
+  source?: NewsletterSource;
   tone?: 'dark' | 'light';
   /** Keep the label for screen readers only (the page shows its own heading). */
   hideLabel?: boolean;
@@ -35,11 +42,14 @@ export function NewsletterField({
   const [email, setEmail] = useState('');
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The honeypot of the subscription function (see ContactParts): empty for a person.
+  const [website, setWebsite] = useState('');
   const [state, setState] = useState<'idle' | 'sending' | 'done'>('idle');
   const dark = tone === 'dark';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (state === 'sending') return;
     const value = email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       setError(t('brand.newsletter.errorEmail', 'Enter a valid e-mail address.'));
@@ -50,39 +60,29 @@ export function NewsletterField({
       return;
     }
     setError(null);
-    if (onSubscribe) {
-      setState('sending');
-      try {
-        await onSubscribe(value);
-        setState('done');
-      } catch {
-        setState('idle');
-        setError(t('brand.newsletter.errorSend', 'That did not work. Please try again in a moment.'));
-      }
-      return;
+    setState('sending');
+    try {
+      if (onSubscribe) await onSubscribe(value);
+      else await subscribeToNewsletter(value, source, website);
+      setState('done');
+    } catch {
+      setState('idle');
+      setError(t('flows.newsletter.errorSend', 'Subscription failed — please try again later'));
     }
-    const subject = t('brand.newsletter.mailSubject', 'Newsletter subscription');
-    const body = t('brand.newsletter.mailBody', {
-      email: value,
-      defaultValue: 'Please add {{email}} to the Smart Marina Connect newsletter. I agree to receive it and can unsubscribe at any time.',
-    });
-    window.location.href = `mailto:${M3_PUBLIC_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    setState('done');
   };
 
   if (state === 'done') {
     return (
       <p role="status" className={cn('flex items-start gap-2 text-sm', dark ? 'text-white/85' : 'text-ink', className)}>
         <Check className={cn('mt-0.5 h-4 w-4 shrink-0', dark ? 'text-gold' : 'text-teal')} aria-hidden="true" />
-        {onSubscribe
-          ? t('brand.newsletter.done', 'Thank you. Check your inbox to confirm.')
-          : t('brand.newsletter.doneMail', 'Your e-mail app has opened with the request: send it and we add you.')}
+        {t('brand.newsletter.done', 'Thank you. Check your inbox to confirm.')}
       </p>
     );
   }
 
   return (
-    <form onSubmit={submit} noValidate className={cn('min-w-0', className)} aria-describedby={error ? `${id}-err` : undefined}>
+    <form onSubmit={submit} noValidate className={cn('relative min-w-0', className)} aria-describedby={error ? `${id}-err` : undefined}>
+      <Honeypot value={website} onChange={setWebsite} />
       <label
         htmlFor={`${id}-email`}
         className={cn(hideLabel ? 'sr-only' : 'mb-3 block text-sm font-semibold', !hideLabel && (dark ? 'text-white' : 'text-navy'))}

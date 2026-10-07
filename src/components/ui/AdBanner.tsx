@@ -24,46 +24,80 @@ interface AdBannerProps {
  */
 const SLOT_RATIO = '1232 / 185';
 
+/** The active banners of a placement, once read: later mounts (another page, a back navigation) know at once, so there is nothing to wait for. */
+const loaded = new Map<string, AdBannerData[]>();
+const inflight = new Map<string, Promise<AdBannerData[] | null>>();
+
+const shuffled = (list: AdBannerData[]) => [...list].sort(() => Math.random() - 0.5);
+
+/** Reads the active banners for a placement. Null when the read failed (nothing is remembered, the next mount tries again). */
+function loadBanners(placement: string): Promise<AdBannerData[] | null> {
+  const known = loaded.get(placement);
+  if (known) return Promise.resolve(known);
+  const running = inflight.get(placement);
+  if (running) return running;
+  const request = (async () => {
+    // Fetch all active banners for this placement
+    // Date filtering: banner is valid if (no start_date OR start_date <= now) AND (no end_date OR end_date >= now)
+    // We handle date filtering client-side to avoid PostgREST .or() chaining issues
+    // One advert can run on several pages, so placements is a set and we ask
+    // "does it contain this page" (PostgREST `cs.` / array @>). NOTE: .eq() or
+    // .in() against a text[] column return zero rows SILENTLY, and this
+    // component fails closed (returns null) — so a wrong operator here makes
+    // every banner vanish site-wide with a clean console.
+    const { data, error } = await supabase
+      .from('ad_banners')
+      .select('id, title, image_url, target_url, start_date, end_date')
+      .contains('placements', [placement])
+      .eq('is_active', true);
+    if (error || !data) return null;
+
+    // Filter by date range client-side
+    const now = new Date().toISOString();
+    const valid = (data as (AdBannerData & { start_date: string | null; end_date: string | null })[]).filter((b) => {
+      const startOk = !b.start_date || b.start_date <= now;
+      const endOk = !b.end_date || b.end_date >= now;
+      return startOk && endOk;
+    });
+    loaded.set(placement, valid);
+    return valid;
+  })().catch(() => null).finally(() => inflight.delete(placement));
+  inflight.set(placement, request);
+  return request;
+}
+
+/**
+ * While the banners load, the slot's place is held by an empty card of the same
+ * shape and margins: the page below it does not move when the banner arrives
+ * (layout shift on /events/:id, /resources/:id, /directory). If the placement
+ * turns out to have no banner, the place closes.
+ */
 export function AdBanner({ placement, className = '', rotateInterval = 8 }: AdBannerProps) {
-  const [banners, setBanners] = useState<AdBannerData[]>([]);
+  const [banners, setBanners] = useState<AdBannerData[] | null>(() => {
+    const known = loaded.get(placement);
+    return known ? shuffled(known) : null;
+  });
 
-  // Fetch all active banners for this placement
   useEffect(() => {
-    const fetchBanners = async () => {
-      // Fetch all active banners for this placement
-      // Date filtering: banner is valid if (no start_date OR start_date <= now) AND (no end_date OR end_date >= now)
-      // We handle date filtering client-side to avoid PostgREST .or() chaining issues
-      // One advert can run on several pages, so placements is a set and we ask
-      // "does it contain this page" (PostgREST `cs.` / array @>). NOTE: .eq() or
-      // .in() against a text[] column return zero rows SILENTLY, and this
-      // component fails closed (returns null) — so a wrong operator here makes
-      // every banner vanish site-wide with a clean console.
-      const { data, error } = await supabase
-        .from('ad_banners')
-        .select('id, title, image_url, target_url, start_date, end_date')
-        .contains('placements', [placement])
-        .eq('is_active', true);
-
-      if (error || !data || data.length === 0) return;
-
-      // Filter by date range client-side
-      const now = new Date().toISOString();
-      const validBanners = data.filter((b) => {
-        const startOk = !b.start_date || b.start_date <= now;
-        const endOk = !b.end_date || b.end_date >= now;
-        return startOk && endOk;
-      });
-
-      if (validBanners.length === 0) return;
-
-      // Shuffle the array for fair distribution
-      const shuffled = [...validBanners].sort(() => Math.random() - 0.5) as AdBannerData[];
-      setBanners(shuffled);
-    };
-
-    fetchBanners();
+    let alive = true;
+    const known = loaded.get(placement);
+    setBanners(known ? shuffled(known) : null);
+    loadBanners(placement).then((list) => {
+      // Shuffle for fair distribution. A failed read shows nothing (fails closed).
+      if (alive) setBanners(list ? shuffled(list) : []);
+    });
+    return () => { alive = false; };
   }, [placement]);
 
+  if (banners === null) {
+    return (
+      <div
+        aria-hidden="true"
+        className={`rounded-xl bg-white shadow-sm ring-1 ring-inset ring-black/5 ${className}`}
+        style={{ aspectRatio: SLOT_RATIO }}
+      />
+    );
+  }
   if (banners.length === 0) return null;
   return <AdSlot banners={banners} className={className} rotateInterval={rotateInterval} />;
 }

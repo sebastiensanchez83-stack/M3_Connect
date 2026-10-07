@@ -8,6 +8,7 @@ import { BookOpen, FileText, LayoutGrid, Sparkles, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { AdBanner } from '@/components/ui/AdBanner';
+import { LoadErrorPanel } from '@/components/ui/LoadErrorPanel';
 import { PageHero } from '@/components/ui/PageHero';
 import { SearchField } from '@/components/brand/SearchField';
 import { Eyebrow } from '@/components/brand/Eyebrow';
@@ -92,6 +93,9 @@ export function ResourcesPage() {
   const [sectors, setSectors] = useState<Sector[]>([]);
   const [mySectorIds, setMySectorIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed read is not "no resources": the list says so (with a retry) instead of "0 resources".
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // ---------------------------------------------------------------- URL state
   const theme = getTheme(params.get('theme'));
@@ -115,6 +119,7 @@ export function ResourcesPage() {
     let alive = true;
     (async () => {
       setLoading(true);
+      setLoadFailed(false);
       const [resRes, secRes] = await Promise.all([
         supabase
           .from('resources')
@@ -127,13 +132,16 @@ export function ResourcesPage() {
         supabase.from('sectors').select('id, slug, label').eq('is_active', true).order('label'),
       ]);
       if (!alive) return;
-      if (resRes.error && import.meta.env.DEV) console.error('Error fetching resources:', resRes.error);
+      if (resRes.error) {
+        if (import.meta.env.DEV) console.error('Error fetching resources:', resRes.error);
+        setLoadFailed(true);
+      }
       setResources((resRes.data ?? []) as Resource[]);
       setSectors((secRes.data ?? []) as Sector[]);
       setLoading(false);
     })();
     return () => { alive = false; };
-  }, []);
+  }, [reloadKey]);
 
   // The member's own sectors, for the "For your sectors" chip. Keyed on the
   // organization's id and type — never on the user object, which auth-js
@@ -359,7 +367,7 @@ export function ResourcesPage() {
               <ThemeDoor
                 label={themeLabel(th)}
                 hint={t(th.descKey, th.descFallback)}
-                countLabel={t('resources.results', { count: themeCounts[th.key] })}
+                countLabel={loading || loadFailed ? '' : t('resources.results', { count: themeCounts[th.key] })}
                 active={theme?.key === th.key}
                 icon={th.icon}
                 image={th.image}
@@ -384,7 +392,7 @@ export function ResourcesPage() {
           <div className="res-chips no-scrollbar -mx-4 flex items-center gap-2 overflow-x-auto px-4 md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
             {/* aria-live: a screen-reader user hears the new count after each filter. */}
             <span className="shrink-0 pr-1 text-sm font-semibold text-ink" aria-live="polite">
-              {loading ? '…' : t('resources.results', { count: filtered.length })}
+              {loading ? '…' : loadFailed ? '' : t('resources.results', { count: filtered.length })}
             </span>
 
             {/* Right after the count, so it can never end up scrolled off-screen. */}
@@ -450,6 +458,11 @@ export function ResourcesPage() {
               {Array.from({ length: 6 }, (_, i) => <ResourceSkeleton key={i} />)}
             </ul>
           </>
+        ) : loadFailed ? (
+          <LoadErrorPanel
+            title={t('loadError.resources', 'The library could not be loaded.')}
+            onRetry={() => setReloadKey((k) => k + 1)}
+          />
         ) : filtered.length === 0 ? (
           <div className="mx-auto max-w-xl rounded-[24px] border border-dashed border-rule bg-white px-6 py-12 text-center">
             <span className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-pill bg-chip text-navy">
@@ -519,7 +532,7 @@ export function ResourcesPage() {
                 {t('contentPages.library.joinTitle', 'Public articles are open to everyone. Join to read the rest.')}
               </h2>
               <p className="mt-3 max-w-xl text-body md:text-body-lg text-ink">
-                {t('contentPages.library.joinBody', 'Member-only articles open once the M3 team has checked your company. Membership is free.')}
+                {t('contentPages.library.joinBody', 'Member-only articles open once your company is verified. Membership is free.')}
               </p>
               <UnderlineLink to="/become-partner" className="mt-5 text-base">{t('nav.becomePartner')}</UnderlineLink>
             </Reveal>

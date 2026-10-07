@@ -137,7 +137,7 @@ export const JOIN_ITEM: NavItem = {
   labelKey: 'nav.becomePartner',
   fallback: 'Join the network',
   descKey: 'nav.becomePartnerDesc',
-  descFallback: 'Free for every member, checked by M3',
+  descFallback: 'Free for every member',
   icon: UserPlus,
 };
 

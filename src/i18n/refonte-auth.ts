@@ -26,7 +26,7 @@ export const AUTH_REFONTE_STRINGS = {
         pointsLabel: 'What the network offers',
         points: {
           network: 'Marinas, service providers and media in one network',
-          free: 'Free for every member, checked by M3',
+          free: 'Free for every member',
           events: "Meet at M3's events in Monaco, Dubai and online",
         },
       },
@@ -37,7 +37,7 @@ export const AUTH_REFONTE_STRINGS = {
       steps: {
         label: 'Your progress',
         profile: 'Your profile',
-        organization: 'Your organization',
+        organization: 'Your organisation',
         review: 'Review by M3',
         current: 'current step',
         done: 'done',

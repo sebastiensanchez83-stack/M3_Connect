@@ -312,7 +312,7 @@ export function ResetPasswordPage() {
           onSubmit={(e) => { e.preventDefault(); void requestNewLink(); }}
         >
           <div className="space-y-2">
-            <AuthLabel htmlFor="resendEmail">{t('auth.email', 'Email')}</AuthLabel>
+            <AuthLabel htmlFor="resendEmail">{t('auth.email', 'E-mail')}</AuthLabel>
             <AuthInput
               id="resendEmail"
               type="email"

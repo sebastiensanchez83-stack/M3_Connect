@@ -642,7 +642,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
   /* ------------------------------------------------------------ early exits */
 
   if (authLoading) {
-    return <LoadingSkeleton variant="page" />;
+    return <LoadingSkeleton variant="screen" />;
   }
 
   if (!user) return null;
@@ -688,7 +688,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
     if (profile.onboarding_status === 'draft') {
       return <Navigate to="/account?tab=complete-registration" replace />;
     }
-    if (sponsorIds === null) return <LoadingSkeleton variant="page" />;
+    if (sponsorIds === null) return <LoadingSkeleton variant="screen" />;
     return <Navigate to={sponsorIds.length ? '/account?tab=sponsorship' : '/account?tab=registrations'} replace />;
   }
 
@@ -729,7 +729,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
     consultation: canCreate('submit_consultation', createCtx),
     webinar: canCreate('request_webinar', createCtx),
   };
-  const publishWhenVerified = t('accountArea.publishWhenVerified', 'You can publish once your organization is verified');
+  const publishWhenVerified = t('accountArea.publishWhenVerified', 'You can publish once your organisation is verified');
   const publishPendingLink = (
     <Link to="/dashboard" className="inline-flex min-h-10 items-center text-sm font-medium text-primary underline-offset-2 hover:underline">
       {publishWhenVerified}
@@ -915,7 +915,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
           <Panel>
             <div className="p-5 sm:p-6">
               <p className="text-sm text-meta">
-                {currentOnboardingStep === 1 && t('accountArea.onboarding.step1Intro', 'Fill in your organization details to get started.')}
+                {currentOnboardingStep === 1 && t('accountArea.onboarding.step1Intro', 'Fill in your organisation details to get started.')}
                 {currentOnboardingStep === 2 && t('accountArea.onboarding.step2Intro', 'Your profile is submitted for review.')}
               </p>
               <ol className="mt-5 flex items-center gap-3">
@@ -928,7 +928,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                     {currentOnboardingStep > 1 ? <Check className="h-4 w-4" aria-hidden="true" /> : '1'}
                   </span>
                   <span className={cn('text-[15px] font-semibold', currentOnboardingStep > 1 ? 'text-teal-text' : 'text-navy')}>
-                    {t('accountArea.onboarding.stepOrganization', 'Organization')}
+                    {t('accountArea.onboarding.stepOrganization', 'Organisation')}
                   </span>
                 </li>
                 <li aria-hidden="true" className={cn('h-px flex-1', currentOnboardingStep > 1 ? 'bg-teal/40' : 'bg-rule')} />
@@ -962,11 +962,11 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                 </span>
                 <h3 className="mt-4 text-h3 text-navy">{t('accountArea.onboarding.submittedTitle', 'Profile submitted for review')}</h3>
                 <p className="mx-auto mt-2 max-w-md text-meta">
-                  {t('accountArea.onboarding.submittedBody', 'Thank you for completing your registration! Our team reviews profiles very quickly — you will receive a confirmation email as soon as your account is approved.')}
+                  {t('accountArea.onboarding.submittedBody', 'Thank you for completing your registration! The M3 team reviews each profile, usually within 24 to 48 business hours, and e-mails you as soon as your account is approved.')}
                 </p>
                 <p className="mt-3 flex items-center justify-center gap-2 text-sm text-meta">
                   <Clock className="h-4 w-4" aria-hidden="true" />
-                  {t('accountArea.onboarding.reviewTime', 'Typical review time: less than 24 hours')}
+                  {t('accountArea.onboarding.reviewTime', 'Typical review time: 24 to 48 business hours')}
                 </p>
                 <div className="flex flex-col items-center gap-2 pt-5">
                   <Button
@@ -981,7 +981,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                       step on this view, so its support link moves here. */}
                   {awaitingReview && (
                     <Link to="/contact" className="inline-flex min-h-10 items-center rounded text-sm font-medium text-primary underline underline-offset-2 hover:text-primary/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2">
-                      {t('accountArea.banner.contactSupport', 'Questions? Contact support')}
+                      {t('accountArea.banner.contactSupport', 'Questions? Write to the M3 team')}
                     </Link>
                   )}
                 </div>
@@ -1100,7 +1100,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="edit-email">{t('accountArea.profile.email', 'Email')}</Label>
+                    <Label htmlFor="edit-email">{t('accountArea.profile.email', 'E-mail')}</Label>
                     <Input id="edit-email" value={user.email || ''} disabled className="bg-page" />
                   </div>
                   <div className="space-y-1.5">
@@ -1117,7 +1117,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                 <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label={t('accountArea.profile.firstName', 'First name')}>{profile.first_name || '—'}</Field>
                   <Field label={t('accountArea.profile.lastName', 'Last name')}>{profile.last_name || '—'}</Field>
-                  <Field label={t('accountArea.profile.email', 'Email')}>{user.email}</Field>
+                  <Field label={t('accountArea.profile.email', 'E-mail')}>{user.email}</Field>
                   {profile.job_title && (
                     <Field label={t('accountArea.profile.jobTitle', 'Job title')}>{profile.job_title}</Field>
                   )}
@@ -1134,7 +1134,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                 {accessMeta ? t(accessMeta.key, accessMeta.fallback) : humanize(profile.access_status)}
               </Field>
               {orgRole && (
-                <Field label={t('accountArea.profile.orgRole', 'Organization role')}>{t(`org.${orgRole}`, humanize(orgRole))}</Field>
+                <Field label={t('accountArea.profile.orgRole', 'Organisation role')}>{t(`org.${orgRole}`, humanize(orgRole))}</Field>
               )}
               <Field label={t('accountArea.profile.registered', 'Member since')}>
                 {fmtDate(profile.created_at, { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -1145,11 +1145,11 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
           {/* Organization details (from org context) */}
           {org && (
             <Panel
-              title={t('accountArea.profile.organization', 'Organization')}
+              title={t('accountArea.profile.organization', 'Organisation')}
               icon={Building2}
               actions={(
                 <Link to="/account?tab=organization" className="inline-flex min-h-10 items-center gap-1 text-sm font-medium text-primary hover:underline underline-offset-2">
-                  {t('accountArea.profile.manageOrg', 'Manage organization')}
+                  {t('accountArea.profile.manageOrg', 'Manage organisation')}
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
               )}
@@ -1200,7 +1200,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
           {/* Security */}
           <Panel title={t('accountArea.profile.security', 'Security')} icon={KeyRound}>
             <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm text-meta">{t('accountArea.profile.securityHelp', "We'll email you a link to choose a new password.")}</p>
+              <p className="text-sm text-meta">{t('accountArea.profile.securityHelp', "We'll e-mail you a link to choose a new password.")}</p>
               <Button
                 variant="outline"
                 className={cn(BTN, 'shrink-0 gap-2')}
@@ -1215,7 +1215,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
                   if (error) {
                     toast({ title: t('accountArea.toast.error', 'Error'), description: error.message, variant: 'destructive' });
                   } else {
-                    toast({ title: t('accountArea.toast.passwordReset', 'Password reset email sent'), description: t('accountArea.toast.passwordResetDesc', 'Check your inbox for a link to reset your password.') });
+                    toast({ title: t('accountArea.toast.passwordReset', 'Password reset e-mail sent'), description: t('accountArea.toast.passwordResetDesc', 'Check your inbox for a link to reset your password.') });
                   }
                 }}
               >
@@ -1787,7 +1787,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
           <StatusBanner
             tone="blue"
             icon={ClipboardList}
-            title={t('accountArea.banner.incomplete', 'Your profile is incomplete. Complete your organization details to be validated by our team.')}
+            title={t('accountArea.banner.incomplete', 'Your profile is incomplete. Complete your organisation details to be validated by our team.')}
             action={(
               <Button size="sm" className={cn(BTN, 'w-full sm:w-auto')} onClick={() => navigate('/account?tab=complete-registration', { replace: true })}>
                 {t('accountArea.banner.completeProfile', 'Complete my profile')}
@@ -1803,10 +1803,10 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
             tone="amber"
             icon={AlertCircle}
             title={t('accountArea.banner.pendingTitle', 'Your profile is being reviewed by our team.')}
-            body={t('accountArea.banner.pendingBody', 'You will receive a confirmation email.')}
+            body={t('accountArea.banner.pendingBody', 'The M3 team usually finishes within 24 to 48 business hours and e-mails you when it is done. While you wait, complete your profile, read the library or register for a webinar.')}
             action={(
               <Link to="/contact" className="inline-flex min-h-10 items-center font-medium underline underline-offset-2 hover:text-yellow-950">
-                {t('accountArea.banner.contactSupport', 'Questions? Contact support')}
+                {t('accountArea.banner.contactSupport', 'Questions? Write to the M3 team')}
               </Link>
             )}
           />
@@ -2887,7 +2887,7 @@ function OrganizationWorkspace() {
       {keys.length > 1 && (
         <nav
           ref={navRef}
-          aria-label={t('accountArea.org.subnavLabel', 'Organization sections')}
+          aria-label={t('accountArea.org.subnavLabel', 'Organisation sections')}
           className="sticky top-16 z-20 -mx-4 mb-4 border-b border-rule bg-page/95 px-3 py-1 backdrop-blur-sm md:mx-0 md:rounded-card md:border md:border-rule md:bg-white/95 md:px-1"
         >
           {/* One scrolling row on touch screens; wraps from lg, where a mouse

@@ -32,7 +32,7 @@ import { featuredEventItems } from '@/components/brand/m3Events';
 import { CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { OrgCover, VerifiedPill, TYPE_RGB, orgTypeTone, seedOf, useOrgTypeLabel } from '@/components/brand/OrgCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
-import { M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
+import { ClaimRequestButton } from '@/components/contact/ClaimRequestButton';
 import { SheetDrawer } from '@/components/directory/SheetDrawer';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -808,7 +808,6 @@ export function DirectoryPage() {
   ];
   const setSort = (value: SortKey) => update({ sort: value === 'relevance' ? null : value });
 
-  const claimHref = `mailto:${M3_PUBLIC_EMAIL}?subject=${encodeURIComponent(t('directory.claim.mailSubject', 'Claim a marina page on Smart Marina Connect'))}&body=${encodeURIComponent(t('directory.claim.mailBody', 'Marina:\nCountry:\nMy name and role:\nPhone:\n'))}`;
 
   // The head follows the theme in the URL until the organizations are in (or
   // if they never arrive): the edge function and the sitemap use the URL's
@@ -883,7 +882,7 @@ export function DirectoryPage() {
           {/* Always mounted (the results panel changes with the type): a screen
               reader hears the new count after each filter or search. */}
           <p className="sr-only" aria-live="polite" aria-atomic="true">
-            {dataReady ? t('directory.results', { count: filtered.length, defaultValue: '{{count}} organizations' }) : ''}
+            {dataReady ? t('directory.results', { count: filtered.length, defaultValue: '{{count}} organisations' }) : ''}
           </p>
           <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 py-3">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 xl:flex-nowrap">
@@ -930,7 +929,7 @@ export function DirectoryPage() {
                   items={segItems}
                   value={tabValue}
                   onChange={(v) => selectType(v === 'all' ? null : (v as TypeKey))}
-                  label={t('directory.typeGroup', 'Type of organization')}
+                  label={t('directory.typeGroup', 'Type of organisation')}
                   panelId="directory-panel"
                   loading={loading}
                 />
@@ -1005,6 +1004,9 @@ export function DirectoryPage() {
           {!loading && !loadFailed && collections.length > 0 && (
             <CollectionsRow items={collections} currentKey={currentCollection} onPick={pickCollection} />
           )}
+          {/* While the directory loads, the row's place is held at its height (270 px on phones, 298 px from md, plus its top margin):
+              the banner and the results below it no longer jump down when the selections arrive. */}
+          {loading && <div aria-hidden="true" className="mt-8 h-[270px] md:mt-10 md:h-[298px]" />}
 
           <div className="pt-8">
             <AdBanner placement="marketplace" className="mb-2" />
@@ -1014,7 +1016,7 @@ export function DirectoryPage() {
         {/* ── Results ── */}
         <div role="tabpanel" id="directory-panel" aria-labelledby={`dir-tab-${tabValue}`}>
           <div ref={resultsRef} id="directory-results" className="mx-auto w-full max-w-7xl px-4 sm:px-6 pb-6 pt-6">
-            <h2 className="sr-only">{t('directory.resultsHeading', 'Organizations')}</h2>
+            <h2 className="sr-only">{t('directory.resultsHeading', 'Organisations')}</h2>
             {loading ? (
               <>
                 <p role="status" className="sr-only">{t('directory.states.loading', 'Loading the directory…')}</p>
@@ -1040,8 +1042,8 @@ export function DirectoryPage() {
                 </span>
                 <p className="text-h3 text-navy" role="status">
                   {orgs.length === 0
-                    ? t('directory.noOrganizations', 'No organizations are listed yet.')
-                    : t('directory.noMatch', 'No organization matches these filters.')}
+                    ? t('directory.noOrganizations', 'No organisations are listed yet.')
+                    : t('directory.noMatch', 'No organisation matches these filters.')}
                 </p>
                 {orgs.length > 0 && (
                   <>
@@ -1065,12 +1067,12 @@ export function DirectoryPage() {
               <>
                 <p className="text-sm text-meta">
                   <span className="sr-only">
-                    {t('directory.results', { count: filtered.length, defaultValue: '{{count}} organizations' })}
+                    {t('directory.results', { count: filtered.length, defaultValue: '{{count}} organisations' })}
                   </span>
                   <span aria-hidden="true">
                     <strong className="font-semibold text-ink">
                       <RollingNumber value={filtered.length} lang={lang} />{' '}
-                      {t('directory.resultsWord', { count: filtered.length, defaultValue: 'organizations' })}
+                      {t('directory.resultsWord', { count: filtered.length, defaultValue: 'organisations' })}
                     </strong>
                     {' · '}
                     {t(`directory.countSuffix.${sort}`, sort === 'relevance' ? 'members first' : sort === 'az' ? 'A to Z' : 'newest first')}
@@ -1151,7 +1153,7 @@ export function DirectoryPage() {
           </LineReveal>
           <Reveal delay={120}>
             <p className="mt-4 text-[15px] leading-[26px] text-ink md:text-[16px] md:leading-[27px]">
-              {t('directory.seo.p1', 'The Smart Marina Connect directory brings together marinas and the companies that equip and run them: pontoons and dredging, shore power, harbour office software, design, insurance and more. Every member is checked by the M3 team, which organises the industry’s events in Monaco, in Dubai and online.')}
+              {t('directory.seo.p1', 'The Smart Marina Connect directory brings together marinas and the companies that equip and run them: pontoons and dredging, shore power, harbour office software, design, insurance and more. Companies are reviewed by the M3 team, which organises the industry’s events in Monaco, in Dubai and online.')}
             </p>
             <p className="mt-3 text-[15px] leading-[26px] text-ink md:text-[16px] md:leading-[27px]">
               {t('directory.seo.p2', 'Filter by theme or country, shortlist the companies you need, then request an introduction from their page: the request lands in their inbox.')}
@@ -1175,7 +1177,7 @@ export function DirectoryPage() {
           className="mt-14 grid grid-cols-1 gap-6 md:mt-20 lg:grid-cols-12"
         >
           <OpportunitiesTile className={showClaim ? 'lg:col-span-8' : 'lg:col-span-12'} />
-          {showClaim && <ClaimCard claimHref={claimHref} className="lg:col-span-4" />}
+          {showClaim && <ClaimCard className="lg:col-span-4" />}
         </section>
       </div>
 
@@ -1197,7 +1199,7 @@ export function DirectoryPage() {
         footer={(
           // Every choice applies at once (the counts are live): the footer only closes.
           <Button variant="cta" className="w-full justify-between" onClick={() => { setFiltersOpen(false); window.setTimeout(() => scrollToResults(true), 320); }}>
-            {t('directory.filters.done', { count: filtered.length, defaultValue: 'Done · {{count}} organizations' })}
+            {t('directory.filters.done', { count: filtered.length, defaultValue: 'Done · {{count}} organisations' })}
           </Button>
         )}
       >
@@ -1216,7 +1218,7 @@ export function DirectoryPage() {
           themeHint={!activeType
             ? t('directory.themesHint.all', 'Service providers are grouped by the services they offer, marinas by their areas of interest.')
             : INTEREST_SIDE.has(activeType)
-              ? t('directory.themesHint.interest', "Grouped by each organization's areas of interest.")
+              ? t('directory.themesHint.interest', "Grouped by each organisation's areas of interest.")
               : t('directory.themesHint.supply', 'Grouped by the services each company offers.')}
           onTheme={(key) => update({ theme: key, sector: null })}
           themeLabel={themeLabel}
@@ -1281,7 +1283,7 @@ export function DirectoryPage() {
         <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{t('auth.signup', 'Sign up')}</DialogTitle>
-            <DialogDescription>{t('directory.shortlist.signupDesc', 'Free for every member. The M3 team checks every company.')}</DialogDescription>
+            <DialogDescription>{t('directory.shortlist.signupDesc', 'Free for every member.')}</DialogDescription>
           </DialogHeader>
           <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
         </DialogContent>
@@ -1506,7 +1508,7 @@ function MembersSwitch({ checked, count, onToggle, className }: { checked: boole
       role="switch"
       aria-checked={checked}
       onClick={onToggle}
-      title={t('directory.onPlatformHint', 'Show only organizations whose team has an account on the platform')}
+      title={t('directory.onPlatformHint', 'Show only organisations whose team has an account on the platform')}
       className={cn('focus-ring inline-flex h-11 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-pill px-1.5 text-sm font-medium text-ink', className)}
     >
       <span
@@ -1841,7 +1843,7 @@ function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; cu
         {items.map((item, i) => {
           const current = item.key === currentKey;
           const kicker = item.count !== undefined
-            ? `${item.kicker} · ${t('directory.collections.count', { count: item.count, defaultValue: '{{count}} organizations' })}`
+            ? `${item.kicker} · ${t('directory.collections.count', { count: item.count, defaultValue: '{{count}} organisations' })}`
             : item.kicker;
           const className = 'dir-tile card-lift group has-ra relative isolate block h-[176px] w-[256px] overflow-hidden rounded-card bg-navy text-white outline-none focus-visible:shadow-focus md:h-[200px] md:w-[296px]';
           const inner = (
@@ -2083,7 +2085,7 @@ function NeedPanel({ mode, onSignup }: { mode: 'publish' | 'waiting' | 'visitor'
           <div className="max-w-[680px]">
             <Eyebrow tone="onDark">{t('directory.need.eyebrow', 'For marinas')}</Eyebrow>
             <h3 id="directory-need-heading" className="mt-3 text-[22px] font-semibold leading-[30px] tracking-[-0.01em] text-white md:text-[30px] md:leading-[38px]">
-              {t('directory.need.title', 'Run a marina? Publish your need and the verified service providers come to you.')}
+              {t('directory.need.title', 'Run a marina? Publish your need, and service providers can answer.')}
             </h3>
             <ul aria-label={t('directory.need.examplesLabel', 'Examples of needs')} className="mt-5 flex flex-wrap gap-2">
               {examples.map((e) => (
@@ -2157,10 +2159,11 @@ function OpportunitiesTile({ className }: { className?: string }) {
 
 /**
  * "Is your marina listed? Claim it": navy, sounding lines drifting behind, the
- * contact (Victor Meyer, M3 Monaco), a white rolling button that opens a
- * prepared e-mail to the public M3 address, and a link to the contact page.
+ * contact (Victor Meyer, M3 Monaco), a white rolling button that opens the
+ * claim request form (it reaches the M3 team through the contact-submit
+ * function), and a link to the contact page.
  */
-function ClaimCard({ claimHref, className }: { claimHref: string; className?: string }) {
+function ClaimCard({ className }: { className?: string }) {
   const { t } = useTranslation();
   return (
     <Reveal
@@ -2187,9 +2190,9 @@ function ClaimCard({ claimHref, className }: { claimHref: string; className?: st
         </div>
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-        <Button asChild variant="ctaWhite">
-          <a href={claimHref}>{t('directory.claim.cta', 'Claim my marina')}</a>
-        </Button>
+        <ClaimRequestButton variant="ctaWhite">
+          {t('directory.claim.cta', 'Claim my marina')}
+        </ClaimRequestButton>
         <UnderlineLink to="/contact" tone="light">{t('directory.claim.question', 'Ask a question')}</UnderlineLink>
       </div>
     </Reveal>
@@ -2325,7 +2328,7 @@ function FiltersBody(props: {
           label={(
             <>
               <span className="block">{t('directory.membersOnly', 'Members only')}</span>
-              <span className="block text-[13px] leading-[18px] text-meta">{t('directory.onPlatformHint', 'Show only organizations whose team has an account on the platform')}</span>
+              <span className="block text-[13px] leading-[18px] text-meta">{t('directory.onPlatformHint', 'Show only organisations whose team has an account on the platform')}</span>
             </>
           )}
           count={props.joinedAvailable}
@@ -2338,7 +2341,7 @@ function FiltersBody(props: {
             label={(
               <>
                 <span className="block">{t('directory.forYourSectors', 'For your sectors')}</span>
-                <span className="block text-[13px] leading-[18px] text-meta">{t('directory.forYourSectorsHint', 'Organizations working in the sectors of your organization')}</span>
+                <span className="block text-[13px] leading-[18px] text-meta">{t('directory.forYourSectorsHint', 'Organisations working in the sectors of your organisation')}</span>
               </>
             )}
             count={props.mineAvailable}

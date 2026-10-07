@@ -298,7 +298,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         return;
       }
       if (isAlreadyExists(claimPayload)) {
-        toast({ title: t('auth.error'), description: t('auth.accountAlreadyExists', 'An account with this email already exists. Please log in instead.'), variant: 'destructive' });
+        toast({ title: t('auth.error'), description: t('auth.accountAlreadyExists', 'An account with this e-mail already exists. Please log in instead.'), variant: 'destructive' });
         return;
       }
       if (isInvalidCode(claimPayload)) {
@@ -441,7 +441,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
         <ChevronLeft className="h-4 w-4" aria-hidden="true" /> {t('auth.back')}
       </button>
       {incomingClaimCode && (
-        <AuthNotice tone="success" icon={<Info className="h-4 w-4" />} title={t('auth.claimInviteTitle', "You've been invited to join an organization")}>
+        <AuthNotice tone="success" icon={<Info className="h-4 w-4" />} title={t('auth.claimInviteTitle', "You've been invited to join an organisation")}>
           <p className="text-[13px]">
             {t('auth.claimInviteCodeLabel', 'Invitation code:')} <span className="font-mono font-semibold">{incomingClaimCode}</span>
           </p>

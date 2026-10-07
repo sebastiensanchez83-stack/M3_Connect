@@ -85,18 +85,11 @@ export function AuthRedirector() {
     // Never interfere with the /join/:inviteId page — it handles its own auth flow
     if (isJoinRoute) return
 
-    // Logged out: hard-redirect protected routes (but let showLocked routes render their own locked state)
-    if (!user) {
-      if (isHardRedirectRoute(pathname)) {
-        // A confirmation link that could not sign in here: ProtectedRoute explains
-        // it and offers the login in place, rather than an unexplained bounce home.
-        if (readAuthLanding()) return
-        toast({ title: i18n.t('auth.loginRequired', 'Please log in to access this page.'), variant: 'destructive' })
-        navigate('/', { replace: true })
-      }
-      // showLocked routes (/submit-project, /submit-rfp, etc.) are handled by ProtectedRoute
-      return
-    }
+    // Logged out: nothing to do here. A protected page (ProtectedRoute) shows the
+    // sign-in form in place, with no red toast and no bounce to the home page, so
+    // the destination of an e-mailed link is not lost. The pages with their own
+    // locked state (/submit-rfp…) do the same through ProtectedRoute.
+    if (!user) return
 
     // Event-provisioned accounts finish the welcome step (set password) first.
     // Exempt: the welcome page itself, claim links (auto-claim then hub),

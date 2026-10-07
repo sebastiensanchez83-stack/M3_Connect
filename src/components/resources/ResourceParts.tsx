@@ -107,6 +107,7 @@ export function ThemeDoor({
 }: {
   label: string;
   hint: string;
+  /** Empty while the library loads or when it could not be read: a pill saying "0 resources" would be a false answer. */
   countLabel: string;
   active: boolean;
   icon: LucideIcon;
@@ -140,14 +141,16 @@ export function ThemeDoor({
         )}
       </span>
       <span aria-hidden="true" className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,rgba(8,29,64,.45)_0%,rgba(8,29,64,0)_34%,rgba(8,29,64,.2)_52%,rgba(8,29,64,.92)_100%)]" />
-      <span
-        className={cn(
-          'absolute left-3 top-3 inline-flex h-[26px] items-center rounded-pill px-2.5 text-[12px] font-semibold shadow-[inset_0_0_0_1px_rgba(255,255,255,.3)] backdrop-blur-md',
-          active ? 'bg-gold text-navy' : 'bg-white/20 text-white',
-        )}
-      >
-        {countLabel}
-      </span>
+      {countLabel && (
+        <span
+          className={cn(
+            'absolute left-3 top-3 inline-flex h-[26px] items-center rounded-pill px-2.5 text-[12px] font-semibold shadow-[inset_0_0_0_1px_rgba(255,255,255,.3)] backdrop-blur-md',
+            active ? 'bg-gold text-navy' : 'bg-white/20 text-white',
+          )}
+        >
+          {countLabel}
+        </span>
+      )}
       <span className="absolute inset-x-4 bottom-3.5 grid gap-[3px]">
         <span className="text-[16px] font-semibold leading-[21px] tracking-[-0.01em] md:text-[17px] md:leading-[22px]">
           <span className="card-ul">{label}</span>

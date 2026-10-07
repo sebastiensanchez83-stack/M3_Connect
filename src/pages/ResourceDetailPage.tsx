@@ -193,7 +193,8 @@ export function ResourceDetailPage() {
   };
 
   if (loading) {
-    return <LoadingSkeleton variant="page" />;
+    // A whole screen tall (same loader as the lazy routes): the footer stays below the fold, so the page arriving does not shift.
+    return <LoadingSkeleton variant="screen" />;
   }
 
   if (!resource) return null;
@@ -380,7 +381,7 @@ export function ResourceDetailPage() {
                   {!user ? (
                     <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                       <Button variant="cta" onClick={() => setSignupOpen(true)}>
-                        {t('auth.signup', 'Sign Up')}
+                        {t('auth.signup', 'Sign up')}
                       </Button>
                       <Button variant="ctaOutline" onClick={() => setLoginOpen(true)}>
                         {t('auth.login', 'Log In')}

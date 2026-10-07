@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, ChevronDown, Clock } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { BgRevealPanel } from '@/components/brand/BgRevealPanel';
@@ -19,12 +19,14 @@ import { THEMES } from '@/lib/themes';
  *
  *  - left: the pitch, the six themes as pill doors into the service-provider
  *    directory, "Publish a need" and a link to the M3 team;
- *  - right: a preview of the request form (about two minutes). The type of need
- *    is a real choice (tender, expert question, project) and "Publish a need"
- *    opens the matching form for a signed-in marina, or the sign-up for a
- *    visitor; the other four fields only show what the form asks;
+ *  - right: "What the form asks" (about two minutes). The type of need is a
+ *    real choice (tender, expert question, project) and "Publish a need" opens
+ *    the matching form for a signed-in marina, or the sign-up for a visitor.
+ *    What the form then asks for (it depends on the type, see ASKS) is a plain
+ *    numbered list, not a mock form: no input-like boxes, nothing that looks
+ *    like it can be typed into;
  *  - below: the service-provider members, as a row of cards that follows the
- *    scroll (ScrollRow), each a real member checked by the M3 team.
+ *    scroll (ScrollRow).
  */
 export interface ProviderCardData {
   id: string;
@@ -39,6 +41,38 @@ export interface ProviderCardData {
 
 type NeedType = 'rfp' | 'consultation' | 'project';
 const NEED_TYPES: NeedType[] = ['rfp', 'consultation', 'project'];
+
+/** One line of "What the form asks": `key` is the i18n key under homePage.need.asks. */
+interface Ask { key: string; label: string; hint: string }
+
+const ASK_TITLE: Ask = { key: 'title', label: 'A title', hint: 'A short name for your need.' };
+const ASK_SECTOR: Ask = { key: 'sector', label: 'The sector', hint: 'The field it belongs to.' };
+
+/**
+ * What each form asks for, in order, as the forms themselves do (SubmitRFPPage,
+ * SubmitConsultationPage, SubmitProjectPage): a tender has a title, sectors, a
+ * description and a deadline; an expert question the same without the deadline;
+ * a project has no title or sector, but a type, a budget range and a timeline.
+ */
+const ASKS: Record<NeedType, readonly Ask[]> = {
+  rfp: [
+    ASK_TITLE,
+    ASK_SECTOR,
+    { key: 'description', label: 'A description', hint: 'What you need, in a few lines. For example: replacing 40 power pedestals on pontoon B, with individual metering.' },
+    { key: 'deadline', label: 'A deadline', hint: 'When answers are due.' },
+  ],
+  consultation: [
+    ASK_TITLE,
+    ASK_SECTOR,
+    { key: 'questionDescription', label: 'A description', hint: 'Your question for the experts, in a few lines.' },
+  ],
+  project: [
+    { key: 'projectType', label: 'A project type', hint: 'Energy, digital, infrastructure, services or other.' },
+    { key: 'budgetRange', label: 'A budget range', hint: 'Pick the range that fits, from under €10,000 to over €500,000.' },
+    { key: 'timeline', label: 'A timeline', hint: 'Within 12 months, in 12 to 24 months, or later.' },
+    { key: 'projectDescription', label: 'A description', hint: 'Your needs, goals and any specific requirements.' },
+  ],
+};
 const NEED_ROUTES: Record<NeedType, string> = {
   rfp: '/submit-rfp',
   consultation: '/submit-consultation',
@@ -79,10 +113,10 @@ export function NeedPanel({
               id="home-need-heading"
               className="mt-4 max-w-[680px] text-balance text-[26px] font-semibold leading-8 tracking-[-0.02em] text-white md:text-[40px] md:leading-[48px]"
             >
-              {t('homePage.need.title', 'Run a marina? Describe your need, and checked service providers come to you.')}
+              {t('homePage.need.title', 'Run a marina? Describe your need, and service providers can answer.')}
             </LineReveal>
             <Reveal as="p" delay={120} className="mt-5 max-w-[600px] text-body text-white/80 md:text-body-lg">
-              {t('homePage.need.body', 'A tender, a question for an expert or a project: a few lines are enough, and the answers arrive in your inbox. Prefer to write it with us? The M3 team can help.')}
+              {t('homePage.need.body', 'A tender, a question for an expert or a project: a few lines are enough. M3 reviews each need and publishes it within one business day. Prefer to write it with us? The M3 team can help.')}
             </Reveal>
             <Reveal delay={160}>
               <p id="home-need-themes" className="mt-6 text-[13px] font-medium leading-4 text-white/70">
@@ -114,8 +148,8 @@ export function NeedPanel({
             {!canSubmit && (
               <p className="mt-4 max-w-[600px] text-[13px] leading-[18px] text-white/70">
                 {waiting
-                  ? t('homePage.need.noteWaiting', 'You can publish once the M3 team has checked your marina. Your dashboard shows where the review stands.')
-                  : t('homePage.need.noteVisitor', 'Signing up is free. The M3 team checks every marina before it can publish.')}
+                  ? t('homePage.need.noteWaiting', 'You can publish once your marina is verified. Your dashboard shows where the review stands.')
+                  : t('homePage.need.noteVisitor', 'Signing up is free. A marina can publish once its account is verified.')}
               </p>
             )}
           </div>
@@ -132,8 +166,8 @@ export function NeedPanel({
 }
 
 /**
- * The request form, as a preview: the type of need is a real choice, the four
- * other fields only show what a request asks for (decorative).
+ * What the form asks: the type of need is a real choice (it decides which form
+ * "Publish a need" opens); what the form then asks for is a static numbered list.
  */
 function NeedPreview({ type, onType }: { type: NeedType; onType: (t: NeedType) => void }) {
   const { t } = useTranslation();
@@ -147,7 +181,7 @@ function NeedPreview({ type, onType }: { type: NeedType; onType: (t: NeedType) =
   return (
     <figure className="rounded-card bg-white p-6 text-ink">
       <figcaption className="flex items-center justify-between gap-3">
-        <span className="text-base font-semibold leading-[22px] text-navy">{t('homePage.need.previewLabel', 'Request preview')}</span>
+        <span className="text-base font-semibold leading-[22px] text-navy">{t('homePage.need.previewLabel', 'What the form asks')}</span>
         <span className="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full bg-chip px-2.5 text-[12px] font-semibold uppercase tracking-[0.04em] text-navy">
           <Clock className="h-3.5 w-3.5" aria-hidden="true" />
           {t('homePage.need.duration', 'About 2 minutes')}
@@ -180,49 +214,21 @@ function NeedPreview({ type, onType }: { type: NeedType; onType: (t: NeedType) =
         </div>
       </fieldset>
 
-      {/* The four other fields: what the form asks for. */}
-      <div aria-hidden="true" className="mt-4 grid select-none gap-4 sm:grid-cols-2">
-        <Field label={t('homePage.need.fields.theme', 'Theme')} icon="chevron">{t('homePage.need.fields.themePh', 'Choose a theme')}</Field>
-        <Field label={t('homePage.need.fields.country', 'Country')} icon="chevron">{t('homePage.need.fields.countryPh', 'Choose a country')}</Field>
-        <Field label={t('homePage.need.fields.deadline', 'Deadline')} icon="calendar" className="sm:col-span-2">
-          {t('homePage.need.fields.deadlinePh', 'dd/mm/yyyy')}
-        </Field>
-        <Field label={t('homePage.need.fields.description', 'Description')} area className="sm:col-span-2">
-          {t('homePage.need.fields.descriptionPh', 'E.g. replacing 40 power pedestals on pontoon B, with individual metering…')}
-        </Field>
-      </div>
-      <p className="sr-only">{t('homePage.need.fieldsSr', 'Then four fields: theme, country, deadline and description.')}</p>
+      <p className="mt-5 text-[13px] font-medium leading-[18px] text-meta">{t('homePage.need.fieldsIntro', 'The form then asks for:')}</p>
+      <ol className="mt-2 divide-y divide-rule border-t border-rule">
+        {ASKS[type].map((a, i) => (
+          <li key={a.key} className="flex items-start gap-3 py-3">
+            <span aria-hidden="true" className="tabular mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-chip text-[12px] font-semibold text-navy">
+              {i + 1}
+            </span>
+            <div className="min-w-0">
+              <p className="text-[15px] font-semibold leading-6 text-navy">{t(`homePage.need.asks.${a.key}.label`, a.label)}</p>
+              <p className="text-[14px] leading-5 text-meta">{t(`homePage.need.asks.${a.key}.hint`, a.hint)}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
     </figure>
-  );
-}
-
-function Field({
-  label,
-  icon,
-  area = false,
-  className,
-  children,
-}: {
-  label: string;
-  icon?: 'chevron' | 'calendar';
-  area?: boolean;
-  className?: string;
-  children: string;
-}) {
-  const Icon = icon === 'calendar' ? CalendarDays : ChevronDown;
-  return (
-    <div className={className}>
-      <p className="text-[13px] font-medium leading-[18px] text-meta">{label}</p>
-      <div
-        className={cn(
-          'mt-1.5 flex items-center justify-between gap-2 rounded-field border border-checkbox bg-white px-3.5 text-[15px] text-meta/80',
-          area ? 'min-h-[92px] items-start py-2.5 leading-6' : 'h-11',
-        )}
-      >
-        <span className={area ? '' : 'truncate'}>{children}</span>
-        {icon && <Icon className="h-[18px] w-[18px] shrink-0" />}
-      </div>
-    </div>
   );
 }
 
@@ -233,7 +239,7 @@ function ProviderRow({ providers, loading }: { providers: ProviderCardData[]; lo
     <div className="mt-14 md:mt-20">
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
         <Reveal as="h3" className="max-w-3xl text-[20px] font-semibold leading-[26px] text-white md:text-[24px] md:leading-[30px]">
-          {t('homePage.need.providersTitle', 'Service providers in the network, checked by the M3 team')}
+          {t('homePage.need.providersTitle', 'Service providers in the network')}
         </Reveal>
         <Reveal>
           <UnderlineLink to="/directory?type=partner" tone="light">

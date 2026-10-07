@@ -54,7 +54,7 @@ export function FiguresBand({ figures, loading, className }: { figures: HomeFigu
       to: '/directory?type=partner',
       value: figures.suppliers,
       label: t('homePage.figures.suppliers', 'Service providers'),
-      sub: t('homePage.quay.providersSub', 'checked by the M3 team'),
+      sub: t('homePage.quay.providersSub', 'in the directory'),
     },
     {
       key: 'countries',

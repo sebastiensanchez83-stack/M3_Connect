@@ -23,8 +23,8 @@ const NO_JOIN_BAND = /^\/(become-partner|onboarding|join\/|reset-password|welcom
 /**
  * The site footer, in two parts:
  *
- *  - a large marine band "Join the marina network" (free membership, every member
- *    checked by M3) with the rolling "Sign up" button and a link to the directory;
+ *  - a large marine band "Join the marina network" (free membership, a place for
+ *    every profile) with the rolling "Sign up" button and a link to the directory;
  *    hidden for signed-in members (they are already members) and on the screens
  *    listed in NO_JOIN_BAND;
  *  - the classic footer, navy-deep, with two layers of faint sounding lines drifting
@@ -55,13 +55,13 @@ export function Footer() {
     ? [
         { to: accountHref('dashboard'), label: t('nav.dashboard', 'Dashboard') },
         { to: accountHref('registrations'), label: t('accountNav.registrations', 'My events') },
-        { to: accountHref('organization'), label: t('accountNav.organization', 'Organization & team') },
+        { to: accountHref('organization'), label: t('accountNav.organization', 'Organisation & team') },
         { to: accountHref('inbox'), label: t('accountNav.inbox', 'Inbox') },
       ]
     : [
         { to: '/become-partner', label: t('nav.becomePartner') },
         // Event sponsorship is sold by the M3 team: the contact form, opened on that subject.
-        { to: '/contact?subject=partnership', label: t('footer.sponsorEvent', 'Sponsor an event') },
+        { to: '/sponsor', label: t('footer.sponsorEvent', 'Sponsor an event') },
       ];
 
   return (
@@ -94,8 +94,8 @@ export function Footer() {
             <p className="mt-3 flex max-w-sm items-start gap-2.5 text-sm leading-[22px] text-white/80">
               <BadgeCheck className="mt-0.5 h-[18px] w-[18px] shrink-0 text-gold" aria-hidden="true" />
               <span>
-                <span className="font-semibold text-white">{t('brand.footer.verified', 'Every member checked by the M3 team.')}</span>{' '}
-                {t('brand.footer.free', 'The platform is free for every member.')}
+                <span className="font-semibold text-white">{t('brand.footer.verified', 'Free for every member.')}</span>{' '}
+                {t('brand.footer.free', 'Companies are reviewed by M3 before they are marked as verified.')}
               </span>
             </p>
             <div className="mt-5 flex gap-3">
@@ -178,7 +178,7 @@ function JoinBand() {
             {t('footer.joinBand.title', 'Join the marina network')}
           </LineReveal>
           <Reveal as="p" delay={120} className="mt-4 max-w-[620px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
-            {t('footer.joinBand.body', 'Membership is free, and every member is checked by the M3 team before access opens.')}
+            {t('footer.joinBand.body', 'Membership is free. Marinas, service providers, investors and media each get the features of their profile.')}
           </Reveal>
         </div>
         <Reveal delay={200} className="flex flex-wrap items-center gap-x-7 gap-y-4 lg:col-span-4 lg:justify-end">

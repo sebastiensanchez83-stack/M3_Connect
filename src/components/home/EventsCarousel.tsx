@@ -127,7 +127,7 @@ export function EventsCarousel({ sectionNo }: { sectionNo?: string }) {
           </div>
           <Reveal delay={120} className="lg:col-span-4">
             <p className="text-base leading-[26px] text-ink">
-              {t('homePage.events.intro', 'Registering for one of our events also creates your Smart Marina Connect account.')}
+              {t('homePage.events.intro', 'Conferences in Monaco and Dubai, webinars online, and replays in the library.')}
             </p>
             <UnderlineLink to="/events" className="mt-3">
               {t('homePage.events.all', 'All events')}
@@ -234,7 +234,7 @@ export function EventsCarousel({ sectionNo }: { sectionNo?: string }) {
                 <Link to={WEBINARS_PATH}>{t('brand.events.webinars.cta', 'See the webinars')}</Link>
               </Button>
               <UnderlineLink href="#newsletter" tone="light">
-                {t('homePage.events.newsletter', 'Get the dates by newsletter')}
+                {t('homePage.events.newsletter', 'Subscribe to the newsletter')}
               </UnderlineLink>
             </div>
           </EventCardLarge>

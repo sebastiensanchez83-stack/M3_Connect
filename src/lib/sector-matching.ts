@@ -1,5 +1,8 @@
 /**
- * Sector matching helpers — used to gate B2B connection requests.
+ * Sector matching helpers — used to gate COLD B2B connection requests (a
+ * request sent from a company or a member page). Answering a need that a marina
+ * published (OpportunitiesPage "express interest") is never gated: the marina
+ * asked for answers, whatever the sectors on either side.
  *
  * Rules (strict, applied in order):
  *   1. The target organization must have at least one team member.

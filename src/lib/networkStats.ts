@@ -8,7 +8,8 @@ import { supabase } from '@/lib/supabase';
  * Live counts by default. The hand-typed numbers in
  * platform_settings.display_stats had fallen well behind (85 marinas shown,
  * 180 listed), so they now only win when an admin sets `override: true` there
- * (shown as "N+"), and otherwise fill in when a live count cannot be had.
+ * (shown as "N+"). Otherwise the typed numbers are never used: when a live count
+ * cannot be had the figure is null and the page shows a dash, not a stale "85".
  */
 
 export interface NetworkFigures {
@@ -82,7 +83,8 @@ export function countCountries(rows: { country: string | null; headquarters_coun
 
 /**
  * Builds the figures from what was fetched. Any argument may be null when its
- * query failed: that figure then falls back to the typed setting.
+ * query failed: that figure is then null, unless an admin chose the typed
+ * figures with `override: true`.
  */
 export function networkFigures(
   displayValue: unknown,
@@ -94,8 +96,10 @@ export function networkFigures(
   // figures are shown as before ("85+", 0 hides a figure as "—").
   const manual = display.override === true;
   const typed = (v: unknown) => (typeof v === 'number' && v > 0 ? v : null);
-  const pick = (live: number | null, fallback: unknown) =>
-    manual ? typed(fallback) : (live !== null && live > 0 ? live : typed(fallback));
+  // Not an override: only live counts are shown. A failed or empty count is null
+  // (a dash on the page), never the stale typed figure (85 / 40 / 37 in production).
+  const pick = (live: number | null, typedValue: unknown) =>
+    manual ? typed(typedValue) : (live !== null && live > 0 ? live : null);
 
   return {
     marinas: pick(orgRows ? orgRows.filter((o) => o.organization_type === 'marina').length : null, display.marinas),
@@ -119,7 +123,7 @@ export function useNetworkFigures(): { figures: NetworkFigures; loading: boolean
   useEffect(() => {
     let alive = true;
     (async () => {
-      // allSettled: a failed count falls back to the typed setting instead of blanking the band.
+      // allSettled: a failed count leaves that one figure empty (a dash) instead of blanking the band.
       const [settingsRes, orgsRes, resourcesRes] = await Promise.allSettled([
         supabase.from('platform_settings').select('value').eq('key', 'display_stats').maybeSingle(),
         supabase.from('organizations').select('organization_type, country, headquarters_country').eq('access_status', 'verified'),

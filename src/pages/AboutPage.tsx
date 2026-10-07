@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { Seo } from '@/components/seo/Seo';
-import { Anchor, Building2, BookOpen, Compass, Link2, Newspaper, ShieldCheck, UserCheck, MailCheck } from 'lucide-react';
+import { Anchor, Building2, BookOpen, Compass, Link2, Newspaper, ShieldCheck, LifeBuoy, MailCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/PageHero';
 import { CardShell, CardMedia, StretchedLink } from '@/components/brand/CardShell';
@@ -91,8 +91,8 @@ export function AboutPage() {
       who: t('staticPages.about.profiles.marinas.who'),
       can: [
         t('homePage.profiles.marinas.can1', 'Publish your tenders, expert questions and projects'),
-        t('homePage.profiles.marinas.can2', 'Find service providers by theme and country, checked by M3'),
-        t('homePage.profiles.marinas.can3', 'See what other marinas are looking for'),
+        t('homePage.profiles.marinas.can2', 'Find service providers by theme and country'),
+        t('homePage.profiles.marinas.can3', 'Browse the opportunities published on the platform'),
       ],
     },
     {
@@ -105,7 +105,7 @@ export function AboutPage() {
       who: t('staticPages.about.profiles.providers.who'),
       can: [
         t('homePage.profiles.providers.can1', 'Read the needs marinas publish and answer them'),
-        t('homePage.profiles.providers.can2', 'Present your company in the directory, checked by M3'),
+        t('homePage.profiles.providers.can2', 'Present your company in the directory'),
         t('homePage.profiles.providers.can3', 'Sponsor an event for more visibility'),
       ],
     },
@@ -132,7 +132,7 @@ export function AboutPage() {
       title: t('staticPages.about.profiles.media.title'),
       who: t('staticPages.about.profiles.media.who'),
       can: [
-        t('homePage.profiles.media.can1', 'Request press accreditation for our events in Monaco and Dubai'),
+        t('homePage.profiles.media.can1', 'Write to the M3 team about press accreditation for our events'),
         t('homePage.profiles.media.can2', "Follow the sector's articles, opportunities and replays"),
       ],
     },
@@ -147,7 +147,7 @@ export function AboutPage() {
     },
     {
       key: 'person',
-      icon: UserCheck,
+      icon: LifeBuoy,
       title: t('staticPages.about.check.person.title'),
       desc: t('staticPages.about.check.person.desc'),
     },

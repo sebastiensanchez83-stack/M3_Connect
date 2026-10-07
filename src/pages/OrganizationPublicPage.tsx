@@ -31,7 +31,8 @@ import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { useParallax } from '@/components/motion/useParallax';
 import { Carousel } from '@/components/brand/Carousel';
 import { CardShell, StretchedLink, type OrgTypeTone } from '@/components/brand/CardShell';
-import { ContactCard, M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
+import { ContactCard } from '@/components/brand/ContactCard';
+import { ClaimRequestButton } from '@/components/contact/ClaimRequestButton';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { LogoTile, OrgCard, TYPE_RGB, VerifiedBadge, orgTypeTone, seedOf } from '@/components/brand/OrgCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
@@ -627,7 +628,7 @@ export function OrganizationPublicPage() {
         if (!match.allowed) {
           toast({
             title: t('orgProfile.connectBlockedTitle', 'Connection blocked'),
-            description: match.reason || t('orgProfile.connectBlockedBody', 'No overlapping sectors between your organization and theirs.'),
+            description: match.reason || t('orgProfile.connectBlockedBody', 'No overlapping sectors between your organisation and theirs.'),
             variant: 'destructive',
           });
           setConnectSending(false);
@@ -826,9 +827,9 @@ export function OrganizationPublicPage() {
   if (!org) {
     return (
       <StateScreen
-        seo={<Seo title={withSiteSuffix(t('orgProfile.notFoundTitle', 'Organization not found'))} noindex />}
-        title={t('orgProfile.notFoundTitle', 'Organization not found')}
-        body={t('orgProfile.notFoundBody', 'This organization does not exist or has been removed.')}
+        seo={<Seo title={withSiteSuffix(t('orgProfile.notFoundTitle', 'Organisation not found'))} noindex />}
+        title={t('orgProfile.notFoundTitle', 'Organisation not found')}
+        body={t('orgProfile.notFoundBody', 'This organisation does not exist or has been removed.')}
       >
         <Button asChild variant="ctaOutline" size="sm">
           <Link to={back.to}>{back.label}</Link>
@@ -1029,12 +1030,12 @@ export function OrganizationPublicPage() {
               />
               {canEdit && (
                 <Button asChild variant="ctaOutline" size="sm">
-                  <Link to={accountHref('organization')}>{t('org.editOrg', 'Edit Organization')}</Link>
+                  <Link to={accountHref('organization')}>{t('org.editOrg', 'Edit Organisation')}</Link>
                 </Button>
               )}
             </div>
             {canEdit && (
-              <p className="mt-3 text-[13px] leading-[18px] text-meta">{t('orgProfile.ownPage', "This is your organization's public page.")}</p>
+              <p className="mt-3 text-[13px] leading-[18px] text-meta">{t('orgProfile.ownPage', "This is your organisation's public page.")}</p>
             )}
           </div>
         </div>
@@ -1125,7 +1126,7 @@ export function OrganizationPublicPage() {
                     </ul>
                   </aside>
                 )}
-                {showClaim && <ClaimCard name={org.name} isMarina={isMarina} />}
+                {showClaim && <ClaimCard name={org.name} slug={org.slug} isMarina={isMarina} />}
               </div>
             )}
           </div>
@@ -1368,7 +1369,7 @@ export function OrganizationPublicPage() {
               {user ? (
                 <Link to={accountHref('dashboard')}>{t('orgProfile.checkStatus', 'Check your account status')}</Link>
               ) : (
-                <Link to="/become-partner">{t('orgProfile.join', 'Join the network')}</Link>
+                <Link to="/become-partner">{t('orgProfile.join', 'Sign up')}</Link>
               )}
             </Button>
           </div>
@@ -1413,7 +1414,7 @@ export function OrganizationPublicPage() {
                   <Eyebrow>{t('orgPage.similar.eyebrow', 'Keep exploring')}</Eyebrow>
                 </Reveal>
                 <LineReveal as="h2" id="org-similar-heading" className="mt-3 text-h2-sm text-navy md:text-h2">
-                  {(orgType && similarTitle[orgType]) || t('orgPage.similar.titleOther', 'Similar organizations')}
+                  {(orgType && similarTitle[orgType]) || t('orgPage.similar.titleOther', 'Similar organisations')}
                 </LineReveal>
               </div>
               <Reveal delay={120}>
@@ -1423,7 +1424,7 @@ export function OrganizationPublicPage() {
               </Reveal>
             </div>
             <Reveal className="mt-8">
-              <Carousel label={t('orgPage.similar.label', 'Similar organizations')} slideClassName="w-[86%] sm:w-[46%] lg:w-[31.5%]">
+              <Carousel label={t('orgPage.similar.label', 'Similar organisations')} slideClassName="w-[86%] sm:w-[46%] lg:w-[31.5%]">
                 {similar.map((o) => (
                   <OrgCard
                     key={o.id}
@@ -1601,13 +1602,12 @@ function ProfileCover({
 
 /**
  * "Is this your marina? Claim this page": for organizations the M3 team listed
- * before anyone had an account. The request is an e-mail to the public M3
- * address, prepared with the organization's name; the team checks every request
- * before handing the page over.
+ * before anyone had an account. The button opens a small request form (name,
+ * e-mail, role) that reaches the M3 team through the contact-submit function;
+ * the team checks every request before handing the page over.
  */
-function ClaimCard({ name, isMarina }: { name: string; isMarina: boolean }) {
+function ClaimCard({ name, slug, isMarina }: { name: string; slug: string; isMarina: boolean }) {
   const { t } = useTranslation();
-  const href = `mailto:${M3_PUBLIC_EMAIL}?subject=${encodeURIComponent(t('orgPage.claim.mailSubject', 'Claim the page of {{name}} on Smart Marina Connect', { name }))}&body=${encodeURIComponent(t('orgPage.claim.mailBody', 'Organization: {{name}}\nMy name and role:\nPhone:\n', { name }))}`;
   return (
     <aside aria-labelledby="org-claim-heading" className="relative isolate overflow-hidden rounded-[24px] bg-navy p-6 text-white md:p-7">
       <BathyPattern seed={7} drift className="absolute inset-0 -z-10" />
@@ -1630,9 +1630,9 @@ function ClaimCard({ name, isMarina }: { name: string; isMarina: boolean }) {
         </div>
       </div>
       <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-        <Button asChild variant="ctaWhite" size="sm">
-          <a href={href}>{t('orgPage.claim.cta', 'Claim this page')}</a>
-        </Button>
+        <ClaimRequestButton organization={{ name, slug }} variant="ctaWhite" size="sm">
+          {t('orgPage.claim.cta', 'Claim this page')}
+        </ClaimRequestButton>
         <UnderlineLink to="/contact" tone="light">{t('orgPage.claim.question', 'Ask a question')}</UnderlineLink>
       </div>
     </aside>

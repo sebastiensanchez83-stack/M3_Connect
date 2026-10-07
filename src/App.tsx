@@ -11,7 +11,7 @@ import { CookieBanner } from '@/components/layout/CookieBanner';
 import { captureInviteFromUrl } from '@/lib/invite-store';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { SM26_ENABLED } from '@/lib/featureFlags';
-import { RefreshCw } from 'lucide-react';
+import { ScreenLoader } from '@/components/LoadingSkeleton';
 
 // Capture ?invite= param on initial page load (before React renders)
 captureInviteFromUrl();
@@ -73,6 +73,7 @@ const SM26PartnerPage = lazyWithRetry(() => import('@/pages/SM26PartnerPage').th
 const SM26YVPage = lazyWithRetry(() => import('@/pages/SM26YVPage').then(m => ({ default: m.SM26YVPage })));
 const SM26ConnectPage = lazyWithRetry(() => import('@/pages/SM26ConnectPage').then(m => ({ default: m.SM26ConnectPage })));
 const SM26HubPage = lazyWithRetry(() => import('@/pages/SM26HubPage').then(m => ({ default: m.SM26HubPage })));
+const SponsorPage = lazyWithRetry(() => import('@/pages/SponsorPage').then(m => ({ default: m.SponsorPage })));
 const SponsorshipPage = lazyWithRetry(() => import('@/pages/SponsorshipPage').then(m => ({ default: m.SponsorshipPage })));
 // Dev-only showcase of the refonte's brand kit (/__brand). import.meta.env.DEV is false in
 // production builds, so the route and its chunk are dropped there entirely.
@@ -80,14 +81,9 @@ const BrandShowcasePage = import.meta.env.DEV
   ? lazyWithRetry(() => import('@/pages/BrandShowcasePage').then(m => ({ default: m.BrandShowcasePage })))
   : null;
 
+/** A route's chunk is loading: the same full-screen loader as the pages that wait for their data (LoadingSkeleton). */
 function LazyFallback() {
-  return (
-    // A full screen, so the footer stays below the fold while a route's chunk loads
-    // (with 60vh the tall horizon footer showed, then jumped down: CLS ≈ 1).
-    <div className="flex min-h-[100svh] items-center justify-center">
-      <RefreshCw className="h-8 w-8 animate-spin text-primary" />
-    </div>
-  );
+  return <ScreenLoader />;
 }
 
 function App() {
@@ -175,6 +171,8 @@ function App() {
               <Route path="/sponsorship/*" element={<ProtectedRoute><SponsorshipPage /></ProtectedRoute>} />
               <Route path="/partners" element={<PartnersPage />} />
               <Route path="/become-partner" element={<BecomePartnerPage />} />
+              {/* Where every "Sponsor an event" button lands: who sponsors, the events, the visibility by tier (no price), the deck request. */}
+              <Route path="/sponsor" element={<SponsorPage />} />
               {/* The level comparison is gone: the platform is free and sponsoring is
                   agreed with the M3 team. netlify.toml answers /tiers with a 301 before
                   the app loads; this covers links followed inside the app. */}
@@ -184,13 +182,13 @@ function App() {
               <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
               <Route path="/inbox" element={<ProtectedRoute><AccountPage forceTab="inbox" /></ProtectedRoute>} />
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
-              <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marina organizations can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
-              <Route path="/submit-project/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marina organizations can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
+              <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
+              <Route path="/submit-project/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />
               <Route path="/request-webinar" element={<ProtectedRoute requireVerified showLocked lockedMessage="Your account must be verified to request a webinar."><WebinarRequestPage /></ProtectedRoute>} />
-              <Route path="/submit-rfp" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_rfp" showLocked lockedMessage="Only verified marina organizations can submit RFPs."><SubmitRFPPage /></ProtectedRoute>} />
-              <Route path="/submit-rfp/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_rfp" showLocked lockedMessage="Only verified marina organizations can submit RFPs."><SubmitRFPPage /></ProtectedRoute>} />
-              <Route path="/submit-consultation" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
-              <Route path="/submit-consultation/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marina organizations can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
+              <Route path="/submit-rfp" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_rfp" showLocked lockedMessage="Only verified marinas and developers can submit RFPs."><SubmitRFPPage /></ProtectedRoute>} />
+              <Route path="/submit-rfp/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_rfp" showLocked lockedMessage="Only verified marinas and developers can submit RFPs."><SubmitRFPPage /></ProtectedRoute>} />
+              <Route path="/submit-consultation" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marinas and developers can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
+              <Route path="/submit-consultation/:id" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_consultation" showLocked lockedMessage="Only verified marinas and developers can submit consultation requests."><SubmitConsultationPage /></ProtectedRoute>} />
               {/* "Network" was two products on one screen; they are now two
                   destinations. The old URLs land on the directory, which is
                   what the first tab of /network always was. */}

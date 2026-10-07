@@ -393,7 +393,7 @@ export function WelcomePage() {
           ) : (
             <form className="space-y-5" onSubmit={(e) => { e.preventDefault(); void resend(); }}>
               <div className="space-y-2">
-                <AuthLabel htmlFor="welcome-email">{t('auth.email', 'Email')}</AuthLabel>
+                <AuthLabel htmlFor="welcome-email">{t('auth.email', 'E-mail')}</AuthLabel>
                 <AuthInput
                   id="welcome-email"
                   type="email"
@@ -404,7 +404,7 @@ export function WelcomePage() {
                 />
               </div>
               <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !resendEmail.trim()}>
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.sendLink', 'Email me a new access link')}
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.sendLink', 'E-mail me a new access link')}
               </Button>
               <FieldHint className="text-center">
                 {t('welcome.haveLogin', 'Already have a password? Use {{login}} (top-right) instead.', { login: t('nav.login', 'Login') })}
@@ -483,7 +483,7 @@ export function WelcomePage() {
                   <div className="pt-1.5">
                     <Button type="button" size="sm" variant="ctaOutline" arrow={false} roll={false} className={cn('bg-white', CTA_WRAP, 'min-h-11')} onClick={() => void sendPasswordLink()} disabled={busy || !user.email}>
                       {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-                      {t('welcome.reauthSend', 'Email me a link to set my password')}
+                      {t('welcome.reauthSend', 'E-mail me a link to set my password')}
                     </Button>
                   </div>
                 </>

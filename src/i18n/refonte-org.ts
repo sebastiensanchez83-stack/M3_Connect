@@ -27,7 +27,7 @@ export const ORG_REFONTE_STRINGS = {
         cta: 'Claim this page',
         question: 'Ask a question',
         mailSubject: 'Claim the page of {{name}} on Smart Marina Connect',
-        mailBody: 'Organization: {{name}}\nMy name and role:\nPhone:\n',
+        mailBody: 'Organisation: {{name}}\nMy name and role:\nPhone:\n',
       },
       similar: {
         eyebrow: 'Keep exploring',
@@ -36,8 +36,8 @@ export const ORG_REFONTE_STRINGS = {
         titleInvestor: 'Other investors',
         titleDeveloper: 'Other developers',
         titleMedia: 'Other media',
-        titleOther: 'Similar organizations',
-        label: 'Similar organizations',
+        titleOther: 'Similar organisations',
+        label: 'Similar organisations',
         all: 'See them all in the directory',
       },
       related: {

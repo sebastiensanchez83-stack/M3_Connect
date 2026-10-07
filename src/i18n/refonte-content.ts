@@ -22,7 +22,7 @@ export const CONTENT_STRINGS = {
         noMatchHint: 'Try another word, or remove a filter.',
         joinEyebrow: 'Free for every member',
         joinTitle: 'Public articles are open to everyone. Join to read the rest.',
-        joinBody: 'Member-only articles open once the M3 team has checked your company. Membership is free.',
+        joinBody: 'Member-only articles open once your company is verified. Membership is free.',
         askLine: 'Suggest an article or a webinar: write to the M3 team.',
       },
       article: {

@@ -719,7 +719,20 @@ export function DashboardPage() {
       <div className="mx-auto w-full max-w-7xl px-4 pt-8 sm:px-6 md:pt-10">
         {/* ── Blocking status, above everything else ── */}
         {profile?.access_status === 'pending' && (
-          <MemberBanner tone="warning" icon={Clock} title={t('dashboard.statusPendingTitle')} body={t('dashboard.statusPendingBody')} />
+          <MemberBanner
+            tone="warning"
+            icon={Clock}
+            title={t('dashboard.statusPendingTitle')}
+            body={t('dashboard.statusPendingBody')}
+            action={(
+              <nav aria-label={t('dashboard.pendingMeanwhile', 'While you wait')} className="flex flex-col gap-1.5 sm:items-end">
+                <UnderlineLink to={accountHref('profile')} className="!text-[14px] !leading-5">{t('dashboard.pendingProfile', 'Complete your profile')}</UnderlineLink>
+                <UnderlineLink to="/resources" className="!text-[14px] !leading-5">{t('dashboard.pendingLibrary', 'Read the library')}</UnderlineLink>
+                <UnderlineLink to="/events?type=webinar" className="!text-[14px] !leading-5">{t('dashboard.pendingWebinar', 'Register for a webinar')}</UnderlineLink>
+                <UnderlineLink to="/contact" className="!text-[14px] !leading-5">{t('dashboard.pendingContact', 'Write to the M3 team')}</UnderlineLink>
+              </nav>
+            )}
+          />
         )}
         {profile?.access_status === 'rejected' && (
           <MemberBanner
@@ -1211,7 +1224,7 @@ function ProfileMeter({
 
   return (
     <MemberPanel
-      title={t('dashboard.profileMeter.title', 'Organization profile')}
+      title={t('dashboard.profileMeter.title', 'Organisation profile')}
       titleId="dash-meter-title"
       link={{ to: accountHref('organization'), label: t('dashboard.profileMeter.edit', 'Edit') }}
     >

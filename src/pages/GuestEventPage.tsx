@@ -55,7 +55,7 @@ function WysHero({ event, canRequest, done, onRequest }: { event: PublicGuestEve
   const trust = [
     t('wysPage.hero.trust.review', 'Every request is reviewed by the M3 team'),
     t('wysPage.hero.trust.noAccount', 'No account needed'),
-    t('wysPage.hero.trust.answer', 'Our answer comes to you by email'),
+    t('wysPage.hero.trust.answer', 'Our answer comes to you by e-mail'),
   ];
 
   return (
@@ -89,7 +89,7 @@ function WysHero({ event, canRequest, done, onRequest }: { event: PublicGuestEve
           {done ? (
             <HeroIn delay={340} className="mt-7 flex max-w-[560px] items-start gap-3 rounded-field bg-white/10 p-4 text-[15px] leading-6 text-white">
               <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-gold" aria-hidden="true" />
-              <span>{t('wysPage.done.text', 'Your request has been received. Our team reviews every request and will come back to you by email.')}</span>
+              <span>{t('wysPage.done.text', 'Your request has been received. Our team reviews every request and will come back to you by e-mail.')}</span>
             </HeroIn>
           ) : canRequest ? (
             <HeroIn delay={340} className="mt-7">
@@ -360,7 +360,7 @@ export function GuestEventPage({ slug }: { slug: string }) {
                   <CheckCircle className="h-8 w-8" />
                 </span>
                 <h2 className="text-h2-sm text-navy">{t('wysPage.done.title', 'Thank you')}</h2>
-                <p className="mx-auto mt-3 max-w-sm text-body text-ink">{t('wysPage.done.text', 'Your request has been received. Our team reviews every request and will come back to you by email.')}</p>
+                <p className="mx-auto mt-3 max-w-sm text-body text-ink">{t('wysPage.done.text', 'Your request has been received. Our team reviews every request and will come back to you by e-mail.')}</p>
               </div>
             ) : !event.requests_open ? (
               <div className="py-6 text-center">
@@ -385,7 +385,7 @@ export function GuestEventPage({ slug }: { slug: string }) {
                   <div className="space-y-2"><Label htmlFor="fn">{t('wysPage.form.firstName', 'First name')} {star}</Label><Input id="fn" required value={form.first_name} onChange={set('first_name')} autoComplete="given-name" /></div>
                   <div className="space-y-2"><Label htmlFor="ln">{t('wysPage.form.lastName', 'Last name')} {star}</Label><Input id="ln" required value={form.last_name} onChange={set('last_name')} autoComplete="family-name" /></div>
                 </div>
-                <div className="space-y-2"><Label htmlFor="em">{t('wysPage.form.email', 'Email')} {star}</Label><Input id="em" type="email" required value={form.email} onChange={set('email')} autoComplete="email" /></div>
+                <div className="space-y-2"><Label htmlFor="em">{t('wysPage.form.email', 'E-mail')} {star}</Label><Input id="em" type="email" required value={form.email} onChange={set('email')} autoComplete="email" /></div>
                 <div className="space-y-2"><Label htmlFor="ph">{t('wysPage.form.phone', 'Phone')}</Label><Input id="ph" type="tel" value={form.phone} onChange={set('phone')} autoComplete="tel" /></div>
                 <div className="space-y-2"><Label htmlFor="co">{t('wysPage.form.company', 'Company')} {star}</Label><Input id="co" required value={form.company} onChange={set('company')} autoComplete="organization" /></div>
                 <div className="space-y-2"><Label htmlFor="jt">{t('wysPage.form.jobTitle', 'Job title')} {star}</Label><Input id="jt" required value={form.job_title} onChange={set('job_title')} autoComplete="organization-title" /></div>

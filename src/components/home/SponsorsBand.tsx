@@ -72,8 +72,8 @@ export function SponsorsBand({ sponsors, loading, sectionNo }: { sponsors: Spons
             <Button asChild variant="ctaOutline">
               <Link to="/partners">{t('homePage.sponsors.link', 'See the partners')}</Link>
             </Button>
-            {/* Sponsoring is sold by the M3 team: the contact form, opened on sponsorship. */}
-            <UnderlineLink to="/contact?subject=partnership">{t('homeSections.becomePartner', 'Sponsor an event')}</UnderlineLink>
+            {/* Sponsoring is sold by the M3 team: the sponsorship page explains it and takes the deck request. */}
+            <UnderlineLink to="/sponsor">{t('homeSections.becomePartner', 'Sponsor an event')}</UnderlineLink>
           </Reveal>
         </div>
       </div>

@@ -183,7 +183,7 @@ export function VerifiedPill({ className }: { className?: string }) {
   const { t } = useTranslation();
   return (
     <span
-      title={t('brand.card.verifiedTitle', 'Checked by the M3 team')}
+      title={t('brand.card.verifiedTitle', 'Reviewed by the M3 team')}
       className={cn(
         'inline-flex h-[22px] items-center gap-[5px] whitespace-nowrap rounded-badge bg-white px-2 text-[11px] font-semibold uppercase leading-none tracking-[0.05em] text-navy',
         className,
@@ -200,7 +200,7 @@ export function VerifiedBadge({ className, tone = 'light' }: { className?: strin
   const { t } = useTranslation();
   return (
     <span
-      title={t('brand.card.verifiedTitle', 'Checked by the M3 team')}
+      title={t('brand.card.verifiedTitle', 'Reviewed by the M3 team')}
       className={cn(
         'inline-flex items-center gap-1 rounded-badge px-1.5 py-0.5 text-[12px] font-semibold leading-4',
         tone === 'dark' ? 'bg-white/10 text-white' : 'bg-foam text-teal-text',

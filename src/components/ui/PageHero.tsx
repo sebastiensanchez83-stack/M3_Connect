@@ -210,7 +210,20 @@ export function PageHero({
         </div>
       </div>
 
-      <MotionPauseToggle className={cn('absolute bottom-4 right-4 z-[4] md:bottom-6 md:right-6', floating ? 'xl:right-[440px]' : '')} />
+      {/*
+        The site-wide pause control (WCAG 2.2.2) has its own stacking level: z-20, above the
+        content container (z-10), which spans the whole banner and used to swallow every
+        mouse and touch event meant for it (only the keyboard reached it). The wrapper does
+        not take events itself (pointer-events-none); only the button does. It sits in the
+        same 7xl column as the content and the floating card, and with a floating card (xl)
+        it stops short of it: the card is 400 px wide (see DirectoryPage's ClaimFloat) plus
+        a 16 px gap, so the control is never under it, whatever the screen width.
+      */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+        <div className="mx-auto flex w-full max-w-7xl justify-end px-4 sm:px-6">
+          <MotionPauseToggle className={cn('pointer-events-auto mb-4 md:mb-6', floating ? 'xl:mr-[416px]' : '')} />
+        </div>
+      </div>
     </section>
     {floating && (
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden translate-y-1/2 xl:block">

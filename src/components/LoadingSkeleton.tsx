@@ -1,9 +1,15 @@
 import type { FC } from 'react';
+import { RefreshCw } from 'lucide-react';
 
 /* ────────────────────────────────────────────────────────────
    LoadingSkeleton — reusable loading placeholder component.
 
    Variants:
+     "screen" — a whole route loading: a full screen tall, the same pictogram as the lazy
+               routes' fallback (App.tsx). Use it where a page replaces itself with the
+               real one: the footer stays below the fold, so nothing jumps when the page
+               arrives (layout shift 1.0 with the old 60vh loader on /events/:id and
+               /resources/:id).
      "page"  — full-section centred spinner (replaces full-page loading states)
      "card"  — single card placeholder with shimmer
      "list"  — vertical list of shimmer rows
@@ -18,7 +24,7 @@ import type { FC } from 'react';
 
 interface LoadingSkeletonProps {
   /** Visual style of the placeholder. Default: "page". */
-  variant?: 'page' | 'card' | 'list' | 'inline';
+  variant?: 'screen' | 'page' | 'card' | 'list' | 'inline';
   /** How many skeleton items to render (only relevant for "card" and "list"). Default: 3. */
   count?: number;
   /** Optional extra Tailwind classes on the wrapper. */
@@ -28,6 +34,16 @@ interface LoadingSkeletonProps {
 /* Shared shimmer bar */
 const Shimmer: FC<{ className?: string }> = ({ className = '' }) => (
   <div className={`animate-pulse rounded bg-gray-200 ${className}`} />
+);
+
+/* ── Screen variant: a whole route ─────────────────────────── */
+/** One loader for every route that is waiting for its data: also the lazy routes' Suspense fallback. */
+export const ScreenLoader: FC<{ label?: string }> = ({ label = 'Loading' }) => (
+  // 100svh, never 60vh: with the footer in view, the arriving page pushed it down (CLS ≈ 1).
+  <div className="flex min-h-[100svh] items-center justify-center" role="status">
+    <RefreshCw className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+    <span className="sr-only">{label}</span>
+  </div>
 );
 
 /* ── Page variant ──────────────────────────────────────────── */
@@ -102,6 +118,12 @@ export const LoadingSkeleton: FC<LoadingSkeletonProps> = ({
   const wrapperClass = className ? className : '';
 
   switch (variant) {
+    case 'screen':
+      return (
+        <div className={wrapperClass}>
+          <ScreenLoader />
+        </div>
+      );
     case 'page':
       return (
         <div className={wrapperClass}>

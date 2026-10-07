@@ -79,8 +79,8 @@ function HowItWorks({ sectionNo }: { sectionNo?: string }) {
       body: t('homeSections.steps.organization.desc', 'Join your company if it is already listed, or create its page.'),
     },
     {
-      title: t('homeSections.steps.verify.title', 'Get checked by M3'),
-      body: t('homeSections.steps.verify.desc', 'The M3 team checks every company and every person before opening access.'),
+      title: t('homeSections.steps.verify.title', 'M3 reviews your company'),
+      body: t('homeSections.steps.verify.desc', 'The M3 team reviews your company and marks it as verified. You get an e-mail when it is done.'),
     },
     {
       title: t('homeSections.steps.platform.title', 'Use the whole platform'),
@@ -104,7 +104,7 @@ function HowItWorks({ sectionNo }: { sectionNo?: string }) {
             {t('homeSections.howTitle', 'How it works')}
           </LineReveal>
           <Reveal as="p" delay={120} className="mt-3 text-body text-ink">
-            {t('homeSections.howSubtitle', 'Every member is checked by the M3 team, so you always know who you are talking to.')}
+            {t('homeSections.howSubtitle', 'Four steps, all free.')}
           </Reveal>
         </div>
         <ChannelSteps className="mt-10 md:mt-12" steps={steps} />

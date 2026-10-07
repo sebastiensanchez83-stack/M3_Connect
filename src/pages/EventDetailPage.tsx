@@ -482,7 +482,8 @@ export function EventDetailPage() {
   const { sponsors, loading: sponsorsLoading } = useEventSponsors(isRendezvous);
 
   // ---------------------------------------------------------------- render
-  if (loading) return <LoadingSkeleton variant="page" />;
+  // A whole screen tall (same loader as the lazy routes): the footer stays below the fold, so the page arriving does not shift.
+  if (loading) return <LoadingSkeleton variant="screen" />;
 
   if (!event && loadFailed) {
     // No <Seo> here: the head the edge function wrote stays as it is.
@@ -1059,7 +1060,7 @@ export function EventDetailPage() {
       label: t('eventDetail.nav.programme', 'Programme'),
       render: (no) => (
         <DetailSection id="programme" no={no} eyebrow={t('eventDetail.eyebrow.programme', 'Agenda')} title={t('eventsPage.programme', 'Programme')}>
-          <SM26Agenda eventId={smEventId} />
+          <SM26Agenda eventId={smEventId} ended={hasEnded} />
         </DetailSection>
       ),
     };

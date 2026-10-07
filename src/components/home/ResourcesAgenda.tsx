@@ -210,9 +210,9 @@ function Agenda() {
             <CalendarPlus className="h-7 w-7" />
           </span>
           <p className="text-[15px] leading-[22px] text-ink">
-            {t('homePage.agenda.webinarsBefore', 'Next webinars: get the dates through')}{' '}
+            {t('homePage.agenda.webinarsBefore', 'Stay up to date with M3 events.')}{' '}
             <a href="#newsletter" className="focus-ring rounded-[3px] font-semibold text-navy underline underline-offset-[3px]">
-              {t('homePage.agenda.newsletterLink', 'the Smart Marina Connect newsletter')}
+              {t('homePage.agenda.newsletterLink', 'Subscribe to the newsletter')}
             </a>
           </p>
         </li>

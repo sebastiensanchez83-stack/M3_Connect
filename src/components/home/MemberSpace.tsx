@@ -57,7 +57,7 @@ export function MemberSpace({
   const shortcuts: { to: string; icon: LucideIcon; label: string }[] = [
     { to: accountHref('inbox'), icon: Inbox, label: t('accountNav.inbox', 'Inbox') },
     { to: accountHref('registrations'), icon: CalendarDays, label: t('accountNav.registrations', 'My events') },
-    { to: accountHref('organization'), icon: Building2, label: t('accountNav.organization', 'Organization & team') },
+    { to: accountHref('organization'), icon: Building2, label: t('accountNav.organization', 'Organisation & team') },
   ];
   const statTiles: { key: string; to: string; icon: LucideIcon; value: number | undefined; label: string }[] = [
     { key: 'views', to: accountHref('profile'), icon: Eye, value: personalStats?.profileViews, label: t('homeSections.personalStats.profileViews', 'Profile views') },
@@ -75,7 +75,7 @@ export function MemberSpace({
           <div className="mb-6 flex flex-col gap-3 rounded-card bg-amber-50 p-4 text-amber-900 ring-1 ring-amber-200 sm:flex-row sm:items-center sm:justify-between">
             <p className="flex items-start gap-3 text-sm font-medium">
               <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden="true" />
-              {t('home.completeOrgBanner', 'Complete your organization profile to unlock all platform features.')}
+              {t('home.completeOrgBanner', 'Complete your organisation profile to unlock all platform features.')}
             </p>
             <Button size="sm" variant="outline" className="min-h-10 shrink-0 border-amber-300 bg-white text-amber-900 hover:bg-amber-100" asChild>
               <Link to={completeProfileHref}>{t('homeSections.completeProfileCta', 'Complete my profile')}</Link>
@@ -173,7 +173,7 @@ export function MemberSpace({
             link={{ to: '/resources', label: t('homeSections.resourcesLink', 'Browse the library') }}
           >
             {!feedLoaded ? <FeedSkeleton /> : personalResources.length === 0 ? (
-              <FeedEmpty>{t('homeSections.noPersonalResources', 'Add your sectors to your organization profile to get recommendations.')}</FeedEmpty>
+              <FeedEmpty>{t('homeSections.noPersonalResources', 'Add your sectors to your organisation profile to get recommendations.')}</FeedEmpty>
             ) : (
               <ul className="divide-y divide-rule">
                 {personalResources.slice(0, 4).map((r) => (

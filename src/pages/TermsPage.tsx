@@ -1,13 +1,9 @@
-import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { LegalLayout } from '@/components/content/LegalLayout';
 
 export function TermsPage() {
   return (
     <LegalLayout title="Terms of Use" version="Version of March 6, 2026" path="/terms">
-      <Helmet>
-        <title>Terms of Use — Smart Marina Connect</title>
-      </Helmet>
 
       {/* Article 1 */}
       <section>

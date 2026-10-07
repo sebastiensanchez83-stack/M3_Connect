@@ -12,6 +12,10 @@
  *   - the fixed public pages (/, /directory, /resources, /events, /partners,
  *     /become-partner, /opportunities, /about, /contact, /sm26,
  *     /sm26/vote, /wys26, and the aliases /join, /network, /marketplace);
+ *   - the legal documents (/privacy, /terms, /cookies, /mentions-legales,
+ *     /conditions-commerciales) and two SM26 pages that used to show the home
+ *     page's title: /sm26/agenda (canonical: the 6th edition's event page) and
+ *     /sm26/register (noindex), see PLAIN_PAGES in src/lib/seoMeta.ts;
  *   - /organizations/:slug, /events/:id and /resources/:id, read from
  *     Supabase with the public anon key (netlify/lib/supabase-rest.ts).
  * The words and the tags come from src/i18n/seo.ts (English) and
@@ -32,7 +36,17 @@
  * response an edge function returns, so every response that leaves this
  * function carries X-Frame-Options, X-Content-Type-Options and
  * Referrer-Policy itself (same values as netlify.toml; a value already there
- * is kept).
+ * is kept). For the same reason a page whose head says noindex (an unknown
+ * record, /sm26/register) also gets X-Robots-Tag: noindex from here.
+ *
+ * Previews stay out of search engines: on any host other than the production
+ * site (a deploy preview, a branch deploy such as refonte--m3connectv2.netlify.app,
+ * the site's own *.netlify.app address, localhost) every response of this
+ * function carries X-Robots-Tag: noindex, nofollow, and the head it writes says
+ * noindex (no canonical, no og:url). This function only runs on the paths in
+ * `config`; for every other path of a preview (assets, /admin…) the build adds
+ * the same header to dist/_headers, see scripts/preview-noindex.mjs
+ * (netlify.toml itself cannot depend on the host).
  *
  * The response header X-SMC-SEO says what happened: page, organization, event,
  * resource, not-found, or fallback:<reason>. Check it with a GET, not
@@ -52,6 +66,7 @@ import {
   eventMeta,
   fixedPageMeta,
   headHtml,
+  isPreviewHostname,
   makeSeoTr,
   organizationMeta,
   resourceMeta,
@@ -77,6 +92,14 @@ const SECURITY_HEADERS: [string, string][] = [
   ['X-Content-Type-Options', 'nosniff'],
   ['Referrer-Policy', 'strict-origin-when-cross-origin'],
 ];
+const ROBOTS_HEADER = 'X-Robots-Tag';
+const PREVIEW_ROBOTS = 'noindex, nofollow';
+
+/** True on every host but the production site's own (deploy previews, branch deploys, *.netlify.app, localhost). */
+export function isPreviewHost(url: URL): boolean {
+  return isPreviewHostname(url.hostname);
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type Route =
@@ -177,21 +200,26 @@ export function rewriteHead(html: string, meta: PageMeta): string | null {
   return head + html.slice(end);
 }
 
-/** A copy of `from`, plus the missing security headers and, when given, X-SMC-SEO. */
-function outgoingHeaders(from: Headers, source: string | null): Headers {
+/**
+ * A copy of `from`, plus the missing security headers and, when given, X-SMC-SEO.
+ * `robots` is the X-Robots-Tag to send: always set on a preview host (it replaces
+ * any other value), otherwise only when the response has none.
+ */
+function outgoingHeaders(from: Headers, source: string | null, robots: string | null = null, force = false): Headers {
   const headers = new Headers(from);
   for (const [name, value] of SECURITY_HEADERS) if (!headers.has(name)) headers.set(name, value);
   if (source) headers.set(SEO_HEADER, source);
+  if (robots && (force || !headers.has(ROBOTS_HEADER))) headers.set(ROBOTS_HEADER, robots);
   return headers;
 }
 
 /** The response as it is, plus the security headers and, when given, the X-SMC-SEO header. */
-function tagged(response: Response, source: string | null): Response {
+function tagged(response: Response, source: string | null, preview = false): Response {
   try {
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
-      headers: outgoingHeaders(response.headers, source),
+      headers: outgoingHeaders(response.headers, source, preview ? PREVIEW_ROBOTS : null, true),
     });
   } catch {
     return response;
@@ -200,8 +228,13 @@ function tagged(response: Response, source: string | null): Response {
 
 export default async function seo(request: Request, context: Context): Promise<Response | undefined> {
   let route: Route | null = null;
+  let preview = false;
   try {
-    if (request.method === 'GET') route = routeFor(new URL(request.url));
+    if (request.method === 'GET') {
+      const url = new URL(request.url);
+      route = routeFor(url);
+      preview = isPreviewHost(url);
+    }
   } catch {
     route = null;
   }
@@ -215,18 +248,20 @@ export default async function seo(request: Request, context: Context): Promise<R
   let untouched: Response | null = null;
   try {
     const type = response.headers.get('content-type') ?? '';
-    if (response.status !== 200 || !type.includes('text/html')) return tagged(response, null);
+    if (response.status !== 200 || !type.includes('text/html')) return tagged(response, null, preview);
     const resolved = await lookup;
-    if (!resolved || !resolved.meta) return tagged(response, resolved?.source ?? 'fallback:timeout');
+    if (!resolved || !resolved.meta) return tagged(response, resolved?.source ?? 'fallback:timeout', preview);
     untouched = response.clone();
-    const rewritten = rewriteHead(await response.text(), resolved.meta);
-    if (rewritten === null) return tagged(untouched, 'fallback:no-head');
-    const headers = outgoingHeaders(untouched.headers, resolved.source);
+    // A preview is never indexed: the head says noindex (and drops its canonical), and so does the header.
+    const meta: PageMeta = preview ? { ...resolved.meta, noindex: true } : resolved.meta;
+    const rewritten = rewriteHead(await response.text(), meta);
+    if (rewritten === null) return tagged(untouched, 'fallback:no-head', preview);
+    const headers = outgoingHeaders(untouched.headers, resolved.source, preview ? PREVIEW_ROBOTS : meta.noindex ? 'noindex' : null, preview);
     headers.delete('content-length');
     headers.delete('etag'); // the body is no longer the file the tag was computed for
     return new Response(rewritten, { status: untouched.status, statusText: untouched.statusText, headers });
   } catch {
-    return tagged(untouched ?? response, 'fallback:error');
+    return tagged(untouched ?? response, 'fallback:error', preview);
   }
 }
 
@@ -246,6 +281,7 @@ export const config = {
     '/resources',
     '/events',
     '/partners',
+    '/sponsor',
     '/become-partner',
     '/join',
     '/opportunities',
@@ -254,6 +290,14 @@ export const config = {
     '/sm26',
     '/sm26/vote',
     '/wys26',
+    // The legal documents and two SM26 pages: PLAIN_PAGES in src/lib/seoMeta.ts.
+    '/privacy',
+    '/terms',
+    '/cookies',
+    '/mentions-legales',
+    '/conditions-commerciales',
+    '/sm26/agenda',
+    '/sm26/register',
     '/organizations/*',
     '/events/*',
     '/resources/*',

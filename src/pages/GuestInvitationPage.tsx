@@ -202,7 +202,7 @@ export function GuestInvitationPage() {
                 <Clock className="mt-1 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
                 <p>{t('wysGuest.requested.review', {
                   what: guest.is_plus_one ? t('wysGuest.requested.plusOne', 'Your plus-one request') : t('wysGuest.requested.yours', 'Your request'),
-                  defaultValue: '{{what}} is being reviewed. We will come back to you by email.',
+                  defaultValue: '{{what}} is being reviewed. We will come back to you by e-mail.',
                 })}</p>
               </div>
             )}
@@ -285,7 +285,7 @@ export function GuestInvitationPage() {
                 <p className="text-sm leading-6 text-ink">
                   {guest.plus_one.first_name} {guest.plus_one.last_name} —{' '}
                   {guest.plus_one.status === 'confirmed'
-                    ? t('wysGuest.plusOne.confirmed', 'confirmed; they have received their own entry pass by email.')
+                    ? t('wysGuest.plusOne.confirmed', 'confirmed; they have received their own entry pass by e-mail.')
                     : t('wysGuest.plusOne.pending', 'request under review.')}
                 </p>
               ) : !plusOpen ? (
@@ -299,7 +299,7 @@ export function GuestInvitationPage() {
                     <div className="space-y-2"><Label htmlFor="po-fn">{t('wysGuest.plusOne.firstName', 'First name')} *</Label><Input id="po-fn" required value={plus.first_name} onChange={e => setPlus({ ...plus, first_name: e.target.value })} /></div>
                     <div className="space-y-2"><Label htmlFor="po-ln">{t('wysGuest.plusOne.lastName', 'Last name')} *</Label><Input id="po-ln" required value={plus.last_name} onChange={e => setPlus({ ...plus, last_name: e.target.value })} /></div>
                   </div>
-                  <div className="space-y-2"><Label htmlFor="po-em">{t('wysGuest.plusOne.email', 'Their email')} *</Label><Input id="po-em" type="email" required value={plus.email} onChange={e => setPlus({ ...plus, email: e.target.value })} /></div>
+                  <div className="space-y-2"><Label htmlFor="po-em">{t('wysGuest.plusOne.email', 'Their e-mail')} *</Label><Input id="po-em" type="email" required value={plus.email} onChange={e => setPlus({ ...plus, email: e.target.value })} /></div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2"><Label htmlFor="po-co">{t('wysGuest.plusOne.company', 'Company')}</Label><Input id="po-co" value={plus.company} onChange={e => setPlus({ ...plus, company: e.target.value })} /></div>
                     <div className="space-y-2"><Label htmlFor="po-jt">{t('wysGuest.plusOne.jobTitle', 'Job title')}</Label><Input id="po-jt" value={plus.job_title} onChange={e => setPlus({ ...plus, job_title: e.target.value })} /></div>

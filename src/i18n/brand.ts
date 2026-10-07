@@ -69,7 +69,7 @@ export const BRAND_STRINGS = {
       },
       card: {
         verified: 'Verified member',
-        verifiedTitle: 'Checked by the M3 team',
+        verifiedTitle: 'Reviewed by the M3 team',
       },
       contact: {
         label: 'Your contact at M3',
@@ -79,8 +79,8 @@ export const BRAND_STRINGS = {
         line: 'Questions about the platform or our events? Write to me.',
       },
       footer: {
-        verified: 'Every member checked by the M3 team.',
-        free: 'The platform is free for every member.',
+        verified: 'Free for every member.',
+        free: 'Companies are reviewed by M3 before they are marked as verified.',
         newsletterTitle: 'The Smart Marina Connect newsletter',
         newsletterBody: 'New articles, dates of our events and news from the platform.',
         linkedin: 'M3 Monaco on LinkedIn (opens in a new tab)',

@@ -220,7 +220,7 @@ export function AuthSteps({ current, vertical = false, className }: { current: 1
   const { t } = useTranslation();
   const steps = [
     t('authRefonte.steps.profile', 'Your profile'),
-    t('authRefonte.steps.organization', 'Your organization'),
+    t('authRefonte.steps.organization', 'Your organisation'),
     t('authRefonte.steps.review', 'Review by M3'),
   ];
   return (

@@ -26,8 +26,8 @@ export const SEO_STRINGS = {
       siteName: 'Smart Marina Connect',
       home: {
         title: 'Smart Marina Connect — The marina industry network',
-        description: 'Free B2B network for marinas and their service providers, with industry events in Monaco, Dubai and online. Every member checked by M3.',
-        descriptionLive: 'Free B2B network for marinas and their service providers: {{marinas}} marinas listed, {{suppliers}} providers in {{countries}} countries. Every member checked by M3.',
+        description: 'Free B2B network for marinas and their service providers, with industry events in Monaco, Dubai and online. Companies reviewed by M3.',
+        descriptionLive: 'Free B2B network for marinas and their service providers: {{marinas}} marinas listed, {{suppliers}} providers in {{countries}} countries. Companies reviewed by M3.',
       },
       directory: {
         title: 'Marina & service provider directory',
@@ -52,13 +52,17 @@ export const SEO_STRINGS = {
         title: 'Event partners and sponsors',
         description: 'Main Sponsor, Premium Sponsor and the other partners of the industry events M3 Monaco organises in Monaco, Dubai and online.',
       },
+      sponsor: {
+        title: 'Sponsor an M3 event in Monaco and Dubai',
+        description: 'Sponsor the Monaco Smart & Sustainable Marina Rendezvous or the World Yachting Summit in Dubai. See what sponsors get and request the sponsorship deck.',
+      },
       join: {
         title: 'Join the marina industry network',
-        description: 'Marina, service provider, investor, developer or media: sign up for free. The M3 team checks every company, then opens the features of your profile.',
+        description: 'Marina, service provider, investor, developer or media: sign up for free. The M3 team reviews your company, then opens the features of your profile.',
       },
       opportunities: {
         title: 'Marina tenders, RFPs and projects',
-        description: 'Where marinas publish their needs: tenders, expert questions and projects, open to companies checked by M3. Sign up to read and answer them.',
+        description: 'Where marinas publish their needs: tenders, expert questions and projects, open to verified companies. Sign up to read and answer them.',
       },
       about: {
         title: 'About Smart Marina Connect, by M3 Monaco',

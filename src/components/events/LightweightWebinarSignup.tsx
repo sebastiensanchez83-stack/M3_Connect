@@ -38,7 +38,7 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
     e.preventDefault();
     setInlineError(null);
     if (!firstName.trim() || !lastName.trim() || !validEmail(email)) {
-      const msg = t('eventsShared.webinarSignup.fillRequired', 'Please fill in all required fields with a valid email.');
+      const msg = t('eventsShared.webinarSignup.fillRequired', 'Please fill in all required fields with a valid e-mail.');
       setInlineError(msg);
       toast({ title: msg, variant: 'destructive' });
       return;
@@ -81,14 +81,14 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
         if (import.meta.env.DEV) console.error('Guest webinar signup failed:', status, code, serverMessage);
 
         if (code === 'DUPLICATE') {
-          const msg = t('eventsShared.webinarSignup.duplicate', 'This email is already signed up for this webinar.');
+          const msg = t('eventsShared.webinarSignup.duplicate', 'This e-mail is already signed up for this webinar.');
           setInlineError(msg);
           toast({ title: t('eventsPage.alreadyRegistered', 'Already registered'), description: msg, variant: 'destructive' });
         } else if (code === 'RATE_LIMIT_IP' || code === 'RATE_LIMIT_EMAIL') {
           // The edge function's own wording, translated client-side per code.
           const msg = code === 'RATE_LIMIT_IP'
             ? t('eventsShared.webinarSignup.rateLimitIp', 'Too many signups from this network. Please try again later.')
-            : t('eventsShared.webinarSignup.rateLimitEmail', 'This email has reached the signup limit. Please try again later.');
+            : t('eventsShared.webinarSignup.rateLimitEmail', 'This e-mail has reached the signup limit. Please try again later.');
           setInlineError(msg);
           toast({ title: t('eventsShared.webinarSignup.tooManyAttempts', 'Too many attempts'), description: msg, variant: 'destructive' });
         } else {
@@ -99,7 +99,7 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
             : status === 403
               ? t('eventsShared.webinarSignup.notOpen', 'This event is not open for guest signup.')
               : status === 400
-                ? t('eventsShared.webinarSignup.fillRequired', 'Please fill in all required fields with a valid email.')
+                ? t('eventsShared.webinarSignup.fillRequired', 'Please fill in all required fields with a valid e-mail.')
                 : t('eventsPage.unexpectedError', 'An unexpected error occurred.');
           setInlineError(msg);
           toast({ title: t('eventsPage.registrationFailed', 'Registration failed'), description: msg, variant: 'destructive' });
@@ -119,7 +119,7 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
       onRegistered?.();
       toast({
         title: t('eventsShared.webinarSignup.successTitle', "You're signed up!"),
-        description: t('eventsShared.webinarSignup.successDesc', 'Check your email for webinar details and the calendar invite.'),
+        description: t('eventsShared.webinarSignup.successDesc', 'Check your e-mail for webinar details and the calendar invite.'),
       });
     } catch (err) {
       if (import.meta.env.DEV) console.error('Guest webinar signup failed:', err);
@@ -182,7 +182,7 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
       </div>
 
       <div className="space-y-1">
-        <Label htmlFor="lws-email" className="text-xs">{t('auth.email', 'Email')} *</Label>
+        <Label htmlFor="lws-email" className="text-xs">{t('auth.email', 'E-mail')} *</Label>
         <Input
           id="lws-email"
           type="email"
@@ -201,7 +201,7 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
           id="lws-company"
           value={company}
           onChange={e => setCompany(e.target.value)}
-          placeholder={t('eventsShared.webinarSignup.companyPlaceholder', 'Your organization')}
+          placeholder={t('eventsShared.webinarSignup.companyPlaceholder', 'Your organisation')}
           disabled={submitting}
           className="h-9"
         />
@@ -228,7 +228,7 @@ export function LightweightWebinarSignup({ eventId, eventTitle, onRegistered }: 
       </Button>
 
       <p className="text-center text-[11px] leading-relaxed text-meta">
-        {t('eventsShared.webinarSignup.consent', 'By registering, you agree to receive webinar-related emails from Smart Marina Connect.')}
+        {t('eventsShared.webinarSignup.consent', 'By registering, you agree to receive webinar-related e-mails from Smart Marina Connect.')}
         {' '}{t('eventsShared.webinarSignup.fullAccess', 'For full access to the platform,')}{' '}
         <span className="text-primary">{t('eventsShared.webinarSignup.createAccount', 'create an account')}</span>.
       </p>

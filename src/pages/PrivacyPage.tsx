@@ -1,13 +1,9 @@
-import { Helmet } from 'react-helmet-async';
 import { Link } from 'react-router-dom';
 import { LegalLayout } from '@/components/content/LegalLayout';
 
 export function PrivacyPage() {
   return (
     <LegalLayout title="Privacy Policy" version="Version of March 6, 2026" path="/privacy">
-      <Helmet>
-        <title>Privacy Policy — Smart Marina Connect</title>
-      </Helmet>
 
       {/* Article 1 */}
       <section>

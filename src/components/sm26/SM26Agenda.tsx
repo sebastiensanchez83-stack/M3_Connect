@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MapPin, Users, Check, Clock3, Download, Loader2, RefreshCw, CalendarPlus, MessageSquare, ArrowRightLeft } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { SM26SessionQA } from '@/components/sm26/SM26SessionQA';
+import '@/i18n/refonte-tech';
 
 // Shared SM26 programme renderer. Used full (public agenda + the event page) and
 // in "mine" mode (the participant's personalised schedule on /sm26/me). Workshops
@@ -73,15 +75,36 @@ const isMine = (s: Session) => s.my_status === 'booked' || s.my_status === 'wait
 const isPersonal = (s: Session) => s.type !== 'meal' && (s.type !== 'workshop' || isMine(s));
 const personalSet = (sessions: Session[]) => sessions.filter(isPersonal);
 
+// Whether the programme is over: its last session has finished. The fallback when the host page
+// does not say (the standalone agenda has no event row of its own to read the end date from).
+function programmeIsOver(list: Session[]): boolean {
+  let last = 0;
+  for (const x of list) {
+    const end = x.ends_at ? new Date(x.ends_at).getTime() : x.starts_at ? new Date(x.starts_at).getTime() + 3600_000 : 0;
+    if (end > last) last = end;
+  }
+  return last > 0 && last < Date.now();
+}
+
 // Postgres raises 'FULL: …' / 'NO_BOOKING: …' so the client can tell the cases
 // apart; the sentence after the tag is already written for the participant.
 const plainError = (msg: string) => msg.replace(/^[A-Z_]+:\s*/, '');
 
-export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsChange }: {
+export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsChange, ended, onEndedChange }: {
   eventId?: string; mineOnly?: boolean;
   /** Fired after a booking changes, so a host page can refresh what it counts. */
   onBookingsChange?: () => void;
+  /**
+   * The edition is over (its end date has passed): the programme and the slides stay as an
+   * archive, and everything that books, waits, cancels or adds to a calendar goes away.
+   * Left out, the public programme works it out from its sessions (the last one has finished);
+   * "mine" mode only follows this prop, so the participant's own view is unchanged unless told.
+   */
+  ended?: boolean;
+  /** Tells a host page, once the sessions are in, whether the programme is shown as an archive. */
+  onEndedChange?: (ended: boolean) => void;
 }) {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,6 +119,9 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsC
   // fresh object for the same person, and reloading on that would blank the
   // programme into a spinner every time someone switches windows.
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id, eventIdProp]);
+
+  const isEnded = ended ?? (!mineOnly && programmeIsOver(sessions));
+  useEffect(() => { if (!loading) onEndedChange?.(isEnded); }, [loading, isEnded, onEndedChange]);
 
   const load = async () => {
     setLoading(true);
@@ -205,7 +231,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsC
   }
   const dayList = days.filter(d => d.items.length > 0 || d.workshops.length > 0);
   if (dayList.length === 0) {
-    return <p className="text-sm text-gray-400 py-4 text-center">The programme will be published soon.</p>;
+    return <p className="text-sm text-gray-500 py-4 text-center">The programme will be published soon.</p>;
   }
 
   const visibleDays = (mineOnly || dayTab === 'all') ? dayList : dayList.filter(d => d.key === dayTab);
@@ -279,15 +305,23 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsC
 
   return (
     <div className="space-y-6">
-      {published && (
-        <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
-          <span className="text-sm text-gray-700">The programme is published.</span>
-          <Button variant="outline" size="sm" className="gap-1.5 bg-white" onClick={downloadProgramme}>
-            <Download className="h-4 w-4" /> Download programme
-          </Button>
+      {(published || isEnded) && (
+        // Wraps: on a phone the sentence keeps its own line and the button goes under it, instead of
+        // the sentence being squeezed into four short lines next to the button.
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+          <span className="min-w-0 text-sm text-gray-700">
+            {isEnded
+              ? t('sm26Agenda.archive.noteNoDates', 'This edition has taken place. The programme and the slides are kept here as an archive.')
+              : 'The programme is published.'}
+          </span>
+          {published && (
+            <Button variant="outline" size="sm" className="shrink-0 gap-1.5 bg-white" onClick={downloadProgramme}>
+              <Download className="h-4 w-4" /> Download programme
+            </Button>
+          )}
         </div>
       )}
-      {mineOnly && (
+      {mineOnly && !isEnded && (
         <div className="space-y-3">
           {myWorkshopCount === 0 && (
             <p className="text-sm text-gray-500">
@@ -323,7 +357,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsC
                     <div className="flex gap-4">
                       <div className="w-16 shrink-0 text-sm">
                         <div className="font-semibold text-gray-900">{fmtTime(s.starts_at)}</div>
-                        {s.ends_at && <div className="text-xs text-gray-400">{fmtTime(s.ends_at)}</div>}
+                        {s.ends_at && <div className="text-xs text-gray-600">{fmtTime(s.ends_at)}</div>}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -334,7 +368,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsC
                         <div className="flex items-center gap-3 text-xs text-gray-500 mt-1 flex-wrap">
                           {s.room && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" /> {s.room}</span>}
                           {s.speakers && <span>{s.speakers}</span>}
-                          {isWorkshop && s.capacity != null && (
+                          {isWorkshop && !isEnded && s.capacity != null && (
                             <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {s.booked_count}/{s.capacity} booked</span>
                           )}
                         </div>
@@ -345,7 +379,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsC
                               <Download className="h-3.5 w-3.5" /> Download slides
                             </Button>
                           )}
-                          {s.starts_at && s.type !== 'meal' && (
+                          {s.starts_at && s.type !== 'meal' && !isEnded && (
                             <Button variant="ghost" size="sm" className="gap-1.5 text-gray-500 px-0 h-7" onClick={() => addOne(s)}>
                               <CalendarPlus className="h-3.5 w-3.5" /> Add to calendar
                             </Button>
@@ -357,7 +391,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsC
                           )}
                         </div>
 
-                        {isWorkshop && (
+                        {isWorkshop && !isEnded && (
                           <div className="mt-2">
                             {s.my_status === 'booked' ? (
                               <div className="flex items-center gap-2">
@@ -388,7 +422,7 @@ export function SM26Agenda({ eventId: eventIdProp, mineOnly = false, onBookingsC
               );
             })}
           </div>
-          {mineOnly && day.workshops.length > 0 && workshopChooser(day)}
+          {mineOnly && !isEnded && day.workshops.length > 0 && workshopChooser(day)}
         </div>
       ))}
     </div>

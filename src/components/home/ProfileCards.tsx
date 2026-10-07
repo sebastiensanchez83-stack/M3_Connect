@@ -35,8 +35,8 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
         <CaptionList
           items={[
             t('homePage.profiles.marinas.can1', 'Publish your tenders, expert questions and projects'),
-            t('homePage.profiles.marinas.can2', 'Find service providers by theme and country, checked by M3'),
-            t('homePage.profiles.marinas.can3', 'See what other marinas are looking for'),
+            t('homePage.profiles.marinas.can2', 'Find service providers by theme and country'),
+            t('homePage.profiles.marinas.can3', 'Browse the opportunities published on the platform'),
             connect,
           ]}
         />
@@ -53,7 +53,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
         <CaptionList
           items={[
             t('homePage.profiles.providers.can1', 'Read the needs marinas publish and answer them'),
-            t('homePage.profiles.providers.can2', 'Present your company in the directory, checked by M3'),
+            t('homePage.profiles.providers.can2', 'Present your company in the directory'),
             connect,
             t('homePage.profiles.providers.can3', 'Sponsor an event for more visibility'),
           ]}
@@ -89,7 +89,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
       caption: (
         <CaptionList
           items={[
-            t('homePage.profiles.media.can1', 'Request press accreditation for our events in Monaco and Dubai'),
+            t('homePage.profiles.media.can1', 'Write to the M3 team about press accreditation for our events'),
             t('homePage.profiles.media.can2', "Follow the sector's articles, opportunities and replays"),
             connect,
           ]}

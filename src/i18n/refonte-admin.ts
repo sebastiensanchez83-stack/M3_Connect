@@ -27,7 +27,7 @@ export const ADMIN_REFONTE_STRINGS = {
       clearFilters: 'Clear filters',
       pages: {
         users: 'Review sign-ups, set access and account types, and open a member to see everything about them.',
-        organizations: 'Every registered organization: access status, type, plan and the people who belong to it.',
+        organizations: 'Every registered organisation: access status, type, plan and the people who belong to it.',
         events: 'The Rendezvous, the World Yachting Summit and webinars. Open one to edit its programme, pricing and registrations.',
         resources: 'Articles, guides and replays in the library, and the drafts waiting for review.',
         dashboard: 'What needs a decision today, and how the network is growing.',

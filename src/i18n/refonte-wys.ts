@@ -33,7 +33,7 @@ export const WYS_REFONTE_STRINGS = {
         trust: {
           review: 'Every request is reviewed by the M3 team',
           noAccount: 'No account needed',
-          answer: 'Our answer comes to you by email',
+          answer: 'Our answer comes to you by e-mail',
         },
       },
       card: {
@@ -61,7 +61,7 @@ export const WYS_REFONTE_STRINGS = {
         required: 'Fields marked * are required.',
         firstName: 'First name',
         lastName: 'Last name',
-        email: 'Email',
+        email: 'E-mail',
         phone: 'Phone',
         company: 'Company',
         jobTitle: 'Job title',
@@ -76,7 +76,7 @@ export const WYS_REFONTE_STRINGS = {
       },
       done: {
         title: 'Thank you',
-        text: 'Your request has been received. Our team reviews every request and will come back to you by email.',
+        text: 'Your request has been received. Our team reviews every request and will come back to you by e-mail.',
       },
       closed: {
         title: 'Invitation requests are not open yet',
@@ -113,7 +113,7 @@ export const WYS_REFONTE_STRINGS = {
       requested: {
         yours: 'Your request',
         plusOne: 'Your plus-one request',
-        review: '{{what}} is being reviewed. We will come back to you by email.',
+        review: '{{what}} is being reviewed. We will come back to you by e-mail.',
       },
       confirmed: {
         text: 'Your place is confirmed for the <b>{{part}}</b>',
@@ -133,13 +133,13 @@ export const WYS_REFONTE_STRINGS = {
       },
       plusOne: {
         title: 'Plus-one',
-        confirmed: 'confirmed; they have received their own entry pass by email.',
+        confirmed: 'confirmed; they have received their own entry pass by e-mail.',
         pending: 'request under review.',
         ask: 'Would you like to bring someone? Tell us who — each plus-one is reviewed by our team and receives their own entry pass.',
         open: 'Request a plus-one',
         firstName: 'First name',
         lastName: 'Last name',
-        email: 'Their email',
+        email: 'Their e-mail',
         company: 'Company',
         jobTitle: 'Job title',
         send: 'Send request',

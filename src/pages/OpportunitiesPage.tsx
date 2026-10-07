@@ -22,7 +22,6 @@ import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
-import { checkSectorMatch } from '@/lib/sector-matching';
 import { THEMES, getTheme, themeForSector, type Theme, type ThemeKey } from '@/lib/themes';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { CREATE_ACTIONS, canCreate, type CreateAction, type CreateCapability } from '@/lib/nav';
@@ -537,19 +536,10 @@ export function OpportunitiesPage() {
     if (!freshUid) return;
     setInterestSending(true);
     try {
-      // Sector matching gate
-      if (organization?.id && interestTarget.marina_organization_id) {
-        const match = await checkSectorMatch(organization.id, interestTarget.marina_organization_id);
-        if (!match.allowed) {
-          toast({
-            title: t('opportunities.connectionBlocked', 'Connection blocked'),
-            description: match.reason || t('opportunities.noSectorOverlap', 'No overlapping sectors with this marina.'),
-            variant: 'destructive',
-          });
-          setInterestSending(false);
-          return;
-        }
-      }
+      // Answering a need the marina published is always allowed, whatever the
+      // sectors of the two organisations: the marina asked for answers. The
+      // sector rule (src/lib/sector-matching.ts) stays on cold connection
+      // requests, made from a company or a member page.
       // What is written and notified stays exactly as it was on the old page.
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
@@ -671,7 +661,7 @@ export function OpportunitiesPage() {
   /* ========== render ========== */
 
   if (authLoading) {
-    return <LoadingSkeleton variant="page" />;
+    return <LoadingSkeleton variant="screen" />;
   }
 
   const kindLabel = (k: Kind) => t(`opportunities.kinds.${k}`, KIND_META[k].label);
@@ -686,15 +676,15 @@ export function OpportunitiesPage() {
     'An opportunity is a verified marina asking the network for help: a request for proposals, a question for an expert, or a project looking for service providers.',
   );
   const heroAudience = heroActions.length > 0
-    ? t('opportunities.subtitleCreator', 'Publish one and verified service providers in the matching sector can answer you.')
+    ? t('opportunities.subtitleCreator', 'Publish one and verified service providers can answer you.')
     : isMarinaLike
-      ? t('opportunities.subtitlePending', 'You can publish one as soon as your organization is verified.')
+      ? t('opportunities.subtitlePending', 'You can publish one as soon as your organisation is verified.')
       : persona === 'partner'
         ? t('opportunities.subtitleSupplier', 'Express interest in an RFP or a consultation and the marina receives your company profile.')
         : '';
 
   const seoTitle = withSiteSuffix(t('seo.opportunities.title', 'Marina tenders, RFPs and projects'));
-  const seoDescription = t('seo.opportunities.description', 'Where marinas publish their needs: tenders, expert questions and projects, open to companies checked by M3. Sign up to read and answer them.');
+  const seoDescription = t('seo.opportunities.description', 'Where marinas publish their needs: tenders, expert questions and projects, open to verified companies. Sign up to read and answer them.');
 
   return (
     <div className="min-h-screen bg-page">
@@ -900,8 +890,8 @@ export function OpportunitiesPage() {
             <DialogTitle>{t('opportunities.expressInterest', 'Express interest')}</DialogTitle>
             <DialogDescription>
               {interestTarget?.type === 'rfp'
-                ? t('opportunities.expressInterestRfpDesc', 'Let the marina know you are interested in this RFP. Your organization profile will be shared.')
-                : t('opportunities.expressInterestConsultDesc', 'Let the marina know you can help with this consultation. Your organization profile will be shared.')}
+                ? t('opportunities.expressInterestRfpDesc', 'Let the marina know you are interested in this RFP. Your organisation profile will be shared.')
+                : t('opportunities.expressInterestConsultDesc', 'Let the marina know you can help with this consultation. Your organisation profile will be shared.')}
             </DialogDescription>
           </DialogHeader>
 
@@ -1306,10 +1296,10 @@ function LockPanel({ signedIn, pending }: { signedIn: boolean; pending: boolean 
           </h2>
           <p className="mt-4 max-w-[520px] text-[15px] leading-6 text-white/85">
             {!signedIn
-              ? t('opportunities.verifiedOnly', 'Tenders, expert questions and projects, visible to companies checked by M3. Sign up: once your company is checked, you can read them and, depending on your profile, answer.')
+              ? t('opportunities.verifiedOnly', 'Tenders, expert questions and projects, visible to verified companies. Sign up: once your company is verified, you can read them and, depending on your profile, answer.')
               : pending
                 ? t('opportunities.gatePending', 'Your account is being reviewed. Opportunities open as soon as it is verified.')
-                : t('opportunities.gateSignedIn', 'Tenders, expert questions and projects are visible to companies checked by M3. Your account status shows what is still missing.')}
+                : t('opportunities.gateSignedIn', 'Tenders, expert questions and projects are visible to verified companies. Your account status shows what is still missing.')}
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
             {!signedIn ? (
@@ -1372,7 +1362,7 @@ function EmptyKind({
     projects: 'No active projects yet',
   };
   const creatorText: Record<Kind, string> = {
-    rfps: 'Be the first: describe your need and set a deadline. Verified service providers in the matching sector will see it here and can answer you.',
+    rfps: 'Be the first: describe your need and set a deadline. Verified service providers will see it here and can answer you.',
     consultations: 'Ask your question: experts from the network will see it here and can offer their help.',
     projects: 'Describe your project, budget and timeline; the M3 team will put you in touch with the right service providers.',
   };
@@ -1384,7 +1374,7 @@ function EmptyKind({
 
   let text: string;
   if (audience === 'creator') text = t(`opportunities.emptyCreator.${kind}`, creatorText[kind]);
-  else if (audience === 'marinaPending') text = t('opportunities.emptyMarinaPending', 'You can publish here as soon as your organization is verified.');
+  else if (audience === 'marinaPending') text = t('opportunities.emptyMarinaPending', 'You can publish here as soon as your organisation is verified.');
   else if (audience === 'supplier') text = t(`opportunities.emptySupplier.${kind}`, supplierText[kind]);
   else text = t('opportunities.emptyOther', 'New opportunities appear here as soon as the M3 team approves them.');
 

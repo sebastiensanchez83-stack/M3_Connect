@@ -46,7 +46,7 @@ registerOrgRefonteStrings();
  *     else to the directory, then the sponsorship panel and the M3 contact.
  *
  * Event sponsorship is sold by the M3 team: "Sponsor an event" opens the
- * contact form on that subject (/contact?subject=partnership).
+ * sponsorship page (/sponsor), which takes the deck request.
  */
 
 interface SectorRef {
@@ -292,7 +292,7 @@ export function PartnersPage() {
             label={t('partnersPage.search', 'Search by name, country, sector…')}
             placeholder={t('partnersPage.search', 'Search by name, country, sector…')}
           />
-          <UnderlineLink to="/contact?subject=partnership" tone="light">
+          <UnderlineLink to="/sponsor" tone="light">
             {t('partnersPage.becomeTitle', 'Sponsor an event')}
           </UnderlineLink>
         </div>
@@ -325,7 +325,7 @@ export function PartnersPage() {
                 </Button>
               ) : (
                 <Button asChild variant="cta" size="sm">
-                  <Link to="/contact?subject=partnership">{t('partnersPage.becomeTitle', 'Sponsor an event')}</Link>
+                  <Link to="/sponsor">{t('partnersPage.becomeTitle', 'Sponsor an event')}</Link>
                 </Button>
               )}
             </div>
@@ -424,9 +424,9 @@ export function PartnersPage() {
                   {typeCounts
                     ? t('partnersPage.directoryBody', {
                       count: typeCounts.all,
-                      defaultValue: 'The directory lists all {{count}} organizations on Smart Marina Connect — marinas, service providers, investors and media.',
+                      defaultValue: 'The directory lists all {{count}} organisations on Smart Marina Connect — marinas, service providers, investors and media.',
                     })
-                    : t('partnersPage.directoryBodyNoCount', 'Every organization on Smart Marina Connect is listed in the directory.')}
+                    : t('partnersPage.directoryBodyNoCount', 'Every organisation on Smart Marina Connect is listed in the directory.')}
                 </p>
                 {typeLinks.length > 0 && (
                   <ul className="mt-5 flex flex-wrap gap-2">
@@ -455,7 +455,7 @@ export function PartnersPage() {
         </Reveal>
 
         {/* ── Sponsor an event ── Event sponsorship is sold by the M3 team, so the
-            button opens the contact form on that subject. */}
+            button opens the sponsorship page, which takes the deck request. */}
         <section aria-labelledby="partners-sponsor-heading" className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
           <BgRevealPanel as="div" bathy bathySeed={9} className="mx-0 px-6 py-8 md:mx-0 md:px-10 md:py-10 lg:col-span-7">
             <Eyebrow tone="onDark">{t('partnersRefonte.closing.eyebrow', 'Sponsorship')}</Eyebrow>
@@ -467,7 +467,7 @@ export function PartnersPage() {
             </p>
             <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
               <Button asChild variant="ctaOnDark">
-                <Link to="/contact?subject=partnership">{t('partnersPage.becomeTitle', 'Sponsor an event')}</Link>
+                <Link to="/sponsor">{t('partnersPage.becomeTitle', 'Sponsor an event')}</Link>
               </Button>
               <UnderlineLink to="/contact?subject=media" tone="light">
                 {t('partnersRefonte.closing.mediaLink', 'Are you a media outlet?')}
@@ -542,7 +542,7 @@ function SponsorCard({
         <p className="mt-1.5 flex items-center gap-2 text-sm leading-5 text-meta">
           <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-pill" style={{ background: TYPE_RGB[tone] }} />
           <span className="flex min-w-0 items-center gap-1">
-            <span className="shrink-0">{meta ? t(meta.oneKey, meta.oneFallback) : t('partnersPage.typeOne.organization', 'Organization')}</span>
+            <span className="shrink-0">{meta ? t(meta.oneKey, meta.oneFallback) : t('partnersPage.typeOne.organization', 'Organisation')}</span>
             {location && (
               <>
                 <span aria-hidden="true">·</span>

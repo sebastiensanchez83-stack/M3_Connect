@@ -32,7 +32,7 @@ import { LineReveal } from '@/components/motion/LineReveal';
 import { useMotion } from '@/components/motion/MotionProvider';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { CheckList, PhotoFrame, SectionHead, useScrollToHash } from '@/components/content/ContentParts';
-import { BookOpen, Globe, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { BookOpen, Globe, CalendarDays, UserPlus, Users } from 'lucide-react';
 import { registerCopyStrings } from '@/i18n/refonte-copy';
 import { cn } from '@/lib/utils';
 
@@ -101,8 +101,8 @@ export function BecomePartnerPage() {
       focusY: 0.5,
       can: [
         t('homePage.profiles.marinas.can1', 'Publish your tenders, expert questions and projects'),
-        t('homePage.profiles.marinas.can2', 'Find service providers by theme and country, checked by M3'),
-        t('homePage.profiles.marinas.can3', 'See what other marinas are looking for'),
+        t('homePage.profiles.marinas.can2', 'Find service providers by theme and country'),
+        t('homePage.profiles.marinas.can3', 'Browse the opportunities published on the platform'),
         connect,
       ],
       ctas: [{ persona: 'marina', label: t('join.marina.cta') }],
@@ -118,7 +118,7 @@ export function BecomePartnerPage() {
       focusY: 0.5,
       can: [
         t('homePage.profiles.providers.can1', 'Read the needs marinas publish and answer them'),
-        t('homePage.profiles.providers.can2', 'Present your company in the directory, checked by M3'),
+        t('homePage.profiles.providers.can2', 'Present your company in the directory'),
         connect,
         t('homePage.profiles.providers.can3', 'Sponsor an event for more visibility'),
       ],
@@ -153,7 +153,7 @@ export function BecomePartnerPage() {
       image: PERSONA_IMAGES.media,
       focusY: 0.5,
       can: [
-        t('homePage.profiles.media.can1', 'Request press accreditation for our events in Monaco and Dubai'),
+        t('homePage.profiles.media.can1', 'Write to the M3 team about press accreditation for our events'),
         t('homePage.profiles.media.can2', "Follow the sector's articles, opportunities and replays"),
         connect,
       ],
@@ -169,7 +169,7 @@ export function BecomePartnerPage() {
         ? t('staticPages.join.why.b1DescLive', { countries: formatFigure(figures.countries, figures.manual, i18n.language) })
         : t('staticPages.join.why.b1Desc'),
     },
-    { icon: ShieldCheck, title: t('staticPages.join.why.b2Title'), desc: t('staticPages.join.why.b2Desc') },
+    { icon: CalendarDays, title: t('staticPages.join.why.b2Title'), desc: t('staticPages.join.why.b2Desc') },
     { icon: BookOpen, title: t('staticPages.join.why.b3Title'), desc: t('staticPages.join.why.b3Desc') },
     { icon: Users, title: t('staticPages.join.why.b4Title'), desc: t('staticPages.join.why.b4Desc') },
   ];
@@ -187,7 +187,7 @@ export function BecomePartnerPage() {
   }));
 
   const seoTitle = withSiteSuffix(t('seo.join.title', 'Join the marina industry network'));
-  const seoDescription = t('seo.join.description', 'Marina, service provider, investor, developer or media: sign up for free. The M3 team checks every company, then opens the features of your profile.');
+  const seoDescription = t('seo.join.description', 'Marina, service provider, investor, developer or media: sign up for free. The M3 team reviews your company, then opens the features of your profile.');
 
   // A member who is already signed in has nothing to sign up for: a draft finishes the sign-up, everyone else goes to their space.
   const mySpacePath = !profile || profile.onboarding_status === 'draft' ? '/onboarding' : '/dashboard';

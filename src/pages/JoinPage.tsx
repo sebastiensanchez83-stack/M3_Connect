@@ -106,7 +106,7 @@ export function JoinPage() {
         return;
       }
 
-      const orgName = data.organization_name || t('joinInvite.fallbackOrg', 'Organization');
+      const orgName = data.organization_name || t('joinInvite.fallbackOrg', 'Organisation');
       // The RPC fills a nameless inviter with the English 'A team member' itself:
       // treat that as missing so the fallback shows in the visitor's language.
       const inviterName = data.inviter_name && data.inviter_name !== 'A team member'
@@ -129,7 +129,7 @@ export function JoinPage() {
         if (info.status === 'accepted') {
           toast({
             title: t('joinInvite.alreadyAcceptedTitle', 'Invitation already accepted'),
-            description: t('joinInvite.alreadyAcceptedDesc', 'You have already joined this organization.'),
+            description: t('joinInvite.alreadyAcceptedDesc', 'You have already joined this organisation.'),
           });
           navigate('/account', { replace: true });
         } else {
@@ -242,7 +242,7 @@ export function JoinPage() {
       if (error.message?.includes('already registered')) {
         toast({
           title: t('joinInvite.accountExists', 'Account exists'),
-          description: t('auth.accountAlreadyExists', 'An account with this email already exists. Please log in instead.'),
+          description: t('auth.accountAlreadyExists', 'An account with this e-mail already exists. Please log in instead.'),
           variant: 'destructive',
         });
         setPageState('login');
@@ -329,7 +329,7 @@ export function JoinPage() {
 
   // ── The panel's words, the same in every state: who invited you, to what ──
   const shellTitle = t('joinInvite.title', 'Join {{org}}', { org: invite?.organization_name ?? '' });
-  const shellLead = t('joinInvite.subtitle', '{{inviter}} invited you to join their organization on Smart Marina Connect', { inviter: invite?.inviter_name ?? '' });
+  const shellLead = t('joinInvite.subtitle', '{{inviter}} invited you to join their organisation on Smart Marina Connect', { inviter: invite?.inviter_name ?? '' });
   const shellEyebrow = t('authRefonte.join.eyebrow', 'Invitation');
 
   // ── Loading state ──
@@ -352,7 +352,7 @@ export function JoinPage() {
         layout="centered"
         icon={<AlertTriangle className="h-6 w-6" />}
         title={t('joinInvite.invalidTitle', 'Invalid or Expired Invitation')}
-        lead={t('joinInvite.invalidDesc', 'This invitation link is no longer valid. It may have expired or already been used. Please ask the organization owner to send a new invitation.')}
+        lead={t('joinInvite.invalidDesc', 'This invitation link is no longer valid. It may have expired or already been used. Please ask the organisation owner to send a new invitation.')}
       >
         <Button onClick={() => navigate('/')} variant="ctaOnDark">
           {t('common.goHome', 'Go to Homepage')}
@@ -440,7 +440,7 @@ export function JoinPage() {
           )}
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
-              <AuthLabel htmlFor="join-login-email">{t('auth.email', 'Email')}</AuthLabel>
+              <AuthLabel htmlFor="join-login-email">{t('auth.email', 'E-mail')}</AuthLabel>
               <AuthInput id="join-login-email" value={invite?.email || ''} disabled className="bg-page" />
             </div>
             <div className="space-y-2">
@@ -473,7 +473,7 @@ export function JoinPage() {
           <p className="text-center text-sm text-meta">
             {t('auth.noAccount', "Don't have an account?")}{' '}
             <UnderlineLink arrow={false} onClick={() => setPageState('signup')} className="!text-sm">
-              {t('auth.signup', 'Sign Up')}
+              {t('auth.signup', 'Sign up')}
             </UnderlineLink>
           </p>
         </div>
@@ -484,13 +484,13 @@ export function JoinPage() {
   // ── Signup state (new user) ──
   return (
     <AuthShell eyebrow={shellEyebrow} title={shellTitle} lead={shellLead}>
-      <AuthCardHeading title={t('auth.signup', 'Sign Up')} />
+      <AuthCardHeading title={t('auth.signup', 'Sign up')} />
       <div className="space-y-5">
         <form onSubmit={handleSignup} className="space-y-5">
           <div className="space-y-2">
-            <AuthLabel htmlFor="join-email">{t('auth.email', 'Email')}</AuthLabel>
+            <AuthLabel htmlFor="join-email">{t('auth.email', 'E-mail')}</AuthLabel>
             <AuthInput id="join-email" value={invite?.email || ''} disabled className="bg-page" />
-            <FieldHint>{t('joinInvite.emailHint', 'This is the email the invitation was sent to')}</FieldHint>
+            <FieldHint>{t('joinInvite.emailHint', 'This is the e-mail the invitation was sent to')}</FieldHint>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">

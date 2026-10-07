@@ -301,7 +301,7 @@ export const TIER_LABELS: Record<OrgTier, string> = {
   member: 'Member',
   innovation_partner: 'Innovation Partner',
   associate_partner: 'Associate Partner',
-  premium_partner: 'Partner',
+  premium_partner: 'Premium Partner',
   premium_sponsor: 'Premium Sponsor',
   main_sponsor: 'Main Sponsor',
 };

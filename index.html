@@ -4,26 +4,34 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/logo-color.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Smart Marina Connect — B2B Platform for the Marina Industry</title>
-    <meta name="description" content="Smart Marina Connect is the B2B platform connecting marina operators, service providers and media professionals worldwide. Discover resources, events, and partnership opportunities." />
-    <meta name="keywords" content="marina, B2B, platform, yacht, port, maritime, partners, events, superyacht, marina management" />
-    <meta name="robots" content="index, follow" />
-    <link rel="canonical" href="https://smartmarinaconnect.com/" />
+    <!-- Default title and description: filled in at build time from seo.home (src/i18n/seo.ts, English), see vite.config.ts. -->
+    <title>__SEO_HOME_TITLE__</title>
+    <!--
+      Head defaults, for any page nothing else describes. Every tag marked data-rh="true" belongs
+      to react-helmet-async: the Netlify edge function (netlify/edge-functions/seo.ts) and <Seo>
+      (src/components/seo/Seo.tsx) replace them with the page's own instead of adding a second copy.
+      No canonical and no og:url here: each page states its own, and a share robot that finds none
+      uses the URL it was given (a fixed one would send every shared link to the home page).
+    -->
+    <meta data-rh="true" name="description" content="__SEO_HOME_DESCRIPTION__" />
+    <meta data-rh="true" name="keywords" content="marina industry network, marina service providers, marina suppliers directory, marina events, Monaco, Dubai, marina management" />
 
     <!-- Open Graph -->
-    <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Smart Marina Connect" />
-    <meta property="og:title" content="Smart Marina Connect — B2B Platform for the Marina Industry" />
-    <meta property="og:description" content="Connect with marina operators, service providers and media professionals worldwide." />
-    <meta property="og:url" content="https://smartmarinaconnect.com/" />
-    <meta property="og:image" content="https://smartmarinaconnect.com/logo-color.png" />
-    <meta property="og:image:type" content="image/png" />
+    <meta data-rh="true" property="og:type" content="website" />
+    <meta data-rh="true" property="og:title" content="__SEO_HOME_TITLE__" />
+    <meta data-rh="true" property="og:description" content="__SEO_HOME_DESCRIPTION__" />
+    <meta data-rh="true" property="og:image" content="https://smartmarinaconnect.com/images/og-default.jpg" />
+    <meta data-rh="true" property="og:image:width" content="1200" />
+    <meta data-rh="true" property="og:image:height" content="630" />
+    <meta data-rh="true" property="og:image:alt" content="__SEO_SHARE_IMAGE_ALT__" />
 
-    <!-- Twitter Card -->
+    <!-- X / Twitter card -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="Smart Marina Connect — B2B Platform for the Marina Industry" />
-    <meta name="twitter:description" content="Connect with marina operators, service providers and media professionals worldwide." />
-    <meta name="twitter:image" content="https://smartmarinaconnect.com/logo-color.png" />
+    <meta data-rh="true" name="twitter:title" content="__SEO_HOME_TITLE__" />
+    <meta data-rh="true" name="twitter:description" content="__SEO_HOME_DESCRIPTION__" />
+    <meta data-rh="true" name="twitter:image" content="https://smartmarinaconnect.com/images/og-default.jpg" />
+    <meta data-rh="true" name="twitter:image:alt" content="__SEO_SHARE_IMAGE_ALT__" />
 
     <!-- PWA / Mobile -->
     <meta name="theme-color" content="#0f4c75" />
@@ -35,25 +43,62 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap" rel="stylesheet" />
 
-    <!-- Structured Data -->
+    <!--
+      Structured data, on every page: the site (WebSite), the platform (Organization) and its
+      publisher, M3 Monaco (legal notice: M3 Monaco SAM). One public e-mail address, the one on
+      /contact. Smart Marina Connect has no LinkedIn page of its own: the LinkedIn and Instagram
+      pages are M3's, so they sit on M3's entry. Not marked data-rh: react-helmet-async leaves it be.
+      Pages add their own (Organization, Event, Article) through <Seo>.
+    -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "Organization",
-      "name": "Smart Marina Connect",
-      "description": "B2B platform for the marina industry connecting marina operators, service providers and media professionals",
-      "url": "https://smartmarinaconnect.com",
-      "logo": "https://smartmarinaconnect.com/logo-color.png",
-      "sameAs": [
-        "https://www.linkedin.com/company/monaco-marina-management",
-        "https://www.instagram.com/monacomarinamanagement/"
-      ],
-      "contactPoint": {
-        "@type": "ContactPoint",
-        "contactType": "customer service",
-        "email": "contact@m3monaco.com",
-        "availableLanguage": ["English", "French"]
-      }
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://smartmarinaconnect.com/#website",
+          "url": "https://smartmarinaconnect.com/",
+          "name": "Smart Marina Connect",
+          "description": "__SEO_HOME_DESCRIPTION_JSON__",
+          "inLanguage": "en",
+          "publisher": { "@id": "https://smartmarinaconnect.com/#organization" }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://smartmarinaconnect.com/#organization",
+          "name": "Smart Marina Connect",
+          "url": "https://smartmarinaconnect.com/",
+          "logo": "https://smartmarinaconnect.com/logo-color.png",
+          "description": "__SEO_HOME_DESCRIPTION_JSON__",
+          "email": "contact@smartmarinaconnect.com",
+          "contactPoint": {
+            "@type": "ContactPoint",
+            "contactType": "customer service",
+            "email": "contact@smartmarinaconnect.com",
+            "url": "https://smartmarinaconnect.com/contact",
+            "availableLanguage": ["English", "French"]
+          },
+          "parentOrganization": { "@id": "https://smartmarinaconnect.com/#m3" }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://smartmarinaconnect.com/#m3",
+          "name": "M3 Monaco",
+          "legalName": "M3 Monaco SAM",
+          "alternateName": "Monaco Marina Management",
+          "address": {
+            "@type": "PostalAddress",
+            "streetAddress": "3 Boulevard des Moulins, Monte Carlo Palace, Office B21",
+            "postalCode": "98000",
+            "addressLocality": "Monaco",
+            "addressCountry": "MC"
+          },
+          "sameAs": [
+            "https://www.linkedin.com/company/monaco-marina-management",
+            "https://www.instagram.com/monacomarinamanagement/"
+          ]
+        }
+      ]
     }
     </script>
   </head>

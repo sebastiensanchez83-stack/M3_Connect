@@ -48,7 +48,7 @@ export const PUBLIC_NAV: NavItem[] = [
     labelKey: 'nav.events',
     fallback: 'Events',
     descKey: 'nav.eventsDesc',
-    descFallback: 'Conferences, webinars and rendezvous',
+    descFallback: 'Conferences in Monaco and Dubai, webinars online',
     icon: CalendarDays,
   },
   {
@@ -56,7 +56,7 @@ export const PUBLIC_NAV: NavItem[] = [
     labelKey: 'nav.partners',
     fallback: 'Partners',
     descKey: 'nav.partnersDesc',
-    descFallback: 'The companies backing the ecosystem',
+    descFallback: 'The companies that sponsor our events',
     icon: Building2,
   },
   {
@@ -84,7 +84,7 @@ export const MEMBER_NAV: NavItem[] = [
     labelKey: 'nav.directory',
     fallback: 'Directory',
     descKey: 'nav.directoryDesc',
-    descFallback: 'Marinas, suppliers, experts and media',
+    descFallback: 'Marinas, service providers, investors and media',
     icon: Compass,
   },
   {
@@ -108,7 +108,7 @@ export const MEMBER_NAV: NavItem[] = [
     labelKey: 'nav.events',
     fallback: 'Events',
     descKey: 'nav.eventsDesc',
-    descFallback: 'Conferences, webinars and rendezvous',
+    descFallback: 'Conferences in Monaco and Dubai, webinars online',
     icon: CalendarDays,
   },
 ];
@@ -127,9 +127,9 @@ export const DEAL_FLOW_ITEM: NavItem = {
 export const JOIN_ITEM: NavItem = {
   href: '/become-partner',
   labelKey: 'nav.becomePartner',
-  fallback: 'Become a Member',
+  fallback: 'Join the network',
   descKey: 'nav.becomePartnerDesc',
-  descFallback: 'Join the marina industry network',
+  descFallback: 'Free for every member, checked by M3',
   icon: UserPlus,
 };
 
@@ -160,7 +160,7 @@ export const CREATE_ACTIONS: CreateAction[] = [
     labelKey: 'nav.submitProject',
     fallback: 'Submit a project',
     descKey: 'nav.submitProjectDesc',
-    descFallback: 'Find suppliers for a specific need',
+    descFallback: 'Find service providers for a specific need',
     icon: FileText,
   },
   {
@@ -169,7 +169,7 @@ export const CREATE_ACTIONS: CreateAction[] = [
     labelKey: 'nav.submitRfp',
     fallback: 'Submit an RFP',
     descKey: 'nav.submitRfpDesc',
-    descFallback: 'Put a formal request to the partner network',
+    descFallback: 'Put a formal request to service providers',
     icon: Ship,
   },
   {

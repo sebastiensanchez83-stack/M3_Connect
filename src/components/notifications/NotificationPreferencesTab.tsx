@@ -24,7 +24,7 @@ const CATEGORIES: CategoryDef[] = [
     key: 'b2b',
     icon: <Link2 className="h-5 w-5 text-blue-500" />,
     title: 'B2B connections',
-    description: 'Partner contact requests, introductions, declines.',
+    description: 'Contact requests from other members, introductions, declines.',
     examples: 'Examples: new partner_request_received, partner_request_accepted intro, partner_request_rejected.',
   },
   {
@@ -52,7 +52,7 @@ const CATEGORIES: CategoryDef[] = [
     key: 'payments',
     icon: <CreditCard className="h-5 w-5 text-rose-500" />,
     title: 'Payments & invoices',
-    description: 'Sponsorship and exposition invoices, payment confirmations, sponsorship tier upgrades.',
+    description: 'Sponsorship and exhibition invoices, payment confirmations, sponsor level changes.',
     examples: 'Examples: sponsorship_invoice_sent, sponsorship_approved, payment_confirmed.',
   },
   {

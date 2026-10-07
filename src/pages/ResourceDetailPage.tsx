@@ -3,6 +3,9 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { readMinutes } from '@/lib/readTime';
 import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
+import { useSeoTr } from '@/components/seo/useSeoTr';
+import { resourceMeta } from '@/lib/seoMeta';
 import DOMPurify from 'dompurify';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -35,6 +38,7 @@ interface Resource {
   published: boolean;
   created_at: string;
   published_at: string | null;
+  updated_at?: string | null;
   tags: string[];
 }
 
@@ -55,6 +59,7 @@ export function ResourceDetailPage() {
   // the dashboard), "Back to Resources" means the library itself.
   const cameFromList = (useLocation().state as { fromList?: boolean } | null)?.fromList === true;
   const { t } = useTranslation();
+  const seoTr = useSeoTr();
   const { user, profile, isVerified } = useAuth();
   const [resource, setResource] = useState<Resource | null>(null);
   const [relatedResources, setRelatedResources] = useState<Resource[]>([]);
@@ -155,18 +160,14 @@ export function ResourceDetailPage() {
   const hasAccess = canAccess(resource.access_level);
   const readTime = estimateReadTime(resource.content);
   const displayDate = resource.published_at || resource.created_at;
+  // Title, description, canonical URL, share card and Article JSON-LD: the same builder as
+  // the edge function that writes them into the HTML for share previews (src/lib/seoMeta.ts).
+  const seo = resourceMeta(resource, seoTr);
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet>
-        <title>{resource.title} — Smart Marina Connect</title>
-        <meta name="description" content={resource.summary || `Read ${resource.title} on Smart Marina Connect`} />
-        <meta property="og:title" content={`${resource.title} — Smart Marina Connect`} />
-        <meta property="og:description" content={resource.summary || ''} />
-        <meta property="og:type" content="article" />
-        {resource.thumbnail_url && <meta property="og:image" content={resource.thumbnail_url} />}
-        {resource.seo_keywords && <meta name="keywords" content={resource.seo_keywords} />}
-      </Helmet>
+      <Seo {...seo} />
+      {resource.seo_keywords && <Helmet><meta name="keywords" content={resource.seo_keywords} /></Helmet>}
       {/* Hero Header — banner uses a fixed 3:1 panorama ratio inside a
           max-width container so the same source image fits both here and
           in the 16:10 thumbnail cards without surprises. */}
@@ -335,7 +336,7 @@ export function ResourceDetailPage() {
               </h3>
               <p className="text-gray-500 mb-6 max-w-md mx-auto">
                 {!user
-                  ? t('resourceDetail.signupToReadDesc', 'Create a free account or log in to access this content and all member resources.')
+                  ? t('resourceDetail.signupToReadDesc', 'Sign up or sign in to read this article and the other member-only resources.')
                   : resource.access_level === 'members'
                   ? t('resources.signupToAccess')
                   : t('resources.verifyMarinaToAccess')}

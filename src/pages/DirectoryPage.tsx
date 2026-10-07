@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
+import { themedPath } from '@/lib/seoMeta';
 import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, ArrowRight, Briefcase, Building2, Compass, HardHat, LayoutGrid, MapPin,
@@ -21,6 +22,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { SITE_IMAGES } from '@/lib/siteMedia';
+import { useNetworkFigures, formatFigure } from '@/lib/networkStats';
+import { withSiteSuffix } from '@/lib/seoText';
 import { SPONSOR_TIERS, type OrgTier } from '@/types/database';
 import { cn } from '@/lib/utils';
 
@@ -105,7 +108,7 @@ interface TypeFacet {
 
 const TYPE_FACETS: TypeFacet[] = [
   { key: 'marina', icon: Anchor, labelKey: 'directory.types.marina', fallback: 'Marinas', oneKey: 'directory.typeOne.marina', oneFallback: 'Marina' },
-  { key: 'partner', icon: Briefcase, labelKey: 'directory.types.partner', fallback: 'Suppliers & experts', oneKey: 'directory.typeOne.partner', oneFallback: 'Supplier & expert' },
+  { key: 'partner', icon: Briefcase, labelKey: 'directory.types.partner', fallback: 'Service providers', oneKey: 'directory.typeOne.partner', oneFallback: 'Service provider' },
   { key: 'investor', icon: TrendingUp, labelKey: 'directory.types.investor', fallback: 'Investors', oneKey: 'directory.typeOne.investor', oneFallback: 'Investor' },
   { key: 'developer', icon: HardHat, labelKey: 'directory.types.developer', fallback: 'Developers', oneKey: 'directory.typeOne.developer', oneFallback: 'Developer' },
   { key: 'media_partner', icon: Newspaper, labelKey: 'directory.types.media_partner', fallback: 'Media', oneKey: 'directory.typeOne.media_partner', oneFallback: 'Media' },
@@ -140,14 +143,24 @@ function themesWithOrgs(counts: Record<ThemeKey, number>): Theme[] {
 /* ─── Page ───────────────────────────────────────────────────────── */
 
 export function DirectoryPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user, organization } = useAuth();
   const [params, setParams] = useSearchParams();
+  // The same live counts as the home page ("180 marinas listed…"), for the hero and the meta description.
+  const { figures, loading: figuresLoading } = useNetworkFigures();
+  const liveFigures = !figuresLoading && figures.marinas !== null && figures.partners !== null && figures.countries !== null
+    ? {
+        marinas: formatFigure(figures.marinas, figures.manual, i18n.language),
+        suppliers: formatFigure(figures.partners, figures.manual, i18n.language),
+        countries: formatFigure(figures.countries, figures.manual, i18n.language),
+      }
+    : null;
 
   const [orgs, setOrgs] = useState<OrgCard[]>([]);
   const [sectors, setSectors] = useState<SectorRef[]>([]);
   const [mySectorIds, setMySectorIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
 
   // ---------------------------------------------------------------- URL state
@@ -264,6 +277,7 @@ export function DirectoryPage() {
         setOrgs(cards);
       } catch (err) {
         if (import.meta.env.DEV) console.error('Error fetching organizations:', err);
+        if (alive) setLoadFailed(true);
       } finally {
         if (alive) setLoading(false);
       }
@@ -431,7 +445,7 @@ export function DirectoryPage() {
 
   // ---------------------------------------------------------------- render
   const themeHint = !activeType
-    ? t('directory.themesHint.all', 'Suppliers are grouped by the services they offer, marinas by their areas of interest.')
+    ? t('directory.themesHint.all', 'Service providers are grouped by the services they offer, marinas by their areas of interest.')
     : INTEREST_SIDE.has(activeType)
       ? t('directory.themesHint.interest', "Grouped by each organization's areas of interest.")
       : t('directory.themesHint.supply', 'Grouped by the services each company offers.');
@@ -443,26 +457,32 @@ export function DirectoryPage() {
     themeLabel,
   };
 
+  // The head follows the theme in the URL until the organizations are in (or
+  // if they never arrive): the edge function and the sitemap use the URL's
+  // theme too, and a canonical pointing at /directory meanwhile would undo them.
+  const seoTheme = loading || loadFailed ? themeParam : activeTheme;
+  const seoTitle = seoTheme
+    ? withSiteSuffix(t('seo.directory.themeTitle', { theme: themeLabel(seoTheme), defaultValue: '{{theme}} — marina service providers' }))
+    : withSiteSuffix(t('seo.directory.title', 'Marina & service provider directory'));
+  const seoDescription = seoTheme
+    ? t('seo.directory.themeDescription', { theme: themeLabel(seoTheme), defaultValue: '{{theme}}: the marinas and service providers working in this field, in the Smart Marina Connect directory.' })
+    : liveFigures
+      ? t('seo.directory.descriptionLive', { ...liveFigures, defaultValue: 'Marina suppliers directory: {{marinas}} marinas listed and {{suppliers}} service providers in {{countries}} countries. Filter by theme or country.' })
+      : t('seo.directory.description', 'Directory of marinas and marina service providers. Filter by theme or country, shortlist companies and request an introduction from their page.');
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet>
-        <title>
-          {activeTheme
-            ? `${themeLabel(activeTheme)} — ${t('directory.eyebrow', 'Directory')}`
-            : t('directory.metaTitle', 'Directory — Smart Marina Connect')}
-        </title>
-        <meta name="description" content={t('directory.metaDescription', 'Marinas, suppliers, experts and investors on the Smart Marina Connect network.')} />
-        <meta property="og:title" content={t('directory.metaTitle', 'Directory — Smart Marina Connect')} />
-        <meta property="og:description" content={t('directory.metaDescription', 'Marinas, suppliers, experts and investors on the Smart Marina Connect network.')} />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path={themedPath('/directory', seoTheme?.key)} />
 
       <PageHero
         image={SITE_IMAGES.directoryHero}
         seed="directory-hero"
         icon={Compass}
-        eyebrow={t('directory.eyebrow', 'Directory')}
-        title={t('directory.title', "Who's who in the marina industry")}
-        subtitle={t('directory.subtitle', 'Marinas, suppliers, experts and investors on Smart Marina Connect. Find the right partner for your next project.')}
+        eyebrow={t('directory.eyebrow', "Who's who")}
+        title={t('directory.title', 'Marina & service provider directory')}
+        subtitle={liveFigures
+          ? t('directory.subtitleLive', { ...liveFigures, defaultValue: '{{marinas}} marinas listed and {{suppliers}} service providers in {{countries}} countries. Filter by theme or country, shortlist the companies you need and request an introduction from their page.' })
+          : t('directory.subtitle', 'Marinas, service providers, investors and media. Filter by theme or country, shortlist the companies you need and request an introduction from their page.')}
       >
         {/* A real form, so Enter on a phone keyboard closes it and shows the results. */}
         <form
@@ -657,9 +677,10 @@ export function DirectoryPage() {
                   <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-secondary/25 text-primary">
                     <Star className="h-5 w-5" aria-hidden="true" />
                   </span>
-                  <div className="min-w-0 flex-1">
+                  {/* At least 12rem: on a phone the link wraps below instead of squeezing the text to a word per line. */}
+                  <div className="min-w-[12rem] flex-1">
                     <h2 id="directory-featured-heading" className="text-lg font-semibold text-gray-900">
-                      {t('directory.featuredTitle', 'Platform partners')}
+                      {t('directory.featuredTitle', 'Event partners')}
                     </h2>
                     <p className="text-sm text-gray-600">{t('directory.featuredDesc', 'Companies that support Smart Marina Connect')}</p>
                   </div>

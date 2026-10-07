@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
+import { useSeoTr } from '@/components/seo/useSeoTr';
+import { withSiteSuffix } from '@/lib/seoText';
 import { CalendarDays, UserRound, Vote, MessageSquare, MapPin, ChevronRight, LogIn, Loader2, QrCode, type LucideIcon } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { LoginForm } from '@/components/auth/LoginForm';
@@ -56,6 +58,7 @@ function SessionLine({ s }: { s: Timed }) {
 
 export function SM26HubPage() {
   const { user } = useAuth();
+  const seoTr = useSeoTr();
   const navigate = useNavigate();
   const [eventId, setEventId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
@@ -134,11 +137,12 @@ export function SM26HubPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet><title>Event info — Smart &amp; Sustainable Marina Rendezvous 2026</title></Helmet>
+      {/* PRINTED on every SM26 badge (QR): the words may change, the URL never. Same words as the edge function's share preview. */}
+      <Seo title={withSiteSuffix(seoTr('sm26.title'))} description={seoTr('sm26.description')} path="/sm26" />
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-10 max-w-3xl">
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · 20–21 September 2026 · Yacht Club de Monaco</p>
-          <h1 className="text-3xl lg:text-4xl font-bold">Smart &amp; Sustainable Marina Rendezvous</h1>
+          <h1 className="text-3xl lg:text-4xl font-bold">Monaco Smart &amp; Sustainable Marina Rendezvous</h1>
           <p className="text-white/80 mt-2">Everything you need during the event, in one place.</p>
         </div>
       </section>

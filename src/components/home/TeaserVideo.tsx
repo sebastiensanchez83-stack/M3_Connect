@@ -59,7 +59,7 @@ export function TeaserVideo({ className }: { className?: string }) {
         <>
           <img
             src={TEASER.poster}
-            alt={t('home.teaserPosterAlt', 'Smart Marina Connect: marinas, operators, suppliers, investors and authorities around one platform')}
+            alt={t('home.teaserPosterAlt', 'Smart Marina Connect: marinas, operators, service providers, investors and authorities around one platform')}
             className="h-full w-full object-cover"
             loading="eager"
             decoding="async"

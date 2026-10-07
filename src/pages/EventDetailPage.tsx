@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
+import { useSeoTr } from '@/components/seo/useSeoTr';
+import { eventMeta } from '@/lib/seoMeta';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlertCircle, ArrowRight, Building2, CalendarDays, CalendarPlus, CheckCircle2, ChevronLeft, Clock, Download,
@@ -24,6 +26,7 @@ import { SM26_ENABLED } from '@/lib/featureFlags';
 import { getTheme, themesForSectors } from '@/lib/themes';
 import { accountHref } from '@/lib/accountNav';
 import { cn, downloadICS, type CalendarEventInput } from '@/lib/utils';
+import { withSiteSuffix } from '@/lib/seoText';
 import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow';
 import { LightweightWebinarSignup } from '@/components/events/LightweightWebinarSignup';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
@@ -238,6 +241,7 @@ export function EventDetailPage() {
   // Primitives only — auth-js hands a new user object on every tab refocus.
   const userId = user?.id ?? null;
   const locale = i18n.language?.startsWith('fr') ? 'fr-FR' : 'en-GB';
+  const seoTr = useSeoTr();
 
   const profileComplete = profile?.access_status === 'verified' && profile?.onboarding_status === 'completed';
 
@@ -293,7 +297,12 @@ export function EventDetailPage() {
   };
 
   // The event itself. Only the first load of a given event shows the skeleton.
+  // A failed read (network, timeout, server error) is not "no such event": it
+  // shows a Retry screen without noindex, so Google never drops a real page
+  // because one request failed while it was rendering it.
   const loadedIdRef = useRef<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
     if (!id) return;
     let alive = true;
@@ -308,17 +317,29 @@ export function EventDetailPage() {
 
       if (error) {
         if (import.meta.env.DEV) console.error('Error fetching event:', error);
-        setEvent(null);
+        // PGRST116: no row for this reader; 22P02: the id is not a UUID. Both
+        // mean the event does not exist. Anything else is a failed read: a
+        // page already on screen stays, a first load shows Retry.
+        const missing = error.code === 'PGRST116' || error.code === '22P02';
+        if (missing) {
+          setEvent(null);
+          setLoadFailed(false);
+          loadedIdRef.current = id;
+        } else if (loadedIdRef.current !== id) {
+          setEvent(null);
+          setLoadFailed(true);
+        }
       } else {
         const ev = data as EventDetail;
         // Hide unpublished events from non-admins
         setEvent(ev.published === false && !isModerator ? null : ev);
+        setLoadFailed(false);
+        loadedIdRef.current = id;
       }
-      loadedIdRef.current = id;
       setLoading(false);
     })();
     return () => { alive = false; };
-  }, [id, isModerator]);
+  }, [id, isModerator, loadAttempt]);
 
   // Fetch packages for on-site events
   useEffect(() => {
@@ -434,9 +455,36 @@ export function EventDetailPage() {
   // ---------------------------------------------------------------- render
   if (loading) return <LoadingSkeleton variant="page" />;
 
+  if (!event && loadFailed) {
+    // No <Seo> here: the head the edge function wrote stays as it is.
+    return (
+      <div className="min-h-[60vh] bg-gray-50 px-4 py-16">
+        <div className="mx-auto max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-gray-100">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
+            <CalendarDays className="h-8 w-8 text-gray-400" aria-hidden="true" />
+          </div>
+          <h1 className="mb-2 text-xl font-bold text-gray-900">{t('common.loadFailedTitle', 'This page could not be loaded')}</h1>
+          <p className="mb-6 text-sm text-gray-600">{t('common.loadFailedBody', 'The connection may be slow or interrupted. Please try again.')}</p>
+          <div className="flex flex-wrap justify-center gap-3">
+            <Button asChild variant="outline" className="h-11 rounded-xl">
+              <Link to="/events">
+                <ChevronLeft className="mr-2 h-4 w-4" aria-hidden="true" />
+                {t('eventsPage.backToEvents', 'Back to events')}
+              </Link>
+            </Button>
+            <Button className="h-11 rounded-xl" onClick={() => setLoadAttempt((n) => n + 1)}>
+              {t('common.retry', 'Try again')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!event) {
     return (
       <div className="min-h-[60vh] bg-gray-50 px-4 py-16">
+        <Seo title={withSiteSuffix(t('eventsPage.notFound', 'Event not found'))} noindex />
         <div className="mx-auto max-w-md rounded-2xl bg-white p-8 text-center shadow-sm ring-1 ring-gray-100">
           <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
             <CalendarDays className="h-8 w-8 text-gray-400" aria-hidden="true" />
@@ -515,6 +563,11 @@ export function EventDetailPage() {
     : event.access_level === 'marina'
       ? t('eventsPage.access.marina', 'Marinas only')
       : t('eventsPage.access.public', 'Open to everyone');
+
+  // Title and meta description: the event's own name, then "when, where" before the summary —
+  // what someone searching for the event wants to read first. Canonical URL, share card and
+  // JSON-LD come with them, from the builder the edge function also uses (src/lib/seoMeta.ts).
+  const seo = eventMeta(event, seoTr, locale);
 
   // ---------------------------------------------------------------- participation card
   let panelTitle: string;
@@ -823,13 +876,8 @@ export function EventDetailPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet>
-        <title>{event.title} — Events — Smart Marina Connect</title>
-        <meta name="description" content={event.description?.substring(0, 160) || `Join ${event.title} on Smart Marina Connect`} />
-        <meta property="og:title" content={`${event.title} — Smart Marina Connect`} />
-        <meta property="og:description" content={event.description?.substring(0, 160) || ''} />
-        <meta property="og:type" content="event" />
-      </Helmet>
+      {/* An unpublished event (visible to staff only) must not reach a search index. */}
+      <Seo {...seo} noindex={event.published === false} />
 
       {/* ── Header: what, when, where, which language, for whom ── */}
       <section className="relative overflow-hidden text-white">

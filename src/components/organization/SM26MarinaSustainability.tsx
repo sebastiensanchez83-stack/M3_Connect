@@ -76,7 +76,7 @@ export function SM26MarinaSustainability({ orgId }: { orgId: string }) {
         <h2 className="text-lg font-semibold text-gray-900 mb-1 flex items-center gap-2">
           <Leaf className="h-5 w-5 text-green-600" /> Sustainability &amp; Innovation
         </h2>
-        <p className="text-xs text-gray-500 mb-5">From this marina's Smart &amp; Sustainable Marina Rendezvous 2026 submission.</p>
+        <p className="text-xs text-gray-500 mb-5">From this marina's submission to the Monaco Smart &amp; Sustainable Marina Rendezvous 2026.</p>
         <div className="space-y-5">
           {SECTIONS.map(sec => {
             const text = ((sub[sec.text] as string | null) || '').trim();

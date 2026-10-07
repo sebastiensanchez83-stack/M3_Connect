@@ -24,7 +24,7 @@ export function MomentsStrip({ className }: { className?: string }) {
               {t('sm26Moments.eyebrow', '20–21 September 2026 · Yacht Club de Monaco')}
             </p>
             <h2 id="sm26-moments-heading" className="mt-1 text-2xl font-bold text-primary sm:text-3xl">
-              {t('sm26Moments.title', 'Relive the Smart & Sustainable Marina Rendezvous')}
+              {t('sm26Moments.title', 'Relive the Monaco Smart & Sustainable Marina Rendezvous')}
             </h2>
           </div>
           <Link

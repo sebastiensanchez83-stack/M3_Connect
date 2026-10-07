@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
 import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, ArrowRight, Briefcase, Calendar, CheckCircle2, Clock, Coins, Compass, Hourglass,
@@ -28,6 +28,7 @@ import { THEMES, getTheme, themeForSector, type Theme, type ThemeKey } from '@/l
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { CREATE_ACTIONS, canCreate, type CreateAction, type CreateCapability } from '@/lib/nav';
 import { cn } from '@/lib/utils';
+import { withSiteSuffix } from '@/lib/seoText';
 
 /**
  * Open business published by verified marinas: RFPs, consultation requests and
@@ -155,7 +156,7 @@ const KIND_META: Record<Kind, {
     label: 'RFPs',
     one: 'RFP',
     title: 'Requests for proposals',
-    desc: 'A marina describes a need, sets a deadline and invites suppliers to send a proposal.',
+    desc: 'A marina describes a need, sets a deadline and invites service providers to send a proposal.',
   },
   consultations: {
     icon: MessageSquare,
@@ -171,7 +172,7 @@ const KIND_META: Record<Kind, {
     label: 'Projects',
     one: 'Project',
     title: 'Marina projects',
-    desc: 'A marina project in energy, digital, infrastructure or services, looking for the right suppliers.',
+    desc: 'A marina project in energy, digital, infrastructure or services, looking for the right service providers.',
   },
 };
 
@@ -665,24 +666,22 @@ export function OpportunitiesPage() {
   // definition alone rather than a promise that does not apply to them.
   const heroLead = t(
     'opportunities.subtitle',
-    'An opportunity is a verified marina asking the network for help: a request for proposals, a question for an expert, or a project looking for suppliers.',
+    'An opportunity is a verified marina asking the network for help: a request for proposals, a question for an expert, or a project looking for service providers.',
   );
   const heroAudience = heroActions.length > 0
-    ? t('opportunities.subtitleCreator', 'Publish one and verified suppliers in the matching sector can answer you.')
+    ? t('opportunities.subtitleCreator', 'Publish one and verified service providers in the matching sector can answer you.')
     : isMarinaLike
       ? t('opportunities.subtitlePending', 'You can publish one as soon as your organization is verified.')
       : persona === 'partner'
         ? t('opportunities.subtitleSupplier', 'Express interest in an RFP or a consultation and the marina receives your company profile.')
         : '';
 
+  const seoTitle = withSiteSuffix(t('seo.opportunities.title', 'Marina tenders, RFPs and projects'));
+  const seoDescription = t('seo.opportunities.description', 'Where marinas publish their needs: tenders, expert questions and projects, open to companies checked by M3. Sign up to read and answer them.');
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet>
-        <title>{`${t('opportunities.title', 'Opportunities')} — Smart Marina Connect`}</title>
-        <meta name="description" content="Open RFPs, consultation requests and marina projects looking for suppliers and partners." />
-        <meta property="og:title" content="Opportunities — Smart Marina Connect" />
-        <meta property="og:description" content="B2B network connecting marina operators with service providers." />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path="/opportunities" />
 
       <PageHero
         image={SITE_IMAGES.opportunitiesHero}
@@ -1252,17 +1251,26 @@ function GateCard({ signedIn, pending }: { signedIn: boolean; pending: boolean }
       <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-primary/5 text-primary">
         <Lock className="h-6 w-6" aria-hidden="true" />
       </span>
-      <h3 className="mt-4 text-lg font-semibold text-gray-900">{t('opportunities.gateTitle', 'Open to verified members')}</h3>
+      <h3 className="mt-4 text-lg font-semibold text-gray-900">{t('opportunities.gateTitle', 'Where marinas publish their needs')}</h3>
       <p className="mt-2 text-sm text-gray-600">
-        {signedIn && pending
-          ? t('opportunities.gatePending', 'Your account is being reviewed. Opportunities open as soon as it is verified.')
-          : t('opportunities.verifiedOnly', 'Only verified members can see the RFPs, consultations and projects marinas publish.')}
+        {!signedIn
+          ? t('opportunities.verifiedOnly', 'Tenders, expert questions and projects, visible to companies checked by M3. Sign up: once your company is checked, you can read them and, depending on your profile, answer.')
+          : pending
+            ? t('opportunities.gatePending', 'Your account is being reviewed. Opportunities open as soon as it is verified.')
+            : t('opportunities.gateSignedIn', 'Tenders, expert questions and projects are visible to companies checked by M3. Your account status shows what is still missing.')}
       </p>
       <div className="mt-6">
         {!signedIn ? (
-          <Button asChild className="h-10">
-            <Link to="/become-partner">{t('opportunities.signUp', 'Sign up')}</Link>
-          </Button>
+          <>
+            <Button asChild className="h-10">
+              <Link to="/become-partner">{t('opportunities.signUp', 'Sign up')}</Link>
+            </Button>
+            <p className="mt-4 text-sm text-gray-600">
+              <Link to="/become-partner" className="font-medium text-primary underline-offset-4 hover:underline">
+                {t('opportunities.gateMarina', 'Run a marina? Publish your first need.')}
+              </Link>
+            </p>
+          </>
         ) : (
           <Button asChild variant="outline" className="h-10">
             <Link to="/account">{t('opportunities.viewAccountStatus', 'View account status')}</Link>
@@ -1295,14 +1303,14 @@ function EmptyKind({
     projects: 'No active projects yet',
   };
   const creatorText: Record<Kind, string> = {
-    rfps: 'Be the first: describe your need and set a deadline. Verified suppliers in the matching sector will see it here and can answer you.',
+    rfps: 'Be the first: describe your need and set a deadline. Verified service providers in the matching sector will see it here and can answer you.',
     consultations: 'Ask your question: experts from the network will see it here and can offer their help.',
-    projects: 'Describe your project, budget and timeline; the M3 team will put you in touch with the right suppliers.',
+    projects: 'Describe your project, budget and timeline; the M3 team will put you in touch with the right service providers.',
   };
   const supplierText: Record<Kind, string> = {
     rfps: 'When a marina publishes an RFP, it appears here and on your dashboard. Express interest in one click and the marina receives your company profile.',
     consultations: 'When a marina asks for advice, the request appears here and on your dashboard. Offer your help in one click and the marina receives your company profile.',
-    projects: 'When a marina submits a project, the M3 team matches it with suppliers in the relevant sectors.',
+    projects: 'When a marina submits a project, the M3 team matches it with service providers in the relevant sectors.',
   };
 
   let text: string;
@@ -1358,7 +1366,7 @@ function EmptyKind({
             <>
               {audience !== 'marinaPending' && (
                 <p className="mt-3 max-w-prose text-sm text-gray-600">
-                  {t('opportunities.meanwhile', 'Meanwhile, the directory lists the marinas and suppliers already on the platform.')}
+                  {t('opportunities.meanwhile', 'Meanwhile, the directory lists the marinas and service providers already on the platform.')}
                 </p>
               )}
               <div className="mt-5">

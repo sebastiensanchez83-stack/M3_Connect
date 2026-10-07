@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Helmet } from 'react-helmet-async';
+import { useTranslation } from 'react-i18next';
+import { Seo } from '@/components/seo/Seo';
+import { useSeoTr } from '@/components/seo/useSeoTr';
+import { withSiteSuffix } from '@/lib/seoText';
 import { CalendarDays, MapPin, Loader2, CheckCircle, Lock, Mic, Wine } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,6 +27,8 @@ const ERRORS: Record<string, string> = {
 const EMPTY = { first_name: '', last_name: '', email: '', phone: '', company: '', job_title: '', country: '', motivation: '', website: '' };
 
 export function GuestEventPage({ slug }: { slug: string }) {
+  const { i18n } = useTranslation();
+  const seoTr = useSeoTr();
   const [event, setEvent] = useState<PublicGuestEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState(EMPTY);
@@ -63,10 +68,13 @@ export function GuestEventPage({ slug }: { slug: string }) {
 
   return (
     <div className="bg-gray-50 min-h-screen">
-      <Helmet>
-        <title>{event.title} — Request an invitation</title>
-        <meta name="description" content={s.tagline || event.title} />
-      </Helmet>
+      {/* /wys26 has its own words in src/i18n/seo.ts, the ones the edge function writes into the
+          HTML for share previews of the invitation link; another guest-list event uses its own. */}
+      <Seo
+        title={withSiteSuffix(i18n.exists(`seo.${slug}.title`) ? seoTr(`${slug}.title`) : `${event.title} — Request an invitation`)}
+        description={i18n.exists(`seo.${slug}.description`) ? seoTr(`${slug}.description`) : (s.tagline || event.title)}
+        path={`/${slug}`}
+      />
 
       <section className="bg-[#18182D] text-white">
         <div className="max-w-5xl mx-auto px-4 py-14 md:py-20">

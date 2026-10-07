@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight, BookOpen, CalendarDays, CalendarPlus, CheckCircle2, Clock, Loader2, Lock,
@@ -15,6 +15,7 @@ import { PageHero } from '@/components/ui/PageHero';
 import { FilterBar, FilterChip } from '@/components/ui/FilterChip';
 import { CoverImage } from '@/components/ui/CoverImage';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
+import { WysInvitationCard, isWys26Event, wys26Upcoming } from '@/components/events/WysInvitationCard';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { SM26_ENABLED } from '@/lib/featureFlags';
@@ -24,6 +25,7 @@ import { THEMES, getTheme, themesForSectors, type ThemeKey } from '@/lib/themes'
 import { accountHref } from '@/lib/accountNav';
 import { canCreate } from '@/lib/nav';
 import { cn, downloadICS } from '@/lib/utils';
+import { withSiteSuffix } from '@/lib/seoText';
 
 /**
  * Events and webinars.
@@ -309,6 +311,11 @@ export function EventsPage() {
     .sort((a, b) => new Date(b.date_time!).getTime() - new Date(a.date_time!).getTime());
   const featured = upcoming[0] ?? null;
   const moreUpcoming = upcoming.slice(1);
+  // The World Yachting Summit lives on the guest list, not in the events table:
+  // listed here by hand until it is over, unless a filter it cannot match is on
+  // or an events row already carries it.
+  const showWys = wys26Upcoming(now) && !activeMine && !activeTheme && activeType !== 'webinar'
+    && !events.some((e) => isWys26Event(e.title) && phaseOf(e, now) !== 'ended');
 
   const myUpcomingCount = events.filter((e) => registeredSet.has(e.id) && phaseOf(e, now) !== 'ended').length;
   const canPropose = canCreate('request_webinar', {
@@ -509,23 +516,21 @@ export function EventsPage() {
     return t(th.labelKey, th.fallback);
   };
 
+  const seoTitle = withSiteSuffix(t('seo.events.title', 'Marina industry events in Monaco, Dubai and online'));
+  const seoDescription = t('seo.events.description', 'The Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai and our webinars: industry events organised by M3 Monaco.');
+
   // ---------------------------------------------------------------- render
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet>
-        <title>Events — Smart Marina Connect</title>
-        <meta name="description" content="Discover upcoming marina industry events, webinars and conferences on Smart Marina Connect." />
-        <meta property="og:title" content="Events — Smart Marina Connect" />
-        <meta property="og:description" content="Marina industry events, webinars and conferences. Register and connect with professionals." />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path="/events" />
 
       <PageHero
         image={SITE_IMAGES.eventsHero}
         seed="events-hero"
         icon={CalendarDays}
         eyebrow={t('eventsPage.heroTag', 'Conferences & webinars')}
-        title={t('events.title')}
-        subtitle={t('events.subtitle')}
+        title={t('events.title', 'Marina industry events in Monaco, Dubai and online')}
+        subtitle={t('events.subtitle', 'The Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai (by invitation) and our webinars. Signed-in members register for webinars in one click.')}
       >
         {(signedIn && myUpcomingCount > 0) || canPropose ? (
           <div className="flex flex-wrap items-center gap-3">
@@ -610,7 +615,7 @@ export function EventsPage() {
       <div ref={listRef} className="container mx-auto space-y-12 px-4 pb-16 pt-6">
         {loading ? (
           <LoadingSkeleton variant="card" count={3} />
-        ) : anyFilter && filtered.length === 0 ? (
+        ) : anyFilter && filtered.length === 0 && !showWys ? (
           <div className="rounded-2xl bg-white px-6 py-16 text-center shadow-sm ring-1 ring-gray-100">
             <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
               <CalendarDays className="h-8 w-8 text-gray-400" aria-hidden="true" />
@@ -624,7 +629,7 @@ export function EventsPage() {
           <>
             {/* ── What's coming ── */}
             <section aria-labelledby="upcoming-heading">
-              <SectionHeading id="upcoming-heading" icon={CalendarDays} title={t('eventsPage.upcomingTitle', 'Upcoming events')} count={upcoming.length} />
+              <SectionHeading id="upcoming-heading" icon={CalendarDays} title={t('eventsPage.upcomingTitle', 'Upcoming events')} count={upcoming.length + (showWys ? 1 : 0)} />
 
               {featured ? (
                 <FeaturedEvent
@@ -642,6 +647,13 @@ export function EventsPage() {
                   action={primaryAction(featured, 'default')}
                   extra={calendarButton(featured, 'sm:hidden')}
                 />
+              ) : showWys ? (
+                <>
+                  <WysInvitationCard />
+                  <p className="mt-3 text-sm text-gray-600">
+                    {t('eventsPage.wys.moreSoon', 'New webinars are announced here first.')}
+                  </p>
+                </>
               ) : (
                 <div className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
                   <div className="grid sm:grid-cols-5">
@@ -677,6 +689,8 @@ export function EventsPage() {
                   </div>
                 </div>
               )}
+
+              {featured && showWys && <WysInvitationCard className="mt-6" />}
 
               {moreUpcoming.length > 0 && (
                 <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

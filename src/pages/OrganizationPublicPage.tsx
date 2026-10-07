@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { ReactNode, MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
+import { useSeoTr } from '@/components/seo/useSeoTr';
+import { organizationMeta } from '@/lib/seoMeta';
 import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, Award, BadgeCheck, Building2, CalendarClock, Camera, CheckCircle, ChevronLeft, ChevronRight,
@@ -29,6 +31,7 @@ import { checkSectorMatch } from '@/lib/sector-matching';
 import { THEMES, themeForSector, type Theme } from '@/lib/themes';
 import { accountHref } from '@/lib/accountNav';
 import { cn } from '@/lib/utils';
+import { withSiteSuffix } from '@/lib/seoText';
 import { toast } from '@/hooks/use-toast';
 import { HOLD_PERIODS } from '@/types/database';
 import type { Organization, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
@@ -120,7 +123,7 @@ const TYPE_ICON: Record<string, LucideIcon> = {
 /** Only these types get a label; any other value showed nothing before and still doesn't. */
 const TYPE_FALLBACK: Record<string, string> = {
   marina: 'Marina / Port',
-  partner: 'Partner',
+  partner: 'Service provider',
   media_partner: 'Media',
   developer: 'Developer',
   investor: 'Investor',
@@ -264,6 +267,7 @@ function useActiveSection(idsKey: string): string | null {
 export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
   const { t } = useTranslation();
+  const seoTr = useSeoTr();
   const { user, profile, organization, isVerified } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
@@ -272,6 +276,10 @@ export function OrganizationPublicPage() {
   const [futurePlans, setFuturePlans] = useState<FuturePlan[]>([]);
   const [confirmedReferences, setConfirmedReferences] = useState<ConfirmedReference[]>([]);
   const [loading, setLoading] = useState(true);
+  // The read failed (network, timeout, server error): not the same as "no such
+  // organization". Such a page must not tell Google to drop it (no noindex).
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   // Connect request state
   const [connectOpen, setConnectOpen] = useState(false);
@@ -283,13 +291,16 @@ export function OrganizationPublicPage() {
   const [lightbox, setLightbox] = useState<number | null>(null);
 
   // ------------------------------------------------------------------ data
-  // Keyed on the slug only: the auth objects are replaced on every tab
-  // refocus and must never re-run this (or blank the page with a skeleton).
+  // Keyed on the slug (and the Retry button) only: the auth objects are
+  // replaced on every tab refocus and must never re-run this (or blank the
+  // page with a skeleton).
   useEffect(() => {
     if (!slug) return;
     let alive = true;
+    let found = false;
     const fetchOrg = async () => {
       setLoading(true);
+      setLoadFailed(false);
       // Another organization: drop the previous one's data so nothing leaks across.
       setOrg(null);
       setMembers([]);
@@ -311,12 +322,16 @@ export function OrganizationPublicPage() {
 
         if (orgError) {
           if (import.meta.env.DEV) console.error('Error fetching organization:', orgError);
+          // PGRST116: .single() found no row, so the organization does not
+          // exist (for this reader). Anything else is a failed read.
+          if (orgError.code !== 'PGRST116') setLoadFailed(true);
           setLoading(false);
           return;
         }
 
         if (orgData) {
           const o = orgData as Organization;
+          found = true;
           setOrg(o);
 
           // Members with job_title
@@ -392,12 +407,13 @@ export function OrganizationPublicPage() {
         }
       } catch (err) {
         if (import.meta.env.DEV) console.error('Error loading organization:', err);
+        if (alive && !found) setLoadFailed(true);
       }
       if (alive) setLoading(false);
     };
     fetchOrg();
     return () => { alive = false; };
-  }, [slug]);
+  }, [slug, loadAttempt]);
 
   // Existing connect request — keyed on ids, not on the user/org objects.
   const userId = user?.id ?? null;
@@ -651,9 +667,37 @@ export function OrganizationPublicPage() {
     );
   }
 
+  if (!org && loadFailed) {
+    // No <Seo> here: the head the edge function wrote stays as it is, so a
+    // passing network error never tells Google to drop a real page.
+    return (
+      <div className="min-h-[60vh] bg-gray-50">
+        <div className={cn(WRAP, 'py-20 text-center')}>
+          <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
+            <Building2 className="h-10 w-10 text-gray-400" aria-hidden="true" />
+          </div>
+          <h1 className="mb-2 text-2xl font-bold text-gray-900">{t('common.loadFailedTitle', 'This page could not be loaded')}</h1>
+          <p className="mb-6 text-gray-600">{t('common.loadFailedBody', 'The connection may be slow or interrupted. Please try again.')}</p>
+          <div className="flex flex-wrap justify-center gap-3">
+            <Button asChild variant="outline" className="rounded-xl">
+              <Link to={back.to}>
+                <ChevronLeft className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                {back.label}
+              </Link>
+            </Button>
+            <Button className="rounded-xl" onClick={() => setLoadAttempt((n) => n + 1)}>
+              {t('common.retry', 'Try again')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!org) {
     return (
       <div className="min-h-[60vh] bg-gray-50">
+        <Seo title={withSiteSuffix(t('orgProfile.notFoundTitle', 'Organization not found'))} noindex />
         <div className={cn(WRAP, 'py-20 text-center')}>
           <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full bg-gray-100">
             <Building2 className="h-10 w-10 text-gray-400" aria-hidden="true" />
@@ -741,14 +785,14 @@ export function OrganizationPublicPage() {
     }
   }
 
+  // Title ("Name — Type in City, Country", shortened until it fits in 60 characters),
+  // description, canonical URL, share card and JSON-LD: the same builder as the
+  // edge function that writes them into the HTML for share previews (src/lib/seoMeta.ts).
+  const seo = organizationMeta(org, seoTr);
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet>
-        <title>{org.name} — Smart Marina Connect</title>
-        <meta name="description" content={org.description || `${org.name} on Smart Marina Connect — B2B platform for the marina industry.`} />
-        <meta property="og:title" content={`${org.name} — Smart Marina Connect`} />
-        <meta property="og:description" content={org.description || ''} />
-      </Helmet>
+      <Seo {...seo} />
 
       {/* ── Header: cover band, logo, identity, actions ── */}
       <header className="border-b border-gray-200 bg-white">

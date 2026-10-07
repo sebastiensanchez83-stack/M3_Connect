@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,6 +21,7 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { PersonaType } from '@/types/database';
 import { useNetworkFigures, formatFigure } from '@/lib/networkStats';
+import { withSiteSuffix } from '@/lib/seoText';
 import { PageHero } from '@/components/ui/PageHero';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import {
@@ -44,9 +45,9 @@ export function BecomePartnerPage() {
   const marinasFig = fig(figures.marinas);
   const countriesFig = fig(figures.countries);
   const statItems = [
-    { key: 'marinas', icon: Anchor, value: marinasFig, label: t('home.stats.marinas', 'Marinas') },
+    { key: 'marinas', icon: Anchor, value: marinasFig, label: t('homeSections.stats.marinas', 'Marinas listed') },
     { key: 'countries', icon: Globe, value: countriesFig, label: t('becomePartner.stats.countries', 'Countries') },
-    { key: 'partners', icon: Building2, value: fig(figures.partners), label: t('home.stats.partners', 'Partners') },
+    { key: 'partners', icon: Building2, value: fig(figures.partners), label: t('homeSections.stats.suppliers', 'Service providers') },
   ];
 
   const memberTypes = [
@@ -70,10 +71,10 @@ export function BecomePartnerPage() {
       iconBg: 'bg-orange-50',
       title: t('join.partner.title'),
       desc: t('join.partner.desc'),
+      // No audience figure here: few of the listed marinas have an account yet,
+      // so "visibility to N marinas" would promise more than the network gives.
       benefits: [
-        marinasFig
-          ? t('join.partner.benefitLive', 'Visibility to {{marinas}} marinas', { marinas: marinasFig })
-          : t('join.partner.benefits.0'),
+        t('join.partner.benefits.0'),
         t('join.partner.benefits.1'),
         t('join.partner.benefits.2'),
         t('join.partner.benefits.3'),
@@ -99,28 +100,28 @@ export function BecomePartnerPage() {
       icon: <HardHat className="h-8 w-8 text-amber-600" />,
       iconBg: 'bg-amber-50',
       title: t('join.developer.title', 'Developer'),
-      desc: t('join.developer.desc', 'Marina developer, real-estate group, or builder shaping the next generation of marinas.'),
+      desc: t('join.developer.desc', 'Marina developers, real-estate groups and builders shaping the next generation of marinas.'),
       benefits: [
-        t('join.developer.benefits.0', 'Submit RFPs, projects and consultations to source the right partners'),
-        t('join.developer.benefits.1', 'Track marina-industry sectors and connect with verified vendors'),
-        t('join.developer.benefits.2', 'Unlimited team seats to manage your projects collaboratively'),
-        t('join.developer.benefits.3', 'Access expert resources and on-site industry events'),
+        t('join.developer.benefits.0', 'Publish tenders, projects and expert questions'),
+        t('join.developer.benefits.1', 'Find service providers by theme and country'),
+        t('join.developer.benefits.2', 'Invite your colleagues to work on your projects together'),
+        t('join.developer.benefits.3', "Expert resources and M3's industry events"),
       ],
-      cta: t('join.developer.cta', 'Join as a developer'),
+      cta: t('join.developer.cta', 'Sign up as a developer'),
     },
     {
       id: 'investor',
       icon: <TrendingUp className="h-8 w-8 text-emerald-600" />,
       iconBg: 'bg-emerald-50',
       title: t('join.investor.title', 'Investor'),
-      desc: t('join.investor.desc', 'Fund, family office or strategic investor sourcing deal flow in the marina industry.'),
+      desc: t('join.investor.desc', 'Funds, family offices and strategic investors looking at the marina sector.'),
       benefits: [
-        t('join.investor.benefits.0', 'Browse marinas, developers and innovation partners seeking capital'),
-        t('join.investor.benefits.1', 'Filter deal flow by your investment-focus sectors and geographies'),
-        t('join.investor.benefits.2', 'Connect directly with marina operators and developers'),
-        t('join.investor.benefits.3', 'Stay current with industry resources, events, and trends'),
+        t('join.investor.benefits.0', 'Browse marinas, developers and start-ups raising capital'),
+        t('join.investor.benefits.1', 'Filter deal flow by sector and geography'),
+        t('join.investor.benefits.2', 'Contact marina operators and developers directly'),
+        t('join.investor.benefits.3', 'Industry resources, events and replays'),
       ],
-      cta: t('join.investor.cta', 'Join as an investor'),
+      cta: t('join.investor.cta', 'Sign up as an investor'),
     },
   ];
 
@@ -129,7 +130,7 @@ export function BecomePartnerPage() {
       icon: <Globe className="h-8 w-8" />,
       title: t('join.benefit1Title'),
       desc: countriesFig
-        ? t('join.benefit1DescLive', 'Connect with marina industry professionals in {{countries}} countries.', { countries: countriesFig })
+        ? t('join.benefit1DescLive', 'Marinas and service providers in {{countries}} countries.', { countries: countriesFig })
         : t('join.benefit1Desc'),
     },
     { icon: <Users className="h-8 w-8" />, title: t('join.benefit2Title'), desc: t('join.benefit2Desc') },
@@ -172,6 +173,9 @@ export function BecomePartnerPage() {
     { q: t('join.faq.q5'), a: t('join.faq.a5') },
   ];
 
+  const seoTitle = withSiteSuffix(t('seo.join.title', 'Join the marina industry network'));
+  const seoDescription = t('seo.join.description', 'Marina, service provider, investor, developer or media: sign up for free. The M3 team checks every company, then opens the features of your profile.');
+
   const handleJoin = (persona?: PersonaType) => {
     if (user) {
       if (!profile || profile.onboarding_status === 'draft') {
@@ -187,12 +191,7 @@ export function BecomePartnerPage() {
 
   return (
     <div>
-      <Helmet>
-        <title>Become a Member — Smart Marina Connect</title>
-        <meta name="description" content="Join Smart Marina Connect as a marina operator, service provider, media partner, developer, or investor. Discover the membership process and start connecting with the marina industry." />
-        <meta property="og:title" content="Become a Member — Smart Marina Connect" />
-        <meta property="og:description" content="Join the B2B platform connecting marina professionals worldwide." />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path="/become-partner" />
 
       {/* Hero — a conversation at an SM26 stand: the network, in person */}
       <PageHero

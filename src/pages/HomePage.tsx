@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
 import type { LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +16,7 @@ import { CoverImage, LogoBadge } from '@/components/ui/CoverImage';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { MomentsStrip } from '@/components/ui/MomentsStrip';
 import { TeaserVideo } from '@/components/home/TeaserVideo';
+import { WysInvitationCard, isWys26Event, wys26Upcoming } from '@/components/events/WysInvitationCard';
 import { SITE_IMAGES, PERSONA_IMAGES, eventCover } from '@/lib/siteMedia';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { accountHref } from '@/lib/accountNav';
@@ -471,16 +472,20 @@ export function HomePage() {
 
   const registeredIds = useMemo(() => new Set(myRegistrations.map((r) => r.event_id)), [myRegistrations]);
 
+  // The live figures, once loaded, go into the hero and the meta description
+  // ("180 marinas listed…"); until then both use the sentence without numbers.
+  const figure = (n: number) => formatFigure(n, stats.manual, i18n.language);
+  const liveFigures = !publicLoading && stats.marinas !== null && stats.suppliers !== null && stats.countries !== null
+    ? { marinas: figure(stats.marinas), suppliers: figure(stats.suppliers), countries: figure(stats.countries) }
+    : null;
+  const seoTitle = t('seo.home.title', 'Smart Marina Connect — The marina industry network');
+  const seoDescription = liveFigures
+    ? t('seo.home.descriptionLive', liveFigures)
+    : t('seo.home.description', 'Free B2B network for marinas and their service providers, with industry events in Monaco, Dubai and online. Every member checked by M3.');
+
   return (
     <div className="flex flex-col">
-      <Helmet>
-        <title>Smart Marina Connect — The B2B Platform for the Marina &amp; Yachting Industry</title>
-        <meta name="description" content="Smart Marina Connect is the professional B2B network connecting marinas, service providers, and media partners worldwide. Access exclusive resources, industry events, RFPs, and grow your marina business." />
-        <meta property="og:title" content="Smart Marina Connect — The B2B Platform for the Marina & Yachting Industry" />
-        <meta property="og:description" content="Connect marinas, service providers, and media partners. Share expertise, find solutions, and grow your marina business on the industry's professional network." />
-        <meta property="og:type" content="website" />
-        <meta property="og:url" content="https://smartmarinaconnect.com/" />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path="/" />
       {/* Hero — visitors: the SM26 hall behind, the platform teaser beside the pitch */}
       {!user && (
         <section className="relative overflow-hidden text-white">
@@ -499,15 +504,17 @@ export function HomePage() {
           <div className="relative container mx-auto grid items-center gap-10 px-4 py-14 md:py-20 lg:grid-cols-[1fr_1.1fr] lg:gap-14 lg:py-24">
             <div className="text-center lg:text-left">
               <h1 className="mb-5 text-4xl font-bold leading-tight md:text-5xl xl:text-6xl">
-                {t('home.heroTitle', 'The B2B Network for the Marina & Yachting Industry')}
+                {t('home.heroTitle', 'Marinas and the companies that serve them, in one network')}
               </h1>
               <p className="mx-auto mb-8 max-w-2xl text-lg text-gray-200 md:text-xl lg:mx-0">
-                {t('home.heroSubtitle', 'Connect marinas, service providers, and media partners. Share expertise, find solutions, grow your business.')}
+                {liveFigures
+                  ? t('home.heroSubtitleLive', liveFigures)
+                  : t('home.heroSubtitle', "Marinas publish their needs, service providers answer them, and everyone meets at M3's events in Monaco, Dubai and online.")}
               </p>
               <div className="flex flex-col justify-center gap-4 sm:flex-row lg:justify-start">
                 <Button size="lg" variant="secondary" asChild>
                   <Link to="/become-partner">
-                    {t('home.joinNowFree', 'Join Now — It\'s Free')}
+                    {t('home.joinNowFree', 'Sign up')}
                     <ArrowRight className="ml-2 h-5 w-5" />
                   </Link>
                 </Button>
@@ -519,9 +526,9 @@ export function HomePage() {
               </div>
               {/* Trust indicators */}
               <div className="mt-8 flex flex-wrap justify-center gap-3 text-xs text-gray-200 sm:gap-6 sm:text-sm lg:justify-start">
-                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustFree', 'Free for Marinas')}</span>
-                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustVerified', 'Verified Partners')}</span>
-                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustEvents', 'Industry Events & Resources')}</span>
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustFree', 'Free for every member')}</span>
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustVerified', 'Every member checked by the M3 team')}</span>
+                <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" /> {t('home.trustEvents', 'By M3 Monaco, organiser of industry events in Monaco, Dubai and online')}</span>
               </div>
             </div>
             <TeaserVideo />
@@ -678,8 +685,8 @@ function SectionHeader({
 function StatsBand({ stats, loading }: { stats: HomeStats; loading: boolean }) {
   const { t, i18n } = useTranslation();
   const items: { key: string; icon: LucideIcon; value: number | null; label: string; to: string }[] = [
-    { key: 'marinas', icon: Anchor, value: stats.marinas, label: t('homeSections.stats.marinas', 'Marinas'), to: '/directory?type=marina' },
-    { key: 'suppliers', icon: Briefcase, value: stats.suppliers, label: t('homeSections.stats.suppliers', 'Suppliers & experts'), to: '/directory?type=partner' },
+    { key: 'marinas', icon: Anchor, value: stats.marinas, label: t('homeSections.stats.marinas', 'Marinas listed'), to: '/directory?type=marina' },
+    { key: 'suppliers', icon: Briefcase, value: stats.suppliers, label: t('homeSections.stats.suppliers', 'Service providers'), to: '/directory?type=partner' },
     { key: 'countries', icon: Globe2, value: stats.countries, label: t('homeSections.stats.countries', 'Countries'), to: '/directory' },
     { key: 'resources', icon: BookOpen, value: stats.resources, label: t('homeSections.stats.resources', 'Articles & resources'), to: '/resources' },
   ];
@@ -730,27 +737,27 @@ function WhyJoin() {
       image: PERSONA_IMAGES.marinas,
       icon: Anchor,
       title: t('homeSections.persona.marinas.title', 'For marinas'),
-      desc: t('homeSections.persona.marinas.desc', 'Find qualified suppliers, put your projects and RFPs in front of the right experts, and learn from your peers.'),
+      desc: t('homeSections.persona.marinas.desc', 'Find service providers, put your projects and tenders in front of the right experts, and learn from other marinas.'),
       points: [
-        t('homeSections.persona.marinas.point1', 'Free membership'),
-        t('homeSections.persona.marinas.point2', 'Projects, RFPs and expert consultations'),
+        t('homeSections.persona.marinas.point1', "Your marina's page in the directory"),
+        t('homeSections.persona.marinas.point2', 'Projects, tenders and expert questions'),
         t('homeSections.persona.marinas.point3', 'Events and replays for your teams'),
       ],
-      cta: t('homeSections.persona.marinas.cta', 'Join as a marina'),
-      browse: { to: '/directory?type=partner', label: t('homeSections.persona.marinas.browse', 'Browse suppliers') },
+      cta: t('homeSections.persona.marinas.cta', 'Sign up as a marina'),
+      browse: { to: '/directory?type=partner', label: t('homeSections.persona.marinas.browse', 'Browse service providers') },
     },
     {
       key: 'suppliers',
       image: PERSONA_IMAGES.suppliers,
       icon: Briefcase,
-      title: t('homeSections.persona.suppliers.title', 'For suppliers & experts'),
-      desc: t('homeSections.persona.suppliers.desc', 'Showcase your solutions, answer marina RFPs and meet the decision-makers who run ports and marinas.'),
+      title: t('homeSections.persona.suppliers.title', 'For service providers'),
+      desc: t('homeSections.persona.suppliers.desc', 'Read the needs marinas publish, answer them and meet the people who run marinas.'),
       points: [
-        t('homeSections.persona.suppliers.point1', 'A company profile in the directory'),
-        t('homeSections.persona.suppliers.point2', 'Open RFPs and consultations'),
-        t('homeSections.persona.suppliers.point3', 'Partner packages for more visibility'),
+        t('homeSections.persona.suppliers.point1', 'A company page in the directory, checked by M3'),
+        t('homeSections.persona.suppliers.point2', 'Marina tenders and expert questions'),
+        t('homeSections.persona.suppliers.point3', 'Event sponsorship for more visibility'),
       ],
-      cta: t('homeSections.persona.suppliers.cta', 'Join as a supplier'),
+      cta: t('homeSections.persona.suppliers.cta', 'Sign up as a service provider'),
       browse: { to: '/directory?type=marina', label: t('homeSections.persona.suppliers.browse', 'See the marinas') },
     },
     {
@@ -761,10 +768,10 @@ function WhyJoin() {
       desc: t('homeSections.persona.media.desc', 'Follow the projects shaping the sector, reach a specialised audience and meet the teams behind them.'),
       points: [
         t('homeSections.persona.media.point1', 'Industry news, events and replays'),
-        t('homeSections.persona.media.point2', 'Direct access to marinas and suppliers'),
-        t('homeSections.persona.media.point3', 'Press access to events, deal flow for investors'),
+        t('homeSections.persona.media.point2', 'Direct access to marinas and service providers'),
+        t('homeSections.persona.media.point3', 'Press accreditation for events, deal flow for investors'),
       ],
-      cta: t('homeSections.persona.media.cta', 'Join the network'),
+      cta: t('homeSections.persona.media.cta', 'Sign up'),
       browse: { to: '/directory', label: t('homeSections.persona.media.browse', 'Explore the directory') },
     },
   ];
@@ -834,18 +841,18 @@ function HowItWorks() {
   const steps: { icon: LucideIcon; title: string; desc: string }[] = [
     {
       icon: UserPlus,
-      title: t('homeSections.steps.account.title', 'Create your free account'),
-      desc: t('homeSections.steps.account.desc', 'Tell us whether you run a marina, supply the industry or cover it.'),
+      title: t('homeSections.steps.account.title', 'Sign up'),
+      desc: t('homeSections.steps.account.desc', 'Tell us whether you run a marina, serve marinas, invest in them or cover the sector.'),
     },
     {
       icon: Building2,
-      title: t('homeSections.steps.organization.title', 'Set up your organization'),
-      desc: t('homeSections.steps.organization.desc', 'Join your company if it is already listed, or create its profile.'),
+      title: t('homeSections.steps.organization.title', 'Set up your company'),
+      desc: t('homeSections.steps.organization.desc', 'Join your company if it is already listed, or create its page.'),
     },
     {
       icon: ClipboardCheck,
-      title: t('homeSections.steps.verify.title', 'Get verified'),
-      desc: t('homeSections.steps.verify.desc', 'Our team reviews every new member before opening full access.'),
+      title: t('homeSections.steps.verify.title', 'Get checked by M3'),
+      desc: t('homeSections.steps.verify.desc', 'The M3 team checks every company and every person before opening access.'),
     },
     {
       icon: Unlock,
@@ -889,7 +896,7 @@ function HowItWorks() {
         <div className="mt-10 text-center">
           <Button asChild size="lg" className="h-auto min-h-11 whitespace-normal rounded-full">
             <Link to="/become-partner">
-              {t('homeSections.createAccount', 'Create my free account')}
+              {t('homeSections.createAccount', 'Sign up')}
               <ArrowRight className="ml-2 h-5 w-5 shrink-0" aria-hidden="true" />
             </Link>
           </Button>
@@ -921,25 +928,26 @@ function ClosingCta() {
             {t('homeSections.ctaEyebrow', 'Join the network')}
           </span>
           <h2 id="home-cta-heading" className="mt-4 text-3xl font-bold leading-tight drop-shadow-sm sm:text-4xl">
-            {t('homeSections.ctaTitle', 'Ready to grow with the marina industry?')}
+            {t('homeSections.ctaTitle', 'Sign up once. M3 checks your company, then the network opens.')}
           </h2>
           <p className="mt-3 text-lg text-white/85">
-            {t('homeSections.ctaSubtitle', 'Create your free account in a few minutes. Our team verifies every member, so the network stays professional.')}
+            {t('homeSections.ctaSubtitle', 'Free for every member. Marinas publish their needs; service providers, investors and developers answer and request introductions.')}
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <Button size="lg" variant="secondary" asChild className="h-auto min-h-11 whitespace-normal">
               <Link to="/become-partner">
-                {t('homeSections.createAccount', 'Create my free account')}
+                {t('homeSections.createAccount', 'Sign up')}
                 <ArrowRight className="ml-2 h-5 w-5 shrink-0" aria-hidden="true" />
               </Link>
             </Button>
             <Button size="lg" variant="outline" asChild className="h-auto min-h-11 whitespace-normal border-white bg-transparent text-white hover:bg-white/10 hover:text-white">
-              <Link to="/tiers">{t('homeSections.ctaSecondary', 'Compare memberships')}</Link>
+              <Link to="/directory">{t('homeSections.ctaSecondary', 'Explore the directory')}</Link>
             </Button>
           </div>
+          {/* "Free" is already said just above: the proof points here are the check and the organiser. */}
           <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-white/90">
-            <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" aria-hidden="true" /> {t('home.trustFree', 'Free for Marinas')}</span>
-            <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" aria-hidden="true" /> {t('home.trustVerified', 'Verified Partners')}</span>
+            <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" aria-hidden="true" /> {t('home.trustVerified', 'Every member checked by the M3 team')}</span>
+            <span className="flex items-center gap-1.5"><CheckCircle className="h-4 w-4 text-green-300" aria-hidden="true" /> {t('home.trustEvents', 'By M3 Monaco, organiser of industry events in Monaco, Dubai and online')}</span>
           </div>
         </div>
       </div>
@@ -1392,9 +1400,13 @@ function EventsSection({
   className?: string;
 }) {
   const { t } = useTranslation();
+  const [now] = useState(() => Date.now());
   // Nothing announced yet: show what just happened (replays) rather than an empty box.
   const showingPast = upcoming.length === 0 && past.length > 0;
   const list = showingPast ? past : upcoming;
+  // The World Yachting Summit runs on the guest list, not in the events table:
+  // shown by hand until it is over, unless an events row already carries it.
+  const showWys = wys26Upcoming(now) && !upcoming.some((e) => isWys26Event(e.title));
 
   return (
     <section aria-labelledby="home-events-heading" className={cn('py-16', className)}>
@@ -1402,20 +1414,26 @@ function EventsSection({
         <SectionHeader
           id="home-events-heading"
           eyebrow={t('homeSections.eventsEyebrow', 'Events & webinars')}
-          title={showingPast ? t('homeSections.eventsRecentTitle', 'Recent events') : t('homeSections.eventsTitle', 'Upcoming events')}
-          subtitle={showingPast ? t('homeSections.eventsNoneUpcoming', 'No upcoming event announced yet — catch up on the latest ones.') : undefined}
+          title={showingPast && !showWys ? t('homeSections.eventsRecentTitle', 'Recent events') : t('homeSections.eventsTitle', 'Upcoming events')}
+          subtitle={showingPast
+            ? showWys
+              ? t('homeSections.eventsNextWys', 'Next: the World Yachting Summit in Dubai, 27 November 2026, by invitation. Below, the latest events and their replays.')
+              : t('homeSections.eventsNoneUpcoming', 'No upcoming event announced yet — catch up on the latest ones.')
+            : undefined}
           link={{ to: '/events', label: t('homeSections.eventsLink', 'All events') }}
         />
+        {/* Before the replays (it is what comes next), after the dated upcoming events. */}
+        {!loading && showWys && (showingPast || list.length === 0) && <WysInvitationCard className={list.length > 0 ? 'mb-6' : undefined} />}
         {loading ? (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
             {[0, 1, 2].map((i) => <div key={i} className="h-72 animate-pulse rounded-2xl bg-gray-200" />)}
           </div>
-        ) : list.length === 0 ? (
+        ) : list.length === 0 ? (showWys ? null : (
           <div className="flex flex-col items-center rounded-2xl bg-white p-10 text-center shadow-sm ring-1 ring-gray-100">
             <CalendarDays className="mb-3 h-10 w-10 text-gray-300" aria-hidden="true" />
             <p className="text-gray-600">{t('homeSections.eventsEmpty', 'No event announced yet. New dates are published here first.')}</p>
           </div>
-        ) : (
+        )) : (
           <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {list.map((e) => (
               <li key={e.id}>
@@ -1424,6 +1442,7 @@ function EventsSection({
             ))}
           </ul>
         )}
+        {!loading && showWys && !showingPast && list.length > 0 && <WysInvitationCard className="mt-6" />}
       </div>
     </section>
   );
@@ -1516,7 +1535,7 @@ function PartnersWall({
       <div className="container mx-auto px-4">
         <SectionHeader
           id="home-partners-heading"
-          eyebrow={t('homeSections.partnersEyebrow', 'Partners & sponsors')}
+          eyebrow={t('homeSections.partnersEyebrow', 'Event sponsors')}
           title={t('homeSections.featuredPartners', 'Our partners')}
           link={{ to: '/partners', label: t('homeSections.partnersLink', 'All partners') }}
         />
@@ -1558,10 +1577,11 @@ function PartnersWall({
               {directoryLabel}
             </Link>
           </Button>
+          {/* Sponsoring is sold by the M3 team: /tiers lists platform quotas, not event packages. */}
           <Button asChild variant="ghost" className="h-auto min-h-11 whitespace-normal rounded-full px-5 text-primary hover:bg-primary/5 hover:text-primary">
-            <Link to="/tiers">
+            <Link to="/contact?subject=partnership">
               <HeartHandshake className="mr-2 h-4 w-4 shrink-0" aria-hidden="true" />
-              {t('homeSections.becomePartner', 'Become a partner')}
+              {t('homeSections.becomePartner', 'Sponsor an event')}
             </Link>
           </Button>
         </div>

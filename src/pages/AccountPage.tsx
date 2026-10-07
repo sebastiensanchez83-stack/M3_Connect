@@ -188,8 +188,8 @@ function eventWindow(e: Pick<RegisteredEvent, 'date_time' | 'end_date_time' | 'i
 const PERSONA_META: Record<string, { key: string; fallback: string; icon: LucideIcon }> = {
   marina: { key: 'accountArea.persona.marina', fallback: 'Marina / Port', icon: Anchor },
   developer: { key: 'accountArea.persona.developer', fallback: 'Marina developer', icon: Anchor },
-  partner: { key: 'accountArea.persona.partner', fallback: 'Partner', icon: Building2 },
-  media_partner: { key: 'accountArea.persona.media_partner', fallback: 'Media Partner', icon: Newspaper },
+  partner: { key: 'accountArea.persona.partner', fallback: 'Service provider', icon: Building2 },
+  media_partner: { key: 'accountArea.persona.media_partner', fallback: 'Media', icon: Newspaper },
   investor: { key: 'accountArea.persona.investor', fallback: 'Investor', icon: TrendingUp },
   individual: { key: 'accountArea.persona.individual', fallback: 'Individual', icon: UserCircle },
   moderator: { key: 'accountArea.persona.moderator', fallback: 'Moderator', icon: ShieldCheck },
@@ -1235,7 +1235,7 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
           {requestListsLoading ? (
             <RowSkeleton rows={2} />
           ) : projects.length === 0 ? (
-            <EmptyState icon={Anchor} title={t('accountArea.projects.empty', 'No projects submitted yet.')} body={t('accountArea.projects.emptyBody', 'Describe a need and the right suppliers come to you.')} />
+            <EmptyState icon={Anchor} title={t('accountArea.projects.empty', 'No projects submitted yet.')} body={t('accountArea.projects.emptyBody', 'Describe a need and the right service providers come to you.')} />
           ) : (
             <ul className="divide-y divide-gray-100">
               {projects.map((project) => (
@@ -1286,11 +1286,11 @@ export function AccountPage({ forceTab }: { forceTab?: string } = {}) {
           ) : (organization?.tier === 'member' && profile?.persona === 'partner') ? (
             <EmptyState
               icon={Radio}
-              title={t('accountArea.webinars.upgradeTitle', 'Upgrade required')}
-              body={t('accountArea.webinars.upgradeBody', 'Webinar proposals are available starting from the Innovation Partner tier. Upgrade your membership to unlock this feature.')}
+              title={t('accountArea.webinars.upgradeTitle', 'Webinars for event partners')}
+              body={t('accountArea.webinars.upgradeBody', "Webinar proposals are open to companies that sponsor M3's events, from the Innovation Partner level. Talk to the M3 team to find out more.")}
               action={(
-                <Button className={BTN} variant="outline" onClick={() => navigate('/tiers')}>
-                  {t('accountArea.webinars.viewPlans', 'View membership plans')}
+                <Button className={BTN} variant="outline" onClick={() => navigate('/contact?subject=partnership')}>
+                  {t('accountArea.webinars.viewPlans', 'Contact the M3 team')}
                 </Button>
               )}
             />

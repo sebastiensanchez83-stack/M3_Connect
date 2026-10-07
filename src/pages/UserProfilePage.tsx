@@ -166,8 +166,8 @@ export function UserProfilePage() {
   const getPersonaLabel = (persona: string) => {
     switch (persona) {
       case 'marina': return 'Marina / Port';
-      case 'partner': return 'Partner';
-      case 'media_partner': return 'Media Partner';
+      case 'partner': return 'Service provider';
+      case 'media_partner': return 'Media';
       case 'moderator': return 'Moderator';
       case 'admin': return 'Administrator';
       default: return '';

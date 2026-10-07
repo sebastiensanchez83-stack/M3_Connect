@@ -793,7 +793,7 @@ export function SM26RegisterPage() {
   if (!regOpen) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <Helmet><title>{t('sm26Register.closed.pageTitle', 'Registrations closed — Smart & Sustainable Marina Rendezvous 2026')}</title></Helmet>
+        <Helmet><title>{t('sm26Register.closed.pageTitle', 'Registrations closed — Monaco Smart & Sustainable Marina Rendezvous 2026')}</title></Helmet>
         <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
           <div className="container mx-auto px-4 py-12">
             <div className="mb-4"><SM26BackLink to="/events" label={t('sm26Register.closed.back', 'Back to events')} light /></div>
@@ -808,7 +808,7 @@ export function SM26RegisterPage() {
             <CalendarX className="h-8 w-8 text-primary" />
           </div>
           <p className="text-gray-700">
-            {t('sm26Register.closed.body', 'Registrations for the Smart & Sustainable Marina Rendezvous 2026 are closed.')}
+            {t('sm26Register.closed.body', 'Registrations for the Monaco Smart & Sustainable Marina Rendezvous 2026 are closed.')}
           </p>
           <p className="text-gray-600 mt-3">
             {t('sm26Register.closed.registered', 'Already registered? Your badge, programme and documents are in your event space.')}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
 import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, ArrowRight, Briefcase, Building2, Compass, HardHat, HeartHandshake, MapPin, Mail,
@@ -18,6 +18,7 @@ import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { SPONSOR_TIERS, type OrgTier } from '@/types/database';
 import { cn } from '@/lib/utils';
+import { withSiteSuffix } from '@/lib/seoText';
 
 /**
  * /partners — the companies backing the ecosystem.
@@ -60,7 +61,7 @@ type TypeKey = 'marina' | 'partner' | 'investor' | 'developer' | 'media_partner'
 
 const TYPE_META: Record<TypeKey, { icon: LucideIcon; oneKey: string; oneFallback: string; manyKey: string; manyFallback: string }> = {
   marina: { icon: Anchor, oneKey: 'partnersPage.typeOne.marina', oneFallback: 'Marina', manyKey: 'partnersPage.types.marina', manyFallback: 'Marinas' },
-  partner: { icon: Briefcase, oneKey: 'partnersPage.typeOne.partner', oneFallback: 'Supplier & expert', manyKey: 'partnersPage.types.partner', manyFallback: 'Suppliers & experts' },
+  partner: { icon: Briefcase, oneKey: 'partnersPage.typeOne.partner', oneFallback: 'Service provider', manyKey: 'partnersPage.types.partner', manyFallback: 'Service providers' },
   investor: { icon: TrendingUp, oneKey: 'partnersPage.typeOne.investor', oneFallback: 'Investor', manyKey: 'partnersPage.types.investor', manyFallback: 'Investors' },
   developer: { icon: HardHat, oneKey: 'partnersPage.typeOne.developer', oneFallback: 'Developer', manyKey: 'partnersPage.types.developer', manyFallback: 'Developers' },
   media_partner: { icon: Newspaper, oneKey: 'partnersPage.typeOne.media_partner', oneFallback: 'Media', manyKey: 'partnersPage.types.media_partner', manyFallback: 'Media' },
@@ -228,20 +229,20 @@ export function PartnersPage() {
     ? TYPE_KEYS.filter((k) => (typeCounts[k] ?? 0) > 0).map((k) => ({ key: k, count: typeCounts[k], ...TYPE_META[k] }))
     : [];
 
+  const seoTitle = withSiteSuffix(t('seo.partners.title', 'Event partners and sponsors'));
+  const seoDescription = t('seo.partners.description', 'Main Sponsor, Premium Sponsor and the other partners of the industry events M3 Monaco organises in Monaco, Dubai and online.');
+
   return (
     <div className="min-h-screen bg-gray-50 pb-16">
-      <Helmet>
-        <title>{`${t('partners.title', 'Our Partners')} — Smart Marina Connect`}</title>
-        <meta name="description" content="Discover verified partners in the Smart Marina Connect network — trusted service and equipment providers for the marina industry." />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path="/partners" />
 
       <PageHero
         image={SITE_IMAGES.partnersHero}
         seed="partners-hero"
         icon={HeartHandshake}
-        eyebrow={t('partnersPage.eyebrow', 'Partners & sponsors')}
-        title={t('partners.title', 'Our Partners')}
-        subtitle={t('partners.subtitle', 'Industry leaders serving the global marina sector.')}
+        eyebrow={t('partnersPage.eyebrow', 'Sponsors')}
+        title={t('partners.title', 'Our event partners')}
+        subtitle={t('partners.subtitle', 'The companies that sponsor the industry events M3 Monaco organises, listed by tier.')}
       >
         {/* A real form, so Enter on a phone keyboard closes it. */}
         <form
@@ -270,7 +271,7 @@ export function PartnersPage() {
         {!loading && partners.length > 0 && (
           <div className="mb-6 flex flex-wrap items-center gap-2">
             <span className="text-sm font-medium text-gray-900" aria-live="polite">
-              {t('partnersPage.results', { count: filteredPartners.length, defaultValue: '{{count}} partners' })}
+              {t('partnersPage.results', { count: filteredPartners.length, defaultValue: '{{count}} companies' })}
             </span>
             {searching && (
               <button
@@ -311,8 +312,8 @@ export function PartnersPage() {
                 <SectionTitle
                   id="partners-featured-heading"
                   icon={HeartHandshake}
-                  title={t('partnersPage.featuredTitle', 'Featured partners')}
-                  subtitle={t('partnersPage.featuredSubtitle', 'Companies that support the platform and its events through a partner package.')}
+                  title={t('partnersPage.featuredTitle', 'Sponsors')}
+                  subtitle={t('partnersPage.featuredSubtitle', "Companies that support M3's events through a sponsorship package.")}
                 />
                 <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                   {featured.map((p) => (
@@ -327,7 +328,7 @@ export function PartnersPage() {
                 <SectionTitle
                   id="partners-media-heading"
                   icon={Newspaper}
-                  title={t('partnersPage.mediaTitle', 'Media partners')}
+                  title={t('partnersPage.mediaTitle', 'Media')}
                   subtitle={t('partnersPage.mediaSubtitle', 'The publications that cover our events and the industry.')}
                 />
                 <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -365,7 +366,7 @@ export function PartnersPage() {
                 {typeCounts
                   ? t('partnersPage.directoryBody', {
                     count: typeCounts.all,
-                    defaultValue: 'The directory lists all {{count}} organizations on Smart Marina Connect — marinas, suppliers, experts and investors.',
+                    defaultValue: 'The directory lists all {{count}} organizations on Smart Marina Connect — marinas, service providers, investors and media.',
                   })
                   : t('partnersPage.directoryBodyNoCount', 'Every organization on Smart Marina Connect is listed in the directory.')}
               </p>
@@ -395,20 +396,21 @@ export function PartnersPage() {
           </div>
         </section>
 
-        {/* ── Join the partners ── */}
+        {/* ── Join the partners ── Event sponsorship is sold by the M3 team (/tiers
+            compares platform quotas, not event packages), so the card opens the contact form. */}
         <div className="mt-6 grid gap-6 md:grid-cols-2">
           <CtaCard
             icon={HeartHandshake}
-            title={t('partnersPage.becomeTitle', 'Become a partner')}
-            body={t('partnersPage.becomeBody', 'Raise your profile with marinas worldwide and support the events that bring the industry together.')}
-            to="/tiers"
-            cta={t('partnersPage.becomeCta', 'See partner packages')}
+            title={t('partnersPage.becomeTitle', 'Sponsor an event')}
+            body={t('partnersPage.becomeBody', "Put your company in front of marinas at M3's events in Monaco, Dubai and online.")}
+            to="/contact?subject=partnership"
+            cta={t('partnersPage.becomeCta', 'Contact the M3 team')}
           />
           <CtaCard
             icon={Mail}
             title={t('partnersPage.mediaCtaTitle', 'Are you a media outlet?')}
-            body={t('partnersPage.mediaCtaBody', 'Talk to us about becoming a media partner of our events.')}
-            to="/contact"
+            body={t('partnersPage.mediaCtaBody', 'Talk to us about covering our events and getting press accreditation.')}
+            to="/contact?subject=media"
             cta={t('partnersPage.mediaCtaCta', 'Contact us')}
           />
         </div>
@@ -504,7 +506,7 @@ function PartnerCard({
           )}
           {partner.is_event_media_partner && (
             <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
-              {t('partnersPage.mediaPartner', 'Media partner')}
+              {t('partnersPage.mediaPartner', 'Media')}
             </span>
           )}
         </div>

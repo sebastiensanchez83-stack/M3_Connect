@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Instagram } from 'lucide-react';
+import { Instagram, Linkedin } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountHref } from '@/lib/accountNav';
 
@@ -33,7 +33,8 @@ export function Footer() {
       ]
     : [
         { to: '/become-partner', label: t('nav.becomePartner') },
-        { to: '/tiers', label: t('footer.membershipTiers', 'Membership tiers') },
+        // Event sponsorship is sold by the M3 team: the contact form, opened on that subject.
+        { to: '/contact?subject=partnership', label: t('footer.sponsorEvent', 'Sponsor an event') },
       ];
 
   return (
@@ -53,7 +54,10 @@ export function Footer() {
             </div>
             <p className="mb-4 text-gray-300">{t('footer.tagline')}</p>
             <div className="flex space-x-4">
-              {/* LinkedIn link removed pre-launch — pending correct Smart Marina Connect company page URL */}
+              {/* No Smart Marina Connect page on LinkedIn: the platform is M3's, so the link is M3's company page. */}
+              <a href="https://www.linkedin.com/company/monaco-marina-management" target="_blank" rel="noopener noreferrer" className={linkClass} aria-label="LinkedIn">
+                <Linkedin className="h-5 w-5" />
+              </a>
               <a href="https://www.instagram.com/monacomarinamanagement/" target="_blank" rel="noopener noreferrer" className={linkClass} aria-label="Instagram">
                 <Instagram className="h-5 w-5" />
               </a>

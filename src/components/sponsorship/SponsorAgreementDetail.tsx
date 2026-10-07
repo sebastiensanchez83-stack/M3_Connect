@@ -237,7 +237,7 @@ export function SponsorAgreementDetail({ basePath }: { basePath: string }) {
 
       await downloadFeedbackReportPdf(blocks, {
         title: sponsor.company_name,
-        subtitle: 'Smart & Sustainable Marina Rendezvous 2026 · Partnership report',
+        subtitle: 'Monaco Smart & Sustainable Marina Rendezvous 2026 · Partnership report',
         note: `${done} of ${benefits.length} commitments delivered at the time of writing. This document is a draft for internal completion — it is not sent automatically.`,
       }, { banner, footer }, `${sponsor.company_name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-partnership-report.pdf`);
     } catch (e) {

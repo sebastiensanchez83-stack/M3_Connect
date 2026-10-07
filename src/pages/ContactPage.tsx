@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,10 +15,11 @@ import {
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
 import { Mail, MapPin, Send, CheckCircle } from 'lucide-react';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
 import { supabase } from '@/lib/supabase';
 import { PageHero } from '@/components/ui/PageHero';
 import { SITE_IMAGES } from '@/lib/siteMedia';
+import { withSiteSuffix } from '@/lib/seoText';
 
 interface ContactForm {
   name: string;
@@ -27,24 +29,34 @@ interface ContactForm {
 }
 
 const SUBJECT_OPTIONS = [
-  { value: 'general', labelKey: 'contact.subjectGeneral', fallback: 'General Inquiry' },
-  { value: 'partnership', labelKey: 'contact.subjectPartnership', fallback: 'Partnership' },
+  { value: 'general', labelKey: 'contact.subjectGeneral', fallback: 'General question' },
+  // The value stays 'partnership' (stored with each message); the label says what it is.
+  { value: 'partnership', labelKey: 'contact.subjectPartnership', fallback: 'Event sponsorship' },
   { value: 'support', labelKey: 'contact.subjectSupport', fallback: 'Support' },
-  { value: 'media', labelKey: 'contact.subjectMedia', fallback: 'Media' },
+  { value: 'media', labelKey: 'contact.subjectMedia', fallback: 'Media and press' },
   { value: 'other', labelKey: 'contact.subjectOther', fallback: 'Other' },
 ];
 
 export function ContactPage() {
   const { t } = useTranslation();
+  // "Sponsor an event" and "Are you a media outlet?" links arrive with ?subject=partnership / media.
+  const [params] = useSearchParams();
+  const presetSubject = SUBJECT_OPTIONS.some((s) => s.value === params.get('subject')) ? params.get('subject')! : '';
   const [form, setForm] = useState<ContactForm>({
     name: '',
     email: '',
-    subject: '',
+    subject: presetSubject,
     message: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof ContactForm, string>>>({});
+
+  // Following such a link while already on /contact (the footer is on every
+  // page) keeps this page mounted: the subject follows the new link.
+  useEffect(() => {
+    if (presetSubject) setForm((f) => ({ ...f, subject: presetSubject }));
+  }, [presetSubject]);
 
   function validate(): boolean {
     const newErrors: Partial<Record<keyof ContactForm, string>> = {};
@@ -66,7 +78,7 @@ export function ContactPage() {
     if (!form.message.trim()) {
       newErrors.message = t('contact.errorMessage', 'Please enter a message');
     } else if (form.message.trim().length < 10) {
-      newErrors.message = t('contact.errorMessageShort', 'Message must be at least 10 characters');
+      newErrors.message = t('contact.errorMessageShort', 'Your message must be at least 10 characters long');
     }
 
     setErrors(newErrors);
@@ -98,10 +110,10 @@ export function ContactPage() {
 
       setSubmitted(true);
       toast({
-        title: t('contact.successTitle', 'Message Sent'),
+        title: t('contact.successTitle', 'Message sent'),
         description: t(
           'contact.successDesc',
-          'Thank you for reaching out. We will get back to you shortly.'
+          'Thank you. The M3 team will get back to you shortly.'
         ),
       });
     } catch (err) {
@@ -124,10 +136,10 @@ export function ContactPage() {
       '_self'
     );
     toast({
-      title: t('contact.mailtoTitle', 'Opening Email Client'),
+      title: t('contact.mailtoTitle', 'Opening your email app'),
       description: t(
         'contact.mailtoDesc',
-        'Your default email client will open with a pre-filled message.'
+        'Your email app will open with the message ready to send.'
       ),
     });
     setSubmitted(true);
@@ -146,38 +158,38 @@ export function ContactPage() {
         <div className="text-center py-16">
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-6" />
           <h1 className="text-3xl font-bold text-gray-900 mb-4">
-            {t('contact.thankYouTitle', 'Thank You!')}
+            {t('contact.thankYouTitle', 'Thank you!')}
           </h1>
           <p className="text-lg text-gray-600 mb-8">
             {t(
               'contact.thankYouDesc',
-              'Your message has been sent successfully. Our team will review your inquiry and get back to you as soon as possible.'
+              'Your message has been sent. The M3 team will read it and get back to you as soon as possible.'
             )}
           </p>
           <Button onClick={() => { setSubmitted(false); setForm({ name: '', email: '', subject: '', message: '' }); }}>
-            {t('contact.sendAnother', 'Send Another Message')}
+            {t('contact.sendAnother', 'Send another message')}
           </Button>
         </div>
       </div>
     );
   }
 
+  const seoTitle = withSiteSuffix(t('seo.contact.title', 'Contact the Smart Marina Connect team'));
+  const seoDescription = t('seo.contact.description', 'A question about the platform, your company page or sponsoring an event? Write to the M3 Monaco team behind Smart Marina Connect.');
+
   return (
     <>
-      <Helmet>
-        <title>Contact Us — Smart Marina Connect</title>
-        <meta name="description" content="Get in touch with the Smart Marina Connect team. We're here to answer questions about the platform, partnerships and onboarding." />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path="/contact" />
       {/* A round-table workshop from SM26: people talking things through. */}
       <PageHero
         image={SITE_IMAGES.contactHero}
         seed="contact-hero"
         containerClassName="max-w-5xl"
         icon={Mail}
-        title={t('contact.title', 'Contact Us')}
+        title={t('contact.title', 'Contact us')}
         subtitle={t(
           'contact.subtitle',
-          'Have a question or want to learn more about Smart Marina Connect? We would love to hear from you.'
+          'A question about the platform, your company page or sponsoring one of our events? The M3 team reads every message.'
         )}
       />
     <div className="container mx-auto px-4 py-12 max-w-5xl">
@@ -189,7 +201,7 @@ export function ContactPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Send className="h-5 w-5 text-primary" />
-                {t('contact.formTitle', 'Send Us a Message')}
+                {t('contact.formTitle', 'Send us a message')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -197,7 +209,7 @@ export function ContactPage() {
                 {/* Name */}
                 <div className="space-y-2">
                   <Label htmlFor="contact-name">
-                    {t('contact.nameLabel', 'Full Name')} <span className="text-red-500">*</span>
+                    {t('contact.nameLabel', 'Full name')} <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="contact-name"
@@ -215,7 +227,7 @@ export function ContactPage() {
                 {/* Email */}
                 <div className="space-y-2">
                   <Label htmlFor="contact-email">
-                    {t('contact.emailLabel', 'Email Address')} <span className="text-red-500">*</span>
+                    {t('contact.emailLabel', 'Email address')} <span className="text-red-500">*</span>
                   </Label>
                   <Input
                     id="contact-email"
@@ -267,7 +279,7 @@ export function ContactPage() {
                   </Label>
                   <Textarea
                     id="contact-message"
-                    placeholder={t('contact.messagePlaceholder', 'Tell us how we can help...')}
+                    placeholder={t('contact.messagePlaceholder', 'Tell us how we can help…')}
                     value={form.message}
                     onChange={(e) => handleChange('message', e.target.value)}
                     rows={6}
@@ -282,12 +294,12 @@ export function ContactPage() {
                   {submitting ? (
                     <>
                       <span className="animate-spin mr-2">&#9696;</span>
-                      {t('contact.sending', 'Sending...')}
+                      {t('contact.sending', 'Sending…')}
                     </>
                   ) : (
                     <>
                       <Send className="mr-2 h-4 w-4" />
-                      {t('contact.submitButton', 'Send Message')}
+                      {t('contact.submitButton', 'Send message')}
                     </>
                   )}
                 </Button>
@@ -298,7 +310,7 @@ export function ContactPage() {
 
         {/* Contact Info Cards */}
         <div className="space-y-6">
-          <h2 className="sr-only">{t('contact.infoTitle', 'Contact Information')}</h2>
+          <h2 className="sr-only">{t('contact.infoTitle', 'Contact information')}</h2>
 
           <Card>
             <CardHeader>
@@ -315,7 +327,7 @@ export function ContactPage() {
                 contact@smartmarinaconnect.com
               </a>
               <p className="text-sm text-gray-500 mt-2">
-                {t('contact.emailNote', 'We typically respond within 24-48 hours.')}
+                {t('contact.emailNote', 'We usually reply within 24 to 48 hours.')}
               </p>
             </CardContent>
           </Card>
@@ -329,7 +341,7 @@ export function ContactPage() {
             </CardHeader>
             <CardContent>
               <p className="text-gray-600">M3 Monaco</p>
-              <p className="text-gray-600">Principality of Monaco</p>
+              <p className="text-gray-600">{t('contact.principality', 'Principality of Monaco')}</p>
             </CardContent>
           </Card>
         </div>

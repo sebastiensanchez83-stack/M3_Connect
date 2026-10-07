@@ -523,7 +523,7 @@ export function ReferenceRequestForm({ onReferenceSubmitted }: ReferenceRequestF
               <textarea
                 value={recommendationStatement}
                 onChange={(e) => setRecommendationStatement(e.target.value)}
-                placeholder="We confirm that [Partner Name] delivered the above-described project with professionalism, quality and reliability..."
+                placeholder="We confirm that [Company name] delivered the above-described project with professionalism, quality and reliability..."
                 className="w-full min-h-[100px] resize-y rounded-lg border border-primary/30 bg-green-50 p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
             </div>

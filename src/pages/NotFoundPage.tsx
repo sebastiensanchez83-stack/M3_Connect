@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
 import { Button } from '@/components/ui/button';
 import { Home, AlertCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -9,18 +9,17 @@ export function NotFoundPage() {
 
   return (
     <div className="container mx-auto px-4 py-24 text-center">
-      <Helmet>
-        <title>404 — Smart Marina Connect</title>
-      </Helmet>
+      {/* No canonical, and out of the index: the URL is wrong, not the page. */}
+      <Seo title={`${t('seo.notFound.title', 'Page not found')} | Smart Marina Connect`} noindex />
       <AlertCircle className="h-16 w-16 text-gray-300 mx-auto mb-6" />
       <h1 className="text-4xl font-bold text-primary mb-3">404</h1>
       <p className="text-lg text-gray-600 mb-8">
-        {t('errors.pageNotFound', 'The page you are looking for does not exist or has been moved.')}
+        {t('errors.pageNotFound', 'The page you are looking for does not exist or has moved.')}
       </p>
       <Button asChild>
         <Link to="/">
           <Home className="h-4 w-4 mr-2" />
-          {t('common.backToHome', 'Back to Home')}
+          {t('common.backToHome', 'Back to home')}
         </Link>
       </Button>
     </div>

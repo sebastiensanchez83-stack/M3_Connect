@@ -50,7 +50,7 @@ interface DealFlowOrg {
 const TYPE_LABEL: Record<string, string> = {
   marina: 'Marina',
   developer: 'Developer',
-  partner: 'Innovation partner',
+  partner: 'Service provider',
 };
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
@@ -334,7 +334,7 @@ export function DealFlowPage() {
     <div className="min-h-screen bg-gray-50">
       <Helmet>
         <title>Deal flow — Smart Marina Connect</title>
-        <meta name="description" content="Active capital-seeking marinas, developers, and innovation partners on Smart Marina Connect." />
+        <meta name="description" content="Marinas, developers and service providers raising capital on Smart Marina Connect." />
       </Helmet>
 
       {/* Hero */}
@@ -447,7 +447,7 @@ export function DealFlowPage() {
               </h3>
               <p className="text-sm text-gray-500 max-w-md mx-auto">
                 {orgs.length === 0
-                  ? 'When marinas, developers, or innovation partners on the platform flip on "Seeking capital", they show up here.'
+                  ? 'When marinas, developers or service providers on the platform switch on "Seeking capital", they show up here.'
                   : 'Try widening your filters or unticking "Only show orgs in my focus sectors".'}
               </p>
             </CardContent>

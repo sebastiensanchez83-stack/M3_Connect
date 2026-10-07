@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
+import { themedPath } from '@/lib/seoMeta';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,7 @@ import { ThemeTile, ThemeTileRow } from '@/components/ui/ThemeTile';
 import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { readMinutes } from '@/lib/readTime';
+import { withSiteSuffix } from '@/lib/seoText';
 
 /**
  * The resource library, browsed by theme.
@@ -250,23 +252,31 @@ export function ResourcesPage() {
   const themeLabel = (th: Theme) => t(th.labelKey, th.fallback);
   const sectorLabel = (slug: string) => t(`sectorNames.${slug}`, sectors.find((s) => s.slug === slug)?.label ?? slug);
 
+  // The real number of published articles, once loaded ("30 articles in 6 themes").
+  const resourceCount = !loading && resources.length > 0 ? resources.length : null;
+  const seoTitle = theme
+    ? withSiteSuffix(t('seo.resources.themeTitle', { theme: themeLabel(theme), defaultValue: '{{theme}} — marina resources' }))
+    : withSiteSuffix(t('seo.resources.title', 'Marina industry resources, by theme'));
+  const seoDescription = theme
+    ? t('seo.resources.themeDescription', { theme: themeLabel(theme), defaultValue: '{{theme}}: articles for marinas and their service providers, from the Smart Marina Connect library.' })
+    : resourceCount !== null
+      ? t('seo.resources.descriptionLive', { count: resourceCount, defaultValue: '{{count}} articles on marina infrastructure, design, digital, energy, operations and business, sorted into 6 themes.' })
+      : t('seo.resources.description', 'Articles on marina infrastructure, design, digital, energy, operations and business, sorted into 6 themes in the Smart Marina Connect library.');
+
   // ---------------------------------------------------------------- render
   return (
     <div className="min-h-screen bg-gray-50">
-      <Helmet>
-        <title>{theme ? `${themeLabel(theme)} — ${t('resources.title')}` : `${t('resources.title')} — Smart Marina Connect`}</title>
-        <meta name="description" content="Articles, guides and replays on marina design, energy, digital, operations and regulation — the Smart Marina Connect knowledge library." />
-        <meta property="og:title" content="Resources — Smart Marina Connect" />
-        <meta property="og:description" content="The marina industry knowledge library, browsed by theme." />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path={themedPath('/resources', theme?.key)} />
 
       <PageHero
         image={SITE_IMAGES.resourcesHero}
         seed="resources-hero"
         icon={BookOpen}
-        eyebrow={t('resources.heroTag')}
-        title={t('resources.title')}
-        subtitle={t('resources.subtitle')}
+        eyebrow={t('resources.heroTag', 'Library')}
+        title={t('resources.title', 'Marina industry resources, by theme')}
+        subtitle={resourceCount !== null
+          ? t('resources.subtitleLive', { count: resourceCount, defaultValue: '{{count}} articles in 6 themes: infrastructure, design, digital, energy, operations and business.' })
+          : t('resources.subtitle', 'Articles in 6 themes: infrastructure, design, digital, energy, operations and business.')}
       >
         {/* A real form, so Enter on a phone keyboard closes it and shows the results. */}
         <form

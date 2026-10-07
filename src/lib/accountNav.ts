@@ -77,7 +77,7 @@ export const ACCOUNT_SECTIONS: AccountSection[] = [
   {
     value: 'event', group: 'activity', icon: Ship,
     labelKey: 'accountNav.event', fallback: 'Event hub',
-    descKey: 'accountNav.eventDesc', descFallback: 'Your Smart Marina Rendezvous space',
+    descKey: 'accountNav.eventDesc', descFallback: 'Your event badge, programme and documents',
   },
   {
     value: 'inbox', group: 'activity', icon: Inbox,
@@ -93,7 +93,7 @@ export const ACCOUNT_SECTIONS: AccountSection[] = [
   {
     value: 'projects', group: 'requests', icon: Anchor,
     labelKey: 'accountNav.projects', fallback: 'Projects',
-    descKey: 'accountNav.projectsDesc', descFallback: 'Needs you submitted to suppliers',
+    descKey: 'accountNav.projectsDesc', descFallback: 'Needs you submitted to service providers',
   },
   {
     value: 'rfps', group: 'requests', icon: ClipboardList,
@@ -138,8 +138,8 @@ export const ACCOUNT_SECTIONS: AccountSection[] = [
   },
   {
     value: 'pricing', group: 'organization', icon: CreditCard,
-    labelKey: 'accountNav.pricing', fallback: 'Plan & billing',
-    descKey: 'accountNav.pricingDesc', descFallback: 'Membership tier and invoices',
+    labelKey: 'accountNav.pricing', fallback: 'Membership & sponsorship',
+    descKey: 'accountNav.pricingDesc', descFallback: 'Free membership, event sponsor levels',
   },
   // ── How my account is set up ──
   {

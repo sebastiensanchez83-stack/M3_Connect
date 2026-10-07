@@ -105,8 +105,8 @@ function WelcomeShell({ event, children }: { event: boolean; children: ReactNode
           <h1 className="text-2xl lg:text-3xl font-bold">{t('onboarding.welcome', 'Welcome to Smart Marina Connect')}</h1>
           <p className="text-white/80 mt-1">
             {event
-              ? t('welcome.eventLine', 'Smart & Sustainable Marina Rendezvous 2026 · 20–21 Sep · Yacht Club de Monaco')
-              : t('welcome.tagline', 'The B2B platform for the marina industry')}
+              ? t('welcome.eventLine', 'Monaco Smart & Sustainable Marina Rendezvous 2026 · 20–21 Sep · Yacht Club de Monaco')
+              : t('welcome.tagline', 'The marina industry network')}
           </p>
         </div>
       </section>

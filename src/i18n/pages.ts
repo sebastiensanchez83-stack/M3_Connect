@@ -10,24 +10,23 @@
 export const PAGE_STRINGS = {
   "en": {
     "directory": {
-      "metaTitle": "Directory — Smart Marina Connect",
-      "metaDescription": "Marinas, suppliers, experts and investors on the Smart Marina Connect network.",
-      "eyebrow": "Directory",
-      "title": "Who's who in the marina industry",
-      "subtitle": "Marinas, suppliers, experts and investors on Smart Marina Connect. Find the right partner for your next project.",
+      "eyebrow": "Who's who",
+      "title": "Marina & service provider directory",
+      "subtitle": "Marinas, service providers, investors and media. Filter by theme or country, shortlist the companies you need and request an introduction from their page.",
+      "subtitleLive": "{{marinas}} marinas listed and {{suppliers}} service providers in {{countries}} countries. Filter by theme or country, shortlist the companies you need and request an introduction from their page.",
       "search": "Search by name, country or sector…",
       "typeGroup": "Type of organization",
       "types": {
         "all": "All",
         "marina": "Marinas",
-        "partner": "Suppliers & experts",
+        "partner": "Service providers",
         "investor": "Investors",
         "developer": "Developers",
         "media_partner": "Media"
       },
       "typeOne": {
         "marina": "Marina",
-        "partner": "Supplier & expert",
+        "partner": "Service provider",
         "investor": "Investor",
         "developer": "Developer",
         "media_partner": "Media",
@@ -35,7 +34,7 @@ export const PAGE_STRINGS = {
       },
       "browseByTheme": "Browse by theme",
       "themesHint": {
-        "all": "Suppliers are grouped by the services they offer, marinas by their areas of interest.",
+        "all": "Service providers are grouped by the services they offer, marinas by their areas of interest.",
         "interest": "Grouped by each organization's areas of interest.",
         "supply": "Grouped by the services each company offers."
       },
@@ -50,8 +49,8 @@ export const PAGE_STRINGS = {
       "forYourSectorsHint": "Organizations working in the sectors of your organization",
       "noOrganizations": "No organizations are listed yet.",
       "noMatch": "No organization matches these filters.",
-      "featuredTitle": "Platform partners",
-      "featuredDesc": "Companies that support Smart Marina Connect",
+      "featuredTitle": "Event partners",
+      "featuredDesc": "Companies that sponsor M3's events",
       "featuredAll": "All partners",
       "shownOf": "Showing {{shown}} of {{total}}",
       "showMore": "Show more",
@@ -64,8 +63,8 @@ export const PAGE_STRINGS = {
     "opportunities": {
       "title": "Opportunities",
       "heroTag": "Open business",
-      "subtitle": "An opportunity is a verified marina asking the network for help: a request for proposals, a question for an expert, or a project looking for suppliers.",
-      "subtitleCreator": "Publish one and verified suppliers in the matching sector can answer you.",
+      "subtitle": "An opportunity is a verified marina asking the network for help: a request for proposals, a question for an expert, or a project looking for service providers.",
+      "subtitleCreator": "Publish one and verified service providers in the matching sector can answer you.",
       "subtitleSupplier": "Express interest in an RFP or a consultation and the marina receives your company profile.",
       "subtitlePending": "You can publish one as soon as your organization is verified.",
       "kinds": {
@@ -84,9 +83,9 @@ export const PAGE_STRINGS = {
         "projects": "Marina projects"
       },
       "kindDesc": {
-        "rfps": "A marina describes a need, sets a deadline and invites suppliers to send a proposal.",
+        "rfps": "A marina describes a need, sets a deadline and invites service providers to send a proposal.",
         "consultations": "A marina asks a precise question and looks for expert advice.",
-        "projects": "A marina project in energy, digital, infrastructure or services, looking for the right suppliers."
+        "projects": "A marina project in energy, digital, infrastructure or services, looking for the right service providers."
       },
       "publish": {
         "rfps": "Publish an RFP",
@@ -98,8 +97,10 @@ export const PAGE_STRINGS = {
       "removeTheme": "Remove the filter {{theme}}",
       "clearFilters": "Clear filters",
       "noMatch": "Nothing in this theme for now.",
-      "gateTitle": "Open to verified members",
-      "verifiedOnly": "Only verified members can see the RFPs, consultations and projects marinas publish.",
+      "gateTitle": "Where marinas publish their needs",
+      "verifiedOnly": "Tenders, expert questions and projects, visible to companies checked by M3. Sign up: once your company is checked, you can read them and, depending on your profile, answer.",
+      "gateMarina": "Run a marina? Publish your first need.",
+      "gateSignedIn": "Tenders, expert questions and projects are visible to companies checked by M3. Your account status shows what is still missing.",
       "gatePending": "Your account is being reviewed. Opportunities open as soon as it is verified.",
       "signUp": "Sign up",
       "viewAccountStatus": "View account status",
@@ -109,19 +110,19 @@ export const PAGE_STRINGS = {
         "projects": "No active projects yet"
       },
       "emptyCreator": {
-        "rfps": "Be the first: describe your need and set a deadline. Verified suppliers in the matching sector will see it here and can answer you.",
+        "rfps": "Be the first: describe your need and set a deadline. Verified service providers in the matching sector will see it here and can answer you.",
         "consultations": "Ask your question: experts from the network will see it here and can offer their help.",
-        "projects": "Describe your project, budget and timeline; the M3 team will put you in touch with the right suppliers."
+        "projects": "Describe your project, budget and timeline; the M3 team will put you in touch with the right service providers."
       },
       "emptyCreatorReviewed": "Each request is reviewed by the M3 team before it is published.",
       "emptyMarinaPending": "You can publish here as soon as your organization is verified.",
       "emptySupplier": {
         "rfps": "When a marina publishes an RFP, it appears here and on your dashboard. Express interest in one click and the marina receives your company profile.",
         "consultations": "When a marina asks for advice, the request appears here and on your dashboard. Offer your help in one click and the marina receives your company profile.",
-        "projects": "When a marina submits a project, the M3 team matches it with suppliers in the relevant sectors."
+        "projects": "When a marina submits a project, the M3 team matches it with service providers in the relevant sectors."
       },
       "emptyOther": "New opportunities appear here as soon as the M3 team approves them.",
-      "meanwhile": "Meanwhile, the directory lists the marinas and suppliers already on the platform.",
+      "meanwhile": "Meanwhile, the directory lists the marinas and service providers already on the platform.",
       "browseDirectory": "Browse the directory",
       "daysLeft_one": "{{count}} day left",
       "daysLeft_other": "{{count}} days left",
@@ -241,6 +242,15 @@ export const PAGE_STRINGS = {
       "noUpcomingBodyNoPast": "New webinars and conferences are announced here first.",
       "noUpcomingFiltered": "No upcoming event matches these filters",
       "noUpcomingTitle": "No upcoming event announced yet",
+      "wys": {
+        "badge": "By invitation",
+        "title": "World Yachting Summit",
+        "date": "27 November 2026",
+        "place": "Dubai",
+        "body": "A conference and a gala dinner organised by M3 Monaco, by invitation only.",
+        "cta": "Request an invitation",
+        "moreSoon": "New webinars are announced here first."
+      },
       "notFound": "Event not found",
       "notFoundBody": "This event may have been removed, or it is not published yet.",
       "onSite": "On-site event",
@@ -429,7 +439,7 @@ export const PAGE_STRINGS = {
       },
       "types": {
         "marina": "Marina / Port",
-        "partner": "Partner",
+        "partner": "Service provider",
         "media_partner": "Media",
         "developer": "Developer",
         "investor": "Investor"
@@ -437,16 +447,16 @@ export const PAGE_STRINGS = {
       "visitWebsite": "Visit website"
     },
     "home": {
-      "joinNowFree": "Join Now — It's Free"
+      "joinNowFree": "Sign up"
     },
     "homeSections": {
-      "becomePartner": "Become a partner",
+      "becomePartner": "Sponsor an event",
       "completeProfileCta": "Complete my profile",
-      "createAccount": "Create my free account",
+      "createAccount": "Sign up",
       "ctaEyebrow": "Join the network",
-      "ctaSecondary": "Compare memberships",
-      "ctaSubtitle": "Create your free account in a few minutes. Our team verifies every member, so the network stays professional.",
-      "ctaTitle": "Ready to grow with the marina industry?",
+      "ctaSecondary": "Explore the directory",
+      "ctaSubtitle": "Free for every member. Marinas publish their needs; service providers, investors and developers answer and request introductions.",
+      "ctaTitle": "Sign up once. M3 checks your company, then the network opens.",
       "dashboardBody": "Requests to answer, your next events and open opportunities — all in one place.",
       "dashboardCta": "Open my dashboard",
       "dashboardTitle": "Your dashboard",
@@ -457,6 +467,7 @@ export const PAGE_STRINGS = {
       "eventsForYou": "Events in your sectors",
       "eventsLink": "All events",
       "eventsNoneUpcoming": "No upcoming event announced yet — catch up on the latest ones.",
+      "eventsNextWys": "Next: the World Yachting Summit in Dubai, 27 November 2026, by invitation. Below, the latest events and their replays.",
       "eventsRecentTitle": "Recent events",
       "eventsTitle": "Upcoming events",
       "featuredPartners": "Our partners",
@@ -473,36 +484,36 @@ export const PAGE_STRINGS = {
       "onSite": "On site",
       "online": "Online",
       "partnersEmpty": "Partner profiles are coming soon.",
-      "partnersEyebrow": "Partners & sponsors",
+      "partnersEyebrow": "Event sponsors",
       "partnersLink": "All partners",
       "past": "Past event",
       "persona": {
         "marinas": {
-          "browse": "Browse suppliers",
-          "cta": "Join as a marina",
-          "desc": "Find qualified suppliers, put your projects and RFPs in front of the right experts, and learn from your peers.",
-          "point1": "Free membership",
-          "point2": "Projects, RFPs and expert consultations",
+          "browse": "Browse service providers",
+          "cta": "Sign up as a marina",
+          "desc": "Find service providers, put your projects and tenders in front of the right experts, and learn from other marinas.",
+          "point1": "Your marina's page in the directory",
+          "point2": "Projects, tenders and expert questions",
           "point3": "Events and replays for your teams",
           "title": "For marinas"
         },
         "media": {
           "browse": "Explore the directory",
-          "cta": "Join the network",
+          "cta": "Sign up",
           "desc": "Follow the projects shaping the sector, reach a specialised audience and meet the teams behind them.",
           "point1": "Industry news, events and replays",
-          "point2": "Direct access to marinas and suppliers",
-          "point3": "Press access to events, deal flow for investors",
+          "point2": "Direct access to marinas and service providers",
+          "point3": "Press accreditation for events, deal flow for investors",
           "title": "For media & investors"
         },
         "suppliers": {
           "browse": "See the marinas",
-          "cta": "Join as a supplier",
-          "desc": "Showcase your solutions, answer marina RFPs and meet the decision-makers who run ports and marinas.",
-          "point1": "A company profile in the directory",
-          "point2": "Open RFPs and consultations",
-          "point3": "Partner packages for more visibility",
-          "title": "For suppliers & experts"
+          "cta": "Sign up as a service provider",
+          "desc": "Read the needs marinas publish, answer them and meet the people who run marinas.",
+          "point1": "A company page in the directory, checked by M3",
+          "point2": "Marina tenders and expert questions",
+          "point3": "Event sponsorship for more visibility",
+          "title": "For service providers"
         }
       },
       "personalStats": {
@@ -523,22 +534,22 @@ export const PAGE_STRINGS = {
       "stats": {
         "countries": "Countries",
         "heading": "Smart Marina Connect in figures",
-        "marinas": "Marinas",
+        "marinas": "Marinas listed",
         "resources": "Articles & resources",
-        "suppliers": "Suppliers & experts"
+        "suppliers": "Service providers"
       },
       "steps": {
         "account": {
-          "title": "Create your free account",
-          "desc": "Tell us whether you run a marina, supply the industry or cover it."
+          "title": "Sign up",
+          "desc": "Tell us whether you run a marina, serve marinas, invest in them or cover the sector."
         },
         "organization": {
-          "title": "Set up your organization",
-          "desc": "Join your company if it is already listed, or create its profile."
+          "title": "Set up your company",
+          "desc": "Join your company if it is already listed, or create its page."
         },
         "verify": {
-          "title": "Get verified",
-          "desc": "Our team reviews every new member before opening full access."
+          "title": "Get checked by M3",
+          "desc": "The M3 team checks every company and every person before opening access."
         },
         "platform": {
           "title": "Use the whole platform",
@@ -553,33 +564,33 @@ export const PAGE_STRINGS = {
       "whyTitle": "One network for the whole marina industry"
     },
     "partnersPage": {
-      "becomeBody": "Raise your profile with marinas worldwide and support the events that bring the industry together.",
-      "becomeCta": "See partner packages",
-      "becomeTitle": "Become a partner",
+      "becomeBody": "Put your company in front of marinas at M3's events in Monaco, Dubai and online.",
+      "becomeCta": "Contact the M3 team",
+      "becomeTitle": "Sponsor an event",
       "clearSearch": "Clear search",
       "directoryBody_one": "The directory lists {{count}} organization on Smart Marina Connect.",
-      "directoryBody_other": "The directory lists all {{count}} organizations on Smart Marina Connect — marinas, suppliers, experts and investors.",
+      "directoryBody_other": "The directory lists all {{count}} organizations on Smart Marina Connect — marinas, service providers, investors and media.",
       "directoryBodyNoCount": "Every organization on Smart Marina Connect is listed in the directory.",
       "directoryCta": "Open the directory",
       "directoryTitle": "Looking for someone else?",
-      "eyebrow": "Partners & sponsors",
-      "featuredSubtitle": "Companies that support the platform and its events through a partner package.",
-      "featuredTitle": "Featured partners",
-      "mediaCtaBody": "Talk to us about becoming a media partner of our events.",
+      "eyebrow": "Sponsors",
+      "featuredSubtitle": "Companies that support M3's events through a sponsorship package.",
+      "featuredTitle": "Sponsors",
+      "mediaCtaBody": "Talk to us about covering our events and getting press accreditation.",
       "mediaCtaCta": "Contact us",
       "mediaCtaTitle": "Are you a media outlet?",
-      "mediaPartner": "Media partner",
+      "mediaPartner": "Media",
       "mediaSubtitle": "The publications that cover our events and the industry.",
-      "mediaTitle": "Media partners",
+      "mediaTitle": "Media",
       "noMatch": "No partners match your search.",
       "noPartners": "No partners yet. Check back soon!",
       "press": "Press",
-      "results_one": "{{count}} partner",
-      "results_other": "{{count}} partners",
+      "results_one": "{{count}} company",
+      "results_other": "{{count}} companies",
       "search": "Search by name, country, sector…",
       "typeOne": {
         "marina": "Marina",
-        "partner": "Supplier & expert",
+        "partner": "Service provider",
         "investor": "Investor",
         "developer": "Developer",
         "media_partner": "Media",
@@ -587,7 +598,7 @@ export const PAGE_STRINGS = {
       },
       "types": {
         "marina": "Marinas",
-        "partner": "Suppliers & experts",
+        "partner": "Service providers",
         "investor": "Investors",
         "developer": "Developers",
         "media_partner": "Media"
@@ -609,8 +620,8 @@ export const PAGE_STRINGS = {
       "persona": {
         "marina": "Marina / Port",
         "developer": "Marina developer",
-        "partner": "Partner",
-        "media_partner": "Media Partner",
+        "partner": "Service provider",
+        "media_partner": "Media",
         "investor": "Investor",
         "individual": "Individual",
         "moderator": "Moderator",
@@ -773,15 +784,15 @@ export const PAGE_STRINGS = {
       "projects": {
         "submit": "Submit a project",
         "empty": "No projects submitted yet.",
-        "emptyBody": "Describe a need and the right suppliers come to you."
+        "emptyBody": "Describe a need and the right service providers come to you."
       },
       "webinars": {
         "propose": "Propose a webinar",
         "pendingTitle": "Account pending approval",
         "pendingBody": "You'll be able to propose webinars once your profile is verified by our team.",
-        "upgradeTitle": "Upgrade required",
-        "upgradeBody": "Webinar proposals are available starting from the Innovation Partner tier. Upgrade your membership to unlock this feature.",
-        "viewPlans": "View membership plans",
+        "upgradeTitle": "Webinars for event partners",
+        "upgradeBody": "Webinar proposals are open to companies that sponsor M3's events, from the Innovation Partner level. Talk to the M3 team to find out more.",
+        "viewPlans": "Contact the M3 team",
         "empty": "No webinar requests submitted.",
         "proposeTopic": "Propose a topic",
         "teamNote": "Team note:",
@@ -902,29 +913,124 @@ export const PAGE_STRINGS = {
       }
     },
     "auth": {
-      "acceptTermsRequired": "Please accept the Terms and Conditions to continue"
+      "acceptTermsRequired": "Please accept the Terms and Conditions to continue",
+      "personaDeveloper": "Developer",
+      "personaDeveloperDesc": "Marina developer, real-estate group or builder. Publish tenders and projects, and find service providers.",
+      "personaInvestor": "Investor",
+      "personaInvestorDesc": "Fund, family office or strategic investor. Browse marinas, start-ups and deal flow, and get in touch."
+    },
+    "about": {
+      "eyebrow": "By M3 Monaco",
+      "title": "About Smart Marina Connect",
+      "hero": "The network of marinas and the companies that serve them. Smart Marina Connect is run by M3 Monaco, organiser of industry events in Monaco, Dubai and online.",
+      "missionTitle": "Our mission",
+      "mission": "Help marinas find the right service providers, and help those providers understand what marinas need.",
+      "missionDetail": "Marinas publish their needs, service providers answer them, and both meet at M3's events in Monaco, Dubai and online. The M3 team checks every member, so you know who you are talking to.",
+      "whatWeDoTitle": "What we do",
+      "feature1Title": "Resources",
+      "feature1Desc": "Articles on marina infrastructure, design, digital, energy, operations and business, sorted by theme.",
+      "feature2Title": "Introductions",
+      "feature2Desc": "Marinas publish tenders, projects and expert questions. Service providers answer them and request introductions.",
+      "feature3Title": "Events & webinars",
+      "feature3Desc": "The Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai and webinars online.",
+      "whoWeServeTitle": "Who it is for",
+      "audience1Title": "Marinas",
+      "audience1Desc": "Marina operators and managers looking for service providers, industry knowledge and proven solutions.",
+      "audience2Title": "Service providers",
+      "audience2Desc": "Technology providers, consultants and service companies working for marinas: a company page in the directory, the needs marinas publish, and introductions.",
+      "audience3Title": "Media",
+      "audience3Desc": "Journalists and publications covering marinas and the nautical sector: press accreditation for our events, news and replays.",
+      "companyTitle": "M3 Monaco",
+      "companyDesc": "Smart Marina Connect is run by M3 Monaco, based in the Principality of Monaco. M3 organises the Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai and webinars for the marina industry.",
+      "companyDesc2": "The team brings together marina management professionals and event organisers who know the sector's challenges first-hand.",
+      "ctaTitle": "Join the marina network",
+      "ctaDesc": "Marina, service provider, investor, developer or media: sign up and the M3 team checks your company. A question first? Write to us.",
+      "ctaSignup": "Sign up",
+      "ctaContact": "Contact us"
+    },
+    "tiersPage": {
+      "eyebrow": "Membership & sponsorship",
+      "title": "Free membership, event sponsorship",
+      "subtitle": "Membership is free. Companies that sponsor M3's events get more team seats, more introductions and a sponsor badge on the platform.",
+      "memberLabel": "Member",
+      "free": "Free",
+      "freeNote": "For every member",
+      "sponsor": "Event sponsor",
+      "sponsorNote": "Package agreed with the M3 team",
+      "yourCurrentLevel": "Your current level",
+      "yourLevel": "Your level",
+      "included": "Included",
+      "notIncluded": "Not included",
+      "feature": "Feature",
+      "compareTitle": "Compare the levels",
+      "marinaNote": "Membership is free and a marina can invite its whole team. Sponsoring an event adds visibility.",
+      "contactTitle": "Want to sponsor an event?",
+      "contactBody": "Sponsorship packages are built around each event and your goals. Write to the M3 team and we will put together the right package with you.",
+      "cta": {
+        "signUp": "Sign up",
+        "contactTeam": "Contact the M3 team"
+      },
+      "sections": {
+        "team": "Team",
+        "platform": "Platform access",
+        "business": "Introductions and needs",
+        "visibility": "Visibility and support"
+      },
+      "features": {
+        "connectRequests": "Introduction requests per month",
+        "webinarRequests": "Webinar proposals",
+        "teamMembers": "Team seats",
+        "resources": "Resources",
+        "events": "Events",
+        "sponsorBadge": "Sponsor badge",
+        "prioritySupport": "Priority support",
+        "resourceLibrary": "Resource library",
+        "eventsAccess": "Events",
+        "publicProfile": "Company page",
+        "directory": "Directory",
+        "rfps": "Publish tenders",
+        "consultations": "Expert questions"
+      },
+      "values": {
+        "notIncluded": "Not included",
+        "unlimited": "Unlimited",
+        "fivePerYear": "5 per year",
+        "publicMembers": "Public and members-only",
+        "allContent": "All content",
+        "allEvents": "All events",
+        "allEventsPriority": "All events, priority access",
+        "allEventsVip": "All events, VIP access"
+      }
+    },
+    "common": {
+      "backToHome": "Back to home",
+      "loadFailedTitle": "This page could not be loaded",
+      "loadFailedBody": "The connection may be slow or interrupted. Please try again.",
+      "retry": "Try again"
+    },
+    "errors": {
+      "pageNotFound": "The page you are looking for does not exist or has moved."
     }
   },
   "fr": {
     "directory": {
-      "metaTitle": "Annuaire — Smart Marina Connect",
-      "metaDescription": "Marinas, fournisseurs, experts et investisseurs du réseau Smart Marina Connect.",
-      "eyebrow": "Annuaire",
-      "title": "Les acteurs de l'industrie des marinas",
-      "subtitle": "Marinas, fournisseurs, experts et investisseurs présents sur Smart Marina Connect. Trouvez le bon partenaire pour votre prochain projet.",
+      "eyebrow": "Qui fait quoi",
+      "title": "Annuaire des ports de plaisance et de leurs prestataires",
+      "subtitle": "Marinas, prestataires, investisseurs et médias. Filtrez par thème ou par pays, ajoutez les entreprises utiles à votre présélection et demandez une mise en relation depuis leur fiche.",
+      "subtitleLive": "{{marinas}} marinas référencées et {{suppliers}} prestataires dans {{countries}} pays. Filtrez par thème ou par pays, ajoutez les entreprises utiles à votre présélection et demandez une mise en relation depuis leur fiche.",
       "search": "Rechercher par nom, pays ou secteur…",
       "typeGroup": "Type d'organisation",
       "types": {
         "all": "Toutes",
         "marina": "Marinas",
-        "partner": "Fournisseurs & experts",
+        "partner": "Prestataires",
         "investor": "Investisseurs",
         "developer": "Promoteurs",
         "media_partner": "Médias"
       },
       "typeOne": {
         "marina": "Marina",
-        "partner": "Fournisseur & expert",
+        "partner": "Prestataire",
         "investor": "Investisseur",
         "developer": "Promoteur",
         "media_partner": "Média",
@@ -932,7 +1038,7 @@ export const PAGE_STRINGS = {
       },
       "browseByTheme": "Parcourir par thème",
       "themesHint": {
-        "all": "Les fournisseurs sont classés selon les services qu'ils proposent, les marinas selon leurs centres d'intérêt.",
+        "all": "Les prestataires sont classés selon les services qu'ils proposent, les marinas selon leurs centres d'intérêt.",
         "interest": "Classées selon les centres d'intérêt de chaque organisation.",
         "supply": "Classées selon les services proposés par chaque entreprise."
       },
@@ -947,8 +1053,8 @@ export const PAGE_STRINGS = {
       "forYourSectorsHint": "Organisations actives dans les secteurs de votre organisation",
       "noOrganizations": "Aucune organisation n'est encore référencée.",
       "noMatch": "Aucune organisation ne correspond à ces filtres.",
-      "featuredTitle": "Partenaires de la plateforme",
-      "featuredDesc": "Les entreprises qui soutiennent Smart Marina Connect",
+      "featuredTitle": "Partenaires des événements",
+      "featuredDesc": "Les entreprises qui sponsorisent les événements de M3",
       "featuredAll": "Tous les partenaires",
       "shownOf": "{{shown}} affichées sur {{total}}",
       "showMore": "Afficher plus",
@@ -961,8 +1067,8 @@ export const PAGE_STRINGS = {
     "opportunities": {
       "title": "Opportunités",
       "heroTag": "Affaires à saisir",
-      "subtitle": "Une opportunité, c'est une marina vérifiée qui sollicite le réseau : un appel d'offres, une question posée à un expert ou un projet en quête de fournisseurs.",
-      "subtitleCreator": "Publiez la vôtre : les fournisseurs vérifiés du secteur concerné pourront vous répondre.",
+      "subtitle": "Une opportunité, c'est une marina vérifiée qui sollicite le réseau : un appel d'offres, une question posée à un expert ou un projet en quête de prestataires.",
+      "subtitleCreator": "Publiez la vôtre : les prestataires vérifiés du secteur concerné pourront vous répondre.",
       "subtitleSupplier": "Manifestez votre intérêt pour un appel d'offres ou une consultation : la marina reçoit le profil de votre entreprise.",
       "subtitlePending": "Vous pourrez publier la vôtre dès que votre organisation sera vérifiée.",
       "kinds": {
@@ -981,9 +1087,9 @@ export const PAGE_STRINGS = {
         "projects": "Projets de marinas"
       },
       "kindDesc": {
-        "rfps": "Une marina décrit un besoin, fixe une date limite et invite les fournisseurs à lui adresser une proposition.",
+        "rfps": "Une marina décrit un besoin, fixe une date limite et invite les prestataires à lui adresser une proposition.",
         "consultations": "Une marina pose une question précise et cherche l'avis d'un expert.",
-        "projects": "Un projet de marina (énergie, numérique, infrastructures ou services) qui cherche les bons fournisseurs."
+        "projects": "Un projet de marina (énergie, numérique, infrastructures ou services) qui cherche les bons prestataires."
       },
       "publish": {
         "rfps": "Publier un appel d'offres",
@@ -995,8 +1101,10 @@ export const PAGE_STRINGS = {
       "removeTheme": "Retirer le filtre {{theme}}",
       "clearFilters": "Effacer les filtres",
       "noMatch": "Rien dans ce thème pour le moment.",
-      "gateTitle": "Réservé aux membres vérifiés",
-      "verifiedOnly": "Seuls les membres vérifiés peuvent consulter les appels d'offres, consultations et projets publiés par les marinas.",
+      "gateTitle": "L'espace où les marinas publient leurs besoins",
+      "verifiedOnly": "Appels d'offres, questions d'experts et projets, visibles des entreprises vérifiées par M3. Inscrivez-vous : dès que votre entreprise est vérifiée, vous pouvez les lire et, selon votre profil, y répondre.",
+      "gateMarina": "Vous gérez une marina ? Publiez votre premier besoin.",
+      "gateSignedIn": "Les appels d'offres, questions d'experts et projets sont visibles des entreprises vérifiées par M3. Le statut de votre compte indique ce qui manque encore.",
       "gatePending": "Votre compte est en cours de vérification. Les opportunités vous seront ouvertes dès sa validation.",
       "signUp": "S'inscrire",
       "viewAccountStatus": "Voir le statut de mon compte",
@@ -1006,19 +1114,19 @@ export const PAGE_STRINGS = {
         "projects": "Aucun projet actif pour le moment"
       },
       "emptyCreator": {
-        "rfps": "Soyez le premier : décrivez votre besoin et fixez une date limite. Les fournisseurs vérifiés du secteur concerné le verront ici et pourront vous répondre.",
+        "rfps": "Soyez le premier : décrivez votre besoin et fixez une date limite. Les prestataires vérifiés du secteur concerné le verront ici et pourront vous répondre.",
         "consultations": "Posez votre question : les experts du réseau la verront ici et pourront vous proposer leur aide.",
-        "projects": "Décrivez votre projet, votre budget et votre calendrier : l'équipe M3 vous mettra en relation avec les bons fournisseurs."
+        "projects": "Décrivez votre projet, votre budget et votre calendrier : l'équipe M3 vous mettra en relation avec les bons prestataires."
       },
       "emptyCreatorReviewed": "Chaque demande est relue par l'équipe M3 avant publication.",
       "emptyMarinaPending": "Vous pourrez publier ici dès que votre organisation sera vérifiée.",
       "emptySupplier": {
         "rfps": "Dès qu'une marina publie un appel d'offres, il apparaît ici et sur votre tableau de bord. Manifestez votre intérêt en un clic : la marina reçoit le profil de votre entreprise.",
         "consultations": "Dès qu'une marina sollicite un conseil, la demande apparaît ici et sur votre tableau de bord. Proposez votre aide en un clic : la marina reçoit le profil de votre entreprise.",
-        "projects": "Quand une marina soumet un projet, l'équipe M3 le rapproche des fournisseurs des secteurs concernés."
+        "projects": "Quand une marina soumet un projet, l'équipe M3 le rapproche des prestataires des secteurs concernés."
       },
       "emptyOther": "Les nouvelles opportunités apparaissent ici dès que l'équipe M3 les a validées.",
-      "meanwhile": "En attendant, l'annuaire recense les marinas et fournisseurs déjà présents sur la plateforme.",
+      "meanwhile": "En attendant, l'annuaire recense les marinas et prestataires déjà présents sur la plateforme.",
       "browseDirectory": "Parcourir l'annuaire",
       "daysLeft_one": "{{count}} jour restant",
       "daysLeft_other": "{{count}} jours restants",
@@ -1138,6 +1246,15 @@ export const PAGE_STRINGS = {
       "noUpcomingBodyNoPast": "Les nouveaux webinaires et conférences sont annoncés ici en premier.",
       "noUpcomingFiltered": "Aucun événement à venir ne correspond à ces filtres",
       "noUpcomingTitle": "Aucun événement à venir n'est annoncé pour le moment",
+      "wys": {
+        "badge": "Sur invitation",
+        "title": "World Yachting Summit",
+        "date": "27 novembre 2026",
+        "place": "Dubaï",
+        "body": "Une conférence et un dîner de gala organisés par M3 Monaco, sur invitation uniquement.",
+        "cta": "Demander une invitation",
+        "moreSoon": "Les nouveaux webinaires sont annoncés ici en premier."
+      },
       "notFound": "Événement introuvable",
       "notFoundBody": "Cet événement a peut-être été supprimé, ou n'est pas encore publié.",
       "onSite": "Événement en présentiel",
@@ -1326,7 +1443,7 @@ export const PAGE_STRINGS = {
       },
       "types": {
         "marina": "Marina / Port",
-        "partner": "Partenaire",
+        "partner": "Prestataire",
         "media_partner": "Média",
         "developer": "Promoteur",
         "investor": "Investisseur"
@@ -1334,16 +1451,16 @@ export const PAGE_STRINGS = {
       "visitWebsite": "Voir le site web"
     },
     "home": {
-      "joinNowFree": "Rejoindre — c'est gratuit"
+      "joinNowFree": "S'inscrire"
     },
     "homeSections": {
-      "becomePartner": "Devenir partenaire",
+      "becomePartner": "Sponsoriser un événement",
       "completeProfileCta": "Compléter mon profil",
-      "createAccount": "Créer mon compte gratuit",
+      "createAccount": "S'inscrire",
       "ctaEyebrow": "Rejoignez le réseau",
-      "ctaSecondary": "Comparer les formules",
-      "ctaSubtitle": "Créez votre compte gratuit en quelques minutes. Notre équipe vérifie chaque membre : le réseau reste entre professionnels.",
-      "ctaTitle": "Prêt à vous développer avec la filière marina ?",
+      "ctaSecondary": "Explorer l'annuaire",
+      "ctaSubtitle": "Gratuit pour tous les membres. Les marinas publient leurs besoins ; prestataires, investisseurs et promoteurs y répondent et demandent des mises en relation.",
+      "ctaTitle": "Inscrivez-vous une fois. M3 vérifie votre entreprise, puis le réseau s'ouvre.",
       "dashboardBody": "Demandes à traiter, prochains événements et opportunités ouvertes : tout au même endroit.",
       "dashboardCta": "Ouvrir mon tableau de bord",
       "dashboardTitle": "Votre tableau de bord",
@@ -1354,6 +1471,7 @@ export const PAGE_STRINGS = {
       "eventsForYou": "Événements dans vos secteurs",
       "eventsLink": "Tous les événements",
       "eventsNoneUpcoming": "Aucun événement à venir pour le moment : retrouvez les plus récents.",
+      "eventsNextWys": "À venir : le World Yachting Summit à Dubaï, le 27 novembre 2026, sur invitation. Ci-dessous, les derniers événements et leurs replays.",
       "eventsRecentTitle": "Événements récents",
       "eventsTitle": "Prochains événements",
       "featuredPartners": "Nos partenaires",
@@ -1370,36 +1488,36 @@ export const PAGE_STRINGS = {
       "onSite": "Sur place",
       "online": "En ligne",
       "partnersEmpty": "Les profils des partenaires arrivent bientôt.",
-      "partnersEyebrow": "Partenaires & sponsors",
+      "partnersEyebrow": "Sponsors des événements",
       "partnersLink": "Tous les partenaires",
       "past": "Événement passé",
       "persona": {
         "marinas": {
-          "browse": "Voir les fournisseurs",
-          "cta": "Rejoindre en tant que marina",
-          "desc": "Trouvez des fournisseurs qualifiés, présentez vos projets et appels d'offres aux bons experts et apprenez de vos pairs.",
-          "point1": "Adhésion gratuite",
-          "point2": "Projets, appels d'offres et consultations d'experts",
+          "browse": "Voir les prestataires",
+          "cta": "S'inscrire comme marina",
+          "desc": "Trouvez des prestataires, présentez vos projets et appels d'offres aux bons experts et apprenez des autres marinas.",
+          "point1": "La fiche de votre marina dans l'annuaire",
+          "point2": "Projets, appels d'offres et questions d'experts",
           "point3": "Événements et replays pour vos équipes",
           "title": "Pour les marinas"
         },
         "media": {
           "browse": "Explorer l'annuaire",
-          "cta": "Rejoindre le réseau",
+          "cta": "S'inscrire",
           "desc": "Suivez les projets qui façonnent le secteur, touchez un public spécialisé et rencontrez les équipes qui les portent.",
           "point1": "Actualités, événements et replays du secteur",
-          "point2": "Un accès direct aux marinas et aux fournisseurs",
-          "point3": "Accès presse aux événements, deal flow pour les investisseurs",
+          "point2": "Un accès direct aux marinas et aux prestataires",
+          "point3": "Accréditation presse aux événements, deal flow pour les investisseurs",
           "title": "Pour les médias & investisseurs"
         },
         "suppliers": {
           "browse": "Voir les marinas",
-          "cta": "Rejoindre en tant que fournisseur",
-          "desc": "Présentez vos solutions, répondez aux appels d'offres des marinas et rencontrez les décideurs qui dirigent ports et marinas.",
-          "point1": "Un profil d'entreprise dans l'annuaire",
-          "point2": "Appels d'offres et consultations ouverts",
-          "point3": "Des formules partenaires pour plus de visibilité",
-          "title": "Pour les fournisseurs & experts"
+          "cta": "S'inscrire comme prestataire",
+          "desc": "Lisez les besoins publiés par les marinas, répondez-y et rencontrez celles et ceux qui les dirigent.",
+          "point1": "Une fiche dans l'annuaire, vérifiée par M3",
+          "point2": "Appels d'offres et questions d'experts des marinas",
+          "point3": "Le sponsoring d'événements pour plus de visibilité",
+          "title": "Pour les prestataires"
         }
       },
       "personalStats": {
@@ -1420,22 +1538,22 @@ export const PAGE_STRINGS = {
       "stats": {
         "countries": "Pays",
         "heading": "Smart Marina Connect en chiffres",
-        "marinas": "Marinas",
+        "marinas": "Marinas référencées",
         "resources": "Articles & ressources",
-        "suppliers": "Fournisseurs & experts"
+        "suppliers": "Prestataires"
       },
       "steps": {
         "account": {
-          "title": "Créez votre compte gratuit",
-          "desc": "Dites-nous si vous gérez une marina, fournissez la filière ou la couvrez."
+          "title": "Inscrivez-vous",
+          "desc": "Dites-nous si vous gérez une marina, si vous travaillez pour les marinas, si vous y investissez ou si vous couvrez le secteur."
         },
         "organization": {
-          "title": "Configurez votre organisation",
-          "desc": "Rejoignez votre entreprise si elle est déjà référencée, ou créez son profil."
+          "title": "Présentez votre entreprise",
+          "desc": "Rejoignez votre entreprise si elle est déjà référencée, ou créez sa fiche."
         },
         "verify": {
-          "title": "Faites-vous vérifier",
-          "desc": "Notre équipe examine chaque nouveau membre avant d'ouvrir l'accès complet."
+          "title": "Vérification par M3",
+          "desc": "L'équipe M3 vérifie chaque entreprise et chaque personne avant d'ouvrir l'accès."
         },
         "platform": {
           "title": "Profitez de toute la plateforme",
@@ -1447,36 +1565,36 @@ export const PAGE_STRINGS = {
       "webinar": "Webinaire",
       "whyEyebrow": "Pour qui",
       "whySubtitle": "Les marinas, les entreprises qui les équipent et les servent, les médias et les investisseurs qui suivent le secteur : tous sur une même plateforme.",
-      "whyTitle": "Un seul réseau pour toute la filière marina"
+      "whyTitle": "Un seul réseau pour toute la filière des ports de plaisance"
     },
     "partnersPage": {
-      "becomeBody": "Gagnez en visibilité auprès des marinas du monde entier et soutenez les événements qui rassemblent la filière.",
-      "becomeCta": "Voir les formules partenaires",
-      "becomeTitle": "Devenir partenaire",
+      "becomeBody": "Présentez votre entreprise aux marinas lors des événements de M3, à Monaco, à Dubaï et en ligne.",
+      "becomeCta": "Contacter l'équipe M3",
+      "becomeTitle": "Sponsoriser un événement",
       "clearSearch": "Effacer la recherche",
       "directoryBody_one": "L'annuaire recense {{count}} organisation sur Smart Marina Connect.",
-      "directoryBody_other": "L'annuaire recense les {{count}} organisations de Smart Marina Connect : marinas, fournisseurs, experts et investisseurs.",
+      "directoryBody_other": "L'annuaire recense les {{count}} organisations de Smart Marina Connect : marinas, prestataires, investisseurs et médias.",
       "directoryBodyNoCount": "Toutes les organisations de Smart Marina Connect figurent dans l'annuaire.",
       "directoryCta": "Ouvrir l'annuaire",
       "directoryTitle": "Vous cherchez quelqu'un d'autre ?",
-      "eyebrow": "Partenaires & sponsors",
-      "featuredSubtitle": "Les entreprises qui soutiennent la plateforme et ses événements grâce à une formule partenaire.",
-      "featuredTitle": "Partenaires à la une",
-      "mediaCtaBody": "Parlons d'un partenariat média pour nos événements.",
+      "eyebrow": "Sponsors",
+      "featuredSubtitle": "Les entreprises qui soutiennent les événements de M3 grâce à une offre de sponsoring.",
+      "featuredTitle": "Sponsors",
+      "mediaCtaBody": "Parlons de la couverture de nos événements et de votre accréditation presse.",
       "mediaCtaCta": "Nous contacter",
       "mediaCtaTitle": "Vous êtes un média ?",
-      "mediaPartner": "Partenaire média",
+      "mediaPartner": "Média",
       "mediaSubtitle": "Les publications qui couvrent nos événements et la filière.",
-      "mediaTitle": "Partenaires médias",
+      "mediaTitle": "Médias",
       "noMatch": "Aucun partenaire ne correspond à votre recherche.",
       "noPartners": "Aucun partenaire pour le moment. Revenez bientôt !",
       "press": "Presse",
-      "results_one": "{{count}} partenaire",
-      "results_other": "{{count}} partenaires",
+      "results_one": "{{count}} entreprise",
+      "results_other": "{{count}} entreprises",
       "search": "Rechercher par nom, pays, secteur…",
       "typeOne": {
         "marina": "Marina",
-        "partner": "Fournisseur & expert",
+        "partner": "Prestataire",
         "investor": "Investisseur",
         "developer": "Promoteur",
         "media_partner": "Média",
@@ -1484,7 +1602,7 @@ export const PAGE_STRINGS = {
       },
       "types": {
         "marina": "Marinas",
-        "partner": "Fournisseurs & experts",
+        "partner": "Prestataires",
         "investor": "Investisseurs",
         "developer": "Promoteurs",
         "media_partner": "Médias"
@@ -1505,9 +1623,9 @@ export const PAGE_STRINGS = {
       },
       "persona": {
         "marina": "Marina / Port",
-        "developer": "Développeur de marina",
-        "partner": "Partenaire",
-        "media_partner": "Partenaire média",
+        "developer": "Promoteur de marina",
+        "partner": "Prestataire",
+        "media_partner": "Média",
         "investor": "Investisseur",
         "individual": "Particulier",
         "moderator": "Modérateur",
@@ -1670,15 +1788,15 @@ export const PAGE_STRINGS = {
       "projects": {
         "submit": "Soumettre un projet",
         "empty": "Aucun projet envoyé pour le moment.",
-        "emptyBody": "Décrivez un besoin et les bons fournisseurs viennent à vous."
+        "emptyBody": "Décrivez un besoin et les bons prestataires viennent à vous."
       },
       "webinars": {
         "propose": "Proposer un webinaire",
         "pendingTitle": "Compte en attente de validation",
         "pendingBody": "Vous pourrez proposer des webinaires une fois votre profil vérifié par notre équipe.",
-        "upgradeTitle": "Mise à niveau requise",
-        "upgradeBody": "Les propositions de webinaire sont disponibles à partir du niveau Innovation Partner. Faites évoluer votre adhésion pour débloquer cette fonctionnalité.",
-        "viewPlans": "Voir les formules d'adhésion",
+        "upgradeTitle": "Webinaires réservés aux partenaires des événements",
+        "upgradeBody": "Les propositions de webinaire sont ouvertes aux entreprises qui sponsorisent les événements de M3, à partir du niveau Innovation Partner. Parlez-en à l'équipe M3.",
+        "viewPlans": "Contacter l'équipe M3",
         "empty": "Aucune proposition de webinaire envoyée.",
         "proposeTopic": "Proposer un sujet",
         "teamNote": "Note de l'équipe :",
@@ -1890,12 +2008,12 @@ export const PAGE_STRINGS = {
     },
     "sharedUi": {
       "bookmarkButton": {
-        "add": "Ajouter aux favoris",
-        "remove": "Retirer des favoris",
-        "onShortlist": "Dans vos favoris",
-        "added": "Ajouté aux favoris",
-        "addedDesc": "{{name}} fait partie de vos favoris.",
-        "removed": "Retiré des favoris",
+        "add": "Ajouter à la présélection",
+        "remove": "Retirer de la présélection",
+        "onShortlist": "Dans votre présélection",
+        "added": "Ajouté à la présélection",
+        "addedDesc": "{{name}} fait partie de votre présélection.",
+        "removed": "Retiré de la présélection",
         "saveFailed": "Enregistrement impossible",
         "removeFailed": "Suppression impossible"
       },
@@ -1906,7 +2024,7 @@ export const PAGE_STRINGS = {
         "tiers": {
           "innovation_partner": "Innovation Partner",
           "associate_partner": "Associate Partner",
-          "premium_partner": "Partner",
+          "premium_partner": "Premium Partner",
           "premium_sponsor": "Premium Sponsor",
           "main_sponsor": "Main Sponsor"
         }
@@ -1950,9 +2068,9 @@ export const PAGE_STRINGS = {
       "claimSignupRateLimited": "Trop de tentatives depuis ce réseau. Veuillez réessayer plus tard.",
       "jobTitlePlaceholder": "ex. Directeur de marina, Responsable commercial...",
       "personaDeveloper": "Promoteur",
-      "personaDeveloperDesc": "Promoteur de marina, groupe immobilier ou constructeur. Accédez à la marketplace, soumettez des appels d'offres et des projets.",
+      "personaDeveloperDesc": "Promoteur de marina, groupe immobilier ou constructeur. Publiez appels d'offres et projets, et trouvez des prestataires.",
       "personaInvestor": "Investisseur",
-      "personaInvestorDesc": "Fonds, family office ou investisseur stratégique. Parcourez les marinas, les partenaires et le deal flow, et entrez en contact.",
+      "personaInvestorDesc": "Fonds, family office ou investisseur stratégique. Parcourez les marinas, les start-ups et le deal flow, et entrez en contact.",
       "loginRequired": "Veuillez vous connecter pour accéder à cette page.",
       "adminRequired": "Accès réservé aux administrateurs.",
       "resetEmailSent": "E-mail de réinitialisation envoyé !",
@@ -1997,8 +2115,8 @@ export const PAGE_STRINGS = {
     },
     "welcome": {
       "pageTitle": "Bienvenue — Smart Marina Connect",
-      "eventLine": "Smart & Sustainable Marina Rendezvous 2026 · 20–21 sept. · Yacht Club de Monaco",
-      "tagline": "La plateforme B2B de l’industrie des marinas",
+      "eventLine": "Monaco Smart & Sustainable Marina Rendezvous 2026 · 20–21 sept. · Yacht Club de Monaco",
+      "tagline": "Le réseau des ports de plaisance",
       "linkInvalidTitle": "Ce lien ne peut pas être utilisé",
       "linkInvalidDesc": "Les liens de nos e-mails ne fonctionnent qu’une fois et expirent. Celui-ci a déjà été utilisé, a expiré ou a été remplacé par un lien plus récent. Saisissez votre adresse e-mail et nous vous en enverrons un nouveau.",
       "getLinkTitle": "Recevoir votre lien d’accès",
@@ -2066,20 +2184,110 @@ export const PAGE_STRINGS = {
     },
     "common": {
       "yes": "Oui",
-      "no": "Non"
+      "no": "Non",
+      "backToHome": "Retour à l'accueil",
+      "loadFailedTitle": "Impossible de charger cette page",
+      "loadFailedBody": "La connexion est peut-être lente ou interrompue. Veuillez réessayer.",
+      "retry": "Réessayer"
+    },
+    "errors": {
+      "pageNotFound": "Cette page n'existe pas ou a été déplacée."
     },
     "sm26Register": {
       "closed": {
-        "pageTitle": "Inscriptions closes — Smart & Sustainable Marina Rendezvous 2026",
+        "pageTitle": "Inscriptions closes — Monaco Smart & Sustainable Marina Rendezvous 2026",
         "back": "Retour aux événements",
         "eyebrow": "SM26 · 20–21 septembre 2026 · Yacht Club de Monaco",
         "title": "Les inscriptions sont closes",
-        "body": "Les inscriptions au Smart & Sustainable Marina Rendezvous 2026 sont closes.",
+        "body": "Les inscriptions au Monaco Smart & Sustainable Marina Rendezvous 2026 sont closes.",
         "registered": "Déjà inscrit ? Votre badge, le programme et vos documents sont dans votre espace événement.",
         "openSpace": "Ouvrir mon espace événement",
         "eventPage": "Aller à la page de l'événement",
         "upcoming": "Voir les prochains événements",
         "contact": "Une question sur votre inscription ? Écrivez à"
+      }
+    },
+    "about": {
+      "eyebrow": "Par M3 Monaco",
+      "title": "À propos de Smart Marina Connect",
+      "hero": "Le réseau des ports de plaisance et des entreprises qui les servent. Smart Marina Connect est animé par M3 Monaco, organisateur d'événements à Monaco, à Dubaï et en ligne.",
+      "missionTitle": "Notre mission",
+      "mission": "Aider les marinas à trouver les bons prestataires, et aider ces prestataires à comprendre ce dont les marinas ont besoin.",
+      "missionDetail": "Les marinas publient leurs besoins, les prestataires y répondent, et tous se retrouvent aux événements de M3 à Monaco, à Dubaï et en ligne. L'équipe M3 vérifie chaque membre : vous savez à qui vous parlez.",
+      "whatWeDoTitle": "Ce que nous faisons",
+      "feature1Title": "Ressources",
+      "feature1Desc": "Des articles sur les infrastructures, le design, le digital, l'énergie, l'exploitation et le business des ports de plaisance, classés par thème.",
+      "feature2Title": "Mises en relation",
+      "feature2Desc": "Les marinas publient appels d'offres, projets et questions d'experts. Les prestataires y répondent et demandent des mises en relation.",
+      "feature3Title": "Événements & webinaires",
+      "feature3Desc": "Le Monaco Smart & Sustainable Marina Rendezvous, le World Yachting Summit à Dubaï et des webinaires en ligne.",
+      "whoWeServeTitle": "Pour qui",
+      "audience1Title": "Marinas",
+      "audience1Desc": "Exploitants et gestionnaires de marinas qui cherchent des prestataires, des connaissances et des solutions éprouvées.",
+      "audience2Title": "Prestataires",
+      "audience2Desc": "Fournisseurs de technologies, consultants et sociétés de services qui travaillent pour les marinas : une fiche dans l'annuaire, les besoins publiés par les marinas et des mises en relation.",
+      "audience3Title": "Médias",
+      "audience3Desc": "Journalistes et publications qui couvrent les ports de plaisance et le nautisme : accréditation presse à nos événements, actualités et replays.",
+      "companyTitle": "M3 Monaco",
+      "companyDesc": "Smart Marina Connect est animé par M3 Monaco, basé en Principauté de Monaco. M3 organise le Monaco Smart & Sustainable Marina Rendezvous, le World Yachting Summit à Dubaï et des webinaires pour la filière des ports de plaisance.",
+      "companyDesc2": "L'équipe réunit des professionnels de la gestion de marinas et des organisateurs d'événements qui connaissent de près les enjeux du secteur.",
+      "ctaTitle": "Rejoignez le réseau des ports de plaisance",
+      "ctaDesc": "Marina, prestataire, investisseur, promoteur ou média : inscrivez-vous et l'équipe M3 vérifie votre entreprise. Une question avant ? Écrivez-nous.",
+      "ctaSignup": "S'inscrire",
+      "ctaContact": "Nous contacter"
+    },
+    "tiersPage": {
+      "eyebrow": "Adhésion & sponsoring",
+      "title": "Adhésion gratuite, sponsoring d'événements",
+      "subtitle": "L'adhésion est gratuite. Les entreprises qui sponsorisent les événements de M3 ont plus de places d'équipe, plus de mises en relation et un badge sponsor sur la plateforme.",
+      "memberLabel": "Membre",
+      "free": "Gratuit",
+      "freeNote": "Pour tous les membres",
+      "sponsor": "Sponsor",
+      "sponsorNote": "Offre définie avec l'équipe M3",
+      "yourCurrentLevel": "Votre niveau actuel",
+      "yourLevel": "Votre niveau",
+      "included": "Inclus",
+      "notIncluded": "Non inclus",
+      "feature": "Fonctionnalité",
+      "compareTitle": "Comparer les niveaux",
+      "marinaNote": "L'adhésion est gratuite et une marina peut inviter toute son équipe. Sponsoriser un événement vous donne plus de visibilité.",
+      "contactTitle": "Vous souhaitez sponsoriser un événement ?",
+      "contactBody": "Chaque offre de sponsoring est construite autour d'un événement et de vos objectifs. Écrivez à l'équipe M3 : nous la préparons avec vous.",
+      "cta": {
+        "signUp": "S'inscrire",
+        "contactTeam": "Contacter l'équipe M3"
+      },
+      "sections": {
+        "team": "Équipe",
+        "platform": "Accès à la plateforme",
+        "business": "Mises en relation et besoins",
+        "visibility": "Visibilité et assistance"
+      },
+      "features": {
+        "connectRequests": "Demandes de mise en relation par mois",
+        "webinarRequests": "Propositions de webinaire",
+        "teamMembers": "Places dans l'équipe",
+        "resources": "Ressources",
+        "events": "Événements",
+        "sponsorBadge": "Badge sponsor",
+        "prioritySupport": "Assistance prioritaire",
+        "resourceLibrary": "Bibliothèque de ressources",
+        "eventsAccess": "Événements",
+        "publicProfile": "Fiche entreprise",
+        "directory": "Annuaire",
+        "rfps": "Publication d'appels d'offres",
+        "consultations": "Questions d'experts"
+      },
+      "values": {
+        "notIncluded": "Non inclus",
+        "unlimited": "Illimité",
+        "fivePerYear": "5 par an",
+        "publicMembers": "Public et réservé aux membres",
+        "allContent": "Tout le contenu",
+        "allEvents": "Tous les événements",
+        "allEventsPriority": "Tous les événements, accès prioritaire",
+        "allEventsVip": "Tous les événements, accès VIP"
       }
     }
   }

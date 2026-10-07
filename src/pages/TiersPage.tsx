@@ -1,5 +1,8 @@
-import { Link, useNavigate } from 'react-router-dom';
-import { Helmet } from 'react-helmet-async';
+import { Link } from 'react-router-dom';
+import { Seo } from '@/components/seo/Seo';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import { withSiteSuffix } from '@/lib/seoText';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -26,7 +29,8 @@ interface TierFeatures {
   publicProfile: boolean;
   networkDirectory: boolean;
   prioritySupport: boolean;
-  ctaLabel: string;
+  /** Key under tiersPage.cta. */
+  ctaLabel: 'signUp' | 'contactTeam';
   ctaHref: string;
   ctaVariant: 'default' | 'outline';
   highlighted: boolean;
@@ -58,7 +62,7 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: false,
-    ctaLabel: 'Join for Free',
+    ctaLabel: 'signUp',
     ctaHref: '/become-partner',
     ctaVariant: 'outline',
     highlighted: false,
@@ -75,8 +79,9 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: false,
-    ctaLabel: 'Contact Us',
-    ctaHref: '/contact',
+    ctaLabel: 'contactTeam',
+    // Sponsorship is agreed with the M3 team: the contact form, opened on that subject.
+    ctaHref: '/contact?subject=partnership',
     ctaVariant: 'default',
     highlighted: false,
   },
@@ -92,8 +97,9 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: true,
-    ctaLabel: 'Contact Us',
-    ctaHref: '/contact',
+    ctaLabel: 'contactTeam',
+    // Sponsorship is agreed with the M3 team: the contact form, opened on that subject.
+    ctaHref: '/contact?subject=partnership',
     ctaVariant: 'default',
     highlighted: true,
   },
@@ -109,8 +115,9 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: true,
-    ctaLabel: 'Contact Us',
-    ctaHref: '/contact',
+    ctaLabel: 'contactTeam',
+    // Sponsorship is agreed with the M3 team: the contact form, opened on that subject.
+    ctaHref: '/contact?subject=partnership',
     ctaVariant: 'default',
     highlighted: false,
   },
@@ -126,8 +133,9 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: true,
-    ctaLabel: 'Contact Us',
-    ctaHref: '/contact',
+    ctaLabel: 'contactTeam',
+    // Sponsorship is agreed with the M3 team: the contact form, opened on that subject.
+    ctaHref: '/contact?subject=partnership',
     ctaVariant: 'default',
     highlighted: false,
   },
@@ -143,22 +151,50 @@ const TIER_CONFIG: Record<OrgTier, TierFeatures> = {
     publicProfile: true,
     networkDirectory: true,
     prioritySupport: true,
-    ctaLabel: 'Contact Us',
-    ctaHref: '/contact',
+    ctaLabel: 'contactTeam',
+    // Sponsorship is agreed with the M3 team: the contact form, opened on that subject.
+    ctaHref: '/contact?subject=partnership',
     ctaVariant: 'default',
     highlighted: false,
   },
 };
+
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Labels
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Membership is free: the paid levels are event sponsorship packages, agreed
+ * with the M3 team, that also raise the platform quotas. The copy says so —
+ * no "plan", "upgrade" or "pricing".
+ */
+const VALUE_KEYS: Record<string, { key: string; fallback: string }> = {
+  'Not included': { key: 'tiersPage.values.notIncluded', fallback: 'Not included' },
+  Unlimited: { key: 'tiersPage.values.unlimited', fallback: 'Unlimited' },
+  '5 / year': { key: 'tiersPage.values.fivePerYear', fallback: '5 per year' },
+  'Public + Members': { key: 'tiersPage.values.publicMembers', fallback: 'Public and members-only' },
+  'All content': { key: 'tiersPage.values.allContent', fallback: 'All content' },
+  'All events': { key: 'tiersPage.values.allEvents', fallback: 'All events' },
+  'All events + priority': { key: 'tiersPage.values.allEventsPriority', fallback: 'All events, priority access' },
+  'All events + VIP': { key: 'tiersPage.values.allEventsVip', fallback: 'All events, VIP access' },
+};
+
+function valueLabel(t: TFunction, value: string): string {
+  const entry = VALUE_KEYS[value];
+  return entry ? t(entry.key, entry.fallback) : value;
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Sub-components
 // ──────────────────────────────────────────────────────────────────────────────
 
 function FeatureValue({ value, isBoolean }: { value: string | boolean; isBoolean?: boolean }) {
+  const { t } = useTranslation();
   if (isBoolean) {
     return typeof value === 'boolean' && value
-      ? <Check className="h-5 w-5 text-emerald-500 mx-auto" />
-      : <X className="h-5 w-5 text-gray-300 mx-auto" />;
+      ? <Check className="h-5 w-5 text-emerald-500 mx-auto" aria-label={t('tiersPage.included', 'Included')} />
+      : <X className="h-5 w-5 text-gray-300 mx-auto" aria-label={t('tiersPage.notIncluded', 'Not included')} />;
   }
 
   if (typeof value === 'string') {
@@ -166,14 +202,14 @@ function FeatureValue({ value, isBoolean }: { value: string | boolean; isBoolean
       return (
         <span className="flex items-center justify-center gap-1 text-sm font-semibold text-emerald-600">
           <Minus className="h-3 w-3" />
-          <span>Unlimited</span>
+          <span>{valueLabel(t, value)}</span>
         </span>
       );
     }
     if (value === 'Not included') {
-      return <X className="h-5 w-5 text-gray-300 mx-auto" />;
+      return <X className="h-5 w-5 text-gray-300 mx-auto" aria-label={t('tiersPage.notIncluded', 'Not included')} />;
     }
-    return <span className="text-sm font-medium text-gray-700">{value}</span>;
+    return <span className="text-sm font-medium text-gray-700">{valueLabel(t, value)}</span>;
   }
 
   return null;
@@ -184,24 +220,20 @@ function FeatureValue({ value, isBoolean }: { value: string | boolean; isBoolean
 // ──────────────────────────────────────────────────────────────────────────────
 
 export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
-  const navigate = useNavigate();
+  const { t } = useTranslation();
   const { organization, profile } = useAuth();
   const currentTier = organization?.tier ?? null;
   const persona = profile?.persona as PersonaType | undefined;
   const isMarina = persona === 'marina';
-  const isMedia = persona === 'media_partner';
-  // Pricing removed — all paid tiers show "Contact Us"
+  // No prices: membership is free and sponsorship packages are agreed with the M3 team.
+
+  const seoTitle = withSiteSuffix(t('seo.tiers.title', 'Free membership and event sponsorship'));
+  const seoDescription = t('seo.tiers.description', 'Membership of Smart Marina Connect is free. Companies that sponsor M3 Monaco’s events get more team seats, more introductions and a sponsor badge.');
 
   return (
     <>
       {!embedded && (
-        <Helmet>
-          <title>Membership & Sponsorship | Smart Marina Connect</title>
-          <meta
-            name="description"
-            content="Choose the Smart Marina Connect membership tier that fits your organization — from free member access to full main sponsor visibility in the marina industry."
-          />
-        </Helmet>
+        <Seo title={seoTitle} description={seoDescription} path="/tiers" />
       )}
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
@@ -213,15 +245,14 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
               className="mb-4 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-primary border-primary/30 bg-primary/5"
             >
               <Ticket className="h-3.5 w-3.5 mr-1.5" />
-              Membership Plans
+              {t('tiersPage.eyebrow', 'Membership & sponsorship')}
             </Badge>
           )}
           <h1 className={`font-bold text-gray-900 tracking-tight mb-3 ${embedded ? 'text-2xl' : 'text-4xl sm:text-5xl mb-5'}`}>
-            Membership &amp; Sponsorship
+            {t('tiersPage.title', 'Free membership, event sponsorship')}
           </h1>
           <p className={`text-gray-500 max-w-2xl mx-auto leading-relaxed ${embedded ? 'text-sm' : 'text-lg'}`}>
-            Join the premier B2B network for the marina industry. Start for free and
-            upgrade as your visibility needs grow.
+            {t('tiersPage.subtitle', "Membership is free for every member. Companies that sponsor M3's events get more team seats, more introductions and a sponsor badge on the platform.")}
           </p>
         </div>
       </section>
@@ -236,7 +267,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
             {TIERS.map((tier) => {
               const config = TIER_CONFIG[tier];
               const colors = TIER_COLORS[tier];
-              const label = TIER_LABELS[tier];
+              const label = tier === 'member' ? t('tiersPage.memberLabel', 'Member') : TIER_LABELS[tier];
               const isCurrentPlan = currentTier === tier;
               const isHighlighted = config.highlighted;
 
@@ -249,20 +280,11 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                       : 'border border-gray-200 hover:shadow-md'
                   } ${isCurrentPlan ? 'ring-2 ring-secondary' : ''}`}
                 >
-                  {/* Popular badge */}
-                  {isHighlighted && !isCurrentPlan && (
-                    <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                      <Badge className="px-3 py-0.5 text-xs font-semibold bg-primary text-white shadow-sm">
-                        Most popular
-                      </Badge>
-                    </div>
-                  )}
-
-                  {/* Current plan badge */}
+                  {/* Current level badge */}
                   {isCurrentPlan && (
                     <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                       <Badge className="px-3 py-0.5 text-xs font-semibold bg-secondary text-secondary-foreground shadow-sm">
-                        Your current plan
+                        {t('tiersPage.yourCurrentLevel', 'Your current level')}
                       </Badge>
                     </div>
                   )}
@@ -275,14 +297,16 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                       {label}
                     </span>
 
-                    {/* Price */}
+                    {/* What it is: free membership, or an event sponsorship package */}
                     <div className="mb-1">
                       <span className="text-3xl font-bold text-gray-900">
-                        {tier === 'member' ? 'Free' : 'Contact Us'}
+                        {tier === 'member' ? t('tiersPage.free', 'Free') : t('tiersPage.sponsor', 'Event sponsor')}
                       </span>
                     </div>
                     <p className="text-xs text-gray-400">
-                      {tier === 'member' ? 'Free forever' : 'Custom pricing'}
+                      {tier === 'member'
+                        ? t('tiersPage.freeNote', 'For every member')
+                        : t('tiersPage.sponsorNote', 'Package agreed with the M3 team')}
                     </p>
                   </CardHeader>
 
@@ -291,38 +315,38 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                     <ul className="space-y-3 flex-1">
                       <FeatureRow
                         icon={<Wifi className="h-4 w-4 text-gray-400" />}
-                        label="Connect requests"
+                        label={t('tiersPage.features.connectRequests', 'Introduction requests per month')}
                         value={config.connectRequests}
                       />
                       <FeatureRow
                         icon={<Ticket className="h-4 w-4 text-gray-400" />}
-                        label="Webinar requests"
+                        label={t('tiersPage.features.webinarRequests', 'Webinar proposals')}
                         value={config.webinarRequests}
                       />
                       <FeatureRow
                         icon={<Users className="h-4 w-4 text-gray-400" />}
-                        label="Team members"
+                        label={t('tiersPage.features.teamMembers', 'Team seats')}
                         value={String(config.teamMembers)}
                       />
                       <FeatureRow
                         icon={<FileText className="h-4 w-4 text-gray-400" />}
-                        label="Resources"
+                        label={t('tiersPage.features.resources', 'Resources')}
                         value={config.resourceAccess}
                       />
                       <FeatureRow
                         icon={<Calendar className="h-4 w-4 text-gray-400" />}
-                        label="Events"
+                        label={t('tiersPage.features.events', 'Events')}
                         value={config.eventAccess}
                       />
                       <FeatureRow
                         icon={<Star className="h-4 w-4 text-gray-400" />}
-                        label="Sponsor badge"
+                        label={t('tiersPage.features.sponsorBadge', 'Sponsor badge')}
                         value={config.sponsorBadge}
                         isBoolean
                       />
                       <FeatureRow
                         icon={<Shield className="h-4 w-4 text-gray-400" />}
-                        label="Priority support"
+                        label={t('tiersPage.features.prioritySupport', 'Priority support')}
                         value={config.prioritySupport}
                         isBoolean
                       />
@@ -331,7 +355,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                     {/* CTA */}
                     {isCurrentPlan ? (
                       <Button disabled className="w-full rounded-xl" variant="outline">
-                        Current plan
+                        {t('tiersPage.yourLevel', 'Your level')}
                       </Button>
                     ) : (
                       <Button
@@ -344,7 +368,9 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                         }`}
                       >
                         <Link to={config.ctaHref}>
-                          {config.ctaLabel}
+                          {config.ctaLabel === 'signUp'
+                            ? t('tiersPage.cta.signUp', 'Sign up')
+                            : t('tiersPage.cta.contactTeam', 'Contact the M3 team')}
                           <ArrowRight className="h-4 w-4 ml-1.5 group-hover:translate-x-0.5 transition-transform" />
                         </Link>
                       </Button>
@@ -361,12 +387,12 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
       <section className={`${embedded ? 'py-8' : 'py-16'} px-4 bg-gray-50`}>
         <div className="container mx-auto max-w-7xl">
           <h2 className="text-2xl font-bold text-gray-900 text-center mb-10">
-            Full feature comparison
+            {t('tiersPage.compareTitle', 'Compare the levels')}
           </h2>
 
           {isMarina && (
             <p className="text-center text-sm text-gray-500 mb-6">
-              Marina profiles benefit from free membership. Upgrade to a sponsor package for enhanced visibility.
+              {t('tiersPage.marinaNote', 'Membership is free for marinas, as for every member, and a marina can invite its whole team. Sponsoring an event adds visibility.')}
             </p>
           )}
 
@@ -374,7 +400,7 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
             <table className="w-full text-sm" style={{ minWidth: '700px' }}>
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="text-left px-5 py-4 text-gray-500 font-semibold" style={{ width: '180px', minWidth: '180px' }}>Feature</th>
+                  <th className="text-left px-5 py-4 text-gray-500 font-semibold" style={{ width: '180px', minWidth: '180px' }}>{t('tiersPage.feature', 'Feature')}</th>
                   {TIERS.map((tier) => {
                     const colors = TIER_COLORS[tier];
                     const isCurrentPlan = currentTier === tier;
@@ -385,10 +411,10 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                             isCurrentPlan ? 'ring-1 ring-secondary/70' : ''
                           }`}
                         >
-                          {TIER_LABELS[tier]}
+                          {tier === 'member' ? t('tiersPage.memberLabel', 'Member') : TIER_LABELS[tier]}
                         </span>
                         {isCurrentPlan && (
-                          <span className="block text-xs text-secondary font-medium mt-1">Your plan</span>
+                          <span className="block text-xs text-secondary font-medium mt-1">{t('tiersPage.yourLevel', 'Your level')}</span>
                         )}
                       </th>
                     );
@@ -396,78 +422,78 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
                 </tr>
               </thead>
               <tbody>
-                {/* Features */}
+                {/* Team */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Plan Details</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">{t('tiersPage.sections.team', 'Team')}</td>
                 </tr>
                 <ComparisonRow
-                  label="Team members"
-                  values={TIERS.map((t) => String(TIER_CONFIG[t].teamMembers))}
+                  label={t('tiersPage.features.teamMembers', 'Team seats')}
+                  values={TIERS.map((tier) => String(TIER_CONFIG[tier].teamMembers))}
                   isText
                 />
 
                 {/* Platform Access */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Platform Access</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">{t('tiersPage.sections.platform', 'Platform access')}</td>
                 </tr>
                 <ComparisonRow
-                  label="Resource library"
-                  values={TIERS.map((t) => TIER_CONFIG[t].resourceAccess)}
+                  label={t('tiersPage.features.resourceLibrary', 'Resource library')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].resourceAccess)}
                   isText
                 />
                 <ComparisonRow
-                  label="Events access"
-                  values={TIERS.map((t) => TIER_CONFIG[t].eventAccess)}
+                  label={t('tiersPage.features.eventsAccess', 'Events')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].eventAccess)}
                   isText
                 />
                 <ComparisonRow
-                  label="Public profile page"
-                  values={TIERS.map((t) => TIER_CONFIG[t].publicProfile)}
+                  label={t('tiersPage.features.publicProfile', 'Company page')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].publicProfile)}
                   isBoolean
                 />
                 <ComparisonRow
-                  label="Network directory"
-                  values={TIERS.map((t) => TIER_CONFIG[t].networkDirectory)}
+                  label={t('tiersPage.features.directory', 'Directory')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].networkDirectory)}
                   isBoolean
                 />
 
-                {/* B2B Features */}
+                {/* Introductions and needs */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">B2B Features</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">{t('tiersPage.sections.business', 'Introductions and needs')}</td>
                 </tr>
                 <ComparisonRow
-                  label="Connect requests / month"
-                  values={TIERS.map((t) => TIER_CONFIG[t].connectRequests)}
+                  label={t('tiersPage.features.connectRequests', 'Introduction requests per month')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].connectRequests)}
                   isText
                 />
                 <ComparisonRow
-                  label="Webinar requests"
-                  values={TIERS.map((t) => TIER_CONFIG[t].webinarRequests)}
+                  label={t('tiersPage.features.webinarRequests', 'Webinar proposals')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].webinarRequests)}
                   isText
                 />
                 <ComparisonRow
-                  label="RFP submissions"
-                  values={TIERS.map((t) => TIER_CONFIG[t].rfpAccess)}
+                  label={t('tiersPage.features.rfps', 'Publish tenders')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].rfpAccess)}
                   isBoolean
                 />
                 <ComparisonRow
-                  label="Consultation access"
-                  values={TIERS.map((t) => TIER_CONFIG[t].consultationAccess)}
+                  label={t('tiersPage.features.consultations', 'Expert questions')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].consultationAccess)}
                   isBoolean
                 />
 
                 {/* Visibility & Support */}
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Visibility &amp; Support</td>
+                  <td colSpan={7} className="px-5 py-2 text-xs font-bold text-gray-400 uppercase tracking-wider">{t('tiersPage.sections.visibility', 'Visibility and support')}</td>
                 </tr>
                 <ComparisonRow
-                  label="Sponsor badge"
-                  values={TIERS.map((t) => TIER_CONFIG[t].sponsorBadge)}
+                  label={t('tiersPage.features.sponsorBadge', 'Sponsor badge')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].sponsorBadge)}
                   isBoolean
                 />
                 <ComparisonRow
-                  label="Priority support"
-                  values={TIERS.map((t) => TIER_CONFIG[t].prioritySupport)}
+                  label={t('tiersPage.features.prioritySupport', 'Priority support')}
+                  values={TIERS.map((tier) => TIER_CONFIG[tier].prioritySupport)}
                   isBoolean
                 />
               </tbody>
@@ -483,15 +509,14 @@ export function TiersPage({ embedded }: { embedded?: boolean } = {}) {
             <Mail className="h-7 w-7 text-primary" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-3">
-            Not sure which plan fits?
+            {t('tiersPage.contactTitle', 'Want to sponsor an event?')}
           </h2>
           <p className="text-gray-500 mb-7">
-            Sponsorship packages are tailored to your visibility goals and budget. Reach
-            out to the Smart Marina Connect team and we will find the right fit together.
+            {t('tiersPage.contactBody', 'Sponsorship packages are built around each event and your goals. Write to the M3 team and we will put together the right package with you.')}
           </p>
           <Button asChild className="rounded-xl bg-primary hover:bg-primary/90">
-            <Link to="/contact">
-              Contact us
+            <Link to="/contact?subject=partnership">
+              {t('tiersPage.cta.contactTeam', 'Contact the M3 team')}
               <ArrowRight className="h-4 w-4 ml-2" />
             </Link>
           </Button>
@@ -516,6 +541,7 @@ function FeatureRow({
   value: string | boolean;
   isBoolean?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <li className="flex items-start gap-2.5">
       <span className="mt-0.5 flex-shrink-0">{icon}</span>
@@ -524,14 +550,14 @@ function FeatureRow({
         {isBoolean ? (
           <span className="flex items-center gap-1 mt-0.5">
             {typeof value === 'boolean' && value ? (
-              <><Check className="h-4 w-4 text-emerald-500" /><span className="text-xs font-medium text-emerald-600">Included</span></>
+              <><Check className="h-4 w-4 text-emerald-500" /><span className="text-xs font-medium text-emerald-600">{t('tiersPage.included', 'Included')}</span></>
             ) : (
-              <><X className="h-4 w-4 text-gray-300" /><span className="text-xs text-gray-400">Not included</span></>
+              <><X className="h-4 w-4 text-gray-300" /><span className="text-xs text-gray-400">{t('tiersPage.notIncluded', 'Not included')}</span></>
             )}
           </span>
         ) : (
           <span className="text-sm font-semibold text-gray-800">
-            {String(value)}
+            {valueLabel(t, String(value))}
           </span>
         )}
       </div>
@@ -550,6 +576,7 @@ function ComparisonRow({
   isText?: boolean;
   isBoolean?: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <tr className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors">
       <td className="px-6 py-4 text-gray-600 font-medium">{label}</td>
@@ -559,7 +586,7 @@ function ComparisonRow({
             <FeatureValue value={v} isBoolean />
           ) : isText ? (
             <span className={`text-sm font-medium ${v === 'Unlimited' ? 'text-emerald-600' : v === 'Not included' ? 'text-gray-300' : 'text-gray-700'}`}>
-              {String(v)}
+              {valueLabel(t, String(v))}
             </span>
           ) : null}
         </td>

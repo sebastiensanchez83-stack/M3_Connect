@@ -147,13 +147,13 @@ export function WebinarRequestPage() {
     return (
       <div className="container mx-auto px-4 py-16 max-w-lg text-center">
         <AlertCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">Quota Reached</h1>
+        <h1 className="text-2xl font-bold text-gray-800 mb-2">All webinar proposals used</h1>
         <p className="text-gray-500 mb-6">
-          You have used all {quota} webinar request{quota === 1 ? '' : 's'} included in your current plan.
-          Upgrade your membership to submit additional requests.
+          You have used the {quota} webinar proposal{quota === 1 ? '' : 's'} included in your sponsor level for this period.
+          Talk to the M3 team if you would like to propose more.
         </p>
         <Button asChild>
-          <Link to="/tiers">View Membership Plans</Link>
+          <Link to="/contact?subject=partnership">Contact the M3 team</Link>
         </Button>
       </div>
     );
@@ -165,7 +165,7 @@ export function WebinarRequestPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-primary mb-2">Propose a Webinar</h1>
         <p className="text-gray-600">
-          Suggest a topic or expert you'd like to see featured in an Smart Marina Connect webinar.
+          Suggest a topic or expert you'd like to see featured in a Smart Marina Connect webinar.
           Our team will review your proposal and notify you.
         </p>
 

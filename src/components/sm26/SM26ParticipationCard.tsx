@@ -83,7 +83,7 @@ export function SM26ParticipationCard({ userId, organizationId, companyName, var
     if (hideWhenEmpty) return null;
     return (
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Ship className="h-4 w-4 text-gray-400" /> Smart Marina Rendezvous 2026</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-base flex items-center gap-2"><Ship className="h-4 w-4 shrink-0 text-gray-400" /> Monaco Smart &amp; Sustainable Marina Rendezvous 2026</CardTitle></CardHeader>
         <CardContent><p className="text-sm text-gray-400">No SM26 participation on record.</p></CardContent>
       </Card>
     );
@@ -92,7 +92,7 @@ export function SM26ParticipationCard({ userId, organizationId, companyName, var
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2"><Ship className="h-4 w-4 text-primary" /> Smart Marina Rendezvous 2026</CardTitle>
+        <CardTitle className="text-base flex items-center gap-2"><Ship className="h-4 w-4 shrink-0 text-primary" /> Monaco Smart &amp; Sustainable Marina Rendezvous 2026</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {visibleRegs.map(r => {

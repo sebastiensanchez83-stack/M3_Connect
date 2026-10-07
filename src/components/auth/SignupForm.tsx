@@ -220,8 +220,8 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     { value: 'marina' as PersonaType, icon: <Anchor className="h-6 w-6" />, title: t('auth.personaMarina'), desc: t('auth.personaMarinaDesc') },
     { value: 'partner' as PersonaType, icon: <Building2 className="h-6 w-6" />, title: t('auth.personaPartner'), desc: t('auth.personaPartnerDesc') },
     { value: 'media_partner' as PersonaType, icon: <Newspaper className="h-6 w-6" />, title: t('auth.personaMedia'), desc: t('auth.personaMediaDesc') },
-    { value: 'developer' as PersonaType, icon: <HardHat className="h-6 w-6" />, title: t('auth.personaDeveloper', 'Developer'), desc: t('auth.personaDeveloperDesc', 'Marina developer, real-estate group, or builder. Access marketplace, submit RFPs and projects.') },
-    { value: 'investor' as PersonaType, icon: <TrendingUp className="h-6 w-6" />, title: t('auth.personaInvestor', 'Investor'), desc: t('auth.personaInvestorDesc', 'Fund, family office, or strategic investor. Browse marinas, partners, deal flow, and connect.') },
+    { value: 'developer' as PersonaType, icon: <HardHat className="h-6 w-6" />, title: t('auth.personaDeveloper', 'Developer'), desc: t('auth.personaDeveloperDesc', 'Marina developer, real-estate group or builder. Publish tenders and projects, and find service providers.') },
+    { value: 'investor' as PersonaType, icon: <TrendingUp className="h-6 w-6" />, title: t('auth.personaInvestor', 'Investor'), desc: t('auth.personaInvestorDesc', 'Fund, family office or strategic investor. Browse marinas, start-ups and deal flow, and get in touch.') },
   ];
 
   const handlePersonaSelect = (persona: PersonaType) => {

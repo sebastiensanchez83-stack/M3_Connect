@@ -1,33 +1,33 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
 import { Anchor, Globe, Users, Link2, Building2, Target, Lightbulb, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/PageHero';
 import { MomentsStrip } from '@/components/ui/MomentsStrip';
 import { SITE_IMAGES, PERSONA_IMAGES } from '@/lib/siteMedia';
+import { withSiteSuffix } from '@/lib/seoText';
 
 export function AboutPage() {
   const { t } = useTranslation();
+  const seoTitle = withSiteSuffix(t('seo.about.title', 'About Smart Marina Connect, by M3 Monaco'));
+  const seoDescription = t('seo.about.description', 'Smart Marina Connect is the marina industry network run by M3 Monaco, organiser of industry events in Monaco, Dubai and online.');
 
   return (
     <div className="min-h-screen">
-      <Helmet>
-        <title>About — Smart Marina Connect</title>
-        <meta name="description" content="Learn about Smart Marina Connect, the B2B platform connecting marinas, ports and service providers in the yachting industry." />
-      </Helmet>
+      <Seo title={seoTitle} description={seoDescription} path="/about" />
       {/* Hero — the SM26 community under the event's own screen */}
       <PageHero
         image={SITE_IMAGES.aboutHero}
         seed="about-hero"
         containerClassName="max-w-5xl"
         icon={Anchor}
-        eyebrow="Monaco Marina Management"
+        eyebrow={t('about.eyebrow', 'By M3 Monaco')}
         title={t('about.title', 'About Smart Marina Connect')}
         subtitle={t(
           'about.hero',
-          'The B2B platform dedicated to the global marina industry. We connect marinas with qualified partners and media professionals to foster collaboration, knowledge sharing, and business growth across the sector.'
+          'The network of marinas and the companies that serve them. Smart Marina Connect is run by M3 Monaco, organiser of industry events in Monaco, Dubai and online.'
         )}
       />
 
@@ -37,19 +37,19 @@ export function AboutPage() {
           <div className="flex items-center gap-3 mb-6">
             <Target className="h-8 w-8 text-primary" />
             <h2 className="text-3xl font-bold text-gray-900">
-              {t('about.missionTitle', 'Our Mission')}
+              {t('about.missionTitle', 'Our mission')}
             </h2>
           </div>
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl">
             {t(
               'about.mission',
-              'Our mission is to foster collaboration, knowledge sharing, and sustainable growth across the global marina ecosystem by providing a centralized platform for networking and business development.'
+              'Help marinas find the right service providers, and help those providers understand what marinas need.'
             )}
           </p>
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl mt-4">
             {t(
               'about.missionDetail',
-              'We believe the marina industry deserves a dedicated space where professionals can discover new solutions, share expertise, and build meaningful business relationships that drive the entire sector forward.'
+              "Marinas publish their needs, service providers answer them, and both meet at M3's events in Monaco, Dubai and online. The M3 team checks every member, so you know who you are talking to."
             )}
           </p>
         </div>
@@ -61,7 +61,7 @@ export function AboutPage() {
           <div className="flex items-center gap-3 mb-10">
             <Lightbulb className="h-8 w-8 text-primary" />
             <h2 className="text-3xl font-bold text-gray-900">
-              {t('about.whatWeDoTitle', 'What We Do')}
+              {t('about.whatWeDoTitle', 'What we do')}
             </h2>
           </div>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -69,12 +69,12 @@ export function AboutPage() {
               <CardContent className="pt-6">
                 <Globe className="h-10 w-10 text-primary mb-4" />
                 <h3 className="text-xl font-semibold mb-2">
-                  {t('about.feature1Title', 'Industry Resources')}
+                  {t('about.feature1Title', 'Resources')}
                 </h3>
                 <p className="text-gray-600">
                   {t(
                     'about.feature1Desc',
-                    'Curated articles, reports, and guides covering the latest trends, regulations, and best practices in marina management and operations.'
+                    'Articles on marina infrastructure, design, digital, energy, operations and business, sorted by theme.'
                   )}
                 </p>
               </CardContent>
@@ -84,12 +84,12 @@ export function AboutPage() {
               <CardContent className="pt-6">
                 <Link2 className="h-10 w-10 text-primary mb-4" />
                 <h3 className="text-xl font-semibold mb-2">
-                  {t('about.feature2Title', 'B2B Matching')}
+                  {t('about.feature2Title', 'Introductions')}
                 </h3>
                 <p className="text-gray-600">
                   {t(
                     'about.feature2Desc',
-                    'Connect marinas with qualified technology and service partners through our smart matching system. Submit projects, request proposals, and find the right solutions.'
+                    'Marinas publish tenders, projects and expert questions. Service providers answer them and request introductions.'
                   )}
                 </p>
               </CardContent>
@@ -99,12 +99,12 @@ export function AboutPage() {
               <CardContent className="pt-6">
                 <Users className="h-10 w-10 text-primary mb-4" />
                 <h3 className="text-xl font-semibold mb-2">
-                  {t('about.feature3Title', 'Events & Webinars')}
+                  {t('about.feature3Title', 'Events & webinars')}
                 </h3>
                 <p className="text-gray-600">
                   {t(
                     'about.feature3Desc',
-                    'Participate in industry events, conferences, and webinars. Network with peers and stay ahead of market developments.'
+                    'The Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai and webinars online.'
                   )}
                 </p>
               </CardContent>
@@ -119,7 +119,7 @@ export function AboutPage() {
           <div className="flex items-center gap-3 mb-10">
             <Users className="h-8 w-8 text-primary" />
             <h2 className="text-3xl font-bold text-gray-900">
-              {t('about.whoWeServeTitle', 'Who We Serve')}
+              {t('about.whoWeServeTitle', 'Who it is for')}
             </h2>
           </div>
           {/* Photo cards: who the platform is for, shown with the people and work it serves. */}
@@ -138,7 +138,7 @@ export function AboutPage() {
                 <p className="text-gray-600">
                   {t(
                     'about.audience1Desc',
-                    'Marina operators and managers looking for qualified partners, industry knowledge, and proven solutions to improve their operations and services.'
+                    'Marina operators and managers looking for service providers, industry knowledge and proven solutions.'
                   )}
                 </p>
               </div>
@@ -153,12 +153,12 @@ export function AboutPage() {
               </div>
               <div className="p-6">
                 <h3 className="text-xl font-semibold mb-3">
-                  {t('about.audience2Title', 'Partners')}
+                  {t('about.audience2Title', 'Service providers')}
                 </h3>
                 <p className="text-gray-600">
                   {t(
                     'about.audience2Desc',
-                    'Technology providers, consultants, and service companies serving the marina industry. Gain visibility, connect with marinas, and grow your business.'
+                    'Technology providers, consultants and service companies working for marinas: a company page in the directory, the needs marinas publish, and introductions.'
                   )}
                 </p>
               </div>
@@ -173,12 +173,12 @@ export function AboutPage() {
               </div>
               <div className="p-6">
                 <h3 className="text-xl font-semibold mb-3">
-                  {t('about.audience3Title', 'Media Professionals')}
+                  {t('about.audience3Title', 'Media')}
                 </h3>
                 <p className="text-gray-600">
                   {t(
                     'about.audience3Desc',
-                    'Journalists, content creators, and industry publications covering the marina and nautical sector. Access press releases, expert insights, and event coverage.'
+                    'Journalists and publications covering marinas and the nautical sector: press accreditation for our events, news and replays.'
                   )}
                 </p>
               </div>
@@ -199,13 +199,13 @@ export function AboutPage() {
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl">
             {t(
               'about.companyDesc',
-              'Smart Marina Connect is operated by M3 Monaco, based in the Principality of Monaco. With deep expertise in the marina industry, M3 is committed to advancing the sector through professional networking and business development.'
+              'Smart Marina Connect is run by M3 Monaco, based in the Principality of Monaco. M3 organises the Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai and webinars for the marina industry.'
             )}
           </p>
           <p className="text-lg text-gray-600 leading-relaxed max-w-3xl mt-4">
             {t(
               'about.companyDesc2',
-              'Our team brings together marina management professionals, technology experts, and industry veterans who understand the unique challenges and opportunities facing the global marina ecosystem.'
+              "The team brings together marina management professionals and event organisers who know the sector's challenges first-hand."
             )}
           </p>
         </div>
@@ -218,18 +218,18 @@ export function AboutPage() {
       <section className="py-16 bg-primary text-white">
         <div className="container mx-auto px-4 max-w-5xl text-center">
           <h2 className="text-3xl font-bold mb-4">
-            {t('about.ctaTitle', 'Ready to Join the Marina Community?')}
+            {t('about.ctaTitle', 'Join the marina network')}
           </h2>
           <p className="text-lg text-white/90 mb-8 max-w-2xl mx-auto">
             {t(
               'about.ctaDesc',
-              'Whether you are a marina operator, technology partner, or media professional, Smart Marina Connect is your gateway to the global marina industry.'
+              'Marina, service provider, investor, developer or media: sign up and the M3 team checks your company. A question first? Write to us.'
             )}
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Button asChild size="lg" variant="secondary">
-              <Link to="/signup">
-                {t('about.ctaSignup', 'Create an Account')}
+              <Link to="/become-partner">
+                {t('about.ctaSignup', 'Sign up')}
                 <ArrowRight className="ml-2 h-5 w-5" />
               </Link>
             </Button>
@@ -240,7 +240,7 @@ export function AboutPage() {
               className="border-white text-white hover:bg-white/10"
             >
               <Link to="/contact">
-                {t('about.ctaContact', 'Contact Us')}
+                {t('about.ctaContact', 'Contact us')}
               </Link>
             </Button>
           </div>

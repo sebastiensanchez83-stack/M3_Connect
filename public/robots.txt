@@ -1,9 +1,8 @@
+# Private, personal and token pages are kept out of search results by an
+# X-Robots-Tag: noindex header (netlify.toml), not here: a Disallow would stop
+# robots from fetching those pages, and so from ever reading their noindex.
 User-agent: *
 Allow: /
-Disallow: /admin
-Disallow: /account
-Disallow: /onboarding
-Disallow: /auth
-Disallow: /reference/
 
+# Built on request from the database (netlify/edge-functions/sitemap.ts).
 Sitemap: https://smartmarinaconnect.com/sitemap.xml

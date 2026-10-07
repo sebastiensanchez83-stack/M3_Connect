@@ -122,11 +122,11 @@ export function ShortlistTab() {
           <p className="text-sm text-gray-500 max-w-md mx-auto mb-5">
             {isInvestor
               ? 'Pin any organization to save it here with private notes. Useful for tracking deal-flow targets and capital-seekers worth a second look.'
-              : 'Star any organization on the platform to save it here with private notes. Useful for tracking vendors you might want to work with on a future project.'}
+              : 'Star any organization on the platform to save it here with private notes. Useful for tracking service providers you might want to work with on a future project.'}
           </p>
           <Button asChild variant="outline">
-            <Link to={isInvestor ? '/investments' : '/partners'}>
-              {isInvestor ? 'Browse deal flow' : 'Browse partners'}
+            <Link to={isInvestor ? '/investments' : '/directory?type=partner'}>
+              {isInvestor ? 'Browse deal flow' : 'Browse service providers'}
             </Link>
           </Button>
         </CardContent>

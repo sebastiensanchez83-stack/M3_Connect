@@ -65,8 +65,8 @@ const timelineOptions = [
 
 const personaCards: { value: PersonaType; icon: JSX.Element; title: string; desc: string }[] = [
   { value: 'marina', icon: <Anchor className="h-8 w-8" />, title: 'Marina', desc: 'I manage or represent a marina or port.' },
-  { value: 'partner', icon: <Briefcase className="h-8 w-8" />, title: 'Industry Partner', desc: 'I provide products or services to the marina sector.' },
-  { value: 'media_partner', icon: <Newspaper className="h-8 w-8" />, title: 'Media Partner', desc: 'I represent a media outlet covering the marina and yachting industry.' },
+  { value: 'partner', icon: <Briefcase className="h-8 w-8" />, title: 'Service provider', desc: 'I provide products or services to marinas.' },
+  { value: 'media_partner', icon: <Newspaper className="h-8 w-8" />, title: 'Media', desc: 'I represent a media outlet covering marinas and yachting.' },
 ];
 
 const defaultMarinaForm: MarinaOrgForm = {

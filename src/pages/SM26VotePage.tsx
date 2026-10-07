@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Helmet } from 'react-helmet-async';
+import { Seo } from '@/components/seo/Seo';
+import { useSeoTr } from '@/components/seo/useSeoTr';
+import { withSiteSuffix } from '@/lib/seoText';
 import { Link } from 'react-router-dom';
 import { RefreshCw, Vote, Check, Loader2, Trophy, Search, Clock, Lock, WifiOff } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -64,7 +66,7 @@ function WinnersCard({ winners }: { winners: Winner[] }) {
     <Card className="border border-amber-100 shadow-sm bg-gradient-to-br from-amber-50 to-white">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-amber-800"><Trophy className="h-5 w-5" /> Award winners</CardTitle>
-        <CardDescription>Congratulations to the Smart &amp; Sustainable Marina Rendezvous 2026 winners.</CardDescription>
+        <CardDescription>Congratulations to the Monaco Smart &amp; Sustainable Marina Rendezvous 2026 winners.</CardDescription>
       </CardHeader>
       <CardContent className="grid sm:grid-cols-2 gap-3">
         {winners.map(w => (
@@ -80,6 +82,7 @@ function WinnersCard({ winners }: { winners: Winner[] }) {
 }
 
 export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) {
+  const seoTr = useSeoTr();
   const [ballot, setBallot] = useState<Ballot | null>(null);
   const [winners, setWinners] = useState<Winner[]>([]);
   const [loading, setLoading] = useState(true);
@@ -198,7 +201,8 @@ export function SM26VotePage({ embedded = false }: { embedded?: boolean } = {}) 
 
   return (
     <div className="min-h-screen bg-gray-50 pb-28">
-      <Helmet><title>Vote — Smart &amp; Sustainable Marina Rendezvous 2026</title></Helmet>
+      {/* A static QR in the event presentation: the words may change, the URL never. Same words as the edge function's share preview. */}
+      <Seo title={withSiteSuffix(seoTr('sm26Vote.title'))} description={seoTr('sm26Vote.description')} path="/sm26/vote" />
       <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
         <div className="container mx-auto px-4 py-10 max-w-2xl">
           <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · Audience vote</p>

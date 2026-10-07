@@ -702,7 +702,7 @@ export function OrganizationTab() {
       const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];
       toast({
         title: 'Team capacity reached',
-        description: `Your ${tierLabel} plan includes ${org.max_seats} seat${org.max_seats > 1 ? 's' : ''}. Contact Smart Marina Connect to request additional seats.`,
+        description: `Your ${tierLabel} level includes ${org.max_seats} seat${org.max_seats > 1 ? 's' : ''}. Contact the M3 team to request additional seats.`,
         variant: 'destructive',
       });
       return;
@@ -923,7 +923,7 @@ export function OrganizationTab() {
           <Card>
             <CardHeader>
               <CardTitle>
-                {createStep === 'plan' ? 'Choose your membership plan' : t('org.createOrg')}
+                {createStep === 'plan' ? 'Membership and event sponsorship' : t('org.createOrg')}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1009,21 +1009,21 @@ export function OrganizationTab() {
               {createStep === 'plan' && (
                 <>
                   <p className="text-sm text-gray-500">
-                    Choose your membership tier. Member access is free. Sponsorship packages provide enhanced visibility and are confirmed by M3 after your organization is created.
+                    Membership is free. If you also want to sponsor one of M3's events, pick a sponsor level: the M3 team confirms it with you after your organization is created.
                   </p>
                   <div className="grid gap-2">
                     {([
-                      { tier: 'member' as OrgTier, price: 'Free', note: 'Full platform access', seats: 1,
+                      { tier: 'member' as OrgTier, price: 'Free', note: 'Every member', seats: 1,
                         features: 'Events & webinars, connect requests, member resources, network directory', recommended: true },
-                      { tier: 'innovation_partner' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 5,
+                      { tier: 'innovation_partner' as OrgTier, price: 'Event sponsor', note: 'Agreed with M3', seats: 5,
                         features: '20 connect requests, webinar proposals, all content access' },
-                      { tier: 'associate_partner' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 10,
+                      { tier: 'associate_partner' as OrgTier, price: 'Event sponsor', note: 'Agreed with M3', seats: 10,
                         features: 'Unlimited connects, priority events, sponsor badge' },
-                      { tier: 'premium_partner' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 15,
+                      { tier: 'premium_partner' as OrgTier, price: 'Event sponsor', note: 'Agreed with M3', seats: 15,
                         features: 'Unlimited connects, VIP events, priority support' },
-                      { tier: 'premium_sponsor' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 20,
+                      { tier: 'premium_sponsor' as OrgTier, price: 'Event sponsor', note: 'Agreed with M3', seats: 20,
                         features: 'Full VIP experience, maximum visibility' },
-                      { tier: 'main_sponsor' as OrgTier, price: 'Contact Us', note: 'Annual invoice', seats: 25,
+                      { tier: 'main_sponsor' as OrgTier, price: 'Event sponsor', note: 'Agreed with M3', seats: 25,
                         features: 'Title sponsor, exclusive benefits' },
                     ]).map(({ tier, price, note, seats, features, recommended }) => {
                       const colors = TIER_COLORS[tier];
@@ -1066,7 +1066,7 @@ export function OrganizationTab() {
                   </div>
                   {selectedPlan !== 'member' && (
                     <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded p-2">
-                      A sponsorship upgrade request will be submitted automatically after your organization is created. M3 will contact you with invoice details.
+                      A sponsorship request is sent to M3 once your organization is created. The M3 team will contact you with the details of the package.
                     </p>
                   )}
                   <div className="flex gap-3 justify-end pt-2 border-t">
@@ -1257,7 +1257,7 @@ export function OrganizationTab() {
                 setUpgradeOpen(true);
               }}>
                 <ArrowUpCircle className="h-4 w-4 mr-1" />
-                {isSponsorTier(org.tier as OrgTier) ? 'Upgrade Tier' : 'Upgrade to Sponsor'}
+                {isSponsorTier(org.tier as OrgTier) ? 'Change sponsor level' : 'Sponsor an event'}
               </Button>
             )}
           </div>
@@ -2229,20 +2229,20 @@ export function OrganizationTab() {
       <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{isSponsorTier(org.tier as OrgTier) ? 'Upgrade sponsorship' : 'Become a sponsor'}</DialogTitle>
+            <DialogTitle>{isSponsorTier(org.tier as OrgTier) ? 'Change your sponsor level' : 'Sponsor an event'}</DialogTitle>
             <DialogDescription>
               {isSponsorTier(org.tier as OrgTier)
-                ? `You are currently a ${TIER_LABELS[org.tier as OrgTier]}. Talk to the M3 team about moving to a higher tier — your existing sponsorship investment is accounted for.`
-                : 'Sponsorship packages are arranged directly with the M3 team.'}
+                ? `Your company is a ${TIER_LABELS[org.tier as OrgTier]}. Talk to the M3 team about a higher sponsor level: your current sponsorship is taken into account.`
+                : 'Event sponsorship packages are agreed directly with the M3 team. Membership itself stays free.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-              <p className="font-medium mb-1">Tailored to your organization</p>
+              <p className="font-medium mb-1">Built around your goals</p>
               <p className="text-blue-700">
-                Every package is put together with you — the M3 team will walk you through the tiers,
-                benefits and pricing, then set everything up. Compare the tiers on the{' '}
-                <Link to="/tiers" className="underline font-medium" onClick={() => setUpgradeOpen(false)}>Tiers page</Link>.
+                Every package is put together with you: the M3 team walks you through the sponsor levels,
+                benefits and price for each event, then sets everything up. Compare the levels on the{' '}
+                <Link to="/tiers" className="underline font-medium" onClick={() => setUpgradeOpen(false)}>membership and sponsorship page</Link>.
               </p>
             </div>
             <div className="flex flex-col sm:flex-row justify-end gap-2 pt-1">

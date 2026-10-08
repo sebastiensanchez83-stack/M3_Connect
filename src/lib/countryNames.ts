@@ -1,4 +1,4 @@
-import { countryKey } from '@/lib/networkStats';
+import { countryKey, countryParts } from '@/lib/networkStats';
 
 /**
  * Display names for the free-text country field of organizations.
@@ -105,4 +105,21 @@ export function localizedCountryName(key: string, fallback: string, lang: string
   if (!code) return fallback;
   const name = displayNamesFor(lang)?.of(code);
   return name && name !== code ? name : fallback;
+}
+
+/**
+ * A country field as an English reader should see it: "Suomi" → "Finland",
+ * "Italia" → "Italy", "UK" → "United Kingdom", "FRANCE" → "France",
+ * "Spain/France" → "Spain, France". Native and French spellings fold through
+ * networkStats' COUNTRY_ALIASES, then the browser's English name of the ISO
+ * region; a spelling it does not recognise is shown tidied (capitals fixed),
+ * never dropped. The interface is English only, hence no `lang` parameter.
+ */
+export function englishCountryName(raw: string | null | undefined): string {
+  const s = (raw ?? '').trim();
+  if (!s) return '';
+  const parts = countryParts(s);
+  if (parts.length === 0) return tidy(s);
+  const names = parts.map((part) => localizedCountryName(countryKey(part), tidy(part), 'en'));
+  return [...new Set(names)].join(', ');
 }

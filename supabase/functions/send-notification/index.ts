@@ -348,7 +348,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         subject: "New partner contact request — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "New Contact Request",
-        body: `You've received a new contact request from ${d.partner_name || "a partner"} on Smart Marina Connect.${d.message ? `\n\nMessage: "${d.message}"` : ""}`,
+        body: `${d.org_name ? `${d.org_name} has` : "You've"} received a new contact request from ${d.partner_name || "a member"} on Smart Marina Connect.${d.message ? `\n\nMessage: "${d.message}"` : ""}${d.team ? `\n\nYour colleagues on Smart Marina Connect received it too. Any of you can answer: the first answer is the one sent.` : ""}`,
         buttonText: "View B2B Requests",
         buttonUrl: `${accountUrl}?tab=b2b-requests`,
         footer: "Log in to your account to respond.",
@@ -699,9 +699,15 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
 //               always resolved here from the row that justifies the e-mail:
 //                 event_registration_confirmed, rfp_submitted   -> the caller only
 //                 partner_request_received   -> marina of a pending partner request
-//                                               the caller created < 15 min ago
+//                                               the caller created < 15 min ago, AND every
+//                                               verified member of that request's
+//                                               marina_organization_id (the whole company,
+//                                               8 Oct 2026; see "Company fan-out" below)
 //                 partner_request_accepted / _rejected -> partner of a request the
-//                                               caller (marina side) answered < 15 min ago
+//                                               caller answered < 15 min ago: the caller is
+//                                               answered_by_user_id (set by trigger) and
+//                                               marina_user_id or a member of the request's
+//                                               marina_organization_id
 //                 join_request_received      -> owner (organizations.owner_user_id) of
 //                                               the org the caller asked to join < 15 min ago
 //                 join_request_approved / _rejected -> requester of a join request in
@@ -737,6 +743,22 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
 //                   on the request row.
 //               organizations.access_status is only trustworthy once self-service
 //               INSERTs cannot set it: see 20261007152406_org_insert_guard.sql.
+//
+//               Company fan-out (8 Oct 2026). A connection request goes to the whole
+//               receiving company and any member may answer it
+//               (20261008200000_partner_requests_whole_company.sql). For
+//               partner_request_received the e-mail goes to marina_user_id as before and
+//               to every VERIFIED member of the request's marina_organization_id (the
+//               ones who can answer), deduplicated by account and by address, the caller
+//               left out, at most MAX_COMPANY_FANOUT people. The organisation is only used
+//               when M3 has verified it (an owner can add any account to their own
+//               organisation) and when marina_user_id really belongs to it (the insert
+//               trigger checks it too); otherwise only marina_user_id is told, as before. Each recipient's own notification preferences apply; the content
+//               (sender, message) is the same database-sourced text for all. The 10-minute
+//               dedupe stays one per request row, and every extra e-mail is logged in
+//               email_rate_log ("send-notification:fanout:<ref>") so it counts towards
+//               the caller's 30 e-mails an hour: one request can overshoot the cap by at
+//               most one company, never more.
 // Every caller: unknown types are refused, every data field is capped and
 // HTML-escaped before it reaches a template, the button always points at the site
 // origin, and the response no longer echoes the recipient address.
@@ -756,6 +778,8 @@ const ORG_NAME_CHARS = 120;
 const UNVERIFIED_ORG_NAME_CHARS = 80;
 const PERSON_NAME_CHARS = 120;
 const MESSAGE_CHARS = 1000;
+/** Most colleagues one connection request is e-mailed to (largest company on 8 Oct 2026: 6 members). */
+const MAX_COMPANY_FANOUT = 25;
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -960,9 +984,54 @@ const GENERIC_ORG_SUBJECT: Partial<Record<NotificationType, string>> = {
   join_request_rejected: "Update on your join request on Smart Marina Connect",
 };
 
+/**
+ * The colleagues of a connection request's recipient who get the e-mail too: the
+ * VERIFIED members of the receiving organisation (the ones RLS lets answer), the
+ * recipient and the caller left out, one per address, oldest members first, capped.
+ * Empty when the recipient does not belong to that organisation.
+ */
+async function companyRecipients(db: Db, orgId: string | null | undefined, recipientId: string, callerId: string): Promise<Recipient[]> {
+  if (!orgId || !UUID_RE.test(orgId)) return [];
+  const { data: members } = await db
+    .from("organization_members")
+    .select("user_id, joined_at")
+    .eq("organization_id", orgId)
+    .order("joined_at", { ascending: true })
+    .limit(200);
+  const ids = ((members || []) as { user_id: string }[]).map((m) => m.user_id).filter((id) => UUID_RE.test(id));
+  if (!ids.includes(recipientId)) {
+    const { data: org } = await db.from("organizations").select("owner_user_id").eq("id", orgId).maybeSingle();
+    if (org?.owner_user_id !== recipientId) return [];
+  }
+  const others = ids.filter((id) => id !== recipientId && id !== callerId);
+  if (!others.length) return [];
+  const { data: profiles } = await db
+    .from("profiles")
+    .select("user_id, first_name, email, notification_prefs")
+    .in("user_id", others)
+    .eq("access_status", "verified");
+  const byId = new Map(((profiles || []) as { user_id: string; first_name: string | null; email: string | null; notification_prefs: unknown }[])
+    .map((p) => [p.user_id, p]));
+  const out: Recipient[] = [];
+  for (const id of others) {
+    const p = byId.get(id);
+    if (!p?.email || !isEmail(p.email.trim())) continue;
+    out.push({
+      recipientEmail: p.email.trim(),
+      recipientUserId: id,
+      firstName: p.first_name || "",
+      prefs: (p.notification_prefs as Record<string, boolean> | null) || null,
+    });
+    if (out.length >= MAX_COMPANY_FANOUT) break;
+  }
+  return out;
+}
+
 interface MemberGrant extends Recipient {
   data: Record<string, string>;
   ref: string;
+  /** More people who get the same e-mail (partner_request_received: the recipient's colleagues). */
+  also?: Recipient[];
   /** Set when the e-mail names an organisation M3 has not verified: capped per org. */
   unverifiedOrgId?: string;
   /** Replaces the template subject (no organisation name for unverified orgs). */
@@ -1036,11 +1105,13 @@ async function authorizeMemberSend(
       return null;
 
     case "partner_request_received": {
-      // UserProfilePage, OrganizationPublicPage, OpportunitiesPage, DealFlowPage.
+      // OrganizationPublicPage, OpportunitiesPage, DealFlowPage (and the old
+      // UserProfilePage). userId is the request's marina_user_id, as before; the
+      // e-mail also goes to the verified members of its marina_organization_id.
       if (!UUID_RE.test(userId)) return null;
       const { data: row } = await db
         .from("partner_requests")
-        .select("id, partner_organization_id, message")
+        .select("id, partner_organization_id, marina_organization_id, message")
         .eq("partner_user_id", m.id)
         .eq("marina_user_id", userId)
         .eq("status", "pending")
@@ -1061,28 +1132,46 @@ async function authorizeMemberSend(
       const message = cleanText(row.message, MESSAGE_CHARS);
       if (message) out.message = message;
       else delete out.message;
-      return { ...r, data: out, ref: `${type}:${row.id}` };
+      // The receiving company, from the database. Only an organisation M3 has verified
+      // is named and fanned out to: an owner can add ANY account to their organisation
+      // (org_members_insert only checks is_org_owner), so a self-made one could
+      // otherwise turn one request into e-mails to people it picked.
+      const toOrgInfo = row.marina_organization_id ? await orgInfo(db, row.marina_organization_id) : null;
+      const toOrg = toOrgInfo?.verified ? toOrgInfo.name : "";
+      if (toOrg) out.org_name = toOrg;
+      else delete out.org_name;
+      const also = toOrgInfo?.verified ? await companyRecipients(db, row.marina_organization_id, userId, m.id) : [];
+      if (also.length) out.team = "yes";
+      else delete out.team;
+      return { ...r, data: out, ref: `${type}:${row.id}`, also };
     }
 
     case "partner_request_accepted":
     case "partner_request_rejected": {
-      // InboxTab: the marina side answers a request; the requester is told.
+      // InboxTab: someone in the receiving company answers a request; the requester is
+      // told. The answer is the caller's own: answered_by_user_id is written by the
+      // partner_requests trigger from auth.uid(), never by the client.
       if (!UUID_RE.test(userId)) return null;
       const status = type === "partner_request_accepted" ? "accepted" : "rejected";
-      const { data: row } = await db
+      const { data: rows } = await db
         .from("partner_requests")
-        .select("id")
-        .eq("marina_user_id", m.id)
+        .select("id, marina_user_id, marina_organization_id")
+        .eq("answered_by_user_id", m.id)
         .eq("partner_user_id", userId)
         .eq("status", status)
-        .gte("updated_at", since)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .gte("answered_at", since)
+        .order("answered_at", { ascending: false })
+        .limit(5);
+      const row = ((rows || []) as { id: string; marina_user_id: string; marina_organization_id: string | null }[])
+        .find((x) => x.marina_user_id === m.id || (!!x.marina_organization_id && m.orgIds.includes(x.marina_organization_id)));
       if (!row) return null;
       const r = await recipientForUser(db, userId);
       if (!r) return null;
-      const out: Record<string, string> = { ...data, marina_name: pickName(data.marina_name, m.names, selfName) };
+      // The answering company, from the database when the caller belongs to it.
+      const byOrg = row.marina_organization_id && m.orgIds.includes(row.marina_organization_id)
+        ? (await orgInfo(db, row.marina_organization_id)).name
+        : "";
+      const out: Record<string, string> = { ...data, marina_name: byOrg || pickName(data.marina_name, m.names, selfName) };
       if (status === "accepted") {
         // The second "To" of the introduction is always the caller's own sign-in address.
         out.acceptor_email = m.email;
@@ -1270,6 +1359,19 @@ async function unverifiedOrgCapReached(db: Db, orgId: string): Promise<boolean> 
   }
 }
 
+/**
+ * The extra e-mails of a company fan-out, logged so that they count towards the
+ * caller's hourly cap (memberThrottle counts every "send-notification:%" row). They
+ * use their own kind, so the per-row dedupe of memberThrottle is not affected.
+ */
+async function logFanOut(db: Db, actorId: string, ref: string, extra: number): Promise<void> {
+  if (extra <= 0) return;
+  const kind = `send-notification:fanout:${ref}`.slice(0, 300);
+  const rows = Array.from({ length: Math.min(extra, MAX_COMPANY_FANOUT) }, () => ({ actor_id: actorId, kind }));
+  const { error } = await db.from("email_rate_log").insert(rows);
+  if (error) console.error("send-notification: could not log the company fan-out:", error.message || String(error));
+}
+
 async function logUnverifiedOrgEmail(db: Db, actorId: string, orgId: string): Promise<void> {
   const { error } = await db.from("email_rate_log").insert({ actor_id: actorId, kind: `org-email:${orgId}` });
   if (error) console.error("send-notification: could not log unverified-org e-mail:", error.message || String(error));
@@ -1334,6 +1436,8 @@ Deno.serve(async (req: Request) => {
     let toAccountAddress = false;
     let data: Record<string, string> = notifData;
     let subjectOverride = "";
+    let fanOut: Recipient[] = [];
+    let fanOutRef = "";
 
     if (member) {
       const grant = await authorizeMemberSend(supabase, member, type, user_id, directEmail, notifData);
@@ -1353,6 +1457,8 @@ Deno.serve(async (req: Request) => {
       userPrefs = grant.prefs;
       data = { ...grant.data };
       delete data.first_name;
+      fanOut = grant.also || [];
+      fanOutRef = grant.ref;
     } else {
       // service / staff: recipient as given (unchanged behaviour), first_name from
       // the caller's data or the recipient profile.
@@ -1375,89 +1481,119 @@ Deno.serve(async (req: Request) => {
       return reply({ error: "Could not resolve recipient email" }, 400);
     }
 
+    // Everyone who gets this e-mail: the recipient, plus, for partner_request_received,
+    // the colleagues companyRecipients() found (each with their own name, address and
+    // preferences; one per address).
+    const targets: Recipient[] = [{ recipientEmail, recipientUserId, firstName, prefs: userPrefs }];
+    for (const extra of fanOut) {
+      if (targets.some((x) => sameEmail(x.recipientEmail, extra.recipientEmail) || (!!extra.recipientUserId && x.recipientUserId === extra.recipientUserId))) continue;
+      targets.push(extra);
+    }
+
     // Per-user opt-out check.
     // Only applies when the recipient has a profile (user_id provided).
     // Anonymous sends (team invitations to non-users, claim codes, etc.) bypass
     // the check — they have no profile to express a preference yet.
     const category = TYPE_TO_CATEGORY[ntype];
-    if (userPrefs && category && userPrefs[category] === false) {
-      console.log(`Notification [${type}] (${category}) skipped — user ${recipientUserId} opted out`);
+    let sent = 0;
+    let optedOut = 0;
+    let providerError = false;
+    for (const target of targets) {
+      if (target.prefs && category && target.prefs[category] === false) {
+        console.log(`Notification [${type}] (${category}) skipped — user ${target.recipientUserId} opted out`);
+        optedOut++;
+        continue;
+      }
+
+      // Two renderings of the same template: raw data for the subject and the plain
+      // text part, HTML-escaped data for the HTML part (see renderNotification). The
+      // button link is re-based onto the site origin whatever the template or the
+      // caller put there. The greeting is always the recipient's own first name.
+      const rawData: Record<string, string> = {
+        ...data,
+        first_name: target === targets[0] ? (firstName || data.first_name || "") : target.firstName,
+      };
+
+      // Unsubscribe. A personal signed link (see the token block) only when the e-mail
+      // goes to one registered account, at its own address, alone: the introduction
+      // (partner_request_accepted) goes to both parties with M3 in copy, so it gets
+      // the plain page, which asks the reader to sign in. Colleagues added by the
+      // company fan-out are resolved from their own account rows, so they get their
+      // own link. The footer link opens the page; the List-Unsubscribe header points at
+      // the function itself, which takes the RFC 8058 one-click POST (a static page cannot).
+      const ownAddress = target === targets[0] ? toAccountAddress : !!target.recipientUserId;
+      const personalUnsubscribe = !!target.recipientUserId && ownAddress && ntype !== "partner_request_accepted" && !!SUPABASE_SERVICE_ROLE_KEY && !!SUPABASE_URL;
+      let unsubscribeUrl = `${SITE_URL}/unsubscribe`;
+      let unsubscribeHeaders: Record<string, string> = {
+        "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
+      };
+      if (personalUnsubscribe && target.recipientUserId) {
+        try {
+          const unsubToken = await signUnsubToken(SUPABASE_SERVICE_ROLE_KEY, target.recipientUserId, category || "all");
+          unsubscribeUrl = `${SITE_URL}/unsubscribe?t=${unsubToken}`;
+          unsubscribeHeaders = {
+            "List-Unsubscribe": `<${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1/unsubscribe?t=${unsubToken}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          };
+        } catch (e) {
+          console.error("send-notification: unsubscribe token failed:", (e as { message?: string })?.message || String(e));
+        }
+      }
+
+      // Build email payload (with anti-spam improvements)
+      const { subject, html, text } = renderNotification(ntype, rawData, subjectOverride, unsubscribeUrl);
+      const emailPayload: Record<string, unknown> = {
+        from: SENDER_EMAIL,
+        to: [target.recipientEmail],
+        reply_to: EM.contact,
+        subject,
+        html,
+        text,
+        headers: {
+          ...unsubscribeHeaders,
+          "X-Entity-Ref-ID": `${type}-${Date.now()}`,
+        },
+      };
+      // For B2B acceptance: send to BOTH parties (requester + acceptor) with victor in CC as introduction.
+      // For a member caller, acceptor_email was forced to the caller's own sign-in address above.
+      // (Never fanned out: only partner_request_received has more than one target.)
+      if (ntype === "partner_request_accepted") {
+        const acceptorEmail = (data.acceptor_email || "").trim();
+        const recipients = [target.recipientEmail];
+        if (acceptorEmail && isEmail(acceptorEmail) && !sameEmail(acceptorEmail, target.recipientEmail)) {
+          recipients.push(acceptorEmail);
+        }
+        emailPayload.to = recipients;
+        emailPayload.cc = ["victor@m3monaco.com"];
+      }
+
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(emailPayload),
+      });
+
+      const resBody = await res.text();
+      if (!res.ok) {
+        console.error("Resend API error:", res.status, resBody);
+        providerError = true;
+        continue;
+      }
+      sent++;
+      console.log(`Notification [${type}] sent by ${callerKind} to ${target.recipientUserId || "address"}`);
+    }
+
+    // Every e-mail beyond the first counts towards the caller's hourly cap (see the header).
+    if (member && sent > 1) await logFanOut(supabase, member.id, fanOutRef, sent - 1);
+
+    if (sent === 0 && providerError) return reply({ error: "Email provider error" }, 502);
+    if (sent === 0 && optedOut > 0) {
       return reply({ success: true, skipped: true, reason: "user_opted_out", category }, 200);
     }
-
-    // Two renderings of the same template: raw data for the subject and the plain
-    // text part, HTML-escaped data for the HTML part (see renderNotification). The
-    // button link is re-based onto the site origin whatever the template or the
-    // caller put there.
-    const rawData: Record<string, string> = { ...data, first_name: firstName || data.first_name || "" };
-
-    // Unsubscribe. A personal signed link (see the token block) only when the e-mail
-    // goes to one registered account, at its own address, alone: the introduction
-    // (partner_request_accepted) goes to both parties with M3 in copy, so it gets
-    // the plain page, which asks the reader to sign in. The footer link opens the
-    // page; the List-Unsubscribe header points at the function itself, which takes
-    // the RFC 8058 one-click POST (a static page cannot).
-    const personalUnsubscribe = !!recipientUserId && toAccountAddress && ntype !== "partner_request_accepted" && !!SUPABASE_SERVICE_ROLE_KEY && !!SUPABASE_URL;
-    let unsubscribeUrl = `${SITE_URL}/unsubscribe`;
-    let unsubscribeHeaders: Record<string, string> = {
-      "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
-    };
-    if (personalUnsubscribe && recipientUserId) {
-      try {
-        const unsubToken = await signUnsubToken(SUPABASE_SERVICE_ROLE_KEY, recipientUserId, category || "all");
-        unsubscribeUrl = `${SITE_URL}/unsubscribe?t=${unsubToken}`;
-        unsubscribeHeaders = {
-          "List-Unsubscribe": `<${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1/unsubscribe?t=${unsubToken}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
-          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-        };
-      } catch (e) {
-        console.error("send-notification: unsubscribe token failed:", (e as { message?: string })?.message || String(e));
-      }
-    }
-
-    // Build email payload (with anti-spam improvements)
-    const { subject, html, text } = renderNotification(ntype, rawData, subjectOverride, unsubscribeUrl);
-    const emailPayload: Record<string, unknown> = {
-      from: SENDER_EMAIL,
-      to: [recipientEmail],
-      reply_to: EM.contact,
-      subject,
-      html,
-      text,
-      headers: {
-        ...unsubscribeHeaders,
-        "X-Entity-Ref-ID": `${type}-${Date.now()}`,
-      },
-    };
-    // For B2B acceptance: send to BOTH parties (requester + acceptor) with victor in CC as introduction.
-    // For a member caller, acceptor_email was forced to the caller's own sign-in address above.
-    if (ntype === "partner_request_accepted") {
-      const acceptorEmail = (data.acceptor_email || "").trim();
-      const recipients = [recipientEmail];
-      if (acceptorEmail && isEmail(acceptorEmail) && !sameEmail(acceptorEmail, recipientEmail)) {
-        recipients.push(acceptorEmail);
-      }
-      emailPayload.to = recipients;
-      emailPayload.cc = ["victor@m3monaco.com"];
-    }
-
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(emailPayload),
-    });
-
-    const resBody = await res.text();
-    if (!res.ok) {
-      console.error("Resend API error:", res.status, resBody);
-      return reply({ error: "Email provider error" }, 502);
-    }
-
-    console.log(`Notification [${type}] sent by ${callerKind} to ${recipientUserId || "address"}`);
-    return reply({ success: true, type }, 200);
+    return reply(targets.length > 1 ? { success: true, type, sent } : { success: true, type }, 200);
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Error in send-notification:", message);

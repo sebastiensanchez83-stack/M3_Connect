@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
@@ -6,16 +7,48 @@ import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
 import { sendNotification } from '@/lib/notifications';
 import { CardShell } from '@/components/brand/CardShell';
+import { LogoTile } from '@/components/brand/OrgCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { BTN, BTN_OUTLINE, MemberEmpty, MemberPanel, RowSkeleton, StatusPill } from '@/components/member/MemberUI';
+import { fetchPeopleOrgs, type PersonOrg } from '@/lib/personOrg';
+import { displayCase } from '@/lib/displayCase';
 import { cn } from '@/lib/utils';
+import { myOrganizationIds, needsAction } from './inboxCounts';
 import type { LucideIcon } from 'lucide-react';
 import {
-  Inbox, Link2, Award, Users, Check, X, Clock, MailCheck, MailX,
-  CheckCircle, Mail, RefreshCw, ExternalLink,
+  Inbox, Link2, Award, Users, Check, X, Clock, MailCheck, Undo2,
+  CheckCircle, Mail, RefreshCw,
 } from 'lucide-react';
 
+/**
+ * The member's inbox: connection requests (received and sent), recommendation
+ * requests, join requests and team invitations.
+ *
+ * Oct 2026: a connection request goes to the WHOLE receiving company
+ * (partner_requests.marina_organization_id, 20261008200000_partner_requests_whole_company.sql):
+ * every member of it sees it here and any of them can accept or decline it; the
+ * first answer wins (the database refuses the second) and the card then says who
+ * answered ("Accepted by …", "Declined by …"). Each request shows who sent it:
+ * photo or logo, name, job title, and the company, which links to its page. Dates
+ * read "19 Sept 2026". "Waiting for you" counts follow inboxCounts.ts.
+ */
+
 type FilterCategory = 'all' | 'b2b' | 'recommendations' | 'team';
+type PartnerStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn';
+
+interface OrgRef {
+  id: string;
+  name: string;
+  slug: string | null;
+  logo_url: string | null;
+  organization_type?: string | null;
+}
+
+interface PersonRef {
+  name: string;
+  avatar_url: string | null;
+  job_title: string | null;
+}
 
 interface PartnerRequestData {
   id: string;
@@ -24,10 +57,10 @@ interface PartnerRequestData {
   partner_organization_id: string | null;
   marina_organization_id: string | null;
   message: string | null;
-  status: 'pending' | 'accepted' | 'rejected';
+  status: PartnerStatus;
   created_at: string;
-  partner_org_name?: string | null;
-  marina_org_name?: string | null;
+  answered_by_user_id?: string | null;
+  answered_at?: string | null;
 }
 
 interface ReferenceData {
@@ -62,8 +95,22 @@ interface TeamInvitationData {
   expires_at: string | null;
 }
 
+type PartnerItem = {
+  kind: 'partner_request';
+  category: 'b2b';
+  created_at: string;
+  data: PartnerRequestData;
+  direction: 'received' | 'sent';
+  /** Received: the person who sent it. Sent: null (it is me). */
+  person: PersonRef | null;
+  /** Received: the sender's company. Sent: the company I asked. */
+  org: OrgRef | null;
+  /** Who in the receiving company answered: a name, "you", or null when unknown. */
+  answeredBy: string | null;
+};
+
 type InboxItem =
-  | { kind: 'partner_request'; category: 'b2b'; created_at: string; data: PartnerRequestData; direction: 'received' | 'sent' }
+  | PartnerItem
   | { kind: 'reference_request'; category: 'recommendations'; created_at: string; data: ReferenceData }
   | { kind: 'join_request'; category: 'team'; created_at: string; data: JoinRequestData }
   | { kind: 'team_invitation'; category: 'team'; created_at: string; data: TeamInvitationData };
@@ -75,6 +122,44 @@ const FILTERS: { value: FilterCategory; label: string; icon: React.ReactNode }[]
   { value: 'team', label: 'Team & invitations', icon: <Users className="h-4 w-4" /> },
 ];
 
+/** "19 Sept 2026", the short date of the rest of the site; '' for an unreadable date. */
+function shortDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+const PR_COLUMNS = `
+  id, partner_user_id, marina_user_id, partner_organization_id, marina_organization_id,
+  message, status, created_at`;
+const PR_ORGS = `
+  partner_org:organizations!partner_requests_partner_organization_id_fkey (id, name, slug, logo_url, organization_type),
+  marina_org:organizations!partner_requests_marina_organization_id_fkey (id, name, slug, logo_url, organization_type)`;
+
+type PRRow = PartnerRequestData & { partner_org: OrgRef | null; marina_org: OrgRef | null };
+
+/**
+ * Connection requests I sent, received, or that reached one of my organisations.
+ * The answer columns only exist once the 8 Oct 2026 migration is applied: until
+ * then the same read runs without them (and nobody can show who answered).
+ */
+async function loadPartnerRows(userId: string, orgIds: string[]): Promise<PRRow[]> {
+  const audience = [
+    `partner_user_id.eq.${userId}`,
+    `marina_user_id.eq.${userId}`,
+    ...(orgIds.length ? [`marina_organization_id.in.(${orgIds.join(',')})`] : []),
+  ].join(',');
+  const run = (cols: string) => supabase
+    .from('partner_requests')
+    .select(`${cols},${PR_ORGS}`)
+    .or(audience)
+    .order('created_at', { ascending: false });
+  const withAnswer = await run(`${PR_COLUMNS}, answered_by_user_id, answered_at`);
+  if (!withAnswer.error) return (withAnswer.data ?? []) as unknown as PRRow[];
+  const plain = await run(PR_COLUMNS);
+  return (plain.data ?? []) as unknown as PRRow[];
+}
+
 export function InboxTab() {
   const { user, profile, organization, orgRole } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -84,75 +169,89 @@ export function InboxTab() {
   const [actingOn, setActingOn] = useState<string | null>(null);
 
   const isOwner = orgRole === 'owner';
+  // Keyed on ids, never on the auth objects (replaced on every tab refocus).
+  const uid = user?.id ?? null;
+  const orgId = organization?.id ?? null;
+  const orgName = organization?.name ?? '';
 
   const load = useCallback(async (showSpinner = true) => {
-    if (!user) return;
+    if (!uid) return;
     if (showSpinner) setLoading(true);
     else setRefreshing(true);
 
     const collected: InboxItem[] = [];
 
-    // 1) Partner requests (in/out)
-    const { data: prRows } = await supabase
-      .from('partner_requests')
-      .select(`
-        id, partner_user_id, marina_user_id, partner_organization_id, marina_organization_id,
-        message, status, created_at,
-        partner_org:organizations!partner_requests_partner_organization_id_fkey (name),
-        marina_org:organizations!partner_requests_marina_organization_id_fkey (name)
-      `)
-      .or(`partner_user_id.eq.${user.id},marina_user_id.eq.${user.id}`)
-      .order('created_at', { ascending: false });
+    // 1) Connection requests: sent by me, addressed to me, or to any of my organisations.
+    const orgIds = [...new Set([...(await myOrganizationIds(uid)), ...(orgId ? [orgId] : [])])];
+    const prRows = await loadPartnerRows(uid, orgIds);
 
-    type PRRow = PartnerRequestData & {
-      partner_org: { name: string } | null;
-      marina_org: { name: string } | null;
-    };
-    (prRows as unknown as PRRow[] | null)?.forEach((r) => {
+    // Who is on the other side. People's public fields (verified accounts) come from
+    // get_public_profiles; a request saved without its organisations (before 8 Oct
+    // 2026) gets the company each person speaks for.
+    const personIds = new Set<string>();
+    for (const r of prRows) {
+      if (r.partner_user_id !== uid) personIds.add(r.partner_user_id);
+      if (r.answered_by_user_id && r.answered_by_user_id !== uid) personIds.add(r.answered_by_user_id);
+    }
+    const people: Record<string, PersonRef> = {};
+    if (personIds.size > 0) {
+      const { data } = await supabase.rpc('get_public_profiles', { target_user_ids: [...personIds] });
+      for (const p of (data ?? []) as { user_id: string; first_name: string | null; last_name: string | null; avatar_url: string | null; job_title: string | null }[]) {
+        people[p.user_id] = {
+          name: displayCase([p.first_name, p.last_name].filter(Boolean).join(' ')),
+          avatar_url: p.avatar_url,
+          job_title: p.job_title,
+        };
+      }
+    }
+    const missingOrgFor = prRows
+      .map((r) => (r.partner_user_id === uid ? (r.marina_org ? null : r.marina_user_id) : (r.partner_org ? null : r.partner_user_id)))
+      .filter((x): x is string => !!x);
+    const fallbackOrgs: Record<string, PersonOrg> = missingOrgFor.length ? await fetchPeopleOrgs(missingOrgFor) : {};
+
+    for (const r of prRows) {
+      const sent = r.partner_user_id === uid;
+      const org: OrgRef | null = sent
+        ? r.marina_org ?? fallbackOrgs[r.marina_user_id] ?? null
+        : r.partner_org ?? fallbackOrgs[r.partner_user_id] ?? null;
+      const answeredBy = !r.answered_by_user_id
+        ? null
+        : r.answered_by_user_id === uid
+        ? 'you'
+        : people[r.answered_by_user_id]?.name || null;
       collected.push({
         kind: 'partner_request',
         category: 'b2b',
         created_at: r.created_at,
-        direction: r.partner_user_id === user.id ? 'sent' : 'received',
-        data: {
-          ...r,
-          partner_org_name: r.partner_org?.name ?? null,
-          marina_org_name: r.marina_org?.name ?? null,
-        },
+        direction: sent ? 'sent' : 'received',
+        person: sent ? null : people[r.partner_user_id] ?? null,
+        org,
+        answeredBy,
+        data: r,
       });
-    });
+    }
 
     // 2) Recommendation requests (only for partners — those who SEND them)
-    if (organization?.id) {
+    if (orgId) {
       const { data: refRows } = await supabase
         .from('reference_requests')
         .select('id, reference_id, client_legal_name, project_name, status, created_at, confirmed_at')
-        .eq('partner_organization_id', organization.id)
+        .eq('partner_organization_id', orgId)
         .order('created_at', { ascending: false });
       (refRows as ReferenceData[] | null)?.forEach((r) => {
-        collected.push({
-          kind: 'reference_request',
-          category: 'recommendations',
-          created_at: r.created_at,
-          data: r,
-        });
+        collected.push({ kind: 'reference_request', category: 'recommendations', created_at: r.created_at, data: r });
       });
     }
 
     // 3) Join requests received (only for org owners — when someone with a matching domain wants in)
-    if (isOwner && organization?.id) {
+    if (isOwner && orgId) {
       const { data: jrRows } = await supabase
         .from('organization_invitations')
         .select('id, email, first_name, last_name, organization_id, created_at')
-        .eq('organization_id', organization.id)
+        .eq('organization_id', orgId)
         .eq('status', 'join_requested');
       (jrRows as Omit<JoinRequestData, 'organization_name'>[] | null)?.forEach((r) => {
-        collected.push({
-          kind: 'join_request',
-          category: 'team',
-          created_at: r.created_at,
-          data: { ...r, organization_name: organization.name },
-        });
+        collected.push({ kind: 'join_request', category: 'team', created_at: r.created_at, data: { ...r, organization_name: orgName } });
       });
     }
 
@@ -160,15 +259,10 @@ export function InboxTab() {
     const { data: tiRows } = await supabase
       .from('organization_invitations')
       .select('id, email, first_name, last_name, organization_id, status, created_at, expires_at')
-      .eq('invited_by_user_id', user.id)
+      .eq('invited_by_user_id', uid)
       .in('status', ['pending', 'accepted', 'rejected', 'expired', 'cancelled']);
     (tiRows as Omit<TeamInvitationData, 'organization_name'>[] | null)?.forEach((r) => {
-      collected.push({
-        kind: 'team_invitation',
-        category: 'team',
-        created_at: r.created_at,
-        data: { ...r, organization_name: organization?.name ?? '' },
-      });
+      collected.push({ kind: 'team_invitation', category: 'team', created_at: r.created_at, data: { ...r, organization_name: orgName } });
     });
 
     // Sort all by created_at desc
@@ -177,7 +271,7 @@ export function InboxTab() {
     setItems(collected);
     setLoading(false);
     setRefreshing(false);
-  }, [user, organization, isOwner]);
+  }, [uid, orgId, orgName, isOwner]);
 
   useEffect(() => {
     load(true);
@@ -188,14 +282,14 @@ export function InboxTab() {
     return items.filter((i) => i.category === filter);
   }, [items, filter]);
 
-  // Pending count per category (drives the unread-style badges)
+  // "Waiting for you" per category: the rule of inboxCounts.ts (received and pending, join requests).
   const pendingByCategory = useMemo(() => {
     const counts: Record<FilterCategory, number> = { all: 0, b2b: 0, recommendations: 0, team: 0 };
     for (const it of items) {
-      const isPending =
-        (it.kind === 'partner_request' && it.direction === 'received' && it.data.status === 'pending') ||
-        (it.kind === 'join_request');
-      if (isPending) {
+      const countable = it.kind === 'partner_request'
+        ? { kind: it.kind, direction: it.direction, status: it.data.status }
+        : { kind: it.kind };
+      if (needsAction(countable)) {
         counts.all += 1;
         counts[it.category] += 1;
       }
@@ -204,49 +298,65 @@ export function InboxTab() {
   }, [items]);
 
   // Action handlers
-  const handlePartnerResponse = async (item: InboxItem & { kind: 'partner_request' }, newStatus: 'accepted' | 'rejected') => {
-    const uid = await requireFreshSession();
-    if (!uid) return;
+  const handlePartnerResponse = async (item: PartnerItem, newStatus: 'accepted' | 'rejected') => {
+    const freshUid = await requireFreshSession();
+    if (!freshUid) return;
     setActingOn(item.data.id);
-    const { error } = await supabase
+    // Only a request still pending: a colleague may have answered in the meantime
+    // (the database refuses a second answer too).
+    const { data: updated, error } = await supabase
       .from('partner_requests')
       .update({ status: newStatus })
-      .eq('id', item.data.id);
-    if (error) {
-      toast({ title: 'Failed', description: error.message, variant: 'destructive' });
+      .eq('id', item.data.id)
+      .eq('status', 'pending')
+      .select('id');
+    if (error || !updated || updated.length === 0) {
+      // No row (it was no longer pending) or the database's "already answered":
+      // a colleague was first. Anything else is a real failure.
+      const taken = !error || /already been answered/i.test(error.message);
+      toast(taken
+        ? { title: 'Already answered', description: 'Someone in your team has already answered this request.' }
+        : { title: 'Failed', description: error.message, variant: 'destructive' });
       setActingOn(null);
+      load(false);
       return;
     }
     setItems((prev) => prev.map((i) =>
-      i === item ? { ...item, data: { ...item.data, status: newStatus } } : i
+      i === item
+        ? { ...item, answeredBy: 'you', data: { ...item.data, status: newStatus, answered_by_user_id: uid, answered_at: new Date().toISOString() } }
+        : i,
     ));
 
-    // Fire-and-forget notification
-    const marinaName = organization?.name || profile?.first_name || 'A marina';
+    // Fire-and-forget notification. The server takes the company name from the
+    // database and checks that this account answered the request.
+    const companyName = orgName || profile?.first_name || 'A member';
     if (newStatus === 'accepted') {
       sendNotification({
         type: 'partner_request_accepted',
         userId: item.data.partner_user_id,
         data: {
-          marina_name: marinaName,
+          marina_name: companyName,
           acceptor_email: user?.email || '',
-          acceptor_name: `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || marinaName,
+          acceptor_name: `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || companyName,
         },
       });
     } else {
       sendNotification({
         type: 'partner_request_rejected',
         userId: item.data.partner_user_id,
-        data: { marina_name: marinaName },
+        data: { marina_name: companyName },
       });
     }
-    toast({ title: newStatus === 'accepted' ? 'Request accepted' : 'Request rejected' });
+    toast({
+      title: newStatus === 'accepted' ? 'Request accepted' : 'Request declined',
+      description: newStatus === 'accepted' ? 'We are introducing you both by e-mail.' : undefined,
+    });
     setActingOn(null);
   };
 
   const handleJoinResponse = async (item: InboxItem & { kind: 'join_request' }, approve: boolean) => {
-    const uid = await requireFreshSession();
-    if (!uid) return;
+    const freshUid = await requireFreshSession();
+    if (!freshUid) return;
     setActingOn(item.data.id);
     const rpc = approve ? 'approve_join_request' : 'reject_join_request';
     const { error } = await supabase.rpc(rpc, { p_invitation_id: item.data.id });
@@ -255,13 +365,13 @@ export function InboxTab() {
     } else {
       // Remove the item from the inbox view
       setItems((prev) => prev.filter((i) => !(i.kind === 'join_request' && i.data.id === item.data.id)));
-      toast({ title: approve ? 'Join request approved' : 'Join request rejected' });
+      toast({ title: approve ? 'Join request approved' : 'Join request declined' });
     }
     setActingOn(null);
   };
 
   const handleResendInvitation = async (item: InboxItem & { kind: 'team_invitation' }) => {
-    if (!organization) return;
+    if (!orgId) return;
     setActingOn(item.data.id);
     await sendNotification({
       type: 'team_invitation_reminder',
@@ -322,7 +432,7 @@ export function InboxTab() {
                   {pendingByCategory[f.value] > 0 && (
                     <span className="grid h-5 min-w-5 place-items-center rounded-pill bg-navy px-1.5 text-[12px] font-semibold leading-none tabular-nums text-white">
                       {pendingByCategory[f.value]}
-                      <span className="sr-only"> pending</span>
+                      <span className="sr-only"> waiting for you</span>
                     </span>
                   )}
                 </button>
@@ -367,37 +477,45 @@ export function InboxTab() {
 interface InboxItemCardProps {
   item: InboxItem;
   acting: boolean;
-  onPartnerResponse: (item: InboxItem & { kind: 'partner_request' }, status: 'accepted' | 'rejected') => void;
+  onPartnerResponse: (item: PartnerItem, status: 'accepted' | 'rejected') => void;
   onJoinResponse: (item: InboxItem & { kind: 'join_request' }, approve: boolean) => void;
   onResendInvitation: (item: InboxItem & { kind: 'team_invitation' }) => void;
   onCancelInvitation: (item: InboxItem & { kind: 'team_invitation' }) => void;
 }
 
-/** One request: icon tile, title and meta line, a state pill, the answer buttons. */
+/** One request: icon tile (or the sender's photo / logo), title and meta line, a state pill, the answer buttons. */
 function InboxRow({
   icon: Icon,
+  visual,
   urgent = false,
   title,
   meta,
   status,
   body,
+  note,
   children,
 }: {
   icon: LucideIcon;
+  /** Replaces the icon tile (a person's photo, a company logo). */
+  visual?: ReactNode;
   urgent?: boolean;
   title: ReactNode;
   meta?: ReactNode;
   status: ReactNode;
   body?: ReactNode;
+  /** A line under the message (who answered, the e-mail introduction). */
+  note?: ReactNode;
   children?: ReactNode;
 }) {
   return (
     <li>
-      <CardShell>
+      <CardShell className={cn(urgent && 'border-gold/60')}>
         <div className="flex gap-4 p-4 sm:p-5">
-          <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-xl text-navy', urgent ? 'bg-gold/25' : 'bg-chip')}>
-            <Icon className="h-5 w-5" aria-hidden="true" />
-          </span>
+          {visual ?? (
+            <span className={cn('grid h-12 w-12 shrink-0 place-items-center rounded-field text-navy', urgent ? 'bg-gold/25' : 'bg-chip')}>
+              <Icon className="h-5 w-5" aria-hidden="true" />
+            </span>
+          )}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
               <div className="min-w-0">
@@ -406,7 +524,8 @@ function InboxRow({
               </div>
               {status}
             </div>
-            {body && <p className="mt-2 line-clamp-3 text-[15px] leading-6 text-meta">{body}</p>}
+            {body && <p className="mt-3 line-clamp-3 border-l-2 border-rule pl-3 text-[15px] leading-6 text-ink">{body}</p>}
+            {note}
             {children && <div className="mt-4 flex flex-wrap gap-2">{children}</div>}
           </div>
         </div>
@@ -415,45 +534,113 @@ function InboxRow({
   );
 }
 
-const DENY = 'text-red-700 hover:border-red-300 hover:bg-red-50 hover:text-red-800';
+/** The company, linked to its page when it has one. */
+function CompanyLink({ org }: { org: OrgRef }) {
+  const name = displayCase(org.name) || org.name;
+  if (!org.slug) return <span>{name}</span>;
+  return (
+    <Link
+      to={`/organizations/${org.slug}`}
+      className="rounded-sm text-navy underline decoration-navy/30 underline-offset-[3px] transition-colors hover:decoration-gold focus:outline-none focus-visible:shadow-focus"
+    >
+      {name}
+    </Link>
+  );
+}
+
+function PartnerRequestCard({ item, acting, onRespond }: { item: PartnerItem; acting: boolean; onRespond: InboxItemCardProps['onPartnerResponse'] }) {
+  const { data, direction, person, org, answeredBy } = item;
+  const received = direction === 'received';
+  const pending = data.status === 'pending';
+  const date = shortDate(data.created_at);
+  const answeredOn = shortDate(data.answered_at);
+
+  // Who it is: on a received request the person who sent it (photo, else their
+  // company's logo, else initials); on a sent one the company I asked.
+  const personName = person?.name || '';
+  const visual = received && person?.avatar_url ? (
+    <img src={person.avatar_url} alt="" className="h-12 w-12 shrink-0 rounded-pill object-cover ring-1 ring-rule" />
+  ) : org ? (
+    <LogoTile src={org.logo_url} name={displayCase(org.name) || org.name} type={org.organization_type} size={48} />
+  ) : undefined;
+
+  const title = received ? (
+    <>
+      {personName || (org ? <CompanyLink org={org} /> : 'A member')}
+      {personName && org && (
+        <span className="font-normal text-meta">
+          {' · '}
+          <CompanyLink org={org} />
+        </span>
+      )}
+    </>
+  ) : (
+    <>
+      <span className="font-normal text-meta">Request to </span>
+      {org ? <CompanyLink org={org} /> : 'a company'}
+    </>
+  );
+
+  const meta = [
+    received ? person?.job_title : null,
+    received ? 'Connection request' : 'Sent',
+    date,
+  ].filter(Boolean).join(' · ');
+
+  // After the answer: who answered (for the colleagues), and the e-mail introduction.
+  let note: ReactNode = null;
+  if (data.status === 'accepted' || data.status === 'rejected') {
+    const verb = data.status === 'accepted' ? 'Accepted' : 'Declined';
+    const by = received && answeredBy ? ` by ${answeredBy}` : '';
+    const on = answeredOn ? ` on ${answeredOn}` : '';
+    note = (
+      <div className="mt-3 space-y-2">
+        {received && (by || on) && <p className="text-[13px] leading-[18px] text-meta">{verb}{by}{on}.</p>}
+        {data.status === 'accepted' && (
+          <p className="flex items-start gap-2 rounded-field bg-foam px-3 py-2.5 text-[14px] leading-5 text-teal-text">
+            <MailCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>
+              {received
+                ? <>M3 introduced {personName || 'the sender'} and {answeredBy === 'you' ? 'you' : answeredBy || 'your team'} by e-mail ("Introduction — Smart Marina Connect"): reply to it to continue the conversation.</>
+                : <>{org ? displayCase(org.name) : 'The company'} accepted. M3 introduced you by e-mail ("Introduction — Smart Marina Connect"): reply to it to continue the conversation.</>}
+            </span>
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <InboxRow
+      icon={Link2}
+      visual={visual}
+      urgent={received && pending}
+      title={title}
+      meta={meta}
+      status={<PartnerStatusBadge status={data.status} />}
+      body={data.message}
+      note={note}
+    >
+      {received && pending && (
+        <>
+          <Button size="sm" className={cn(BTN, 'gap-1.5')} onClick={() => onRespond(item, 'accepted')} disabled={acting}>
+            <Check className="h-4 w-4" aria-hidden="true" /> Accept
+          </Button>
+          <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => onRespond(item, 'rejected')} disabled={acting}>
+            <X className="h-4 w-4" aria-hidden="true" /> Decline
+          </Button>
+        </>
+      )}
+    </InboxRow>
+  );
+}
 
 function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onResendInvitation, onCancelInvitation }: InboxItemCardProps) {
-  const created = new Date(item.created_at);
-  // A request without a readable date shows no date rather than "Invalid Date".
-  const date = Number.isNaN(created.getTime()) ? '' : created.toLocaleDateString();
+  const date = shortDate(item.created_at);
 
   // Partner request
   if (item.kind === 'partner_request') {
-    const { data, direction } = item;
-    const isReceived = direction === 'received';
-    const isPending = data.status === 'pending';
-    const counterpartName = isReceived ? data.partner_org_name : data.marina_org_name;
-    return (
-      <InboxRow
-        icon={Link2}
-        urgent={isReceived && isPending}
-        title={(
-          <>
-            {isReceived ? 'B2B request' : 'B2B request sent'}
-            {counterpartName && <span className="font-normal text-meta"> · {counterpartName}</span>}
-          </>
-        )}
-        meta={date}
-        status={<PartnerStatusBadge status={data.status} />}
-        body={data.message}
-      >
-        {isReceived && isPending && (
-          <>
-            <Button size="sm" className={cn(BTN, 'gap-1.5')} onClick={() => onPartnerResponse(item, 'accepted')} disabled={acting}>
-              <Check className="h-4 w-4" aria-hidden="true" /> Accept
-            </Button>
-            <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, DENY, 'gap-1.5')} onClick={() => onPartnerResponse(item, 'rejected')} disabled={acting}>
-              <X className="h-4 w-4" aria-hidden="true" /> Reject
-            </Button>
-          </>
-        )}
-      </InboxRow>
-    );
+    return <PartnerRequestCard item={item} acting={acting} onRespond={onPartnerResponse} />;
   }
 
   // Recommendation request
@@ -488,8 +675,8 @@ function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onRese
         <Button size="sm" className={cn(BTN, 'gap-1.5')} onClick={() => onJoinResponse(item, true)} disabled={acting}>
           <Check className="h-4 w-4" aria-hidden="true" /> Approve
         </Button>
-        <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, DENY, 'gap-1.5')} onClick={() => onJoinResponse(item, false)} disabled={acting}>
-          <X className="h-4 w-4" aria-hidden="true" /> Reject
+        <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => onJoinResponse(item, false)} disabled={acting}>
+          <X className="h-4 w-4" aria-hidden="true" /> Decline
         </Button>
       </InboxRow>
     );
@@ -510,7 +697,7 @@ function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onRese
             <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => onResendInvitation(item)} disabled={acting}>
               <MailCheck className="h-4 w-4" aria-hidden="true" /> Resend
             </Button>
-            <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, DENY, 'gap-1.5')} onClick={() => onCancelInvitation(item)} disabled={acting}>
+            <Button size="sm" variant="outline" className={cn(BTN_OUTLINE, 'gap-1.5')} onClick={() => onCancelInvitation(item)} disabled={acting}>
               <X className="h-4 w-4" aria-hidden="true" /> Cancel
             </Button>
           </>
@@ -522,10 +709,13 @@ function InboxItemCard({ item, acting, onPartnerResponse, onJoinResponse, onRese
   return null;
 }
 
-function PartnerStatusBadge({ status }: { status: 'pending' | 'accepted' | 'rejected' }) {
+// State pills in the kit's colours: amber while it waits, green once accepted,
+// grey for every closed state (no red: a declined request is not an error).
+function PartnerStatusBadge({ status }: { status: PartnerStatus }) {
   if (status === 'pending') return <StatusPill tone="warning" icon={Clock}>Pending</StatusPill>;
   if (status === 'accepted') return <StatusPill tone="success" icon={CheckCircle}>Accepted</StatusPill>;
-  return <StatusPill tone="danger" icon={X}>Rejected</StatusPill>;
+  if (status === 'withdrawn') return <StatusPill tone="neutral" icon={Undo2}>Withdrawn</StatusPill>;
+  return <StatusPill tone="neutral" icon={X}>Declined</StatusPill>;
 }
 
 function ReferenceStatusBadge({ status }: { status: ReferenceData['status'] }) {
@@ -533,7 +723,7 @@ function ReferenceStatusBadge({ status }: { status: ReferenceData['status'] }) {
     case 'confirmed':
       return <StatusPill tone="success" icon={CheckCircle}>Confirmed</StatusPill>;
     case 'rejected':
-      return <StatusPill tone="danger" icon={MailX}>Declined</StatusPill>;
+      return <StatusPill tone="neutral" icon={X}>Declined</StatusPill>;
     case 'expired':
       return <StatusPill tone="neutral">Expired</StatusPill>;
     case 'sent':
@@ -548,7 +738,7 @@ function TeamInvitationStatusBadge({ status }: { status: TeamInvitationData['sta
     case 'accepted':
       return <StatusPill tone="success" icon={CheckCircle}>Accepted</StatusPill>;
     case 'rejected':
-      return <StatusPill tone="danger">Declined</StatusPill>;
+      return <StatusPill tone="neutral">Declined</StatusPill>;
     case 'expired':
       return <StatusPill tone="neutral">Expired</StatusPill>;
     case 'cancelled':

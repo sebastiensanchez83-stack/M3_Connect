@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
 import type { ReactNode, MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
@@ -9,8 +9,8 @@ import { organizationMeta } from '@/lib/seoMeta';
 import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, Award, BadgeCheck, Building2, CalendarClock, Camera, CheckCircle, ChevronLeft, ChevronRight,
-  Clock, Droplets, ExternalLink, Globe, GraduationCap, HardHat, Info, Landmark, Layers, Leaf, Link2,
-  Loader2, Lock, MapPin, Newspaper, Ruler, Ship, Sparkles, Tag, Target,
+  ClipboardList, Clock, ConciergeBell, Droplets, ExternalLink, GraduationCap, PencilLine, HardHat, Info, Landmark,
+  Layers, Leaf, Link2, Loader2, Lock, MapPin, Newspaper, Ruler, Sailboat, Ship, Tag, Target,
   TrendingUp, Users, UtensilsCrossed, Wrench,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,11 +23,16 @@ import { CoverImage } from '@/components/ui/CoverImage';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { SM26MarinaSustainability } from '@/components/organization/SM26MarinaSustainability';
+import { useSM26MarinaTexts } from '@/components/organization/useSM26MarinaTexts';
+import { TextTiles, type TextTileItem } from '@/components/organization/TextTiles';
+import { LoginForm } from '@/components/auth/LoginForm';
+import { SignupForm } from '@/components/auth/SignupForm';
 import { formatCapitalRange } from '@/components/capital/InvestmentThesisSection';
 import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
 import { BathyPattern } from '@/components/motion/BathyPattern';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
+import { Counter } from '@/components/motion/Counter';
 import { useParallax } from '@/components/motion/useParallax';
 import { Carousel } from '@/components/brand/Carousel';
 import { CardShell, StretchedLink, type OrgTypeTone } from '@/components/brand/CardShell';
@@ -46,6 +51,8 @@ import { accountHref } from '@/lib/accountNav';
 import { boardDate } from '@/lib/boardDate';
 import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
+import { displayCase } from '@/lib/displayCase';
+import { englishCountryName } from '@/lib/countryNames';
 import { toast } from '@/hooks/use-toast';
 import { HOLD_PERIODS } from '@/types/database';
 import type { Organization, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
@@ -84,6 +91,20 @@ registerOrgRefonteStrings();
  * owner) invite their marina to claim and complete them. The two extra reads
  * (articles, similar organizations) are best-effort: a failure leaves the
  * section out.
+ *
+ * Refonte v3 (Victor's audit, 8 Oct 2026): "a lot of text, so it should be split
+ * into blocks". A shorter cover that only shows the banner when it is a real
+ * picture (not the logo blown up), the facts at a glance in one row under the
+ * name, one primary action by reader (sign up to contact for visitors, the
+ * connection request for verified members of another company, "edit your
+ * company page" for its own members; the website became a secondary link),
+ * facts first (the marina's figures, an investor's terms), sectors as one chip
+ * cloud, and every long text (the Smart Marina 2026 submission, the marina's
+ * description and services) as tiles that open the full text (TextTiles). Names
+ * typed in capitals read in title case, countries in English. A thin page says
+ * so with a next step instead of leaving a void. The team is photo, name and job
+ * title, with no link: people have no page of their own. A connection request
+ * goes to the whole company (marina_organization_id), and any member answers.
  */
 
 /** The section bar: 48 px tabs plus its bottom border. */
@@ -204,10 +225,6 @@ const TIMELINES: Record<string, { key: string; fallback: string; tone: string }>
 function humanize(value: string): string {
   const s = value.replace(/_/g, ' ').trim();
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-function displayUrl(url: string): string {
-  return url.replace(/^https?:\/\//, '').replace(/\/$/, '');
 }
 
 function prefersReducedMotion(): boolean {
@@ -350,6 +367,12 @@ export function OrganizationPublicPage() {
   // Gallery lightbox: index of the open photo, null when closed.
   const [lightbox, setLightbox] = useState<number | null>(null);
 
+  // Visitors: "Sign up to contact …" opens the sign-up form here (and the sign-in form
+  // from it), as the article pages do, rather than sending them off the page.
+  const navigate = useNavigate();
+  const [signupOpen, setSignupOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+
   // ------------------------------------------------------------------ data
   // Keyed on the slug (and the Retry button) only: the auth objects are
   // replaced on every tab refocus and must never re-run this (or blank the
@@ -475,11 +498,13 @@ export function OrganizationPublicPage() {
     return () => { alive = false; };
   }, [slug, loadAttempt]);
 
-  // Existing connect request — keyed on ids, not on the user/org objects.
+  // Existing connect request — keyed on ids, not on the user/org objects. A request
+  // is made to the company (marina_organization_id); older rows only name its owner.
   const userId = user?.id ?? null;
   const orgOwnerId = org?.owner_user_id ?? null;
+  const targetOrgId = org?.id ?? null;
   useEffect(() => {
-    if (!userId || !orgOwnerId) {
+    if (!userId || !orgOwnerId || !targetOrgId) {
       setHasExistingRequest(false);
       return;
     }
@@ -489,14 +514,14 @@ export function OrganizationPublicPage() {
         .from('partner_requests')
         .select('id')
         .eq('partner_user_id', userId)
-        .eq('marina_user_id', orgOwnerId)
+        .or(`marina_organization_id.eq.${targetOrgId},marina_user_id.eq.${orgOwnerId}`)
         .in('status', ['pending', 'accepted'])
-        .maybeSingle();
-      if (alive) setHasExistingRequest(!!data);
+        .limit(1);
+      if (alive) setHasExistingRequest(!!data && data.length > 0);
     };
     checkExisting();
     return () => { alive = false; };
-  }, [userId, orgOwnerId]);
+  }, [userId, orgOwnerId, targetOrgId]);
 
   // Team names. RLS on profiles only lets a viewer read their own profile and
   // their co-members', so the members query above comes back with
@@ -635,9 +660,14 @@ export function OrganizationPublicPage() {
           return;
         }
       }
+      // To the whole company: marina_organization_id is what every member of it reads
+      // and answers from (20261008200000_partner_requests_whole_company.sql). The owner
+      // stays marina_user_id, as older clients and the e-mail expect.
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
         marina_user_id: org.owner_user_id,
+        marina_organization_id: org.id,
+        partner_organization_id: organization?.id ?? null,
         message: connectMessage.trim() || null,
         sector_id: null,
         status: 'pending',
@@ -649,7 +679,7 @@ export function OrganizationPublicPage() {
       sendNotification({ type: 'partner_request_received', userId: org.owner_user_id!, data: { partner_name: requesterOrgName, message: connectMessage.trim() } });
       toast({
         title: t('orgProfile.connectSentTitle', 'Connection request sent!'),
-        description: t('orgProfile.connectSentBody', 'Your request has been sent to {{name}}.', { name: org.name }),
+        description: t('orgProfile.connectSentBodyTeam', 'Your request has been sent to the team of {{name}}.', { name: displayCase(org.name) }),
       });
       setConnectOpen(false);
       setConnectMessage('');
@@ -680,24 +710,9 @@ export function OrganizationPublicPage() {
     [org],
   );
 
-  // The SM26 sustainability block fetches its own data and renders nothing when
-  // there is none. Watching its wrapper tells us whether it drew anything, so
-  // the section bar never offers a link to an empty section.
-  const [sustainVisible, setSustainVisible] = useState(false);
-  const sustainObserver = useRef<MutationObserver | null>(null);
-  const sustainRef = useCallback((el: HTMLDivElement | null) => {
-    sustainObserver.current?.disconnect();
-    sustainObserver.current = null;
-    if (!el) {
-      setSustainVisible(false);
-      return;
-    }
-    const check = () => setSustainVisible(el.childElementCount > 0);
-    check();
-    const mo = new MutationObserver(check);
-    mo.observe(el, { childList: true });
-    sustainObserver.current = mo;
-  }, []);
+  // The marina's Smart Marina 2026 texts (tiles). The section, and its pill in the
+  // section bar, only exist when there is at least one text.
+  const sm26 = useSM26MarinaTexts(isMarina && org ? org.id : null);
 
   const showInvestment = !!org && orgType === 'investor' && !!(
     org.investment_thesis ||
@@ -712,17 +727,19 @@ export function OrganizationPublicPage() {
   // to show earns a section (and a pill), or a mention in the members-only card.
   const marinaHasDetails = isMarina && marinaHasContent(marinaDetails, futurePlans);
   const showMarina = isVerified && marinaHasDetails;
-  const showSustain = isMarina && sustainVisible;
+  const showSustain = isMarina && sm26.items.length > 0;
   const showRefs = orgType === 'partner' && confirmedReferences.length > 0;
   const showTeam = isVerified && members.length > 0;
 
   const sectionIds: SectionId[] = org
     ? ([
         'about',
+        // Facts first (the figures of a marina, an investor's thesis), then the sectors
+        // and pictures, then the long texts as tiles.
+        showMarina && 'marina',
         showInvestment && 'investment',
         showSectors && 'sectors',
         showGallery && 'gallery',
-        showMarina && 'marina',
         showSustain && 'sustainability',
         showRefs && 'recommendations',
         showTeam && 'team',
@@ -787,7 +804,7 @@ export function OrganizationPublicPage() {
     return (
       <div className="min-h-screen bg-page" aria-busy="true">
         <span className="sr-only" role="status">{t('common.loading', 'Loading...')}</span>
-        <div className="h-[260px] animate-pulse bg-navy/90 sm:h-[300px] lg:h-[340px]" />
+        <div className="h-[208px] animate-pulse bg-navy/90 sm:h-[240px] lg:h-[280px]" />
         <div className="border-b border-rule bg-white">
           <div className={cn(WRAP, 'flex flex-col gap-4 pb-8 sm:flex-row sm:gap-6')}>
             <div className="relative z-10 -mt-12 h-[104px] w-[104px] shrink-0 animate-pulse rounded-field bg-chip ring-4 ring-white sm:-mt-16" />
@@ -844,7 +861,12 @@ export function OrganizationPublicPage() {
   // ------------------------------------------------------------------ derived (org loaded)
   const TypeIcon = (orgType && TYPE_ICON[orgType]) || Building2;
   const typeLabel = orgType && TYPE_FALLBACK[orgType] ? t(`orgProfile.types.${orgType}`, TYPE_FALLBACK[orgType]) : '';
-  const location = [org.city, org.country].filter(Boolean).join(', ');
+  // Shown as a reader expects: names typed in capitals in title case, countries in English.
+  const name = displayCase(org.name) || org.name;
+  const country = englishCountryName(org.country);
+  const headquarters = englishCountryName(org.headquarters_country);
+  const location = [displayCase(org.city), country].filter(Boolean).join(', ');
+  const websiteHref = org.website ? externalUrl(org.website) : null;
   const membersLabel = plural('orgProfile.members', members.length, '{{count}} member', '{{count}} members');
   const recommendedLabel = plural(
     'orgProfile.recommendedBy', confirmedReferences.length,
@@ -882,7 +904,7 @@ export function OrganizationPublicPage() {
     },
     gallery: { label: t('orgProfile.nav.gallery', 'Gallery'), icon: Camera, count: gallery.length },
     marina: { label: t('orgProfile.nav.marina', 'Marina details'), icon: Anchor },
-    sustainability: { label: t('orgProfile.nav.sustainability', 'Sustainability'), icon: Leaf },
+    sustainability: { label: t('orgProfile.nav.sustainability', 'Sustainability'), icon: Leaf, count: sm26.items.length },
     recommendations: { label: t('orgProfile.nav.recommendations', 'Recommendations'), icon: Award, count: confirmedReferences.length },
     team: { label: t('orgProfile.nav.team', 'Team'), icon: Users, count: members.length },
   };
@@ -891,11 +913,74 @@ export function OrganizationPublicPage() {
   // are invited to claim and complete it, and are not shown as verified members.
   const claimed = !!org.owner_user_id;
   const verifiedMember = claimed && org.access_status === 'verified';
-  const showClaim = !claimed;
   const tone = orgTypeTone(orgType);
-  const hasFacts = !!(typeLabel || location || org.headquarters_country || org.website || members.length > 0);
-  const hasAside = hasFacts || showClaim;
   const numberOf = (id: SectionId) => String(sectionIds.indexOf(id) + 1).padStart(2, '0');
+
+  // A thin page (a line of description, nothing else to read) used to leave a large
+  // empty card under "About". It now says so calmly, with the one useful next step.
+  const descriptionLength = org.description?.trim().length ?? 0;
+  const thin = descriptionLength < 200 && !showGallery && !showInvestment && !showSustain && !org.audience_description;
+  // Unclaimed pages carry the claim invitation: beside the text, or in the thin-page
+  // block when there is one (never both).
+  const showClaimCard = !claimed && !thin;
+  // Claimed pages: beside the text, how to get in touch (or, for its own members,
+  // keep the page up to date), so a short description never sits in an empty row.
+  const touch: TouchState | null = !claimed
+    ? null
+    : canEdit
+    ? (thin ? null : 'own') // a thin page already asks its members to complete it
+    : hasExistingRequest
+    ? 'sent'
+    : !user
+    ? 'visitor'
+    : canConnect
+    ? 'connect'
+    : !isVerified
+    ? 'unverified'
+    : null;
+  const aside: ReactNode = showClaimCard
+    ? <ClaimCard name={name} slug={org.slug} isMarina={isMarina} />
+    : touch
+    ? (
+      <TouchCard
+        state={touch}
+        name={name}
+        onSignup={() => setSignupOpen(true)}
+        onConnect={() => setConnectOpen(true)}
+      />
+    )
+    : null;
+
+  // At a glance: the identifying facts, in one row under the name (the type is
+  // already the line above the name).
+  const glance: { key: string; icon: LucideIcon; label: string; value: ReactNode }[] = [];
+  if (location) glance.push({ key: 'location', icon: MapPin, label: t('orgProfile.fields.location', 'Location'), value: location });
+  if (headquarters && headquarters !== country) {
+    glance.push({ key: 'hq', icon: Landmark, label: t('orgProfile.fields.headquarters', 'Headquarters'), value: headquarters });
+  }
+  if (members.length > 0) glance.push({ key: 'team', icon: Users, label: t('orgProfile.fields.team', 'Team'), value: membersLabel });
+  if (sectors.length > 0) {
+    glance.push({
+      key: 'sectors', icon: Layers, label: navLabels.sectors.label,
+      value: plural('orgProfile.fields.sectorCount', sectors.length, '{{count}} sector', '{{count}} sectors'),
+    });
+  }
+  if (showRefs) {
+    glance.push({
+      key: 'refs', icon: Award, label: t('orgProfile.fields.recommended', 'Recommended'),
+      value: (
+        <a href="#recommendations" onClick={jumpTo('recommendations')} className="focus-ring rounded-sm underline underline-offset-[3px] hover:text-teal-text">
+          {plural('orgProfile.fields.refCount', confirmedReferences.length, 'by {{count}} marina', 'by {{count}} marinas')}
+        </a>
+      ),
+    });
+  }
+  if (org.investment_size_min != null || org.investment_size_max != null) {
+    glance.push({
+      key: 'check', icon: Target, label: t('orgProfile.investment.checkSize', 'Check size'),
+      value: formatCapitalRange(org.investment_size_min, org.investment_size_max),
+    });
+  }
 
   const similarTitle: Record<string, string> = {
     marina: t('orgPage.similar.titleMarina', 'Other marinas'),
@@ -911,14 +996,14 @@ export function OrganizationPublicPage() {
   // either would be false. No item, no card.
   const membersOnlyItems: { key: string; icon: LucideIcon; label: string }[] = [];
   if (!isVerified) {
-    if (members.length > 0) {
-      membersOnlyItems.push({ key: 'team', icon: Users, label: t('orgProfile.membersOnlyTeam', 'The team behind {{name}}', { name: org.name }) });
-    }
     if (marinaHasDetails) {
       membersOnlyItems.push({ key: 'marina', icon: Anchor, label: t('orgProfile.membersOnlyMarina', "The marina's detailed profile") });
     }
+    if (members.length > 0) {
+      membersOnlyItems.push({ key: 'team', icon: Users, label: t('orgProfile.membersOnlyTeam', 'The team behind {{name}}', { name }) });
+    }
     if (org.owner_user_id && !isMemberOfThisOrg) {
-      membersOnlyItems.push({ key: 'connect', icon: Link2, label: t('orgProfile.membersOnlyConnect', 'A direct connection request to {{name}}', { name: org.name }) });
+      membersOnlyItems.push({ key: 'connect', icon: Link2, label: t('orgProfile.membersOnlyConnect', 'A direct connection request to {{name}}', { name }) });
     }
   }
 
@@ -927,117 +1012,124 @@ export function OrganizationPublicPage() {
   // edge function that writes them into the HTML for share previews (src/lib/seoMeta.ts).
   const seo = organizationMeta(org, seoTr);
 
+  // The one primary action, by who is reading: a visitor is invited to sign up to
+  // contact the company (only a claimed page has someone to contact), a verified
+  // member of another company sends a connection request, the company's own members
+  // edit the page. The website is a secondary link: it sends people off the platform.
+  const primaryAction: ReactNode = canEdit ? (
+    <Button asChild variant="cta">
+      <Link to={accountHref('organization')}>{t('orgProfile.editPage', 'Edit your company page')}</Link>
+    </Button>
+  ) : !user && claimed ? (
+    <Button variant="cta" onClick={() => setSignupOpen(true)}>
+      {t('orgProfile.signupToContact', 'Sign up to contact {{name}}', { name })}
+    </Button>
+  ) : canConnect && org.owner_user_id ? (
+    <Button variant="cta" onClick={() => setConnectOpen(true)}>
+      {t('orgProfile.connect', 'Request to connect')}
+    </Button>
+  ) : null;
+
   return (
     <div className="min-h-screen bg-page">
       <Seo {...seo} />
 
-      {/* ── Cover: the organization's banner, or its type's gradient with sounding lines ── */}
+      {/* ── Cover: the organization's banner when it is a real picture, else its type's gradient with sounding lines ── */}
       <ProfileCover
         id={org.id}
-        name={org.name}
+        name={name}
         bannerUrl={org.banner_url}
+        logoUrl={org.logo_url}
         icon={TypeIcon}
         tone={tone}
         back={back}
-        alt={org.banner_url ? t('orgProfile.coverAlt', '{{name}} cover image', { name: org.name }) : ''}
+        alt={t('orgProfile.coverAlt', '{{name}} cover image', { name })}
       />
 
-      {/* ── Identity: logo over the cover, type, verification, key facts, every action ── */}
+      {/* ── Identity: logo over the cover, type, verification, the name, every action, then the facts at a glance ── */}
       <header className="border-b border-rule bg-white">
-        <div className={cn(WRAP, 'flex flex-col gap-5 pb-8 sm:flex-row sm:items-start sm:gap-7 lg:pb-10')}>
-          <LogoTile
-            src={org.logo_url}
-            name={org.name}
-            type={orgType}
-            size={112}
-            className="relative z-10 -mt-14 ring-4 ring-white shadow-[0_12px_32px_rgba(11,38,83,.16)] sm:-mt-[72px]"
-          />
+        <div className={cn(WRAP, 'pb-8 lg:pb-10')}>
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-7">
+            <LogoTile
+              src={org.logo_url}
+              name={name}
+              type={orgType}
+              size={112}
+              className="relative z-10 -mt-14 ring-4 ring-white shadow-[0_12px_32px_rgba(11,38,83,.16)] sm:-mt-[72px]"
+            />
 
-          <div className="min-w-0 flex-1 sm:pt-5">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              {typeLabel && (
-                <span className="flex items-center gap-2 text-[13px] font-semibold uppercase leading-4 tracking-[0.08em] text-meta">
-                  <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-pill" style={{ background: TYPE_RGB[tone] }} />
-                  {typeLabel}
-                </span>
-              )}
-              {verifiedMember && <VerifiedBadge />}
-              {org.access_status === 'pending' && (
-                <span className="inline-flex items-center gap-1 rounded-badge bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold leading-4 text-amber-900">
-                  <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('orgProfile.pending', 'Verification in progress')}
-                </span>
-              )}
-              <SponsorBadge tier={org.tier as OrgTier} size="md" />
-            </div>
+            <div className="min-w-0 flex-1 sm:pt-5">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                {typeLabel && (
+                  <span className="flex items-center gap-2 text-[13px] font-semibold uppercase leading-4 tracking-[0.08em] text-meta">
+                    <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-pill" style={{ background: TYPE_RGB[tone] }} />
+                    {typeLabel}
+                  </span>
+                )}
+                {verifiedMember && <VerifiedBadge />}
+                {org.access_status === 'pending' && (
+                  <span className="inline-flex items-center gap-1 rounded-badge bg-amber-50 px-1.5 py-0.5 text-[12px] font-semibold leading-4 text-amber-900">
+                    <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                    {t('orgProfile.pending', 'Verification in progress')}
+                  </span>
+                )}
+                <SponsorBadge tier={org.tier as OrgTier} size="md" />
+              </div>
 
-            <h1 className="mt-2 break-words text-h1-sm text-navy sm:text-h1">{org.name}</h1>
-
-            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-[15px] leading-6 text-ink">
-              {location && (
-                <span className="inline-flex items-center gap-1.5">
+              <h1 className="mt-2 break-words text-h1-sm text-navy sm:text-h1">{name}</h1>
+              {location && glance.length === 0 && (
+                <p className="mt-2 inline-flex items-center gap-1.5 text-[15px] leading-6 text-ink">
                   <MapPin className="h-4 w-4 text-meta" aria-hidden="true" />
                   {location}
-                </span>
+                </p>
               )}
-              {members.length > 0 && (
-                <span className="inline-flex items-center gap-1.5">
-                  <Users className="h-4 w-4 text-meta" aria-hidden="true" />
-                  {membersLabel}
-                </span>
-              )}
-              {showRefs && (
-                <a
-                  href="#recommendations"
-                  onClick={jumpTo('recommendations')}
-                  className="focus-ring inline-flex items-center gap-1.5 rounded-sm font-medium text-navy underline underline-offset-[3px]"
-                >
-                  <Award className="h-4 w-4 text-teal" aria-hidden="true" />
-                  {recommendedLabel}
-                </a>
-              )}
-            </div>
 
-            {/* Actions — same permission checks as before. The connect button
-                also needs an owner to send the request to: an unclaimed
-                organization (no owner_user_id) can never receive one, so
-                nothing about connecting is shown there at all. */}
-            <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-3">
-              {canConnect && org.owner_user_id && (
-                <Button variant="cta" onClick={() => setConnectOpen(true)}>
-                  {t('orgProfile.connect', 'Request to connect')}
-                </Button>
-              )}
-              {hasExistingRequest && (
-                <span className="inline-flex min-h-11 items-center gap-1.5 rounded-pill bg-foam px-4 text-sm font-semibold text-teal-text">
-                  <CheckCircle className="h-4 w-4" aria-hidden="true" />
-                  {t('orgProfile.requestSent', 'Connection request sent')}
-                </span>
-              )}
-              {org.website && (
-                <Button asChild variant="ctaOutline" size="sm">
-                  <a href={externalUrl(org.website) ?? undefined} target="_blank" rel="noopener noreferrer">
+              {/* Actions — same permission checks as before. Connecting also needs an
+                  owner: an unclaimed organization (no owner_user_id) can never receive
+                  a request, so nothing about connecting is shown there at all. */}
+              <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+                {primaryAction}
+                {hasExistingRequest && (
+                  <span className="inline-flex min-h-11 items-center gap-1.5 rounded-pill bg-foam px-4 text-sm font-semibold text-teal-text">
+                    <CheckCircle className="h-4 w-4" aria-hidden="true" />
+                    {t('orgProfile.requestSent', 'Connection request sent')}
+                  </span>
+                )}
+                <BookmarkButton
+                  organizationId={org.id}
+                  organizationName={name}
+                  variant="full"
+                  className="h-11 rounded-pill border-rule px-4 text-navy"
+                />
+                {websiteHref && (
+                  <UnderlineLink href={websiteHref} external className="!text-[15px]">
                     {t('orgProfile.visitWebsite', 'Visit website')}
-                    <span className="sr-only"> {t('orgProfile.newTab', '(opens in a new tab)')}</span>
-                  </a>
-                </Button>
-              )}
-              <BookmarkButton
-                organizationId={org.id}
-                organizationName={org.name}
-                variant="full"
-                className="h-11 rounded-pill border-rule px-4 text-navy"
-              />
+                  </UnderlineLink>
+                )}
+              </div>
               {canEdit && (
-                <Button asChild variant="ctaOutline" size="sm">
-                  <Link to={accountHref('organization')}>{t('org.editOrg', 'Edit Organisation')}</Link>
-                </Button>
+                <p className="mt-3 text-[13px] leading-[18px] text-meta">{t('orgProfile.ownPage', "This is your organisation's public page.")}</p>
               )}
             </div>
-            {canEdit && (
-              <p className="mt-3 text-[13px] leading-[18px] text-meta">{t('orgProfile.ownPage', "This is your organisation's public page.")}</p>
-            )}
           </div>
+
+          {/* At a glance: the identifying facts in one row. */}
+          {glance.length > 0 && (
+            <dl
+              aria-label={t('orgProfile.atAGlance', 'At a glance')}
+              className="mt-8 grid grid-cols-2 gap-x-6 gap-y-5 border-t border-rule pt-6 sm:grid-cols-3 lg:grid-cols-6"
+            >
+              {glance.map((g) => (
+                <div key={g.key} className="min-w-0">
+                  <dt className="flex items-center gap-1.5 text-meta-caps">
+                    <g.icon className="h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
+                    {g.label}
+                  </dt>
+                  <dd className="mt-1 break-words text-[15px] font-semibold leading-6 text-navy">{g.value}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
         </div>
       </header>
 
@@ -1079,141 +1171,110 @@ export function OrganizationPublicPage() {
       {/* ── Body ── */}
       <div className={cn(WRAP, 'flex flex-col gap-16 py-12 md:gap-20 md:py-16')}>
         {/* About */}
-        <ProfileSection id="about" number={numberOf('about')} label={navLabels.about.label} title={t('orgProfile.aboutTitle', 'About {{name}}', { name: org.name })}>
+        <ProfileSection id="about" number={numberOf('about')} label={navLabels.about.label} title={t('orgProfile.aboutTitle', 'About {{name}}', { name })}>
           <div className="grid gap-6 lg:grid-cols-12 lg:items-start">
-            <div className={cn(CARD, 'p-6 md:p-8', hasAside ? 'lg:col-span-8' : 'lg:col-span-12')}>
-              {org.description ? (
-                <p className="whitespace-pre-wrap text-body text-ink">{org.description}</p>
+            <div className={cn(CARD, 'p-6 md:p-8', aside ? 'lg:col-span-8' : 'lg:col-span-12')}>
+              {hasText(org.description) ? (
+                <p className="max-w-[72ch] whitespace-pre-wrap text-body text-ink">{org.description}</p>
               ) : (
-                <p className="text-meta">{t('orgProfile.noDescription', '{{name}} has not added a description yet.', { name: org.name })}</p>
+                <p className="text-meta">{t('orgProfile.noDescription', '{{name}} has not added a description yet.', { name })}</p>
               )}
               {/* Audience description (media organizations) */}
               {org.audience_description && (
-                <div className="mt-6 border-t border-rule pt-6">
+                <div className="mt-6 max-w-[72ch] border-t border-rule pt-6">
                   <h3 className="mb-2 text-card-title text-navy">{t('orgProfile.audience', 'Audience')}</h3>
                   <p className="whitespace-pre-wrap text-body text-ink">{org.audience_description}</p>
                 </div>
               )}
+              {thin && (
+                <ThinPageNote
+                  name={name}
+                  slug={org.slug}
+                  own={canEdit}
+                  claimed={claimed}
+                  isMarina={isMarina}
+                />
+              )}
             </div>
-
-            {hasAside && (
-              <div className="flex flex-col gap-6 lg:col-span-4">
-                {hasFacts && (
-                  <aside className={cn(CARD, 'p-6')} aria-labelledby="org-glance-title">
-                    <h3 id="org-glance-title" className="text-meta-caps mb-4">
-                      {t('orgProfile.atAGlance', 'At a glance')}
-                    </h3>
-                    <ul className="divide-y divide-rule">
-                      {typeLabel && <Fact icon={TypeIcon} label={t('orgProfile.fields.type', 'Type')}>{typeLabel}</Fact>}
-                      {location && <Fact icon={MapPin} label={t('orgProfile.fields.location', 'Location')}>{location}</Fact>}
-                      {org.headquarters_country && (
-                        <Fact icon={Landmark} label={t('orgProfile.fields.headquarters', 'Headquarters')}>{org.headquarters_country}</Fact>
-                      )}
-                      {org.website && (
-                        <Fact icon={Globe} label={t('orgProfile.fields.website', 'Website')}>
-                          <a
-                            href={externalUrl(org.website) ?? undefined}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="focus-ring break-all rounded-sm text-navy underline underline-offset-[3px] hover:text-teal-text"
-                          >
-                            {displayUrl(org.website)}
-                            <span className="sr-only"> {t('orgProfile.newTab', '(opens in a new tab)')}</span>
-                          </a>
-                        </Fact>
-                      )}
-                      {members.length > 0 && <Fact icon={Users} label={t('orgProfile.fields.team', 'Team')}>{membersLabel}</Fact>}
-                    </ul>
-                  </aside>
-                )}
-                {showClaim && <ClaimCard name={org.name} slug={org.slug} isMarina={isMarina} />}
-              </div>
-            )}
+            {aside && <div className="lg:col-span-4">{aside}</div>}
           </div>
         </ProfileSection>
 
-        {/* Investment thesis — public on investor profiles */}
+        {/* Marina details (verified members only): the figures first, then the texts as tiles */}
+        {showMarina && marinaDetails && (
+          <ProfileSection id="marina" number={numberOf('marina')} label={navLabels.marina.label} title={t('orgProfile.marina.title', 'Marina details')}>
+            <MarinaDetailsBlock details={marinaDetails} futurePlans={futurePlans} sectorLabel={sectorLabel} />
+          </ProfileSection>
+        )}
+
+        {/* Investment — public on investor profiles: the terms first, then the thesis */}
         {showInvestment && (
           <ProfileSection id="investment" number={numberOf('investment')} label={navLabels.investment.label} title={t('orgProfile.investment.title', 'Investment thesis')}>
             <div className={cn(CARD, 'p-6 md:p-8')}>
-              {org.investment_thesis && (
-                <p className="mb-6 whitespace-pre-wrap text-body text-ink">{org.investment_thesis}</p>
+              {((org.investment_geographies && org.investment_geographies.length > 0) || org.investment_size_min != null || org.investment_size_max != null || org.investment_hold_period) && (
+                <dl className={cn('grid gap-6 sm:grid-cols-3', org.investment_thesis && 'mb-6 border-b border-rule pb-6')}>
+                  {(org.investment_size_min != null || org.investment_size_max != null) && (
+                    <div>
+                      <dt className="text-meta-caps mb-2">{t('orgProfile.investment.checkSize', 'Check size')}</dt>
+                      <dd className="text-[24px] font-semibold leading-8 text-navy">{formatCapitalRange(org.investment_size_min, org.investment_size_max)}</dd>
+                    </div>
+                  )}
+                  {org.investment_hold_period && (
+                    <div>
+                      <dt className="text-meta-caps mb-2">{t('orgProfile.investment.holdPeriod', 'Hold period')}</dt>
+                      <dd className="text-[24px] font-semibold leading-8 text-navy">
+                        {t(
+                          `orgProfile.holdPeriods.${org.investment_hold_period}`,
+                          HOLD_PERIODS.find((h) => h.value === org.investment_hold_period)?.label ?? org.investment_hold_period,
+                        )}
+                      </dd>
+                    </div>
+                  )}
+                  {org.investment_geographies && org.investment_geographies.length > 0 && (
+                    <div>
+                      <dt className="text-meta-caps mb-2">{t('orgProfile.investment.geographies', 'Geographies')}</dt>
+                      <dd className="flex flex-wrap gap-1.5">
+                        {org.investment_geographies.map((g) => (
+                          <span key={g} className="inline-flex h-7 items-center rounded-pill bg-chip px-3 text-[13px] font-medium text-navy">{g}</span>
+                        ))}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
               )}
-              <dl className="grid gap-6 sm:grid-cols-3">
-                {org.investment_geographies && org.investment_geographies.length > 0 && (
-                  <div>
-                    <dt className="text-meta-caps mb-2">
-                      {t('orgProfile.investment.geographies', 'Geographies')}
-                    </dt>
-                    <dd className="flex flex-wrap gap-1.5">
-                      {org.investment_geographies.map((g) => (
-                        <span key={g} className="inline-flex h-7 items-center rounded-pill bg-chip px-3 text-[13px] font-medium text-navy">{g}</span>
-                      ))}
-                    </dd>
-                  </div>
-                )}
-                {(org.investment_size_min != null || org.investment_size_max != null) && (
-                  <div>
-                    <dt className="text-meta-caps mb-2">
-                      {t('orgProfile.investment.checkSize', 'Check size')}
-                    </dt>
-                    <dd className="text-card-title text-navy">{formatCapitalRange(org.investment_size_min, org.investment_size_max)}</dd>
-                  </div>
-                )}
-                {org.investment_hold_period && (
-                  <div>
-                    <dt className="text-meta-caps mb-2">
-                      {t('orgProfile.investment.holdPeriod', 'Hold period')}
-                    </dt>
-                    <dd className="text-card-title text-navy">
-                      {t(
-                        `orgProfile.holdPeriods.${org.investment_hold_period}`,
-                        HOLD_PERIODS.find((h) => h.value === org.investment_hold_period)?.label ?? org.investment_hold_period,
-                      )}
-                    </dd>
-                  </div>
-                )}
-              </dl>
+              {org.investment_thesis && (
+                <p className="max-w-[72ch] whitespace-pre-wrap text-body text-ink">{org.investment_thesis}</p>
+              )}
             </div>
           </ProfileSection>
         )}
 
-        {/* Sectors, grouped by theme */}
+        {/* Sectors: one chip cloud, a row per theme */}
         {showSectors && (
           <ProfileSection id="sectors" number={numberOf('sectors')} label={navLabels.sectors.label} title={sectorsTitle} count={sectors.length}>
-            <div className="grid gap-5 sm:grid-cols-2 md:gap-6">
+            <ul className={cn(CARD, 'divide-y divide-rule')}>
               {sectorGroups.map((g) => {
                 const Icon = g.theme?.icon ?? Tag;
                 const label = g.theme ? t(g.theme.labelKey, g.theme.fallback) : t('orgProfile.sectors.other', 'Other sectors');
                 return (
-                  <CardShell key={g.key} as="div">
-                    <CoverImage
-                      src={g.theme?.image ?? null}
-                      focusY={g.theme?.imageFocusY ?? 0.5}
-                      alt=""
-                      seed={`theme-${g.key}`}
-                      icon={Icon}
-                      aspect="fill"
-                      tone="sea"
-                      className="h-28"
-                    >
-                      <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-t from-[#081d40]/95 via-[#0b2653]/50 to-[#0b2653]/10" />
-                      <h3 className="absolute inset-x-0 bottom-0 flex items-center gap-2 p-4 text-[15px] font-semibold text-white">
-                        <Icon className="h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
-                        {label}
-                      </h3>
-                    </CoverImage>
-                    <ul className="flex flex-wrap gap-2 p-5">
+                  <li key={g.key} className="flex flex-col gap-3 p-5 md:flex-row md:items-start md:gap-6 md:p-6">
+                    <h3 className="flex shrink-0 items-center gap-2.5 text-[15px] font-semibold leading-6 text-navy md:w-64">
+                      <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-field bg-foam text-teal">
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      {label}
+                    </h3>
+                    <ul className="flex flex-wrap gap-2">
                       {g.items.map((s) => (
                         <li key={s.id} className="inline-flex h-8 items-center rounded-pill bg-chip px-3.5 text-sm font-medium text-navy">
                           {sectorLabel(s)}
                         </li>
                       ))}
                     </ul>
-                  </CardShell>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </ProfileSection>
         )}
 
@@ -1260,27 +1321,24 @@ export function OrganizationPublicPage() {
           </ProfileSection>
         )}
 
-        {/* Marina details (verified members only) */}
-        {showMarina && marinaDetails && (
-          <ProfileSection id="marina" number={numberOf('marina')} label={navLabels.marina.label} title={t('orgProfile.marina.title', 'Marina details')}>
-            <MarinaDetailsBlock details={marinaDetails} futurePlans={futurePlans} sectorLabel={sectorLabel} />
+        {/* Smart Marina 2026 sustainability texts, as tiles */}
+        {showSustain && (
+          <ProfileSection
+            id="sustainability"
+            number={numberOf('sustainability')}
+            label={navLabels.sustainability.label}
+            title={t('orgProfile.sm26.title', 'Sustainability & innovation')}
+            count={sm26.items.length}
+          >
+            <SM26MarinaSustainability items={sm26.items} />
           </ProfileSection>
-        )}
-
-        {/* Smart Marina 2026 sustainability narrative + evidence images (self-hides if none) */}
-        {isMarina && (
-          <section id="sustainability" aria-label={t('orgProfile.nav.sustainability', 'Sustainability')} className="scroll-mt-36" hidden={!sustainVisible}>
-            <div ref={sustainRef}>
-              <SM26MarinaSustainability orgId={org.id} />
-            </div>
-          </section>
         )}
 
         {/* Recommended by — confirmed marina references for partners */}
         {showRefs && (
           <ProfileSection id="recommendations" number={numberOf('recommendations')} label={navLabels.recommendations.label} title={recommendedLabel}>
             <p className="-mt-2 mb-6 max-w-prose text-[15px] leading-6 text-ink">
-              {t('orgProfile.recommendedByDesc', 'These marinas have confirmed working with {{name}} and recommend their services.', { name: org.name })}
+              {t('orgProfile.recommendedByDesc', 'These marinas have confirmed working with {{name}} and recommend their services.', { name })}
             </p>
             <ul className="grid gap-4 sm:grid-cols-2">
               {confirmedReferences.map((ref, idx) => (
@@ -1289,11 +1347,11 @@ export function OrganizationPublicPage() {
                     <BadgeCheck className="h-5 w-5" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-card-title text-navy">{ref.client_legal_name}</p>
+                    <p className="truncate text-card-title text-navy">{displayCase(ref.client_legal_name)}</p>
                     <p className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-meta">
                       {ref.client_country && (
                         <span className="inline-flex items-center gap-1">
-                          <MapPin className="h-3.5 w-3.5" aria-hidden="true" /> {ref.client_country}
+                          <MapPin className="h-3.5 w-3.5" aria-hidden="true" /> {englishCountryName(ref.client_country)}
                         </span>
                       )}
                       {ref.project_name && (
@@ -1309,37 +1367,21 @@ export function OrganizationPublicPage() {
           </ProfileSection>
         )}
 
-        {/* Team (verified members only) */}
+        {/* Team (verified members only): photo, name and job title. People have no page of their own. */}
         {showTeam && (
           <ProfileSection id="team" number={numberOf('team')} label={navLabels.team.label} title={t('orgProfile.team.title', 'Team')} count={members.length}>
-            <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:gap-4 lg:grid-cols-4">
               {members.map((member) => {
                 const person = member.profiles ?? publicProfiles[member.user_id] ?? null;
-                const fullName = `${person?.first_name || ''} ${person?.last_name || ''}`.trim();
-                const displayName = fullName || t('orgProfile.team.memberFallback', 'Team member');
-                const initials = fullName
-                  ? fullName.split(/\s+/).map((n) => n[0]).join('').slice(0, 2).toUpperCase()
-                  : displayName.slice(0, 2).toUpperCase();
-                const jobTitle = person?.job_title;
-                const avatarUrl = person?.avatar_url ?? null;
+                const fullName = displayCase(`${person?.first_name || ''} ${person?.last_name || ''}`.trim());
                 return (
                   <li key={member.id} className="flex">
-                    <CardShell interactive className="w-full flex-row items-center gap-4 p-4">
-                      {avatarUrl ? (
-                        <img src={avatarUrl} alt="" className="h-14 w-14 shrink-0 rounded-pill object-cover ring-2 ring-rule" />
-                      ) : (
-                        <span aria-hidden="true" className="grid h-14 w-14 shrink-0 place-items-center rounded-pill bg-teal text-base font-semibold tracking-[0.02em] text-white">
-                          {initials || '??'}
-                        </span>
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-card-title text-navy">
-                          <StretchedLink to={`/users/${member.user_id}`} arrow={false} className="rounded-sm">{displayName}</StretchedLink>
-                        </span>
-                        {jobTitle && <span className="block truncate text-sm text-meta">{jobTitle}</span>}
-                      </span>
-                      <ChevronRight className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" />
-                    </CardShell>
+                    <TeamCard
+                      name={fullName || t('orgProfile.team.memberFallback', 'Team member')}
+                      initialsFrom={fullName}
+                      jobTitle={person?.job_title ?? null}
+                      avatarUrl={person?.avatar_url ?? null}
+                    />
                   </li>
                 );
               })}
@@ -1365,13 +1407,15 @@ export function OrganizationPublicPage() {
                 ))}
               </ul>
             </div>
-            <Button asChild variant="ctaNavy" size="sm" className="shrink-0">
-              {user ? (
+            {user ? (
+              <Button asChild variant="ctaNavy" size="sm" className="shrink-0">
                 <Link to={accountHref('dashboard')}>{t('orgProfile.checkStatus', 'Check your account status')}</Link>
-              ) : (
-                <Link to="/become-partner">{t('orgProfile.join', 'Sign up')}</Link>
-              )}
-            </Button>
+              </Button>
+            ) : (
+              <Button variant="ctaNavy" size="sm" className="shrink-0" onClick={() => setSignupOpen(true)}>
+                {t('orgProfile.join', 'Sign up')}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -1429,12 +1473,12 @@ export function OrganizationPublicPage() {
                   <OrgCard
                     key={o.id}
                     id={o.id}
-                    name={o.name}
+                    name={displayCase(o.name) || o.name}
                     href={`/organizations/${o.slug}`}
                     type={o.organization_type}
                     logoUrl={o.logo_url}
-                    city={o.city}
-                    country={o.country ?? o.headquarters_country}
+                    city={displayCase(o.city) || null}
+                    country={englishCountryName(o.country ?? o.headquarters_country) || null}
                     description={o.description}
                     verified={!!o.owner_user_id}
                     className="w-full"
@@ -1471,7 +1515,7 @@ export function OrganizationPublicPage() {
         index={lightbox}
         onIndex={setLightbox}
         onClose={() => setLightbox(null)}
-        name={org.name}
+        name={name}
       />
 
       {/* Connect Request Dialog */}
@@ -1479,7 +1523,9 @@ export function OrganizationPublicPage() {
         <DialogContent className="max-w-md rounded-card">
           <DialogHeader>
             <DialogTitle className="text-navy">{t('orgProfile.connectTitle', 'Request to connect')}</DialogTitle>
-            <DialogDescription>{t('orgProfile.connectDesc', 'Send a connection request to {{name}}.', { name: org.name })}</DialogDescription>
+            <DialogDescription>
+              {t('orgProfile.connectDescTeam', 'Your request goes to everyone in the {{name}} team; any of them can answer.', { name })}
+            </DialogDescription>
           </DialogHeader>
           <div className="mt-2 space-y-4">
             <div className="space-y-2">
@@ -1500,6 +1546,37 @@ export function OrganizationPublicPage() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Visitors: sign up (or sign in) without leaving the page */}
+      <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
+        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto rounded-card">
+          <DialogHeader>
+            <DialogTitle className="text-navy">{t('orgProfile.signupTitle', 'Sign up to contact {{name}}', { name })}</DialogTitle>
+            <DialogDescription>
+              {t('orgProfile.signupIntro', 'Create your free account. Once the M3 team has checked it, you can send {{name}} a connection request.', { name })}{' '}
+              {t('auth.haveAccount', 'Already have an account?')}{' '}
+              <button type="button" className="font-semibold text-navy underline underline-offset-[3px]" onClick={() => { setSignupOpen(false); setLoginOpen(true); }}>
+                {t('auth.login', 'Log In')}
+              </button>
+            </DialogDescription>
+          </DialogHeader>
+          <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
+        <DialogContent className="max-w-md rounded-card">
+          <DialogHeader>
+            <DialogTitle className="text-navy">{t('auth.login', 'Log In')}</DialogTitle>
+            <DialogDescription>
+              {t('auth.noAccount', "Don't have an account?")}{' '}
+              <button type="button" className="font-semibold text-navy underline underline-offset-[3px]" onClick={() => { setLoginOpen(false); setSignupOpen(true); }}>
+                {t('auth.signup', 'Sign up')}
+              </button>
+            </DialogDescription>
+          </DialogHeader>
+          <LoginForm onSuccess={() => setLoginOpen(false)} />
         </DialogContent>
       </Dialog>
     </div>
@@ -1533,21 +1610,63 @@ const COVER_BG: Record<OrgTypeTone, string> = {
   media: 'linear-gradient(135deg, #1e293b, #64748b)',
 };
 
+/** A banner narrower than this is a logo or a thumbnail stretched over the page: not used. */
+const MIN_COVER_WIDTH = 960;
+/** Nor a square-ish picture (a logo uploaded as a banner): a cover is clearly wider than tall. */
+const MIN_COVER_RATIO = 1.3;
+
+/** Same file, whatever the query string (cache busters, signed parameters). */
+function sameImage(a: string, b: string): boolean {
+  return a.split('?')[0] === b.split('?')[0];
+}
+
 /**
- * The top of a profile: the organization's own banner (settling and lagging
- * behind the page like every banner of the site) or, without one, its type's
- * gradient with sounding lines drifting slowly and the type's icon
- * watermarked in. A marine veil keeps the breadcrumb readable over any photo.
- * It registers with the header like PageHero does: the header overlaps it and
- * turns solid on scroll. The logo, name and actions sit on the white band
- * below; the logo straddles the two.
+ * The banner, only once it has proved to be a real cover picture: loaded, at least
+ * MIN_COVER_WIDTH wide and landscape, and not the logo again. Until then (and for
+ * good when it fails) the page shows the designed cover of the organisation's type.
+ * Ayla Marina's "banner" was its 517 x 312 logo, blown up and blurred across the
+ * screen (Victor's audit, Oct 2026).
+ */
+function useRealCover(bannerUrl: string | null, logoUrl: string | null): string | null {
+  const [cover, setCover] = useState<string | null>(null);
+  useEffect(() => {
+    setCover(null);
+    if (!bannerUrl || (logoUrl && sameImage(bannerUrl, logoUrl))) return;
+    let alive = true;
+    const img = new Image();
+    img.onload = () => {
+      if (!alive) return;
+      const w = img.naturalWidth;
+      const h = Math.max(1, img.naturalHeight);
+      if (w >= MIN_COVER_WIDTH && w / h >= MIN_COVER_RATIO) setCover(bannerUrl);
+    };
+    img.src = bannerUrl;
+    return () => {
+      alive = false;
+      img.onload = null;
+    };
+  }, [bannerUrl, logoUrl]);
+  return cover;
+}
+
+/**
+ * The top of a profile: the organization's own banner when it is a real cover
+ * picture (settling and lagging behind the page like every banner of the site),
+ * else its type's gradient with sounding lines drifting slowly and the type's icon
+ * watermarked in. A marine veil keeps the breadcrumb readable over any photo, and
+ * on phones the way back sits on a solid navy chip (white words over a light
+ * photo were hard to read). It registers with the header like PageHero does: the
+ * header overlaps it and turns solid on scroll. The logo, name and actions sit on
+ * the white band below; the logo straddles the two. Shorter than before (Oct 2026):
+ * the name and the facts come sooner.
  */
 function ProfileCover({
-  id, name, bannerUrl, icon: Icon, tone, back, alt,
+  id, name, bannerUrl, logoUrl, icon: Icon, tone, back, alt,
 }: {
   id: string;
   name: string;
   bannerUrl: string | null;
+  logoUrl: string | null;
   icon: LucideIcon;
   tone: OrgTypeTone;
   back: { to: string; label: string };
@@ -1559,23 +1678,23 @@ function ProfileCover({
   const overlaid = useRegisterHeaderHero(ref, true);
   useParallax(mediaRef, { mode: 'page', max: 40 });
   const seed = seedOf(id);
+  const cover = useRealCover(bannerUrl, logoUrl);
 
   return (
-    <section ref={ref} className="relative isolate min-h-[260px] overflow-hidden bg-navy text-white sm:min-h-[300px] lg:min-h-[340px]">
-      <div ref={mediaRef} aria-hidden={bannerUrl ? undefined : true} className="hero-media-layer absolute inset-x-0 -top-10 bottom-0 -z-30">
-        {bannerUrl ? (
-          <CoverImage src={bannerUrl} alt={alt} seed={id} icon={Icon} aspect="fill" tone="sea" eager className="absolute inset-0" imageClassName="hero-settle" />
-        ) : (
-          <div className="absolute inset-0" style={{ background: COVER_BG[tone] }}>
-            <BathyPattern seed={seed} rings={8} opacity={0.12} drift className="absolute -inset-4" />
-            <Icon aria-hidden="true" className="absolute bottom-10 right-[8%] h-40 w-40 text-white/[.08]" strokeWidth={1.25} />
-          </div>
+    <section ref={ref} className="relative isolate min-h-[208px] overflow-hidden bg-navy text-white sm:min-h-[240px] lg:min-h-[280px]">
+      <div ref={mediaRef} aria-hidden={cover ? undefined : true} className="hero-media-layer absolute inset-x-0 -top-10 bottom-0 -z-30">
+        <div className="absolute inset-0" style={{ background: COVER_BG[tone] }}>
+          <BathyPattern seed={seed} rings={8} opacity={0.12} drift className="absolute -inset-4" />
+          <Icon aria-hidden="true" className="absolute bottom-8 right-[8%] h-36 w-36 text-white/[.08]" strokeWidth={1.25} />
+        </div>
+        {cover && (
+          <CoverImage src={cover} alt={alt} seed={id} icon={Icon} aspect="fill" tone="sea" eager className="absolute inset-0" imageClassName="hero-settle" />
         )}
       </div>
-      <div aria-hidden="true" className="absolute inset-0 -z-20 bg-[linear-gradient(180deg,rgba(8,29,64,.82)_0%,rgba(11,38,83,.35)_55%,rgba(11,38,83,.5)_100%)]" />
+      <div aria-hidden="true" className="absolute inset-0 -z-20 bg-[linear-gradient(180deg,rgba(8,29,64,.82)_0%,rgba(11,38,83,.4)_55%,rgba(11,38,83,.55)_100%)]" />
 
-      <div className={cn(WRAP, 'relative z-10 pb-24', overlaid ? 'pt-[88px] md:pt-[104px]' : 'pt-8')}>
-        <nav aria-label={t('orgPage.crumbsLabel', 'Breadcrumb')} className="hidden text-[14px] leading-5 text-white/80 md:block">
+      <div className={cn(WRAP, 'relative z-10 pb-16', overlaid ? 'pt-[84px] md:pt-[100px]' : 'pt-6')}>
+        <nav aria-label={t('orgPage.crumbsLabel', 'Breadcrumb')} className="hidden text-[14px] leading-5 text-white/85 md:block">
           <ol className="flex flex-wrap items-center gap-2">
             <li className="flex items-center gap-2">
               <UnderlineLink to="/" tone="light" plain arrow={false} className="!text-[14px] !font-normal">{t('nav.home', 'Home')}</UnderlineLink>
@@ -1588,11 +1707,14 @@ function ProfileCover({
             <li aria-current="page" className="max-w-[420px] truncate text-white">{name}</li>
           </ol>
         </nav>
-        {/* Phones: one link back instead of the whole trail. */}
+        {/* Phones: one link back instead of the whole trail, on a solid chip. */}
         <div className="md:hidden">
-          <Link to={back.to} className="uline uline--light uline--plain !text-[14px] !font-normal">
+          <Link
+            to={back.to}
+            className="inline-flex min-h-9 items-center gap-1 rounded-pill bg-navy/85 py-1.5 pl-2.5 pr-3.5 text-[14px] font-medium text-white shadow-[0_2px_10px_rgba(8,29,64,.35)] ring-1 ring-inset ring-white/20 backdrop-blur-sm focus:outline-none focus-visible:shadow-focus"
+          >
             <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-            <span className="uline-t">{back.label}</span>
+            {back.label}
           </Link>
         </div>
       </div>
@@ -1723,21 +1845,161 @@ function ProfileSection({
   );
 }
 
-/** A labelled fact in the "At a glance" card. */
-function Fact({ icon: Icon, label, children }: { icon: LucideIcon; label: string; children: ReactNode }) {
+type TouchState = 'own' | 'sent' | 'visitor' | 'connect' | 'unverified';
+
+/**
+ * Beside "About" on a claimed page: how to get in touch with the company, by who is
+ * reading. A request reaches everyone in its team (any of them answers), which is
+ * said here once. Its own members get the way to keep the page up to date.
+ */
+function TouchCard({
+  state, name, onSignup, onConnect,
+}: {
+  state: TouchState;
+  name: string;
+  onSignup: () => void;
+  onConnect: () => void;
+}) {
+  const { t } = useTranslation();
+  const copy: Record<TouchState, { title: string; body: string }> = {
+    own: {
+      title: t('orgProfile.touch.ownTitle', 'Your company page'),
+      body: t('orgProfile.touch.ownBody', 'Keep it up to date: description, sectors, photos and team are how other members find you.'),
+    },
+    sent: {
+      title: t('orgProfile.touch.sentTitle', 'Request sent'),
+      body: t('orgProfile.touch.sentBody', 'Everyone in the {{name}} team has received your request. When one of them accepts, M3 introduces you by e-mail.', { name }),
+    },
+    visitor: {
+      title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
+      body: t('orgProfile.touch.visitorBody', 'Sign up for free to send a connection request. It reaches everyone in their team, and M3 introduces you by e-mail once they accept.'),
+    },
+    connect: {
+      title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
+      body: t('orgProfile.touch.connectBody', 'Your request reaches everyone in their team; any of them can answer. Once accepted, M3 introduces you by e-mail.'),
+    },
+    unverified: {
+      title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
+      body: t('orgProfile.touch.unverifiedBody', 'Once the M3 team has checked your account, you can send {{name}} a connection request.', { name }),
+    },
+  };
+  const Icon = state === 'own' ? PencilLine : state === 'sent' ? CheckCircle : Link2;
   return (
-    <li className="flex items-start gap-3 py-3.5 first:pt-0 last:pb-0">
-      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-teal" aria-hidden="true" />
-      <div className="min-w-0">
-        <p className="text-meta-caps">{label}</p>
-        <div className="mt-0.5 break-words font-medium text-navy">{children}</div>
+    <aside aria-labelledby="org-touch-heading" className={cn(CARD, 'p-6 md:p-7')}>
+      <span aria-hidden="true" className="grid h-11 w-11 place-items-center rounded-pill bg-foam text-teal">
+        <Icon className="h-5 w-5" strokeWidth={1.75} />
+      </span>
+      <h2 id="org-touch-heading" className="mt-4 text-card-title text-navy">{copy[state].title}</h2>
+      <p className="mt-2 text-[15px] leading-6 text-ink">{copy[state].body}</p>
+      <div className="mt-5">
+        {state === 'own' && (
+          <Button asChild variant="ctaNavy" size="sm">
+            <Link to={accountHref('organization')}>{t('orgProfile.editPageShort', 'Edit the page')}</Link>
+          </Button>
+        )}
+        {state === 'visitor' && (
+          <Button variant="cta" size="sm" onClick={onSignup}>{t('orgProfile.touch.signup', 'Sign up for free')}</Button>
+        )}
+        {state === 'connect' && (
+          <Button variant="cta" size="sm" onClick={onConnect}>{t('orgProfile.connect', 'Request to connect')}</Button>
+        )}
+        {state === 'unverified' && (
+          <UnderlineLink to={accountHref('dashboard')} className="!text-[14px]">{t('orgProfile.checkStatus', 'Check your account status')}</UnderlineLink>
+        )}
       </div>
-    </li>
+    </aside>
   );
 }
 
 /**
- * Berths, facilities, certifications, plans and the marina's own texts.
+ * A page with little more than a line of description: said calmly, with the one
+ * useful next step. Its own members complete it; on a page the M3 team listed
+ * (no owner yet) anyone can claim it or write to M3; on a claimed page, readers
+ * can write to M3.
+ */
+function ThinPageNote({
+  name, slug, own, claimed, isMarina,
+}: {
+  name: string;
+  slug: string;
+  own: boolean;
+  claimed: boolean;
+  isMarina: boolean;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="mt-6 flex flex-col gap-4 rounded-field bg-page p-5 sm:flex-row sm:items-center md:p-6">
+      <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-pill bg-white text-teal ring-1 ring-inset ring-rule">
+        <PencilLine className="h-5 w-5" strokeWidth={1.75} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[16px] font-semibold leading-6 text-navy">
+          {own
+            ? t('orgProfile.thin.titleOwn', "Your company's page is not complete yet")
+            : t('orgProfile.thin.title', "This company hasn't completed its page yet")}
+        </p>
+        <p className="mt-1 text-[14px] leading-5 text-meta">
+          {own
+            ? t('orgProfile.thin.bodyOwn', 'Add a description, your sectors, photos and your team: members find you through them.')
+            : claimed
+            ? t('orgProfile.thin.body', 'More about {{name}} will appear here as the team completes the page.', { name })
+            : isMarina
+            ? t('orgProfile.thin.bodyUnclaimedMarina', 'The M3 team listed {{name}}. Is it your marina? Claim the page to complete it.', { name })
+            : t('orgProfile.thin.bodyUnclaimed', 'The M3 team listed {{name}}. Is it your company? Claim the page to complete it.', { name })}
+        </p>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center gap-x-5 gap-y-3">
+        {own ? (
+          <Button asChild variant="ctaNavy" size="sm">
+            <Link to={accountHref('organization')}>{t('orgProfile.thin.complete', 'Complete your page')}</Link>
+          </Button>
+        ) : (
+          <>
+            {!claimed && (
+              <ClaimRequestButton organization={{ name, slug }} variant="ctaNavy" size="sm">
+                {t('orgPage.claim.cta', 'Claim this page')}
+              </ClaimRequestButton>
+            )}
+            <UnderlineLink to="/contact" className="!text-[14px]">{t('orgProfile.thin.contact', 'Contact M3')}</UnderlineLink>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** One person of the team: photo (or initials), name, job title. No link: people have no page of their own. */
+function TeamCard({
+  name, initialsFrom, jobTitle, avatarUrl,
+}: {
+  name: string;
+  initialsFrom: string;
+  jobTitle: string | null;
+  avatarUrl: string | null;
+}) {
+  const initials = initialsFrom
+    ? initialsFrom.split(/\s+/).filter(Boolean).map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+    : '';
+  return (
+    <CardShell as="div" className="w-full items-center p-5 text-center">
+      {avatarUrl ? (
+        <img src={avatarUrl} alt="" loading="lazy" className="h-20 w-20 shrink-0 rounded-pill object-cover ring-2 ring-rule" />
+      ) : (
+        <span aria-hidden="true" className="grid h-20 w-20 shrink-0 place-items-center rounded-pill bg-teal text-[22px] font-semibold tracking-[0.02em] text-white">
+          {initials || <Users className="h-7 w-7" strokeWidth={1.75} />}
+        </span>
+      )}
+      <p className="mt-4 w-full break-words text-[16px] font-semibold leading-[22px] text-navy">{name}</p>
+      {jobTitle && <p className="mt-1 w-full break-words text-sm leading-5 text-meta">{jobTitle}</p>}
+    </CardShell>
+  );
+}
+
+/**
+ * The marina's own details (verified members only), facts first: the big figures
+ * (berths, superyacht berths, longest berth, certifications) and the status, the
+ * certifications and the facilities as chips, then the marina's two texts as tiles
+ * (TextTiles: "Read more" opens the full text) and the development plans.
  * marinaHasContent() decides whether this gets rendered at all and mirrors the
  * conditions below — change both together.
  */
@@ -1750,38 +2012,35 @@ function MarinaDetailsBlock({
 }) {
   const { t } = useTranslation();
 
-  const stats: { key: string; icon: LucideIcon; label: string; value: string; numeric: boolean }[] = [];
-  if (details.marina_type) {
-    stats.push({
-      key: 'type', icon: Ship, numeric: false,
-      label: t('orgProfile.marina.type', 'Type'),
-      value: t(`orgProfile.marinaTypes.${details.marina_type}`, humanize(details.marina_type)),
-    });
-  }
+  const certifications = [
+    ...(details.certifications ?? []).filter((c) => hasText(c)),
+    ...(hasText(details.certifications_other) ? [details.certifications_other.trim()] : []),
+  ];
+
+  // Big figures: only the ones that exist.
+  const figures: { key: string; icon: LucideIcon; label: string; value: number; suffix?: string }[] = [];
   if (details.berths_count != null) {
-    stats.push({ key: 'berths', icon: Anchor, numeric: true, label: t('orgProfile.marina.berths', 'Berths'), value: String(details.berths_count) });
+    figures.push({ key: 'berths', icon: Anchor, label: t('orgProfile.marina.berths', 'Berths'), value: details.berths_count });
   }
   if (details.superyacht_berths != null && details.superyacht_berths > 0) {
-    stats.push({ key: 'superyacht', icon: Ship, numeric: true, label: t('orgProfile.marina.superyachtBerths', 'Superyacht berths'), value: String(details.superyacht_berths) });
+    figures.push({ key: 'superyacht', icon: Ship, label: t('orgProfile.marina.superyachtBerths', 'Superyacht berths'), value: details.superyacht_berths });
   }
   if (details.longest_berth_meters != null) {
-    stats.push({ key: 'longest', icon: Ruler, numeric: true, label: t('orgProfile.marina.maxBerth', 'Max berth length'), value: `${details.longest_berth_meters} m` });
+    figures.push({ key: 'longest', icon: Ruler, label: t('orgProfile.marina.longestBerth', 'Longest berth'), value: details.longest_berth_meters, suffix: ' m' });
   }
-  if (details.fresh_water_available) {
-    stats.push({ key: 'water', icon: Droplets, numeric: false, label: t('orgProfile.marina.freshWater', 'Fresh water'), value: t('orgProfile.marina.available', 'Available') });
-  }
-
-  const facilities: { key: string; icon: LucideIcon; label: string }[] = [];
-  if (details.has_yacht_club) {
-    facilities.push({
-      key: 'club', icon: CheckCircle,
-      label: details.yacht_club_members
-        ? t('orgProfile.marina.yachtClubMembers', 'Yacht club ({{n}} members)', { n: details.yacht_club_members })
-        : t('orgProfile.marina.yachtClub', 'Yacht club'),
+  if (certifications.length > 0) {
+    figures.push({
+      key: 'certs', icon: Award, value: certifications.length,
+      label: certifications.length === 1 ? t('orgProfile.marina.certification', 'Certification') : t('orgProfile.marina.certificationsCount', 'Certifications'),
     });
   }
-  if (details.has_sailing_school) facilities.push({ key: 'school', icon: GraduationCap, label: t('orgProfile.marina.sailingSchool', 'Sailing school') });
+
+  // marina_type holds where the marina stands ("in_operation", "in_project"…): a status.
+  const status = details.marina_type ? t(`orgProfile.marinaTypes.${details.marina_type}`, humanize(details.marina_type)) : '';
+
+  const facilities: { key: string; icon: LucideIcon; label: string }[] = [];
   if (details.has_boat_yard) facilities.push({ key: 'yard', icon: Wrench, label: t('orgProfile.marina.boatYard', 'Boat yard') });
+  if (details.has_concierge) facilities.push({ key: 'concierge', icon: ConciergeBell, label: t('orgProfile.marina.concierge', 'Concierge service') });
   if (details.has_restaurants) {
     facilities.push({
       key: 'food', icon: UtensilsCrossed,
@@ -1790,114 +2049,125 @@ function MarinaDetailsBlock({
         : t('orgProfile.marina.restaurant', 'Restaurant'),
     });
   }
-  if (details.has_concierge) facilities.push({ key: 'concierge', icon: Sparkles, label: t('orgProfile.marina.concierge', 'Concierge service') });
+  if (details.fresh_water_available) facilities.push({ key: 'water', icon: Droplets, label: t('orgProfile.marina.freshWater', 'Fresh water') });
+  if (details.has_yacht_club) {
+    facilities.push({
+      key: 'club', icon: Sailboat,
+      label: details.yacht_club_members
+        ? t('orgProfile.marina.yachtClubMembers', 'Yacht club ({{n}} members)', { n: details.yacht_club_members })
+        : t('orgProfile.marina.yachtClub', 'Yacht club'),
+    });
+  }
+  if (details.has_sailing_school) facilities.push({ key: 'school', icon: GraduationCap, label: t('orgProfile.marina.sailingSchool', 'Sailing school') });
 
-  const certifications = details.certifications ?? [];
-  // Sorted by the name the reader sees, which in French is not the English order.
+  // Sorted by the name the reader sees.
   const planLabel = (p: FuturePlan) => sectorLabel({ slug: p.sector_slug, label: p.sector_label });
   const plans = [...futurePlans].sort((a, b) => planLabel(a).localeCompare(planLabel(b)));
 
-  const textCards: ReactNode[] = [];
+  const texts: TextTileItem[] = [];
   if (hasText(details.marina_description)) {
-    textCards.push(
-      <div key="about" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-2 text-card-title text-navy">{t('orgProfile.marina.aboutMarina', 'About the marina')}</h3>
-        <p className="whitespace-pre-wrap leading-relaxed text-ink">{details.marina_description}</p>
-      </div>,
-    );
+    texts.push({ key: 'about', title: t('orgProfile.marina.aboutMarina', 'About the marina'), text: details.marina_description, icon: Anchor });
   }
   if (hasText(details.services_description)) {
-    textCards.push(
-      <div key="services" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-2 text-card-title text-navy">{t('orgProfile.marina.services', 'Services')}</h3>
-        <p className="whitespace-pre-wrap leading-relaxed text-ink">{details.services_description}</p>
-      </div>,
-    );
+    texts.push({ key: 'services', title: t('orgProfile.marina.services', 'Services'), text: details.services_description, icon: ClipboardList });
   }
 
-  const listCards: ReactNode[] = [];
-  if (facilities.length > 0) {
-    listCards.push(
-      <div key="facilities" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-4 text-card-title text-navy">{t('orgProfile.marina.facilities', 'Facilities & services')}</h3>
-        <ul className="grid gap-3 sm:grid-cols-2">
-          {facilities.map((f) => (
-            <li key={f.key} className="flex items-center gap-2.5 text-sm text-ink">
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-field bg-foam text-teal">
-                <f.icon className="h-4 w-4" aria-hidden="true" />
-              </span>
-              {f.label}
-            </li>
-          ))}
-        </ul>
-      </div>,
-    );
-  }
-  if (certifications.length > 0 || hasText(details.certifications_other)) {
-    listCards.push(
-      <div key="certs" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-3 text-card-title text-navy">{t('orgProfile.marina.certifications', 'Certifications')}</h3>
-        <ul className="flex flex-wrap gap-2">
-          {certifications.map((cert) => (
-            <li key={cert} className="inline-flex items-center gap-1.5 rounded-full bg-chip px-3 py-1.5 text-sm font-medium text-navy">
-              <Award className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
-              {cert}
-            </li>
-          ))}
-          {hasText(details.certifications_other) && (
-            <li className="inline-flex items-center gap-1.5 rounded-full bg-chip px-3 py-1.5 text-sm font-medium text-navy">
-              <Award className="h-3.5 w-3.5 text-teal" aria-hidden="true" />
-              {details.certifications_other}
-            </li>
-          )}
-        </ul>
-      </div>,
-    );
-  }
-  if (plans.length > 0) {
-    listCards.push(
-      <div key="plans" className={cn(CARD, 'p-6')}>
-        <h3 className="mb-4 flex items-center gap-2 text-card-title text-navy">
-          <CalendarClock className="h-4 w-4 text-teal" aria-hidden="true" />
-          {t('orgProfile.marina.futurePlans', 'Future development plans')}
-        </h3>
-        <ul className="space-y-2">
-          {plans.map((plan) => {
-            const tl = TIMELINES[plan.timeline];
-            return (
-              <li key={`${plan.sector_label}-${plan.timeline}`} className="flex items-center justify-between gap-3 rounded-field bg-page px-3 py-2">
-                <span className="min-w-0 text-sm font-medium text-navy">{planLabel(plan)}</span>
-                <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold', tl?.tone ?? 'bg-chip text-meta')}>
-                  {tl ? t(`orgProfile.timelines.${tl.key}`, tl.fallback) : plan.timeline}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      </div>,
-    );
-  }
+  // Hairlines between the figures, whatever the number of columns (2 on phones).
+  const cols = figures.length >= 4 ? 4 : figures.length;
+  const figureCell = (i: number) => cn(
+    'border-rule p-5 md:p-6',
+    i % 2 === 1 && 'border-l',
+    i >= 2 && 'border-t',
+    cols === 3 && 'sm:border-t-0',
+    cols === 3 && i > 0 && 'sm:border-l',
+    cols === 4 && 'lg:border-t-0',
+    cols === 4 && i > 0 && 'lg:border-l',
+  );
 
   return (
-    <>
-      {stats.length > 0 && (
-        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {stats.map((s) => (
-            <li key={s.key} className={cn(CARD, 'p-4')}>
-              <s.icon className="h-5 w-5 text-teal" aria-hidden="true" />
-              <p className={cn('mt-3 break-words font-semibold text-navy', s.numeric ? 'text-[28px] leading-8 tabular-nums' : 'text-lg leading-tight')}>{s.value}</p>
-              <p className="mt-0.5 text-meta-caps">{s.label}</p>
-            </li>
-          ))}
-        </ul>
-      )}
-      {(textCards.length > 0 || listCards.length > 0) && (
-        <div className={cn('grid gap-6', stats.length > 0 && 'mt-6', textCards.length > 0 && listCards.length > 0 && 'lg:grid-cols-2')}>
-          {textCards.length > 0 && <div className="space-y-6">{textCards}</div>}
-          {listCards.length > 0 && <div className="space-y-6">{listCards}</div>}
+    <div className="flex flex-col gap-6">
+      {(figures.length > 0 || status) && (
+        <div className={cn(CARD, 'overflow-hidden')}>
+          {figures.length > 0 && (
+            <ul className={cn('grid grid-cols-2', cols === 3 && 'sm:grid-cols-3', cols === 4 && 'lg:grid-cols-4')}>
+              {figures.map((f, i) => (
+                <li key={f.key} className={figureCell(i)}>
+                  <f.icon className="h-5 w-5 text-teal" aria-hidden="true" />
+                  <p className="mt-3 text-[36px] font-semibold leading-10 tracking-[-0.02em] text-navy md:text-[44px] md:leading-[48px]">
+                    <Counter value={f.value} suffix={f.suffix} />
+                  </p>
+                  <p className="mt-1 text-meta-caps">{f.label}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+          {status && (
+            <p className={cn('flex flex-wrap items-center gap-x-2 gap-y-1 px-5 py-3.5 text-[15px] text-ink md:px-6', figures.length > 0 && 'border-t border-rule bg-page')}>
+              <CheckCircle className="h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
+              <span className="text-meta-caps">{t('orgProfile.marina.status', 'Status')}</span>
+              <span className="font-semibold text-navy">{status}</span>
+            </p>
+          )}
         </div>
       )}
-    </>
+
+      {(certifications.length > 0 || facilities.length > 0) && (
+        <div className={cn('grid gap-6', certifications.length > 0 && facilities.length > 0 && 'lg:grid-cols-2')}>
+          {certifications.length > 0 && (
+            <div className={cn(CARD, 'p-6')}>
+              <h3 className="mb-4 text-card-title text-navy">{t('orgProfile.marina.certifications', 'Certifications')}</h3>
+              <ul className="flex flex-wrap gap-2">
+                {certifications.map((cert) => (
+                  <li key={cert} className="inline-flex items-center gap-1.5 rounded-pill bg-chip px-3.5 py-1.5 text-sm font-medium text-navy">
+                    <Award className="h-4 w-4 text-teal" aria-hidden="true" />
+                    {cert}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {facilities.length > 0 && (
+            <div className={cn(CARD, 'p-6')}>
+              <h3 className="mb-4 text-card-title text-navy">{t('orgProfile.marina.facilities', 'Facilities & services')}</h3>
+              <ul className="flex flex-wrap gap-2">
+                {facilities.map((f) => (
+                  <li key={f.key} className="inline-flex items-center gap-2 rounded-pill bg-foam py-1.5 pl-1.5 pr-3.5 text-sm font-medium text-navy">
+                    <span aria-hidden="true" className="grid h-7 w-7 place-items-center rounded-pill bg-white text-teal">
+                      <f.icon className="h-4 w-4" />
+                    </span>
+                    {f.label}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {texts.length > 0 && <TextTiles items={texts} source={t('orgProfile.marina.title', 'Marina details')} className="lg:grid-cols-2" />}
+
+      {plans.length > 0 && (
+        <div className={cn(CARD, 'p-6')}>
+          <h3 className="mb-4 flex items-center gap-2 text-card-title text-navy">
+            <CalendarClock className="h-4 w-4 text-teal" aria-hidden="true" />
+            {t('orgProfile.marina.futurePlans', 'Future development plans')}
+          </h3>
+          <ul className="grid gap-2 sm:grid-cols-2">
+            {plans.map((plan) => {
+              const tl = TIMELINES[plan.timeline];
+              return (
+                <li key={`${plan.sector_label}-${plan.timeline}`} className="flex items-center justify-between gap-3 rounded-field bg-page px-3 py-2">
+                  <span className="min-w-0 text-sm font-medium text-navy">{planLabel(plan)}</span>
+                  <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold', tl?.tone ?? 'bg-chip text-meta')}>
+                    {tl ? t(`orgProfile.timelines.${tl.key}`, tl.fallback) : plan.timeline}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

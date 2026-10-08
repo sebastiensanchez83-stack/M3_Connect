@@ -52,6 +52,18 @@
 // it chose, gets no welcome from typing its address in again. A member who
 // already has the tag is not tagged again, so the journey runs once per contact.
 //
+// SMC copy (Victor, 8 Oct 2026, "Mailchimp + copie dans SMC"): once Mailchimp has
+// accepted a sign-up (new, subscribed again, pending moved to subscribed, or
+// already subscribed), the address is also upserted into public.newsletter_subscribers
+// with the service role, for the nightly CRM pull: email (lower case), source of
+// the first sign-up, first_consented_at (kept once set), last_signup_at (now),
+// mailchimp_status (as seen or set: a snapshot, Mailchimp stays the source of
+// truth) and the tags this call added (merged with the earlier ones). A failure
+// to write the copy is logged (no address in the log) and NEVER changes the
+// answer to the visitor. The table comes from the migration
+// 20261008140500_newsletter_subscribers: apply it BEFORE deploying this version
+// (until then the copy fails, is logged, and sign-ups still work).
+//
 // Anti-spam: Cloudflare Turnstile, SOFT until TURNSTILE_ENFORCE is "true" (see
 // the helper below).
 //
@@ -95,6 +107,11 @@ const MAILCHIMP_SERVER_PREFIX =
 const RATE_TABLE = "guest_signup_rate_limits";
 const MAX_PER_NETWORK_PER_HOUR = 10;
 const MAX_PER_ADDRESS_PER_DAY = 3;
+
+// The SMC copy of the sign-ups (read by the CRM) and the longest the visitor
+// waits for it: past that the copy is abandoned (logged) and the answer goes out.
+const SUBSCRIBERS_TABLE = "newsletter_subscribers";
+const SUBSCRIBERS_WRITE_TIMEOUT_MS = 4000;
 
 const SOURCES = new Set(["footer", "home", "events", "resources", "other"]);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -147,6 +164,9 @@ async function turnstileAllows(token: unknown, ip: string | null): Promise<boole
       console.error("newsletter-subscribe: Turnstile siteverify could not judge the token", res.status, codes.join(","));
       return true;
     }
+    // Refused by Cloudflare (expired, reused or forged token): say why in the
+    // log, never in the answer.
+    console.warn("newsletter-subscribe: Turnstile refused the token", codes.join(",") || "no code");
     return false;
   } catch (err) {
     console.error("newsletter-subscribe: Turnstile siteverify unreachable", err instanceof Error ? err.name : "error");
@@ -322,14 +342,59 @@ async function preferenceInterests(): Promise<Record<string, boolean> | null> {
 // Adds the tags to an existing member: "site-<source>" always, the welcome
 // trigger only when `welcome` is true (the person's interests were just set to
 // all ticked). A failure is logged only: the person is already on the list.
-async function tagMember(member: string, source: string, welcome: boolean): Promise<void> {
+// Returns the names of the tags Mailchimp accepted (none after a failure), for
+// the SMC copy.
+async function tagMember(member: string, source: string, welcome: boolean): Promise<string[]> {
+  const names = [...(welcome ? [WELCOME_TAG] : []), `site-${source}`];
   const tagged = await mailchimp("POST", `${member}/tags`, {
-    tags: [
-      ...(welcome ? [{ name: WELCOME_TAG, status: "active" }] : []),
-      { name: `site-${source}`, status: "active" },
-    ],
+    tags: names.map((name) => ({ name, status: "active" })),
   });
-  if (tagged.status !== 204 && tagged.status !== 200) console.error("newsletter-subscribe: tag failed", tagged.status, tagged.json.title);
+  if (tagged.status !== 204 && tagged.status !== 200) {
+    console.error("newsletter-subscribe: tag failed", tagged.status, tagged.json.title);
+    return [];
+  }
+  return names;
+}
+
+// Writes the SMC copy of a sign-up Mailchimp has just accepted (see "SMC copy"
+// in the header). Reads the row first so that the first source, the first consent
+// time and the tags already recorded are kept; if that read fails nothing is
+// written (an upsert without it would reset first_consented_at). Never throws,
+// never changes the visitor's answer, logs no address.
+async function recordSubscriber(email: string, source: string, mailchimpStatus: string | null, tags: string[]): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) throw new Error("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not set");
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    const write = async () => {
+      const read = await admin
+        .from(SUBSCRIBERS_TABLE)
+        .select("source, first_consented_at, tags")
+        .eq("email", email)
+        .maybeSingle();
+      if (read.error) throw new Error(`read: ${read.error.message}`);
+      const known = read.data as { source: string | null; first_consented_at: string | null; tags: string[] | null } | null;
+      const now = new Date().toISOString();
+      const saved = await admin.from(SUBSCRIBERS_TABLE).upsert({
+        email,
+        source: known?.source || source,
+        first_consented_at: known?.first_consented_at || now,
+        last_signup_at: now,
+        mailchimp_status: mailchimpStatus,
+        tags: Array.from(new Set([...(known?.tags ?? []), ...tags])),
+        updated_at: now,
+      }, { onConflict: "email" });
+      if (saved.error) throw new Error(`upsert: ${saved.error.message}`);
+    };
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error("timed out")), SUBSCRIBERS_WRITE_TIMEOUT_MS);
+    });
+    await Promise.race([write(), timeout]);
+  } catch (err) {
+    console.error("newsletter-subscribe: could not write the SMC copy of the sign-up", err instanceof Error ? err.message : String(err));
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -398,11 +463,13 @@ Deno.serve(async (req: Request) => {
         else console.error("newsletter-subscribe: pending to subscribed failed", confirmed.status, confirmed.json.title);
       }
       if (status === "subscribed" || status === "pending") {
-        await tagMember(member, source, welcome);
+        const added = await tagMember(member, source, welcome);
         if (!found.json.merge_fields?.SOURCE) {
           const patched = await mailchimp("PATCH", member, { merge_fields: { SOURCE: source } });
           if (patched.status !== 200) console.error("newsletter-subscribe: source update failed", patched.status, patched.json.title);
         }
+        // SMC copy: "subscribed" also when a pending address was just moved there.
+        await recordSubscriber(email, source, welcome ? "subscribed" : status, added);
         return reply(req, 200, { ok: true });
       }
     } else if (found.status !== 404) {
@@ -440,10 +507,19 @@ Deno.serve(async (req: Request) => {
       saved = await save(false);
     }
     if (saved.status === 200) {
-      await tagMember(member, source, true);
+      const added = await tagMember(member, source, true);
+      // SMC copy: the status Mailchimp answered ("subscribed", or "pending" after
+      // the compliance fallback).
+      await recordSubscriber(email, source, typeof saved.json.status === "string" ? saved.json.status : null, added);
       return reply(req, 200, { ok: true });
     }
-    if (saved.status === 400 && saved.json.title === "Invalid Resource") return reply(req, 400, { error: "invalid" });
+    if (saved.status === 400 && saved.json.title === "Invalid Resource") {
+      // Mailchimp refused the address (looks fake, recently on too many lists,
+      // permanently deleted before...). Log its reason with the address masked.
+      const why = typeof saved.json.detail === "string" ? saved.json.detail.split(email).join("<email>").slice(0, 300) : "";
+      console.warn("newsletter-subscribe: Mailchimp refused the address", why);
+      return reply(req, 400, { error: "invalid" });
+    }
     console.error("newsletter-subscribe: member save failed", saved.status, saved.json.title, saved.json.detail);
     return reply(req, 500, { error: "server" });
   } catch (err) {

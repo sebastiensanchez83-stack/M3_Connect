@@ -17,7 +17,7 @@ import { checkSession } from '@/lib/session';
 import { COUNTRIES } from '@/lib/countries';
 import {
   CheckCircle, Loader2, Eye, Ship, Lightbulb, Compass, GraduationCap,
-  Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight, AlertTriangle, CalendarX,
+  Newspaper, Scale, TrendingUp, Building2, Mic, Star, ArrowRight, AlertTriangle, CalendarCheck,
 } from 'lucide-react';
 import { StartupFields, EMPTY_STARTUP, type StartupData } from '@/components/sm26/StartupFields';
 import { ArchitectureFields, EMPTY_ARCHITECTURE, type ArchitectureData } from '@/components/sm26/ArchitectureFields';
@@ -25,6 +25,10 @@ import { MarinaFields, EMPTY_MARINA, type MarinaData } from '@/components/sm26/M
 import { LightRoleFields, type LightData } from '@/components/sm26/LightRoleFields';
 import { SM26RegUpload } from '@/components/sm26/SM26RegUpload';
 import { SM26BackLink } from '@/components/sm26/SM26BackLink';
+import { SM26_DATES, SM26_EDITION_OVER } from '@/components/sm26/sm26Edition';
+import { CardShell } from '@/components/brand/CardShell';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
 
 // SM26 public intake — guest-first registration.
 // The registrant picks ONE way to participate; M3 can add further roles
@@ -116,10 +120,62 @@ interface DraftShape {
 /** The head of /sm26/register (noindex), from the table the edge function reads. */
 const registerHead = plainPageMeta('/sm26/register');
 
+/**
+ * /sm26/register. The 2026 edition took place on 20-21 September (SM26_EDITION_OVER):
+ * the page only says that registrations are closed and points to the next events.
+ * The address stays (draft e-mails and the empty event hub link to it). The form
+ * below is kept, unrouted, for reference; the server refuses new registrations
+ * anyway (sm_registrations_open).
+ */
 export function SM26RegisterPage() {
+  if (SM26_EDITION_OVER) return <SM26RegistrationsClosed />;
+  return <SM26RegisterForm />;
+}
+
+/** "Registrations are closed": calm, on the page background, under the site header. */
+function SM26RegistrationsClosed() {
+  const { user } = useAuth();
+  const { t } = useTranslation();
+  return (
+    <div className="min-h-[70vh] bg-page px-4 py-12 sm:py-20">
+      {registerHead && <Seo {...registerHead} />}
+      <div className="mx-auto w-full max-w-xl">
+        <CardShell className="p-7 text-center sm:p-10">
+          <div className="flex justify-center">
+            <Eyebrow>{t('sm26Register.closed.eyebrowShort', 'Monaco Smart & Sustainable Marina Rendezvous')}</Eyebrow>
+          </div>
+          <span aria-hidden="true" className="mx-auto mt-6 grid h-14 w-14 place-items-center rounded-full bg-chip text-navy">
+            <CalendarCheck className="h-6 w-6" />
+          </span>
+          <h1 className="mt-5 text-h2-sm text-navy sm:text-h2">{t('sm26Register.closed.title', 'Registrations are closed')}</h1>
+          <p className="mx-auto mt-3 max-w-md text-body text-meta">
+            {t('sm26Register.closed.tookPlace', 'The 2026 edition took place on {{dates}} at the Yacht Club de Monaco. Thank you to everyone who took part.', { dates: SM26_DATES })}
+          </p>
+          <div className="mt-8 flex justify-center">
+            <Button asChild variant="cta">
+              <Link to="/events">{t('sm26Register.closed.upcoming', 'See upcoming events')}</Link>
+            </Button>
+          </div>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
+            {user && (
+              <UnderlineLink to="/account?tab=event" arrow={false}>{t('sm26Register.closed.myParticipation', 'My 2026 participation')}</UnderlineLink>
+            )}
+            <UnderlineLink to="/sm26" arrow={false}>{t('sm26Register.closed.eventPage', 'The 2026 event page')}</UnderlineLink>
+          </div>
+          <p className="mt-8 border-t border-rule pt-5 text-sm leading-6 text-meta">
+            {t('sm26Register.closed.contact', 'A question about your registration? Write to')}{' '}
+            <a href="mailto:events@m3monaco.com" className="font-semibold text-navy underline decoration-navy/30 underline-offset-4 hover:decoration-gold">events@m3monaco.com</a>
+          </p>
+        </CardShell>
+      </div>
+    </div>
+  );
+}
+
+/** The 2026 registration form (not routed while SM26_EDITION_OVER is true). */
+function SM26RegisterForm() {
   const { user, profile, organization } = useAuth();
   const navigate = useNavigate();
-  const { t } = useTranslation();
   const [eventId, setEventId] = useState<string | null>(null);
   // Registrations are closed unless staff opened them (sm_event.settings.
   // registrations_open, read through sm_registrations_open). null = still asking.
@@ -791,54 +847,8 @@ export function SM26RegisterPage() {
     );
   }
 
-  // Closed (the default once SM26 is over). The route stays: it is linked from
-  // emails and the event pages, and a member who did register still needs a way
-  // to their event space.
-  if (!regOpen) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Seo title={t('sm26Register.closed.pageTitle', 'Registrations closed — Monaco Smart & Sustainable Marina Rendezvous 2026')} noindex />
-        <section className="bg-gradient-to-br from-[#0b2653] to-[#143a6b] text-white">
-          <div className="container mx-auto px-4 py-12">
-            <div className="mb-4"><SM26BackLink to="/events" label={t('sm26Register.closed.back', 'Back to events')} light /></div>
-            <p className="uppercase tracking-wide text-white/60 text-sm mb-2">
-              {t('sm26Register.closed.eyebrow', 'SM26 · 20–21 September 2026 · Yacht Club de Monaco')}
-            </p>
-            <h1 className="text-3xl lg:text-4xl font-bold">{t('sm26Register.closed.title', 'Registrations are closed')}</h1>
-          </div>
-        </section>
-        <div className="container mx-auto px-4 py-10 max-w-xl text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-blue-50">
-            <CalendarX className="h-8 w-8 text-primary" />
-          </div>
-          <p className="text-gray-700">
-            {t('sm26Register.closed.body', 'Registrations for the Monaco Smart & Sustainable Marina Rendezvous 2026 are closed.')}
-          </p>
-          <p className="text-gray-600 mt-3">
-            {t('sm26Register.closed.registered', 'Already registered? Your badge, programme and documents are in your event space.')}
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            {user ? (
-              <Button asChild className="gap-1.5">
-                <Link to="/account?tab=event">{t('sm26Register.closed.openSpace', 'Open my event space')} <ArrowRight className="h-4 w-4" /></Link>
-              </Button>
-            ) : (
-              <Button asChild className="gap-1.5">
-                <Link to="/sm26">{t('sm26Register.closed.eventPage', 'Go to the event page')} <ArrowRight className="h-4 w-4" /></Link>
-              </Button>
-            )}
-            <Button asChild variant="outline">
-              <Link to="/events">{t('sm26Register.closed.upcoming', 'See upcoming events')}</Link>
-            </Button>
-          </div>
-          <p className="text-xs text-gray-500 mt-6">
-            {t('sm26Register.closed.contact', 'A question about your registration? Write to')}{' '}
-            <a href="mailto:events@m3monaco.com" className="text-primary">events@m3monaco.com</a>
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // Closed (the default once SM26 is over): the same page as the edition-over gate.
+  if (!regOpen) return <SM26RegistrationsClosed />;
 
   return (
     <div className="min-h-screen bg-gray-50">

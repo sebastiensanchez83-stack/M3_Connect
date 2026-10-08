@@ -1329,6 +1329,9 @@ Deno.serve(async (req: Request) => {
     let firstName = "";
     let userPrefs: Record<string, boolean> | null = null;
     let recipientUserId: string | null = null;
+    // The e-mail goes to that account's own address (not to another address the
+    // caller gave): only then may it carry a personal unsubscribe link.
+    let toAccountAddress = false;
     let data: Record<string, string> = notifData;
     let subjectOverride = "";
 
@@ -1345,6 +1348,7 @@ Deno.serve(async (req: Request) => {
       subjectOverride = grant.subject || "";
       recipientEmail = grant.recipientEmail;
       recipientUserId = grant.recipientUserId;
+      toAccountAddress = !!grant.recipientUserId; // resolved from that account's own row
       firstName = grant.firstName; // always the recipient's own name, never the caller's
       userPrefs = grant.prefs;
       data = { ...grant.data };
@@ -1359,6 +1363,7 @@ Deno.serve(async (req: Request) => {
         const r = await recipientForUser(supabase, user_id);
         if (r) {
           if (!recipientEmail) recipientEmail = r.recipientEmail;
+          toAccountAddress = sameEmail(recipientEmail, r.recipientEmail);
           firstName = firstName || r.firstName;
           userPrefs = r.prefs;
           recipientUserId = user_id;
@@ -1386,8 +1391,31 @@ Deno.serve(async (req: Request) => {
     // caller put there.
     const rawData: Record<string, string> = { ...data, first_name: firstName || data.first_name || "" };
 
+    // Unsubscribe. A personal signed link (see the token block) only when the e-mail
+    // goes to one registered account, at its own address, alone: the introduction
+    // (partner_request_accepted) goes to both parties with M3 in copy, so it gets
+    // the plain page, which asks the reader to sign in. The footer link opens the
+    // page; the List-Unsubscribe header points at the function itself, which takes
+    // the RFC 8058 one-click POST (a static page cannot).
+    const personalUnsubscribe = !!recipientUserId && toAccountAddress && ntype !== "partner_request_accepted" && !!SUPABASE_SERVICE_ROLE_KEY && !!SUPABASE_URL;
+    let unsubscribeUrl = `${SITE_URL}/unsubscribe`;
+    let unsubscribeHeaders: Record<string, string> = {
+      "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
+    };
+    if (personalUnsubscribe && recipientUserId) {
+      try {
+        const unsubToken = await signUnsubToken(SUPABASE_SERVICE_ROLE_KEY, recipientUserId, category || "all");
+        unsubscribeUrl = `${SITE_URL}/unsubscribe?t=${unsubToken}`;
+        unsubscribeHeaders = {
+          "List-Unsubscribe": `<${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1/unsubscribe?t=${unsubToken}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        };
+      } catch (e) {
+        console.error("send-notification: unsubscribe token failed:", (e as { message?: string })?.message || String(e));
+      }
+    }
+
     // Build email payload (with anti-spam improvements)
-    const unsubscribeUrl = `${SITE_URL}/unsubscribe?email=${encodeURIComponent(recipientEmail)}`;
     const { subject, html, text } = renderNotification(ntype, rawData, subjectOverride, unsubscribeUrl);
     const emailPayload: Record<string, unknown> = {
       from: SENDER_EMAIL,
@@ -1397,8 +1425,7 @@ Deno.serve(async (req: Request) => {
       html,
       text,
       headers: {
-        "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        ...unsubscribeHeaders,
         "X-Entity-Ref-ID": `${type}-${Date.now()}`,
       },
     };
@@ -1437,6 +1464,74 @@ Deno.serve(async (req: Request) => {
     return reply({ error: "Internal error" }, 500);
   }
 });
+
+// Unsubscribe link of every notification: a signed token for the recipient account and
+// the notification category, read by the "unsubscribe" function (supabase/functions/
+// unsubscribe/index.ts, which documents the contract) and by the /unsubscribe page.
+// ---- SMC unsubscribe token v1 (keep identical in send-notification and unsubscribe) ----
+// token = base64url(payload JSON) + "." + base64url(HMAC-SHA-256(key, first part)),
+// payload = { v: 1, u: <user id>, c: <notification category or "all">, iat: <unix s> },
+// key = SHA-256("smc-unsubscribe-v1:" + service-role key): no extra secret to set. A
+// token made under an older service-role key no longer verifies (the page then
+// offers the preferences page after signing in).
+const UNSUB_KEY_PREFIX = "smc-unsubscribe-v1:";
+let unsubKeyCache: { secret: string; key: Promise<CryptoKey> } | null = null;
+
+function unsubKey(secret: string): Promise<CryptoKey> {
+  if (!unsubKeyCache || unsubKeyCache.secret !== secret) {
+    const key = crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(UNSUB_KEY_PREFIX + secret))
+      .then((raw) => crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]));
+    unsubKeyCache = { secret, key };
+  }
+  return unsubKeyCache.key;
+}
+
+function unsubB64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function unsubUnB64(s: string): Uint8Array | null {
+  if (!/^[A-Za-z0-9_-]+$/.test(s)) return null;
+  try {
+    const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** A signed unsubscribe token for one account and one category ("all" for every optional one). */
+async function signUnsubToken(secret: string, userId: string, category: string): Promise<string> {
+  const body = unsubB64(new TextEncoder().encode(JSON.stringify({ v: 1, u: userId, c: category, iat: Math.floor(Date.now() / 1000) })));
+  const sig = await crypto.subtle.sign("HMAC", await unsubKey(secret), new TextEncoder().encode(body));
+  return `${body}.${unsubB64(new Uint8Array(sig))}`;
+}
+
+/** The token's account and category, or null when it is malformed or not signed with the current key. */
+async function verifyUnsubToken(secret: string, token: unknown): Promise<{ userId: string; category: string; issuedAt: number } | null> {
+  if (!secret || typeof token !== "string" || token.length > 600) return null;
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const sig = unsubUnB64(parts[1]);
+  const raw = unsubUnB64(parts[0]);
+  if (!sig || sig.length !== 32 || !raw) return null;
+  const valid = await crypto.subtle.verify("HMAC", await unsubKey(secret), sig, new TextEncoder().encode(parts[0]));
+  if (!valid) return null;
+  try {
+    const p = JSON.parse(new TextDecoder().decode(raw));
+    if (!p || p.v !== 1 || typeof p.u !== "string" || typeof p.c !== "string" || typeof p.iat !== "number") return null;
+    if (!/^[a-z0-9_]{1,40}$/.test(p.c)) return null;
+    return { userId: p.u, category: p.c, issuedAt: p.iat };
+  } catch {
+    return null;
+  }
+}
+// ---- end SMC unsubscribe token ----
 
 // ── E-mail rendering ──
 //
@@ -1784,7 +1879,7 @@ function buildPlainText(content: EmailContent, unsubscribeUrl: string, intro: bo
 }
 
 // `content` is the HTML-escaped rendering of the template.
-function buildEmail(content: EmailContent, eyebrow: string, preheader: string, intro: boolean): string {
+function buildEmail(content: EmailContent, eyebrow: string, preheader: string, intro: boolean, unsubscribeUrl: string): string {
   const closing = content.footer.replace(/\n/g, "<br>");
   return emailLayout({
     pageTitle: content.subject,
@@ -1799,7 +1894,7 @@ function buildEmail(content: EmailContent, eyebrow: string, preheader: string, i
     reason: "You received this e-mail because you have an account on Smart Marina Connect.",
     footerLinks: [
       { label: "Manage preferences", url: escapeHtml(`${SITE_URL}/account?tab=notifications`) },
-      { label: "Unsubscribe", url: escapeHtml(`${SITE_URL}/unsubscribe`) },
+      { label: "Unsubscribe", url: escapeHtml(unsubscribeUrl) },
       { label: "Contact", url: escapeHtml(`${SITE_URL}/contact`) },
     ],
   });
@@ -1827,7 +1922,7 @@ function renderNotification(
   const preheader = escapeHtml(emStripTags(textContent.body).replace(/\s+/g, " ").trim().slice(0, 140));
   return {
     subject,
-    html: buildEmail(htmlContent, eyebrow, preheader, intro),
+    html: buildEmail(htmlContent, eyebrow, preheader, intro, unsubscribeUrl),
     text: buildPlainText(textContent, unsubscribeUrl, intro),
   };
 }

@@ -1259,19 +1259,19 @@ export function OnboardingPage() {
                 <Label>{t('onboarding.partnerForm.socialMedia')}</Label>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.linkedin')}</Label>
+                    <Label className="text-[13px] font-medium text-meta">{t('onboarding.socialLabels.linkedin')}</Label>
                     <Input value={partner.social_media_links.linkedin} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, linkedin: e.target.value } })} placeholder="https://linkedin.com/company/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.twitter')}</Label>
+                    <Label className="text-[13px] font-medium text-meta">{t('onboarding.socialLabels.twitter')}</Label>
                     <Input value={partner.social_media_links.twitter} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, twitter: e.target.value } })} placeholder="https://x.com/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.instagram')}</Label>
+                    <Label className="text-[13px] font-medium text-meta">{t('onboarding.socialLabels.instagram')}</Label>
                     <Input value={partner.social_media_links.instagram} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, instagram: e.target.value } })} placeholder="https://instagram.com/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.facebook')}</Label>
+                    <Label className="text-[13px] font-medium text-meta">{t('onboarding.socialLabels.facebook')}</Label>
                     <Input value={partner.social_media_links.facebook} onChange={e => setPartner({ ...partner, social_media_links: { ...partner.social_media_links, facebook: e.target.value } })} placeholder="https://facebook.com/..." />
                   </div>
                 </div>
@@ -1282,7 +1282,7 @@ export function OnboardingPage() {
                   {profile.persona === 'investor' && t('onboarding.investorForm.interestSectors', 'Investment focus sectors')}
                   {profile.persona === 'partner' && t('onboarding.partnerForm.serviceSectors')}
                 </Label>
-                <p className="text-xs text-gray-500">
+                <p className="text-[13px] leading-5 text-meta">
                   {profile.persona === 'developer' && t('onboarding.developerForm.interestSectorsHint', 'Pick the marina-industry sectors most relevant to your projects.')}
                   {profile.persona === 'investor' && t('onboarding.investorForm.interestSectorsHint', 'Pick the sectors you invest in or look at for deal flow.')}
                   {profile.persona === 'partner' && t('onboarding.partnerForm.serviceSectorsHint')}
@@ -1321,19 +1321,19 @@ export function OnboardingPage() {
                 <Label>{t('onboarding.mediaForm.socialMedia')}</Label>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.linkedin')}</Label>
+                    <Label className="text-[13px] font-medium text-meta">{t('onboarding.socialLabels.linkedin')}</Label>
                     <Input value={media.social_media_links.linkedin} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, linkedin: e.target.value } })} placeholder="https://linkedin.com/company/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.twitter')}</Label>
+                    <Label className="text-[13px] font-medium text-meta">{t('onboarding.socialLabels.twitter')}</Label>
                     <Input value={media.social_media_links.twitter} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, twitter: e.target.value } })} placeholder="https://x.com/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.instagram')}</Label>
+                    <Label className="text-[13px] font-medium text-meta">{t('onboarding.socialLabels.instagram')}</Label>
                     <Input value={media.social_media_links.instagram} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, instagram: e.target.value } })} placeholder="https://instagram.com/..." />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs text-gray-500">{t('onboarding.socialLabels.facebook')}</Label>
+                    <Label className="text-[13px] font-medium text-meta">{t('onboarding.socialLabels.facebook')}</Label>
                     <Input value={media.social_media_links.facebook} onChange={e => setMedia({ ...media, social_media_links: { ...media.social_media_links, facebook: e.target.value } })} placeholder="https://facebook.com/..." />
                   </div>
                 </div>

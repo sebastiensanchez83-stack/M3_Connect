@@ -5,7 +5,7 @@ import {
   Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
   Award, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
   ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen, Truck,
-  Scale, Activity, Upload, Newspaper, Mail,
+  Scale, Activity, Upload, Newspaper, Mail, Archive,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -60,7 +60,15 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     return path.startsWith(c.to);
   };
   const onSm26 = path.startsWith('/admin/sm26');
-  const onWebinarList = path === '/admin/events' && new URLSearchParams(location.search).get('type') === 'webinar';
+  const eventsType = path === '/admin/events' ? new URLSearchParams(location.search).get('type') : null;
+  const onWebinarList = eventsType === 'webinar';
+  const onOnsiteList = eventsType === 'on_site';
+  // Old queues kept reachable (no link left anywhere else, both empty when archived on 8 Oct 2026).
+  const archiveItems: NavItem[] = [
+    { to: '/admin/sponsorship-requests', label: 'Old sponsorship requests', icon: <Award className={ICON} />, adminOnly: true },
+    { to: '/admin/expositions', label: 'Old exposition requests', icon: <Store className={ICON} />, adminOnly: true },
+  ];
+  const onArchives = archiveItems.some(i => path.startsWith(i.to));
   const onWebinars = path.startsWith('/admin/webinars') || onWebinarList;
 
   // ---- Labelled groups ----
@@ -93,6 +101,7 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
     onsite: onSm26 || isAdmin,           // on-site open by default for admins
     smart26: onSm26,
     webinars: onWebinars,
+    archives: onArchives,
   }));
   const toggle = (k: string) => setOpen(p => ({ ...p, [k]: !p[k] }));
   useEffect(() => {
@@ -100,6 +109,8 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
       ...p,
       ...(onSm26 ? { onsite: true, smart26: true } : {}),
       ...(onWebinars ? { webinars: true } : {}),
+      ...(onOnsiteList ? { onsite: true } : {}),
+      ...(onArchives ? { archives: true } : {}),
     }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path]);
@@ -155,6 +166,10 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
             </button>
             {open.onsite && (
               <div className={nested}>
+                {/* Every on-site event (the list, filtered), like "All webinars" below */}
+                <Link to="/admin/events?type=on_site" onClick={onNavigate} className={linkClass(onOnsiteList)} aria-current={onOnsiteList ? 'page' : undefined}>
+                  <Calendar className={ICON} /><span className="min-w-0 truncate">All on-site events</span>
+                </Link>
                 {/* Smart 26 (expands to its sub-tabs) */}
                 <button type="button" onClick={() => toggle('smart26')} aria-expanded={!!open.smart26} className={cn(linkClass(onSm26 && !open.smart26), 'justify-between')}>
                   <span className="flex items-center gap-3"><Ship className={ICON} /> Smart 26</span>
@@ -211,6 +226,17 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
             </div>
           );
         })}
+
+        {/* Archives: small and last. Old queues nobody links to any more, kept reachable. */}
+        {isAdmin && (
+          <div className="space-y-0.5 pt-4">
+            <button type="button" onClick={() => toggle('archives')} aria-expanded={!!open.archives} className={cn(quietLink, 'justify-between')}>
+              <span className="flex items-center gap-3"><Archive className={ICON} /> Archives</span>
+              {caret(!!open.archives)}
+            </button>
+            {open.archives && <div className={nested}>{visible(archiveItems).map(renderItem)}</div>}
+          </div>
+        )}
 
       </div>
 

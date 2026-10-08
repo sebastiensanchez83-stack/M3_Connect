@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Upload, Trash2, Loader2, FileText, Image as ImageIcon, ExternalLink, Save, Link2 } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef, useId } from 'react';
+import { Upload, Trash2, Loader2, FileText, Image as ImageIcon, Save, Link2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,6 +40,12 @@ const T = {
   },
 };
 
+// Kit tokens, kept dense: this editor sits inside the admin console and the
+// Yacht Club's SM26 console, both compact screens.
+const HEAD = 'flex items-center gap-2 text-[13px] font-semibold leading-5 text-navy';
+const HINT = '-mt-1 text-[12px] leading-[18px] text-meta';
+const LABEL = 'text-xs font-semibold text-navy';
+
 export function PressResourcesEditor({ eventId, french = false }: { eventId: string; french?: boolean }) {
   const t = french ? T.fr : T.en;
   const { user } = useAuth();
@@ -53,6 +59,7 @@ export function PressResourcesEditor({ eventId, french = false }: { eventId: str
   const [title, setTitle] = useState('');
   const [language, setLanguage] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const fieldId = useId();
 
   const load = useCallback(async () => {
     const { data } = await supabase.from('event_press_resource')
@@ -131,74 +138,80 @@ export function PressResourcesEditor({ eventId, french = false }: { eventId: str
     <div className="space-y-4">
       {/* Mode 1 — link out */}
       <div className="space-y-2">
-        <div className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
-          <Link2 className="h-3.5 w-3.5 text-primary" /> {t.links}
+        <div className={HEAD}>
+          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-badge bg-chip text-navy" aria-hidden="true">
+            <Link2 className="h-3.5 w-3.5" />
+          </span>
+          {t.links}
         </div>
-        <p className="text-[11px] text-gray-500 -mt-1">{t.linksHint}</p>
+        <p className={HINT}>{t.linksHint}</p>
         <div className="grid sm:grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">{t.photosLink}</Label>
-            <Input value={photosUrl} onChange={e => setPhotosUrl(e.target.value)} placeholder="https://" />
+            <Label htmlFor={`${fieldId}-photos`} className={LABEL}>{t.photosLink}</Label>
+            <Input id={`${fieldId}-photos`} value={photosUrl} onChange={e => setPhotosUrl(e.target.value)} placeholder="https://" />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">{t.releaseLink}</Label>
-            <Input value={releaseUrl} onChange={e => setReleaseUrl(e.target.value)} placeholder="https://" />
+            <Label htmlFor={`${fieldId}-release`} className={LABEL}>{t.releaseLink}</Label>
+            <Input id={`${fieldId}-release`} value={releaseUrl} onChange={e => setReleaseUrl(e.target.value)} placeholder="https://" />
           </div>
         </div>
         <div className="flex justify-end">
-          <Button size="sm" className="gap-1.5" disabled={savingLinks} onClick={saveLinks}>
-            {savingLinks ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {t.save}
+          <Button size="sm" className="gap-1.5 rounded-pill px-4" disabled={savingLinks} onClick={saveLinks}>
+            {savingLinks ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />} {t.save}
           </Button>
         </div>
       </div>
 
       {/* Mode 2 — host the files here, as many as needed */}
-      <div className="space-y-2 border-t border-gray-100 pt-3">
-        <div className="text-xs font-semibold text-gray-600 flex items-center gap-1.5">
-          <Upload className="h-3.5 w-3.5 text-primary" /> {t.files}
+      <div className="space-y-2 border-t border-rule pt-4">
+        <div className={HEAD}>
+          <span className="grid h-6 w-6 shrink-0 place-items-center rounded-badge bg-chip text-navy" aria-hidden="true">
+            <Upload className="h-3.5 w-3.5" />
+          </span>
+          {t.files}
         </div>
-        <p className="text-[11px] text-gray-500 -mt-1">{t.filesHint}</p>
+        <p className={HINT}>{t.filesHint}</p>
 
         <div className="grid sm:grid-cols-3 gap-3">
           <div className="space-y-1">
-            <Label className="text-xs">{t.kind}</Label>
-            <select value={kind} onChange={e => setKind(e.target.value as 'press_release' | 'photos')}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+            <Label htmlFor={`${fieldId}-kind`} className={LABEL}>{t.kind}</Label>
+            <select id={`${fieldId}-kind`} value={kind} onChange={e => setKind(e.target.value as 'press_release' | 'photos')}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
               <option value="press_release">{t.release}</option>
               <option value="photos">{t.photos}</option>
             </select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">{t.title}</Label>
-            <Input value={title} onChange={e => setTitle(e.target.value)} />
+            <Label htmlFor={`${fieldId}-title`} className={LABEL}>{t.title}</Label>
+            <Input id={`${fieldId}-title`} value={title} onChange={e => setTitle(e.target.value)} />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">{t.language}</Label>
-            <Input value={language} onChange={e => setLanguage(e.target.value)} placeholder="EN / FR" list="press-langs" />
+            <Label htmlFor={`${fieldId}-lang`} className={LABEL}>{t.language}</Label>
+            <Input id={`${fieldId}-lang`} value={language} onChange={e => setLanguage(e.target.value)} placeholder="EN / FR" list="press-langs" />
             <datalist id="press-langs"><option value="EN" /><option value="FR" /><option value="IT" /><option value="ES" /></datalist>
           </div>
         </div>
 
         <input ref={fileRef} type="file" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }} />
-        <Button size="sm" variant="outline" className="gap-1.5" disabled={uploading} onClick={() => fileRef.current?.click()}>
-          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {t.add}
+        <Button size="sm" variant="outline" className="gap-1.5 rounded-pill border-navy/25 bg-white px-4 text-navy hover:border-navy hover:bg-chip hover:text-navy" disabled={uploading} onClick={() => fileRef.current?.click()}>
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Upload className="h-4 w-4" aria-hidden="true" />} {t.add}
         </Button>
 
         {hosted.length === 0 ? (
-          <p className="text-xs text-gray-400 pt-1">{t.none}</p>
+          <p className="pt-1 text-[13px] leading-5 text-meta">{t.none}</p>
         ) : (
           <div className="space-y-1.5 pt-1">
             {hosted.map(r => (
-              <div key={r.id} className="flex items-center gap-2 rounded-lg border border-gray-100 px-3 py-2">
-                {r.kind === 'photos' ? <ImageIcon className="h-4 w-4 text-gray-400 shrink-0" /> : <FileText className="h-4 w-4 text-gray-400 shrink-0" />}
-                <button type="button" onClick={() => openFile(r)} className="text-sm text-gray-800 truncate flex-1 text-left hover:text-primary">
+              <div key={r.id} className="flex items-center gap-2 rounded-field border border-rule bg-white px-3 py-2">
+                {r.kind === 'photos' ? <ImageIcon className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" /> : <FileText className="h-4 w-4 shrink-0 text-meta" aria-hidden="true" />}
+                <button type="button" onClick={() => openFile(r)} className="flex-1 truncate rounded-badge text-left text-sm font-medium text-navy hover:underline hover:underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {r.title || r.filename}
                 </button>
-                {r.language && <Badge variant="secondary" className="text-[10px] shrink-0">{r.language}</Badge>}
-                <Badge variant="outline" className="text-[10px] shrink-0">{r.kind === 'photos' ? t.photos : t.release}</Badge>
-                <button onClick={() => remove(r)} disabled={busy === r.id} className="text-gray-400 hover:text-red-600 p-1 shrink-0">
-                  <Trash2 className="h-4 w-4" />
+                {r.language && <Badge variant="outline" className="shrink-0 border-transparent bg-chip text-[11px] font-semibold text-navy">{r.language}</Badge>}
+                <Badge variant="outline" className="shrink-0 border-rule text-[11px] font-medium text-meta">{r.kind === 'photos' ? t.photos : t.release}</Badge>
+                <button type="button" onClick={() => remove(r)} disabled={busy === r.id} className="grid h-8 w-8 shrink-0 place-items-center rounded-pill text-meta transition-colors hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
             ))}

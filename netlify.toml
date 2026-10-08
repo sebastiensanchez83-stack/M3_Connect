@@ -138,6 +138,12 @@
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
 
+# The unsubscribe link of every notification e-mail (?t=<signed token>).
+[[headers]]
+  for = "/unsubscribe"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
 [[headers]]
   for = "/reference/*"
   [headers.values]

@@ -48,6 +48,7 @@ const ResetPasswordPage = lazyWithRetry(() => import('@/pages/ResetPasswordPage'
 const WelcomePage = lazyWithRetry(() => import('@/pages/WelcomePage').then(m => ({ default: m.WelcomePage })));
 const ReferenceConfirmPage = lazyWithRetry(() => import('@/pages/ReferenceConfirmPage').then(m => ({ default: m.ReferenceConfirmPage })));
 const ReferenceRejectPage = lazyWithRetry(() => import('@/pages/ReferenceRejectPage').then(m => ({ default: m.ReferenceRejectPage })));
+const UnsubscribePage = lazyWithRetry(() => import('@/pages/UnsubscribePage').then(m => ({ default: m.UnsubscribePage })));
 const AboutPage = lazyWithRetry(() => import('@/pages/AboutPage').then(m => ({ default: m.AboutPage })));
 const ContactPage = lazyWithRetry(() => import('@/pages/ContactPage').then(m => ({ default: m.ContactPage })));
 const PrivacyPage = lazyWithRetry(() => import('@/pages/PrivacyPage').then(m => ({ default: m.PrivacyPage })));
@@ -206,6 +207,9 @@ function App() {
               <Route path="/welcome" element={<WelcomePage />} />
               <Route path="/reference/confirm" element={<ReferenceConfirmPage />} />
               <Route path="/reference/reject" element={<ReferenceRejectPage />} />
+              {/* The "Unsubscribe" link of every notification e-mail (?t=<signed token>; the
+                  old ?email= links get an explanation). No sign-in. E-mailed: never rename. */}
+              <Route path="/unsubscribe" element={<UnsubscribePage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />

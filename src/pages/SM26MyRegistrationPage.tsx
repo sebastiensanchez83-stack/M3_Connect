@@ -33,10 +33,47 @@ import { SM26MediaKit } from '@/components/sm26/SM26MediaKit';
 import { SM26Logistics } from '@/components/sm26/SM26Logistics';
 import { SM26JuryPage } from '@/pages/SM26JuryPage';
 import { SM26VotePage } from '@/pages/SM26VotePage';
+import { SM26_DATES, SM26_EDITION_OVER } from '@/components/sm26/sm26Edition';
+import { CardShell } from '@/components/brand/CardShell';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
 
 // Participant self-service: complete the info/assets M3 needs for each of your
 // SM26 roles. Linked from the "information needed" notification (/sm26/me).
 // Answers (text + uploaded file paths) are stored in sm_role_assignment.module_data.
+//
+// READ ONLY since the edition is over (SM26_EDITION_OVER, Victor 8 Oct 2026): the
+// page still shows the registration, invoices, documents, programme, connections
+// and media kit, says the person took part, and offers no way to change anything
+// (no edit forms, uploads, attendee changes, workshop bookings, e-catalogue review,
+// on-site switch, unregister or restart). M3 still edits from /admin/sm26.
+const READ_ONLY = SM26_EDITION_OVER;
+
+/** "You took part": the mark Victor asked for, at the top of the page once the edition is over. */
+function EditionRecord({ status }: { status: string }) {
+  const tookPart = status === 'confirmed';
+  return (
+    <CardShell className="p-6 sm:p-7">
+      <Eyebrow>Monaco Smart &amp; Sustainable Marina Rendezvous · {SM26_DATES}</Eyebrow>
+      <div className="mt-4 flex items-start gap-4">
+        <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-foam text-teal-text">
+          <CheckCircle className="h-5 w-5" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-h3 text-navy">
+            {tookPart ? 'You took part in the 2026 edition' : 'Your 2026 registration'}
+          </h2>
+          <p className="mt-1.5 text-[15px] leading-6 text-meta">
+            {tookPart ? 'Thank you for being part of it. ' : 'The 2026 edition took place on ' + SM26_DATES + '. '}
+            Your registration is kept here as a record and can no longer be changed. A question?{' '}
+            <a href="mailto:events@m3monaco.com" className="font-semibold text-navy underline decoration-navy/30 underline-offset-4 hover:decoration-gold">events@m3monaco.com</a>
+          </p>
+          <div className="mt-3"><UnderlineLink to="/events">See upcoming events</UnderlineLink></div>
+        </div>
+      </div>
+    </CardShell>
+  );
+}
 
 interface Requirement {
   id: string; role: string; field_key: string; label: string | null;
@@ -424,9 +461,19 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   if (!reg) return (
     <div className="container mx-auto px-4 py-16 max-w-xl text-center">
       <Ship className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-      <h1 className="text-2xl font-bold mb-2">No SM26 registration yet</h1>
-      <p className="text-gray-600 mb-6">You haven't registered for the Smart &amp; Sustainable Marina Rendezvous 2026.</p>
-      <Button asChild><Link to="/sm26/register">Register now</Link></Button>
+      {READ_ONLY ? (
+        <>
+          <h1 className="text-2xl font-bold mb-2">No 2026 registration</h1>
+          <p className="text-gray-600 mb-6">There is no registration for the Monaco Smart &amp; Sustainable Marina Rendezvous 2026 on this account. The edition took place on {SM26_DATES}, and registrations are closed.</p>
+          <Button asChild><Link to="/events">See upcoming events</Link></Button>
+        </>
+      ) : (
+        <>
+          <h1 className="text-2xl font-bold mb-2">No SM26 registration yet</h1>
+          <p className="text-gray-600 mb-6">You haven't registered for the Smart &amp; Sustainable Marina Rendezvous 2026.</p>
+          <Button asChild><Link to="/sm26/register">Register now</Link></Button>
+        </>
+      )}
     </div>
   );
 
@@ -446,6 +493,9 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           <CardContent className="py-10 text-center">
             <Ship className="h-10 w-10 text-gray-300 mx-auto mb-3" />
             <h2 className="text-lg font-semibold text-gray-900">You've unregistered</h2>
+            {READ_ONLY ? (
+              <p className="text-gray-500 text-sm mt-1">You withdrew from the Smart &amp; Sustainable Marina Rendezvous 2026 before it took place ({SM26_DATES}). A question? <a href="mailto:events@m3monaco.com" className="text-primary hover:underline">events@m3monaco.com</a></p>
+            ) : (<>
             <p className="text-gray-500 text-sm mt-1 mb-5">You've withdrawn from the Smart &amp; Sustainable Marina Rendezvous 2026. Changed your mind?</p>
             <div className="flex flex-col sm:flex-row gap-2 justify-center">
               <Button onClick={() => setRegStatus('submitted')} disabled={statusBusy} className="gap-1.5">
@@ -460,6 +510,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
             <p className="text-[11px] text-gray-400 mt-3 max-w-sm mx-auto">
               <strong>Bring back</strong> restores your previous details exactly as they were. <strong>Start new</strong> lets you choose a different way to take part — it replaces your current registration.
             </p>
+            </>)}
           </CardContent>
         </Card>
       </div>
@@ -559,7 +610,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
   const todoLeft = todo.filter(t => !t.done).length;
 
   const GROUPS: { key: HubGroup; label: string; icon: typeof FileText; badge?: number }[] = [
-    { key: 'todo', label: 'To do', icon: ClipboardList, badge: todoLeft },
+    { key: 'todo', label: READ_ONLY ? 'Your registration' : 'To do', icon: ClipboardList, badge: READ_ONLY ? 0 : todoLeft },
     { key: 'event', label: 'Your event', icon: Calendar },
     { key: 'visibility', label: 'Your visibility', icon: Megaphone },
     ...(isJuror ? [{ key: 'jury' as HubGroup, label: 'Jury', icon: Scale }] : []),
@@ -575,12 +626,13 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
             <div className="mb-3"><SM26BackLink light /></div>
             <p className="uppercase tracking-wide text-white/60 text-sm mb-2">SM26 · 20–21 September 2026 · Yacht Club de Monaco</p>
             <h1 className="text-2xl lg:text-3xl font-bold">Your participation</h1>
-            <p className="text-white/80 mt-2">Complete the details M3 needs for each of your roles.</p>
+            <p className="text-white/80 mt-2">{READ_ONLY ? 'The edition is over: your registration is kept here as a record.' : 'Complete the details M3 needs for each of your roles.'}</p>
           </div>
         </section>
       )}
 
       <div className={embedded ? 'max-w-2xl space-y-6' : 'container mx-auto px-4 py-8 max-w-2xl space-y-6'}>
+        {READ_ONLY && <EditionRecord status={reg.status} />}
         <SM26Notifications />
 
         {regs.length > 1 && (
@@ -606,7 +658,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         {reg.user_id !== user?.id && (
           <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800 flex items-start gap-2">
             <Ship className="h-4 w-4 mt-0.5 shrink-0 text-blue-500" />
-            <span>You're viewing your organisation's registration{reg.first_name ? <> — submitted by <strong>{reg.first_name}</strong></> : null}. As a team member you can view and update it; changes apply to the company's entry.</span>
+            <span>You're viewing your organisation's registration{reg.first_name ? <> — submitted by <strong>{reg.first_name}</strong></> : null}. {READ_ONLY ? 'As a team member you can view it.' : "As a team member you can view and update it; changes apply to the company's entry."}</span>
           </div>
         )}
 
@@ -639,7 +691,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
               </div>
             </div>
             <SM26StatusTimeline status={reg.status} paid={payStatus === 'paid' || payStatus === 'waived'} waived={payStatus === 'waived'} />
-            {reqTotal > 0 && (
+            {!READ_ONLY && reqTotal > 0 && (
               <div>
                 <div className="flex items-center justify-between text-xs mb-1">
                   <span className="text-gray-500">Your details</span>
@@ -650,7 +702,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                 </div>
               </div>
             )}
-            {outstandingCount > 0 && (
+            {!READ_ONLY && outstandingCount > 0 && (
               <button type="button" onClick={() => setGroup('todo')}
                 className="w-full text-left rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 flex items-center gap-2 hover:bg-amber-100 transition-colors">
                 <AlertCircle className="h-4 w-4 shrink-0" />
@@ -689,7 +741,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
             Outstanding items first with what is missing spelled out; settled
             ones stay visible but struck through, because "nothing left to do"
             is only reassuring if you can see what "everything" was. */}
-        {group === 'todo' && todo.length > 0 && (
+        {!READ_ONLY && group === 'todo' && todo.length > 0 && (
           <Card>
             <CardContent className="pt-5">
               <div className="flex items-baseline justify-between gap-2 mb-3">
@@ -770,18 +822,18 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         {/* Logistics, for the roles that occupy physical space at the Yacht Club.
             A juror or an investor brings themselves; a sponsor brings a stand,
             and the venue needs to know about it. */}
-        {shows('participation') && visibleRoles.some(r => LOGISTICS_ROLES.has(r.role)) && (
+        {!READ_ONLY && shows('participation') && visibleRoles.some(r => LOGISTICS_ROLES.has(r.role)) && (
           <SM26Logistics registrationId={reg.id} eventId={reg.event_id} />
         )}
 
         {shows('participation') && (
           <>
-            <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />
-            {visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
+            {!READ_ONLY && <SM26EditDetails registrationId={reg.id} regStatus={reg.status} onSaved={load} />}
+            {!READ_ONLY && visibleRoles.map(r => <SM26EditModule key={`mod-${r.id}`} roleAssignmentId={r.id} role={r.role} />)}
             <Card>
               <CardContent className="pt-6">
                 <div className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2"><Paperclip className="h-4 w-4 text-primary" /> Your documents</div>
-                <SM26AssetGallery provided={hubAssets} title="" emptyText="You haven't uploaded any documents yet — add them below." />
+                <SM26AssetGallery provided={hubAssets} title="" emptyText={READ_ONLY ? 'No documents on this registration.' : "You haven't uploaded any documents yet — add them below."} />
               </CardContent>
             </Card>
           </>
@@ -798,7 +850,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           <SM26Foldable bare title={<><UserCheck className="h-4 w-4 text-primary" /> Who is coming</>}>
             <Card>
               <CardContent className="pt-6">
-                <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit={reg.status !== 'declined'} variant="hub" />
+                <SM26AttendeeRoster registrationId={reg.id} eventId={reg.event_id} canEdit={!READ_ONLY && reg.status !== 'declined'} variant="hub" />
               </CardContent>
             </Card>
           </SM26Foldable>
@@ -808,8 +860,8 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           <SM26Foldable bare title={<><Calendar className="h-4 w-4 text-primary" /> My programme</>}>
           <Card>
             <CardContent className="pt-6">
-              <p className="text-xs text-gray-500 mb-3">Your personal schedule, with the workshops you've chosen. Book or change a workshop right here, one per day. <Link to="/sm26/agenda" className="text-primary hover:underline">See the full programme</Link>.</p>
-              <SM26Agenda mineOnly onBookingsChange={refreshProgramme} />
+              <p className="text-xs text-gray-500 mb-3">{READ_ONLY ? 'Your schedule at the 2026 edition, with the workshops you chose.' : "Your personal schedule, with the workshops you've chosen. Book or change a workshop right here, one per day."} <Link to="/sm26/agenda" className="text-primary hover:underline">See the full programme</Link>.</p>
+              <SM26Agenda mineOnly onBookingsChange={refreshProgramme} ended={READ_ONLY || undefined} />
             </CardContent>
           </Card>
           </SM26Foldable>
@@ -853,7 +905,10 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                     </Button>
                   )}
 
-                  {page.status === 'uploaded' && (
+                  {READ_ONLY && page.status === 'uploaded' && (
+                    <p className="text-sm text-gray-500">The review of this page closed with the edition. A question? <a href="mailto:events@m3monaco.com" className="text-primary hover:underline">events@m3monaco.com</a></p>
+                  )}
+                  {!READ_ONLY && page.status === 'uploaded' && (
                     <div className="space-y-2">
                       <p className="text-sm text-gray-600">Please review the designed page and either approve it or request changes.</p>
                       <Textarea rows={2} placeholder="Optional: what would you like changed?" value={changeNote[page.id] || ''} onChange={e => setChangeNote(prev => ({ ...prev, [page.id]: e.target.value }))} />
@@ -906,7 +961,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
           </SM26Foldable>
         )}
 
-        {shows('participation') && (rolesWithReqs.length === 0 ? (
+        {shows('participation') && (rolesWithReqs.length === 0 ? (READ_ONLY ? null : (
           <Card>
             <CardContent className="py-10 text-center">
               <CheckCircle className="h-10 w-10 text-green-500 mx-auto mb-3" />
@@ -914,7 +969,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
               <p className="text-gray-500 text-sm mt-1">There's nothing else to complete right now. M3 will be in touch if anything is needed.</p>
             </CardContent>
           </Card>
-        ) : (
+        )) : (
           rolesWithReqs.map(role => {
             const reqs = reqsForRole(role.role);
             const md = role.module_data || {};
@@ -933,18 +988,40 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                 key={role.id}
                 // A role with everything in starts folded: the scroll should be
                 // about what is still owed, not what is already done.
-                defaultOpen={!complete || outstanding.length > 0 || extraRequested.length > 0}
+                defaultOpen={!READ_ONLY && (!complete || outstanding.length > 0 || extraRequested.length > 0)}
                 title={<>
                   {SM26_ROLE_LABELS[role.role] || role.role}
                   <Badge className={`text-[10px] ${roleStatusBadgeClass(role.status)}`}>{prettyStatus(role.status)}</Badge>
                 </>}
-                meta={
+                meta={READ_ONLY ? undefined : (
                   <span className={`text-xs font-medium ${complete ? 'text-green-600' : 'text-amber-600'}`}>
                     {doneCount}/{requiredItems.length} required complete
                   </span>
-                }
-                description="Provide the items below. Your answers are saved to your registration."
+                )}
+                description={READ_ONLY ? 'What you provided for this role.' : 'Provide the items below. Your answers are saved to your registration.'}
               >
+                {READ_ONLY ? (
+                  <dl className="divide-y divide-rule rounded-field border border-rule bg-white">
+                    {role.role === 'jury' && (
+                      <div className="flex flex-col gap-0.5 px-4 py-3 sm:flex-row sm:gap-4">
+                        <dt className="shrink-0 text-[13px] font-semibold leading-5 text-meta sm:w-44">On-site in Monaco</dt>
+                        <dd className="text-[15px] leading-6 text-ink">{md.onsite_attendance === 'yes' ? 'Yes' : 'No, online only'}</dd>
+                      </div>
+                    )}
+                    {reqs.map(req => {
+                      const v = md[req.field_key];
+                      const text = req.is_asset
+                        ? (reqSatisfied(role.id, req, md) ? 'Provided (see Your documents)' : 'Not provided')
+                        : (typeof v === 'string' && v.trim() ? v : '—');
+                      return (
+                        <div key={req.id} className="flex flex-col gap-0.5 px-4 py-3 sm:flex-row sm:gap-4">
+                          <dt className="shrink-0 text-[13px] font-semibold leading-5 text-meta sm:w-44">{req.label || req.field_key}</dt>
+                          <dd className="min-w-0 whitespace-pre-line text-[15px] leading-6 text-ink [overflow-wrap:anywhere]">{text}</dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                ) : (
                 <div className="space-y-4">
                   {role.role === 'jury' && (
                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-center justify-between gap-3 flex-wrap">
@@ -1038,6 +1115,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
                     </Button>
                   </div>
                 </div>
+                )}
               </SM26Foldable>
             );
           })
@@ -1046,7 +1124,7 @@ export function SM26MyRegistrationPage({ embedded = false }: { embedded?: boolea
         {/* Jury scoring console — jurors only */}
         {shows('jury') && isJuror && <SM26JuryPage embedded />}
 
-        {shows('participation') && reg.status !== 'declined' && (
+        {!READ_ONLY && shows('participation') && reg.status !== 'declined' && (
           <div className="text-center pt-2">
             <button type="button" onClick={() => setRegStatus('cancelled')} disabled={statusBusy}
               className="text-xs text-gray-400 hover:text-red-600 underline underline-offset-2 disabled:opacity-50">

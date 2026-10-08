@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { FileText, Download, Loader2, Search } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { CardShell } from '@/components/brand/CardShell';
+import { BTN_OUTLINE, MemberEmpty } from '@/components/member/MemberUI';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 // Press room — articles. Accredited media download any published article as a
 // PDF generated on the fly from its content. Every download is recorded through
@@ -97,7 +99,7 @@ export function MediaArticles() {
     }
   };
 
-  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-meta/40" /></div>;
+  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-meta" /></div>;
 
   const term = q.trim().toLowerCase();
   const shown = term
@@ -106,51 +108,67 @@ export function MediaArticles() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h2 className="text-xl font-bold text-navy flex items-center gap-2">
-          <FileText className="h-5 w-5 text-primary" /> Articles
-        </h2>
-        <p className="text-sm text-meta mt-0.5">
-          Download any published article as a PDF to reuse in your coverage.
-        </p>
+      {/* Head: the icon tile and title of the press room's other blocks (an h3 under the tab's h2). */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-field bg-chip text-navy" aria-hidden="true">
+            <FileText className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="text-card-title text-navy">Articles</h3>
+            <p className="mt-0.5 text-[14px] leading-5 text-meta">
+              Download any published article as a PDF to reuse in your coverage.
+            </p>
+          </div>
+        </div>
+
+        {articles.length > 4 && (
+          <div className="relative w-full sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-meta" aria-hidden="true" />
+            <Input
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="Search articles"
+              aria-label="Search articles"
+              className="rounded-pill bg-white pl-10"
+            />
+          </div>
+        )}
       </div>
 
-      {articles.length > 4 && (
-        <div className="relative max-w-sm">
-          <Search className="h-4 w-4 text-meta/60 absolute left-3 top-1/2 -translate-y-1/2" />
-          <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search articles" className="pl-9" />
-        </div>
-      )}
-
       {shown.length === 0 ? (
-        <Card className="rounded-card shadow-none"><CardContent className="py-10 text-center text-sm text-meta/60">
-          {articles.length === 0 ? 'No articles published yet.' : 'No article matches your search.'}
-        </CardContent></Card>
+        <CardShell>
+          <MemberEmpty
+            icon={articles.length === 0 ? FileText : Search}
+            title={articles.length === 0 ? 'No articles published yet.' : 'No article matches your search.'}
+          />
+        </CardShell>
       ) : (
-        <div className="space-y-2">
+        <ul className="space-y-3">
           {shown.map(a => (
-            <Card className="rounded-card shadow-none" key={a.id}>
-              <CardContent className="py-4 flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="font-semibold text-navy">{a.title}</div>
-                  {a.summary && <p className="text-sm text-meta mt-0.5 line-clamp-2">{a.summary}</p>}
-                  <div className="flex items-center gap-2 mt-1.5">
-                    {a.topic && <Badge variant="secondary" className="border-transparent bg-chip text-xs font-medium text-navy hover:bg-chip">{a.topic}</Badge>}
+            <CardShell as="li" key={a.id} className="flex-row items-start justify-between gap-4 p-4 sm:p-5">
+              <div className="min-w-0">
+                <p className="text-[16px] font-semibold leading-6 text-navy">{a.title}</p>
+                {a.summary && <p className="mt-1 line-clamp-2 text-[14px] leading-5 text-meta">{a.summary}</p>}
+                {(a.topic || a.published_at) && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    {a.topic && <Badge variant="secondary" className="border-transparent bg-chip text-[12px] font-medium text-navy hover:bg-chip">{a.topic}</Badge>}
                     {a.published_at && (
-                      <span className="text-xs text-meta/60">
+                      <span className="text-[13px] leading-5 text-meta">
                         {new Date(a.published_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                       </span>
                     )}
                   </div>
-                </div>
-                <Button size="sm" variant="outline" className="gap-1.5 shrink-0"
-                  disabled={busy === a.id} onClick={() => downloadPdf(a)}>
-                  {busy === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} PDF
-                </Button>
-              </CardContent>
-            </Card>
+                )}
+              </div>
+              <Button variant="outline" className={cn(BTN_OUTLINE, 'shrink-0 gap-1.5')}
+                disabled={busy === a.id} onClick={() => downloadPdf(a)}
+                aria-label={`Download "${a.title}" as a PDF`}>
+                {busy === a.id ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />} PDF
+              </Button>
+            </CardShell>
           ))}
-        </div>
+        </ul>
       )}
     </div>
   );

@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { X, Megaphone, ArrowRight } from 'lucide-react';
+import { X, Megaphone } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
+import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
 
 // Site announcements (events, webinars…) driven by ad_banners rows with the
 // 'announcement_top' / 'announcement_popup' placements — managed from
@@ -48,7 +50,11 @@ function useFollow() {
   };
 }
 
-/** Slim announcement strip above the navbar — homepage only. */
+/**
+ * Slim announcement strip above the navbar, homepage only: a navy-deep band (the
+ * home hero is navy, so the strip reads as its top edge), a gold mark, the title
+ * as a light underline link (gold line on hover) and a quiet close button.
+ */
 export function AnnouncementBar() {
   const { pathname } = useLocation();
   const follow = useFollow();
@@ -56,26 +62,38 @@ export function AnnouncementBar() {
   const ann = useAnnouncement('announcement_top', pathname === '/');
   if (pathname !== '/' || !ann || hidden) return null;
   return (
-    <div className="bg-gradient-to-r from-[#0b2653] to-[#143a6b] text-white text-sm">
-      <div className="container mx-auto px-4 py-2 flex items-center gap-2.5">
-        <Megaphone className="h-4 w-4 text-sky-300 shrink-0" />
-        <button type="button" onClick={() => follow(ann)} className="flex items-center gap-1.5 min-w-0 text-left hover:underline underline-offset-2">
-          <span className="truncate">{ann.title}</span>
-          <ArrowRight className="h-3.5 w-3.5 shrink-0" />
-        </button>
-        <button type="button" aria-label="Dismiss" className="ml-auto text-white/60 hover:text-white shrink-0"
-          onClick={() => { dismiss(ann.id); setHidden(true); }}>
-          <X className="h-4 w-4" />
+    <div className="bg-navy-deep text-white">
+      <div className="mx-auto flex min-h-10 max-w-7xl items-center gap-3 px-4 py-1.5 sm:px-6">
+        <Megaphone className="h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
+        <UnderlineLink
+          tone="light"
+          onClick={() => follow(ann)}
+          className="min-w-0 !text-[14px] !leading-5 [&_.uline-t]:min-w-0"
+        >
+          <span className="block truncate">{ann.title}</span>
+        </UnderlineLink>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={() => { dismiss(ann.id); setHidden(true); }}
+          className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-pill text-white/75 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_rgb(var(--navy-deep)),0_0_0_4px_#fff]"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </div>
   );
 }
 
-/** Site-wide announcement popup (skips admin / welcome / auth-ish pages). */
+/**
+ * Site-wide announcement popup (skips admin / welcome / auth-ish pages): the
+ * kit's floating panel, a white 16 px card with the drawer shadow over a navy
+ * veil, the banner picture, an eyebrow, the title and one rolling gold button.
+ */
 export function AnnouncementPopup() {
   const { pathname } = useLocation();
   const follow = useFollow();
+  const titleId = useId();
   const [hidden, setHidden] = useState(false);
   const [visible, setVisible] = useState(false);
   // /sm26 is the page behind the badge QR: nothing should cover it on arrival.
@@ -93,21 +111,36 @@ export function AnnouncementPopup() {
   if (skip || !ann || hidden || !visible) return null;
   const close = () => { dismiss(ann.id); setHidden(true); };
   return (
-    <div className="fixed inset-0 z-[120] bg-black/50 backdrop-blur-[2px] flex items-center justify-center p-4" onClick={close}>
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden relative" onClick={e => e.stopPropagation()}>
-        <button type="button" aria-label="Close" onClick={close}
-          className="absolute top-2.5 right-2.5 z-10 bg-white/90 rounded-full p-1.5 text-gray-500 hover:text-gray-900 shadow-sm">
-          <X className="h-4 w-4" />
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-navy-deep/[.45] p-4 backdrop-blur-[6px]" onClick={close}>
+      <div
+        role="dialog"
+        aria-labelledby={titleId}
+        className="relative w-full max-w-md overflow-hidden rounded-card bg-white text-ink shadow-drawer"
+        onClick={e => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={close}
+          className="absolute right-3 top-3 z-10 grid h-10 w-10 place-items-center rounded-pill bg-white text-navy ring-1 ring-inset ring-rule transition-colors hover:bg-chip focus-visible:outline-none focus-visible:shadow-focus"
+        >
+          <X className="h-[18px] w-[18px]" aria-hidden="true" />
         </button>
         {ann.image_url && (
-          <button type="button" onClick={() => { follow(ann); close(); }} className="block w-full">
-            <img src={ann.image_url} alt={ann.title} className="w-full h-auto" />
+          <button
+            type="button"
+            onClick={() => { follow(ann); close(); }}
+            className="block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          >
+            <img src={ann.image_url} alt={ann.title} className="h-auto w-full" />
           </button>
         )}
-        <div className="p-5 space-y-3">
-          <div className="font-semibold text-gray-900 leading-snug">{ann.title}</div>
-          <Button className="w-full gap-1.5" onClick={() => { follow(ann); close(); }}>
-            Discover <ArrowRight className="h-4 w-4" />
+        {/* Without a picture the close button sits over the text: keep the words clear of it. */}
+        <div className={ann.image_url ? 'p-6' : 'p-6 pr-16'}>
+          <Eyebrow>Announcement</Eyebrow>
+          <p id={titleId} className="mt-2 text-card-title text-navy">{ann.title}</p>
+          <Button variant="cta" className="mt-5 w-full justify-between" onClick={() => { follow(ann); close(); }}>
+            Discover
           </Button>
         </div>
       </div>

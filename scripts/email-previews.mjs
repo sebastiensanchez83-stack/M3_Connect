@@ -82,6 +82,24 @@ for (const name of fs.readdirSync(fnDir).sort()) {
   }
 }
 
+// The unsubscribe token helper is pasted in send-notification (signs) and unsubscribe
+// (verifies): both copies must stay identical.
+{
+  const T_START = "// ---- SMC unsubscribe token v1";
+  const T_END = "// ---- end SMC unsubscribe token ----";
+  const tokenBlock = (fn) => {
+    const src = fs.readFileSync(path.join(fnDir, fn, "index.ts"), "utf8");
+    const a = src.indexOf(T_START);
+    const b = src.indexOf(T_END);
+    return a < 0 || b < 0 ? null : src.slice(a, b + T_END.length);
+  };
+  const sn = tokenBlock("send-notification");
+  const un = tokenBlock("unsubscribe");
+  if (!sn || !un) fail("unsubscribe token block missing from send-notification or unsubscribe");
+  else if (sn !== un) fail("the unsubscribe token block differs between send-notification and unsubscribe");
+  if (hasBackslashU(fs.readFileSync(path.join(fnDir, "unsubscribe", "index.ts"), "utf8"))) fail("unsubscribe: contains a backslash-u escape (the MCP deploy mangles them)");
+}
+
 // ---------------------------------------------------------------- load the real code
 
 function load(fn, names) {
@@ -107,6 +125,25 @@ const webRem = load("guest-webinar-reminders", ["buildReminderEmail"]);
 const sponsorInvite = load("sponsor-invite", ["buildInviteEmail"]);
 const spNotify = load("sp-notify", ["buildAssetNeededEmail"]);
 const guestList = load("guest-list", ["renderPass", "renderInvitation", "renderRequestAck", "renderReject", "renderStaffNotice"]);
+
+// A token signed by send-notification verifies in the unsubscribe function, and a
+// tampered or foreign one does not (sample key, nothing leaves this process).
+{
+  const signer = load("send-notification", ["signUnsubToken"]);
+  const checker = load("unsubscribe", ["verifyUnsubToken"]);
+  const key = "example-service-role-key";
+  const uid = "00000000-0000-4000-8000-000000000001";
+  const tok = await signer.signUnsubToken(key, uid, "b2b");
+  const ok = await checker.verifyUnsubToken(key, tok);
+  if (!ok || ok.userId !== uid || ok.category !== "b2b") fail("unsubscribe token: a fresh token does not verify");
+  const [body, sig] = tok.split(".");
+  const flipped = sig.slice(0, -2) + (sig.slice(-2) === "AA" ? "AB" : "AA");
+  if (await checker.verifyUnsubToken(key, `${body}.${flipped}`)) fail("unsubscribe token: a tampered signature verifies");
+  if (await checker.verifyUnsubToken("another-key", tok)) fail("unsubscribe token: a token verifies under another key");
+  const forged = Buffer.from(JSON.stringify({ v: 1, u: "00000000-0000-4000-8000-000000000002", c: "all", iat: 1 })).toString("base64url");
+  if (await checker.verifyUnsubToken(key, `${forged}.${sig}`)) fail("unsubscribe token: a swapped payload verifies");
+  if (/[^A-Za-z0-9_.-]/.test(tok)) fail("unsubscribe token: not URL-safe");
+}
 
 // ---------------------------------------------------------------- samples
 
@@ -148,9 +185,15 @@ const items = [];
 
 // Notifications (send-notification)
 {
-  const unsub = (to) => `${SITE}/unsubscribe?email=${encodeURIComponent(to)}`;
+  // send-notification signs a token for the recipient account (see the "unsubscribe"
+  // function); the introduction (partner_request_accepted: two recipients and M3 in
+  // copy) gets the plain page, which asks the reader to sign in.
+  const unsub = (type) => (type === "partner_request_accepted" ? `${SITE}/unsubscribe` : `${SITE}/unsubscribe?t=EXAMPLE_PAYLOAD.EXAMPLE_SIGNATURE`);
   const add = (n, type, to, data, note) => {
-    const r = notif.renderNotification(type, data, "", unsub(to));
+    const r = notif.renderNotification(type, data, "", unsub(type));
+    if (!r.html.includes(`href="${unsub(type)}"`)) fail(`notif ${type}: the footer Unsubscribe link is not the one given`);
+    if (!r.text.includes(unsub(type))) fail(`notif ${type}: the text part has no unsubscribe link`);
+    if (/unsubscribe\?email=/.test(r.html + r.text)) fail(`notif ${type}: an unsubscribe link still carries the address`);
     items.push({ id: `notif-${String(n).padStart(2, "0")}-${type.replace(/_/g, "-")}`, source: `send-notification · ${type}${note ? ` (${note})` : ""}`, to, ...r });
   };
   add(1, "event_registration_confirmed", "alex.martin@example.com", {

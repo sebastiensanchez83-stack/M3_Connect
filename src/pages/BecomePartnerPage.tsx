@@ -43,8 +43,9 @@ registerCopyStrings();
  * dialog, the same SignupForm with the profile pre-selected, the same redirects
  * for someone who is already signed in.
  *
- *   hero: the four profiles as links to their chapter (a /become-partner#media
- *         link from another page lands on the chapter)
+ *   hero: the four profiles as links to their chapter (a /join#media link
+ *         from another page lands on the chapter; served at /join since the
+ *         design audit of 8 Oct 2026, /become-partner redirects here)
  *   one chapter per profile: marina, service provider, investor & developer
  *         (two sign-up buttons), media: a photo, what the profile can do (the
  *         rights grid validated on 6–7 Oct 2026, as on the home page), "Sign up as…"
@@ -203,7 +204,7 @@ export function BecomePartnerPage() {
 
   return (
     <div>
-      <Seo title={seoTitle} description={seoDescription} path="/become-partner" />
+      <Seo title={seoTitle} description={seoDescription} path="/join" />
 
       {/* Hero — a conversation at an SM26 stand: the network, in person */}
       <PageHero

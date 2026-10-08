@@ -121,7 +121,7 @@ export function PhotoFrame({
 }
 
 /**
- * Scrolls to the element a URL hash names (/become-partner#media) once the page
+ * Scrolls to the element a URL hash names (/join#media) once the page
  * has mounted: React Router does not do it, and the target is rendered after the
  * route changes. The root's scroll-padding (index.css) keeps it clear of the header.
  */

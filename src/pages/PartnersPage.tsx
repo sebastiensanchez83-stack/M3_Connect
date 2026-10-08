@@ -94,6 +94,9 @@ const TIER_RANK: Record<string, number> = {
 /** The media section: outlets an admin tagged as our event media partners. */
 const isMediaPartner = (p: OrgCard) => p.organization_type === 'media_partner' && p.is_event_media_partner;
 
+/** The search field appears from this many listed companies. */
+const SEARCH_MIN = 10;
+
 /** Card shape per tier: how many across, and the height of the logo box. */
 const TIER_LOOK: Record<string, { grid: string; box: string; logo: string }> = {
   main_sponsor: { grid: 'sm:grid-cols-2 lg:grid-cols-3', box: 'h-[168px] md:h-[184px]', logo: 'max-h-[84px] md:max-h-24' },
@@ -111,7 +114,15 @@ export function PartnersPage() {
   const [typeCounts, setTypeCounts] = useState<Record<string, number> | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const search = params.get('q') ?? '';
+  // The search pill shows only once there are enough companies to search
+  // (SEARCH_MIN): over two cards it was a field for nothing (design audit,
+  // 8 Oct 2026). A ?q= with no field on screen to show it is ignored.
+  const listedCount = useMemo(() => {
+    const tiers = new Set(TIER_ORDER.filter((tier) => partners.some((p) => !isMediaPartner(p) && p.tier === tier && p.logo_url)));
+    return partners.filter((p) => isMediaPartner(p) || tiers.has(p.tier)).length;
+  }, [partners]);
+  const searchable = !loading && listedCount >= SEARCH_MIN;
+  const search = searchable ? params.get('q') ?? '' : '';
   const setSearch = (value: string) => {
     const next = new URLSearchParams(params);
     if (value) next.set('q', value);
@@ -283,15 +294,17 @@ export function PartnersPage() {
         subtitle={t('partners.subtitle', 'The companies that sponsor the industry events M3 Monaco organises, listed by tier.')}
       >
         <div className="flex max-w-xl flex-col items-start gap-4">
-          <SearchField
-            className="w-full"
-            value={search}
-            onValueChange={setSearch}
-            // Enter on a phone keyboard closes the keyboard; the list already follows the field.
-            onSearch={() => (document.activeElement as HTMLElement | null)?.blur()}
-            label={t('partnersPage.search', 'Search by name, country, sector…')}
-            placeholder={t('partnersPage.search', 'Search by name, country, sector…')}
-          />
+          {searchable && (
+            <SearchField
+              className="w-full"
+              value={search}
+              onValueChange={setSearch}
+              // Enter on a phone keyboard closes the keyboard; the list already follows the field.
+              onSearch={() => (document.activeElement as HTMLElement | null)?.blur()}
+              label={t('partnersPage.search', 'Search by name, country, sector…')}
+              placeholder={t('partnersPage.search', 'Search by name, country, sector…')}
+            />
+          )}
           <UnderlineLink to="/sponsor" tone="light">
             {t('partnersPage.becomeTitle', 'Sponsor an event')}
           </UnderlineLink>

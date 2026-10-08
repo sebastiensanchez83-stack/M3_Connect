@@ -31,6 +31,45 @@
   opacity: 1;
 }
 
+/* Below xl the bar is two rows (search, then the type tabs: ~125 px). Once it
+   is stuck and the reader scrolls down the list (.is-tucked, DirectoryPage), the
+   tabs fold away: the bar is clipped to its search row (~72 px) and the tabs
+   fade. Clipping, not a height change: nothing below moves, and the clipped part
+   lets clicks through to the cards. The clip reaches 200 px up for the shelf
+   above (::before). Keyboard focus inside the bar always shows it whole; a line
+   marks the clipped edge (::after). */
+@media (max-width: 1279px) {
+  /* Keeps the `top` transition every sticky bar has (smc-motion.css). */
+  .dir-toolbar.sticky.top-16 {
+    clip-path: inset(-200px 0 -40px 0);
+    transition: top 0.35s var(--ease-out-smc), clip-path 0.3s var(--ease-out-smc);
+  }
+  .dir-toolbar.sticky.top-16.is-tucked:not(:focus-within) {
+    clip-path: inset(-200px 0 52px 0);
+  }
+  .dir-toolbar .dir-tabs-row {
+    transition: opacity 0.2s var(--ease-out-smc);
+  }
+  .dir-toolbar.is-tucked:not(:focus-within) .dir-tabs-row {
+    opacity: 0;
+  }
+  .dir-toolbar::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 52px;
+    height: 1px;
+    background: rgb(var(--rule));
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s var(--ease-out-smc);
+  }
+  .dir-toolbar.is-tucked:not(:focus-within)::after {
+    opacity: 1;
+  }
+}
+
 /* Segmented control: the white cursor slides between the segments. */
 .dir-seg-cursor {
   transition: transform 0.32s var(--ease-out-smc), width 0.32s var(--ease-out-smc);
@@ -336,7 +375,10 @@
   .dir-theme-link,
   .dir-theme-link::before,
   .dir-sheet-close::before,
-  .dir-sheet-close svg {
+  .dir-sheet-close svg,
+  .dir-toolbar.sticky.top-16,
+  .dir-toolbar::after,
+  .dir-toolbar .dir-tabs-row {
     transition: none !important;
   }
   .dir-tile:hover .dir-tile-img,

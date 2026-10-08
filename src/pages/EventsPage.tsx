@@ -12,7 +12,9 @@ import { PageHero } from '@/components/ui/PageHero';
 import { CardShell } from '@/components/brand/CardShell';
 import { ContactCard } from '@/components/brand/ContactCard';
 import { Reveal } from '@/components/motion/Reveal';
+import { prefersReducedMotion } from '@/components/motion/useReducedMotion';
 import { WysInvitationCard, isWys26Event, wys26Upcoming } from '@/components/events/WysInvitationCard';
+import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
 import {
   EventFilterChip, EventListCard, FeaturedEventPanel, ListHead, kindIcon,
   type EventKind, type ListEvent, type Phase,
@@ -126,7 +128,11 @@ export function EventsPage() {
       setLoadFailed(false);
 
       // Unpublished events stay hidden unless the viewer is an admin/moderator.
-      const allEvents = (data || []) as Event[];
+      // The World Yachting Summit 2026 has one page, /wys26 (Victor, 8 Oct 2026):
+      // its events row stays a draft and is never listed here, not even for an
+      // admin (it showed as a "Draft" card with no picture); the WysInvitationCard
+      // below (photo, link to /wys26) stands for it.
+      const allEvents = ((data || []) as Event[]).filter((e) => e.id !== WYS26_EVENT_ID);
       const visible = isModerator ? allEvents : allEvents.filter((e) => e.published !== false);
       setEvents(visible);
 
@@ -342,6 +348,12 @@ export function EventsPage() {
   // reader in the middle of the new results: bring the top of the list back
   // under the bar — only when they are below it, never on load.
   const listRef = useRef<HTMLDivElement>(null);
+
+  /** The hero's main action: the programme, just under the filter bar. */
+  const scrollToProgramme = () => {
+    const el = listRef.current;
+    if (el) window.scrollTo({ top: scrollTargetTop(el), behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  };
   const filterKey = `${activeType ?? ''}|${activeTheme?.key ?? ''}|${activeMine}`;
   const lastFilterKey = useRef(filterKey);
   useEffect(() => {
@@ -545,22 +557,26 @@ export function EventsPage() {
         title={t('events.title', 'Marina industry events in Monaco, Dubai and online')}
         subtitle={t('events.subtitle', 'The Monaco Smart & Sustainable Marina Rendezvous, the World Yachting Summit in Dubai (by invitation) and our webinars. Signed-in members register for webinars in one click.')}
       >
-        {(signedIn && myUpcomingCount > 0) || canPropose ? (
-          <div className="flex flex-wrap items-center gap-3">
-            {signedIn && myUpcomingCount > 0 && (
-              <Button asChild variant="ctaOnDark">
-                <Link to={accountHref('registrations')}>
-                  {t('eventsPage.myUpcoming', { count: myUpcomingCount, defaultValue_one: 'My events ({{count}} upcoming)', defaultValue_other: 'My events ({{count}} upcoming)' })}
-                </Link>
-              </Button>
-            )}
-            {canPropose && (
-              <Button asChild variant="ctaLight">
-                <Link to="/request-webinar">{t('eventsPage.proposeWebinar', 'Propose a webinar')}</Link>
-              </Button>
-            )}
-          </div>
-        ) : null}
+        {/* The programme is what most visitors came for: it is the main action; the rest are secondary. */}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button asChild variant="ctaOnDark">
+            <a href="#programme" onClick={(ev) => { ev.preventDefault(); scrollToProgramme(); }}>
+              {t('eventsPage.seeUpcoming', 'See upcoming events')}
+            </a>
+          </Button>
+          {signedIn && myUpcomingCount > 0 && (
+            <Button asChild variant="ctaLight">
+              <Link to={accountHref('registrations')}>
+                {t('eventsPage.myUpcoming', { count: myUpcomingCount, defaultValue_one: 'My events ({{count}} upcoming)', defaultValue_other: 'My events ({{count}} upcoming)' })}
+              </Link>
+            </Button>
+          )}
+          {canPropose && (
+            <Button asChild variant="ctaLight">
+              <Link to="/request-webinar">{t('eventsPage.proposeWebinar', 'Propose a webinar')}</Link>
+            </Button>
+          )}
+        </div>
       </PageHero>
 
       {/* ── Filters: sticky under the header. The empty marker lets the page measure the bar. ── */}
@@ -627,7 +643,7 @@ export function EventsPage() {
         <AdBanner placement="events" className="mb-2" />
       </div>
 
-      <div ref={listRef} className="mx-auto w-full max-w-7xl space-y-16 px-4 pb-16 pt-8 sm:px-6 md:space-y-24 md:pb-24 md:pt-12">
+      <div ref={listRef} id="programme" className="mx-auto w-full max-w-7xl space-y-16 px-4 pb-16 pt-8 sm:px-6 md:space-y-24 md:pb-24 md:pt-12">
         {loading ? (
           <LoadingSkeleton variant="card" count={3} />
         ) : loadFailed ? (

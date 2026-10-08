@@ -14,6 +14,8 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { ContactCard } from '@/components/brand/ContactCard';
 import { RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
 import { LogoMarquee, type MarqueeGroup } from '@/components/motion/LogoMarquee';
+import { Counter } from '@/components/motion/Counter';
+import { useNetworkFigures } from '@/lib/networkStats';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { PhotoFrame, SectionHead } from '@/components/content/ContentParts';
 import { ContactFailure, Honeypot } from '@/components/contact/ContactParts';
@@ -38,8 +40,11 @@ registerFlowsStrings();
  * form that requests the sponsorship deck: it goes to the M3 team through the
  * contact-submit function with the subject "partnership".
  *
- * Nothing here is a number except the one Victor confirmed ("more than 250
- * participants" at the 6th Rendezvous). "Partners" are paying event sponsors.
+ * The only numbers: the one Victor confirmed ("250+ participants" at the 6th
+ * Rendezvous) and two live counts of the network (marinas listed, countries),
+ * the same reads as the home page. "Partners" are paying event sponsors.
+ * No strip of past sponsors: the database holds no record of who sponsored a
+ * past edition (only today's tiers), so there is nothing true to show yet.
  */
 
 /** Biggest package first, as on the home page's band and the Partners page. */
@@ -71,6 +76,18 @@ export function SponsorPage() {
     [sponsors],
   );
   const showSponsors = loading || groups.length > 0;
+
+  // Three key figures (design audit, 8 Oct 2026): the Rendezvous' audience, the
+  // one figure Victor confirmed ("250+ participants"), then two live counts read
+  // exactly as on the home and About pages (networkStats: verified marinas and
+  // countries; "N+" when an admin has typed them).
+  const { figures } = useNetworkFigures();
+  const live = figures.manual ? '+' : '';
+  const keyFigures: { key: string; value: number | null; suffix: string; label: string }[] = [
+    { key: 'participants', value: 250, suffix: '+', label: t('flows.sponsor.figures.participants', 'participants at the 6th Rendezvous, Monaco 2026') },
+    { key: 'marinas', value: figures.marinas, suffix: live, label: t('flows.sponsor.figures.marinas', 'marinas listed in the directory') },
+    { key: 'countries', value: figures.countries, suffix: live, label: t('flows.sponsor.figures.countries', 'countries in the network') },
+  ];
 
   const seoTitle = withSiteSuffix(t('seo.sponsor.title', 'Sponsor an M3 event in Monaco and Dubai'));
   const seoDescription = t(
@@ -115,8 +132,23 @@ export function SponsorPage() {
         </div>
       </PageHero>
 
-      {/* ── Who sponsors, and why ── */}
+      {/* ── Who sponsors, and why: three key figures first ── */}
       <section aria-labelledby="sponsor-why" className="mx-auto w-full max-w-7xl px-4 py-14 sm:px-6 md:py-20">
+        <Reveal>
+          <dl
+            aria-label={t('flows.sponsor.figures.label', 'Key figures')}
+            className="mb-12 flex flex-wrap gap-y-6 border-b border-rule pb-8 md:mb-16"
+          >
+            {keyFigures.map(({ key, value, suffix, label }, i) => (
+              <div key={key} className={cn('flex min-w-0 flex-col-reverse pr-6 md:pr-12', i > 0 && 'border-l border-rule pl-6 md:pl-12')}>
+                <dt className="mt-1 max-w-[220px] text-[13px] leading-[18px] text-meta">{label}</dt>
+                <dd className="text-[34px] font-light leading-[38px] tracking-[-0.02em] text-navy md:text-[48px] md:leading-[52px]">
+                  <Counter value={value} suffix={suffix} />
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </Reveal>
         <div className="grid gap-10 lg:grid-cols-12 lg:gap-14">
           <div className="lg:col-span-7">
             <SectionHead
@@ -171,14 +203,14 @@ export function SponsorPage() {
               </div>
             </article>
             <article className="flex flex-col overflow-hidden rounded-card border border-rule bg-page">
-              {/* No photo of its own yet: a navy panel with the date, never another event's picture. */}
-              <PhotoFrame src={null} aspect="aspect-[16/9]" className="rounded-none">
-                <div className="absolute inset-0 grid place-items-center text-center text-white">
-                  <div>
-                    <p className="text-[13px] font-semibold uppercase tracking-[0.08em] text-white/80">Dubai</p>
-                    <p className="mt-1 text-[34px] font-semibold leading-10 tracking-[-0.02em] md:text-[44px] md:leading-[52px]">27 Nov 2026</p>
-                  </div>
-                </div>
+              {/* The Summit has no photo of its own yet: the same provisional conference picture as its card on
+                  /events and the home page (SITE_IMAGES.eventsHero), with the "By invitation" label, rather than
+                  a gradient with a giant date next to the Rendezvous' photo (design audit, 8 Oct 2026). */}
+              <PhotoFrame src={SITE_IMAGES.eventsHero.src} focusY={SITE_IMAGES.eventsHero.focusY} aspect="aspect-[16/9]" className="rounded-none">
+                <span className="absolute left-4 top-4 inline-flex items-center gap-1.5 rounded-pill bg-white px-3 py-1 text-[12px] font-semibold text-navy">
+                  <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-teal" />
+                  {t('eventsPage.wys.badge', 'By invitation')}
+                </span>
               </PhotoFrame>
               <div className="flex flex-1 flex-col p-6 md:p-8">
                 <Eyebrow>{t('flows.sponsor.events.wys.kicker')}</Eyebrow>
@@ -299,7 +331,8 @@ export function SponsorPage() {
               <PhotoFrame src={MOMENT('workshop')} focusY={0.5} aspect="aspect-[3/2]" />
             </Reveal>
             <Reveal delay={200} className="mt-6">
-              <ContactCard line={t('flows.sponsor.contactLine')} />
+              {/* The deck form is the action here: the e-mail address is a plain link, not a second button. */}
+              <ContactCard line={t('flows.sponsor.contactLine')} action="link" />
             </Reveal>
           </div>
           <Reveal className="lg:col-span-7">

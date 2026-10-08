@@ -24,6 +24,7 @@ import { THEMES, getTheme, themesForSectors, type Theme, type ThemeKey } from '@
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { withSiteSuffix } from '@/lib/seoText';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
+import { openSignup } from '@/lib/authModal';
 import { cn } from '@/lib/utils';
 import '@/styles/refonte-content.css';
 
@@ -351,8 +352,9 @@ export function ResourcesPage() {
             (document.activeElement as HTMLElement | null)?.blur();
             scrollToResults();
           }}
-          placeholder={t('resources.search')}
-          label={t('resources.search')}
+          // The library holds articles only: the placeholder promises nothing else (no guides, no white papers yet).
+          placeholder={t('resources.searchArticles', 'Search articles…')}
+          label={t('resources.searchArticlesLabel', 'Search the articles')}
         />
       </PageHero>
 
@@ -534,7 +536,11 @@ export function ResourcesPage() {
               <p className="mt-3 max-w-xl text-body md:text-body-lg text-ink">
                 {t('contentPages.library.joinBody', 'Member-only articles open once your company is verified. Membership is free.')}
               </p>
-              <UnderlineLink to="/become-partner" className="mt-5 text-base">{t('nav.becomePartner')}</UnderlineLink>
+              {/* Joining opens the sign-up window at once; the presentation page is the "learn more". */}
+              <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-3">
+                <Button variant="cta" onClick={() => openSignup()}>{t('contentPages.library.joinCta', 'Sign up for free')}</Button>
+                <UnderlineLink to="/join" className="text-base">{t('contentPages.library.joinMore', 'How membership works')}</UnderlineLink>
+              </div>
             </Reveal>
           )}
           <Reveal delay={120} className={user ? 'lg:col-span-6' : 'lg:col-span-5'}>

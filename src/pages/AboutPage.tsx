@@ -16,6 +16,7 @@ import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { CheckList, SectionHead } from '@/components/content/ContentParts';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNetworkFigures } from '@/lib/networkStats';
+import { openSignup } from '@/lib/authModal';
 import { SITE_IMAGES, PERSONA_IMAGES, SM26_MOMENTS } from '@/lib/siteMedia';
 import { withSiteSuffix } from '@/lib/seoText';
 import { registerCopyStrings } from '@/i18n/refonte-copy';
@@ -45,6 +46,7 @@ registerCopyStrings();
 export function AboutPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  // Live counts, shown at their final value (Counter no longer counts up: design audit, 8 Oct 2026).
   const { figures } = useNetworkFigures();
   const seoTitle = withSiteSuffix(t('seo.about.title', 'About Smart Marina Connect, by M3 Monaco'));
   const seoDescription = t('seo.about.description', 'Smart Marina Connect is the marina industry network run by M3 Monaco, organiser of industry events in Monaco, Dubai and online.');
@@ -86,7 +88,7 @@ export function AboutPage() {
       icon: Anchor,
       image: PERSONA_IMAGES.marinas,
       focusY: 0.5,
-      to: '/become-partner#marina',
+      to: '/join#marina',
       title: t('staticPages.about.profiles.marinas.title'),
       who: t('staticPages.about.profiles.marinas.who'),
       can: [
@@ -100,7 +102,7 @@ export function AboutPage() {
       icon: Building2,
       image: PERSONA_IMAGES.suppliers,
       focusY: 0.5,
-      to: '/become-partner#service-provider',
+      to: '/join#service-provider',
       title: t('staticPages.about.profiles.providers.title'),
       who: t('staticPages.about.profiles.providers.who'),
       can: [
@@ -114,7 +116,7 @@ export function AboutPage() {
       icon: Compass,
       image: SITE_IMAGES.opportunitiesHero.src,
       focusY: SITE_IMAGES.opportunitiesHero.focusY,
-      to: '/become-partner#investor-developer',
+      to: '/join#investor-developer',
       title: t('staticPages.about.profiles.investors.title'),
       who: t('staticPages.about.profiles.investors.who'),
       can: [
@@ -128,7 +130,7 @@ export function AboutPage() {
       icon: Newspaper,
       image: PERSONA_IMAGES.media,
       focusY: 0.5,
-      to: '/become-partner#media',
+      to: '/join#media',
       title: t('staticPages.about.profiles.media.title'),
       who: t('staticPages.about.profiles.media.who'),
       can: [
@@ -182,8 +184,9 @@ export function AboutPage() {
       >
         <div className="flex flex-wrap gap-3">
           {!user && (
-            <Button asChild variant="ctaOnDark">
-              <Link to="/become-partner">{t('about.ctaSignup', 'Sign up')}</Link>
+            // Opens the sign-up window at once (no detour through the presentation page).
+            <Button variant="ctaOnDark" onClick={() => openSignup()}>
+              {t('about.ctaSignup', 'Sign up')}
             </Button>
           )}
           <Button asChild variant="ctaLight">

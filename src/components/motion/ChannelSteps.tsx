@@ -1,12 +1,14 @@
 import { useRef, type ComponentType, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
 import { useMotion } from './MotionProvider';
-import { useInView } from './useInView';
+import { useEntrance } from './useInView';
 
 /**
  * Numbered steps: outlined circles (2 px navy border, white fill, navy number)
- * joined by a teal dashed line. When the list scrolls into view each circle
- * pops in and the dashed segment after it draws itself towards the next one.
+ * joined by a teal dashed line. When the list arrives from below the fold each
+ * circle pops in (300 ms, 60 ms apart) and the dashed segment after it draws
+ * itself towards the next one. Already on screen when it mounts, or under
+ * reduced motion, it is simply there (design audit, 8 Oct 2026).
  * Horizontal from lg up, vertical (line on the left) below. An ordered list,
  * so assistive tech reads "1 of 4".
  *
@@ -33,18 +35,18 @@ export function ChannelSteps({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const { reduced } = useMotion();
-  const inView = useInView(ref, { disabled: reduced, threshold: 0.25 });
+  const phase = useEntrance(ref, reduced);
   const dark = tone === 'dark';
   const dash = dark ? 'border-white/45' : 'border-teal';
 
   return (
-    <div ref={ref} className={cn('chenal relative', inView && 'is-in', className)}>
+    <div ref={ref} className={cn('chenal relative', phase === 'armed' && 'is-armed', phase === 'in' && 'is-entering', className)}>
       <ol className="relative grid gap-8 lg:grid-flow-col lg:auto-cols-fr lg:gap-6">
         {steps.map((step, i) => {
           const Icon = step.icon;
           const last = i === steps.length - 1;
           // The segment after this step starts as its circle pops in and ends where the next one begins.
-          const segment = { transitionDelay: `${(0.35 + i * 0.25).toFixed(2)}s` } as CSSProperties;
+          const segment = { transitionDelay: `${(0.1 + i * 0.06).toFixed(2)}s` } as CSSProperties;
           return (
             <li key={step.title} className="relative flex gap-4 lg:flex-col lg:gap-5" style={{ '--i': i } as CSSProperties}>
               {!last && (

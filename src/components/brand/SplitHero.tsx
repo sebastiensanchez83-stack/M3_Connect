@@ -14,8 +14,9 @@ import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
  * The home hero, split in two on a marine (#0b2653) background:
  *
  *  - left: your content (eyebrow, H1 as <LineReveal trigger="mount">, text,
- *    search, buttons, trust line), each block rising in turn with <HeroIn>;
- *    faint sounding lines drift very slowly behind it;
+ *    search, buttons, trust line), each block in a <HeroIn>; all of it is
+ *    there from the first paint (no entrance in a hero since the design audit
+ *    of 8 Oct 2026); faint sounding lines drift very slowly behind it;
  *  - right: a large rounded frame (24 px radius) with the photo: it breathes
  *    very slowly (1 → 1.06 over 24 s) and lags behind the page as it scrolls
  *    (parallax, up to 40 px), optionally with a short loop video over it
@@ -43,23 +44,31 @@ import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
 /** fetchpriority is valid HTML but not in React 18's types yet: passed through a spread. */
 const HIGH_PRIORITY = { fetchpriority: 'high' } as Record<string, string>;
 
-/** A hero block that rises into place on load (24 px, .9 s); `delay` in ms. */
+/**
+ * A hero block. It used to rise into place on load (24 px, .9 s, after a
+ * wait); a hero never waits for an animation any more (design audit, 8 Oct
+ * 2026), so it renders at once. `delay` is accepted and ignored, so the heroes
+ * that pass it did not change.
+ */
 export function HeroIn({
   as: Tag = 'div',
-  delay = 0,
+  // Taken out of `rest` so it never reaches the DOM.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  delay,
   className,
   style,
   children,
   ...rest
 }: {
   as?: ElementType;
+  /** @deprecated No entrance any more; ignored. */
   delay?: number;
   className?: string;
   style?: CSSProperties;
   children?: ReactNode;
 } & Omit<React.HTMLAttributes<HTMLElement>, 'className' | 'style' | 'children'>) {
   return (
-    <Tag className={cn('enter-up', className)} style={{ '--enter-delay': `${(120 + delay) / 1000}s`, ...style } as CSSProperties} {...rest}>
+    <Tag className={cn('enter-up', className)} style={style} {...rest}>
       {children}
     </Tag>
   );

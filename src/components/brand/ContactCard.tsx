@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { BathyPattern } from '@/components/motion/BathyPattern';
 import { Eyebrow } from './Eyebrow';
+import { UnderlineLink } from './UnderlineLink';
 
 /**
  * The contact card: a real person at the end of every journey, Victor Meyer,
@@ -20,6 +21,11 @@ import { Eyebrow } from './Eyebrow';
  * `variant="panel"` is the home page's closing panel: navy, drifting sounding
  * lines, an eyebrow, a question (`title`), a sentence (`line`), the monogram
  * with the name on two lines and a rolling white button.
+ *
+ * `action="link"` turns that button into a plain text link (underline link),
+ * for a page whose main action is a form next to the card (/contact, the
+ * sponsorship deck): the e-mail must not compete with the form (design audit,
+ * 8 Oct 2026).
  */
 export const M3_PUBLIC_EMAIL = 'events@m3monaco.com';
 
@@ -30,8 +36,11 @@ export function ContactCard({
   title,
   cta,
   line,
+  action = 'button',
   className,
 }: {
+  /** 'button' (default): a rolling button; 'link': a quiet text link, when a form is the page's main action. */
+  action?: 'button' | 'link';
   photoSrc?: string | null;
   /** 'light' card on a light page (default); 'dark' card on navy. */
   tone?: 'light' | 'dark';
@@ -49,6 +58,15 @@ export function ContactCard({
   const titleId = useId();
   const dark = tone === 'dark';
   const variantName = dark ? 'ctaOnDark' : 'cta';
+  /** `action="link"`: the same destination as the button, as a text link. */
+  const quietLink = (onDark: boolean) =>
+    cta ? (
+      <UnderlineLink to={cta.to} tone={onDark ? 'light' : 'dark'}>{cta.label}</UnderlineLink>
+    ) : (
+      <UnderlineLink href={`mailto:${M3_PUBLIC_EMAIL}`} tone={onDark ? 'light' : 'dark'}>
+        {t('brand.contact.write', 'Write to the team')}
+      </UnderlineLink>
+    );
 
   if (variant === 'panel') {
     return (
@@ -80,7 +98,9 @@ export function ContactCard({
             </div>
           </div>
           <div className="mt-6">
-            {cta ? (
+            {action === 'link' ? (
+              quietLink(true)
+            ) : cta ? (
               <Button asChild variant="ctaWhite">
                 <Link to={cta.to}>{cta.label}</Link>
               </Button>
@@ -127,8 +147,10 @@ export function ContactCard({
         </div>
       </div>
       {line && <p className={cn('mt-3 text-sm', dark ? 'text-white/85' : 'text-ink/80')}>{line}</p>}
-      <div className="mt-5">
-        {cta ? (
+      <div className={action === 'link' ? 'mt-4' : 'mt-5'}>
+        {action === 'link' ? (
+          quietLink(dark)
+        ) : cta ? (
           <Button asChild variant={variantName} size="sm">
             <Link to={cta.to}>{cta.label}</Link>
           </Button>

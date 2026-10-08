@@ -7,11 +7,20 @@ import { useMotion } from '@/components/motion/MotionProvider';
 import { useOnScreen } from '@/components/motion/useInView';
 
 /**
+ * The light grey of every hint in the field, typed or static, well apart from
+ * the ink of a real search: the design audit of 8 Oct 2026 read the typed
+ * examples ("Croatia", "Marina software") as text already in the field.
+ */
+const PLACEHOLDER_TONE = 'placeholder:text-meta/75';
+const TYPED_TONE = 'text-meta/75';
+
+/**
  * The search pill of the refonte: a white pill with a gold compass at its left,
  * the field, and a round navy button with a magnifier that turns gold on hover.
- * Example searches are typed into the placeholder letter by letter (55 ms a
- * letter, a 1.6 s pause, erased at 22 ms a letter) and give way to the next one;
- * the typing stops for good as soon as the field gets focus or holds text, runs
+ * Example searches are typed into the placeholder, in the placeholder's light
+ * grey, letter by letter (55 ms a letter, a 1.6 s pause, erased at 22 ms a
+ * letter), each example once: after one round the static placeholder stays.
+ * The typing stops for good as soon as the field gets focus or holds text, runs
  * only while the field is on screen, and never runs under reduced motion or
  * while motion is paused (the static placeholder shows).
  *
@@ -78,6 +87,8 @@ export function SearchField({
   const [focused, setFocused] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [typed, setTyped] = useState('');
+  /** The next example to type: kept across pauses (off screen, background tab), so the round is never restarted. */
+  const nextExample = useRef(0);
 
   const staticPlaceholder = placeholder ?? t('brand.search.placeholder', 'Search marinas and service providers');
   const typing = !!examples?.length && !still && !stopped && !focused && onScreen && value === '';
@@ -86,12 +97,16 @@ export function SearchField({
     if (!typing || !examples?.length) return;
     let alive = true;
     let timer = 0;
-    let ex = 0;
     let pos = 0;
     let deleting = false;
     const step = () => {
       if (!alive) return;
-      const word = examples[ex % examples.length];
+      const ex = nextExample.current;
+      if (ex >= examples.length) {
+        setStopped(true);
+        return;
+      }
+      const word = examples[ex];
       if (!deleting) {
         pos += 1;
         setTyped(word.slice(0, pos));
@@ -106,14 +121,19 @@ export function SearchField({
         setTyped(word.slice(0, pos));
         if (pos <= 0) {
           deleting = false;
-          ex += 1;
+          nextExample.current = ex + 1;
+          // One round through the examples, then the static placeholder for good.
+          if (nextExample.current >= examples.length) {
+            setStopped(true);
+            return;
+          }
           timer = window.setTimeout(step, 450);
           return;
         }
         timer = window.setTimeout(step, 22);
       }
     };
-    timer = window.setTimeout(step, 1200);
+    timer = window.setTimeout(step, 600);
     return () => {
       alive = false;
       window.clearTimeout(timer);
@@ -169,14 +189,15 @@ export function SearchField({
             placeholder={typing ? '' : staticPlaceholder}
             autoComplete="off"
             className={cn(
-              'w-full bg-transparent text-base text-ink outline-none placeholder:text-meta [&::-webkit-search-cancel-button]:hidden',
+              'w-full bg-transparent text-base text-ink outline-none [&::-webkit-search-cancel-button]:hidden',
+              PLACEHOLDER_TONE,
               md ? 'h-10' : 'h-12',
             )}
           />
           {typing && (
-            <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-0 flex items-center truncate text-base text-meta">
+            <span aria-hidden="true" className={cn('pointer-events-none absolute inset-y-0 left-0 flex items-center truncate text-base', TYPED_TONE)}>
               {typed}
-              <span className="typed-caret ml-px inline-block h-5 w-px bg-navy/70" />
+              <span className="typed-caret ml-px inline-block h-5 w-px bg-meta/50" />
             </span>
           )}
         </div>

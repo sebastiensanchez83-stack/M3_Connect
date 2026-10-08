@@ -2,8 +2,8 @@ import { supabase } from '@/lib/supabase';
 
 /**
  * Subscribes an address to the Smart Marina Connect newsletter through the
- * `newsletter-subscribe` edge function (Mailchimp, double opt-in: the address is
- * only subscribed once its owner clicks the confirmation e-mail).
+ * `newsletter-subscribe` edge function (Mailchimp, single opt-in: the ticked
+ * consent box subscribes the address at once).
  *
  *   POST { email, consent: true, source, website }
  *   200 { ok: true } | 400 { error: 'invalid' } | 429 { error: 'rate_limited' } | 500 { error: 'server' }

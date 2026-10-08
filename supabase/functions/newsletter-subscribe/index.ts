@@ -1,5 +1,6 @@
 // newsletter-subscribe: puts an e-mail address on the Smart Marina Connect
-// Mailchimp audience, with DOUBLE OPT-IN. Public, no JWT (verify_jwt = false):
+// Mailchimp audience, SINGLE OPT-IN (Victor, 8 Oct 2026: "Inscription directe":
+// the ticked consent box is the consent). Public, no JWT (verify_jwt = false):
 // the footer and home sign-up forms call it anonymously.
 //
 //   POST { email, consent: true, source?, website? }
@@ -17,13 +18,14 @@
 //   429 { error: "rate_limited" }
 //   500 { error: "server" }          Mailchimp or this function is not set up
 //
-// Double opt-in: a NEW address is created with status "pending", so Mailchimp
-// e-mails the confirmation link and the address only becomes "subscribed" when
-// its owner clicks it. An address that had unsubscribed (or was cleaned or
-// archived) is set back to "pending" the same way, because the person has just
-// ticked the consent box again. An address that is already subscribed or
-// pending keeps its status (no new e-mail); the "site-<source>" tag is added
-// and SOURCE is filled if it was empty, so Mailchimp shows where it signed up.
+// Single opt-in: a NEW address is created as "subscribed" at once, with the
+// sign-up time and network address recorded by Mailchimp as proof of consent.
+// An address that had unsubscribed (or was cleaned or archived) is subscribed
+// again the same way; if Mailchimp refuses (its compliance rules can block
+// re-subscribing by API), it falls back to "pending", so Mailchimp sends its
+// confirmation e-mail. A "pending" address is moved to "subscribed". An address
+// already subscribed keeps its status; in every case the "site-<source>" tag is
+// added and SOURCE is filled if it was empty.
 //
 // Secrets (Supabase > Edge Functions > Secrets):
 //   MAILCHIMP_API_KEY          the key, "<hex>-<datacenter>"
@@ -221,10 +223,14 @@ Deno.serve(async (req: Request) => {
 
     if (found.status === 200) {
       const status = String(found.json.status);
-      // Already on the list (or waiting for the confirmation e-mail): the
-      // status is left as it is, but the sign-up is recorded: the
+      // Already on the list, or still waiting for a confirmation e-mail: a
+      // pending address is moved to subscribed (the box was ticked again), the
       // "site-<source>" tag is added, and SOURCE is filled if it was empty.
       // A failure here is logged only: the person is already on the list.
+      if (status === "pending") {
+        const confirmed = await mailchimp("PATCH", member, { status: "subscribed" });
+        if (confirmed.status !== 200) console.error("newsletter-subscribe: pending to subscribed failed", confirmed.status, confirmed.json.title);
+      }
       if (status === "subscribed" || status === "pending") {
         const tagged = await mailchimp("POST", `${member}/tags`, { tags: [{ name: `site-${source}`, status: "active" }] });
         if (tagged.status !== 204 && tagged.status !== 200) console.error("newsletter-subscribe: tag failed", tagged.status, tagged.json.title);
@@ -239,15 +245,21 @@ Deno.serve(async (req: Request) => {
       return reply(req, 500, { error: "server" });
     }
 
-    // New, or unsubscribed / cleaned / archived and consenting again: PENDING,
-    // so Mailchimp sends the confirmation e-mail (double opt-in).
-    const saved = await mailchimp("PUT", member, {
+    // New, or unsubscribed / cleaned / archived and consenting again: SUBSCRIBED
+    // at once (single opt-in), with the sign-up time and network as proof.
+    const fields = {
       email_address: email,
-      status_if_new: "pending",
-      status: "pending",
       merge_fields: { SOURCE: source },
       tags: [`site-${source}`],
-    });
+      timestamp_signup: new Date().toISOString(),
+      ...(clientIp(req) ? { ip_signup: clientIp(req) } : {}),
+    };
+    let saved = await mailchimp("PUT", member, { ...fields, status_if_new: "subscribed", status: "subscribed" });
+    if (saved.status === 400 && saved.json.title === "Member In Compliance State") {
+      // Mailchimp will not re-subscribe this address by API: ask the person to
+      // confirm by e-mail instead.
+      saved = await mailchimp("PUT", member, { ...fields, status_if_new: "pending", status: "pending" });
+    }
     if (saved.status === 200) return reply(req, 200, { ok: true });
     if (saved.status === 400 && saved.json.title === "Invalid Resource") return reply(req, 400, { error: "invalid" });
     console.error("newsletter-subscribe: member save failed", saved.status, saved.json.title, saved.json.detail);

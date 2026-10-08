@@ -96,7 +96,7 @@ export function PrivacyPage() {
             <li><strong>Zoom</strong> — webinars</li>
             <li><strong>YouTube</strong> — replays and embedded video content</li>
             <li><strong>Cloudflare</strong> — network layer and security</li>
-            <li><strong>Google reCAPTCHA</strong> — anti-bot protection</li>
+            <li><strong>Cloudflare Turnstile</strong> — anti-spam check on forms, no advertising cookies</li>
           </ul>
         </div>
         <p className="mt-3 text-sm">Data is not freely shared with all members or partners of the network. Exchanges between users and data transmissions related to requests remain governed by the platform's functional settings.</p>

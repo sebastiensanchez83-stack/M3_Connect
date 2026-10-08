@@ -8,6 +8,7 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { PersonaType } from '@/types/database';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { Anchor, ArrowRight, Building2, Newspaper, Loader2, ChevronLeft, Info, HardHat, TrendingUp, Mail } from 'lucide-react';
 
 interface SignupFormProps {
@@ -88,6 +89,8 @@ function readIncomingClaimCode(): string | null {
 export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const { t, i18n } = useTranslation();
   const { signUp } = useAuth();
+  // Cloudflare Turnstile: invisible unless a challenge is needed; off without a site key.
+  const captcha = useTurnstile();
   const [step, setStep] = useState<1 | 2>(defaultPersona ? 2 : 1);
   const [loading, setLoading] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<PersonaType | ''>(defaultPersona || '');
@@ -97,6 +100,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   const [errors, setErrors] = useState<{ passwordMismatch?: boolean; termsRequired?: boolean; passwordWeak?: boolean }>({});
   // Set: sign-up goes through claim-code-signup and asks for no password.
   const [incomingClaimCode, setIncomingClaimCode] = useState<string | null>(readIncomingClaimCode);
+  const captchaOn = captcha.active && !incomingClaimCode;
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [mailSent, setMailSent] = useState(true);
   const [resendCooldown, setResendCooldown] = useState(0);
@@ -332,8 +336,9 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     }
 
     // Normal signup path
-    const { error, needsConfirmation, emailRedirectTo } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim(), detectedOrg?.id, formData.jobTitle.trim());
+    const { error, needsConfirmation, emailRedirectTo } = await signUp(formData.email, formData.password, selectedPersona, formData.firstName.trim(), formData.lastName.trim(), formData.companyName.trim(), formData.companyWebsite.trim(), detectedOrg?.id, formData.jobTitle.trim(), captcha.token);
     setLoading(false);
+    captcha.reset(); // a token works once, whatever the answer
     if (error) {
       toast({ title: t('auth.error'), description: error.message, variant: 'destructive' });
     } else if (needsConfirmation) {
@@ -566,7 +571,9 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
           <FieldError className="pl-8">{t('auth.acceptTermsRequired', 'Please accept the Terms and Conditions to continue')}</FieldError>
         )}
       </div>
-      <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
+      {/* The claim-code path (claim-code-signup) sends no token, so it neither shows nor waits for the check. */}
+      {captchaOn && <Turnstile captcha={captcha} action="signup" />}
+      <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading || (captchaOn && captcha.waiting)}>
         {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
         {loading ? t('auth.creating') : t('auth.createAccount')}
       </Button>

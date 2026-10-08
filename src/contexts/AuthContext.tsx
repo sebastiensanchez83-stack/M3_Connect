@@ -24,7 +24,9 @@ interface AuthContextType {
   // needsConfirmation: account created but no session until the e-mailed link is
   // opened ("Confirm email" ON). emailRedirectTo: where that link lands — reuse it
   // for supabase.auth.resend so a re-sent link goes to the same place.
-  signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => Promise<{ error: Error | null; needsConfirmation: boolean; emailRedirectTo: string }>
+  // captchaToken: the Cloudflare Turnstile token, passed to GoTrue only when the
+  // form has one (harmless while the Auth CAPTCHA setting is off).
+  signUp: (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string, captchaToken?: string | null) => Promise<{ error: Error | null; needsConfirmation: boolean; emailRedirectTo: string }>
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -349,7 +351,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUserData])
 
   // ─── signUp ─────────────────────────────────────────────────────────
-  const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string) => {
+  const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string, captchaToken?: string | null) => {
     const emailRedirectTo = getStoredInvite()
       ? `${window.location.origin}/join/${getStoredInvite()}?email_confirmed=true`
       : `${window.location.origin}/onboarding?email_confirmed=true`
@@ -358,6 +360,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
       options: {
         emailRedirectTo,
+        // Only with a token: with no site key the options stay exactly as before.
+        ...(captchaToken ? { captchaToken } : {}),
         data: {
           persona: persona || 'marina',
           first_name: firstName || '',

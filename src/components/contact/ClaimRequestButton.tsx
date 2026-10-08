@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { ContactFailure, Honeypot } from '@/components/contact/ContactParts';
+import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { currentSource, submitContact, type ContactResult } from '@/lib/contactSubmit';
 import { useAuth } from '@/contexts/AuthContext';
 import { registerFlowsStrings } from '@/i18n/refonte-flows';
@@ -62,6 +63,8 @@ function ClaimDialog({ organization, onClose }: { organization?: { name: string;
   const [orgName, setOrgName] = useState('');
   const [note, setNote] = useState('');
   const [website, setWebsite] = useState('');
+  // Cloudflare Turnstile: invisible unless a challenge is needed; off without a site key.
+  const captcha = useTurnstile();
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<Exclude<ContactResult, { ok: true }>['reason'] | null>(null);
   const [sending, setSending] = useState(false);
@@ -87,8 +90,10 @@ function ClaimDialog({ organization, onClose }: { organization?: { name: string;
       message: [label, `Role: ${role.trim()}`, note.trim()].filter(Boolean).join('\n\n'),
       source: currentSource(),
       website,
+      captcha: captcha.token,
     });
     setSending(false);
+    captcha.reset(); // a token works once
     if (!result.ok) { setFailure(result.reason); return; }
     setSent(true);
   };
@@ -154,12 +159,13 @@ function ClaimDialog({ organization, onClose }: { organization?: { name: string;
               </div>
 
               <Honeypot value={website} onChange={setWebsite} />
+              <Turnstile captcha={captcha} action="claim" />
 
               {error && <p id="claim-error" role="alert" className="text-sm font-medium text-red-700">{error}</p>}
               {failure && <ContactFailure reason={failure} />}
 
               <div className={cn('flex flex-wrap items-center gap-3 pt-1')}>
-                <Button type="submit" variant="cta" size="sm" disabled={sending} arrow={!sending} roll={!sending}>
+                <Button type="submit" variant="cta" size="sm" disabled={sending || captcha.waiting} arrow={!sending} roll={!sending}>
                   {sending ? t('flows.claim.sending') : t('flows.claim.submit')}
                 </Button>
                 <Button type="button" variant="ghost" onClick={onClose}>

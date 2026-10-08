@@ -29,6 +29,7 @@ export const FLOWS_STRINGS = {
         failure: {
           rate_limited: 'You have sent several messages in a short time. Please wait a few minutes, then try again.',
           invalid: 'Some of your details were not accepted. Check your name, e-mail address and message, then try again.',
+          captcha: 'The security check did not go through. Wait a moment, then send your message again.',
           server: 'Your message could not be sent. Please try again in a moment.',
           mailLead: 'You can also write to',
         },

@@ -5,6 +5,7 @@ import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Honeypot } from '@/components/contact/ContactParts';
+import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { subscribeToNewsletter, type NewsletterSource } from '@/lib/newsletter';
 import { registerFlowsStrings } from '@/i18n/refonte-flows';
 
@@ -20,6 +21,10 @@ registerFlowsStrings();
  * consent box is required. Any failure says "Subscription failed — please try
  * again later": there is no mailto fallback, and the site stores nothing.
  * `onSubscribe` replaces the call (the brand showcase page uses it).
+ *
+ * Anti-spam: Cloudflare Turnstile (see components/security/Turnstile), started
+ * only when someone touches the form: the footer is on every page, and a check
+ * nobody asked for would run on each visit. Off without a site key.
  */
 export function NewsletterField({
   onSubscribe,
@@ -46,10 +51,17 @@ export function NewsletterField({
   const [website, setWebsite] = useState('');
   const [state, setState] = useState<'idle' | 'sending' | 'done'>('idle');
   const dark = tone === 'dark';
+  // The anti-spam check: started on the first touch, and not at all when a
+  // caller replaces the subscription (nothing is sent then).
+  const captcha = useTurnstile();
+  const [touched, setTouched] = useState(false);
+  const guarded = captcha.active && !onSubscribe;
+  const checking = guarded && touched && captcha.waiting;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (state === 'sending') return;
+    if (checking) return;
     const value = email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       setError(t('brand.newsletter.errorEmail', 'Enter a valid e-mail address.'));
@@ -59,15 +71,23 @@ export function NewsletterField({
       setError(t('brand.newsletter.errorConsent', 'Tick the box to agree to receive the newsletter.'));
       return;
     }
+    if (guarded && captcha.waiting) {
+      // Submitted before the form was touched (autofill, a script): start the check and ask to try again.
+      setTouched(true);
+      setError(t('security.turnstile.wait', 'One moment, the security check is running. Please try again in a few seconds.'));
+      return;
+    }
     setError(null);
     setState('sending');
     try {
       if (onSubscribe) await onSubscribe(value);
-      else await subscribeToNewsletter(value, source, website);
+      else await subscribeToNewsletter(value, source, website, captcha.token);
       setState('done');
     } catch {
       setState('idle');
       setError(t('flows.newsletter.errorSend', 'Subscription failed — please try again later'));
+      // A token works once: ask Cloudflare for a new one before the next attempt.
+      if (guarded) captcha.reset();
     }
   };
 
@@ -81,7 +101,14 @@ export function NewsletterField({
   }
 
   return (
-    <form onSubmit={submit} noValidate className={cn('relative min-w-0', className)} aria-describedby={error ? `${id}-err` : undefined}>
+    <form
+      onSubmit={submit}
+      noValidate
+      className={cn('relative min-w-0', className)}
+      aria-describedby={error ? `${id}-err` : undefined}
+      onFocusCapture={() => setTouched(true)}
+      onPointerDownCapture={() => setTouched(true)}
+    >
       <Honeypot value={website} onChange={setWebsite} />
       <label
         htmlFor={`${id}-email`}
@@ -116,7 +143,7 @@ export function NewsletterField({
           type="submit"
           variant={dark ? 'ctaOnDark' : 'cta'}
           size="sm"
-          disabled={state === 'sending'}
+          disabled={state === 'sending' || checking}
           aria-label={t('brand.newsletter.submit', 'Subscribe')}
           // A round arrow only on phones, so the field keeps the whole width.
           className="h-[46px] shrink-0 max-sm:w-[46px] max-sm:justify-center max-sm:gap-0 max-sm:p-0 max-sm:[&_.cta-l]:hidden"
@@ -144,6 +171,7 @@ export function NewsletterField({
           </Link>
         </span>
       </label>
+      {guarded && touched && <Turnstile captcha={captcha} action="newsletter" tone={tone} />}
       {error && (
         <p id={`${id}-err`} role="alert" className={cn('mt-3 text-sm font-medium', dark ? 'text-[#ffd3a1]' : 'text-red-700')}>
           {error}

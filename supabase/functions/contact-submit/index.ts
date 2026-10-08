@@ -18,10 +18,17 @@
 //     message:  string, 10-5000 characters
 //     source?:  string, the page path, at most 200
 //     website?: string, honeypot: must be empty
+//     captcha?: string, the Cloudflare Turnstile token of the form (single-use,
+//               at most 2048 characters). Checked when present; required only
+//               once TURNSTILE_ENFORCE is "true" (see "Anti-spam" below)
 //   }
-//   -> 200 { ok: true } | 400 { error: "invalid" } | 429 { error: "rate_limited" }
-//      | 500 { error: "server" }
+//   -> 200 { ok: true } | 400 { error: "invalid" } | 400 { error: "captcha" }
+//      | 429 { error: "rate_limited" } | 500 { error: "server" }
 //   Lengths are characters (code points) after trimming. Unknown keys are ignored.
+//   A token that is present but not accepted by Cloudflare, or a missing token
+//   while TURNSTILE_ENFORCE is "true", is a 400 { error: "captcha" } (nothing
+//   stored, nothing sent, no detail given). The page already on the live site
+//   treats any 400 as "invalid", so it is not affected by the new code.
 //   A string holding a lone UTF-16 surrogate is invalid (400): Postgres would
 //   refuse it at insert time.
 //   Honeypot filled -> 200 { ok: true }, nothing stored or sent.
@@ -34,6 +41,11 @@
 //   events@m3monaco.com. A retry stores a second row and counts toward the
 //   3-per-address limit (accepted).
 //   Errors never echo what the caller sent.
+//
+// Anti-spam: Cloudflare Turnstile, SOFT until TURNSTILE_ENFORCE is "true" (the
+// pages that are live may not send a token yet). Secrets (Supabase > Edge
+// Functions > Secrets): TURNSTILE_SECRET_KEY (unset: no check, logged once) and
+// TURNSTILE_ENFORCE ("true": a request with no token is refused).
 //
 // verify_jwt must be FALSE (anonymous visitors). This file must not contain a
 // literal backslash-u escape (the MCP deploy tool mangles them): control
@@ -66,7 +78,9 @@ const SUBJECT_LABELS = new Map<string, string>([
 
 const ALLOWED_ORIGINS = [
   "https://smartmarinaconnect.com",
+  "https://www.smartmarinaconnect.com",
   "https://m3connect.netlify.app",
+  "https://refonte--m3connectv2.netlify.app",
   "http://localhost:5173",
   "http://localhost:3000",
 ];
@@ -212,6 +226,53 @@ function honeypotFilled(v: unknown): boolean {
   if (v === undefined || v === null) return false;
   if (typeof v !== "string") return true;
   return v.trim() !== "";
+}
+
+// ─── Anti-spam: Cloudflare Turnstile ──────────────────────────────────────────
+// SOFT until TURNSTILE_ENFORCE is "true": a token that is present is always
+// checked (present and invalid => refused), but a request with no token still
+// goes through, because the pages that are live may not send one yet.
+// TURNSTILE_SECRET_KEY unset => the check is skipped (logged once). Cloudflare
+// unreachable, or a secret it does not accept => the request goes through
+// (logged): our setup is at fault, not the visitor.
+// The same helper is inlined in newsletter-subscribe and guest-list.
+const TURNSTILE_SECRET = Deno.env.get("TURNSTILE_SECRET_KEY") || "";
+const TURNSTILE_ENFORCE = (Deno.env.get("TURNSTILE_ENFORCE") || "").trim().toLowerCase() === "true";
+const TURNSTILE_SETUP_ERRORS = new Set(["missing-input-secret", "invalid-input-secret", "bad-request", "internal-error"]);
+let turnstileSkipLogged = false;
+
+/** true: the request may go on. false: answer with the "invalid" error and say nothing more. Never throws. */
+async function turnstileAllows(token: unknown, ip: string | null): Promise<boolean> {
+  if (!TURNSTILE_SECRET) {
+    if (!turnstileSkipLogged) {
+      turnstileSkipLogged = true;
+      console.warn("contact-submit: TURNSTILE_SECRET_KEY is not set, the Turnstile check is skipped");
+    }
+    return true;
+  }
+  const response = typeof token === "string" ? token.trim() : "";
+  if (!response) return !TURNSTILE_ENFORCE;
+  if (response.length > 2048) return false;
+  try {
+    const form = new URLSearchParams({ secret: TURNSTILE_SECRET, response });
+    if (ip) form.set("remoteip", ip);
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(5000),
+    });
+    const out = (await res.json().catch(() => null)) as { success?: boolean; "error-codes"?: string[] } | null;
+    if (out?.success === true) return true;
+    const codes = out?.["error-codes"] ?? [];
+    if (!out || codes.some((c) => TURNSTILE_SETUP_ERRORS.has(c))) {
+      console.error("contact-submit: Turnstile siteverify could not judge the token", res.status, codes.join(","));
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error("contact-submit: Turnstile siteverify unreachable", err instanceof Error ? err.name : "error");
+    return true;
+  }
 }
 
 // ─── Rate limit ───────────────────────────────────────────────────────────────
@@ -389,6 +450,13 @@ Deno.serve(async (req: Request) => {
 
     const submission = validate(body);
     if (!submission) return reply({ error: "invalid" }, 400);
+
+    // Anti-spam (Turnstile), after the cheap checks so a form refused for another
+    // reason does not use up the visitor's single-use token. Soft until
+    // TURNSTILE_ENFORCE is "true". The answer is the distinct code "captcha" (the
+    // form then says the security check did not go through, not that a field was
+    // wrong); nothing more about the reason is sent back.
+    if (!(await turnstileAllows(body.captcha, clientIp(req)))) return reply({ error: "captcha" }, 400);
 
     const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
       auth: { persistSession: false, autoRefreshToken: false },

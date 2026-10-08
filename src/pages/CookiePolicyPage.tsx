@@ -31,7 +31,7 @@ export function CookiePolicyPage() {
             <li><strong>YouTube</strong> — embedded video content</li>
             <li><strong>Zoom</strong> — webinars and online events</li>
             <li><strong>Cloudflare</strong> — CDN and security</li>
-            <li><strong>Google reCAPTCHA</strong> — anti-bot protection</li>
+            <li><strong>Cloudflare Turnstile</strong> — anti-spam check on forms, no advertising cookies</li>
           </ul>
         </div>
       </section>

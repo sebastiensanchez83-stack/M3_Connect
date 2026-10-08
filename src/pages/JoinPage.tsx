@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { clearStoredInvite } from '@/lib/invite-store';
 import { ResendConfirmationButton, isEmailNotConfirmed } from '@/components/auth/LoginForm';
+import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { readAuthLanding, scrubAuthLandingUrl } from '@/components/auth/AuthRedirector';
 import { Loader2, Mail, MailWarning, AlertTriangle } from 'lucide-react';
 
@@ -53,6 +54,8 @@ export function JoinPage() {
   const [pageState, setPageState] = useState<PageState>('loading');
   const [invite, setInvite] = useState<InviteInfo | null>(null);
   const [loading, setLoading] = useState(false);
+  // Cloudflare Turnstile on the invitee's sign-up form: invisible unless a challenge is needed; off without a site key.
+  const captcha = useTurnstile();
 
   // Back from the confirmation link (it lands on /join/<id>?email_confirmed=true).
   // In the browser that signed up, the link signs in; elsewhere it only confirms
@@ -234,9 +237,12 @@ export function JoinPage() {
       invite.organization_name,
       '',
       invite.organization_id,
+      undefined, // job title: not asked on this form
+      captcha.token,
     );
 
     setLoading(false);
+    captcha.reset(); // a token works once, whatever the answer
 
     if (error) {
       if (error.message?.includes('already registered')) {
@@ -560,7 +566,8 @@ export function JoinPage() {
               <UnderlineLink href="/privacy" external arrow={false} className="!text-sm !leading-6">{t('auth.privacyPolicy', 'Privacy Policy')}</UnderlineLink>
             </label>
           </div>
-          <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
+          <Turnstile captcha={captcha} action="join" />
+          <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading || captcha.waiting}>
             {loading
               ? <><Loader2 className="h-4 w-4 animate-spin" /> {t('auth.creating', 'Creating...')}</>
               : t('joinInvite.createAndJoin', 'Create Account & Join')}

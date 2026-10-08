@@ -16,6 +16,7 @@ import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal } from '@/components/motion/Reveal';
 import { prefersReducedMotion } from '@/components/motion/useReducedMotion';
 import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
+import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { guestList, type PublicGuestEvent } from '@/lib/guestList';
 import { registerWysRefonteStrings } from '@/i18n/refonte-wys';
 import { cn } from '@/lib/utils';
@@ -32,6 +33,7 @@ const ERRORS: Record<string, string> = {
   no_part: 'Choose the conference, the gala dinner, or both.',
   closed: 'Invitation requests are not open at the moment.',
   busy: 'We are receiving many requests right now — please try again in a few minutes.',
+  captcha: 'The security check did not go through. Please wait a moment and send your request again.',
 };
 
 const EMPTY = { first_name: '', last_name: '', email: '', phone: '', company: '', job_title: '', country: '', motivation: '', website: '' };
@@ -189,6 +191,8 @@ export function GuestEventPage({ slug }: { slug: string }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // Cloudflare Turnstile: invisible unless a challenge is needed; off without a site key.
+  const captcha = useTurnstile();
   const formRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -206,8 +210,12 @@ export function GuestEventPage({ slug }: { slug: string }) {
     setError(null);
     if (!wantsConference && !wantsGala) { setError(ERRORS.no_part); return; }
     setSending(true);
-    const r = await guestList({ action: 'request', slug, ...form, wants_conference: wantsConference, wants_gala: wantsGala });
+    const r = await guestList({
+      action: 'request', slug, ...form, wants_conference: wantsConference, wants_gala: wantsGala,
+      ...(captcha.token ? { captcha: captcha.token } : {}),
+    });
     setSending(false);
+    captcha.reset(); // a token works once, whatever the answer
     if (r.error) { setError(ERRORS[r.error] || 'Something went wrong. Please try again.'); return; }
     setDone(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -395,8 +403,9 @@ export function GuestEventPage({ slug }: { slug: string }) {
                 {/* Honeypot — invisible to people, filled by bots. */}
                 <input type="text" tabIndex={-1} autoComplete="off" value={form.website} onChange={set('website')}
                   className="absolute -left-[9999px] h-0 w-0 opacity-0" aria-hidden="true" />
+                <Turnstile captcha={captcha} action="wys-request" />
                 {error && <FieldError>{error}</FieldError>}
-                <Button type="submit" variant="cta" disabled={sending} arrow={!sending} roll={!sending} className="w-full justify-between">
+                <Button type="submit" variant="cta" disabled={sending || captcha.waiting} arrow={!sending} roll={!sending} className="w-full justify-between">
                   {sending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('wysPage.form.sending', 'Sending…')}</> : t('wysPage.form.send', 'Send my request')}
                 </Button>
                 <p className="text-[13px] leading-5 text-meta">{t('wysPage.form.privacy', 'Your details are used only to process your request for this event.')}</p>

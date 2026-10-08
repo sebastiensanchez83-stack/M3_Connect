@@ -3,7 +3,7 @@
 // the ticked consent box is the consent). Public, no JWT (verify_jwt = false):
 // the footer and home sign-up forms call it anonymously.
 //
-//   POST { email, consent: true, source?, website? }
+//   POST { email, consent: true, source?, website?, captcha? }
 //     email     the address to subscribe (<= 254 characters)
 //     consent   must be true: the form's consent box is ticked
 //     source    where the form sits: footer | home | events | resources | other
@@ -11,10 +11,12 @@
 //               field and a "site-<source>" tag in Mailchimp
 //     website   honeypot: a field no person sees. Filled in => answered 200 and
 //               dropped, so a robot learns nothing
+//     captcha   Cloudflare Turnstile token (see "Anti-spam" below), optional
 //   200 { ok: true }                 subscribed or already on the list. The same
 //                                    answer either way, so the form cannot be
 //                                    used to find out who is subscribed
-//   400 { error: "invalid" }         bad address / no consent / address refused
+//   400 { error: "invalid" }         bad address / no consent / address refused /
+//                                    anti-spam check failed
 //   429 { error: "rate_limited" }
 //   500 { error: "server" }          Mailchimp or this function is not set up
 //
@@ -24,14 +26,42 @@
 // again the same way; if Mailchimp refuses (its compliance rules can block
 // re-subscribing by API), it falls back to "pending", so Mailchimp sends its
 // confirmation e-mail. A "pending" address is moved to "subscribed". An address
-// already subscribed keeps its status; in every case the "site-<source>" tag is
-// added and SOURCE is filled if it was empty.
+// already subscribed keeps its status and its interests; SOURCE is filled if it
+// was empty. Tags: "site-<source>" is added in every case; "smc-website" (the
+// welcome trigger, see below) only when the address's interests were set here:
+// new, subscribed again, or a pending address moved to subscribed.
+//
+// Preferences: a NEW subscription (and a re-subscription, and a pending address
+// moved to subscribed) has EVERY interest of the Mailchimp group category titled
+// "Email preferences" ticked (Victor: all ticked, people untick in the welcome
+// e-mail's preference page). The category is looked up by title, then its
+// interests, and kept in a module variable (1 hour; 5 minutes when the category
+// is missing or has no interest yet, so adding the boxes in Mailchimp takes
+// effect quickly). No such category, or an empty one: the address is subscribed
+// without interests and the problem is logged once. If Mailchimp refuses a
+// stored interest id (an interest deleted and recreated), the list is dropped
+// and the call is retried once without interests. An address that is already SUBSCRIBED keeps the
+// interests it has.
+//
+// Welcome e-mail: the tag "smc-website" is the trigger of the Mailchimp Customer
+// Journey that sends it. It is added with the tag endpoint AFTER the member
+// exists (a tag set in the same call that creates the member may not fire a
+// "tag added" trigger). The e-mail says the person is on the list for every
+// topic, so the tag is added ONLY where that is true (all interests were just
+// ticked here): an address that was already subscribed, with whatever interests
+// it chose, gets no welcome from typing its address in again. A member who
+// already has the tag is not tagged again, so the journey runs once per contact.
+//
+// Anti-spam: Cloudflare Turnstile, SOFT until TURNSTILE_ENFORCE is "true" (see
+// the helper below).
 //
 // Secrets (Supabase > Edge Functions > Secrets):
 //   MAILCHIMP_API_KEY          the key, "<hex>-<datacenter>"
 //   MAILCHIMP_SERVER_PREFIX    the datacenter, e.g. "us21" (defaults to the
 //                              suffix of the API key)
 //   MAILCHIMP_AUDIENCE_ID      the audience (list) id
+//   TURNSTILE_SECRET_KEY       Cloudflare Turnstile secret (unset: no check)
+//   TURNSTILE_ENFORCE          "true": a request with no token is refused
 // The audience needs a text merge field with the tag SOURCE (Audience >
 // Settings > Audience fields and merge tags); without it Mailchimp ignores the
 // value and the "site-<source>" tag still tells where the address came from.
@@ -68,6 +98,61 @@ const MAX_PER_ADDRESS_PER_DAY = 3;
 
 const SOURCES = new Set(["footer", "home", "events", "resources", "other"]);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// The Mailchimp group category whose interests are all ticked for a new
+// subscriber (compared in lower case, trimmed), and the common tag a Customer
+// Journey can trigger on.
+const PREFERENCES_CATEGORY_TITLE = "email preferences";
+const WELCOME_TAG = "smc-website";
+const INTERESTS_TTL_MS = 3_600_000;
+const INTERESTS_MISSING_TTL_MS = 300_000;
+
+// ─── Anti-spam: Cloudflare Turnstile ─────────────────────────────────────────
+// SOFT until TURNSTILE_ENFORCE is "true": a token that is present is always
+// checked (present and invalid => refused), but a request with no token still
+// goes through, because the pages that are live may not send one yet.
+// TURNSTILE_SECRET_KEY unset => the check is skipped
+// (logged once). Cloudflare unreachable, or a secret it does not accept => the
+// request goes through (logged): our setup is at fault, not the visitor.
+// The same helper is inlined in contact-submit and guest-list.
+const TURNSTILE_SECRET = Deno.env.get("TURNSTILE_SECRET_KEY") || "";
+const TURNSTILE_ENFORCE = (Deno.env.get("TURNSTILE_ENFORCE") || "").trim().toLowerCase() === "true";
+const TURNSTILE_SETUP_ERRORS = new Set(["missing-input-secret", "invalid-input-secret", "bad-request", "internal-error"]);
+let turnstileSkipLogged = false;
+
+/** true: the request may go on. false: answer with the "invalid" error and say nothing more. Never throws. */
+async function turnstileAllows(token: unknown, ip: string | null): Promise<boolean> {
+  if (!TURNSTILE_SECRET) {
+    if (!turnstileSkipLogged) {
+      turnstileSkipLogged = true;
+      console.warn("newsletter-subscribe: TURNSTILE_SECRET_KEY is not set, the Turnstile check is skipped");
+    }
+    return true;
+  }
+  const response = typeof token === "string" ? token.trim() : "";
+  if (!response) return !TURNSTILE_ENFORCE;
+  if (response.length > 2048) return false;
+  try {
+    const form = new URLSearchParams({ secret: TURNSTILE_SECRET, response });
+    if (ip) form.set("remoteip", ip);
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(5000),
+    });
+    const out = (await res.json().catch(() => null)) as { success?: boolean; "error-codes"?: string[] } | null;
+    if (out?.success === true) return true;
+    const codes = out?.["error-codes"] ?? [];
+    if (!out || codes.some((c) => TURNSTILE_SETUP_ERRORS.has(c))) {
+      console.error("newsletter-subscribe: Turnstile siteverify could not judge the token", res.status, codes.join(","));
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error("newsletter-subscribe: Turnstile siteverify unreachable", err instanceof Error ? err.name : "error");
+    return true;
+  }
+}
 
 function corsHeaders(req: Request) {
   const origin = req.headers.get("origin") || "";
@@ -177,9 +262,74 @@ async function mailchimp(method: string, path: string, body?: Record<string, unk
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  let json: { status?: number | string; title?: string; detail?: string; merge_fields?: { SOURCE?: string } } = {};
+  let json: MailchimpJson = {};
   try { json = await res.json(); } catch { /* an empty body */ }
   return { status: res.status, json };
+}
+
+type MailchimpJson = {
+  status?: number | string;
+  title?: string;
+  detail?: string;
+  merge_fields?: { SOURCE?: string };
+  categories?: { id: string; title?: string }[];
+  interests?: { id: string }[];
+};
+
+// The interest ids of the "Email preferences" category, remembered between calls
+// of a warm instance. Failures are not remembered (the next call tries again).
+let interestsCache: { ids: string[]; at: number; ttl: number } | null = null;
+let missingCategoryLogged = false;
+let emptyCategoryLogged = false;
+
+// Every interest of the category set to true, or null when there is none to set
+// (no such category, or Mailchimp could not be asked): the person is then
+// subscribed without interests. Never throws.
+async function preferenceInterests(): Promise<Record<string, boolean> | null> {
+  if (!interestsCache || Date.now() - interestsCache.at > interestsCache.ttl) {
+    try {
+      const base = `/lists/${encodeURIComponent(MAILCHIMP_AUDIENCE_ID)}/interest-categories`;
+      const categories = await mailchimp("GET", `${base}?count=100`);
+      if (categories.status !== 200) throw new Error(`interest categories ${categories.status}`);
+      const category = (categories.json.categories || []).find(
+        (c) => (c.title || "").trim().toLowerCase() === PREFERENCES_CATEGORY_TITLE,
+      );
+      if (!category) {
+        if (!missingCategoryLogged) {
+          missingCategoryLogged = true;
+          console.error('newsletter-subscribe: no interest category titled "Email preferences" in the audience, subscribing without interests');
+        }
+        interestsCache = { ids: [], at: Date.now(), ttl: INTERESTS_MISSING_TTL_MS };
+      } else {
+        const interests = await mailchimp("GET", `${base}/${encodeURIComponent(category.id)}/interests?count=100`);
+        if (interests.status !== 200) throw new Error(`interests ${interests.status}`);
+        const ids = (interests.json.interests || []).map((i) => i.id);
+        if (ids.length === 0 && !emptyCategoryLogged) {
+          emptyCategoryLogged = true;
+          console.error('newsletter-subscribe: the "Email preferences" category has no interest yet, subscribing without interests');
+        }
+        // An empty list is looked up again soon: the boxes may still be being added.
+        interestsCache = { ids, at: Date.now(), ttl: ids.length === 0 ? INTERESTS_MISSING_TTL_MS : INTERESTS_TTL_MS };
+      }
+    } catch (err) {
+      console.error("newsletter-subscribe: could not read the interests", err instanceof Error ? err.message : String(err));
+    }
+  }
+  if (!interestsCache || interestsCache.ids.length === 0) return null;
+  return Object.fromEntries(interestsCache.ids.map((id) => [id, true]));
+}
+
+// Adds the tags to an existing member: "site-<source>" always, the welcome
+// trigger only when `welcome` is true (the person's interests were just set to
+// all ticked). A failure is logged only: the person is already on the list.
+async function tagMember(member: string, source: string, welcome: boolean): Promise<void> {
+  const tagged = await mailchimp("POST", `${member}/tags`, {
+    tags: [
+      ...(welcome ? [{ name: WELCOME_TAG, status: "active" }] : []),
+      { name: `site-${source}`, status: "active" },
+    ],
+  });
+  if (tagged.status !== 204 && tagged.status !== 200) console.error("newsletter-subscribe: tag failed", tagged.status, tagged.json.title);
 }
 
 Deno.serve(async (req: Request) => {
@@ -208,6 +358,11 @@ Deno.serve(async (req: Request) => {
     return reply(req, 500, { error: "server" });
   }
 
+  // Anti-spam (Turnstile). After the cheap checks above, so a form refused for
+  // another reason does not use up the visitor's single-use token. Soft until
+  // TURNSTILE_ENFORCE is "true". Nothing about the reason is sent back.
+  if (!(await turnstileAllows(payload.captcha, clientIp(req)))) return reply(req, 400, { error: "invalid" });
+
   // Rate limit: per network per hour, per address per day.
   if (SUPABASE_URL && SERVICE_ROLE_KEY) {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -224,16 +379,26 @@ Deno.serve(async (req: Request) => {
     if (found.status === 200) {
       const status = String(found.json.status);
       // Already on the list, or still waiting for a confirmation e-mail: a
-      // pending address is moved to subscribed (the box was ticked again), the
-      // "site-<source>" tag is added, and SOURCE is filled if it was empty.
+      // pending address is moved to subscribed (the box was ticked again) with
+      // every preference ticked and the "smc-website" welcome tag added; the
+      // "site-<source>" tag is added in both cases, and SOURCE is filled if it was
+      // empty. An address that is already subscribed keeps the interests it has
+      // and gets no welcome tag (the welcome e-mail promises every topic).
       // A failure here is logged only: the person is already on the list.
+      let welcome = false;
       if (status === "pending") {
-        const confirmed = await mailchimp("PATCH", member, { status: "subscribed" });
-        if (confirmed.status !== 200) console.error("newsletter-subscribe: pending to subscribed failed", confirmed.status, confirmed.json.title);
+        const interests = await preferenceInterests();
+        let confirmed = await mailchimp("PATCH", member, { status: "subscribed", ...(interests ? { interests } : {}) });
+        if (confirmed.status === 400 && interests) {
+          // A stored interest id Mailchimp no longer knows: forget the list, go on without.
+          interestsCache = null;
+          confirmed = await mailchimp("PATCH", member, { status: "subscribed" });
+        }
+        if (confirmed.status === 200) welcome = true;
+        else console.error("newsletter-subscribe: pending to subscribed failed", confirmed.status, confirmed.json.title);
       }
       if (status === "subscribed" || status === "pending") {
-        const tagged = await mailchimp("POST", `${member}/tags`, { tags: [{ name: `site-${source}`, status: "active" }] });
-        if (tagged.status !== 204 && tagged.status !== 200) console.error("newsletter-subscribe: tag failed", tagged.status, tagged.json.title);
+        await tagMember(member, source, welcome);
         if (!found.json.merge_fields?.SOURCE) {
           const patched = await mailchimp("PATCH", member, { merge_fields: { SOURCE: source } });
           if (patched.status !== 200) console.error("newsletter-subscribe: source update failed", patched.status, patched.json.title);
@@ -246,21 +411,38 @@ Deno.serve(async (req: Request) => {
     }
 
     // New, or unsubscribed / cleaned / archived and consenting again: SUBSCRIBED
-    // at once (single opt-in), with the sign-up time and network as proof.
-    const fields = {
+    // at once (single opt-in), with the sign-up time and network as proof, and
+    // every preference ticked. The tags are added once the member exists (see
+    // the header).
+    const interests = await preferenceInterests();
+    const baseFields = {
       email_address: email,
       merge_fields: { SOURCE: source },
-      tags: [`site-${source}`],
       timestamp_signup: new Date().toISOString(),
       ...(clientIp(req) ? { ip_signup: clientIp(req) } : {}),
     };
-    let saved = await mailchimp("PUT", member, { ...fields, status_if_new: "subscribed", status: "subscribed" });
-    if (saved.status === 400 && saved.json.title === "Member In Compliance State") {
-      // Mailchimp will not re-subscribe this address by API: ask the person to
-      // confirm by e-mail instead.
-      saved = await mailchimp("PUT", member, { ...fields, status_if_new: "pending", status: "pending" });
+    const save = async (withInterests: boolean) => {
+      const fields = withInterests && interests ? { ...baseFields, interests } : baseFields;
+      let res = await mailchimp("PUT", member, { ...fields, status_if_new: "subscribed", status: "subscribed" });
+      if (res.status === 400 && res.json.title === "Member In Compliance State") {
+        // Mailchimp will not re-subscribe this address by API: ask the person to
+        // confirm by e-mail instead.
+        res = await mailchimp("PUT", member, { ...fields, status_if_new: "pending", status: "pending" });
+      }
+      return res;
+    };
+    let saved = await save(true);
+    if (saved.status === 400 && saved.json.title === "Invalid Resource" && interests) {
+      // Either the address or a stored interest id is refused (an interest deleted
+      // and recreated in Mailchimp). Forget the stored list and try once without
+      // interests: a bad address is refused again and still answers "invalid".
+      interestsCache = null;
+      saved = await save(false);
     }
-    if (saved.status === 200) return reply(req, 200, { ok: true });
+    if (saved.status === 200) {
+      await tagMember(member, source, true);
+      return reply(req, 200, { ok: true });
+    }
     if (saved.status === 400 && saved.json.title === "Invalid Resource") return reply(req, 400, { error: "invalid" });
     console.error("newsletter-subscribe: member save failed", saved.status, saved.json.title, saved.json.detail);
     return reply(req, 500, { error: "server" });

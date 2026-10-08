@@ -39,6 +39,56 @@ const json = (req: Request, body: unknown, status = 200) =>
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
 
+// ─── Anti-spam: Cloudflare Turnstile (public "request" action only) ─────────
+// SOFT until TURNSTILE_ENFORCE is "true": a token that is present is always
+// checked (present and invalid => refused), but a request with no token still
+// goes through, because the pages that are live may not send one yet.
+// TURNSTILE_SECRET_KEY unset => the check is skipped (logged once). Cloudflare
+// unreachable, or a secret it does not accept => the request goes through
+// (logged): our setup is at fault, not the visitor.
+// The same helper is inlined in contact-submit and newsletter-subscribe.
+const TURNSTILE_SECRET = Deno.env.get("TURNSTILE_SECRET_KEY") || "";
+const TURNSTILE_ENFORCE = (Deno.env.get("TURNSTILE_ENFORCE") || "").trim().toLowerCase() === "true";
+const TURNSTILE_SETUP_ERRORS = new Set(["missing-input-secret", "invalid-input-secret", "bad-request", "internal-error"]);
+let turnstileSkipLogged = false;
+
+const clientIp = (req: Request): string | null =>
+  req.headers.get("cf-connecting-ip") || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
+
+/** true: the request may go on. false: answer with the "captcha" error and say nothing more. Never throws. */
+async function turnstileAllows(token: unknown, ip: string | null): Promise<boolean> {
+  if (!TURNSTILE_SECRET) {
+    if (!turnstileSkipLogged) {
+      turnstileSkipLogged = true;
+      console.warn("guest-list: TURNSTILE_SECRET_KEY is not set, the Turnstile check is skipped");
+    }
+    return true;
+  }
+  const response = typeof token === "string" ? token.trim() : "";
+  if (!response) return !TURNSTILE_ENFORCE;
+  if (response.length > 2048) return false;
+  try {
+    const form = new URLSearchParams({ secret: TURNSTILE_SECRET, response });
+    if (ip) form.set("remoteip", ip);
+    const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+      method: "POST",
+      body: form,
+      signal: AbortSignal.timeout(5000),
+    });
+    const out = (await res.json().catch(() => null)) as { success?: boolean; "error-codes"?: string[] } | null;
+    if (out?.success === true) return true;
+    const codes = out?.["error-codes"] ?? [];
+    if (!out || codes.some((c) => TURNSTILE_SETUP_ERRORS.has(c))) {
+      console.error("guest-list: Turnstile siteverify could not judge the token", res.status, codes.join(","));
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error("guest-list: Turnstile siteverify unreachable", err instanceof Error ? err.name : "error");
+    return true;
+  }
+}
+
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 const clean = (s: unknown, max = 200) => (typeof s === "string" ? s.trim().slice(0, max) : "");
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -233,6 +283,11 @@ Deno.serve(async (req) => {
     if (!g.first_name || !g.last_name || !EMAIL_RE.test(g.email) || !g.company || !g.job_title)
       return json(req, { error: "missing_fields" }, 400);
     if (!g.wants_conference && !g.wants_gala) return json(req, { error: "no_part" }, 400);
+    // Anti-spam (Turnstile), after the field checks so a form refused for another
+    // reason does not use up the visitor's single-use token. Soft until
+    // TURNSTILE_ENFORCE is "true". A distinct code (400), so the page can say the
+    // check did not go through; nothing else is given away.
+    if (!(await turnstileAllows(body.captcha, clientIp(req)))) return json(req, { error: "captcha" }, 400);
     // Flood guard: a burst of requests in ten minutes is not people.
     const since = new Date(Date.now() - 10 * 60_000).toISOString();
     const { count } = await db.from("gl_guest").select("id", { count: "exact", head: true })

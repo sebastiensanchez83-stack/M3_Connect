@@ -17,6 +17,7 @@ import { Mail, MapPin, CheckCircle } from 'lucide-react';
 import { Seo } from '@/components/seo/Seo';
 import { submitContact, currentSource } from '@/lib/contactSubmit';
 import { ContactFailure, Honeypot } from '@/components/contact/ContactParts';
+import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { PageHero } from '@/components/ui/PageHero';
 import { ContactCard } from '@/components/brand/ContactCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
@@ -66,6 +67,8 @@ export function ContactPage() {
   });
   // The honeypot of the contact function: a field no person sees (see ContactParts).
   const [website, setWebsite] = useState('');
+  // Cloudflare Turnstile: invisible unless a challenge is needed; off without a site key.
+  const captcha = useTurnstile();
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   // Why the last attempt did not go, or null. Never a silent success: the form
@@ -129,8 +132,11 @@ export function ContactPage() {
       message: form.message,
       source: currentSource(),
       website,
+      captcha: captcha.token,
     });
     setSubmitting(false);
+    // A token works once: ask for a new one whatever the answer.
+    captcha.reset();
 
     if (!result.ok) {
       setFailure(result.reason);
@@ -321,6 +327,7 @@ export function ContactPage() {
                     </div>
 
                     <Honeypot value={website} onChange={setWebsite} />
+                    <Turnstile captcha={captcha} action="contact" />
 
                     {failure && <ContactFailure id="contact-failure" reason={failure} />}
 
@@ -328,7 +335,7 @@ export function ContactPage() {
                       <Button
                         type="submit"
                         variant="cta"
-                        disabled={submitting}
+                        disabled={submitting || captcha.waiting}
                         arrow={!submitting}
                         roll={!submitting}
                         className="w-full justify-between sm:w-auto"

@@ -17,6 +17,7 @@ import { LogoMarquee, type MarqueeGroup } from '@/components/motion/LogoMarquee'
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { PhotoFrame, SectionHead } from '@/components/content/ContentParts';
 import { ContactFailure, Honeypot } from '@/components/contact/ContactParts';
+import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { useEventSponsors } from '@/components/events/EventDetailParts';
 import { SITE_IMAGES, SM26_MOMENTS } from '@/lib/siteMedia';
 import { submitContact, type ContactResult } from '@/lib/contactSubmit';
@@ -320,6 +321,8 @@ function DeckForm() {
   const [events, setEvents] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [website, setWebsite] = useState('');
+  // Cloudflare Turnstile: invisible unless a challenge is needed; off without a site key.
+  const captcha = useTurnstile();
   const [errors, setErrors] = useState<{ name?: string; email?: string; company?: string }>({});
   const [failure, setFailure] = useState<Exclude<ContactResult, { ok: true }>['reason'] | null>(null);
   const [sending, setSending] = useState(false);
@@ -358,8 +361,10 @@ function DeckForm() {
       message,
       source: '/sponsor',
       website,
+      captcha: captcha.token,
     });
     setSending(false);
+    captcha.reset(); // a token works once
     if (!result.ok) { setFailure(result.reason); return; }
     setSent(true);
   };
@@ -451,10 +456,11 @@ function DeckForm() {
       </div>
 
       <Honeypot value={website} onChange={setWebsite} />
+      <Turnstile captcha={captcha} action="sponsor-deck" />
       {failure && <ContactFailure reason={failure} />}
 
       <div className="pt-1">
-        <Button type="submit" variant="cta" disabled={sending} arrow={!sending} roll={!sending} className="w-full justify-between sm:w-auto">
+        <Button type="submit" variant="cta" disabled={sending || captcha.waiting} arrow={!sending} roll={!sending} className="w-full justify-between sm:w-auto">
           {sending ? t('flows.sponsor.deck.sending') : t('flows.sponsor.deck.submit')}
         </Button>
       </div>

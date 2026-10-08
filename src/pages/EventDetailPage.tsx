@@ -23,6 +23,8 @@ import { ContactCard } from '@/components/brand/ContactCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { LogoTile } from '@/components/brand/OrgCard';
+import { companyHref, usePeopleOrgs } from '@/lib/personOrg';
+import { displayCase } from '@/lib/displayCase';
 import { featuredEventItems, RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
 import { Reveal, RevealGroup } from '@/components/motion/Reveal';
 import { SponsorsBand } from '@/components/home/SponsorsBand';
@@ -480,6 +482,13 @@ export function EventDetailPage() {
   // The Rendezvous page also shows the event sponsors, by tier (the home page's read).
   const isRendezvous = !!id && id === RENDEZVOUS_2026_ID;
   const { sponsors, loading: sponsorsLoading } = useEventSponsors(isRendezvous);
+
+  // People have no page of their own: a speaker or an attendee links to their
+  // company's page (src/lib/personOrg.ts), or to nothing when they have none.
+  const peopleOrgs = usePeopleOrgs([
+    ...(event?.speakers ?? []).map((sp) => sp.profile_id),
+    ...participants.map((p) => p.user_id),
+  ]);
 
   // ---------------------------------------------------------------- render
   // A whole screen tall (same loader as the lazy routes): the footer stays below the fold, so the page arriving does not shift.
@@ -1075,6 +1084,10 @@ export function EventDetailPage() {
           <ul className="grid gap-3 sm:grid-cols-2">
             {speakers.map((speaker, idx) => {
               const initials = speaker.name.split(/\s+/).filter(Boolean).map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+              // Name, job title and company; the link goes to the company's page
+              // (people have no page of their own).
+              const org = speaker.profile_id ? peopleOrgs[speaker.profile_id] : undefined;
+              const href = companyHref(org);
               const inner = (
                 <>
                   <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-teal text-[15px] font-semibold tracking-[0.02em] text-white">
@@ -1083,14 +1096,15 @@ export function EventDetailPage() {
                   <span className="min-w-0">
                     <span className="block font-semibold text-navy [overflow-wrap:anywhere]">{speaker.name}</span>
                     {speaker.title && <span className="block text-sm leading-5 text-meta [overflow-wrap:anywhere]">{speaker.title}</span>}
+                    {org && <span className="block text-sm leading-5 text-ink [overflow-wrap:anywhere]">{displayCase(org.name)}</span>}
                   </span>
                 </>
               );
               return (
                 <li key={idx}>
-                  {speaker.profile_id ? (
+                  {href ? (
                     <Link
-                      to={`/users/${speaker.profile_id}`}
+                      to={href}
                       className="flex items-center gap-3.5 rounded-field border border-rule bg-white p-3.5 transition-colors hover:border-navy focus:outline-none focus-visible:shadow-focus"
                     >
                       {inner}
@@ -1271,26 +1285,38 @@ export function EventDetailPage() {
             participants.length > 0 ? (
               <ul className="grid gap-3 sm:grid-cols-2">
                 {participants.map((p) => {
-                  const name = [p.first_name, p.last_name].filter(Boolean).join(' ') || t('eventsPage.member', 'Member');
+                  const name = displayCase([p.first_name, p.last_name].filter(Boolean).join(' ')) || t('eventsPage.member', 'Member');
+                  // Photo, name, job title, company; the link goes to the company's page
+                  // (people have no page of their own), none without a company.
+                  const href = companyHref(peopleOrgs[p.user_id]);
+                  const card = (
+                    <>
+                      {p.avatar_url ? (
+                        <img src={p.avatar_url} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
+                      ) : (
+                        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-teal text-sm font-semibold text-white" aria-hidden="true">
+                          {((p.first_name?.[0] || '') + (p.last_name?.[0] || '')).toUpperCase() || '?'}
+                        </span>
+                      )}
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-navy">{name}</div>
+                        {p.job_title && <div className="truncate text-xs text-meta">{p.job_title}</div>}
+                        {p.org_name && <div className="truncate text-xs text-meta">{displayCase(p.org_name)}</div>}
+                      </div>
+                    </>
+                  );
                   return (
                     <li key={p.user_id}>
-                      <Link
-                        to={`/users/${p.user_id}`}
-                        className="flex items-center gap-3 rounded-field border border-rule bg-white p-3 transition-colors hover:border-navy focus:outline-none focus-visible:shadow-focus"
-                      >
-                        {p.avatar_url ? (
-                          <img src={p.avatar_url} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
-                        ) : (
-                          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-teal text-sm font-semibold text-white" aria-hidden="true">
-                            {((p.first_name?.[0] || '') + (p.last_name?.[0] || '')).toUpperCase() || '?'}
-                          </span>
-                        )}
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-navy">{name}</div>
-                          {p.job_title && <div className="truncate text-xs text-meta">{p.job_title}</div>}
-                          {p.org_name && <div className="truncate text-xs text-meta">{p.org_name}</div>}
-                        </div>
-                      </Link>
+                      {href ? (
+                        <Link
+                          to={href}
+                          className="flex items-center gap-3 rounded-field border border-rule bg-white p-3 transition-colors hover:border-navy focus:outline-none focus-visible:shadow-focus"
+                        >
+                          {card}
+                        </Link>
+                      ) : (
+                        <div className="flex items-center gap-3 rounded-field border border-rule bg-white p-3">{card}</div>
+                      )}
                     </li>
                   );
                 })}

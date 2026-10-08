@@ -38,6 +38,17 @@ const COUNTRY_ALIASES: Record<string, string> = {
   deutschland: 'germany', allemagne: 'germany', turkiye: 'turkey', turquie: 'turkey', grece: 'greece',
   croatie: 'croatia', hrvatska: 'croatia', holland: 'netherlands', 'pays-bas': 'netherlands',
   bresil: 'brazil', suisse: 'switzerland', mexique: 'mexico',
+  // Native spellings (members often type their own country's name) and more French ones.
+  hellas: 'greece', ellada: 'greece', nederland: 'netherlands',
+  danmark: 'denmark', danemark: 'denmark', sverige: 'sweden', suede: 'sweden', norge: 'norway', norvege: 'norway',
+  finlande: 'finland', polska: 'poland', pologne: 'poland', osterreich: 'austria', autriche: 'austria',
+  schweiz: 'switzerland', svizzera: 'switzerland', belgique: 'belgium', belgie: 'belgium', belgien: 'belgium',
+  brasil: 'brazil', irlande: 'ireland', eire: 'ireland', chypre: 'cyprus', kypros: 'cyprus',
+  maroc: 'morocco', algerie: 'algeria', egypte: 'egypt', liban: 'lebanon', jordanie: 'jordan',
+  'arabie saoudite': 'saudi arabia', singapour: 'singapore', australie: 'australia', 'nouvelle-zelande': 'new zealand',
+  'afrique du sud': 'south africa', japon: 'japan', chine: 'china', inde: 'india',
+  slovenija: 'slovenia', slovenie: 'slovenia', 'crna gora': 'montenegro', eesti: 'estonia', latvija: 'latvia',
+  lietuva: 'lithuania', islande: 'iceland', 'ceska republika': 'czechia', cesko: 'czechia', magyarorszag: 'hungary',
 };
 
 /** One spelling of a country → its folded key ("The Netherlands", "Pays-Bas" → "netherlands"). */

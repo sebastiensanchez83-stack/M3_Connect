@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
 import { useTranslation } from 'react-i18next';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,10 +26,11 @@ import {
 } from '@/types/database';
 import {
   Building2, Users, Mail, Crown, UserPlus, Loader2, ExternalLink,
-  Trash2, LogOut, ArrowRightLeft, Globe, MapPin, Shield, CheckCircle, Clock, XCircle,
-  ArrowUpCircle, Upload, FileText, X, Camera, CreditCard,
+  Trash2, LogOut, ArrowRightLeft, Globe, MapPin, CheckCircle, Clock, XCircle,
+  ArrowUpCircle, Upload, FileText, X, Camera,
 } from 'lucide-react';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
+import { BTN, BTN_OUTLINE } from '@/components/member/MemberUI';
 import { isSponsorTier } from '@/types/database';
 import { CapitalIntentSection } from '@/components/capital/CapitalIntentSection';
 import { InvestmentThesisSection } from '@/components/capital/InvestmentThesisSection';
@@ -74,7 +75,6 @@ function valueKeys(values: string[]): string[] {
 export function OrganizationTab() {
   const { t } = useTranslation();
   const { user, profile, refreshProfile } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<OrganizationMember[]>([]);
@@ -124,11 +124,7 @@ export function OrganizationTab() {
 
   // Sponsorship upgrade dialog
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [upgradeSubmitting, setUpgradeSubmitting] = useState(false);
-  const [upgradeTier, setUpgradeTier] = useState('innovation_partner');
-  const [upgradeInvoiceFile, setUpgradeInvoiceFile] = useState<File | null>(null);
-  const [uploadingInvoice, setUploadingInvoice] = useState(false);
-  const invoiceInputRef = useRef<HTMLInputElement>(null);
+  const [, setUpgradeTier] = useState('innovation_partner');
 
   // Creating an organization is one step for every persona: it starts as a
   // free member. The old sponsor-level picker (a copy of the retired tiers
@@ -146,7 +142,7 @@ export function OrganizationTab() {
   const [galleryBusy, setGalleryBusy] = useState(false);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [uploadingBanner, setUploadingBanner] = useState(false);
-  const [logoMeta, setLogoMeta] = useState('');
+  const [, setLogoMeta] = useState('');
   const [bannerMeta, setBannerMeta] = useState('');
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
@@ -311,7 +307,6 @@ export function OrganizationTab() {
     if (!uid) return;
     setUploadingDoc(true);
     try {
-      const ext = file.name.split('.').pop() || 'pdf';
       const storagePath = `${org.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
       const { error: upErr } = await supabase.storage.from('org-documents').upload(storagePath, file, { cacheControl: '3600' });
       if (upErr) throw upErr;
@@ -554,7 +549,7 @@ export function OrganizationTab() {
       const validOrgTypes = ['marina', 'partner', 'media_partner'];
       const orgType = profile?.persona && validOrgTypes.includes(profile.persona) ? profile.persona : null;
 
-      const { data, error } = await supabase.rpc('create_organization', {
+      const { error } = await supabase.rpc('create_organization', {
         p_name: createForm.name.trim(),
         p_organization_type: orgType,
         p_primary_domain: domainToUse,
@@ -958,7 +953,7 @@ export function OrganizationTab() {
               <div className="space-y-2">
                 <Label>{t('org.description')}</Label>
                 <textarea
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                  className="w-full rounded-field border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
                   value={createForm.description}
                   onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
                   placeholder={t('org.descriptionPlaceholder')}
@@ -1014,7 +1009,7 @@ export function OrganizationTab() {
       {/* Organization Info Card */}
       <Card className="rounded-card shadow-none overflow-hidden" data-org-section="branding">
         {/* Cover banner (3:1) — full-bleed, with an always-visible upload button for owners */}
-        <div className="relative aspect-[3/1] min-h-[10rem] bg-gradient-to-br from-slate-100 to-slate-200">
+        <div className="relative aspect-[3/1] min-h-[10rem] bg-chip">
           {org.banner_url ? (
             <>
               <img src={org.banner_url} alt={`${org.name} cover`} className="w-full h-full object-cover object-center" />
@@ -1025,7 +1020,7 @@ export function OrganizationTab() {
               type="button"
               onClick={() => canEditBranding && bannerInputRef.current?.click()}
               disabled={!canEditBranding}
-              className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-slate-400 hover:text-slate-500 transition-colors disabled:cursor-default"
+              className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-meta hover:text-navy transition-colors disabled:cursor-default focus:outline-none focus-visible:shadow-[inset_0_0_0_2px_rgb(11_38_83)]"
             >
               <Camera className="h-9 w-9 opacity-40" />
               {canEditBranding && <span className="text-xs font-medium">Add a cover photo</span>}
@@ -1038,7 +1033,7 @@ export function OrganizationTab() {
                 type="button"
                 onClick={() => bannerInputRef.current?.click()}
                 disabled={uploadingBanner}
-                className="absolute top-3 right-3 flex items-center gap-1.5 bg-white/90 hover:bg-white text-slate-700 text-xs font-medium rounded-full px-3 py-1.5 shadow-sm disabled:opacity-60"
+                className="absolute top-3 right-3 inline-flex min-h-9 items-center gap-1.5 rounded-pill bg-white/95 px-3.5 text-[13px] font-semibold text-navy ring-1 ring-rule transition-colors hover:bg-white focus:outline-none focus-visible:shadow-focus disabled:opacity-60"
               >
                 {uploadingBanner ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
                 {org.banner_url ? 'Change cover' : 'Upload cover'}
@@ -1047,7 +1042,8 @@ export function OrganizationTab() {
                 <button
                   type="button"
                   onClick={handleRemoveBanner}
-                  className="absolute top-3 left-3 p-1.5 bg-red-500/90 hover:bg-red-500 text-white rounded-full shadow-sm"
+                  className="absolute top-3 left-3 grid h-9 w-9 place-items-center rounded-pill bg-white/95 text-red-700 ring-1 ring-rule transition-colors hover:bg-red-50 focus:outline-none focus-visible:shadow-focus"
+                  aria-label="Remove cover photo"
                   title="Remove cover photo"
                 >
                   <X className="h-4 w-4" />
@@ -1064,7 +1060,7 @@ export function OrganizationTab() {
           )}
         </div>
         {canEditBranding && (
-          <p className="px-6 pt-2 text-[11px] leading-snug text-slate-400">
+          <p className="px-6 pt-2 text-[12px] leading-snug text-meta">
             Cover photo — wide image, recommended 1600×400&nbsp;px (JPG, PNG or WebP). Up to 25&nbsp;MB; large photos are optimised automatically on upload.
           </p>
         )}
@@ -1074,17 +1070,18 @@ export function OrganizationTab() {
             <div className="flex flex-col items-center gap-1.5 shrink-0">
               <div className="relative group">
                 {org.logo_url ? (
-                  <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-lg object-contain border bg-white p-1" />
+                  <img src={org.logo_url} alt={org.name} className="w-14 h-14 rounded-field object-contain border border-rule bg-white p-1" />
                 ) : (
-                  <div className="w-14 h-14 rounded-lg bg-chip flex items-center justify-center">
-                    <Building2 className="h-7 w-7 text-primary" />
+                  <div className="w-14 h-14 rounded-field bg-chip flex items-center justify-center">
+                    <Building2 className="h-7 w-7 text-navy" aria-hidden="true" />
                   </div>
                 )}
                 {canEditBranding && org.logo_url && (
                   <button
                     type="button"
                     onClick={handleRemoveLogo}
-                    className="absolute -top-1.5 -right-1.5 p-0.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute -top-1.5 -right-1.5 grid h-6 w-6 place-items-center rounded-pill bg-white text-red-700 ring-1 ring-rule opacity-0 transition-opacity group-hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:shadow-focus"
+                    aria-label="Remove logo"
                     title="Remove logo"
                   >
                     <X className="h-3 w-3" />
@@ -1104,18 +1101,18 @@ export function OrganizationTab() {
                     type="button"
                     onClick={() => logoInputRef.current?.click()}
                     disabled={uploadingLogo}
-                    className="flex items-center gap-1 text-[11px] font-medium text-primary hover:underline disabled:opacity-60"
+                    className="inline-flex min-h-8 items-center gap-1 rounded-pill px-1 text-[12px] font-semibold text-navy underline-offset-2 hover:underline focus:outline-none focus-visible:shadow-focus disabled:opacity-60"
                   >
                     {uploadingLogo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
                     {org.logo_url ? 'Change logo' : 'Add logo'}
                   </button>
-                  <span className="text-[10px] text-slate-400 whitespace-nowrap">Square · max 25 MB</span>
+                  <span className="text-[11px] text-meta whitespace-nowrap">Square · max 25 MB</span>
                 </>
               )}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <CardTitle className="text-xl">{org.name}</CardTitle>
+                <CardTitle className="text-h3 text-navy">{org.name}</CardTitle>
                 <SponsorBadge tier={org.tier as OrgTier} />
               </div>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -1133,25 +1130,25 @@ export function OrganizationTab() {
                   <Badge className="bg-chip text-ink border-rule"><XCircle className="h-3 w-3 mr-1" />{t('org.statusSuspended', 'Suspended')}</Badge>
                 )}
                 {org.onboarding_status === 'submitted' && org.access_status === 'pending' && (
-                  <Badge variant="outline" className="text-blue-600 border-blue-200">{t('org.onboardingSubmitted', 'Under Review')}</Badge>
+                  <Badge variant="outline" className="rounded-pill border-teal/25 bg-foam text-teal-text">{t('org.onboardingSubmitted', 'Under review')}</Badge>
                 )}
               </div>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" asChild>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="outline" size="sm" asChild className={BTN_OUTLINE}>
               <Link to={`/organizations/${org.slug}`}>
                 <ExternalLink className="h-4 w-4 mr-1" />
                 {t('org.viewPublicPage')}
               </Link>
             </Button>
             {canEditOrg && (
-              <Button variant="outline" size="sm" onClick={() => setEditing(!editing)}>
+              <Button variant="outline" size="sm" className={BTN_OUTLINE} onClick={() => setEditing(!editing)}>
                 {t('org.editOrg')}
               </Button>
             )}
             {isOwner && org.access_status === 'verified' && org.tier !== 'main_sponsor' && (
-              <Button size="sm" className="bg-primary text-white hover:bg-primary/90" onClick={() => {
+              <Button size="sm" className={BTN} onClick={() => {
                 // Pre-select the next tier above current
                 const tierOrder: OrgTier[] = ['member', 'innovation_partner', 'associate_partner', 'premium_partner', 'premium_sponsor', 'main_sponsor'];
                 const currentIdx = tierOrder.indexOf(org.tier as OrgTier);
@@ -1201,11 +1198,11 @@ export function OrganizationTab() {
           )}
 
           {/* Product images — any member manages; shown on the public profile */}
-          <div className="border-t pt-4" data-org-section="gallery">
+          <div className="border-t border-rule pt-4" data-org-section="gallery">
             <div className="flex items-center justify-between gap-2 mb-1">
               <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">Product images</h4>
               {canEditOrg && (
-                <label className="inline-flex items-center gap-1.5 text-xs font-medium text-primary cursor-pointer hover:underline">
+                <label className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-pill bg-chip px-3 text-[13px] font-semibold text-navy transition-colors hover:bg-rule focus-within:shadow-focus">
                   <input type="file" accept="image/*" multiple className="hidden" disabled={galleryBusy}
                     onChange={e => { if (e.target.files) handleGalleryUpload(e.target.files); e.target.value = ''; }} />
                   {galleryBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />} Add images
@@ -1218,11 +1215,11 @@ export function OrganizationTab() {
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {(org.gallery || []).map((url, i) => (
-                  <div key={galleryKeys[i]} className="relative group aspect-square rounded-lg border border-rule overflow-hidden bg-page">
+                  <div key={galleryKeys[i]} className="relative group aspect-square rounded-field border border-rule overflow-hidden bg-page">
                     <img src={url} alt="" className="w-full h-full object-cover" />
                     {canEditOrg && (
                       <button type="button" onClick={() => removeGalleryImage(url)}
-                        className="absolute top-1 right-1 bg-white/90 rounded-full p-1 text-meta hover:text-red-600 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity" aria-label="Remove image">
+                        className="absolute top-1 right-1 grid h-7 w-7 place-items-center rounded-pill bg-white/95 text-meta ring-1 ring-rule hover:text-red-700 opacity-0 group-hover:opacity-100 focus:outline-none focus-visible:opacity-100 focus-visible:shadow-focus transition-opacity" aria-label="Remove image">
                         <X className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -1234,7 +1231,7 @@ export function OrganizationTab() {
 
           {/* Detailed Organization Info (read-only) */}
           {!editing && (
-            <div className="border-t pt-4 space-y-4" data-org-section="details">
+            <div className="border-t border-rule pt-4 space-y-4" data-org-section="details">
               {/* General Details */}
               <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">{t('org.generalDetails', 'General Details')}</h4>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
@@ -1416,7 +1413,7 @@ export function OrganizationTab() {
 
           {/* Edit form — takes the details anchor while it replaces the read-only view */}
           {editing && canEditOrg && (
-            <div className="border-t pt-4 space-y-4" data-org-section="details">
+            <div className="border-t border-rule pt-4 space-y-4" data-org-section="details">
               {/* Base fields */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
@@ -1441,7 +1438,7 @@ export function OrganizationTab() {
               <div className="space-y-2">
                 <Label>{t('org.description')}</Label>
                 <textarea
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                  className="w-full rounded-field border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
                   value={editForm.description}
                   onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                 />
@@ -1460,7 +1457,7 @@ export function OrganizationTab() {
                 <div className="space-y-2">
                   <Label>Audience Description</Label>
                   <textarea
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                    className="w-full rounded-field border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
                     value={editForm.audience_description}
                     onChange={(e) => setEditForm({ ...editForm, audience_description: e.target.value })}
                     placeholder="Describe your target audience..."
@@ -1473,7 +1470,7 @@ export function OrganizationTab() {
                 <div className="space-y-2 border-t pt-4">
                   <h4 className="text-sm font-semibold text-ink uppercase tracking-wide">Service Sectors</h4>
                   <p className="text-xs text-meta">Select the sectors your organization operates in.</p>
-                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
+                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto rounded-field border border-rule p-3">
                     {allSectors.map(s => (
                       <div key={s.id} className="flex items-center space-x-2">
                         <Checkbox
@@ -1592,7 +1589,7 @@ export function OrganizationTab() {
                   <div className="space-y-2">
                     <Label>Marina Description</Label>
                     <textarea
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                      className="w-full rounded-field border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
                       value={editForm.marina_description}
                       onChange={(e) => setEditForm({ ...editForm, marina_description: e.target.value })}
                       placeholder="Describe your marina..."
@@ -1601,7 +1598,7 @@ export function OrganizationTab() {
                   <div className="space-y-2">
                     <Label>Services Description</Label>
                     <textarea
-                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
+                      className="w-full rounded-field border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring min-h-[80px]"
                       value={editForm.services_description}
                       onChange={(e) => setEditForm({ ...editForm, services_description: e.target.value })}
                       placeholder="Describe the services you offer..."
@@ -1610,7 +1607,7 @@ export function OrganizationTab() {
 
                   {/* Sectors of Interest */}
                   <h4 className="text-sm font-semibold text-ink uppercase tracking-wide pt-2">Sectors of Interest</h4>
-                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto border rounded-lg p-3">
+                  <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto rounded-field border border-rule p-3">
                     {allSectors.map(s => (
                       <div key={s.id} className="flex items-center space-x-2">
                         <Checkbox
@@ -1630,7 +1627,7 @@ export function OrganizationTab() {
                   {/* Future Development Plans */}
                   <h4 className="text-sm font-semibold text-ink uppercase tracking-wide pt-2">Future Development Plans</h4>
                   <p className="text-xs text-meta">For each sector of interest, select the timeline that best matches your development plans.</p>
-                  <div className="space-y-1 max-h-[400px] overflow-y-auto border rounded-lg p-3">
+                  <div className="space-y-1 max-h-[400px] overflow-y-auto rounded-field border border-rule p-3">
                     {allSectors.filter(s => interestSectors.includes(s.id)).map(sector => (
                       <div key={sector.id} className="flex items-center gap-3 py-2 px-2 rounded hover:bg-page border-b border-rule last:border-0">
                         <span className="text-sm flex-1 min-w-0 truncate" title={sector.label}>{sector.label}</span>
@@ -1681,7 +1678,7 @@ export function OrganizationTab() {
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2 text-h3 text-navy">
-              <Users className="h-5 w-5 text-primary" />
+              <Users className="h-5 w-5 text-teal" aria-hidden="true" />
               {t('org.members')}
             </CardTitle>
             {/* Seat counter — hidden for marinas (unlimited) */}
@@ -1701,7 +1698,7 @@ export function OrganizationTab() {
               </div>
             )}
             {org.organization_type !== 'marina' && org.max_seats > 0 && members.length >= org.max_seats && (
-              <p className="text-xs text-amber-600 mt-1">
+              <p className="text-xs text-amber-800 mt-1">
                 All seats are occupied. Contact Smart Marina Connect to request additional seats.
               </p>
             )}
@@ -1713,6 +1710,7 @@ export function OrganizationTab() {
           {canInvite && (
             <Button
               size="sm"
+              className={BTN}
               onClick={() => setInviteOpen(true)}
               disabled={org.organization_type !== 'marina' && org.max_seats > 0 && (members.length + invitations.length) >= org.max_seats}
             >
@@ -1722,7 +1720,7 @@ export function OrganizationTab() {
           )}
         </CardHeader>
         <CardContent>
-          <div className="divide-y">
+          <div className="divide-y divide-rule">
             {/* Active members */}
             {members.map((member) => {
               const p = member.profiles;
@@ -1734,7 +1732,7 @@ export function OrganizationTab() {
               return (
                 <div key={member.id} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-chip flex items-center justify-center text-primary font-bold text-sm">
+                    <div className="w-9 h-9 rounded-full bg-chip flex items-center justify-center text-navy font-bold text-sm">
                       {initials}
                     </div>
                     <div>
@@ -1756,18 +1754,20 @@ export function OrganizationTab() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-xs"
+                          className="h-9 min-w-9 rounded-pill px-2.5 text-xs text-navy hover:bg-chip"
                           onClick={() => { setTransferTarget(member); setTransferOpen(true); }}
                           title={t('org.transferOwnership')}
+                          aria-label={t('org.transferOwnership')}
                         >
                           <ArrowRightLeft className="h-3 w-3" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-xs text-red-600 hover:text-red-700"
+                          className="h-9 min-w-9 rounded-pill px-2.5 text-xs text-red-700 hover:bg-red-50 hover:text-red-800"
                           onClick={() => handleRemoveMember(member)}
                           title={t('org.removeMember')}
+                          aria-label={t('org.removeMember')}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -1777,7 +1777,7 @@ export function OrganizationTab() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 text-xs text-red-600 hover:text-red-700"
+                        className="h-9 min-w-9 rounded-pill px-2.5 text-xs text-red-700 hover:bg-red-50 hover:text-red-800"
                         onClick={handleLeaveOrg}
                       >
                         <LogOut className="h-3 w-3 mr-1" />
@@ -1793,8 +1793,8 @@ export function OrganizationTab() {
             {invitations.length > 0 && (
               <div className="pt-3 mt-3 border-t border-rule">
                 <div className="flex items-center gap-2 mb-2">
-                  <Mail className="h-4 w-4 text-amber-500" />
-                  <span className="text-sm font-semibold text-meta">Invitations & Requests ({invitations.length})</span>
+                  <Mail className="h-4 w-4 text-amber-700" aria-hidden="true" />
+                  <span className="text-sm font-semibold text-meta">Invitations & requests ({invitations.length})</span>
                 </div>
               </div>
             )}
@@ -1811,9 +1811,9 @@ export function OrganizationTab() {
                 <div key={inv.id} className={`flex items-center justify-between py-3 ${isAccepted ? '' : 'opacity-70'}`}>
                   <div className="flex items-center gap-3">
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm border ${
-                      isAccepted ? 'bg-green-100 text-green-600 border-green-300' :
-                      isJoinRequest ? 'bg-blue-100 text-blue-600 border-blue-300 border-dashed' :
-                      'bg-amber-100 text-amber-600 border-amber-300 border-dashed'
+                      isAccepted ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                      isJoinRequest ? 'bg-foam text-teal-text border-teal/40 border-dashed' :
+                      'bg-amber-50 text-amber-800 border-amber-300 border-dashed'
                     }`}>
                       {invInitials}
                     </div>
@@ -1821,17 +1821,17 @@ export function OrganizationTab() {
                       <div className="font-medium text-ink flex items-center gap-2">
                         {invName || inv.email.split('@')[0]}
                         {isAccepted ? (
-                          <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0">
+                          <Badge className="rounded-pill border-emerald-200 bg-emerald-50 px-2 py-0 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-50">
                             <CheckCircle className="h-3 w-3 mr-0.5" />
                             Joined
                           </Badge>
                         ) : isJoinRequest ? (
-                          <Badge className="bg-blue-100 text-blue-700 border-blue-200 text-[10px] px-1.5 py-0">
+                          <Badge className="rounded-pill border-teal/25 bg-foam px-2 py-0 text-[11px] font-semibold text-teal-text hover:bg-foam">
                             <Users className="h-3 w-3 mr-0.5" />
-                            Join Request
+                            Join request
                           </Badge>
                         ) : (
-                          <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">
+                          <Badge className="rounded-pill border-amber-200 bg-amber-50 px-2 py-0 text-[11px] font-semibold text-amber-900 hover:bg-amber-50">
                             <Clock className="h-3 w-3 mr-0.5" />
                             Pending
                           </Badge>
@@ -1851,7 +1851,7 @@ export function OrganizationTab() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-xs text-green-600 hover:text-green-700 hover:bg-green-50"
+                          className="h-9 rounded-pill px-3 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
                           onClick={() => handleApproveJoinRequest(inv.id, inv.email)}
                           title="Approve join request"
                         >
@@ -1861,9 +1861,10 @@ export function OrganizationTab() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-xs text-red-600 hover:text-red-700"
+                          className="h-9 min-w-9 rounded-pill px-2.5 text-xs text-red-700 hover:bg-red-50 hover:text-red-800"
                           onClick={() => handleRejectJoinRequest(inv.id, inv.email)}
                           title="Reject join request"
+                          aria-label="Reject join request"
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -1874,7 +1875,7 @@ export function OrganizationTab() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-xs text-primary hover:text-primary/80"
+                          className="h-9 rounded-pill px-3 text-xs font-semibold text-navy hover:bg-chip"
                           onClick={() => {
                             const reminderUrl = `${window.location.origin}/join/${inv.id}`;
                             sendNotification({
@@ -1897,9 +1898,10 @@ export function OrganizationTab() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-7 text-xs text-red-600 hover:text-red-700"
+                          className="h-9 min-w-9 rounded-pill px-2.5 text-xs text-red-700 hover:bg-red-50 hover:text-red-800"
                           onClick={() => handleCancelInvitation(inv.id)}
                           title="Cancel invitation"
+                          aria-label="Cancel invitation"
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
@@ -1913,54 +1915,15 @@ export function OrganizationTab() {
         </CardContent>
       </Card>
 
-      {/* Pending Invitations card removed — invitations now shown inline in members list above */}
-      {false && isOwner && invitations.length > 0 && (
-        <Card className="rounded-card shadow-none">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-h3 text-navy">
-              <Mail className="h-5 w-5 text-primary" />
-              {t('org.pendingInvitations')} ({invitations.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="divide-y">
-              {invitations.map((inv) => (
-                <div key={inv.id} className="flex items-center justify-between py-3">
-                  <div>
-                    <div className="font-semibold text-navy">
-                      {[inv.first_name, inv.last_name].filter(Boolean).join(' ') || inv.email}
-                    </div>
-                    <div className="text-xs text-meta">{inv.email}</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-meta/60">
-                      {new Date(inv.expires_at).toLocaleDateString()}
-                    </span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 text-xs text-red-600"
-                      onClick={() => handleCancelInvitation(inv.id)}
-                    >
-                      {t('org.cancelInvitation')}
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Organization Documents */}
       <Card className="rounded-card shadow-none" data-org-section="documents">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-h3 text-navy">
-            <FileText className="h-5 w-5 text-primary" />
+            <FileText className="h-5 w-5 text-teal" aria-hidden="true" />
             Documents
           </CardTitle>
           {isOwner && (
-            <Button size="sm" onClick={() => docInputRef.current?.click()} disabled={uploadingDoc}>
+            <Button size="sm" className={BTN} onClick={() => docInputRef.current?.click()} disabled={uploadingDoc}>
               {uploadingDoc ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Upload className="h-4 w-4 mr-1" />}
               Upload
             </Button>
@@ -1989,7 +1952,7 @@ export function OrganizationTab() {
                   className="text-sm"
                 />
               </div>
-              <p className="mb-4 text-[11px] text-slate-400">PDF, Word or Excel — up to 20&nbsp;MB per file.</p>
+              <p className="mb-4 text-[12px] text-meta">PDF, Word or Excel — up to 20&nbsp;MB per file.</p>
             </>
           )}
 
@@ -1997,19 +1960,19 @@ export function OrganizationTab() {
           {orgDocs.length === 0 ? (
             <p className="text-sm text-meta/60 text-center py-4">No documents uploaded yet.</p>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y divide-rule">
               {orgDocs.map((doc) => (
                 <div key={doc.id} className="flex items-center justify-between py-3">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center shrink-0">
-                      <FileText className="h-5 w-5 text-red-500" />
+                    <div className="w-9 h-9 rounded-field bg-chip flex items-center justify-center shrink-0">
+                      <FileText className="h-5 w-5 text-navy" aria-hidden="true" />
                     </div>
                     <div className="min-w-0">
                       <a
                         href={doc.file_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-sm font-semibold text-navy hover:text-primary truncate block"
+                        className="text-sm font-semibold text-navy underline-offset-2 hover:underline truncate block"
                       >
                         {doc.file_name}
                       </a>
@@ -2024,7 +1987,7 @@ export function OrganizationTab() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 text-xs text-red-600 hover:text-red-700 shrink-0"
+                      className="h-9 min-w-9 shrink-0 rounded-pill px-2.5 text-xs text-red-700 hover:bg-red-50 hover:text-red-800"
                       onClick={() => handleDeleteDoc(doc)}
                     >
                       <Trash2 className="h-3 w-3" />
@@ -2149,9 +2112,9 @@ export function OrganizationTab() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+            <div className="rounded-field border border-teal/25 bg-foam p-4 text-sm text-navy">
               <p className="font-medium mb-1">{t('org.sponsorDialog.goalsTitle', 'Built around your goals')}</p>
-              <p className="text-blue-700">
+              <p className="text-ink">
                 {t('org.sponsorDialog.goalsBody', 'Every package is put together with you: the M3 team walks you through the sponsor levels, benefits and price for each event, then sets everything up.')}
               </p>
             </div>

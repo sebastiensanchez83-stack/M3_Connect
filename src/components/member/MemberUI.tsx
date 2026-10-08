@@ -213,16 +213,22 @@ export function MemberPanel({
   );
 }
 
-/** A link row of a panel list: icon tile, title with the gold line, hint, optional aside, small arrow. */
+/**
+ * A row of a panel list: icon tile, title with the gold line, hint, optional
+ * aside, small arrow. A link (`to`), or a button (`onClick`) when the row opens
+ * something on the same page (a block of the home dashboard).
+ */
 export function MemberRow({
   to,
+  onClick,
   icon: Icon,
   title,
   hint,
   aside,
   urgent = false,
 }: {
-  to: string;
+  to?: string;
+  onClick?: () => void;
   icon: LucideIcon;
   title: ReactNode;
   hint?: ReactNode;
@@ -230,22 +236,30 @@ export function MemberRow({
   /** Someone is waiting on an answer: the icon tile warms up (gold tint, navy icon). */
   urgent?: boolean;
 }) {
+  const cls = cn('group flex min-h-[64px] w-full items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-page', ROW_FOCUS);
+  const inner = (
+    <>
+      <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-field text-navy', urgent ? 'bg-gold/25' : 'bg-chip')}>
+        <Icon className="h-5 w-5" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">
+          <span className="card-ul">{title}</span>
+        </span>
+        {hint && <span className="mt-0.5 block text-[13px] leading-[18px] text-meta">{hint}</span>}
+        {aside && <span className="mt-2 flex sm:hidden">{aside}</span>}
+      </span>
+      {aside && <span className="hidden shrink-0 sm:flex">{aside}</span>}
+      <ArrowRight className="card-arrow !ml-0 shrink-0" strokeWidth={2.25} aria-hidden="true" />
+    </>
+  );
   return (
     <li>
-      <Link to={to} className={cn('group flex min-h-[64px] items-center gap-4 px-5 py-3.5 transition-colors hover:bg-page', ROW_FOCUS)}>
-        <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-xl text-navy', urgent ? 'bg-gold/25' : 'bg-chip')}>
-          <Icon className="h-5 w-5" aria-hidden="true" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-semibold leading-5 text-navy [overflow-wrap:anywhere]">
-            <span className="card-ul">{title}</span>
-          </span>
-          {hint && <span className="mt-0.5 block text-[13px] leading-[18px] text-meta">{hint}</span>}
-          {aside && <span className="mt-2 flex sm:hidden">{aside}</span>}
-        </span>
-        {aside && <span className="hidden shrink-0 sm:flex">{aside}</span>}
-        <ArrowRight className="card-arrow !ml-0 shrink-0" strokeWidth={2.25} aria-hidden="true" />
-      </Link>
+      {to ? (
+        <Link to={to} className={cls}>{inner}</Link>
+      ) : (
+        <button type="button" onClick={onClick} className={cls}>{inner}</button>
+      )}
     </li>
   );
 }
@@ -327,7 +341,7 @@ export function RowSkeleton({ rows = 2 }: { rows?: number }) {
     <div className="divide-y divide-rule" aria-hidden="true">
       {Array.from({ length: rows }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-5 py-4">
-          <div className="h-10 w-10 animate-pulse rounded-xl bg-chip motion-reduce:animate-none" />
+          <div className="h-10 w-10 animate-pulse rounded-field bg-chip motion-reduce:animate-none" />
           <div className="flex-1 space-y-2">
             <div className="h-3.5 w-2/3 animate-pulse rounded bg-chip motion-reduce:animate-none" />
             <div className="h-3 w-1/3 animate-pulse rounded bg-chip motion-reduce:animate-none" />
@@ -339,7 +353,7 @@ export function RowSkeleton({ rows = 2 }: { rows?: number }) {
 }
 
 export function BlockSkeleton({ className }: { className?: string }) {
-  return <div aria-hidden="true" className={cn('animate-pulse rounded-xl bg-chip motion-reduce:animate-none', className)} />;
+  return <div aria-hidden="true" className={cn('animate-pulse rounded-field bg-chip motion-reduce:animate-none', className)} />;
 }
 
 /* ------------------------------------------------------------------ headings */

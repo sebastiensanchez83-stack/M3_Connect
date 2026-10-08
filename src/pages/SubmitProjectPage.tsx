@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
+import { accountHref } from '@/lib/accountNav';
 import { notifyAdmin, sendNotification } from '@/lib/notifications';
 import { Lock, Briefcase } from 'lucide-react';
 import { FormCard, FormFooter, PageLoader, SubmitGuard, SubmitShell } from '@/components/submit/SubmitShell';
@@ -54,13 +55,13 @@ export function SubmitProjectPage() {
       .then(({ data, error }) => {
         if (error || !data) {
           toast({ title: 'Project not found', variant: 'destructive' });
-          navigate('/account?tab=submissions');
+          navigate(accountHref('submissions'));
           return;
         }
         // Only allow editing own projects
         if (data.user_id !== user.id) {
           toast({ title: 'Unauthorized', description: 'You can only edit your own projects.', variant: 'destructive' });
-          navigate('/account?tab=submissions');
+          navigate(accountHref('submissions'));
           return;
         }
         setFormData({
@@ -104,7 +105,7 @@ export function SubmitProjectPage() {
         toast({ title: 'Error', description: error.message, variant: 'destructive' });
       } else {
         toast({ title: 'Project updated successfully' });
-        navigate('/account?tab=submissions');
+        navigate(accountHref('submissions'));
       }
     } else {
       // Create new project
@@ -128,7 +129,7 @@ export function SubmitProjectPage() {
         toast({ title: t('submitProject.success') });
         setFormData({ project_type: '', budget_range: '', timeline: '', description: '' });
         setConsent(false);
-        navigate('/account?tab=submissions');
+        navigate(accountHref('submissions'));
       }
     }
     setLoading(false);
@@ -151,8 +152,8 @@ export function SubmitProjectPage() {
           // Only a marina whose account is verified but who has no organization yet has a profile to complete;
           // everyone else is waiting for a review, which the dashboard explains.
           profile?.persona === 'marina' && isVerified && !organization
-            ? <Button variant="ctaOnDark" onClick={() => navigate('/account?tab=organization')}>Complete Marina Profile</Button>
-            : <Button variant="ctaOnDark" onClick={() => navigate('/dashboard')}>View Account Status</Button>
+            ? <Button variant="ctaOnDark" onClick={() => navigate(accountHref('organization'))}>Complete your marina profile</Button>
+            : <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>View account status</Button>
         )}
       >
         <p>{t('submitProject.restrictedDesc')}</p>

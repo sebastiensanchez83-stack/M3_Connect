@@ -41,7 +41,7 @@ function NewsLink({ item, hidden }: { item: NewsItem; hidden?: boolean }) {
       to={item.href}
       tabIndex={hidden ? -1 : undefined}
       title={item.lead ? `${item.lead} ${item.text}` : item.text}
-      className="uline uline--plain !text-[15px] !font-medium !leading-6 whitespace-nowrap md:!text-[16px]"
+      className="uline uline--plain min-h-11 !text-[15px] !font-medium !leading-6 whitespace-nowrap md:!text-[16px]"
     >
       <span className="uline-t">
         {item.lead && <span className="mr-1.5 font-semibold text-gold-text">{item.lead}</span>}

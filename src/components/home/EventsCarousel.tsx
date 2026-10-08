@@ -8,7 +8,6 @@ import { CardMedia, CardShell, StretchedLink } from '@/components/brand/CardShel
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { RENDEZVOUS_2026_PATH, WEBINARS_PATH } from '@/components/brand/m3Events';
-import { Counter } from '@/components/motion/Counter';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal } from '@/components/motion/Reveal';
 import { WYS26_PATH, wys26Upcoming } from '@/components/events/WysInvitationCard';
@@ -158,9 +157,10 @@ export function EventsCarousel({ sectionNo }: { sectionNo?: string }) {
             <dl className="mt-6 grid grid-cols-3 gap-x-4">
               <Fig label={t('homePage.events.figEdition', 'Latest edition')} n="6th" l={t('homePage.events.figEditionSub', 'edition, 20–21 Sept 2026')} />
               <Fig label={t('homePage.events.figParticipants', 'Participants')} l={t('homePage.events.figParticipantsSub', 'participants')}>
-                <span aria-hidden="true">
+                {/* The final figure at once (no count-up from 0), and "more than 250" never breaks over two lines. */}
+                <span aria-hidden="true" className="whitespace-nowrap">
                   <span className="mr-1 align-middle text-[.5em]">{t('homePage.events.moreThan', 'more than')}</span>
-                  <Counter value={250} />
+                  250
                 </span>
                 <span className="sr-only">{t('homePage.events.moreThan250', 'more than 250')}</span>
               </Fig>

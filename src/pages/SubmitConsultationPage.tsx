@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
+import { accountHref } from '@/lib/accountNav';
 import { notifyAdmin } from '@/lib/notifications';
 import { requireFreshSession } from '@/lib/session';
 
@@ -52,12 +53,12 @@ export function SubmitConsultationPage() {
       .then(({ data, error }) => {
         if (error || !data) {
           toast({ title: 'Consultation not found', variant: 'destructive' });
-          navigate('/account?tab=submissions');
+          navigate(accountHref('submissions'));
           return;
         }
         if (data.marina_user_id !== user.id) {
           toast({ title: 'Unauthorized', description: 'You can only edit your own consultations.', variant: 'destructive' });
-          navigate('/account?tab=submissions');
+          navigate(accountHref('submissions'));
           return;
         }
         setForm({
@@ -97,7 +98,7 @@ export function SubmitConsultationPage() {
         if (error) throw error;
 
         toast({ title: 'Consultation updated successfully' });
-        navigate('/account?tab=submissions');
+        navigate(accountHref('submissions'));
       } else {
         // Create new consultation
         const { error } = await supabase
@@ -119,7 +120,7 @@ export function SubmitConsultationPage() {
           title: t('submitConsultation.success'),
           description: t('submitConsultation.successDesc'),
         });
-        navigate('/account?tab=consultations');
+        navigate(accountHref('consultations'));
       }
     } catch (err: unknown) {
       toast({
@@ -150,10 +151,10 @@ export function SubmitConsultationPage() {
             )}
             {/* A signed-in member always gets a way forward: the dashboard says where the review of the account or the organization stands. */}
             {user && canSubmitHere && (
-              <Button variant="ctaOnDark" onClick={() => navigate('/dashboard')}>{t('common.viewAccountStatus')}</Button>
+              <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>{t('common.viewAccountStatus')}</Button>
             )}
             {user && !canSubmitHere && (
-              <Button variant="ctaOnDark" onClick={() => navigate('/dashboard')}>{t('common.backToAccount')}</Button>
+              <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>{t('common.backToAccount')}</Button>
             )}
           </>
         )}

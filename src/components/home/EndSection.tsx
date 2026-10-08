@@ -35,7 +35,8 @@ export function EndSection({
         <Reveal delay={160} className="lg:col-span-4">
           <ContactCard
             variant="panel"
-            className="h-full"
+            // Bottom-aligned like the tiles' text, so the row reads as one line of titles.
+            className="flex h-full flex-col justify-end"
             title={signedIn
               ? t('homePage.end.contactTitleMember', 'A question about the platform or our events?')
               : t('homePage.end.contactTitle', 'A question before you sign up?')}
@@ -73,7 +74,8 @@ function EndTile({ to, image, title, line }: { to: string; image: SiteImage; tit
         <h3 className="text-[22px] font-semibold leading-7">
           <StretchedLink to={to} tone="light">{title}</StretchedLink>
         </h3>
-        <p className="mt-1 text-sm leading-5 text-white/85">{line}</p>
+        {/* Two lines kept for the sentence, so the two tiles' titles line up when one wraps. */}
+        <p className="mt-1 min-h-10 text-sm leading-5 text-white/85">{line}</p>
       </div>
     </CardShell>
   );

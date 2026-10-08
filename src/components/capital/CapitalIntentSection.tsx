@@ -106,7 +106,7 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Toggle row */}
-        <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-page border">
+        <div className="flex items-start justify-between gap-4 p-3 rounded-field bg-page border border-rule">
           <div className="flex-1">
             <Label className="font-semibold text-navy">Currently seeking capital</Label>
             <p className="text-xs text-meta mt-1">
@@ -120,7 +120,7 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
           />
         </div>
 
-        <div className="flex items-start gap-2 text-xs text-meta bg-blue-50 border border-blue-100 rounded-lg p-2.5">
+        <div className="flex items-start gap-2 text-xs text-meta bg-foam border border-teal/25 rounded-field p-2.5">
           <EyeOff className="h-3.5 w-3.5 shrink-0 mt-0.5 text-blue-500" />
           <p>
             <strong>Investor-only visibility:</strong> these details are hidden from the public profile and from non-investor users. Only verified Investor accounts on the platform can see them.
@@ -195,7 +195,7 @@ export function CapitalIntentSection({ organizationId, isOwner }: Props) {
                 rows={3}
                 maxLength={400}
                 placeholder="One-liner that investors will see, e.g. 'Funding Q3 dredging expansion + 40 new berths'."
-                className="w-full resize-y rounded-lg border border-rule bg-white p-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:bg-page disabled:text-meta"
+                className="w-full resize-y rounded-field border border-rule bg-white p-2.5 text-sm focus:outline-none focus-visible:shadow-focus disabled:bg-page disabled:text-meta"
               />
               <p className="text-xs text-meta/60">{form.use_of_funds.length} / 400</p>
             </div>

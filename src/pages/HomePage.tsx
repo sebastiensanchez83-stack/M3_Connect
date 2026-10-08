@@ -21,32 +21,40 @@ import { FiguresBand, type HomeFigures } from '@/components/home/FiguresBand';
 import type { ProviderCardData } from '@/components/home/NeedPanel';
 import type { HomeResource } from '@/components/home/ResourcesAgenda';
 import type { SponsorLogo } from '@/components/home/SponsorsBand';
-import { MemberSpace, type PersonalEvent, type PersonalResource } from '@/components/home/MemberSpace';
-import { canCreate } from '@/lib/nav';
-import { accountHref } from '@/lib/accountNav';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
+import { openSignup } from '@/lib/authModal';
+import { cn } from '@/lib/utils';
 
 // Everything below the figures band is its own chunk: the entry bundle (every
 // route, /admin and /sm26 included) does not carry the home page's lower sections.
 const HomeBelowFold = lazy(() => import('@/components/home/HomeBelowFold'));
+// The member's dashboard (and, behind it, the editors it opens in place): a
+// chunk of its own, loaded for signed-in members only.
+const MemberDashboard = lazyWithRetry(() => import('@/components/home/MemberDashboard'));
 
 /**
  * The homepage (refonte v2, Oct 2026): large photography, slow scroll-linked
  * motion, one gold action.
  *
+ * Visitors:
  *   split hero: text on marine (H1 by lines, live-figures sentence, search,
  *               buttons, trust line) and a rounded photo frame with the "next
- *               event" card floating over its corner (the three M3 events) — everyone
- *   news band: thin strip of figures, events, new members, latest article — everyone
- *   figures band: graticule, ruler that draws itself, counters         — everyone
- *   member band: dashboard door, counters, personal feeds               — signed in
- *   who it is for: photo cards in an accordion                          — visitors
+ *               event" card floating over its corner (the three M3 events)
+ *   news band: thin strip of figures, events, new members, latest article
+ *   figures band: graticule, ruler that draws itself, the figures
+ *   who it is for: photo cards in an accordion
  *   "Run a marina?": need form preview + a row of members following the scroll
- *                                                          — visitors and marinas
- *   latest articles + agenda                                            — everyone
- *   "Our events": a carousel of three photo cards                       — everyone
- *   how it works: channel steps                                         — visitors
- *   event sponsors, logo tiles by tier                                  — everyone
- *   directory and resources tiles + contact panel                       — everyone
+ *   latest articles + agenda
+ *   "Our events": a carousel of three photo cards
+ *   how it works: channel steps
+ *   event sponsors, logo tiles by tier
+ *   directory and resources tiles + contact panel
+ *
+ * Signed-in members (Oct 2026: the member home and the dashboard are one page):
+ *   "Welcome back" in a shorter hero, then the FULL dashboard (MemberDashboard:
+ *   account alerts, to-do, every block of the account, edited in place), then,
+ *   lighter, the news band, the figures, the events carousel, the sponsors and
+ *   the closing tiles. /dashboard and /account?tab=… land here.
  *
  * Everything from the profiles down is a lazy chunk (HomeBelowFold).
  *
@@ -85,7 +93,7 @@ function pickProviders(rows: ProviderCardData[], n = 6): ProviderCardData[] {
 
 export function HomePage() {
   const { t, i18n } = useTranslation();
-  const { user, profile, organization, isVerified, profileTimedOut, refreshProfile, loading: authLoading } = useAuth();
+  const { user, profile, profileTimedOut, refreshProfile } = useAuth();
   const [retrying, setRetrying] = useState(false);
 
   // Public sections
@@ -97,164 +105,7 @@ export function HomePage() {
   const [providers, setProviders] = useState<ProviderCardData[]>([]);
   const [newestMembers, setNewestMembers] = useState<{ id: string; slug: string; name: string }[]>([]);
 
-  // Personalized data for logged-in users
-  const [accountLoaded, setAccountLoaded] = useState(false);
-  const [feedLoaded, setFeedLoaded] = useState(false);
-  const [personalResources, setPersonalResources] = useState<PersonalResource[]>([]);
-  const [personalEvents, setPersonalEvents] = useState<PersonalEvent[]>([]);
-  const [myRegistrations, setMyRegistrations] = useState<{ event_id: string; title: string; date_time: string }[]>([]);
-  const [personalStats, setPersonalStats] = useState<{ profileViews: number; connectionRequests: number; pendingItems: number } | null>(null);
-
   const lang = i18n.language === 'fr' ? 'fr-FR' : 'en-GB';
-
-  // Keyed on ids and primitives, never on the user/profile/organization
-  // objects: auth-js hands a new user object on every tab refocus, and
-  // re-running this on each one would refetch and flicker the member band.
-  const uid = user?.id;
-  const persona = profile?.persona as string | undefined;
-  const hasProfile = !!profile;
-  const feedOrgId = organization?.id;
-
-  // My registrations and my counters only need the account, not the profile:
-  // they load even when the profile is slow or never arrives (the AuthContext
-  // safety timeout, a failed profile fetch), so the band never pulses forever.
-  // uid only changes on sign-in / sign-out / account switch — a real first load.
-  useEffect(() => {
-    // A different account (or none): nothing of the previous one may linger.
-    // Functional updates so the very first mount does not re-render for nothing.
-    const clear = <T,>(prev: T[]) => (prev.length ? [] : prev);
-    setAccountLoaded(false);
-    setMyRegistrations(clear);
-    setPersonalStats(null);
-    setFeedLoaded(false);
-    setPersonalResources(clear);
-    setPersonalEvents(clear);
-    if (!uid) return;
-    let alive = true;
-    const fetchMine = async () => {
-      // Using allSettled so a 503 on one table doesn't block the others
-      const [regsRes, viewsRes, connectionsRes, pendingRes] = await Promise.allSettled([
-        // My registrations
-        supabase
-          .from('event_registrations')
-          .select('event_id, events(title, date_time)')
-          .eq('user_id', uid)
-          .order('created_at', { ascending: false })
-          .limit(5),
-        // Personal stats: profile views, connection requests, pending items
-        supabase
-          .from('profile_views')
-          .select('id', { count: 'exact' })
-          .eq('viewed_user_id', uid),
-        supabase
-          .from('partner_requests')
-          .select('id', { count: 'exact' })
-          .eq('marina_user_id', uid)
-          .in('status', ['pending', 'accepted']),
-        supabase
-          .from('partner_requests')
-          .select('id', { count: 'exact' })
-          .eq('marina_user_id', uid)
-          .eq('status', 'pending'),
-      ]);
-      if (!alive) return;
-      const regs = regsRes.status === 'fulfilled' ? regsRes.value.data : null;
-      if (regs) {
-        setMyRegistrations(
-          (regs as unknown as { event_id: string; events: { title: string; date_time: string } | null }[])
-            .filter((r): r is { event_id: string; events: { title: string; date_time: string } } => r.events !== null)
-            .map(r => ({ event_id: r.event_id, title: r.events.title, date_time: r.events.date_time }))
-        );
-      }
-      setPersonalStats({
-        profileViews: viewsRes.status === 'fulfilled' ? (viewsRes.value.count || 0) : 0,
-        connectionRequests: connectionsRes.status === 'fulfilled' ? (connectionsRes.value.count || 0) : 0,
-        pendingItems: pendingRes.status === 'fulfilled' ? (pendingRes.value.count || 0) : 0,
-      });
-      setAccountLoaded(true);
-    };
-    fetchMine().catch((err) => {
-      if (import.meta.env.DEV) console.error('Home member counters failed:', err);
-      if (alive) setAccountLoaded(true);
-    });
-    return () => { alive = false; };
-  }, [uid]);
-
-  // Fetch personalized feed for logged-in users (from org-level sectors).
-  // Needs the persona, so it waits for the profile. A later re-run (company
-  // switch) keeps the current cards until the new ones arrive — no skeleton.
-  useEffect(() => {
-    if (!uid || !hasProfile) return;
-    let alive = true;
-    const fetchFeed = async () => {
-      const orgSectorTable = (persona === 'marina' || persona === 'developer' || persona === 'investor')
-        ? 'organization_interest_sectors'
-        : (persona === 'partner' || persona === 'media_partner')
-        ? 'organization_service_sectors'
-        : null;
-
-      let sectorIds: string[] = [];
-      if (orgSectorTable && feedOrgId) {
-        const { data: userSectors } = await supabase
-          .from(orgSectorTable)
-          .select('sector_id')
-          .eq('organization_id', feedOrgId);
-        sectorIds = (userSectors || []).map((s: { sector_id: string }) => s.sector_id);
-      }
-
-      if (sectorIds.length > 0) {
-        const { data: feedRes } = await supabase
-          .from('resource_sectors')
-          .select('resource_id, resources!inner(id, title, summary, type, access_level, thumbnail_url, published)')
-          .in('sector_id', sectorIds)
-          .eq('resources.published', true)
-          .limit(8);
-
-        if (alive && feedRes) {
-          const unique = new Map<string, PersonalResource>();
-          for (const r of feedRes as unknown as { resource_id: string; resources: PersonalResource & { published: boolean } }[]) {
-            if (r.resources && !unique.has(r.resources.id)) {
-              unique.set(r.resources.id, r.resources);
-            }
-          }
-          setPersonalResources(Array.from(unique.values()).slice(0, 6));
-        }
-
-        const { data: feedEvt } = await supabase
-          .from('event_sectors')
-          .select('event_id, events!inner(id, title, date_time, access_level, published)')
-          .in('sector_id', sectorIds)
-          .limit(8);
-
-        if (alive && feedEvt) {
-          const unique = new Map<string, PersonalEvent>();
-          for (const e of feedEvt as unknown as { event_id: string; events: PersonalEvent & { published: boolean | null } }[]) {
-            // Same rule as the events page: an unpublished event is not announced.
-            if (e.events && e.events.published !== false && new Date(e.events.date_time) > new Date() && !unique.has(e.events.id)) {
-              unique.set(e.events.id, e.events);
-            }
-          }
-          setPersonalEvents(Array.from(unique.values()).slice(0, 4));
-        }
-      } else if (alive) {
-        // No sectors for this company (or a persona without a sector feed):
-        // drop whatever a previously active company had recommended.
-        setPersonalResources([]);
-        setPersonalEvents([]);
-      }
-      if (alive) setFeedLoaded(true);
-    };
-    fetchFeed().catch((err) => {
-      if (import.meta.env.DEV) console.error('Home personal feed failed:', err);
-      if (alive) setFeedLoaded(true);
-    });
-    return () => { alive = false; };
-  }, [uid, hasProfile, persona, feedOrgId]);
-
-  // The sector feed is ready once fetched — or once auth has settled without a
-  // profile, in which case the cards show their empty states instead of a
-  // skeleton that would never resolve.
-  const feedReady = feedLoaded || (!authLoading && !hasProfile);
 
   // Everything public, once, in parallel — allSettled so a 503 on one
   // section never blanks the others. Anonymous reads of public data only.
@@ -449,16 +300,9 @@ export function HomePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [t, eventItems, newestMembers, latestResource, liveFigures?.marinas, liveFigures?.suppliers, liveFigures?.countries]);
 
-  // "Run a marina?" speaks to visitors and to marinas; for a signed-in marina it opens the real forms.
-  const showNeedPanel = !user || persona === 'marina';
-  // The real forms only open for a verified marina whose organization is verified too (the same rule as the Create menu);
-  // a marina still under review is sent to the dashboard, which explains where the review stands.
-  const canSubmitNeed = !!user && canCreate('submit_rfp', {
-    isVerified,
-    orgVerified: organization?.access_status === 'verified',
-    persona,
-    isFeatureEnabled: () => false,
-  });
+  // "Run a marina?" (the need form preview) speaks to visitors: a signed-in
+  // member publishes from the dashboard's "My requests" block instead.
+  const showNeedPanel = !user;
 
   // The end tiles' lines: "180 marinas and 66 service providers in 45 countries", "30 resources in six themes".
   const directoryLine = liveFigures
@@ -484,7 +328,7 @@ export function HomePage() {
         seed="home-hero"
         labelledBy="home-hero-title"
         card={card}
-        className={user ? 'lg:min-h-[min(100svh,740px)]' : undefined}
+        compact={!!user}
       >
         {!user ? (
           <>
@@ -510,9 +354,10 @@ export function HomePage() {
                 <SearchField examples={searchExamples} />
               </HeroIn>
               <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
-                {/* On the navy hero: gold with WHITE water, so it never vanishes on hover/focus. */}
-                <Button asChild variant="ctaOnDark" size="lg">
-                  <Link to="/become-partner">{t('home.joinNowFree', 'Sign up')}</Link>
+                {/* On the navy hero: gold with WHITE water, so it never vanishes on hover/focus.
+                    It opens the sign-up window directly (the presentation page is /join). */}
+                <Button type="button" variant="ctaOnDark" size="lg" onClick={() => openSignup()}>
+                  {t('home.joinNowFree', 'Sign up')}
                 </Button>
                 <Button asChild variant="ctaLight" size="lg">
                   <Link to="/directory">{t('home.exploreDirectory', 'Explore the directory')}</Link>
@@ -550,64 +395,54 @@ export function HomePage() {
                   type="button"
                   onClick={async () => { setRetrying(true); await refreshProfile(); setRetrying(false); }}
                   disabled={retrying}
-                  className="focus-ring rounded font-medium underline hover:text-white disabled:opacity-50"
+                  className="focus-ring min-h-11 rounded font-medium underline hover:text-white disabled:opacity-50"
                 >
                   {retrying ? t('homeSections.retrying', 'Retrying…') : t('homeSections.retry', 'Retry now')}
                 </button>
               </div>
             )}
             <HeroIn as="p" delay={260} className="mt-5 max-w-[560px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
-              {t('home.personalizedSubtitle', "Here's what's happening in the marina industry for you.")}
+              {t('memberHome.heroSubtitle', 'Your dashboard is right below: your profile, your company, your events and your requests, all managed from here.')}
             </HeroIn>
             <HeroIn delay={340} className="mt-6 max-w-[520px]">
               <SearchField examples={searchExamples} />
             </HeroIn>
             <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
+              {/* A plain anchor: the dashboard is on this page (html's scroll-padding keeps it clear of the header). */}
               <Button asChild variant="ctaOnDark" size="lg">
-                <Link to="/resources">{t('home.exploreResources', 'Explore resources')}</Link>
+                <a href="#dashboard">{t('memberHome.heroDashboard', 'Go to my dashboard')}</a>
               </Button>
               <Button asChild variant="ctaLight" size="lg">
-                <Link to="/dashboard">{t('nav.dashboard', 'Dashboard')}</Link>
+                <Link to="/resources">{t('home.exploreResources', 'Explore resources')}</Link>
               </Button>
             </HeroIn>
           </div>
         )}
       </SplitHero>
 
+      {/* ════════════ Signed in: the dashboard, right under "Welcome back" ════════════ */}
+      {user && (
+        <Suspense fallback={<div aria-hidden="true" className="min-h-[70vh] bg-page" />}>
+          <MemberDashboard />
+        </Suspense>
+      )}
+
       {/* ════════════ News band: figures, events, newest members, latest article ════════════ */}
       {/* The band waits for its data, with its height kept (49 px, 57 px from md: 48/56 plus the rule): the figures and
           members used to arrive in front of the events already scrolling, a 560 px jump of the whole row (CLS 0.3). */}
       {publicLoading
-        ? <div aria-hidden="true" className="h-[49px] border-b border-rule bg-white md:h-[57px]" />
-        : <NewsBand items={newsItems} />}
+        ? <div aria-hidden="true" className={cn('h-[49px] border-b border-rule bg-white md:h-[57px]', user && 'border-t')} />
+        : <NewsBand items={newsItems} className={user ? 'border-t' : undefined} />}
 
-      {/* ════════════ Figures band: graticule, ruler, counters ════════════ */}
-      <FiguresBand figures={stats} loading={publicLoading} className={user ? 'pb-10 md:pb-12' : undefined} />
-
-      {/* ════════════ Signed in: the member's own band ════════════ */}
-      {user && (
-        <MemberSpace
-          profileIncomplete={!!profile && (profile.onboarding_status !== 'completed' || !organization)}
-          // A draft finishes sign-up; a completed member without an organization adds it from the organization tab (a bare /account would only redirect to the dashboard).
-          completeProfileHref={profile?.onboarding_status === 'draft' ? accountHref('complete-registration') : accountHref('organization')}
-          orgName={organization?.name ?? null}
-          orgLogo={organization?.logo_url ?? null}
-          personalStats={personalStats}
-          accountLoaded={accountLoaded}
-          feedLoaded={feedReady}
-          myRegistrations={myRegistrations}
-          personalResources={personalResources}
-          personalEvents={personalEvents}
-          lang={lang}
-        />
-      )}
+      {/* ════════════ Figures band: graticule, ruler, the figures ════════════ */}
+      <FiguresBand figures={stats} loading={publicLoading} />
 
       {/* ════════════ Below the figures: its own chunk ════════════ */}
       <Suspense fallback={<div aria-hidden="true" className="min-h-[220vh] bg-page" />}>
         <HomeBelowFold
           signedIn={!!user}
           showNeedPanel={showNeedPanel}
-          canSubmitNeed={canSubmitNeed}
+          canSubmitNeed={false}
           providers={providers}
           resources={featuredResources}
           themeCounts={themeCounts}

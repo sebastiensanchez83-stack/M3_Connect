@@ -31,9 +31,11 @@ export interface NavItem {
   descKey: string;
   descFallback: string;
   icon: LucideIcon;
+  /** Content for members: the bar shows a small lock next to the label (visitors). */
+  membersOnly?: boolean;
 }
 
-/** Signed out: what we are and what's inside, nothing that needs an account. */
+/** Signed out: what we are and what's inside (Opportunities, for members, carries a lock). */
 export const PUBLIC_NAV: NavItem[] = [
   {
     href: '/directory',
@@ -42,6 +44,17 @@ export const PUBLIC_NAV: NavItem[] = [
     descKey: 'nav.directoryDesc',
     descFallback: 'Marinas, service providers, investors and media',
     icon: Compass,
+  },
+  {
+    // Visible to visitors too (the footer always listed it): the page says what
+    // members get, and the bar marks it with a small lock.
+    href: '/opportunities',
+    labelKey: 'nav.opportunities',
+    fallback: 'Opportunities',
+    descKey: 'nav.opportunitiesPublicDesc',
+    descFallback: 'Needs published by marinas, for members',
+    icon: Briefcase,
+    membersOnly: true,
   },
   {
     href: '/resources',
@@ -80,7 +93,8 @@ export const PUBLIC_NAV: NavItem[] = [
 /** Signed in: the product. Five nouns, no overlap between any two of them. */
 export const MEMBER_NAV: NavItem[] = [
   {
-    href: '/dashboard',
+    // The member home: "Welcome back" and the dashboard (/dashboard is an old address of it).
+    href: '/',
     labelKey: 'nav.dashboard',
     fallback: 'Dashboard',
     descKey: 'nav.dashboardDesc',
@@ -133,7 +147,8 @@ export const DEAL_FLOW_ITEM: NavItem = {
 
 /** Shown in the public bar as the call to action, never to a signed-in member. */
 export const JOIN_ITEM: NavItem = {
-  href: '/become-partner',
+  // The presentation page (moved from /become-partner, which redirects here).
+  href: '/join',
   labelKey: 'nav.becomePartner',
   fallback: 'Join the network',
   descKey: 'nav.becomePartnerDesc',

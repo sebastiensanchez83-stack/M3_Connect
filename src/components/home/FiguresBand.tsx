@@ -2,7 +2,6 @@ import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { Counter } from '@/components/motion/Counter';
 import { Graticule } from '@/components/motion/Graticule';
 import { useMotion } from '@/components/motion/MotionProvider';
 import { useInView } from '@/components/motion/useInView';
@@ -10,8 +9,8 @@ import { useInView } from '@/components/motion/useInView';
 /**
  * The network's live figures, right under the hero: a white card on a chart
  * graticule (24 px grid) with a ruler along its top edge that draws itself from
- * left to right (1.2 s) while the four figures count up (0.9 s), once, when the
- * band scrolls into view. Two columns on phones, four from md.
+ * left to right (1.2 s), once, when the band scrolls into view. The four figures
+ * show their final value at once (no count-up). Two columns on phones, four from md.
  *
  * Figures are the live counts of networkStats (or the admin's typed figures,
  * shown "N+"); the marinas line adds how many of them are members (an owner on
@@ -32,7 +31,9 @@ const RULER =
   'repeating-linear-gradient(90deg,#8792a7 0 1px,transparent 1px 96px) 0 0/100% 11px no-repeat';
 
 export function FiguresBand({ figures, loading, className }: { figures: HomeFigures; loading: boolean; className?: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // The final figure at once, never a count-up from 0 (Oct 2026 design review).
+  const numberLocale = i18n.language === 'fr' ? 'fr-FR' : 'en-GB';
   const { reduced } = useMotion();
   const ref = useRef<HTMLElement>(null);
   const inView = useInView(ref, { disabled: reduced, threshold: 0.25 });
@@ -109,8 +110,8 @@ export function FiguresBand({ figures, loading, className }: { figures: HomeFigu
                     <span aria-hidden="true" className="block h-[52px] w-24 animate-pulse rounded bg-chip md:h-[60px]" />
                   ) : (
                     <>
-                      <span aria-hidden="true" className="block text-[48px] font-light leading-[52px] tracking-[-0.02em] text-navy md:text-[56px] md:leading-[60px]">
-                        <Counter value={item.value} suffix={suffix} />
+                      <span aria-hidden="true" className="tabular block whitespace-nowrap text-[48px] font-light leading-[52px] tracking-[-0.02em] text-navy md:text-[56px] md:leading-[60px]">
+                        {item.value === null ? '—' : `${item.value.toLocaleString(numberLocale)}${suffix}`}
                       </span>
                       <span className="sr-only">
                         {item.value === null ? '' : `${item.value}${suffix}`}

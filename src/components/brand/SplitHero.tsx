@@ -78,6 +78,7 @@ export function SplitHero({
   bathySeed = 2,
   id,
   labelledBy,
+  compact = false,
 }: {
   image: SiteImage | null;
   /** Optional short background loop (never the 40 MB teaser). */
@@ -97,6 +98,8 @@ export function SplitHero({
   bathySeed?: number;
   id?: string;
   labelledBy?: string;
+  /** A shorter hero (the signed-in home, where the dashboard follows): no full-screen height, a smaller frame. */
+  compact?: boolean;
 }) {
   const ref = useRef<HTMLElement>(null);
   const mediaRef = useRef<HTMLDivElement>(null);
@@ -131,14 +134,14 @@ export function SplitHero({
       ref={ref}
       id={id}
       aria-labelledby={labelledBy}
-      className={cn('relative isolate flex flex-col justify-center overflow-hidden bg-navy text-white lg:min-h-[min(100svh,860px)]', className)}
+      className={cn('relative isolate flex flex-col justify-center overflow-hidden bg-navy text-white', !compact && 'lg:min-h-[min(100svh,860px)]', className)}
     >
       <BathyPattern seed={bathySeed} drift className="absolute inset-0 -z-10" />
 
-      <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 pb-14 pt-[92px] sm:px-6 md:pt-[104px] lg:grid-cols-12 lg:items-stretch lg:gap-10 lg:pb-[76px] lg:pt-[116px] xl:gap-14">
+      <div className={cn('mx-auto grid w-full max-w-7xl gap-10 px-4 pt-[92px] sm:px-6 md:pt-[104px] lg:grid-cols-12 lg:items-stretch lg:gap-10 lg:pt-[116px] xl:gap-14', compact ? 'pb-10 lg:pb-14' : 'pb-14 lg:pb-[76px]')}>
         <div className={cn('flex min-w-0 flex-col justify-center lg:col-span-6', contentClassName)}>{children}</div>
 
-        <div className="relative min-w-0 lg:col-span-6 lg:min-h-[540px]">
+        <div className={cn('relative min-w-0 lg:col-span-6', compact ? 'hidden lg:block lg:min-h-[400px]' : 'lg:min-h-[540px]')}>
           {/* The frame: 24 px radius, the photo breathing and lagging behind the page. */}
           <div className="relative h-[300px] overflow-hidden rounded-[24px] bg-navy-deep sm:h-[380px] lg:absolute lg:inset-0 lg:h-auto">
             <div ref={mediaRef} aria-hidden="true" className="hero-media-layer absolute inset-x-0 -top-10 bottom-0">

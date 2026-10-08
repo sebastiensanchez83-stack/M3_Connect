@@ -2100,7 +2100,7 @@ function NeedPanel({ mode, onSignup }: { mode: 'publish' | 'waiting' | 'visitor'
               </Button>
             ) : mode === 'waiting' ? (
               <Button asChild variant="ctaOnDark">
-                <Link to="/dashboard">{t('directory.need.ctaWaiting', 'Check my account status')}</Link>
+                <Link to="/#dashboard">{t('directory.need.ctaWaiting', 'Check my account status')}</Link>
               </Button>
             ) : (
               <Button variant="ctaOnDark" onClick={onSignup}>

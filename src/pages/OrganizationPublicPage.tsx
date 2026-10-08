@@ -25,6 +25,7 @@ import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
 import { SM26MarinaSustainability } from '@/components/organization/SM26MarinaSustainability';
 import { useSM26MarinaTexts } from '@/components/organization/useSM26MarinaTexts';
 import { TextTiles, type TextTileItem } from '@/components/organization/TextTiles';
+import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { formatCapitalRange } from '@/components/capital/InvestmentThesisSection';
@@ -1549,36 +1550,25 @@ export function OrganizationPublicPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Visitors: sign up (or sign in) without leaving the page */}
-      <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
-        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto rounded-card">
-          <DialogHeader>
-            <DialogTitle className="text-navy">{t('orgProfile.signupTitle', 'Sign up to contact {{name}}', { name })}</DialogTitle>
-            <DialogDescription>
-              {t('orgProfile.signupIntro', 'Create your free account. Once the M3 team has checked it, you can send {{name}} a connection request.', { name })}{' '}
-              {t('auth.haveAccount', 'Already have an account?')}{' '}
-              <button type="button" className="font-semibold text-navy underline underline-offset-[3px]" onClick={() => { setSignupOpen(false); setLoginOpen(true); }}>
-                {t('auth.login', 'Log In')}
-              </button>
-            </DialogDescription>
-          </DialogHeader>
-          <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
-        </DialogContent>
-      </Dialog>
-      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
-        <DialogContent className="max-w-md rounded-card">
-          <DialogHeader>
-            <DialogTitle className="text-navy">{t('auth.login', 'Log In')}</DialogTitle>
-            <DialogDescription>
-              {t('auth.noAccount', "Don't have an account?")}{' '}
-              <button type="button" className="font-semibold text-navy underline underline-offset-[3px]" onClick={() => { setLoginOpen(false); setSignupOpen(true); }}>
-                {t('auth.signup', 'Sign up')}
-              </button>
-            </DialogDescription>
-          </DialogHeader>
-          <LoginForm onSuccess={() => setLoginOpen(false)} />
-        </DialogContent>
-      </Dialog>
+      {/* Sign in / sign up without leaving the page: the shared window (AuthDialog). */}
+      <AuthDialog
+        mode="login"
+        open={loginOpen}
+        onOpenChange={setLoginOpen}
+        switchTo={{ onClick: () => { setLoginOpen(false); setSignupOpen(true); } }}
+      >
+        <LoginForm onSuccess={() => setLoginOpen(false)} />
+      </AuthDialog>
+      <AuthDialog
+        mode="signup"
+        open={signupOpen}
+        onOpenChange={setSignupOpen}
+        title={t('orgProfile.signupTitle', 'Sign up to contact {{name}}', { name })}
+        description={t('orgProfile.signupIntro', 'Create your free account. Once the M3 team has checked it, you can send {{name}} a connection request.', { name })}
+        switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
+      >
+        <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+      </AuthDialog>
     </div>
   );
 }

@@ -13,13 +13,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuGroup,
 } from '@/components/ui/dropdown-menu';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
@@ -38,7 +32,6 @@ import {
 import { HOME_SECTIONS, accountHref, homeSectionVisible, memberHomeHref } from '@/lib/accountNav';
 import { OPEN_SIGNUP_EVENT, type OpenSignupDetail } from '@/lib/authModal';
 import type { PersonaType } from '@/types/database';
-import { SITE_IMAGES } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
 import { useMotion } from '@/components/motion/MotionProvider';
 import { useHeaderHero } from './headerOverlay';
@@ -779,65 +772,28 @@ export function Navbar() {
       </nav>
       </div>
 
-      {/* Login Dialog */}
-      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
-        <DialogContent className="rounded-2xl">
-          <DialogPhoto src={SITE_IMAGES.homeHero.src} focusY={SITE_IMAGES.homeHero.focusY} />
-          <DialogHeader>
-            <DialogTitle>{t('auth.login')}</DialogTitle>
-            <DialogDescription>
-              {t('auth.noAccount')}{' '}
-              <button className="text-primary hover:underline font-medium" onClick={() => { setLoginOpen(false); setSignupPersona(undefined); setSignupOpen(true); }}>
-                {t('auth.signup')}
-              </button>
-            </DialogDescription>
-          </DialogHeader>
-          <LoginForm
-            onSuccess={() => setLoginOpen(false)}
-            defaultEmail={emailFromConfirmation}
-            showConfirmedBanner={confirmationLanding === 'confirmed'}
-            linkError={confirmationLanding === 'link-error'}
-          />
-        </DialogContent>
-      </Dialog>
-
-      {/* Signup Dialog */}
-      <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto rounded-2xl">
-          <DialogPhoto src={SITE_IMAGES.joinHero.src} focusY={SITE_IMAGES.joinHero.focusY} />
-          <DialogHeader>
-            <DialogTitle>{t('auth.signup')}</DialogTitle>
-            <DialogDescription>
-              {t('auth.haveAccount')}{' '}
-              <button className="text-primary hover:underline font-medium" onClick={() => { setSignupOpen(false); setLoginOpen(true); }}>
-                {t('auth.login')}
-              </button>
-            </DialogDescription>
-          </DialogHeader>
-          <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
-        </DialogContent>
-      </Dialog>
+      {/* Sign in / sign up: the shared window (AuthDialog), same look on every page. */}
+      <AuthDialog
+        mode="login"
+        open={loginOpen}
+        onOpenChange={setLoginOpen}
+        switchTo={{ onClick: () => { setLoginOpen(false); setSignupPersona(undefined); setSignupOpen(true); } }}
+      >
+        <LoginForm
+          onSuccess={() => setLoginOpen(false)}
+          defaultEmail={emailFromConfirmation}
+          showConfirmedBanner={confirmationLanding === 'confirmed'}
+          linkError={confirmationLanding === 'link-error'}
+        />
+      </AuthDialog>
+      <AuthDialog
+        mode="signup"
+        open={signupOpen}
+        onOpenChange={setSignupOpen}
+        switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
+      >
+        <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+      </AuthDialog>
     </header>
-  );
-}
-
-/**
- * A photo band across the top of the sign-in and sign-up dialogs: the SM26
- * hall for coming back, a stand conversation for joining. It bleeds to the
- * dialog's edges (the content has 24 px padding) and is purely decorative.
- */
-function DialogPhoto({ src, focusY }: { src: string | null; focusY: number }) {
-  if (!src) return null;
-  return (
-    <div aria-hidden="true" className="relative -mx-6 -mt-6 mb-1 h-28 overflow-hidden rounded-t-2xl bg-primary/10">
-      <img
-        src={src}
-        alt=""
-        className="h-full w-full object-cover"
-        style={{ objectPosition: `50% ${Math.round(focusY * 100)}%` }}
-      />
-      {/* Lightens the top-right corner so the dialog's dark close (×) stays visible on the photo. */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_100%_0%,rgba(255,255,255,0.9)_0,rgba(255,255,255,0)_70px)]" />
-    </div>
   );
 }

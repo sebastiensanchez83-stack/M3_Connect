@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { myOrganizationIds } from '@/components/inbox/inboxCounts';
 
 /**
  * What is waiting in the inbox, counted ONE way everywhere (the navbar's dot,
@@ -53,9 +54,14 @@ async function load(key: string, uid: string, orgId: string | null, isOwner: boo
   if (inflight && inflight.key === key) return inflight.promise;
   const promise = (async () => {
     try {
+      // Since 8 Oct 2026 a request goes to the whole receiving company: count the
+      // ones addressed to me and to any organisation I belong to (the inbox's rule,
+      // src/components/inbox/inboxCounts.ts).
+      const orgIds = await myOrganizationIds(uid);
+      const audience = [`marina_user_id.eq.${uid}`, ...(orgIds.length ? [`marina_organization_id.in.(${orgIds.join(',')})`] : [])].join(',');
       const [conn, join] = await Promise.all([
         supabase.from('partner_requests').select('id', { count: 'exact', head: true })
-          .eq('marina_user_id', uid).neq('partner_user_id', uid).eq('status', 'pending'),
+          .eq('status', 'pending').neq('partner_user_id', uid).or(audience),
         isOwner && orgId
           ? supabase.from('organization_invitations').select('id', { count: 'exact', head: true })
             .eq('organization_id', orgId).eq('status', 'join_requested')

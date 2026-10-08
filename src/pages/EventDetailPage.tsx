@@ -12,9 +12,7 @@ import {
   Play, Radio, Ticket, Users, Video, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog';
+import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
@@ -1486,37 +1484,24 @@ export function EventDetailPage() {
         </div>
       )}
 
-      {/* Login Dialog */}
-      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
-        <DialogContent className="rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>{t('auth.login')}</DialogTitle>
-            <DialogDescription>
-              {t('eventsPage.loginToRegisterDesc', 'Log in to register for this event.')}{' '}
-              <button className="text-primary hover:underline" onClick={() => { setLoginOpen(false); setSignupOpen(true); }}>
-                {t('auth.signup')}
-              </button>
-            </DialogDescription>
-          </DialogHeader>
-          <LoginForm onSuccess={() => setLoginOpen(false)} />
-        </DialogContent>
-      </Dialog>
-
-      {/* Signup Dialog */}
-      <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>{t('auth.signup')}</DialogTitle>
-            <DialogDescription>
-              {t('auth.haveAccount')}{' '}
-              <button className="text-primary hover:underline" onClick={() => { setSignupOpen(false); setLoginOpen(true); }}>
-                {t('auth.login')}
-              </button>
-            </DialogDescription>
-          </DialogHeader>
-          <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
-        </DialogContent>
-      </Dialog>
+      {/* Sign in / sign up without leaving the page: the shared window (AuthDialog). */}
+      <AuthDialog
+        mode="login"
+        open={loginOpen}
+        onOpenChange={setLoginOpen}
+        description={t('eventsPage.loginToRegisterDesc', 'Log in to register for this event.')}
+        switchTo={{ onClick: () => { setLoginOpen(false); setSignupOpen(true); } }}
+      >
+        <LoginForm onSuccess={() => setLoginOpen(false)} />
+      </AuthDialog>
+      <AuthDialog
+        mode="signup"
+        open={signupOpen}
+        onOpenChange={setSignupOpen}
+        switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
+      >
+        <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+      </AuthDialog>
     </div>
   );
 }

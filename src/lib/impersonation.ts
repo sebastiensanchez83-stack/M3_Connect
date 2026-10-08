@@ -104,7 +104,7 @@ export async function startImpersonation(targetUserId: string, force = false): P
   }
 
   // Full reload so the whole app (AuthContext, guards, data) reloads as the target.
-  window.location.assign('/dashboard');
+  window.location.assign('/');
 }
 
 /**

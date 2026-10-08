@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
+import { MEMBER_HOME } from '@/lib/signInDestination';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { toast } from '@/hooks/use-toast';
 
@@ -19,7 +20,7 @@ const OTP_TYPES = ['magiclink', 'invite', 'signup', 'recovery', 'email_change'];
 // Where people go when the link names no destination.
 const EVENT_HUB = '/sm26/me';
 const AFTER_SIGNUP = '/onboarding';
-const MEMBER_HOME = '/dashboard';
+// The member home ("Welcome back" and the dashboard): src/lib/signInDestination.ts.
 
 // Landing step for the e-mailed links that /welcome redeems itself (token_hash):
 //  - SM26 access links (sm26-register / sm26-provision / sm26-attendee-invite)

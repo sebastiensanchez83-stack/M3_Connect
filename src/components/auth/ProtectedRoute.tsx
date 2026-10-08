@@ -155,7 +155,7 @@ function LockedState({ message }: { message: string }) {
     <AuthShell layout="centered" icon={<Lock className="h-6 w-6" />} title={t('authRefonte.gate.title', 'Access restricted')} lead={message}>
       <Button asChild variant="ctaOnDark">
         {user
-          ? <Link to="/dashboard">{t('authRefonte.gate.dashboard', 'Back to the dashboard')}</Link>
+          ? <Link to="/#dashboard">{t('authRefonte.gate.dashboard', 'Back to the dashboard')}</Link>
           : <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>}
       </Button>
     </AuthShell>

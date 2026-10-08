@@ -73,7 +73,7 @@ export function SponsorshipPage() {
               body="This area is for M3 staff, Yacht Club de Monaco, and linked sponsors."
               action={(
                 <Button asChild variant="outline" className={BTN_OUTLINE}>
-                  <Link to="/dashboard">Back to the dashboard</Link>
+                  <Link to="/#dashboard">Back to my dashboard</Link>
                 </Button>
               )}
             />

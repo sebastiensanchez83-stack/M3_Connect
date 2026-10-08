@@ -14,6 +14,7 @@ import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import { Sector } from '@/types/database';
 import { toast } from '@/hooks/use-toast';
+import { accountHref } from '@/lib/accountNav';
 import { notifyAdmin } from '@/lib/notifications';
 import { requireFreshSession } from '@/lib/session';
 
@@ -69,7 +70,7 @@ export function WebinarRequestPage() {
           description: 'Only your own proposals still waiting for review can be changed.',
           variant: 'destructive',
         });
-        navigate('/account?tab=webinars', { replace: true });
+        navigate(accountHref('webinars'), { replace: true });
         return;
       }
       setForm({
@@ -131,7 +132,7 @@ export function WebinarRequestPage() {
           if (sectorError) throw sectorError;
         }
         toast({ title: 'Webinar request updated', description: 'Our team will review the new version.' });
-        navigate('/account?tab=webinars');
+        navigate(accountHref('webinars'));
         return;
       }
 
@@ -163,7 +164,7 @@ export function WebinarRequestPage() {
         title: 'Webinar request submitted!',
         description: 'Our team will review your proposal and get back to you.',
       });
-      navigate('/account?tab=webinars');
+      navigate(accountHref('webinars'));
     } catch (err: unknown) {
       toast({
         title: 'Error',
@@ -192,7 +193,7 @@ export function WebinarRequestPage() {
               <Button variant="ctaOnDark" onClick={() => navigate('/')}>Go to Homepage</Button>
             )}
             {user && (
-              <Button variant="ctaOnDark" onClick={() => navigate('/dashboard')}>View Account Status</Button>
+              <Button variant="ctaOnDark" onClick={() => navigate('/#dashboard')}>View account status</Button>
             )}
           </>
         )}

@@ -72,7 +72,7 @@ export const HOME_STRINGS = {
       need: {
         eyebrow: 'Opportunities',
         title: 'Run a marina? Describe your need, and service providers can answer.',
-        body: 'A tender, a question for an expert or a project: a few lines are enough. M3 reviews each need and publishes it within one business day. Prefer to write it with us? The M3 team can help.',
+        body: 'A tender, a question for an expert or a project: a few lines are enough. Marinas publish their needs here; M3 reviews each one within one business day. Prefer to write it with us? The M3 team can help.',
         themesLabel: 'Find service providers by theme',
         writeTeam: 'Write to the M3 team',
         previewLabel: 'What the form asks',

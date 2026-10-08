@@ -5,6 +5,7 @@ import { Eyebrow } from '@/components/brand/Eyebrow';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal } from '@/components/motion/Reveal';
 import { PERSONA_IMAGES, SITE_IMAGES } from '@/lib/siteMedia';
+import { openSignup } from '@/lib/authModal';
 
 /**
  * "Who it is for" (visitors): four photo cards in an accordion, one per
@@ -21,8 +22,6 @@ import { PERSONA_IMAGES, SITE_IMAGES } from '@/lib/siteMedia';
 export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
   const { t } = useTranslation();
   const connect = t('homePage.profiles.connect', 'Request introductions and propose a webinar');
-  // One chapter per profile on the join page (ids marina, service-provider, investor-developer, media).
-  const signupTo = (chapter: string) => `/become-partner#${chapter}`;
 
   const items: AccordionItem[] = [
     {
@@ -41,7 +40,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
           ]}
         />
       ),
-      cta: { label: t('homeSections.persona.marinas.cta', 'Sign up as a marina'), to: signupTo('marina') },
+      cta: { label: t('homeSections.persona.marinas.cta', 'Sign up as a marina'), onClick: () => openSignup('marina') },
     },
     {
       id: 'providers',
@@ -59,7 +58,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
           ]}
         />
       ),
-      cta: { label: t('homeSections.persona.suppliers.cta', 'Sign up as a service provider'), to: signupTo('service-provider') },
+      cta: { label: t('homeSections.persona.suppliers.cta', 'Sign up as a service provider'), onClick: () => openSignup('partner') },
     },
     {
       id: 'investors',
@@ -78,7 +77,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
           ]}
         />
       ),
-      cta: { label: t('homePage.profiles.investors.cta', 'Sign up as an investor or developer'), to: signupTo('investor-developer') },
+      cta: { label: t('homePage.profiles.investors.cta', 'Sign up as an investor or developer'), onClick: () => openSignup() },
     },
     {
       id: 'media',
@@ -95,7 +94,7 @@ export function ProfileCards({ sectionNo }: { sectionNo?: string }) {
           ]}
         />
       ),
-      cta: { label: t('homePage.profiles.media.cta', 'Sign up as media'), to: signupTo('media') },
+      cta: { label: t('homePage.profiles.media.cta', 'Sign up as media'), onClick: () => openSignup('media_partner') },
     },
   ];
 

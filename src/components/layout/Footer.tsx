@@ -1,9 +1,10 @@
 import { useId, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { BadgeCheck, ChevronDown, Instagram, Linkedin } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { accountHref } from '@/lib/accountNav';
+import { openSignup } from '@/lib/authModal';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { BathyPattern } from '@/components/motion/BathyPattern';
@@ -18,7 +19,7 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
  * Where the "Join the marina network" band is not shown: the sign-up and
  * onboarding screens themselves, the consoles and the event areas.
  */
-const NO_JOIN_BAND = /^\/(become-partner|onboarding|join\/|reset-password|welcome|admin|sm26|wys26|sponsorship)/;
+const NO_JOIN_BAND = /^\/(become-partner|join|onboarding|reset-password|welcome|admin|sm26|wys26|sponsorship)/;
 
 /**
  * The site footer, in two parts:
@@ -51,15 +52,17 @@ export function Footer() {
     { to: '/partners', label: t('nav.partners') },
   ];
 
+  // A member's own area: the blocks of the home dashboard, each opened in place.
   const yours = user
     ? [
-        { to: accountHref('dashboard'), label: t('nav.dashboard', 'Dashboard') },
-        { to: accountHref('registrations'), label: t('accountNav.registrations', 'My events') },
-        { to: accountHref('organization'), label: t('accountNav.organization', 'Organisation & team') },
-        { to: accountHref('inbox'), label: t('accountNav.inbox', 'Inbox') },
+        { to: '/#dashboard', label: t('nav.myDashboard', 'My dashboard') },
+        { to: accountHref('registrations'), label: t('memberHome.sections.registrations', 'My events') },
+        { to: accountHref('organization'), label: t('memberHome.sections.organization', 'Organisation & team') },
+        { to: accountHref('inbox'), label: t('memberHome.sections.inbox', 'Inbox') },
+        { to: accountHref('notifications'), label: t('memberHome.sections.notifications', 'Email notifications') },
       ]
     : [
-        { to: '/become-partner', label: t('nav.becomePartner') },
+        { to: '/join', label: t('nav.becomePartner') },
         // Event sponsorship is sold by the M3 team: the contact form, opened on that subject.
         { to: '/sponsor', label: t('footer.sponsorEvent', 'Sponsor an event') },
       ];
@@ -182,8 +185,9 @@ function JoinBand() {
           </Reveal>
         </div>
         <Reveal delay={200} className="flex flex-wrap items-center gap-x-7 gap-y-4 lg:col-span-4 lg:justify-end">
-          <Button asChild variant="ctaOnDark" size="lg">
-            <Link to="/become-partner">{t('home.joinNowFree', 'Sign up')}</Link>
+          {/* Opens the sign-up window directly (one click, not a detour through /join). */}
+          <Button type="button" variant="ctaOnDark" size="lg" onClick={() => openSignup()}>
+            {t('home.joinNowFree', 'Sign up')}
           </Button>
           <UnderlineLink to="/directory" tone="light">
             {t('home.exploreDirectory', 'Explore the directory')}

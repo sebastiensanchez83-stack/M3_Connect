@@ -25,15 +25,19 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
 import {
   Menu, X, ChevronDown, Plus, Inbox,
-  Building2, UserPlus, LogOut, Settings, Shield, Check, LayoutDashboard,
+  Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
+import { useInboxCount } from '@/hooks/useInboxCount';
+import { useMemberAccess } from '@/hooks/useMemberAccess';
 import {
   PUBLIC_NAV, MEMBER_NAV, DEAL_FLOW_ITEM, JOIN_ITEM, CREATE_ACTIONS,
   isNavItemActive, canCreate, type NavItem,
 } from '@/lib/nav';
-import { ACCOUNT_SECTIONS, accountHref, type AccountTab } from '@/lib/accountNav';
+import { HOME_SECTIONS, accountHref, homeSectionVisible, memberHomeHref } from '@/lib/accountNav';
+import { OPEN_SIGNUP_EVENT, type OpenSignupDetail } from '@/lib/authModal';
+import type { PersonaType } from '@/types/database';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
 import { useMotion } from '@/components/motion/MotionProvider';
@@ -41,11 +45,8 @@ import { useHeaderHero } from './headerOverlay';
 import { ReadingProgress } from './ReadingProgress';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 
-/** The avatar menu's shortcuts into the member area — the everyday ones only; the full map is the account menu. */
-const AVATAR_TABS: AccountTab[] = ['registrations', 'organization', 'profile', 'notifications'];
-const AVATAR_SECTIONS = AVATAR_TABS
-  .map((tab) => ACCOUNT_SECTIONS.find((s) => s.value === tab))
-  .filter((s): s is (typeof ACCOUNT_SECTIONS)[number] => !!s);
+/** The top of the member dashboard, on the home page (the avatar menu's "My dashboard"). */
+const DASHBOARD_TOP = '/#dashboard';
 
 /**
  * Working screens keep the header in place: consoles, the account area, event
@@ -101,6 +102,7 @@ export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
   const [signupOpen, setSignupOpen] = useState(false);
+  const [signupPersona, setSignupPersona] = useState<PersonaType | undefined>(undefined);
   const [createOpen, setCreateOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
@@ -216,6 +218,19 @@ export function Navbar() {
     }
   }, [location.search]);
 
+  // Every "Sign up" button of the site opens this dialog directly (openSignup, src/lib/authModal.ts),
+  // optionally on a profile ("Sign up as a marina").
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      setSignupPersona((e as CustomEvent<OpenSignupDetail>).detail?.persona);
+      setLoginOpen(false);
+      setMobileMenuOpen(false);
+      setSignupOpen(true);
+    };
+    window.addEventListener(OPEN_SIGNUP_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SIGNUP_EVENT, onOpen);
+  }, []);
+
   // Detect email confirmation redirect (only on homepage — /onboarding and
   // /join/:id handle their own), including a failed link (expired / already used)
   useEffect(() => {
@@ -241,17 +256,33 @@ export function Navbar() {
 
   // ---------------------------------------------------------------- capabilities
   const isInvestor = profile?.persona === 'investor';
+  // A draft account (sign-up not finished): the dashboard, Create and the inbox
+  // would all send it back to its registration, so the bar offers that instead.
+  const isDraft = profile?.onboarding_status === 'draft';
+  const member = !!user && !isDraft;
   const createCtx = {
     isVerified,
     orgVerified: organization?.access_status === 'verified',
     persona: profile?.persona,
     isFeatureEnabled,
   };
-  const createActions = CREATE_ACTIONS.filter((a) => canCreate(a.capability, createCtx));
+  const createActions = member ? CREATE_ACTIONS.filter((a) => canCreate(a.capability, createCtx)) : [];
+  // What is waiting in the inbox: the same count as the dashboard's inbox block.
+  const inbox = useInboxCount(member);
+  // The mobile menu lists the dashboard's blocks: the server-decided ones are asked once it opens.
+  const access = useMemberAccess(member && mobileMenuOpen);
+  const memberSections = HOME_SECTIONS.filter((s) => homeSectionVisible(s.key, {
+    persona: profile?.persona,
+    orgType: organization?.organization_type ?? null,
+    access: access ? { media: access.media, sponsor: access.sponsorIds.length > 0, manager: access.manager } : null,
+  }));
+  const inboxLabel = inbox.total > 0
+    ? t('nav.inboxWaiting', { count: inbox.total, defaultValue_one: 'Inbox, {{count}} request waiting', defaultValue_other: 'Inbox, {{count}} requests waiting' })
+    : t('nav.inbox', 'Inbox');
 
   // ---------------------------------------------------------------- nav model
   const navItems: NavItem[] = user
-    ? [...MEMBER_NAV, ...(isInvestor ? [DEAL_FLOW_ITEM] : [])]
+    ? [...MEMBER_NAV.filter((n) => member || n.href !== '/'), ...(isInvestor && member ? [DEAL_FLOW_ITEM] : [])]
     : PUBLIC_NAV;
 
   const displayName = profile?.first_name && profile?.last_name
@@ -263,6 +294,8 @@ export function Navbar() {
     : displayName.slice(0, 2).toUpperCase();
 
   const active = (href: string) => isNavItemActive(href, location.pathname);
+  // The inbox page, or the dashboard's inbox block open on the home page.
+  const inboxOpen = active('/inbox') || (location.pathname === '/' && new URLSearchParams(location.search).get('open') === 'inbox');
 
   // ---------------------------------------------------------------- look
   const overlay = !!hero || heroHint;
@@ -313,10 +346,10 @@ export function Navbar() {
       <nav aria-label="Main navigation" className="relative h-full">
       <div className="mx-auto h-full max-w-7xl px-4 sm:px-6">
         <div className="flex h-full items-center justify-between gap-2">
-          {/* Logo — signed-in members land on their dashboard, visitors on the
-              marketing homepage. White over a hero, colour on white. */}
+          {/* Logo — the home page: for a signed-in member, "Welcome back" and
+              their dashboard. White over a hero, colour on white. */}
           <Link
-            to={user ? '/dashboard' : '/'}
+            to="/"
             className="focus-ring flex shrink-0 items-center gap-2.5 rounded-field"
             aria-label="Smart Marina Connect — home"
           >
@@ -344,18 +377,25 @@ export function Navbar() {
           </Link>
 
           {/* Desktop navigation: a gold line grows under the label on hover and focus (and stays under the current page). */}
-          <div className="hidden lg:flex lg:items-center lg:gap-7">
+          <div className="hidden lg:flex lg:items-center lg:gap-5 xl:gap-7">
             {navItems.map((link) => {
               const on = active(link.href);
+              const locked = !user && link.membersOnly;
               return (
                 <UnderlineLink
                   key={link.href}
                   to={link.href}
                   nav
                   aria-current={on ? 'page' : undefined}
-                  className={cn(transparent ? (on ? 'text-white' : 'text-white/85 hover:text-white') : on ? 'text-navy' : 'text-ink/75 hover:text-navy')}
+                  className={cn('whitespace-nowrap', transparent ? (on ? 'text-white' : 'text-white/85 hover:text-white') : on ? 'text-navy' : 'text-ink/75 hover:text-navy')}
                 >
                   {t(link.labelKey, link.fallback)}
+                  {locked && (
+                    <>
+                      <Lock className="ml-1 inline h-3.5 w-3.5 -translate-y-px opacity-70" aria-hidden="true" />
+                      <span className="sr-only"> {t('nav.membersOnly', '(for members)')}</span>
+                    </>
+                  )}
                 </UnderlineLink>
               );
             })}
@@ -364,8 +404,18 @@ export function Navbar() {
           {/* Right side */}
           <div className="flex shrink-0 items-center gap-1.5">
             {/* Create — the submissions that used to hide under "Actions" in the
-                avatar menu. Only drawn when the member can actually do one. */}
-            {user && createActions.length > 0 && (
+                avatar menu. Only drawn when the member can actually do one: a
+                single one is a direct button, several open a menu. Under md they
+                are in the mobile menu. */}
+            {createActions.length === 1 && (
+              <Button asChild variant="ctaNavy" size="sm" arrow={false} roll={false} className="hidden px-4 md:inline-flex">
+                <Link to={createActions[0].href}>
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  <span>{t(createActions[0].labelKey, createActions[0].fallback)}</span>
+                </Link>
+              </Button>
+            )}
+            {createActions.length > 1 && (
               <DropdownMenu open={createOpen} onOpenChange={setCreateOpen}>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ctaNavy" size="sm" arrow={false} roll={false} className="hidden px-4 md:inline-flex">
@@ -393,16 +443,25 @@ export function Navbar() {
               </DropdownMenu>
             )}
 
-            {/* Inbox — a first-class destination now, not tab 14 of the account page. */}
-            {user && (
+            {/* Inbox — the dashboard's inbox block, opened in place; a dot counts
+                what is waiting for an answer (the dashboard's own count). */}
+            {member && (
               <Button
                 variant="ghost"
                 size="sm"
                 asChild
-                className={cn('hidden sm:flex', iconBtn, active('/inbox') && !transparent && 'bg-chip text-navy')}
+                className={cn('relative hidden sm:flex', iconBtn, inboxOpen && !transparent && 'bg-chip text-navy')}
               >
-                <Link to="/inbox" aria-label={t('nav.inbox', 'Inbox')}>
+                <Link to={accountHref('inbox')} aria-label={inboxLabel}>
                   <Inbox className="h-[18px] w-[18px]" aria-hidden="true" />
+                  {inbox.total > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -right-0.5 -top-0.5 grid h-[18px] min-w-[18px] place-items-center rounded-pill bg-gold px-1 text-[11px] font-bold leading-none tabular-nums text-navy ring-2 ring-white"
+                    >
+                      {inbox.total > 9 ? '9+' : inbox.total}
+                    </span>
+                  )}
                 </Link>
               </Button>
             )}
@@ -437,11 +496,39 @@ export function Navbar() {
                   </div>
                   <DropdownMenuSeparator />
 
-                  {/* Active-company switcher — only when the user belongs to more than one */}
-                  {organizations.length > 1 && (
+                  {/* Minimal: everything else is a block of the dashboard, one click away. */}
+                  <DropdownMenuGroup>
+                    {member ? (
+                      <>
+                        <DropdownMenuItem asChild className="cursor-pointer rounded-field">
+                          <Link to={DASHBOARD_TOP} className="flex items-center gap-2.5">
+                            <LayoutDashboard className="h-4 w-4 text-meta" />
+                            {t('nav.myDashboard', 'My dashboard')}
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild className="cursor-pointer rounded-field">
+                          <Link to={memberHomeHref('profile')} className="flex items-center gap-2.5">
+                            <UserCircle className="h-4 w-4 text-meta" />
+                            {t('nav.myAccount', 'My profile')}
+                          </Link>
+                        </DropdownMenuItem>
+                      </>
+                    ) : (
+                      <DropdownMenuItem asChild className="cursor-pointer rounded-field">
+                        <Link to={accountHref('complete-registration')} className="flex items-center gap-2.5">
+                          <ClipboardList className="h-4 w-4 text-meta" />
+                          {t('nav.finishRegistration', 'Finish my registration')}
+                        </Link>
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuGroup>
+
+                  {/* Switch company — only when the user belongs to more than one */}
+                  {member && organizations.length > 1 && (
                     <>
+                      <DropdownMenuSeparator />
                       <DropdownMenuLabel className="flex items-center gap-1.5 px-3 text-xs font-normal uppercase tracking-wider text-meta">
-                        <Building2 className="h-3 w-3" /> {t('nav.company', 'Company')}
+                        <Building2 className="h-3 w-3" aria-hidden="true" /> {t('nav.switchCompany', 'Switch company')}
                       </DropdownMenuLabel>
                       <DropdownMenuGroup>
                         {organizations.map(m => (
@@ -451,37 +538,17 @@ export function Navbar() {
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuGroup>
-                      <DropdownMenuSeparator />
                     </>
                   )}
 
-                  {/* The same names and icons as the account menu (src/lib/accountNav.ts),
-                      so "My events" is "My events" everywhere. */}
-                  <DropdownMenuGroup>
-                    <DropdownMenuItem asChild className="cursor-pointer rounded-field">
-                      <Link to={accountHref('dashboard')} className="flex items-center gap-2.5">
-                        <LayoutDashboard className="h-4 w-4 text-meta" />
-                        {t('nav.dashboard', 'Dashboard')}
-                      </Link>
-                    </DropdownMenuItem>
-                    {AVATAR_SECTIONS.map((s) => (
-                      <DropdownMenuItem key={s.value} asChild className="cursor-pointer rounded-field">
-                        <Link to={accountHref(s.value)} className="flex items-center gap-2.5">
-                          <s.icon className="h-4 w-4 text-meta" />
-                          {t(s.labelKey, s.fallback)}
-                        </Link>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-
-                  {/* Admin / Moderator Panel */}
+                  {/* Admin (moderators: moderation) */}
                   {isModerator && (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem asChild className="cursor-pointer rounded-field">
                         <Link to="/admin" className="flex items-center gap-2.5">
                           <Shield className="h-4 w-4 text-meta" />
-                          {isAdmin ? t('nav.adminPanel') : 'Moderator Panel'}
+                          {isAdmin ? t('nav.adminPanel', 'Admin') : t('nav.moderation', 'Moderation')}
                         </Link>
                       </DropdownMenuItem>
                     </>
@@ -490,7 +557,7 @@ export function Navbar() {
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer rounded-field text-red-600 focus:bg-red-50 focus:text-red-700">
                     <LogOut className="h-4 w-4 mr-2.5" />
-                    {t('nav.logout')}
+                    {t('nav.logout', 'Log out')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -511,7 +578,7 @@ export function Navbar() {
                   // White over the hero (whose own Sign up is the gold one), gold once the bar is white.
                   variant={transparent ? 'ctaWhite' : 'cta'}
                   size="sm"
-                  onClick={() => setSignupOpen(true)}
+                  onClick={() => { setSignupPersona(undefined); setSignupOpen(true); }}
                   className={compactCta}
                 >
                   {t('nav.signup')}
@@ -572,7 +639,15 @@ export function Navbar() {
                           >
                             <Icon className="mt-0.5 h-5 w-5 shrink-0 text-navy/80" aria-hidden="true" />
                             <span className="flex flex-col">
-                              <span className="text-[15px] font-semibold">{t(link.labelKey, link.fallback)}</span>
+                              <span className="text-[15px] font-semibold">
+                                {t(link.labelKey, link.fallback)}
+                                {!user && link.membersOnly && (
+                                  <>
+                                    <Lock className="ml-1.5 inline h-3.5 w-3.5 -translate-y-px text-meta" aria-hidden="true" />
+                                    <span className="sr-only"> {t('nav.membersOnly', '(for members)')}</span>
+                                  </>
+                                )}
+                              </span>
                               <span className="text-xs text-meta">{t(link.descKey, link.descFallback)}</span>
                             </span>
                           </Link>
@@ -596,8 +671,8 @@ export function Navbar() {
                       )}
                     </div>
 
-                    {/* Create actions */}
-                    {user && createActions.length > 0 && (
+                    {/* Create actions (on phones the only way to them: the Create button shows from md) */}
+                    {createActions.length > 0 && (
                       <div className="mt-3 border-t border-rule pt-3">
                         <p className="text-meta-caps mb-2 px-3">{t('nav.create', 'Create')}</p>
                         {createActions.map((a) => {
@@ -606,7 +681,7 @@ export function Navbar() {
                             <Link
                               key={a.href}
                               to={a.href}
-                              className="focus-ring flex items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page"
+                              className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page"
                               onClick={() => setMobileMenuOpen(false)}
                             >
                               <Icon className="h-4 w-4 shrink-0 text-navy" aria-hidden="true" />
@@ -617,27 +692,70 @@ export function Navbar() {
                       </div>
                     )}
 
-                    {/* Account & settings */}
+                    {/* My account: the dashboard's blocks, in its order — each opens its editor in place. */}
                     <div className="mt-3 space-y-1 border-t border-rule pt-3">
                       {user ? (
                         <>
-                          <Link to="/inbox" className="focus-ring flex items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
-                            <Inbox className="h-4 w-4 text-meta" />
-                            {t('nav.inbox', 'Inbox')}
-                          </Link>
-                          <Link to="/account?tab=profile" className="focus-ring flex items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
-                            <Settings className="h-4 w-4 text-meta" />
-                            {t('nav.myAccount')}
-                          </Link>
-                          {isModerator && (
-                            <Link to="/admin" className="focus-ring flex items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
-                              <Shield className="h-4 w-4 text-meta" />
-                              {isAdmin ? t('nav.adminPanel') : 'Moderator Panel'}
+                          {member ? (
+                            <>
+                              <p className="text-meta-caps mb-2 px-3">{t('nav.myAccountGroup', 'My account')}</p>
+                              <Link to={DASHBOARD_TOP} className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
+                                <LayoutDashboard className="h-4 w-4 text-meta" aria-hidden="true" />
+                                {t('nav.myDashboard', 'My dashboard')}
+                              </Link>
+                              {memberSections.map((s) => (
+                                <Link
+                                  key={s.key}
+                                  to={memberHomeHref(s.key)}
+                                  className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page"
+                                  onClick={() => setMobileMenuOpen(false)}
+                                >
+                                  <s.icon className="h-4 w-4 text-meta" aria-hidden="true" />
+                                  <span className="flex-1">{t(s.labelKey, s.fallback)}</span>
+                                  {s.key === 'inbox' && inbox.total > 0 && (
+                                    <span className="grid h-5 min-w-5 place-items-center rounded-pill bg-navy px-1.5 text-[12px] font-semibold leading-none tabular-nums text-white">
+                                      <span aria-hidden="true">{inbox.total}</span>
+                                      <span className="sr-only">{t('nav.waiting', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' })}</span>
+                                    </span>
+                                  )}
+                                </Link>
+                              ))}
+                              {organizations.length > 1 && (
+                                <div className="pt-2">
+                                  <p className="text-meta-caps mb-1 px-3">{t('nav.switchCompany', 'Switch company')}</p>
+                                  {organizations.map((m) => {
+                                    const current = organization?.id === m.organization.id;
+                                    return (
+                                      <button
+                                        key={m.organization.id}
+                                        type="button"
+                                        aria-pressed={current}
+                                        onClick={() => { setActiveOrganization(m.organization.id); setMobileMenuOpen(false); }}
+                                        className="focus-ring flex min-h-11 w-full items-center gap-3 rounded-field px-3 py-2.5 text-left text-sm text-ink hover:bg-page"
+                                      >
+                                        <Check className={cn('h-4 w-4 shrink-0 text-teal', !current && 'opacity-0')} aria-hidden="true" />
+                                        <span className="truncate">{m.organization.name}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <Link to={accountHref('complete-registration')} className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
+                              <ClipboardList className="h-4 w-4 text-meta" aria-hidden="true" />
+                              {t('nav.finishRegistration', 'Finish my registration')}
                             </Link>
                           )}
-                          <button onClick={() => { handleLogout(); setMobileMenuOpen(false); }} className="focus-ring flex w-full items-center gap-3 rounded-field px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50">
-                            <LogOut className="h-4 w-4" />
-                            {t('nav.logout')}
+                          {isModerator && (
+                            <Link to="/admin" className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
+                              <Shield className="h-4 w-4 text-meta" aria-hidden="true" />
+                              {isAdmin ? t('nav.adminPanel', 'Admin') : t('nav.moderation', 'Moderation')}
+                            </Link>
+                          )}
+                          <button type="button" onClick={() => { handleLogout(); setMobileMenuOpen(false); }} className="focus-ring flex min-h-11 w-full items-center gap-3 rounded-field px-3 py-2.5 text-left text-sm text-red-600 hover:bg-red-50">
+                            <LogOut className="h-4 w-4" aria-hidden="true" />
+                            {t('nav.logout', 'Log out')}
                           </button>
                         </>
                       ) : (
@@ -645,7 +763,7 @@ export function Navbar() {
                           <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
                             {t('nav.login')}
                           </Button>
-                          <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupOpen(true); setMobileMenuOpen(false); }}>
+                          <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupOpen(true); setMobileMenuOpen(false); }}>
                             {t('nav.signup')}
                           </Button>
                         </div>
@@ -669,7 +787,7 @@ export function Navbar() {
             <DialogTitle>{t('auth.login')}</DialogTitle>
             <DialogDescription>
               {t('auth.noAccount')}{' '}
-              <button className="text-primary hover:underline font-medium" onClick={() => { setLoginOpen(false); setSignupOpen(true); }}>
+              <button className="text-primary hover:underline font-medium" onClick={() => { setLoginOpen(false); setSignupPersona(undefined); setSignupOpen(true); }}>
                 {t('auth.signup')}
               </button>
             </DialogDescription>
@@ -696,7 +814,7 @@ export function Navbar() {
               </button>
             </DialogDescription>
           </DialogHeader>
-          <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+          <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
         </DialogContent>
       </Dialog>
     </header>

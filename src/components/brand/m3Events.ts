@@ -43,7 +43,7 @@ export function featuredEventItems(t: TFunction, now = Date.now()): EventCardIte
       id: 'webinars',
       kicker: t('brand.events.webinars.kicker', 'Online'),
       title: t('brand.notch.webinarsTitle', 'Webinars'),
-      meta: t('brand.notch.webinarsMeta', 'One-click registration'),
+      meta: t('brand.notch.webinarsMeta', 'One-click registration for members'),
       href: WEBINARS_PATH,
       image: SITE_IMAGES.resourcesHero,
     },

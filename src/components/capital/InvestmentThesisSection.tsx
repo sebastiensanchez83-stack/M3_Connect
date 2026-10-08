@@ -91,7 +91,7 @@ export function InvestmentThesisSection({ org, isOwner, onSaved }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-start gap-2 text-xs text-meta bg-amber-50 border border-amber-100 rounded-lg p-2.5">
+        <div className="flex items-start gap-2 text-xs text-meta bg-amber-50 border border-amber-200 rounded-field p-2.5">
           <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-600" />
           <p>
             <strong>Public on your profile.</strong> Marinas and developers will see this on <code>/organizations/{org.slug}</code> so they can decide whether their raise fits your strategy. Focus sectors are managed in your interest sectors below.
@@ -192,7 +192,7 @@ export function InvestmentThesisSection({ org, isOwner, onSaved }: Props) {
             rows={5}
             maxLength={1500}
             placeholder="What you look for, your value-add, why founders/operators should pick you. Public to anyone visiting your profile."
-            className="w-full resize-y rounded-lg border border-rule bg-white p-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:bg-page disabled:text-meta"
+            className="w-full resize-y rounded-field border border-rule bg-white p-3 text-sm focus:outline-none focus-visible:shadow-focus disabled:bg-page disabled:text-meta"
           />
           <p className="text-xs text-meta/60">{form.investment_thesis.length} / 1500</p>
         </div>

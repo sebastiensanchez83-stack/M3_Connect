@@ -3,7 +3,7 @@ import type { ThemeKey } from '@/lib/themes';
 import { ChannelSteps } from '@/components/motion/ChannelSteps';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal } from '@/components/motion/Reveal';
-import { SectionNo } from '@/components/brand/Eyebrow';
+import { Eyebrow } from '@/components/brand/Eyebrow';
 import { ProfileCards } from './ProfileCards';
 import { NeedPanel, type ProviderCardData } from './NeedPanel';
 import { ResourcesAgenda, type HomeResource } from './ResourcesAgenda';
@@ -17,16 +17,20 @@ import { EndSection } from './EndSection';
  * stays small). The order follows the v2 design:
  *
  *   who it is for: photo cards in an accordion   (visitors)
- *   "Run a marina?": need form preview + members (visitors and marinas)
- *   latest articles + agenda
+ *   "Run a marina?": need form preview + members (visitors)
+ *   latest articles + agenda                     (visitors)
  *   our events: a carousel of three photo cards
  *   how it works, channel steps                  (visitors)
  *   event sponsors, logo tiles by tier
  *   directory and resources tiles + contact panel
+ *
+ * A signed-in member has just had the dashboard (its own agenda, resources and
+ * publishing forms): they get the lighter version, with tighter spacing between
+ * the sections.
  */
 export interface HomeBelowFoldProps {
   signedIn: boolean;
-  /** Visitors and signed-in marinas see the need panel. */
+  /** Visitors see the need panel. */
   showNeedPanel: boolean;
   canSubmitNeed: boolean;
   providers: ProviderCardData[];
@@ -44,7 +48,7 @@ export default function HomeBelowFold(props: HomeBelowFoldProps) {
   // Small gold section numbers (01, 02…) follow the sections this visitor actually sees.
   let count = 0;
   const next = () => String(++count).padStart(2, '0');
-  return (
+  const sections = (
     <>
       {!signedIn && <ProfileCards sectionNo={next()} />}
 
@@ -52,7 +56,7 @@ export default function HomeBelowFold(props: HomeBelowFoldProps) {
         <NeedPanel canSubmit={props.canSubmitNeed} signedIn={signedIn} providers={props.providers} providersLoading={props.loading} sectionNo={next()} />
       )}
 
-      <ResourcesAgenda resources={props.resources} themeCounts={props.themeCounts} loading={props.loading} lang={props.lang} sectionNo={next()} />
+      {!signedIn && <ResourcesAgenda resources={props.resources} themeCounts={props.themeCounts} loading={props.loading} lang={props.lang} sectionNo={next()} />}
 
       <EventsCarousel sectionNo={next()} />
 
@@ -63,6 +67,8 @@ export default function HomeBelowFold(props: HomeBelowFoldProps) {
       <EndSection directoryLine={props.directoryLine} resourcesLine={props.resourcesLine} signedIn={signedIn} />
     </>
   );
+  // Signed in: each section 48 px top and bottom (64 px from md) instead of up to 104 px.
+  return signedIn ? <div className="[&>section]:py-12 md:[&>section]:py-16">{sections}</div> : sections;
 }
 
 /* ─── Signed out: how it works ───────────────────────────────────── */
@@ -80,7 +86,7 @@ function HowItWorks({ sectionNo }: { sectionNo?: string }) {
     },
     {
       title: t('homeSections.steps.verify.title', 'M3 reviews your company'),
-      body: t('homeSections.steps.verify.desc', 'The M3 team reviews your company and marks it as verified. You get an e-mail when it is done.'),
+      body: t('homeSections.steps.verify.desc', 'The M3 team reviews your company and marks it as verified. You get an email when it is done.'),
     },
     {
       title: t('homeSections.steps.platform.title', 'Use the whole platform'),
@@ -91,11 +97,10 @@ function HowItWorks({ sectionNo }: { sectionNo?: string }) {
     <section aria-labelledby="home-how-heading" className="relative overflow-hidden bg-foam py-16 md:py-[104px]">
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6">
         <div className="max-w-[720px]">
-          {sectionNo && (
-            <Reveal className="mb-4">
-              <SectionNo number={sectionNo} className="text-[13px] leading-4 tracking-[0.08em]" />
-            </Reveal>
-          )}
+          {/* The section number with its label, as on every other section ("05 · Getting started"). */}
+          <Reveal className="mb-4">
+            <Eyebrow number={sectionNo}>{t('homeSections.howEyebrow', 'Getting started')}</Eyebrow>
+          </Reveal>
           <LineReveal
             as="h2"
             id="home-how-heading"

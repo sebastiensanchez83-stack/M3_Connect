@@ -545,7 +545,7 @@ export const PAGE_STRINGS = {
         },
         "verify": {
           "title": "M3 reviews your company",
-          "desc": "The M3 team reviews your company and marks it as verified. You get an e-mail when it is done."
+          "desc": "The M3 team reviews your company and marks it as verified. You get an email when it is done."
         },
         "platform": {
           "title": "Use the whole platform",
@@ -626,7 +626,7 @@ export const PAGE_STRINGS = {
         "incomplete": "Your profile is incomplete. Complete your organisation details to be validated by our team.",
         "completeProfile": "Complete my profile",
         "pendingTitle": "Your profile is being reviewed by our team.",
-        "pendingBody": "The M3 team usually finishes within 24 to 48 business hours and e-mails you when it is done. While you wait, complete your profile, read the library or register for a webinar.",
+        "pendingBody": "The M3 team usually finishes within 24 to 48 business hours and emails you when it is done. While you wait, complete your profile, read the library or register for a webinar.",
         "contactSupport": "Questions? Write to the M3 team",
         "rejectedTitle": "Your access request has been rejected.",
         "rejectedReason": "Reason: {{reason}}",
@@ -662,7 +662,7 @@ export const PAGE_STRINGS = {
         "stepOrganization": "Organisation",
         "stepReview": "Admin review",
         "submittedTitle": "Profile submitted for review",
-        "submittedBody": "Thank you for completing your registration! The M3 team reviews each profile, usually within 24 to 48 business hours, and e-mails you as soon as your account is approved.",
+        "submittedBody": "Thank you for completing your registration! The M3 team reviews each profile, usually within 24 to 48 business hours, and emails you as soon as your account is approved.",
         "reviewTime": "Typical review time: 24 to 48 business hours",
         "editRegistration": "Edit my registration"
       },
@@ -676,7 +676,7 @@ export const PAGE_STRINGS = {
         "edit": "Edit profile",
         "firstName": "First name",
         "lastName": "Last name",
-        "email": "E-mail",
+        "email": "Email",
         "jobTitle": "Job title",
         "accountDetails": "Account details",
         "persona": "Profile type",
@@ -691,7 +691,7 @@ export const PAGE_STRINGS = {
         "description": "Description",
         "audience": "Audience",
         "security": "Security",
-        "securityHelp": "We'll e-mail you a link to choose a new password.",
+        "securityHelp": "We'll email you a link to choose a new password.",
         "changePassword": "Change password",
         "preview": "Preview my profile"
       },
@@ -717,7 +717,7 @@ export const PAGE_STRINGS = {
         "logoUpdated": "Company logo updated",
         "uploadFailed": "Upload failed",
         "unexpected": "An unexpected error occurred.",
-        "passwordReset": "Password reset e-mail sent",
+        "passwordReset": "Password reset email sent",
         "passwordResetDesc": "Check your inbox for a link to reset your password."
       },
       "lang": {

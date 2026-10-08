@@ -12,6 +12,7 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { LineReveal } from '@/components/motion/LineReveal';
 import { Reveal } from '@/components/motion/Reveal';
 import { THEMES } from '@/lib/themes';
+import { openSignup } from '@/lib/authModal';
 
 /**
  * "Run a marina? Describe your need": the navy panel that turns marinas into
@@ -21,7 +22,7 @@ import { THEMES } from '@/lib/themes';
  *    directory, "Publish a need" and a link to the M3 team;
  *  - right: "What the form asks" (about two minutes). The type of need is a
  *    real choice (tender, expert question, project) and "Publish a need" opens
- *    the matching form for a signed-in marina, or the sign-up for a visitor.
+ *    the matching form for a signed-in marina, or the sign-up window for a visitor.
  *    What the form then asks for (it depends on the type, see ASKS) is a plain
  *    numbered list, not a mock form: no input-like boxes, nothing that looks
  *    like it can be typed into;
@@ -98,7 +99,8 @@ export function NeedPanel({
   const { t } = useTranslation();
   const [type, setType] = useState<NeedType>('rfp');
   const waiting = signedIn && !canSubmit;
-  const href = canSubmit ? NEED_ROUTES[type] : waiting ? '/dashboard' : '/become-partner#marina';
+  // A visitor signs up as a marina in one click (the sign-up window); a member goes to the form or the dashboard.
+  const href = canSubmit ? NEED_ROUTES[type] : waiting ? '/#dashboard' : null;
 
   return (
     <BgRevealPanel as="section" aria-labelledby="home-need-heading" bathy bathySeed={4} className="py-16 md:py-[104px]">
@@ -116,7 +118,7 @@ export function NeedPanel({
               {t('homePage.need.title', 'Run a marina? Describe your need, and service providers can answer.')}
             </LineReveal>
             <Reveal as="p" delay={120} className="mt-5 max-w-[600px] text-body text-white/80 md:text-body-lg">
-              {t('homePage.need.body', 'A tender, a question for an expert or a project: a few lines are enough. M3 reviews each need and publishes it within one business day. Prefer to write it with us? The M3 team can help.')}
+              {t('homePage.need.body', 'A tender, a question for an expert or a project: a few lines are enough. Marinas publish their needs here; M3 reviews each one within one business day. Prefer to write it with us? The M3 team can help.')}
             </Reveal>
             <Reveal delay={160}>
               <p id="home-need-themes" className="mt-6 text-[13px] font-medium leading-4 text-white/70">
@@ -138,9 +140,15 @@ export function NeedPanel({
               </nav>
             </Reveal>
             <Reveal delay={200} className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-4">
-              <Button asChild variant="ctaOnDark" size="lg">
-                <Link to={href}>{waiting ? t('homePage.need.ctaWaiting', 'Check my account status') : t('homePage.need.cta', 'Publish a need')}</Link>
-              </Button>
+              {href ? (
+                <Button asChild variant="ctaOnDark" size="lg">
+                  <Link to={href}>{waiting ? t('homePage.need.ctaWaiting', 'Check my account status') : t('homePage.need.cta', 'Publish a need')}</Link>
+                </Button>
+              ) : (
+                <Button type="button" variant="ctaOnDark" size="lg" onClick={() => openSignup('marina')}>
+                  {t('homePage.need.cta', 'Publish a need')}
+                </Button>
+              )}
               <UnderlineLink to="/contact" tone="light">
                 {t('homePage.need.writeTeam', 'Write to the M3 team')}
               </UnderlineLink>

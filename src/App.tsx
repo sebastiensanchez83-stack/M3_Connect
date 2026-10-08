@@ -28,7 +28,6 @@ import { NotFoundPage } from '@/pages/NotFoundPage';
 // Lazy loaded pages (behind auth or lower traffic).
 // lazyWithRetry auto-recovers from stale-chunk errors after a new deploy.
 const AccountPage = lazyWithRetry(() => import('@/pages/AccountPage').then(m => ({ default: m.AccountPage })));
-const DashboardPage = lazyWithRetry(() => import('@/pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const OnboardingPage = lazyWithRetry(() => import('@/pages/OnboardingPage').then(m => ({ default: m.OnboardingPage })));
 const AdminPage = lazyWithRetry(() => import('@/pages/AdminPage').then(m => ({ default: m.AdminPage })));
 const GuestEventPage = lazyWithRetry(() => import('@/pages/GuestEventPage').then(m => ({ default: m.GuestEventPage })));
@@ -58,7 +57,7 @@ const ConditionsCommercialesPage = lazyWithRetry(() => import('@/pages/Condition
 const CookiePolicyPage = lazyWithRetry(() => import('@/pages/CookiePolicyPage').then(m => ({ default: m.CookiePolicyPage })));
 // SM26 event module (sm26 branch only — gated before any production merge)
 const SM26RegisterPage = lazyWithRetry(() => import('@/pages/SM26RegisterPage').then(m => ({ default: m.SM26RegisterPage })));
-// SM26MyRegistrationPage renders inside the /account "Event" tab now; /sm26/me redirects there.
+// /sm26/me (printed and e-mailed) lands on the events block of the member home: SM26 is over, its participants get a mark there.
 const SM26JuryPage = lazyWithRetry(() => import('@/pages/SM26JuryPage').then(m => ({ default: m.SM26JuryPage })));
 const SM26JuryRsvpPage = lazyWithRetry(() => import('@/pages/SM26JuryRsvpPage').then(m => ({ default: m.SM26JuryRsvpPage })));
 const SM26StartupRsvpPage = lazyWithRetry(() => import('@/pages/SM26StartupRsvpPage').then(m => ({ default: m.SM26StartupRsvpPage })));
@@ -116,7 +115,6 @@ function App() {
               {SM26_ENABLED && (
                 <>
                   <Route path="/sm26/register" element={<SM26RegisterPage />} />
-                  <Route path="/sm26/me" element={<Navigate to="/account?tab=event" replace />} />
                   <Route path="/sm26/jury" element={<ProtectedRoute><SM26JuryPage /></ProtectedRoute>} />
                   {/* Availability RSVP from the jury email — tokened, no login. */}
                   <Route path="/sm26/jury/rsvp" element={<SM26JuryRsvpPage />} />
@@ -150,6 +148,11 @@ function App() {
                   ProtectedRoute, and keep it outside the SM26_ENABLED block —
                   change what the page shows, not where it lives. */}
               <Route path="/sm26" element={<SM26HubPage />} />
+              {/* The participant's own shortcut, printed and e-mailed: outside the
+                  flag, never removed. SM26 is over, so it lands on the events block
+                  of the member home, where participants find their mark (signed
+                  out: the sign-in form first, then the same place). */}
+              <Route path="/sm26/me" element={<ProtectedRoute><Navigate to="/?open=registrations" replace /></ProtectedRoute>} />
               {/* Networking codes land here, and they are PRINTED on exhibitor
                   tables (/sm26/connect?c=<token>): same rules as /sm26 — public,
                   outside the flag, never renamed. */}
@@ -178,9 +181,14 @@ function App() {
                   agreed with the M3 team. netlify.toml answers /tiers with a 301 before
                   the app loads; this covers links followed inside the app. */}
               <Route path="/tiers" element={<Navigate to="/contact?subject=partnership" replace />} />
+              {/* The member area lives on the home page now (/?open=<block>): /account
+                  forwards the old ?tab= addresses of the e-mails there, and keeps the
+                  registration screen of draft accounts (?tab=complete-registration). */}
               <Route path="/account" element={<ProtectedRoute><AccountPage /></ProtectedRoute>} />
-              {/* The two places a member goes first, promoted out of /account. */}
-              <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
+              {/* The old dashboard address (e-mails, bookmarks): the dashboard is on the
+                  home page. Signed out, the sign-in form shows first. */}
+              <Route path="/dashboard" element={<ProtectedRoute><Navigate to="/" replace /></ProtectedRoute>} />
+              {/* The inbox keeps a page of its own; it is also a block of the home dashboard. */}
               <Route path="/inbox" element={<ProtectedRoute><AccountPage forceTab="inbox" /></ProtectedRoute>} />
               <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
               <Route path="/submit-project" element={<ProtectedRoute requireVerified requirePersona={['marina', 'developer']} bypassEntitlement="submit_project" showLocked lockedMessage="Only verified marinas and developers can submit projects."><SubmitProjectPage /></ProtectedRoute>} />

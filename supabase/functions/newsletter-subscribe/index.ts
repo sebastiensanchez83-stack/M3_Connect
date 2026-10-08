@@ -22,7 +22,8 @@
 // its owner clicks it. An address that had unsubscribed (or was cleaned or
 // archived) is set back to "pending" the same way, because the person has just
 // ticked the consent box again. An address that is already subscribed or
-// pending is left exactly as it is.
+// pending keeps its status (no new e-mail); the "site-<source>" tag is added
+// and SOURCE is filled if it was empty, so Mailchimp shows where it signed up.
 //
 // Secrets (Supabase > Edge Functions > Secrets):
 //   MAILCHIMP_API_KEY          the key, "<hex>-<datacenter>"
@@ -174,7 +175,7 @@ async function mailchimp(method: string, path: string, body?: Record<string, unk
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  let json: { status?: number | string; title?: string; detail?: string } = {};
+  let json: { status?: number | string; title?: string; detail?: string; merge_fields?: { SOURCE?: string } } = {};
   try { json = await res.json(); } catch { /* an empty body */ }
   return { status: res.status, json };
 }
@@ -216,12 +217,23 @@ Deno.serve(async (req: Request) => {
 
   try {
     const member = `/lists/${encodeURIComponent(MAILCHIMP_AUDIENCE_ID)}/members/${md5(email)}`;
-    const found = await mailchimp("GET", `${member}?fields=status`);
+    const found = await mailchimp("GET", `${member}?fields=status,merge_fields.SOURCE`);
 
     if (found.status === 200) {
       const status = String(found.json.status);
-      // Already on the list (or waiting for the confirmation e-mail): untouched.
-      if (status === "subscribed" || status === "pending") return reply(req, 200, { ok: true });
+      // Already on the list (or waiting for the confirmation e-mail): the
+      // status is left as it is, but the sign-up is recorded: the
+      // "site-<source>" tag is added, and SOURCE is filled if it was empty.
+      // A failure here is logged only: the person is already on the list.
+      if (status === "subscribed" || status === "pending") {
+        const tagged = await mailchimp("POST", `${member}/tags`, { tags: [{ name: `site-${source}`, status: "active" }] });
+        if (tagged.status !== 204 && tagged.status !== 200) console.error("newsletter-subscribe: tag failed", tagged.status, tagged.json.title);
+        if (!found.json.merge_fields?.SOURCE) {
+          const patched = await mailchimp("PATCH", member, { merge_fields: { SOURCE: source } });
+          if (patched.status !== 200) console.error("newsletter-subscribe: source update failed", patched.status, patched.json.title);
+        }
+        return reply(req, 200, { ok: true });
+      }
     } else if (found.status !== 404) {
       console.error("newsletter-subscribe: member lookup failed", found.status, found.json.title);
       return reply(req, 500, { error: "server" });

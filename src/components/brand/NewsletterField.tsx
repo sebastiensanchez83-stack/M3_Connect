@@ -75,7 +75,7 @@ export function NewsletterField({
     return (
       <p role="status" className={cn('flex items-start gap-2 text-sm', dark ? 'text-white/85' : 'text-ink', className)}>
         <Check className={cn('mt-0.5 h-4 w-4 shrink-0', dark ? 'text-gold' : 'text-teal')} aria-hidden="true" />
-        {t('brand.newsletter.done', 'Thank you. Check your inbox to confirm.')}
+        {t('brand.newsletter.done', 'Thank you. New subscribers receive an e-mail to confirm.')}
       </p>
     );
   }

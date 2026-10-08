@@ -104,7 +104,7 @@ export const BRAND_STRINGS = {
         errorEmail: 'Enter a valid e-mail address.',
         errorConsent: 'Tick the box to agree to receive the newsletter.',
         errorSend: 'That did not work. Please try again in a moment.',
-        done: 'Thank you. Check your inbox to confirm.',
+        done: 'Thank you. New subscribers receive an e-mail to confirm.',
         doneMail: 'Your e-mail app has opened with the request: send it and we add you.',
         mailSubject: 'Newsletter subscription',
         mailBody: 'Please add {{email}} to the Smart Marina Connect newsletter. I agree to receive it and can unsubscribe at any time.',

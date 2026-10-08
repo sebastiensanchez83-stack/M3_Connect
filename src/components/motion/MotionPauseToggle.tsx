@@ -9,10 +9,10 @@ import { useMotion } from './MotionProvider';
  * the sounding lines… Hidden when the visitor's system already asks for
  * reduced motion, since nothing loops then.
  *
- * It says what it will do ("Pause the animations" / "Play the animations") and
- * swaps its icon. It carries no aria-pressed: with a name that changes, that
- * would be read as "Play the animations, toggle button, pressed". The local
- * carousels (the event card) follow the same pattern.
+ * It says what it will do ("Pause animations" / "Play animations"), swaps its
+ * icon, and carries aria-pressed = paused (design audit, 8 Oct 2026), so a screen
+ * reader also hears the state. The hero and footer copies share one switch
+ * (useMotion), so they always agree.
  *
  * The heroes show it WITH its words (`withLabel`), so the site-wide control
  * never looks like a carousel's own icon-only pause button.
@@ -32,13 +32,14 @@ export function MotionPauseToggle({
   const { reduced, paused, togglePaused } = useMotion();
   if (reduced) return null;
   const label = paused
-    ? t('brand.motion.play', 'Play the animations')
-    : t('brand.motion.pause', 'Pause the animations');
+    ? t('brand.motion.play', 'Play animations')
+    : t('brand.motion.pause', 'Pause animations');
   const Icon = paused ? Play : Pause;
   return (
     <button
       type="button"
       onClick={togglePaused}
+      aria-pressed={paused}
       aria-label={withLabel ? undefined : label}
       title={withLabel ? undefined : label}
       className={cn(

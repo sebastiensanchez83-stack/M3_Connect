@@ -31,7 +31,11 @@ argument, or `EMAIL_PREVIEW_DIR`). Open `index.html` there.
 
 Service e-mails have **no marketing unsubscribe** in the footer. Only `send-notification` adds
 "Manage preferences / Unsubscribe / Contact" under the footer (its per-category opt-outs and its
-`List-Unsubscribe` header predate this design and stay).
+`List-Unsubscribe` header predate this design and stay). Since 8 Oct 2026 its "Unsubscribe" link is
+`/unsubscribe?t=<signed token>` (account + notification category) and `List-Unsubscribe` points at
+the `unsubscribe` edge function, which takes the RFC 8058 one-click POST; the contract is at the top
+of `supabase/functions/unsubscribe/index.ts`. An e-mail to several people (the B2B introduction) or
+to an address that is not the account's own gets the plain `/unsubscribe` page instead.
 
 ## Tokens (`EM`)
 

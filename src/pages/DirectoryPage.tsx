@@ -13,7 +13,7 @@ import { canCreate } from '@/lib/nav';
 import { Button } from '@/components/ui/button';
 import { PageHero } from '@/components/ui/PageHero';
 import { AdBanner } from '@/components/ui/AdBanner';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
 import { SignupForm } from '@/components/auth/SignupForm';
 import { BookmarkButton } from '@/components/shortlist/BookmarkButton';
@@ -1270,24 +1270,24 @@ export function DirectoryPage() {
       </SheetDrawer>
 
       {/* ── Sign in / sign up (visitors) ── */}
-      <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('auth.login', 'Sign in')}</DialogTitle>
-            <DialogDescription>{t('directory.shortlist.loginDesc', 'Sign in to keep a shortlist and request introductions.')}</DialogDescription>
-          </DialogHeader>
-          <LoginForm onSuccess={() => setLoginOpen(false)} />
-        </DialogContent>
-      </Dialog>
-      <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
-        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{t('auth.signup', 'Sign up')}</DialogTitle>
-            <DialogDescription>{t('directory.shortlist.signupDesc', 'Free for every member.')}</DialogDescription>
-          </DialogHeader>
-          <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
-        </DialogContent>
-      </Dialog>
+      <AuthDialog
+        mode="login"
+        open={loginOpen}
+        onOpenChange={setLoginOpen}
+        description={t('directory.shortlist.loginDesc', 'Sign in to keep a shortlist and request introductions.')}
+        switchTo={{ onClick: () => { setLoginOpen(false); setSignupOpen(true); } }}
+      >
+        <LoginForm onSuccess={() => setLoginOpen(false)} />
+      </AuthDialog>
+      <AuthDialog
+        mode="signup"
+        open={signupOpen}
+        onOpenChange={setSignupOpen}
+        description={t('directory.shortlist.signupDesc', 'Free for every member.')}
+        switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
+      >
+        <SignupForm key={signupPersona ?? 'any'} defaultPersona={signupPersona} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+      </AuthDialog>
     </div>
   );
 }

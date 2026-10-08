@@ -49,7 +49,6 @@ interface DashboardStats {
   totalRevenueCents: number;
   revenueThisMonthCents: number;
   pendingPayments: number;
-  pendingSponsorships: number;
   // Content
   totalResources: number;
   pendingResourceDrafts: number;
@@ -64,7 +63,6 @@ interface DashboardStats {
   pendingB2B: number;
   openRFPs: number;
   openConsultations: number;
-  pendingExpositions: number;
   // Leads pipeline
   qualifiedLeads: number;
   inDiscussionLeads: number;
@@ -137,11 +135,11 @@ export function AdminDashboard() {
     marinaCount: 0, partnerCount: 0, mediaCount: 0, individualCount: 0,
     signupsThisMonth: 0, signupsLastMonth: 0, signupsThisWeek: 0, signupsLastWeek: 0,
     totalOrgs: 0, tierBreakdown: {},
-    totalRevenueCents: 0, revenueThisMonthCents: 0, pendingPayments: 0, pendingSponsorships: 0,
+    totalRevenueCents: 0, revenueThisMonthCents: 0, pendingPayments: 0,
     totalResources: 0, pendingResourceDrafts: 0,
     totalEvents: 0, upcomingEvents: 0, totalRegistrations: 0, pendingRegistrations: 0,
     newWebinars: 0, newProjects: 0, newLeads: 0,
-    pendingB2B: 0, openRFPs: 0, openConsultations: 0, pendingExpositions: 0,
+    pendingB2B: 0, openRFPs: 0, openConsultations: 0,
     qualifiedLeads: 0, inDiscussionLeads: 0, signedLeads: 0,
     usersWaiting48h: 0, oldB2BRequests: 0, oldLeadsNotContacted: 0,
   });
@@ -183,13 +181,12 @@ export function AdminDashboard() {
         { count: signupsThisWeek }, { count: signupsLastWeek },
         { data: orgTiers },
         { data: paidPayments }, { data: monthPayments }, { count: pendingPaymentCount },
-        { count: pendingSponsorships },
         { count: totalResources }, { count: pendingResourceDrafts },
         { count: totalEvents }, { count: upcomingEvents },
         { count: totalRegistrations }, { count: pendingRegistrations },
         { count: newWebinars }, { count: newProjects },
         { count: newLeads }, { count: qualifiedLeads }, { count: inDiscussionLeads }, { count: signedLeads },
-        { count: pendingB2B }, { count: openRFPs }, { count: openConsultations }, { count: pendingExpositions },
+        { count: pendingB2B }, { count: openRFPs }, { count: openConsultations },
         // Aging
         { count: usersWaiting48h }, { count: oldB2BRequests }, { count: oldLeadsNotContacted },
         // Trends
@@ -223,7 +220,9 @@ export function AdminDashboard() {
         supabase.from('payments').select('amount_cents').eq('status', 'paid'),
         supabase.from('payments').select('amount_cents').eq('status', 'paid').gte('paid_at', startOfMonth),
         supabase.from('payments').select('id', { count: 'exact' }).eq('status', 'pending'),
-        supabase.from('sponsorship_requests').select('id', { count: 'exact' }).eq('status', 'pending'),
+        // The old sponsorship_requests and exposition_requests queues are no longer
+        // counted here: both tables were empty when they were archived (8 Oct 2026),
+        // nothing feeds them any more, and their pages stay under Archives in the menu.
         // Content
         supabase.from('resources').select('id', { count: 'exact' }),
         supabase.from('resource_drafts').select('id', { count: 'exact' }).eq('status', 'submitted'),
@@ -243,7 +242,6 @@ export function AdminDashboard() {
         supabase.from('partner_requests').select('id', { count: 'exact' }).eq('status', 'pending'),
         supabase.from('rfps').select('id', { count: 'exact' }).eq('is_open', true),
         supabase.from('consultations').select('id', { count: 'exact' }).eq('is_open', true),
-        supabase.from('exposition_requests').select('id', { count: 'exact' }).eq('status', 'pending'),
         // Aging queries
         supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'pending').lte('created_at', fortyEightHoursAgo),
         supabase.from('partner_requests').select('id', { count: 'exact' }).eq('status', 'pending').lte('created_at', sevenDaysAgo),
@@ -334,7 +332,6 @@ export function AdminDashboard() {
         signupsThisWeek: signupsThisWeek || 0, signupsLastWeek: signupsLastWeek || 0,
         totalOrgs: (orgTiers || []).length, tierBreakdown,
         totalRevenueCents, revenueThisMonthCents, pendingPayments: pendingPaymentCount || 0,
-        pendingSponsorships: pendingSponsorships || 0,
         totalResources: totalResources || 0, pendingResourceDrafts: pendingResourceDrafts || 0,
         totalEvents: totalEvents || 0, upcomingEvents: upcomingEvents || 0,
         totalRegistrations: totalRegistrations || 0, pendingRegistrations: pendingRegistrations || 0,
@@ -342,7 +339,7 @@ export function AdminDashboard() {
         newLeads: newLeads || 0, qualifiedLeads: qualifiedLeads || 0,
         inDiscussionLeads: inDiscussionLeads || 0, signedLeads: signedLeads || 0,
         pendingB2B: pendingB2B || 0, openRFPs: openRFPs || 0,
-        openConsultations: openConsultations || 0, pendingExpositions: pendingExpositions || 0,
+        openConsultations: openConsultations || 0,
         usersWaiting48h: usersWaiting48h || 0, oldB2BRequests: oldB2BRequests || 0,
         oldLeadsNotContacted: oldLeadsNotContacted || 0,
       });
@@ -692,7 +689,6 @@ export function AdminDashboard() {
             icon={Building2}
             label="Organizations"
             value={stats.totalOrgs}
-            badge={stats.pendingSponsorships > 0 ? <AdminStatusPill tone="warning">{stats.pendingSponsorships} reqs</AdminStatusPill> : undefined}
             onClick={() => nav('/admin/sponsorships')}
           />
           <AdminKpiCard
@@ -1147,7 +1143,6 @@ export function AdminDashboard() {
           {[
             { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, link: '/admin/users', params: { status: 'pending' } },
             { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, link: '/admin/events', params: {} },
-            { label: 'Sponsorships', value: stats.pendingSponsorships, icon: ArrowUpRight, link: '/admin/sponsorships', params: {} },
             { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, link: '/admin/webinars', params: { status: 'submitted' } },
             { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, link: '/admin/resources', params: { tab: 'drafts' } },
             { label: 'New Projects', value: stats.newProjects, icon: Anchor, link: '/admin/projects', params: { status: 'new' } },

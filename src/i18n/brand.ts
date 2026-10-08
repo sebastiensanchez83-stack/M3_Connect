@@ -14,8 +14,8 @@ export const BRAND_STRINGS = {
   en: {
     brand: {
       motion: {
-        pause: 'Pause the animations',
-        play: 'Play the animations',
+        pause: 'Pause animations',
+        play: 'Play animations',
       },
       header: {
         openMenu: 'Open menu',

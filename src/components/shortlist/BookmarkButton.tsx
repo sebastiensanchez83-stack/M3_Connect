@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { isMarinaLikePersona } from '@/types/database';
+import { cn } from '@/lib/utils';
 
 /** Personas allowed to maintain a private shortlist of organizations. */
 function canMaintainShortlist(p: string | null | undefined): boolean {
@@ -116,6 +117,10 @@ export function BookmarkButton({
     ? t('sharedUi.bookmarkButton.remove', 'Remove from shortlist')
     : t('sharedUi.bookmarkButton.add', 'Add to shortlist');
 
+  // Kit look: the star is meta grey at rest and navy on hover; on the shortlist it
+  // is gold with a navy outline (fill + stroke, so it also holds inside the
+  // directory's frosted .dir-star disc, which sets the icon's colour itself).
+  // The caller's className is merged last (cn), so its colours and size win.
   if (variant === 'icon') {
     return (
       <button
@@ -124,31 +129,40 @@ export function BookmarkButton({
         disabled={toggling}
         title={actionLabel}
         aria-label={actionLabel}
-        className={`inline-flex items-center justify-center rounded-full p-1.5 transition-colors hover:bg-amber-50 disabled:opacity-50 ${className}`}
+        className={cn(
+          'focus-ring inline-flex items-center justify-center rounded-pill p-1.5 text-meta transition-colors hover:bg-chip hover:text-navy disabled:opacity-50',
+          className,
+        )}
       >
         {toggling ? (
-          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
         ) : bookmarked ? (
-          <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+          <Star className="h-4 w-4 fill-gold stroke-navy" aria-hidden="true" />
         ) : (
-          <Star className="h-4 w-4 text-gray-400" />
+          <Star className="h-4 w-4" aria-hidden="true" />
         )}
       </button>
     );
   }
 
+  // Full button: a navy outline pill; once on the shortlist the selected state,
+  // gold with navy text and a navy star (a gold star would vanish on gold).
   return (
     <Button
       variant={bookmarked ? 'secondary' : 'outline'}
       size="sm"
       onClick={handleToggle}
       disabled={toggling}
-      className={className}
+      className={cn(
+        'h-10 rounded-pill px-4 font-semibold text-navy',
+        bookmarked ? 'border border-gold hover:bg-gold-hover' : 'border-navy/25 bg-white hover:border-navy hover:bg-chip hover:text-navy',
+        className,
+      )}
     >
       {toggling ? (
-        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+        <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />
       ) : (
-        <Star className={`h-4 w-4 mr-2 ${bookmarked ? 'fill-amber-400 text-amber-400' : ''}`} />
+        <Star className={cn('h-4 w-4 mr-2', bookmarked && 'fill-navy stroke-navy')} aria-hidden="true" />
       )}
       {bookmarked
         ? t('sharedUi.bookmarkButton.onShortlist', 'On your shortlist')

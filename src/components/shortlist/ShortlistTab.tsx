@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
 import { Link } from 'react-router-dom';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
@@ -152,12 +151,13 @@ export function ShortlistTab() {
               <div>
                 <div className="flex gap-4">
                   {/* Logo */}
-                  <Link to={`/organizations/${org.slug}`} className="shrink-0">
+                  <Link to={`/organizations/${org.slug}`} className="focus-ring shrink-0 rounded-field">
                     {org.logo_url ? (
-                      <img src={org.logo_url} alt={org.name} className="h-14 w-14 rounded-xl border border-rule bg-white object-contain p-1" />
+                      <img src={org.logo_url} alt={org.name} className="h-14 w-14 rounded-field border border-rule bg-white object-contain p-1" />
                     ) : (
-                      <div className="grid h-14 w-14 place-items-center rounded-xl bg-chip">
-                        <Building2 className="h-6 w-6 text-navy" />
+                      <div className="grid h-14 w-14 place-items-center rounded-field bg-chip">
+                        <Building2 className="h-6 w-6 text-navy" aria-hidden="true" />
+                        <span className="sr-only">{org.name}</span>
                       </div>
                     )}
                   </Link>
@@ -166,7 +166,7 @@ export function ShortlistTab() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-3 flex-wrap">
                       <div className="min-w-0">
-                        <Link to={`/organizations/${org.slug}`} className="group text-[16px] font-semibold text-navy"><span className="card-ul">
+                        <Link to={`/organizations/${org.slug}`} className="focus-ring group rounded-badge text-[16px] font-semibold text-navy"><span className="card-ul">
                           {org.name}
                         </span></Link>
                         <div className="flex items-center gap-2 mt-1 flex-wrap text-xs text-meta">
@@ -188,11 +188,12 @@ export function ShortlistTab() {
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 hover:text-primary"
+                              className="focus-ring inline-flex items-center gap-1 rounded-badge underline decoration-meta/40 underline-offset-2 transition-colors hover:text-navy hover:decoration-current"
                             >
-                              <Globe className="h-3 w-3" />
+                              <Globe className="h-3 w-3" aria-hidden="true" />
                               Website
-                              <ExternalLink className="h-2.5 w-2.5" />
+                              <ExternalLink className="h-2.5 w-2.5" aria-hidden="true" />
+                              <span className="sr-only"> (opens in a new tab)</span>
                             </a>
                           )}
                         </div>
@@ -224,7 +225,8 @@ export function ShortlistTab() {
                           onChange={(e) => setDraftNote(e.target.value)}
                           rows={3}
                           placeholder="Private note (e.g. met at Cannes, recommended by ACI, shortlisted for Q3 dredging project)…"
-                          className="w-full resize-y rounded-xl border border-rule bg-white p-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          aria-label={`Private note on ${org.name}`}
+                          className="w-full resize-y rounded-field border border-checkbox bg-white px-4 py-3 text-base leading-6 text-ink placeholder:text-meta focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                           autoFocus
                         />
                         <div className="flex gap-2 justify-end">
@@ -240,7 +242,7 @@ export function ShortlistTab() {
                     ) : entry.note ? (
                       <p
                         onClick={() => handleEdit(entry)}
-                        className="mt-3 cursor-text whitespace-pre-wrap rounded-xl border border-teal/20 bg-foam p-3 text-[14px] leading-5 text-ink transition-colors hover:border-teal/40"
+                        className="mt-3 cursor-text whitespace-pre-wrap rounded-field border border-teal/20 bg-foam p-3 text-[14px] leading-5 text-ink transition-colors hover:border-teal/40"
                       >
                         {entry.note}
                       </p>
@@ -248,9 +250,9 @@ export function ShortlistTab() {
                       <button
                         type="button"
                         onClick={() => handleEdit(entry)}
-                        className="mt-3 inline-flex min-h-10 items-center gap-1.5 text-[13px] font-medium text-meta hover:text-navy"
+                        className="focus-ring mt-3 inline-flex min-h-10 items-center gap-1.5 rounded-badge text-[13px] font-medium text-meta transition-colors hover:text-navy"
                       >
-                        <Pencil className="h-3 w-3" /> Add a private note
+                        <Pencil className="h-3 w-3" aria-hidden="true" /> Add a private note
                       </button>
                     )}
                   </div>

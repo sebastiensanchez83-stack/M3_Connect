@@ -1,5 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { AlertTriangle, Home, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface Props {
   children: ReactNode;
@@ -79,52 +79,45 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
 
+      // The 404's grammar (NotFoundPage): a navy-deep panel, a small caps line,
+      // a short title, one sentence and the ways out as rolling buttons. Kept to
+      // plain markup, Tailwind and the Button on purpose: whatever crashed must
+      // not be needed to draw this (no i18n hook, no router hook, no kit piece
+      // that loads data or animates). Navy also keeps a transparent header
+      // (still over a hero that just crashed) readable.
       return (
-        <div className="min-h-[60vh] flex items-center justify-center px-4 py-16">
-          <div className="max-w-md w-full text-center">
-            {/* Brand mark */}
-            <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-red-100 mb-6">
-              <AlertTriangle className="h-8 w-8 text-red-600" />
-            </div>
-
-            <h1 className="text-2xl font-bold text-[#0b2653] mb-2">
-              Something went wrong
-            </h1>
-            <p className="text-gray-600 mb-6">
+        <div className="bg-navy-deep text-white">
+          <div className="mx-auto flex min-h-[60vh] max-w-7xl flex-col justify-center px-4 py-20 sm:px-6 md:py-28">
+            <p className="flex items-center gap-2 text-[13px] font-semibold uppercase leading-4 tracking-[0.08em] text-white/75">
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-gold" />
+              Error
+            </p>
+            <h1 className="mt-6 text-h1-sm text-white sm:text-h1">Something went wrong</h1>
+            <p className="mt-3 max-w-xl text-body text-white/85 md:text-body-lg">
               An unexpected error occurred. You can try reloading this section or
               return to the home page.
             </p>
 
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Button type="button" variant="ctaOnDark" onClick={this.handleReset}>
+                Try again
+              </Button>
+              <Button type="button" variant="ctaLight" onClick={this.handleGoHome}>
+                Back to home
+              </Button>
+            </div>
+
             {/* Error detail (dev-friendly, collapsed) */}
             {this.state.error && (
-              <details className="mb-6 text-left bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-500">
-                <summary className="cursor-pointer font-medium text-gray-700">
+              <details className="mt-10 max-w-xl rounded-field bg-white/[0.07] text-sm ring-1 ring-inset ring-white/15">
+                <summary className="cursor-pointer rounded-field px-4 py-3 font-semibold text-white/85 transition-colors hover:text-white focus-visible:outline-none focus-visible:shadow-[0_0_0_2px_rgb(var(--navy-deep)),0_0_0_4px_#fff]">
                   Technical details
                 </summary>
-                <pre className="mt-2 whitespace-pre-wrap break-words">
+                <pre className="whitespace-pre-wrap break-words px-4 pb-4 font-mono text-[13px] leading-5 text-white/75">
                   {this.state.error.message}
                 </pre>
               </details>
             )}
-
-            <div className="flex items-center justify-center gap-3">
-              <button
-                onClick={this.handleReset}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                <RotateCcw className="h-4 w-4" />
-                Try again
-              </button>
-              <button
-                onClick={this.handleGoHome}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md bg-[#0b2653] text-white hover:bg-[#0b2653]/90 transition-colors"
-              >
-                <Home className="h-4 w-4" />
-                Go Home
-              </button>
-            </div>
-
-            <p className="mt-8 text-xs text-gray-400">Smart Marina Connect</p>
           </div>
         </div>
       );

@@ -257,7 +257,10 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
           </div>
           <p className="text-xs text-gray-500 mt-0.5 max-w-prose">
             {variant === 'hub'
-              ? 'Add every person from your company who will attend — each gets their own badge and check-in. The person who filled the form is listed first; edit or unset them if they are not attending.'
+              ? (canEdit
+                ? 'Add every person from your company who will attend — each gets their own badge and check-in. The person who filled the form is listed first; edit or unset them if they are not attending.'
+                // Read-only (the edition is over, SM26MyRegistrationPage): a record, not a task.
+                : 'The people from your company registered to attend, each with their own badge.')
               : 'Named attendees for this registration. Each attending person gets a badge and individual check-in.'}
           </p>
         </div>
@@ -266,12 +269,12 @@ export function SM26AttendeeRoster({ registrationId, eventId, canEdit, variant =
         </span>
       </div>
 
-      {/* Confirmation status */}
-      <div className={`flex items-center gap-2 text-xs rounded-lg border px-3 py-2 ${confirmedAt ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+      {/* Confirmation status (a read-only hub does not ask for a confirmation any more) */}
+      {(confirmedAt || canEdit || variant === 'admin') && <div className={`flex items-center gap-2 text-xs rounded-lg border px-3 py-2 ${confirmedAt ? 'border-green-200 bg-green-50 text-green-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
         {confirmedAt
           ? <><CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> Attendee list confirmed on {prettyDateTime(confirmedAt)}.</>
           : <><Users className="h-3.5 w-3.5 shrink-0" /> This list is not confirmed yet{deadlinePretty ? ` — please confirm by ${deadlinePretty}` : ''}.</>}
-      </div>
+      </div>}
 
       {variant === 'hub' && rosterLocked && (
         <div className="flex items-center gap-2 text-xs text-gray-500 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">

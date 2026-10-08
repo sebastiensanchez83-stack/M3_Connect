@@ -3,13 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { AuthDialog } from '@/components/auth/AuthDialog';
 import {
   Accordion,
   AccordionContent,
@@ -383,17 +377,9 @@ export function BecomePartnerPage() {
       </section>
 
       {/* Signup Dialog */}
-      <Dialog open={signupOpen} onOpenChange={setSignupOpen}>
-        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{t('join.signupTitle')}</DialogTitle>
-            <DialogDescription>
-              {t('join.signupDesc')}
-            </DialogDescription>
-          </DialogHeader>
-          <SignupForm defaultPersona={selectedPersonaType} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
-        </DialogContent>
-      </Dialog>
+      <AuthDialog mode="signup" open={signupOpen} onOpenChange={setSignupOpen} title={t('join.signupTitle')} description={t('join.signupDesc')}>
+        <SignupForm defaultPersona={selectedPersonaType} onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
+      </AuthDialog>
     </div>
   );
 }

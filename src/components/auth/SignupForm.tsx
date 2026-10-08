@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { Eyebrow } from '@/components/brand/Eyebrow';
 import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, FieldError, FieldHint, PasswordInput } from '@/components/auth/fields';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
@@ -410,7 +411,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
   if (step === 1) {
     return (
       <div className="space-y-4">
-        <p className="text-sm leading-6 text-meta">{t('auth.selectPersona')}</p>
+        <p className="text-[15px] leading-6 text-meta">{t('authRefonte.signup.selectPersona', 'Which best describes your organisation?')}</p>
         <div className="space-y-3">
           {personas.map((p) => (
             <button
@@ -462,43 +463,56 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
           </div>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <AuthLabel htmlFor="firstName">{t('auth.firstName')} *</AuthLabel>
-          <AuthInput id="firstName" autoComplete="given-name" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required placeholder={t('auth.firstNamePlaceholder')} />
+      <p className="text-[13px] leading-5 text-meta">{t('authRefonte.signup.required', 'Fields marked * are required.')}</p>
+
+      <fieldset className="space-y-4">
+        <legend className="mb-4"><Eyebrow as="span">{t('authRefonte.signup.aboutYou', 'About you')}</Eyebrow></legend>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-3">
+          <div className="space-y-2">
+            <AuthLabel htmlFor="firstName">{t('authRefonte.signup.firstName', 'First name')} *</AuthLabel>
+            <AuthInput id="firstName" autoComplete="given-name" value={formData.firstName} onChange={(e) => setFormData({ ...formData, firstName: e.target.value })} required />
+          </div>
+          <div className="space-y-2">
+            <AuthLabel htmlFor="lastName">{t('authRefonte.signup.lastName', 'Last name')} *</AuthLabel>
+            <AuthInput id="lastName" autoComplete="family-name" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required />
+          </div>
         </div>
         <div className="space-y-2">
-          <AuthLabel htmlFor="lastName">{t('auth.lastName')} *</AuthLabel>
-          <AuthInput id="lastName" autoComplete="family-name" value={formData.lastName} onChange={(e) => setFormData({ ...formData, lastName: e.target.value })} required placeholder={t('auth.lastNamePlaceholder')} />
+          <AuthLabel htmlFor="jobTitle">{t('authRefonte.signup.jobTitle', 'Job title')}</AuthLabel>
+          <AuthInput id="jobTitle" autoComplete="organization-title" value={formData.jobTitle} onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })} placeholder={t('authRefonte.signup.jobTitlePlaceholder', 'For example, operations manager')} />
         </div>
-      </div>
-      <div className="space-y-2">
-        <AuthLabel htmlFor="jobTitle">{t('auth.jobTitle', 'Job Title / Position')}</AuthLabel>
-        <AuthInput id="jobTitle" autoComplete="organization-title" value={formData.jobTitle} onChange={(e) => setFormData({ ...formData, jobTitle: e.target.value })} placeholder={t('auth.jobTitlePlaceholder', 'e.g. Marina Director, Sales Manager...')} />
-      </div>
-      <div className="space-y-2">
-        <AuthLabel htmlFor="email">{t('auth.emailPro')} *</AuthLabel>
-        <AuthInput id="email" type="email" autoComplete="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('auth.emailPlaceholder')} />
-      </div>
-      {/* Domain auto-join was removed; the "company already exists" check now runs at
-          onboarding (create-company step) as a name match, so no misleading promise here. */}
-      <div className="space-y-2">
-        <AuthLabel htmlFor="companyName">{t('auth.companyName')} *</AuthLabel>
-        <AuthInput id="companyName" autoComplete="organization" value={formData.companyName} onChange={(e) => setFormData({ ...formData, companyName: e.target.value })} required placeholder={t('auth.companyNamePlaceholder')} />
-      </div>
-      <div className="space-y-2">
-        <AuthLabel htmlFor="companyWebsite">{t('auth.companyWebsite')}</AuthLabel>
-        <AuthInput id="companyWebsite" type="url" value={formData.companyWebsite} onChange={(e) => setFormData({ ...formData, companyWebsite: e.target.value })} placeholder={t('auth.companyWebsitePlaceholder')} />
-      </div>
+        <div className="space-y-2">
+          <AuthLabel htmlFor="email">{t('authRefonte.signup.workEmail', 'Work email')} *</AuthLabel>
+          <AuthInput id="email" type="email" autoComplete="email" value={formData.email} onChange={(e) => setFormData({ ...formData, email: e.target.value })} required placeholder={t('authRefonte.signup.workEmailPlaceholder', 'name@company.com')} />
+        </div>
+      </fieldset>
+
+      <fieldset className="space-y-4">
+        <legend className="mb-4"><Eyebrow as="span">{t('authRefonte.signup.yourOrganisation', 'Your organisation')}</Eyebrow></legend>
+        {/* Reserved: "My company is already listed" (find the organisation in the directory and
+            ask to join it) will sit here, above the two fields, once Victor decides on it.
+            Until then a new organisation is always described below; the "company already
+            exists" match runs at onboarding (create-company step). Domain auto-join was removed. */}
+        <div className="space-y-2">
+          <AuthLabel htmlFor="companyName">{t('authRefonte.signup.companyName', 'Company or organisation')} *</AuthLabel>
+          <AuthInput id="companyName" autoComplete="organization" value={formData.companyName} onChange={(e) => setFormData({ ...formData, companyName: e.target.value })} required />
+        </div>
+        <div className="space-y-2">
+          <AuthLabel htmlFor="companyWebsite">{t('authRefonte.signup.website', 'Website')}</AuthLabel>
+          <AuthInput id="companyWebsite" type="url" autoComplete="url" value={formData.companyWebsite} onChange={(e) => setFormData({ ...formData, companyWebsite: e.target.value })} placeholder={t('authRefonte.signup.websitePlaceholder', 'https://www.example.com')} />
+        </div>
+      </fieldset>
+
       {incomingClaimCode ? (
         <p className="flex items-start gap-2 text-sm leading-6 text-meta">
           <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           {t('auth.claimPasswordLater', 'You will choose your password after confirming your e-mail address.')}
         </p>
       ) : (
-        <>
+        <fieldset className="space-y-4">
+          <legend className="mb-4"><Eyebrow as="span">{t('authRefonte.signup.yourPassword', 'Your password')}</Eyebrow></legend>
           <div className="space-y-2">
-            <AuthLabel htmlFor="password">{t('auth.password')} *</AuthLabel>
+            <AuthLabel htmlFor="password">{t('authRefonte.signup.password', 'Password')} *</AuthLabel>
             <PasswordInput
               id="password"
               autoComplete="new-password"
@@ -514,18 +528,18 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
               }}
               required
               minLength={8}
-              placeholder={t('auth.passwordPlaceholder')}
+              placeholder={t('authRefonte.signup.passwordPlaceholder', 'At least 8 characters')}
               className={errors.passwordWeak ? AUTH_FIELD_ERROR : undefined}
               aria-invalid={errors.passwordWeak || undefined}
             />
             {errors.passwordWeak ? (
               <FieldError>{t('auth.passwordWeak', 'Password must be at least 8 characters and include one uppercase letter and one symbol.')}</FieldError>
             ) : (
-              <FieldHint>{t('auth.passwordRules', 'Min. 8 characters, 1 uppercase letter, 1 symbol')}</FieldHint>
+              <FieldHint>{t('authRefonte.signup.passwordRules', 'At least 8 characters, with one capital letter and one symbol.')}</FieldHint>
             )}
           </div>
           <div className="space-y-2">
-            <AuthLabel htmlFor="confirmPassword">{t('auth.confirmPassword')} *</AuthLabel>
+            <AuthLabel htmlFor="confirmPassword">{t('authRefonte.signup.confirmPassword', 'Confirm password')} *</AuthLabel>
             <PasswordInput
               id="confirmPassword"
               autoComplete="new-password"
@@ -546,7 +560,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
               <FieldError>{t('auth.passwordMismatch', 'Passwords do not match')}</FieldError>
             )}
           </div>
-        </>
+        </fieldset>
       )}
       <div className="space-y-2">
         <div className="flex items-start gap-3">

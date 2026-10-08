@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Image as ImageIcon, FileText, ExternalLink, Download, Plus, Trash2, Loader2, Link2 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { useState, useEffect, useCallback, useId } from 'react';
+import { Image as ImageIcon, FileText, ExternalLink, Download, Plus, Trash2, Loader2, Link2, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { CardShell } from '@/components/brand/CardShell';
+import { BTN } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
+import { cn } from '@/lib/utils';
 
 // Press room: the material an outlet needs, and the coverage it produces.
 // Resources come in two modes — a link to the organiser's own site (Yacht Club
@@ -27,6 +29,27 @@ interface Coverage {
 
 const EMPTY = { url: '', outlet: '', title: '', published_at: '' };
 
+// Kit pieces of the member area (as in NotificationPreferencesTab): the icon in a
+// chip tile, semibold navy field labels, the quiet empty line.
+const TILE = 'grid h-10 w-10 shrink-0 place-items-center rounded-field bg-chip text-navy';
+const LABEL = 'text-[13px] font-semibold leading-5 text-navy';
+const EMPTY_LINE = 'rounded-field border border-dashed border-rule bg-page px-4 py-5 text-center text-[14px] leading-5 text-meta';
+
+/** A card's head: the icon tile, the title (an h3 under the tab's h2) and an optional line of help. */
+function CardHead({ icon: Icon, title, hint }: { icon: LucideIcon; title: string; hint?: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className={TILE} aria-hidden="true">
+        <Icon className="h-5 w-5" />
+      </span>
+      <div className="min-w-0">
+        <h3 className="text-card-title text-navy">{title}</h3>
+        {hint && <p className="mt-0.5 text-[14px] leading-5 text-meta">{hint}</p>}
+      </div>
+    </div>
+  );
+}
+
 export function MediaPressRoom() {
   const { user, organization } = useAuth();
   const [resources, setResources] = useState<PressResource[]>([]);
@@ -36,6 +59,7 @@ export function MediaPressRoom() {
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const fieldId = useId();
 
   const load = useCallback(async () => {
     const [res, cov, ev] = await Promise.all([
@@ -100,93 +124,110 @@ export function MediaPressRoom() {
     load();
   };
 
-  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-meta/40" /></div>;
+  if (loading) return <div className="py-10 flex justify-center"><Loader2 className="h-6 w-6 animate-spin text-meta" /></div>;
 
   const photos = resources.filter(r => r.kind === 'photos');
   const releases = resources.filter(r => r.kind === 'press_release');
 
   const item = (r: PressResource) => (
     <button key={r.id} type="button" disabled={busy === r.id} onClick={() => open(r)}
-      className="w-full flex items-center gap-2 rounded-lg border border-rule hover:border-primary/40 px-3 py-2 text-left disabled:opacity-50">
-      {busy === r.id ? <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
-        : r.mode === 'link' ? <ExternalLink className="h-4 w-4 text-primary shrink-0" />
-        : <Download className="h-4 w-4 text-primary shrink-0" />}
-      <span className="text-sm text-ink truncate flex-1">
+      className="flex min-h-11 w-full items-center gap-3 rounded-field border border-rule bg-white px-3.5 py-2.5 text-left transition-colors hover:border-navy/30 hover:bg-page focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50">
+      {busy === r.id ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-navy" aria-hidden="true" />
+        : r.mode === 'link' ? <ExternalLink className="h-4 w-4 shrink-0 text-navy" aria-hidden="true" />
+        : <Download className="h-4 w-4 shrink-0 text-navy" aria-hidden="true" />}
+      <span className="min-w-0 flex-1 truncate text-[14px] font-medium leading-5 text-navy">
         {r.title || r.filename || (r.kind === 'photos' ? 'Photo library' : 'Press release')}
       </span>
-      {r.sm_event?.name && <Badge variant="outline" className="text-[10px] shrink-0">{r.sm_event.name}</Badge>}
+      {r.sm_event?.name && (
+        <Badge variant="outline" className="shrink-0 border-transparent bg-chip text-[12px] font-medium text-navy">{r.sm_event.name}</Badge>
+      )}
     </button>
   );
 
   return (
     <div className="space-y-4">
-      <div className="grid md:grid-cols-2 gap-3">
-        <Card className="rounded-card shadow-none"><CardContent className="pt-6">
-          <div className="text-sm font-medium flex items-center gap-2 mb-2"><ImageIcon className="h-4 w-4 text-primary" /> Photos</div>
-          {photos.length === 0
-            ? <p className="text-xs text-meta/60">No photo library published yet.</p>
-            : <div className="space-y-1.5">{photos.map(item)}</div>}
-        </CardContent></Card>
-        <Card className="rounded-card shadow-none"><CardContent className="pt-6">
-          <div className="text-sm font-medium flex items-center gap-2 mb-2"><FileText className="h-4 w-4 text-primary" /> Press releases</div>
-          {releases.length === 0
-            ? <p className="text-xs text-meta/60">No press release published yet.</p>
-            : <div className="space-y-1.5">{releases.map(item)}</div>}
-        </CardContent></Card>
+      <div className="grid gap-4 md:grid-cols-2">
+        <CardShell className="p-5 sm:p-6">
+          <CardHead icon={ImageIcon} title="Photos" />
+          <div className="mt-4">
+            {photos.length === 0
+              ? <p className={EMPTY_LINE}>No photo library published yet.</p>
+              : <div className="space-y-2">{photos.map(item)}</div>}
+          </div>
+        </CardShell>
+        <CardShell className="p-5 sm:p-6">
+          <CardHead icon={FileText} title="Press releases" />
+          <div className="mt-4">
+            {releases.length === 0
+              ? <p className={EMPTY_LINE}>No press release published yet.</p>
+              : <div className="space-y-2">{releases.map(item)}</div>}
+          </div>
+        </CardShell>
       </div>
 
-      <Card className="rounded-card shadow-none"><CardContent className="pt-6 space-y-3">
-        <div>
-          <div className="text-sm font-medium flex items-center gap-2"><Link2 className="h-4 w-4 text-primary" /> My coverage</div>
-          <p className="text-xs text-meta mt-0.5">
-            Share what you publish about the event — the organisers see it and it feeds the coverage report.
-          </p>
+      <CardShell className="p-5 sm:p-6">
+        <CardHead
+          icon={Link2}
+          title="My coverage"
+          hint="Share what you publish about the event — the organisers see it and it feeds the coverage report."
+        />
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor={`${fieldId}-url`} className={LABEL}>Link *</Label>
+            <Input id={`${fieldId}-url`} value={form.url} onChange={e => setForm({ ...form, url: e.target.value })} placeholder="https://" />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${fieldId}-outlet`} className={LABEL}>Outlet</Label>
+            <Input id={`${fieldId}-outlet`} value={form.outlet} onChange={e => setForm({ ...form, outlet: e.target.value })} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${fieldId}-date`} className={LABEL}>Published on</Label>
+            <Input id={`${fieldId}-date`} type="date" value={form.published_at} onChange={e => setForm({ ...form, published_at: e.target.value })} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor={`${fieldId}-title`} className={LABEL}>Title</Label>
+            <Input id={`${fieldId}-title`} value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
+          </div>
         </div>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <div className="space-y-1 sm:col-span-2">
-            <Label className="text-xs">Link *</Label>
-            <Input value={form.url} onChange={e => setForm({ ...form, url: e.target.value })} placeholder="https://" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Outlet</Label>
-            <Input value={form.outlet} onChange={e => setForm({ ...form, outlet: e.target.value })} />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Published on</Label>
-            <Input type="date" value={form.published_at} onChange={e => setForm({ ...form, published_at: e.target.value })} />
-          </div>
-          <div className="space-y-1 sm:col-span-2">
-            <Label className="text-xs">Title</Label>
-            <Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
-          </div>
-        </div>
-        <div className="flex justify-end">
-          <Button size="sm" className="gap-1.5" disabled={saving} onClick={addCoverage}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Add coverage
+        <div className="mt-4 flex justify-end">
+          <Button className={cn(BTN, 'gap-1.5')} disabled={saving} onClick={addCoverage}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />} Add coverage
           </Button>
         </div>
 
         {coverage.length > 0 && (
-          <div className="divide-y divide-rule border-t border-rule pt-1">
+          <ul className="mt-5 divide-y divide-rule border-t border-rule">
             {coverage.map(c => (
-              <div key={c.id} className="py-2 flex items-start justify-between gap-3">
+              <li key={c.id} className="flex items-start justify-between gap-3 py-3">
                 <div className="min-w-0">
-                  <a href={c.url} target="_blank" rel="noreferrer" className="text-sm text-primary hover:underline truncate block">
+                  <a
+                    href={c.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="focus-ring block truncate rounded-badge text-[14px] font-medium leading-5 text-navy underline decoration-navy/30 underline-offset-2 transition-colors hover:text-teal-text hover:decoration-current"
+                  >
                     {c.title || c.url}
+                    <span className="sr-only"> (opens in a new tab)</span>
                   </a>
-                  <div className="text-xs text-meta">
+                  <div className="mt-0.5 text-[13px] leading-5 text-meta">
                     {c.outlet}{c.outlet && c.published_at ? ' · ' : ''}
                     {c.published_at ? new Date(c.published_at).toLocaleDateString('en-GB') : ''}
                   </div>
                 </div>
-                <button onClick={() => removeCoverage(c.id)} className="text-meta/60 hover:text-red-600 p-1 shrink-0">
-                  <Trash2 className="h-4 w-4" />
+                <button
+                  type="button"
+                  onClick={() => removeCoverage(c.id)}
+                  aria-label="Remove this coverage"
+                  title="Remove this coverage"
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-pill text-meta transition-colors hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </button>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
-      </CardContent></Card>
+      </CardShell>
     </div>
   );
 }

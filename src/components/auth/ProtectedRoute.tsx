@@ -140,7 +140,7 @@ function SignInInPlace({ landing }: { landing: AuthLanding | null }) {
       />
       <p className="mt-6 text-center text-sm text-meta">
         {t('flows.signIn.noAccount')}{' '}
-        <UnderlineLink to="/become-partner" arrow={false}>{t('nav.becomePartner', 'Join the network')}</UnderlineLink>
+        <UnderlineLink to="/join" arrow={false}>{t('nav.becomePartner', 'Join the network')}</UnderlineLink>
       </p>
     </AuthShell>
   );

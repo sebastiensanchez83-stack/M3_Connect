@@ -131,6 +131,16 @@ export function Turnstile({
     setFailed(false);
     setInteractive(false);
 
+    // Never hold a form for good: if Cloudflare has not answered within 10 s
+    // (slow network, an embedded or privacy browser), stop waiting. A token that
+    // arrives later is still used; until TURNSTILE_ENFORCE the server accepts
+    // a form without one, and after it the visitor gets a clear error instead
+    // of a button that never wakes up.
+    let slowTimer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+      if (!cancelled) setFailed(true);
+    }, 10_000);
+    const clearSlow = () => { if (slowTimer !== undefined) { clearTimeout(slowTimer); slowTimer = undefined; } };
+
     loadTurnstile()
       .then((api) => {
         const box = boxRef.current;
@@ -146,6 +156,7 @@ export function Turnstile({
           'refresh-expired': 'auto',
           callback: (token: string) => {
             if (cancelled) return;
+            clearSlow();
             setFailed(false);
             setToken(token);
           },
@@ -157,7 +168,8 @@ export function Turnstile({
             setFailed(true);
           },
           'unsupported-callback': () => { if (!cancelled) setFailed(true); },
-          'before-interactive-callback': () => { if (!cancelled) setInteractive(true); },
+          // A visible challenge is the person's turn to act: no time limit then.
+          'before-interactive-callback': () => { if (!cancelled) { clearSlow(); setInteractive(true); } },
           'after-interactive-callback': () => { if (!cancelled) setInteractive(false); },
         });
       })
@@ -167,6 +179,7 @@ export function Turnstile({
 
     return () => {
       cancelled = true;
+      clearSlow();
       if (widgetId !== undefined) {
         try { window.turnstile?.remove(widgetId); } catch { /* already gone */ }
       }

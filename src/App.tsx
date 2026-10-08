@@ -12,6 +12,7 @@ import { captureInviteFromUrl } from '@/lib/invite-store';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { SM26_ENABLED } from '@/lib/featureFlags';
 import { ScreenLoader } from '@/components/LoadingSkeleton';
+import { RedirectKeepingQuery } from '@/components/RedirectKeepingQuery';
 
 // Capture ?invite= param on initial page load (before React renders)
 captureInviteFromUrl();
@@ -174,7 +175,9 @@ function App() {
               {/* Sponsorship fulfilment: managers (M3 + Yacht Club) get the hub, sponsors their portal — role resolved inside. */}
               <Route path="/sponsorship/*" element={<ProtectedRoute><SponsorshipPage /></ProtectedRoute>} />
               <Route path="/partners" element={<PartnersPage />} />
-              <Route path="/become-partner" element={<BecomePartnerPage />} />
+              {/* The membership presentation lives at /join (design audit, 8 Oct 2026: the old URL spoke of
+                  "partners", who are paying sponsors). Old links keep working, query string and hash included. */}
+              <Route path="/become-partner" element={<RedirectKeepingQuery to="/join" />} />
               {/* Where every "Sponsor an event" button lands: who sponsors, the events, the visibility by tier (no price), the deck request. */}
               <Route path="/sponsor" element={<SponsorPage />} />
               {/* The level comparison is gone: the platform is free and sponsoring is
@@ -209,7 +212,8 @@ function App() {
               <Route path="/organizations/:slug" element={<OrganizationPublicPage />} />
               <Route path="/users/:id" element={<UserProfilePage />} />
               <Route path="/admin/*" element={<ProtectedRoute requireModerator><AdminPage /></ProtectedRoute>} />
-              <Route path="/join" element={<Navigate to="/become-partner" replace />} />
+              {/* /join is the presentation page; /join/<invite id> stays the team invitation (a more specific route, matched first). */}
+              <Route path="/join" element={<BecomePartnerPage />} />
               <Route path="/join/:inviteId" element={<JoinPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/welcome" element={<WelcomePage />} />

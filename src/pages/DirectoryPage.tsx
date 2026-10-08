@@ -30,7 +30,7 @@ import { SearchField } from '@/components/brand/SearchField';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { featuredEventItems } from '@/components/brand/m3Events';
 import { CardShell, StretchedLink } from '@/components/brand/CardShell';
-import { OrgCover, VerifiedPill, TYPE_RGB, orgTypeTone, seedOf, useOrgTypeLabel } from '@/components/brand/OrgCard';
+import { OrgCover, VerifiedPill, TYPE_RGB, orgTypeTone } from '@/components/brand/OrgCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { ClaimRequestButton } from '@/components/contact/ClaimRequestButton';
 import { SheetDrawer } from '@/components/directory/SheetDrawer';
@@ -133,7 +133,8 @@ interface Indexed extends DirectoryOrg {
   haystack: string;
 }
 
-type TypeKey = 'marina' | 'partner' | 'investor' | 'developer' | 'media_partner';
+/** 'other': organisations with no type yet (an admin has not set one); they get their own tab so the tabs add up to "All". */
+type TypeKey = 'marina' | 'partner' | 'investor' | 'developer' | 'media_partner' | 'other';
 type SortKey = 'relevance' | 'az' | 'recent';
 type TFn = ReturnType<typeof useTranslation>['t'];
 
@@ -150,8 +151,13 @@ const TYPE_FACETS: TypeFacet[] = [
   { key: 'investor', labelKey: 'directory.types.investor', fallback: 'Investors' },
   { key: 'developer', labelKey: 'directory.types.developer', fallback: 'Developers' },
   { key: 'media_partner', labelKey: 'directory.types.media_partner', fallback: 'Media' },
+  { key: 'other', labelKey: 'directory.types.other', fallback: 'Other' },
 ];
 const FACET_BY_KEY = new Map(TYPE_FACETS.map((f) => [f.key as string, f]));
+/** The known types; anything else (no type, or one this page does not name) is "Other". */
+const NAMED_TYPES = new Set<string>(TYPE_FACETS.filter((f) => f.key !== 'other').map((f) => f.key));
+/** The tab an organisation is counted under. */
+const facetOf = (type: string | null): TypeKey => (type && NAMED_TYPES.has(type) ? (type as TypeKey) : 'other');
 
 const TYPE_ONE_FALLBACK: Record<string, string> = {
   marina: 'Marina',
@@ -235,6 +241,13 @@ export function DirectoryPage() {
   const pendingScroll = useRef(false);
   /** The toolbar is stuck under the header: a page-coloured shelf backs it, with a soft shadow. */
   const [stuck, setStuck] = useState(false);
+  /**
+   * Phones and tablets (below xl): while the stuck toolbar travels down the
+   * list, the type tabs fold away under the search, so the bar takes ~72 px of
+   * the screen instead of ~125 (design audit, 8 Oct 2026). Any move up brings
+   * them back; so does keyboard focus inside the bar (directory.css).
+   */
+  const [tabsTucked, setTabsTucked] = useState(false);
 
   // Keyboard focus moving up must not land under the sticky toolbar: its height
   // feeds the page's scroll-padding (index.css) while the directory is mounted.
@@ -261,10 +274,17 @@ export function DirectoryPage() {
     const bar = toolbarRef.current;
     const sentinel = sentinelRef.current;
     if (!bar || !sentinel) return;
+    let lastY = window.scrollY;
     return subscribeScroll(() => {
       const top = parseFloat(getComputedStyle(bar).top) || 0;
       const next = sentinel.getBoundingClientRect().top <= top + 0.5;
       setStuck((prev) => (prev === next ? prev : next));
+      const y = window.scrollY;
+      const dy = y - lastY;
+      lastY = y;
+      if (!next) setTabsTucked(false);
+      else if (dy > 2) setTabsTucked(true);
+      else if (dy < -2) setTabsTucked(false);
     });
   }, []);
 
@@ -487,17 +507,22 @@ export function DirectoryPage() {
     // searchable without a reload.
   }), [orgs, t, countryInfo]);
 
-  // Types that actually have organizations. Untyped ones live under "All" only.
+  // Types that actually have organizations (a tab with nothing in it is not shown;
+  // Media appears with its first media outlet). Untyped ones are under "Other", so
+  // the tabs always add up to "All" (design audit, 8 Oct 2026: 263 vs 256).
   const typeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const o of indexed) if (o.organization_type) counts[o.organization_type] = (counts[o.organization_type] || 0) + 1;
+    for (const o of indexed) {
+      const key = facetOf(o.organization_type);
+      counts[key] = (counts[key] || 0) + 1;
+    }
     return counts;
   }, [indexed]);
   const facets = TYPE_FACETS.filter((f) => (typeCounts[f.key] ?? 0) > 0);
   const activeType: TypeKey | null = facets.some((f) => f.key === typeParam) ? (typeParam as TypeKey) : null;
 
   const typed = useMemo(
-    () => (activeType ? indexed.filter((o) => o.organization_type === activeType) : indexed),
+    () => (activeType ? indexed.filter((o) => facetOf(o.organization_type) === activeType) : indexed),
     [indexed, activeType],
   );
 
@@ -648,9 +673,10 @@ export function DirectoryPage() {
     list.querySelectorAll<HTMLElement>(':scope > li.is-done').forEach((li) => {
       const r = li.getBoundingClientRect();
       if (r.bottom < 0 || r.top > window.innerHeight) return;
+      // Same scale as every entrance since the design audit (8 Oct 2026): 300 ms, 8 px, 40 ms apart, five steps at most.
       li.animate(
-        [{ opacity: 0, transform: 'translate3d(0, 16px, 0)' }, { opacity: 1, transform: 'none' }],
-        { duration: 520, delay: Math.min(n, 8) * 60, easing: 'cubic-bezier(.215,.61,.355,1)', fill: 'backwards' },
+        [{ opacity: 0, transform: 'translate3d(0, 8px, 0)' }, { opacity: 1, transform: 'none' }],
+        { duration: 300, delay: Math.min(n, 5) * 40, easing: 'cubic-bezier(.215,.61,.355,1)', fill: 'backwards' },
       );
       n += 1;
     });
@@ -659,7 +685,7 @@ export function DirectoryPage() {
   /** Switch type, keeping the open theme, sector and countries only where they still mean something. */
   const selectType = (key: TypeKey | null) => {
     if (key === activeType) return;
-    const nextList = key ? indexed.filter((o) => o.organization_type === key) : indexed;
+    const nextList = key ? indexed.filter((o) => facetOf(o.organization_type) === key) : indexed;
     const counts = countThemes(nextList);
     const keepTheme = !!activeTheme && counts[activeTheme.key] > 0;
     const nextSectors = keepTheme
@@ -863,7 +889,10 @@ export function DirectoryPage() {
         icon={Compass}
         eyebrow={t('directory.eyebrow', "Who's who")}
         title={t('directory.title', 'Marina & service provider directory')}
-        subtitle={t('directory.subtitle', 'Marinas, service providers, investors and media. Filter by theme or country, shortlist the companies you need and request an introduction from their page.')}
+        // "Media" only once the directory lists a media outlet (and so shows a Media tab).
+        subtitle={(typeCounts.media_partner ?? 0) > 0
+          ? t('directory.subtitle', 'Marinas, service providers, investors and media. Filter by theme or country, shortlist the companies you need and request an introduction from their page.')
+          : t('directory.subtitleNoMedia', 'Marinas, service providers and investors. Filter by theme or country, shortlist the companies you need and request an introduction from their page.')}
         floating={showClaim ? <ClaimFloat /> : undefined}
       >
         <HeroFigures marinas={figures.marinas} providers={figures.partners} countries={figures.countries} manual={figures.manual} />
@@ -877,7 +906,7 @@ export function DirectoryPage() {
           ref={toolbarRef}
           role="region"
           aria-label={t('directory.toolbarLabel', 'Search and filter the directory')}
-          className={cn('dir-toolbar sticky top-16 z-30 border-b border-rule bg-page/95 backdrop-blur-md', stuck && 'is-stuck')}
+          className={cn('dir-toolbar sticky top-16 z-30 border-b border-rule bg-page/95 backdrop-blur-md', stuck && 'is-stuck', stuck && tabsTucked && 'is-tucked')}
         >
           {/* Always mounted (the results panel changes with the type): a screen
               reader hears the new count after each filter or search. */}
@@ -924,7 +953,7 @@ export function DirectoryPage() {
                 )}
               </button>
 
-              <div className="order-3 min-w-0 basis-full grow xl:basis-auto xl:grow-0">
+              <div className="dir-tabs-row order-3 min-w-0 basis-full grow xl:basis-auto xl:grow-0">
                 <SegmentedTabs
                   items={segItems}
                   value={tabValue}
@@ -975,8 +1004,8 @@ export function DirectoryPage() {
         </div>
 
         <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
-          {/* ── Active filters: chips that scale in and out ── */}
-          <div className="flex flex-wrap items-center gap-2 pt-4">
+          {/* ── Active filters: chips that scale in and out (from xl, with nothing to show, the row takes no room) ── */}
+          <div className={cn('flex flex-wrap items-center gap-2 pt-4', chips.length === 0 && !anyFilter && 'xl:hidden')}>
             <MembersSwitch
               className="-ml-1.5 xl:hidden"
               checked={joinedOnly}
@@ -1004,9 +1033,9 @@ export function DirectoryPage() {
           {!loading && !loadFailed && collections.length > 0 && (
             <CollectionsRow items={collections} currentKey={currentCollection} onPick={pickCollection} />
           )}
-          {/* While the directory loads, the row's place is held at its height (270 px on phones, 298 px from md, plus its top margin):
-              the banner and the results below it no longer jump down when the selections arrive. */}
-          {loading && <div aria-hidden="true" className="mt-8 h-[270px] md:mt-10 md:h-[298px]" />}
+          {/* While the directory loads, the row is drawn at its size (its heading and grey tiles): the results below
+              do not jump when the selections arrive, and the page never shows a blank gap under the banner. */}
+          {loading && <CollectionsSkeleton />}
 
           <div className="pt-8">
             <AdBanner placement="marketplace" className="mb-2" />
@@ -1553,33 +1582,13 @@ function SortSelect({ value, options, onChange, className }: {
   );
 }
 
-/** The results count, rolling to its new value (0.45 s) when a filter changes. */
+/**
+ * The results count. It used to roll to its new value (0.45 s) when a filter
+ * changed; since the design audit of 8 Oct 2026 every figure shows its final
+ * value straight away.
+ */
 function RollingNumber({ value, lang }: { value: number; lang: 'en' | 'fr' }) {
-  const { reduced } = useMotion();
-  const [shown, setShown] = useState(value);
-  const from = useRef(value);
-  useEffect(() => {
-    if (reduced || from.current === value) {
-      from.current = value;
-      setShown(value);
-      return;
-    }
-    const start = performance.now();
-    const a = from.current;
-    let frame = 0;
-    const tick = (now: number) => {
-      const p = Math.min(1, (now - start) / 450);
-      const v = Math.round(a + (value - a) * (1 - Math.pow(1 - p, 3)));
-      from.current = v;
-      setShown(v);
-      if (p < 1) frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
-    // Background tabs throttle rAF: the true figure lands anyway.
-    const settle = window.setTimeout(() => { from.current = value; setShown(value); }, 700);
-    return () => { cancelAnimationFrame(frame); window.clearTimeout(settle); };
-  }, [value, reduced]);
-  return <span className="tabular">{shown.toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB')}</span>;
+  return <span className="tabular">{value.toLocaleString(lang === 'fr' ? 'fr-FR' : 'en-GB')}</span>;
 }
 
 /* ── Active-filter chips ── */
@@ -1689,6 +1698,25 @@ interface Collection {
   /** A small glass label at the tile's top left. */
   pill?: string;
   image: { src: string | null; focusY?: number } | null;
+}
+
+/** The selections row while the directory loads: its heading (fixed words) and grey tiles of the real size. */
+function CollectionsSkeleton() {
+  const { t } = useTranslation();
+  return (
+    <div aria-hidden="true" className="mt-6 md:mt-8">
+      <Eyebrow number="01">{t('directory.collections.eyebrow', 'M3 selections')}</Eyebrow>
+      <p className="mt-2 text-[20px] font-semibold leading-[26px] text-navy md:text-[24px] md:leading-[30px]">
+        {t('directory.collections.title', 'Selections by the M3 team')}
+      </p>
+      <div className="-mx-4 mt-4 flex gap-4 overflow-hidden px-4 pb-2.5 pt-1.5">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-[176px] w-[256px] shrink-0 animate-pulse rounded-card bg-chip motion-reduce:animate-none md:h-[200px] md:w-[296px]" />
+        ))}
+      </div>
+      <div className="mt-2.5 h-0.5" />
+    </div>
+  );
 }
 
 /**
@@ -1815,7 +1843,7 @@ function CollectionsRow({ items, currentKey, onPick }: { items: Collection[]; cu
   };
 
   return (
-    <section aria-labelledby="directory-collections-heading" className="mt-8 md:mt-10">
+    <section aria-labelledby="directory-collections-heading" className="mt-6 md:mt-8">
       <div className="flex items-end justify-between gap-4">
         <div>
           <Reveal>
@@ -2033,7 +2061,23 @@ function DirectoryCard({
           )}
         </p>
 
-        {blurb && <p className="mt-3 line-clamp-3 text-sm leading-5 text-[#374151]">{blurb}</p>}
+        {/* No presentation written: its sectors, or a short neutral line, rather than a void before "View profile". */}
+        {blurb ? (
+          <p className="mt-3 line-clamp-3 text-sm leading-5 text-[#374151]">{blurb}</p>
+        ) : org.sectorSlugs.length > 0 ? (
+          <p className="mt-3 line-clamp-3 text-sm leading-5 text-[#374151]">
+            <span className="font-medium text-navy">
+              {INTEREST_SIDE.has(org.organization_type ?? '')
+                ? t('directory.card.lookingFor', 'Interested in:')
+                : t('directory.card.offers', 'Services:')}
+            </span>{' '}
+            {org.sectorSlugs.slice(0, 4).map(sectorLabel).join(' · ')}
+          </p>
+        ) : (
+          <p className="mt-3 text-sm leading-5 text-meta">
+            {t('directory.card.noBlurb', 'This organisation has not added a presentation yet.')}
+          </p>
+        )}
 
         <div className="mt-auto flex items-end justify-between gap-3 pt-[18px]">
           {chips.length > 0 ? (

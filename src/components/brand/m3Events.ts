@@ -19,6 +19,14 @@ export const RENDEZVOUS_2026_PATH = '/events/f55f7b2f-96ac-4c5e-b620-358624e5224
 export const WEBINARS_PATH = '/events?type=webinar';
 
 /**
+ * The World Yachting Summit 2026's row in the events table (unpublished on
+ * purpose). The Summit has ONE page, /wys26 (Victor, 8 Oct 2026): /events never
+ * lists this row (the WYS card stands for it) and /events/<this id> redirects
+ * to /wys26 (EventDetailPage).
+ */
+export const WYS26_EVENT_ID = '5ba8d690-3a73-4f30-bb3d-52dabead7119';
+
+/**
  * Items for the hero's floating event card (EventCard), in the order they turn: the next
  * M3 event first (World Yachting Summit while it is upcoming), then the
  * webinars, then the Rendezvous. No event hides the others.

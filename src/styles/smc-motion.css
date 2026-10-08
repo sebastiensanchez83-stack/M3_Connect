@@ -54,30 +54,32 @@
   to { opacity: 1; transform: none; }
 }
 
-/* ─── Reveal (fade-up 24 px, .8 s, 80 ms stagger) ─────────────────────────── */
+/* ─── Reveal (fade-up 12 px, 300 ms, 40 ms stagger) ───────────────────────── */
+/* Design audit, 8 Oct 2026: the .8 s, 24 px entrances left blocks half
+   transparent while the page scrolled. Now (Reveal.tsx, useEntrance):
+   - nothing is hidden by default: a block already on screen when it mounts
+     renders as is, with no entrance;
+   - a block mounted below the fold is `.is-armed` (hidden), and is set
+     `.is-entering` 15 % of a screen before it shows: 300 ms to its final state;
+   - a group's children are 40 ms apart (60 at most) and the stagger stops
+     growing after the sixth child. */
 
-.reveal:not(.is-done),
-.reveal-group:not(.is-done) > * {
-  transition:
-    opacity 0.8s var(--ease-out-smc) var(--reveal-delay, 0ms),
-    transform 0.8s var(--ease-out-smc) var(--reveal-delay, 0ms);
-}
-.reveal:not(.is-in),
-.reveal-group:not(.is-in) > * {
+.reveal.is-armed,
+.reveal-group.is-armed > * {
   opacity: 0;
-  transform: translate3d(0, var(--reveal-y, 24px), 0);
+  transform: translate3d(0, var(--reveal-y, 12px), 0);
 }
-.reveal-group:not(.is-done) > :nth-child(2) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 1); }
-.reveal-group:not(.is-done) > :nth-child(3) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 2); }
-.reveal-group:not(.is-done) > :nth-child(4) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 3); }
-.reveal-group:not(.is-done) > :nth-child(5) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 4); }
-.reveal-group:not(.is-done) > :nth-child(6) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 5); }
-.reveal-group:not(.is-done) > :nth-child(7) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 6); }
-.reveal-group:not(.is-done) > :nth-child(8) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 7); }
-.reveal-group:not(.is-done) > :nth-child(9) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 8); }
-.reveal-group:not(.is-done) > :nth-child(10) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 9); }
-.reveal-group:not(.is-done) > :nth-child(11) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 10); }
-.reveal-group:not(.is-done) > :nth-child(n + 12) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 80ms) * 11); }
+.reveal.is-entering,
+.reveal-group.is-entering > * {
+  transition:
+    opacity 0.3s var(--ease-out-smc) var(--reveal-delay, 0ms),
+    transform 0.3s var(--ease-out-smc) var(--reveal-delay, 0ms);
+}
+.reveal-group.is-entering > :nth-child(2) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 40ms) * 1); }
+.reveal-group.is-entering > :nth-child(3) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 40ms) * 2); }
+.reveal-group.is-entering > :nth-child(4) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 40ms) * 3); }
+.reveal-group.is-entering > :nth-child(5) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 40ms) * 4); }
+.reveal-group.is-entering > :nth-child(n + 6) { transition-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 40ms) * 5); }
 /* Keyboard focus may land on something whose reveal has not run yet: it shows at once. */
 .reveal:focus-within,
 .reveal-group > :focus-within {
@@ -86,7 +88,8 @@
   transition: none;
 }
 
-/* Heading lines: each word sits in a mask; the words of one line rise together. */
+/* Heading lines (LineReveal, below the fold only): each word sits in a mask;
+   the words of one line rise together, 300 ms, 50 ms between lines. */
 .line-reveal .lr-w {
   display: inline-block;
   overflow: hidden;
@@ -96,17 +99,18 @@
 }
 .line-reveal .lr-i {
   display: inline-block;
-  transform: translate3d(0, 110%, 0);
-  transition: transform 0.9s var(--ease-out-smc) calc(var(--lr-delay, 0ms) + var(--li, 0) * var(--lr-step, 90ms));
 }
-.line-reveal.is-in .lr-i {
-  transform: none;
+.line-reveal.is-armed .lr-i {
+  transform: translate3d(0, 110%, 0);
+}
+.line-reveal.is-entering .lr-i {
+  transition: transform 0.3s var(--ease-out-smc) calc(var(--lr-delay, 0ms) + var(--li, 0) * var(--lr-step, 50ms));
 }
 
-/* One-off entrance used by heroes on load. */
-.enter-up {
-  animation: smc-fade-up 0.9s var(--ease-out-smc) var(--enter-delay, 0.4s) both;
-}
+/* `.enter-up` marked the hero blocks that rose on load (.9 s after a .4 s wait).
+   A hero never waits for an animation any more (design audit, 8 Oct 2026): the
+   class is kept on the markup (SplitHero's HeroIn, PageHero, AuthShell…) but
+   has no effect. */
 
 /* ─── Sounding lines ──────────────────────────────────────────────────────── */
 
@@ -337,12 +341,8 @@
 
 /* The "next event" card floating over the photo frame's bottom left edge: M3 events
    turning every 6 s, photo fading (.6 s) and zooming slowly (6.6 s), a progress bar
-   per event. It rises on load (.9 s, +.7 s). */
-.evc-wrap { animation: smc-rise-in 0.9s var(--ease-out-smc) 0.7s both; }
-@keyframes smc-rise-in {
-  from { opacity: 0; transform: translate3d(0, 40px, 0); }
-  to { opacity: 1; transform: none; }
-}
+   per event. It is part of the hero, so it is there from the first paint (it used
+   to rise in .9 s after a .7 s wait; design audit, 8 Oct 2026). */
 .evc {
   position: relative;
   display: block;
@@ -579,17 +579,17 @@
 }
 
 /* ─── Kit v2 · 8. Bg-reveal panel ─────────────────────────────────────────── */
-/* The navy background scales from .94 to 1 while it fades in (.9 s), then the
-   content fades up (+220 ms). */
+/* Only below the fold (BgRevealPanel, useEntrance): the navy background, never
+   faded, settles from .97 to 1 (300 ms) while the content fades up 12 px
+   (300 ms, +60 ms). The old .9 s fade of the whole navy block left it "almost
+   invisible" while it played (design audit, 8 Oct 2026). */
 
-.bgr .bgr-bg {
-  transition: transform 0.9s var(--ease-out-smc), opacity 0.9s var(--ease-out-smc);
+.bgr.is-armed .bgr-bg { transform: scale(0.97); }
+.bgr.is-armed .bgr-content { opacity: 0; transform: translate3d(0, 12px, 0); }
+.bgr.is-entering .bgr-bg { transition: transform 0.3s var(--ease-out-smc); }
+.bgr.is-entering .bgr-content {
+  transition: opacity 0.3s var(--ease-out-smc) 0.06s, transform 0.3s var(--ease-out-smc) 0.06s;
 }
-.bgr:not(.is-in) .bgr-bg { transform: scale(0.94); opacity: 0; }
-.bgr .bgr-content {
-  transition: opacity 0.8s var(--ease-out-smc) 0.22s, transform 0.8s var(--ease-out-smc) 0.22s;
-}
-.bgr:not(.is-in) .bgr-content { opacity: 0; transform: translate3d(0, 24px, 0); }
 
 /* ─── Kit v2 · 1. Header: sheet links cascade in (40 ms apart) ────────────── */
 
@@ -649,13 +649,16 @@
   transform: translate3d(-12px, 5px, 0);
 }
 
-/* The bar in the type's colour traces itself (.9 s, 250 ms after the card starts to arrive). */
+/* The bar in the type's colour traces itself as a card arrives from below the
+   fold (300 ms, 40 ms after the card); a card on screen at load shows it drawn. */
 .dir-card-bar {
   transform-origin: left;
-  transition: transform 0.9s var(--ease-out-smc) calc(var(--reveal-delay, 0ms) + 250ms);
 }
-.reveal:not(.is-in) .dir-card-bar {
+.reveal.is-armed .dir-card-bar {
   transform: scaleX(0);
+}
+.reveal.is-entering .dir-card-bar {
+  transition: transform 0.3s var(--ease-out-smc) calc(var(--reveal-delay, 0ms) + 40ms);
 }
 
 /* "View profile" is the card's cue: its gold line grows when the card is hovered or focused. */
@@ -676,15 +679,15 @@
 
 /* ─── Numbered steps (ChannelSteps) ───────────────────────────────────────── */
 
-/* Each dashed segment draws after its circle pops in (the delay is set inline, per step). */
-.chenal-line-h,
-.chenal-line-v { transition: clip-path 0.9s var(--ease-out-smc) 0.35s; }
-.chenal:not(.is-in) .chenal-line-h { clip-path: inset(0 100% 0 0); }
-.chenal:not(.is-in) .chenal-line-v { clip-path: inset(0 0 100% 0); }
-.chenal.is-in .chenal-line-h,
-.chenal.is-in .chenal-line-v { clip-path: inset(0 0 0 0); }
-.chenal:not(.is-in) .chenal-buoy { opacity: 0; transform: scale(0.6); }
-.chenal.is-in .chenal-buoy { animation: smc-pop 0.5s var(--ease-swing) calc(0.3s + var(--i, 0) * 0.25s) both; }
+/* Only when the steps arrive from below the fold (useEntrance): each circle pops
+   in (300 ms, 60 ms apart) and the dashed segment after it draws (300 ms; the
+   delay is set inline, per step). On screen at load, they are simply there. */
+.chenal.is-armed .chenal-line-h { clip-path: inset(0 100% 0 0); }
+.chenal.is-armed .chenal-line-v { clip-path: inset(0 0 100% 0); }
+.chenal.is-armed .chenal-buoy { opacity: 0; transform: scale(0.6); }
+.chenal.is-entering .chenal-line-h,
+.chenal.is-entering .chenal-line-v { transition: clip-path 0.3s var(--ease-out-smc) 0.1s; }
+.chenal.is-entering .chenal-buoy { animation: smc-pop 0.3s var(--ease-swing) calc(var(--i, 0) * 60ms) both; }
 
 /* ─── Typed placeholder caret ─────────────────────────────────────────────── */
 
@@ -826,7 +829,11 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .line-reveal .lr-i,
   .enter-up,
   .bgr .bgr-bg,
-  .bgr .bgr-content {
+  .bgr .bgr-content,
+  .dir-card-bar,
+  .chenal-line-h,
+  .chenal-line-v,
+  .chenal-buoy {
     opacity: 1 !important;
     transform: none !important;
     clip-path: none !important;

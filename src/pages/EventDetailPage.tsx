@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { externalUrl } from '@/lib/externalUrl';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, Navigate, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
@@ -43,6 +43,9 @@ import { EventRegistrationFlow } from '@/components/events/EventRegistrationFlow
 import { LightweightWebinarSignup } from '@/components/events/LightweightWebinarSignup';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { SM26Agenda } from '@/components/sm26/SM26Agenda';
+// The World Yachting Summit's events row redirects to its one page (/wys26).
+import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
+import { WYS26_PATH } from '@/components/events/WysInvitationCard';
 
 /** The Monaco Smart & Sustainable Marina Rendezvous, 6th edition: the page that carries the figures and the sponsors. */
 const RENDEZVOUS_2026_ID = RENDEZVOUS_2026_PATH.split('/').pop();
@@ -242,6 +245,14 @@ function useReached(ref: React.RefObject<Element>, enabled: boolean, slack: numb
 }
 
 export function EventDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  // The World Yachting Summit 2026 has one page, /wys26 (Victor, 8 Oct 2026):
+  // its events row (a draft) is never shown here.
+  if (id === WYS26_EVENT_ID) return <Navigate to={WYS26_PATH} replace />;
+  return <EventDetailContent />;
+}
+
+function EventDetailContent() {
   const { id } = useParams<{ id: string }>();
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();

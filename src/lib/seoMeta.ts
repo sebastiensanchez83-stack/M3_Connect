@@ -198,8 +198,9 @@ export const THEME_LABELS_EN: Record<string, string> = {
 
 /**
  * The fixed public pages: the seo.* key of their words, and the path their
- * canonical URL points to. Aliases (/join, /network, /marketplace) redirect
- * in the app and share their target's words and canonical.
+ * canonical URL points to. Aliases (/become-partner, /network, /marketplace)
+ * redirect in the app and share their target's words and canonical. The
+ * membership page is /join since 8 Oct 2026 (it was /become-partner).
  */
 const FIXED_PAGES: Record<string, { key: string; canonical: string }> = {
   '/': { key: 'home', canonical: '/' },
@@ -210,8 +211,8 @@ const FIXED_PAGES: Record<string, { key: string; canonical: string }> = {
   '/events': { key: 'events', canonical: '/events' },
   '/partners': { key: 'partners', canonical: '/partners' },
   '/sponsor': { key: 'sponsor', canonical: '/sponsor' },
-  '/become-partner': { key: 'join', canonical: '/become-partner' },
-  '/join': { key: 'join', canonical: '/become-partner' },
+  '/become-partner': { key: 'join', canonical: '/join' },
+  '/join': { key: 'join', canonical: '/join' },
   '/opportunities': { key: 'opportunities', canonical: '/opportunities' },
   '/about': { key: 'about', canonical: '/about' },
   '/contact': { key: 'contact', canonical: '/contact' },
@@ -324,7 +325,7 @@ export const SITEMAP_FIXED_PATHS: string[] = [
   '/events',
   '/partners',
   '/sponsor',
-  '/become-partner',
+  '/join',
   '/opportunities',
   '/about',
   '/contact',

@@ -18,8 +18,10 @@ import { UnderlineLink } from '@/components/brand/UnderlineLink';
  * inset, no rounded corners, no cut-out corner): a photo that settles from 1.08
  * to 1 on load and lags behind the page (parallax, up to 40 px), a marine veil,
  * faint sounding lines drifting very slowly, a breadcrumb (a back link on
- * phones), an optional eyebrow, the H1 (lines rising on load), a subtitle and
- * whatever `children` you pass (search, figures, buttons).
+ * phones), an optional eyebrow, the H1, a subtitle and whatever `children` you
+ * pass (search, figures, buttons). The text is all there from the first paint:
+ * nothing in a banner waits for an entrance (design audit, 8 Oct 2026; the
+ * /directory banner used to stay empty for about two seconds).
  *
  * The content sets the height, never the other way round. When it is the first
  * thing on the page, the full-width header overlaps it (transparent, white logo)
@@ -52,7 +54,7 @@ const SECTION_LABELS: Record<string, [string, string]> = {
   '/partners': ['nav.partners', 'Partners'],
   '/about': ['nav.about', 'About'],
   '/contact': ['footer.contact', 'Contact'],
-  '/become-partner': ['nav.becomePartner', 'Join the network'],
+  '/join': ['nav.becomePartner', 'Join the network'],
 };
 
 export function PageHero({

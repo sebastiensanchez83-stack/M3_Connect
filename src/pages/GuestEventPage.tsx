@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Seo } from '@/components/seo/Seo';
 import { useSeoTr } from '@/components/seo/useSeoTr';
 import { withSiteSuffix } from '@/lib/seoText';
-import { CalendarDays, MapPin, Loader2, CheckCircle, Lock, Mic, Wine, Check, Clock } from 'lucide-react';
+import { CalendarDays, MapPin, Loader2, CheckCircle, Lock, Mic, Wine, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { AuthInput as Input, AuthLabel as Label, AuthTextarea as Textarea, FieldError } from '@/components/auth/fields';
@@ -18,6 +18,7 @@ import { prefersReducedMotion } from '@/components/motion/useReducedMotion';
 import { useRegisterHeaderHero } from '@/components/layout/headerOverlay';
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import { guestList, type PublicGuestEvent } from '@/lib/guestList';
+import { useAuth } from '@/contexts/AuthContext';
 import { registerWysRefonteStrings } from '@/i18n/refonte-wys';
 import { cn } from '@/lib/utils';
 
@@ -44,7 +45,13 @@ function splitDate(label: string | undefined) {
   return m ? { weekday: m[1] ?? '', day: m[2], month: m[3], year: m[4] } : null;
 }
 
-/** The marine opening: the event on the left, its invitation card on the right (no photo of the venue: the card is the picture). */
+/**
+ * The marine opening: the event on the left, its invitation card on the right
+ * (no photo of the venue: the card is the picture). The design audit of 8 Oct
+ * 2026 asked for a photo; none of the Summit or its venue exists yet (not in
+ * public/, not in the site-media bucket), and another event's picture would
+ * mislead on the event's own page. Add one here once M3 has it.
+ */
 function WysHero({ event, canRequest, done, onRequest }: { event: PublicGuestEvent; canRequest: boolean; done: boolean; onRequest: () => void }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLElement>(null);
@@ -194,6 +201,39 @@ export function GuestEventPage({ slug }: { slug: string }) {
   // Cloudflare Turnstile: invisible unless a challenge is needed; off without a site key.
   const captcha = useTurnstile();
   const formRef = useRef<HTMLDivElement>(null);
+
+  // A signed-in member does not type what the platform knows (design audit,
+  // 8 Oct 2026): name, e-mail and job title from the profile, company and
+  // country from the active organisation. Only empty fields are filled, so
+  // nothing typed is ever overwritten; every field stays editable. The request
+  // itself is unchanged (same guest-list call, no account needed).
+  const { user, profile, organization } = useAuth();
+  const userId = user?.id;
+  const userEmail = user?.email;
+  useEffect(() => {
+    if (!userId || !profile) return;
+    const known: Partial<typeof EMPTY> = {
+      first_name: profile.first_name ?? '',
+      last_name: profile.last_name ?? '',
+      email: profile.email || userEmail || '',
+      job_title: profile.job_title ?? '',
+      company: organization?.name ?? '',
+      country: organization?.country ?? '',
+    };
+    setForm((f) => {
+      let changed = false;
+      const next = { ...f };
+      for (const [k, v] of Object.entries(known) as [keyof typeof EMPTY, string][]) {
+        if (!next[k] && v) {
+          next[k] = v;
+          changed = true;
+        }
+      }
+      return changed ? next : f;
+    });
+    // Keyed on ids and values, never on the user object (auth-js replaces it on every tab refocus).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, userEmail, profile?.first_name, profile?.last_name, profile?.email, profile?.job_title, organization?.name, organization?.country]);
 
   useEffect(() => {
     guestList<{ event: PublicGuestEvent }>({ action: 'event', slug }).then(r => {
@@ -345,14 +385,10 @@ export function GuestEventPage({ slug }: { slug: string }) {
           {blocks.map((b, i) => (
             <Reveal key={b.id}>{b.render(String(i + 1).padStart(2, '0'))}</Reveal>
           ))}
-          {s.programme_note && (
-            <Reveal>
-              <p className="flex items-start gap-3 rounded-field bg-foam p-4 text-sm leading-6 text-ink">
-                <Clock className="mt-0.5 h-4 w-4 shrink-0 text-teal-text" aria-hidden="true" />
-                {s.programme_note}
-              </p>
-            </Reveal>
-          )}
+          {/* The admin's "Programme note" (settings.programme_note) is no longer shown here: it read "The
+              detailed programme will be announced soon" seven weeks before the Summit (design audit, 8 Oct
+              2026), and the Format section above already says what the day is (conference, gala dinner, by
+              invitation). It still goes to accepted guests, on their pass. */}
         </div>
 
         <div className="min-w-0 lg:col-span-5">

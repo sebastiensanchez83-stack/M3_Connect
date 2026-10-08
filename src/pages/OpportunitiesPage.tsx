@@ -28,6 +28,7 @@ import { CREATE_ACTIONS, canCreate, type CreateAction, type CreateCapability } f
 import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
+import { openSignup } from '@/lib/authModal';
 import { BgRevealPanel } from '@/components/brand/BgRevealPanel';
 import { CardShell } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
@@ -740,7 +741,8 @@ export function OpportunitiesPage() {
                     >
                       <KindIcon className="h-4 w-4" aria-hidden="true" />
                       {kindLabel(k)}
-                      {ready && <span className="tabular font-normal text-meta">{counts[k]}</span>}
+                      {/* No "0": an empty kind says so below, in words (design audit, 8 Oct 2026). */}
+                      {ready && counts[k] > 0 && <span className="tabular font-normal text-meta">{counts[k]}</span>}
                     </button>
                   );
                 })}
@@ -1304,10 +1306,11 @@ function LockPanel({ signedIn, pending }: { signedIn: boolean; pending: boolean 
           <div className="mt-7 flex flex-wrap items-center gap-x-6 gap-y-3">
             {!signedIn ? (
               <>
-                <Button asChild variant="ctaOnDark">
-                  <Link to="/become-partner">{t('opportunities.signUp', 'Sign up')}</Link>
+                {/* Opens the sign-up window at once; the presentation of the marina profile is the link. */}
+                <Button variant="ctaOnDark" onClick={() => openSignup()}>
+                  {t('opportunities.signUp', 'Sign up')}
                 </Button>
-                <UnderlineLink to="/become-partner#marina" tone="light">
+                <UnderlineLink to="/join#marina" tone="light">
                   {t('opportunities.gateMarina', 'Run a marina? Publish your first need.')}
                 </UnderlineLink>
               </>
@@ -1341,9 +1344,16 @@ function LockPanel({ signedIn, pending }: { signedIn: boolean; pending: boolean 
 }
 
 /**
- * Nothing published in this kind yet. Says what the kind is for, then speaks
- * to the reader: a marina that may publish gets the button, a marina still in
- * review is told when it can, a supplier learns what happens next.
+ * Nothing published in this kind yet. Victor's choice after the design audit
+ * (8 Oct 2026): invite to publish, nothing else (no zero counters, no example
+ * opportunities, no push towards the directory).
+ *  - A verified marina or developer who may publish this kind: "publish the
+ *    first one", with the form as the one button (the same route as the Create
+ *    menu: CREATE_ACTIONS / canCreate).
+ *  - Everyone else: a calm explanation (marinas publish their needs here, the
+ *    M3 team reviews each one), what it means for them (a supplier hears of it
+ *    first, a marina in review can publish once verified), and a quiet link to
+ *    the directory.
  */
 function EmptyKind({
   kind, createAction, publishLabel, audience,
@@ -1356,10 +1366,17 @@ function EmptyKind({
   const { t } = useTranslation();
   const meta = KIND_META[kind];
 
+  const creator = audience === 'creator' && !!createAction;
+
   const emptyTitle: Record<Kind, string> = {
     rfps: 'No open RFPs yet',
     consultations: 'No open consultations yet',
     projects: 'No active projects yet',
+  };
+  const firstTitle: Record<Kind, string> = {
+    rfps: 'Publish the first RFP',
+    consultations: 'Ask the first question',
+    projects: 'Submit the first project',
   };
   const creatorText: Record<Kind, string> = {
     rfps: 'Be the first: describe your need and set a deadline. Verified service providers will see it here and can answer you.',
@@ -1372,11 +1389,11 @@ function EmptyKind({
     projects: 'When a marina submits a project, the M3 team matches it with service providers in the relevant sectors.',
   };
 
-  let text: string;
-  if (audience === 'creator') text = t(`opportunities.emptyCreator.${kind}`, creatorText[kind]);
-  else if (audience === 'marinaPending') text = t('opportunities.emptyMarinaPending', 'You can publish here as soon as your organisation is verified.');
-  else if (audience === 'supplier') text = t(`opportunities.emptySupplier.${kind}`, supplierText[kind]);
-  else text = t('opportunities.emptyOther', 'New opportunities appear here as soon as the M3 team approves them.');
+  // Everyone who cannot publish this kind: what the page is for, then what it means for them.
+  const explain = t('oppRefonte.empty.explain', 'Marinas publish their needs here: requests for proposals, questions for an expert and projects. The M3 team reviews each one before it appears.');
+  let forYou: string | null = null;
+  if (audience === 'marinaPending') forYou = t('opportunities.emptyMarinaPending', 'You can publish here as soon as your organisation is verified.');
+  else if (audience === 'supplier') forYou = t(`opportunities.emptySupplier.${kind}`, supplierText[kind]);
 
   return (
     <div className="overflow-hidden rounded-card border border-rule bg-white">
@@ -1393,34 +1410,29 @@ function EmptyKind({
         </div>
 
         <div className="p-6 sm:p-8 md:p-10">
-          <Eyebrow>{t('oppRefonte.empty.eyebrow', 'Nothing here yet')}</Eyebrow>
-          <h3 className="mt-3 text-h2-sm text-navy md:text-[26px] md:leading-8">{t(`opportunities.empty.${kind}`, emptyTitle[kind])}</h3>
-          <p className="mt-3 max-w-prose text-[15px] leading-6 text-ink">{text}</p>
-
-          {audience === 'creator' && createAction ? (
+          {creator && createAction ? (
             <>
+              <Eyebrow>{t('oppRefonte.empty.eyebrowFirst', 'Be the first')}</Eyebrow>
+              <h3 className="mt-3 text-h2-sm text-navy md:text-[26px] md:leading-8">{t(`oppRefonte.empty.first.${kind}`, firstTitle[kind])}</h3>
+              <p className="mt-3 max-w-prose text-[15px] leading-6 text-ink">{t(`opportunities.emptyCreator.${kind}`, creatorText[kind])}</p>
               <p className="mt-2 text-[13px] leading-[18px] text-meta">
                 {t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}
               </p>
-              <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-3">
+              <div className="mt-6">
                 <Button asChild variant="cta">
                   <Link to={createAction.href}>{publishLabel}</Link>
                 </Button>
-                <UnderlineLink to="/directory">{t('opportunities.browseDirectory', 'Browse the directory')}</UnderlineLink>
               </div>
             </>
           ) : (
             <>
-              {audience !== 'marinaPending' && (
-                <p className="mt-3 max-w-prose text-[15px] leading-6 text-ink">
-                  {t('opportunities.meanwhile', 'Meanwhile, the directory lists the marinas and service providers already on the platform.')}
-                </p>
-              )}
-              <div className="mt-6">
-                <Button asChild variant="ctaOutline">
-                  <Link to="/directory">{t('opportunities.browseDirectory', 'Browse the directory')}</Link>
-                </Button>
-              </div>
+              <Eyebrow>{t('oppRefonte.empty.eyebrow', 'Nothing here yet')}</Eyebrow>
+              <h3 className="mt-3 text-h2-sm text-navy md:text-[26px] md:leading-8">{t(`opportunities.empty.${kind}`, emptyTitle[kind])}</h3>
+              <p className="mt-3 max-w-prose text-[15px] leading-6 text-ink">{explain}</p>
+              {forYou && <p className="mt-3 max-w-prose text-[15px] leading-6 text-ink">{forYou}</p>}
+              <p className="mt-6">
+                <UnderlineLink to="/directory">{t('opportunities.browseDirectory', 'Browse the directory')}</UnderlineLink>
+              </p>
             </>
           )}
         </div>

@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ElementType } from 'react';
 import { cn } from '@/lib/utils';
 import { useMotion } from './MotionProvider';
-import { useInView } from './useInView';
+import { useEntrance } from './useInView';
 
 /**
- * A heading whose lines rise one after the other out of a mask.
+ * A heading whose lines rise one after the other out of a mask, when it
+ * arrives from below the fold.
  *
  * Each word gets its own mask; after layout the words are grouped by line
  * (offsetTop), and every word of a line shares that line's delay, so the eye
  * reads lines, not words. Measured again when the fonts arrive and when the
  * width changes before the entrance has played.
+ *
+ * Since the design audit of 8 Oct 2026 (titles were caught half masked while
+ * the page scrolled, the /directory hero stayed empty for two seconds):
+ *  - a heading already on screen when it mounts is plain text, with no mask
+ *    and no entrance; so is every hero title (`trigger="mount"`): a hero never
+ *    waits for an animation;
+ *  - below the fold, the lines start rising 15 % of a screen before they show,
+ *    in 300 ms, 50 ms apart (at most three steps); `delay` is halved and capped
+ *    at 120 ms, like Reveal's.
  *
  * The text exists once in the page (no hidden duplicate), so an H1 reads the
  * same for screen readers and search engines. Under reduced motion the text is
@@ -24,7 +34,7 @@ export function LineReveal({
   children,
   className,
   delay = 0,
-  step = 90,
+  step = 50,
   trigger = 'view',
   id,
 }: {
@@ -32,20 +42,21 @@ export function LineReveal({
   /** Plain text only (no markup): it is split into words. */
   children: string;
   className?: string;
-  /** ms before the first line. */
+  /** ms before the first line (halved, at most 120 ms). */
   delay?: number;
-  /** ms between two lines. */
+  /** ms between two lines (at most 60). */
   step?: number;
-  /** 'view' when scrolled into view; 'mount' straight away (hero titles). */
+  /** 'view': rises when it arrives from below the fold. 'mount' (hero titles): shown at once, as plain text. */
   trigger?: 'view' | 'mount';
   id?: string;
 }) {
   const { reduced } = useMotion();
   const ref = useRef<HTMLElement>(null);
-  const inView = useInView(ref, { disabled: reduced || trigger === 'mount' });
+  const phase = useEntrance(ref, reduced || trigger === 'mount');
   const words = useMemo(() => children.split(/\s+/).filter(Boolean), [children]);
   const [lineOf, setLineOf] = useState<number[]>([]);
-  const [armed, setArmed] = useState(trigger !== 'mount');
+  const [done, setDone] = useState(false);
+  const masked = phase !== 'shown';
 
   const measure = useCallback(() => {
     const el = ref.current;
@@ -65,13 +76,14 @@ export function LineReveal({
     setLineOf((prev) => (prev.length === next.length && prev.every((v, i) => v === next[i]) ? prev : next));
   }, []);
 
+  // The masks exist only while the heading waits below the fold or rises.
   useLayoutEffect(() => {
-    if (!reduced) measure();
-  }, [reduced, measure, words]);
+    if (phase === 'armed') measure();
+  }, [phase, measure, words]);
 
   // Fonts change the line breaks; so does the width, until the entrance has played.
   useEffect(() => {
-    if (reduced) return;
+    if (phase !== 'armed') return;
     let alive = true;
     document.fonts?.ready.then(() => alive && measure()).catch(() => {});
     const el = ref.current;
@@ -82,29 +94,29 @@ export function LineReveal({
       alive = false;
       ro.disconnect();
     };
-  }, [reduced, measure]);
+  }, [phase, measure]);
 
-  // 'mount': let the hidden state paint once before rising. A timer rather than
-  // animation frames, which never fire in a tab rendered in the background: the
-  // title must not stay hidden there.
+  const wait = Math.min(120, Math.max(0, Math.round(delay / 2)));
+  const gap = Math.min(60, Math.max(0, step));
+  const lines = lineOf.length > 0 ? Math.min(3, Math.max(...lineOf)) : 0;
+
+  // Once risen, the transitions are dropped (the words stay in their masks: no reflow).
   useEffect(() => {
-    if (trigger !== 'mount' || reduced) return;
-    const timer = window.setTimeout(() => setArmed(true), 40);
+    if (phase !== 'in' || done) return;
+    const timer = window.setTimeout(() => setDone(true), wait + lines * gap + 350);
     return () => window.clearTimeout(timer);
-  }, [trigger, reduced]);
+  }, [phase, done, wait, lines, gap]);
 
-  if (reduced) {
-    return <Tag id={id} className={className}>{children}</Tag>;
+  if (!masked) {
+    return <Tag ref={ref} id={id} className={className}>{children}</Tag>;
   }
-
-  const shown = trigger === 'mount' ? armed : inView;
 
   return (
     <Tag
       ref={ref}
       id={id}
-      className={cn('line-reveal', shown && 'is-in', className)}
-      style={{ '--lr-delay': `${delay}ms`, '--lr-step': `${step}ms` } as CSSProperties}
+      className={cn('line-reveal', phase === 'armed' ? 'is-armed' : done ? 'is-done' : 'is-entering', className)}
+      style={{ '--lr-delay': `${wait}ms`, '--lr-step': `${gap}ms` } as CSSProperties}
     >
       {/* The words stay real text, once: screen readers, translation tools and
           search engines read the sentence as written (the spaces sit between
@@ -112,7 +124,7 @@ export function LineReveal({
       {words.map((word, i) => (
         <span key={`${word}-${i}`}>
           <span className="lr-w" data-lr-word>
-            <span className="lr-i" style={{ '--li': lineOf[i] ?? 0 } as CSSProperties}>{word}</span>
+            <span className="lr-i" style={{ '--li': Math.min(3, lineOf[i] ?? 0) } as CSSProperties}>{word}</span>
           </span>
           {i < words.length - 1 ? ' ' : null}
         </span>

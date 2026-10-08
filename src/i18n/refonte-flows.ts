@@ -85,7 +85,7 @@ export const FLOWS_STRINGS = {
               body: 'Your logo and your profile stay on the platform between events: on the Partners page, in the directory and on the home page.',
             },
             team: {
-              title: 'Agree it with the team that runs it',
+              title: 'Work directly with the organising team',
               body: 'M3 Monaco organises the events and runs the platform. Sponsorship is handled directly by the M3 team.',
             },
           },

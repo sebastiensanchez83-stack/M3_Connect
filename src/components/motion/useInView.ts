@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 
 /**
  * Shared IntersectionObservers, one per option set, so a page with forty
@@ -56,9 +56,18 @@ function getShared(rootMargin: string, threshold: number): Shared {
   return shared;
 }
 
+/**
+ * How far below the fold an entrance starts: the watched viewport is stretched
+ * 15 % downwards, so a block starts to arrive just before the reader can see it
+ * and has settled by the time it shows. (Design audit, 8 Oct 2026: blocks used
+ * to sit half transparent, and titles half masked, while the page scrolled.)
+ */
+export const ENTRANCE_ROOT_MARGIN = '0px 0px 15% 0px';
+
 export interface InViewOptions {
-  /** Shrinks the viewport: the default triggers once the element is 6 % above the bottom edge. */
+  /** Grows or shrinks the viewport. Default: ENTRANCE_ROOT_MARGIN, 15 % below the bottom edge. */
   rootMargin?: string;
+  /** Default 0: any part of the element inside the (stretched) viewport. */
   threshold?: number;
   /** Stop watching after the first time (default). False: report leaving too. */
   once?: boolean;
@@ -73,12 +82,12 @@ export interface InViewOptions {
 }
 
 /**
- * True once the element has entered the viewport. Used by every entrance
- * (Reveal, LineReveal, Counter…).
+ * True once the element has entered the viewport (by default: once it is
+ * within 15 % of a screen below the fold).
  */
 export function useInView<T extends Element>(
   ref: RefObject<T>,
-  { rootMargin = '0px 0px -6% 0px', threshold = 0.12, once = true, disabled = false, fallbackMs = 2000 }: InViewOptions = {},
+  { rootMargin = ENTRANCE_ROOT_MARGIN, threshold = 0, once = true, disabled = false, fallbackMs = 2000 }: InViewOptions = {},
 ): boolean {
   const [inView, setInView] = useState<boolean>(disabled);
 
@@ -125,6 +134,76 @@ export function useInView<T extends Element>(
   }, [ref, rootMargin, threshold, once, disabled, fallbackMs]);
 
   return inView;
+}
+
+/**
+ * Where a one-off entrance (Reveal, LineReveal, BgRevealPanel, ChannelSteps)
+ * stands:
+ *
+ *  - 'shown': the final state, with no entrance at all. Every block starts
+ *    here, and stays here when it is already on screen (or above it) the
+ *    moment it mounts, under reduced motion, without IntersectionObserver, and
+ *    in a hidden part of the page (display: none). Content that is in the
+ *    viewport at load is therefore never hidden, not even for a frame.
+ *  - 'armed': the block mounted below the fold. It is hidden (CSS) and waits.
+ *  - 'in': it reached ENTRANCE_ROOT_MARGIN (or the 2 s safety net fired): it
+ *    plays its entrance once, from the hidden state to the final one.
+ *
+ * The decision is taken in a layout effect, before the first paint, so a block
+ * below the fold is never painted visible and then hidden.
+ */
+export type EntrancePhase = 'shown' | 'armed' | 'in';
+
+export function useEntrance<T extends Element>(ref: RefObject<T>, disabled = false): EntrancePhase {
+  const [phase, setPhase] = useState<EntrancePhase>('shown');
+  // Once a block has arrived (or been shown), it never hides again.
+  const settled = useRef(false);
+
+  useLayoutEffect(() => {
+    if (disabled) {
+      settled.current = true;
+      setPhase('shown');
+      return;
+    }
+    if (settled.current) return;
+    const el = ref.current;
+    if (!el || typeof window === 'undefined' || typeof IntersectionObserver === 'undefined') return;
+    const viewport = window.innerHeight || document.documentElement.clientHeight || 0;
+    // On screen, above it, or not laid out (a 0 × 0 box sits at the top): final state.
+    if (el.getBoundingClientRect().top < viewport) {
+      settled.current = true;
+      return;
+    }
+
+    setPhase('armed');
+    const shared = getShared(ENTRANCE_ROOT_MARGIN, 0);
+    let reported = false;
+    const stop = () => {
+      shared.callbacks.delete(el);
+      shared.observer.unobserve(el);
+    };
+    const arrive = () => {
+      settled.current = true;
+      setPhase('in');
+      stop();
+    };
+    shared.callbacks.set(el, (entry) => {
+      reported = true;
+      if (entry.isIntersecting) arrive();
+    });
+    shared.observer.observe(el);
+    // Safety net: an observer that never reports (a background render, a
+    // screenshot tool) must not leave the block hidden.
+    const timer = window.setTimeout(() => {
+      if (!reported) arrive();
+    }, 2000);
+    return () => {
+      window.clearTimeout(timer);
+      stop();
+    };
+  }, [ref, disabled]);
+
+  return phase;
 }
 
 /** True while the document is shown (false in a background tab). */

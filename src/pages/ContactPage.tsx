@@ -352,7 +352,8 @@ export function ContactPage() {
           {/* Who to write to */}
           <aside aria-label={t('contact.infoTitle', 'Contact information')} className="grid content-start gap-6 lg:col-span-5 xl:col-span-4">
             <Reveal delay={120}>
-              <ContactCard line={t('contact.emailNote', 'We usually reply within 24 to 48 hours.')} />
+              {/* The form is the page's action: the e-mail is a plain link here, not a second button. */}
+              <ContactCard line={t('contact.emailNote', 'We usually reply within 24 to 48 hours.')} action="link" />
             </Reveal>
             <Reveal delay={160}>
               <div className="rounded-card bg-white p-5 ring-1 ring-inset ring-rule sm:p-6">

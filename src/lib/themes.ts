@@ -102,11 +102,13 @@ export const THEMES: Theme[] = [
     descFallback: 'Running the marina, yacht services and safety',
     icon: LifeBuoy,
     sectors: ['marina-management-operations', 'yacht-services-concierge', 'safety-security'],
-    // No SM26 photo shows marina work on the water; the gradient is more honest
-    // than a misleading picture. Wanted: dock staff berthing a yacht, a fuel or
-    // pump-out station in use, a harbour patrol boat.
-    image: null,
-    imageFocusY: 0.5,
+    // Berth occupancy sensors (free / occupied) on a stand, a marina photo
+    // behind them (SM26): knowing which berth is free is day-to-day marina
+    // operations. It was a gradient until the design audit of 8 Oct 2026 (the
+    // one tile without a photo). A better picture is still wanted: dock staff
+    // berthing a yacht, a fuel or pump-out station in use, a harbour patrol boat.
+    image: '/images/site/moment-sensors.jpg',
+    imageFocusY: 0.6,
   },
   {
     key: 'business',

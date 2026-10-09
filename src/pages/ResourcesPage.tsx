@@ -10,7 +10,7 @@ import { supabase } from '@/lib/supabase';
 import { AdBanner } from '@/components/ui/AdBanner';
 import { LoadErrorPanel } from '@/components/ui/LoadErrorPanel';
 import { PageHero } from '@/components/ui/PageHero';
-import { SearchField } from '@/components/brand/SearchField';
+import { SearchField, type SuggestGroup } from '@/components/brand/SearchField';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { ContactCard } from '@/components/brand/ContactCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
@@ -27,6 +27,9 @@ import { scrollTopUnderBars } from '@/lib/scrollTarget';
 import { openSignup } from '@/lib/authModal';
 import { cn } from '@/lib/utils';
 import '@/styles/refonte-content.css';
+
+/** The library holds articles: its search suggests articles only. */
+const ARTICLE_SUGGESTIONS: readonly SuggestGroup[] = ['articles'];
 
 /**
  * The resource library, browsed by theme.
@@ -355,6 +358,7 @@ export function ResourcesPage() {
           // The library holds articles only: the placeholder promises nothing else (no guides, no white papers yet).
           placeholder={t('resources.searchArticles', 'Search articles…')}
           label={t('resources.searchArticlesLabel', 'Search the articles')}
+          suggest={ARTICLE_SUGGESTIONS}
         />
       </PageHero>
 

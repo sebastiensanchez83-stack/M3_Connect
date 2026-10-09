@@ -12,9 +12,8 @@ import { THEMES, themesForSectors, type ThemeKey } from '@/lib/themes';
 import { networkFigures, formatFigure, type OrgFigureRow } from '@/lib/networkStats';
 import { SPONSOR_TIERS, isSponsorTier, type OrgTier } from '@/types/database';
 import { SplitHero, HeroIn } from '@/components/brand/SplitHero';
-import { EventCard, daysUntilEvent } from '@/components/brand/EventCard';
-import { NewsBand, type NewsItem } from '@/components/brand/NewsBand';
-import { SearchField } from '@/components/brand/SearchField';
+import { EventCard } from '@/components/brand/EventCard';
+import { SearchField, ALL_SUGGESTIONS } from '@/components/brand/SearchField';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { featuredEventItems } from '@/components/brand/m3Events';
 import { LineReveal } from '@/components/motion/LineReveal';
@@ -24,7 +23,6 @@ import type { HomeResource } from '@/components/home/ResourcesAgenda';
 import type { SponsorLogo } from '@/components/home/SponsorsBand';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { openSignup } from '@/lib/authModal';
-import { cn } from '@/lib/utils';
 
 // Everything below the figures band is its own chunk: the entry bundle (every
 // route, /admin and /sm26 included) does not carry the home page's lower sections.
@@ -41,8 +39,9 @@ const MemberDashboard = lazyWithRetry(() => import('@/components/home/MemberDash
  *   split hero: text on marine (H1 by lines, live-figures sentence, search,
  *               buttons, trust line) and a rounded photo frame with the "next
  *               event" card floating over its corner (the three M3 events)
- *   news band: thin strip of figures, events, new members, latest article
- *   figures band: graticule, ruler that draws itself, the figures
+ *   (the news ticker of new articles, members and events runs above the
+ *   header on this page too: SiteTicker, App.tsx)
+ *   figures band: the four figures on plain white
  *   who it is for: photo cards in an accordion
  *   "Run a marina?": need form preview + a row of members following the scroll
  *   latest articles + agenda
@@ -54,7 +53,7 @@ const MemberDashboard = lazyWithRetry(() => import('@/components/home/MemberDash
  * Signed-in members (Oct 2026: the member home and the dashboard are one page):
  *   "Welcome back" in a shorter hero, then the FULL dashboard (MemberDashboard:
  *   account alerts, to-do, every block of the account, edited in place), then,
- *   lighter, the news band, the figures, the events carousel, the sponsors and
+ *   lighter, the figures, the events carousel, the sponsors and
  *   the closing tiles. /dashboard and /account?tab=… land here.
  *
  * Everything from the profiles down is a lazy chunk (HomeBelowFold).
@@ -62,7 +61,7 @@ const MemberDashboard = lazyWithRetry(() => import('@/components/home/MemberDash
  * Figures are live counts (networkStats) unless an admin sets
  * display_stats.override, in which case they show as "N+". The M3 events
  * (World Yachting Summit in Dubai, 27 Nov 2026, by invitation; webinars; the
- * Rendezvous) are carried by the hero card, the news band, the agenda and the
+ * Rendezvous) are carried by the hero card, the news ticker, the agenda and the
  * events carousel, all three side by side: the platform is not the Rendezvous' own site. The
  * platform teaser plays only when asked, in a dialog on the Rendezvous card.
  */
@@ -104,7 +103,6 @@ export function HomePage() {
   const [themeCounts, setThemeCounts] = useState<Record<ThemeKey, number> | null>(null);
   const [sponsors, setSponsors] = useState<SponsorLogo[]>([]);
   const [providers, setProviders] = useState<ProviderCardData[]>([]);
-  const [newestMembers, setNewestMembers] = useState<{ id: string; slug: string; name: string }[]>([]);
 
   const lang = i18n.language === 'fr' ? 'fr-FR' : 'en-GB';
 
@@ -115,7 +113,7 @@ export function HomePage() {
     const fetchAll = async () => {
       const [
         settingsRes, orgStatsRes, sectorsRes, resIndexRes, featuredRes,
-        featuredOrgRes, memberMarinasRes, providersRes, sponsorsRes, newestRes,
+        featuredOrgRes, memberMarinasRes, providersRes, sponsorsRes,
       ] = await Promise.allSettled([
         // Admin-editable display stats: used as they are when the admin has
         // set `override: true`, otherwise only as a fallback for a failed live count.
@@ -164,14 +162,6 @@ export function HomePage() {
           .select('id, slug, name, logo_url, tier')
           .eq('access_status', 'verified')
           .in('tier', SPONSOR_TIERS),
-        // The newest verified members (an owner on the platform), for the news band.
-        supabase
-          .from('organizations')
-          .select('id, slug, name')
-          .eq('access_status', 'verified')
-          .not('owner_user_id', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(3),
       ]);
       if (!alive) return;
 
@@ -235,9 +225,6 @@ export function HomePage() {
       }
       setSponsors([...byId.values()].sort((a, b) => a.name.localeCompare(b.name)));
 
-      // ── Newest verified members, for the news band ──
-      setNewestMembers(((ok(newestRes)?.data ?? []) as { id: string; slug: string; name: string }[]).filter((o) => o.slug && o.name));
-
       // ── Service-provider members for the need panel ──
       setProviders(pickProviders((ok(providersRes)?.data ?? []) as ProviderCardData[]));
 
@@ -270,36 +257,6 @@ export function HomePage() {
   // The floating card turns the three M3 events (WYS while upcoming, webinars, the Rendezvous).
   const eventItems = useMemo(() => featuredEventItems(t), [t]);
   const card = useMemo(() => <EventCard items={eventItems} />, [eventItems]);
-
-  // The news band: live figures, the M3 events (with the countdown while one is upcoming),
-  // the newest verified members and the latest article. Real data only: an item whose data
-  // has not loaded (or does not exist) is simply left out.
-  const latestResource = featuredResources[0];
-  const newsItems = useMemo<NewsItem[]>(() => {
-    const items: NewsItem[] = [];
-    if (liveFigures) {
-      items.push(
-        { id: 'fig-marinas', lead: liveFigures.marinas, text: t('home.news.marinas', 'marinas listed'), href: '/directory?type=marina' },
-        { id: 'fig-providers', lead: liveFigures.suppliers, text: t('home.news.providers', 'service providers'), href: '/directory?type=partner' },
-        { id: 'fig-countries', lead: liveFigures.countries, text: t('home.news.countries', 'countries'), href: '/directory' },
-      );
-    }
-    for (const e of eventItems) {
-      const days = e.startsOn ? daysUntilEvent(e.startsOn) : null;
-      const lead = days === null ? undefined : days === 0 ? `${t('brand.notch.today', 'Today')} ·` : `${t('brand.notch.countdown', { days, defaultValue: 'D-{{days}}' })} ·`;
-      items.push({ id: `event-${e.id}`, lead, text: [e.title, e.meta].filter(Boolean).join(' · '), href: e.href });
-    }
-    for (const m of newestMembers) {
-      items.push({ id: `member-${m.id}`, lead: t('home.news.newMember', 'New member'), text: m.name, href: `/organizations/${m.slug}` });
-    }
-    if (latestResource) {
-      const title = latestResource.title.length > 72 ? `${latestResource.title.slice(0, 71).trimEnd()}…` : latestResource.title;
-      items.push({ id: `resource-${latestResource.id}`, lead: t('home.news.latestArticle', 'Latest article'), text: title, href: `/resources/${latestResource.id}` });
-    }
-    return items;
-    // liveFigures is rebuilt on each render: its three strings are the dependencies.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, eventItems, newestMembers, latestResource, liveFigures?.marinas, liveFigures?.suppliers, liveFigures?.countries]);
 
   // "Run a marina?" (the need form preview) speaks to visitors: a signed-in
   // member publishes from the dashboard's "My requests" block instead.
@@ -352,7 +309,7 @@ export function HomePage() {
                   : t('home.heroSubtitle', "Marinas publish their needs, service providers answer them, and everyone meets at M3's events in Monaco, Dubai and online.")}
               </HeroIn>
               <HeroIn delay={340} className="mt-6 max-w-[520px]">
-                <SearchField examples={searchExamples} />
+                <SearchField examples={searchExamples} suggest={ALL_SUGGESTIONS} />
               </HeroIn>
               <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
                 {/* On the navy hero: gold with WHITE water, so it never vanishes on hover/focus.
@@ -406,7 +363,7 @@ export function HomePage() {
               {t('memberHome.heroSubtitle', 'Your dashboard is right below: your profile, your company, your events and your requests, all managed from here.')}
             </HeroIn>
             <HeroIn delay={340} className="mt-6 max-w-[520px]">
-              <SearchField examples={searchExamples} />
+              <SearchField examples={searchExamples} suggest={ALL_SUGGESTIONS} />
             </HeroIn>
             <HeroIn delay={420} className="mt-5 flex flex-wrap items-center gap-3">
               {/* A plain anchor: the dashboard is on this page (html's scroll-padding keeps it clear of the header). */}
@@ -430,14 +387,9 @@ export function HomePage() {
         </Suspense>
       )}
 
-      {/* ════════════ News band: figures, events, newest members, latest article ════════════ */}
-      {/* The band waits for its data, with its height kept (49 px, 57 px from md: 48/56 plus the rule): the figures and
-          members used to arrive in front of the events already scrolling, a 560 px jump of the whole row (CLS 0.3). */}
-      {publicLoading
-        ? <div aria-hidden="true" className={cn('h-[49px] border-b border-rule bg-white md:h-[57px]', user && 'border-t')} />
-        : <NewsBand items={newsItems} className={user ? 'border-t' : undefined} />}
+      {/* The news band that used to sit here is the site-wide ticker above the header now (SiteTicker). */}
 
-      {/* ════════════ Figures band: graticule, ruler, the figures ════════════ */}
+      {/* ════════════ Figures band: the figures on plain white ════════════ */}
       <FiguresBand figures={stats} loading={publicLoading} />
 
       {/* ════════════ Below the figures: its own chunk ════════════ */}

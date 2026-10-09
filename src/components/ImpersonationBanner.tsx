@@ -25,7 +25,8 @@ export function ImpersonationBanner() {
   // solid amber-400 band with navy text (8.9:1, the e-mail at 75 %: 5.2:1), the
   // kit's 7xl column and type, and a navy pill to leave.
   return (
-    <div className="sticky top-0 z-[150] border-b border-navy/15 bg-amber-400 text-navy">
+    // [order:-10000]: above the news ticker, which App.tsx draws first with order-first.
+    <div className="sticky top-0 z-[150] border-b border-navy/15 bg-amber-400 text-navy [order:-10000]">
       <div className="mx-auto flex min-h-12 max-w-7xl items-center justify-between gap-3 px-4 py-1.5 text-[14px] leading-5 sm:px-6">
         <span className="flex min-w-0 items-center gap-2.5 font-medium">
           <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-pill bg-navy/10">

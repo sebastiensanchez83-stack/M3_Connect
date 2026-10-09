@@ -143,7 +143,8 @@ export function SplitHero({
       ref={ref}
       id={id}
       aria-labelledby={labelledBy}
-      className={cn('relative isolate flex flex-col justify-center overflow-hidden bg-navy text-white', !compact && 'lg:min-h-[min(100svh,860px)]', className)}
+      // The first screen, less the news ticker above the header when it shows (--ticker-h, smc-motion.css).
+      className={cn('relative isolate flex flex-col justify-center overflow-hidden bg-navy text-white', !compact && 'lg:min-h-[min(calc(100svh_-_var(--ticker-h,0px)),860px)]', className)}
     >
       <BathyPattern seed={bathySeed} drift className="absolute inset-0 -z-10" />
 

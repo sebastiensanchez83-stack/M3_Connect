@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
 import { BathyPattern } from '@/components/motion/BathyPattern';
 import { Eyebrow } from '@/components/brand/Eyebrow';
-import { SearchField } from '@/components/brand/SearchField';
+import { SearchField, ALL_SUGGESTIONS } from '@/components/brand/SearchField';
 
 /**
  * The 404, on the v2 kit: a marine panel with sounding lines drifting very
@@ -32,6 +32,7 @@ export function NotFoundPage() {
         <SearchField
           className="mt-8 max-w-lg"
           label={t('contentPages.notFound.searchLabel', 'Search the directory')}
+          suggest={ALL_SUGGESTIONS}
         />
         <div className="mt-8 flex flex-wrap gap-3">
           <Button asChild variant="ctaOnDark">

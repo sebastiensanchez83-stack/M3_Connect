@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
+import { SiteTicker } from '@/components/layout/SiteTicker';
 import { AnnouncementBar, AnnouncementPopup } from '@/components/ui/SiteAnnouncements';
 import { ImpersonationBanner } from '@/components/ImpersonationBanner';
 import { AuthRedirector } from '@/components/auth/AuthRedirector';
@@ -99,6 +100,10 @@ function App() {
       <ImpersonationBanner />
       <AnnouncementBar />
       <Navbar />
+      {/* The news ticker: drawn ABOVE the header (CSS order), but after it in the
+          DOM so keyboard users reach the navigation first. Every page for members,
+          the home page for visitors (SiteTicker decides). */}
+      <SiteTicker />
       <AuthRedirector />
       <AnnouncementPopup />
       <main id="main-content" className="flex-1">

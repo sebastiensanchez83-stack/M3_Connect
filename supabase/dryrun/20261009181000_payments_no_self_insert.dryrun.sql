@@ -1,3 +1,7 @@
+-- HISTORICAL: already run, and the migration was applied on 9 Oct 2026 (schema_migrations
+-- 20261009180303). Do not run it again: its first checks (the policy existed before the
+-- migration) FAIL by design once the policy is gone.
+--
 -- DRY RUN of supabase/migrations/20261009181000_payments_no_self_insert.sql
 -- (and of its down script). NOT A MIGRATION: never apply it, never commit it.
 --

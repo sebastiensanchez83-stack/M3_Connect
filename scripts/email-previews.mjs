@@ -207,7 +207,7 @@ const items = [];
   }, "introduction, two recipients, CC");
   add(4, "webinar_accepted", "sam.rivera@example.com", { first_name: "Sam", title: "Shore power: lessons from three marinas" });
   add(5, "user_account_approved", "alex.martin@example.com", { first_name: "Alex", org_name: "Port Azur Marina" });
-  add(6, "payment_confirmed", "alex.martin@example.com", { first_name: "Alex", amount: "€250.00", payment_type: "event_participation", transaction_id: "TXN-EXAMPLE-0001" });
+  add(6, "payment_confirmed", "alex.martin@example.com", { first_name: "Alex", amount: "€250.00", payment_type: "event_participation", transaction_id: "924529", event_title: "Example Marina Forum 2026" });
   add(7, "rfp_rejected", "camille.durand@example.com", { first_name: "Camille", title: "Fuel dock renovation", reason: "The scope is not detailed enough for partners to quote. Please add the dock length and the expected timeline." }, "reason note");
   add(8, "sponsorship_approved", "alex.martin@example.com", { first_name: "Alex", requested_tier: "Gold" }, "bullet list");
   add(9, "org_claim_code", "harbour.master@example.com", { first_name: "Marie", org_name: "Port Azur Marina", claim_code: "AZUR-7K2Q", email: "harbour.master@example.com" }, "code box");
@@ -215,7 +215,7 @@ const items = [];
   add(11, "membership_payment_received", "admin@example.com", { amount: "€500", submitter: "Alex Martin", org_name: "Port Azur Marina", transaction_id: "TXN-EXAMPLE-0001" }, "admin, info table");
   add(12, "profile_reminder_verified_but_thin", "alex.martin@example.com", { first_name: "Alex" }, "reminder with bullets");
   add(13, "team_invitation", "new.colleague@example.com", { first_name: "Sam", org_name: "Port Azur Marina & Yacht Club", signup_url: `${SITE}/?signup=true&email=new.colleague%40example.com` }, "ampersand in a name");
-  add(14, "payment_failed", "alex.martin@example.com", { first_name: "Alex", amount: "€250.00" });
+  add(14, "payment_failed", "alex.martin@example.com", { first_name: "Alex", amount: "€250.00", event_title: "Example Marina Forum 2026" });
 }
 
 // Other Resend senders (each has its own function)

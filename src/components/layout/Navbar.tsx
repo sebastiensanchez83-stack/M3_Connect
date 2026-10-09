@@ -208,6 +208,13 @@ export function Navbar() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('signup') === 'true') {
       setSignupOpen(true);
+    } else if (params.get('signin') === 'true') {
+      // After "Forgot password?" (ResetPasswordPage signs out, then comes here): the
+      // sign-in window, ready for the new password. Taken out of the address.
+      setLoginOpen(true);
+      params.delete('signin');
+      const q = params.toString();
+      window.history.replaceState(window.history.state, '', `${window.location.pathname}${q ? `?${q}` : ''}${window.location.hash}`);
     }
   }, [location.search]);
 

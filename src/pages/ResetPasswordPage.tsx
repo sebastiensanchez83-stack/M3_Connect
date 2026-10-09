@@ -6,6 +6,7 @@ import { AuthLoading, AuthShell } from '@/components/auth/AuthShell';
 import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, FieldError, PasswordInput } from '@/components/auth/fields';
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
+import { MEMBER_HOME } from '@/lib/signInDestination';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { Loader2, CheckCircle } from 'lucide-react';
 
@@ -54,13 +55,16 @@ const AFTER_SIGNUP = '/onboarding';
  * the flag: without this, they were signed out and sent to the home page, and the
  * step /welcome would have taken them to (claiming the company, the event hub) was
  * lost. Same destinations as WelcomePage: the stored pw_pending_next, else
- * /onboarding after a sign-up, else the event hub.
+ * /onboarding after a sign-up, else the event hub for the provisioners of today
+ * (sm26-register, sm26-provision, sm26-attendee-invite, sponsor-invite: no reason),
+ * else (a later provisioner that names its reason) the member home.
  */
 function pendingDestination(meta: Record<string, unknown> | undefined): string | null {
   if (!meta || meta.pw_pending !== true) return null;
   const stored = safeNext(typeof meta.pw_pending_next === 'string' ? meta.pw_pending_next : null, { deny: ['/reset-password', '/welcome'] });
   if (stored) return stored;
-  return meta.pw_pending_reason === 'signup' ? AFTER_SIGNUP : EVENT_HUB;
+  if (meta.pw_pending_reason === 'signup') return AFTER_SIGNUP;
+  return meta.pw_pending_reason ? MEMBER_HOME : EVENT_HUB;
 }
 
 export function ResetPasswordPage() {
@@ -88,6 +92,8 @@ export function ResetPasswordPage() {
   const lost = useRef(false);
   // The account the link signed in, to pre-fill the request for a fresh one.
   const accountEmail = useRef('');
+  // The same, shown on the form: which account the password is for.
+  const [accountAddress, setAccountAddress] = useState('');
   // Where a pw_pending account goes once its password is saved (pendingDestination).
   const [pendingNext, setPendingNext] = useState<string | null>(null);
   // A sign-up still owing its password step: its password may have been typed by
@@ -120,7 +126,7 @@ export function ResetPasswordPage() {
 
     const ready = (user?: { email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
       if (!mounted || lost.current) return;
-      if (user?.email) accountEmail.current = user.email;
+      if (user?.email) { accountEmail.current = user.email; setAccountAddress(user.email); }
       setPendingNext(pendingDestination(user?.user_metadata));
       setPendingSignup(user?.user_metadata?.pw_pending === true && user?.user_metadata?.pw_pending_reason === 'signup');
       setSessionReady(true);
@@ -316,9 +322,10 @@ export function ResetPasswordPage() {
         redirectTimer.current = window.setTimeout(() => window.location.replace(destination), 1500);
       } else {
         // Recovery from an email link: sign out so the new password gets used once,
-        // which confirms to them that it works.
+        // which confirms to them that it works. ?signin=true opens the sign-in window
+        // on the home page (Navbar), so they do not have to look for it.
         await supabase.auth.signOut();
-        redirectTimer.current = window.setTimeout(() => { window.location.href = '/'; }, 2000);
+        redirectTimer.current = window.setTimeout(() => { window.location.href = '/?signin=true'; }, 2000);
       }
     } catch (err) {
       logAuthError('Password update failed:', err);
@@ -344,7 +351,7 @@ export function ResetPasswordPage() {
           title={t('resetPassword.checkInboxTitle', 'Check your inbox')}
           lead={<span className="break-words">{t('resetPassword.newLinkSent', 'If {{email}} has an account, a new link is on its way. It works once, on any device. Nothing after a few minutes? Check your spam folder.', { email: resendEmail.trim().toLowerCase() })}</span>}
         >
-          <Button variant="ctaOnDark" onClick={() => (window.location.href = '/')}>{t('common.goHome', 'Go to Homepage')}</Button>
+          <Button variant="ctaOnDark" onClick={() => (window.location.href = '/')}>{t('authRefonte.gate.home', 'Go to the home page')}</Button>
         </AuthShell>
       );
     }
@@ -388,7 +395,7 @@ export function ResetPasswordPage() {
           </Button>
           <div className="text-center">
             <UnderlineLink arrow={false} className="min-h-11" onClick={() => (window.location.href = '/')}>
-              {t('common.goHome', 'Go to Homepage')}
+              {t('authRefonte.gate.home', 'Go to the home page')}
             </UnderlineLink>
           </div>
         </form>
@@ -401,12 +408,12 @@ export function ResetPasswordPage() {
       <AuthShell
         layout="centered"
         icon={<CheckCircle className="h-6 w-6" />}
-        title={t('resetPassword.successTitle', 'Password updated!')}
+        title={pendingNext ? t('resetPassword.savedTitle', 'Password saved') : t('resetPassword.successTitle', 'Password updated!')}
         lead={next
           ? t('resetPassword.takingYouBack', 'Taking you back...')
           : destination
             ? t('resetPassword.takingYouOn', 'Taking you to the next step...')
-          : t('resetPassword.signInAgain', 'Sign in with your new password — redirecting...')}
+          : t('resetPassword.signInWithNew', 'Now sign in with your new password. Opening the sign-in window...')}
       />
     );
   }
@@ -414,6 +421,11 @@ export function ResetPasswordPage() {
   return (
     <AuthShell
       title={pendingNext ? t('resetPassword.chooseTitle', 'Choose your password') : t('resetPassword.title', 'Reset your password')}
+      lead={accountAddress
+        ? <span className="break-words">{pendingNext
+          ? t('resetPassword.chooseLead', 'Choose the password you will use to sign in as {{email}}.', { email: accountAddress })
+          : t('resetPassword.lead', 'Choose a new password for {{email}}.', { email: accountAddress })}</span>
+        : null}
       points={false}
     >
       <div className="space-y-5">
@@ -423,6 +435,8 @@ export function ResetPasswordPage() {
           </AuthNotice>
         )}
         <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Lets password managers file the new password under the right account. */}
+          <input type="email" name="username" autoComplete="username" value={accountAddress} readOnly hidden />
           <div className="space-y-2">
             <AuthLabel htmlFor="password">{t('resetPassword.newPassword', 'New password')}</AuthLabel>
             <PasswordInput
@@ -436,7 +450,7 @@ export function ResetPasswordPage() {
             />
           </div>
           <div className="space-y-2">
-            <AuthLabel htmlFor="confirmPassword">{t('auth.confirmPassword', 'Confirm Password')}</AuthLabel>
+            <AuthLabel htmlFor="confirmPassword">{t('authRefonte.signup.confirmPassword', 'Confirm password')}</AuthLabel>
             <PasswordInput
               id="confirmPassword"
               autoComplete="new-password"

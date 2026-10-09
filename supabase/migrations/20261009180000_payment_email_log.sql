@@ -1,10 +1,11 @@
 -- One payment e-mail per (payment, status): the idempotency key of payment-ipn.
 --
--- NOT APPLIED. Written by the reliability lane (branch rf-rel, 9 Oct 2026). Apply it
--- BEFORE deploying the new payment-ipn. Without it payment-ipn still records payments
--- correctly but sends no payment e-mail: it logs "table public.payment_email_log is
--- missing" and answers 503, so that Lyra's retry (if enabled in its back office) sends
--- the e-mail once the table exists. The order matters only for the e-mails. Down script:
+-- APPLIED on 9 Oct 2026 (schema_migrations version 20261009180349), before the new
+-- payment-ipn was deployed. Written by the reliability lane (branch rf-rel, 9 Oct 2026).
+-- Follow-up: 20261009190000_payment_email_log_sent_at.sql. Without this table payment-ipn
+-- still records payments correctly but sends no payment e-mail: it logs "table
+-- public.payment_email_log is missing" and answers 503, so that Lyra's retry (if enabled
+-- in its back office) sends the e-mail once the table exists. Down script:
 -- supabase/migrations/down/20261009180000_payment_email_log.down.sql. Dry run:
 -- supabase/dryrun/20261009180000_payment_email_log.dryrun.sql.
 --

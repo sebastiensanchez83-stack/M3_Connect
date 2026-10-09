@@ -413,12 +413,13 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
     // is free (6 Oct 2026): a payment is for an event, and nobody can start a new one
     // themselves (create-payment is staff only), so no "retry" and no pricing page.
     // ?tab=registrations opens the member's events on the old and the new site alike.
+    // event_title: the event's name, read by payment-ipn from the database.
     case "payment_confirmed":
       return {
         subject: "Payment confirmed — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Payment confirmed",
-        body: `We have received your payment of ${d.amount || "the amount due"}.\n\nFor: ${d.payment_type === "event_participation" ? "Event participation" : "Payment to M3"}${d.transaction_id ? `\nReference: ${d.transaction_id}` : ""}\n\nKeep this e-mail as your proof of payment.`,
+        body: `We have received your payment of ${d.amount || "the amount due"}.\n\nFor: ${d.event_title || (d.payment_type === "event_participation" ? "Event participation" : "Payment to M3")}${d.transaction_id ? `\nReference: ${d.transaction_id}` : ""}\n\nKeep this e-mail as your proof of payment.`,
         buttonText: "See my registrations",
         buttonUrl: `${accountUrl}?tab=registrations`,
         footer: "Thank you for your payment.",
@@ -428,7 +429,7 @@ function getEmailContent(type: NotificationType, data: Record<string, string>): 
         subject: "Payment not completed — Smart Marina Connect",
         greeting: d.first_name ? `Hello ${d.first_name},` : "Hello,",
         title: "Payment not completed",
-        body: `Your payment of ${d.amount || "the amount due"} did not go through, and nothing was charged.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nThe M3 team will contact you to settle it. You can also write to events@m3monaco.com.`,
+        body: `Your payment of ${d.amount || "the amount due"}${d.event_title ? ` for ${d.event_title}` : ""} did not go through, and nothing was charged.${d.reason ? `\n\nReason: ${d.reason}` : ""}\n\nThe M3 team will contact you to settle it. You can also write to events@m3monaco.com.`,
         buttonText: "See my registrations",
         buttonUrl: `${accountUrl}?tab=registrations`,
         footer: "If you think this is a mistake, reply to this e-mail.",

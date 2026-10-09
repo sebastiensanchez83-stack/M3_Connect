@@ -404,12 +404,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   // ─── signIn ─────────────────────────────────────────────────────────
+  // The app-wide `loading` flag is NOT turned on here: several pages show a spinner
+  // instead of their content while it is on (WelcomePage, /sm26/claim, /sm26/feedback),
+  // which unmounted the sign-in form during the attempt and brought it back empty, its
+  // error message lost. A successful sign-in still turns it on: supabase-js announces
+  // SIGNED_IN (the listener above sets loading and loads the profile) before
+  // signInWithPassword returns.
   const signIn = async (email: string, password: string) => {
-    setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setLoading(false)
-    }
     return { error: error ?? null }
   }
 

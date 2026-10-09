@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AuthInput, AuthLabel, AuthNotice, PasswordInput } from '@/components/auth/fields';
 import { throughWelcome } from '@/lib/confirmationLink';
+import { type AuthErrorLike, isInvalidCredentials, isNetworkError, isRateLimited, signInErrorMessage } from '@/lib/authErrors';
 import { toast } from '@/hooks/use-toast';
 import { Loader2, MailWarning } from 'lucide-react';
 
@@ -58,45 +59,6 @@ function withMailLang(url: string, language: string | undefined): string {
   } catch {
     return url;
   }
-}
-
-type AuthErrorLike = { code?: string; status?: number; name?: string; message?: string };
-
-function isRateLimited(error: AuthErrorLike): boolean {
-  return error.status === 429 || error.code === 'over_request_rate_limit' || error.code === 'over_email_send_rate_limit';
-}
-
-/** No answer from the server at all (offline, blocked, timed out). */
-function isNetworkError(error: AuthErrorLike): boolean {
-  return error.name === 'AuthRetryableFetchError' || error.status === 0 || /failed to fetch|network|load failed/i.test(error.message || '');
-}
-
-/**
- * Plain words for a refused sign-in. GoTrue's own text ("Invalid login
- * credentials", "Request rate limit reached"...) never reaches the page; in
- * development it goes to the console.
- */
-function signInErrorMessage(error: AuthErrorLike, t: (key: string, fallback: string) => string): string {
-  if (import.meta.env.DEV) console.error('Sign-in refused:', error);
-  if (error.code === 'invalid_credentials' || /invalid login credentials/i.test(error.message || '')) {
-    return t('auth.signInError.invalid', 'The e-mail address or the password is not right. Check both and try again. Never chosen a password, or forgotten it? Use “Forgot password?” to set a new one.');
-  }
-  if (isRateLimited(error)) {
-    return t('auth.signInError.tooMany', 'Too many attempts. Please wait a few minutes, then try again.');
-  }
-  if (error.code === 'user_banned') {
-    return t('auth.signInError.suspended', 'This account is suspended. Please contact events@m3monaco.com.');
-  }
-  if (error.code === 'captcha_failed') {
-    return t('auth.signInError.captcha', 'The security check did not go through. Reload the page and try again.');
-  }
-  if (error.code === 'validation_failed' || error.code === 'email_address_invalid') {
-    return t('auth.signInError.badEmail', 'Please enter a valid e-mail address.');
-  }
-  if (isNetworkError(error)) {
-    return t('auth.signInError.network', "We couldn't reach the server. Check your internet connection and try again.");
-  }
-  return t('auth.signInError.generic', "We couldn't sign you in just now. Please try again in a moment.");
 }
 
 /** A sign-in refused only because the address has not been confirmed yet ("Confirm email" ON). */
@@ -183,6 +145,8 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   const [forgotError, setForgotError] = useState<string | null>(null);
   // Why the last sign-in was refused, in plain words (cleared as soon as they edit).
   const [signInError, setSignInError] = useState<string | null>(null);
+  // That refusal was a wrong address or password: the notice offers a new password.
+  const [wrongCredentials, setWrongCredentials] = useState(false);
   // The address a sign-in was refused for because it is not confirmed yet.
   const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
 
@@ -203,6 +167,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       setUnconfirmedEmail(email);
     } else if (error) {
       setSignInError(signInErrorMessage(error, t));
+      setWrongCredentials(isInvalidCredentials(error));
     } else {
       toast({
         title: t('auth.loginSuccess'),
@@ -268,7 +233,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
           <div className="space-y-3 text-center">
             <AuthNotice tone="success" role="status" className="text-left">
               <p className="font-semibold text-navy">
-                {t('auth.passwordLink.sent', 'Link sent. Check your inbox.')}
+                {t('auth.passwordLink.sentTitle', 'Check your inbox')}
               </p>
               <p className="text-[13px] text-meta">
                 {t('auth.passwordLink.sentHint', 'If an account exists for this address, the link is on its way. It opens on any device, phone or computer. Nothing after a few minutes? Check your spam folder.')}
@@ -303,13 +268,13 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
     <form onSubmit={handleSubmit} className="space-y-5">
       {showConfirmedBanner && !linkError && (
         <AuthNotice tone="success" className="items-center">
-          <p>{t('auth.emailConfirmedLogin', 'Your e-mail is confirmed. Log in to continue.')}</p>
+          <p>{t('auth.emailConfirmedSignIn', 'Your e-mail is confirmed. Sign in to continue.')}</p>
         </AuthNotice>
       )}
       {linkError && (
         <AuthNotice tone="warning" title={t('auth.linkInvalidTitle', 'This link no longer works')}>
           <p>
-            {t('auth.linkInvalidDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try logging in first: if your address is confirmed, that is all you need. Otherwise, enter your e-mail below and ask for a new link.')}
+            {t('auth.linkInvalidSignInDesc', 'It may have expired, or it was already used (some mail filters open links before you do). Try signing in first: if your address is confirmed, that is all you need. Otherwise, enter your e-mail below and ask for a new link.')}
           </p>
           <div className="pt-1.5">
             <ResendConfirmationButton email={email} redirectTo={confirmationRedirectTo()} label={t('auth.sendNewLink', 'Send me a new link')} />
@@ -323,7 +288,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
           type="email"
           autoComplete="email"
           value={email}
-          onChange={(e) => { setEmail(e.target.value); setSignInError(null); }}
+          onChange={(e) => { setEmail(e.target.value); setSignInError(null); setWrongCredentials(false); }}
           required
         />
       </div>
@@ -339,7 +304,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
           id="password"
           autoComplete="current-password"
           value={password}
-          onChange={(e) => { setPassword(e.target.value); setSignInError(null); }}
+          onChange={(e) => { setPassword(e.target.value); setSignInError(null); setWrongCredentials(false); }}
           required
         />
       </div>
@@ -347,6 +312,15 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       {signInError && (
         <AuthNotice tone="error" role="alert">
           <p>{signInError}</p>
+          {wrongCredentials && (
+            <UnderlineLink
+              arrow={false}
+              className="min-h-11 !text-sm !font-medium"
+              onClick={() => { setForgotMode(true); setSignInError(null); setWrongCredentials(false); }}
+            >
+              {t('auth.signInError.setPassword', 'Set a new password')}
+            </UnderlineLink>
+          )}
         </AuthNotice>
       )}
 
@@ -357,7 +331,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       {unconfirmedEmail !== null && unconfirmedEmail === email && (
         <AuthNotice tone="warning" role="alert" icon={<MailWarning className="h-4 w-4" />}>
           <p>
-            {t('auth.emailNotConfirmed', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then log in. Nothing in your inbox or spam folder? Send it again.')}
+            {t('auth.emailNotConfirmedSignIn', 'This e-mail address is not confirmed yet. Open the activation link we sent you, then sign in. Nothing in your inbox or spam folder? Send it again.')}
           </p>
           <div className="pt-1.5">
             <ResendConfirmationButton email={unconfirmedEmail} redirectTo={confirmationRedirectTo()} />

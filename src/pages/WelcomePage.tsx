@@ -225,8 +225,8 @@ export function WelcomePage() {
   const mustSetPassword = !!user && (redeemedType === 'signup' || (pwPending && meta.pw_pending_reason === 'signup'));
 
   // A link with no `next` and no pw_pending flag may still be an SM26 one
-  // (sm26-provision mails existing accounts, the resend below, a sign-in link):
-  // ask whether this person has their own SM26 registration.
+  // (sm26-provision mails existing accounts, an older SM26 access link): ask
+  // whether this person has their own SM26 registration.
   const needsLookup = !!uid && !explicitNext && !mustSetPassword && !pwPending;
   const [sm26Lookup, setSm26Lookup] = useState<{ uid: string; registered: boolean } | null>(null);
   useEffect(() => {
@@ -251,13 +251,20 @@ export function WelcomePage() {
   }, [uid, needsLookup]);
   const lookupPending = needsLookup && sm26Lookup?.uid !== uid;
 
+  // Where the provisioner said to go (pw_pending_next), if anywhere.
+  const storedNext = mustSetPassword || pwPending ? safeNext(typeof meta.pw_pending_next === 'string' ? meta.pw_pending_next : null, { deny: ['/welcome'] }) : null;
+
   let isEvent: boolean;
   if (explicitNext) isEvent = isEventPath(explicitNext);
   else if (!user || mustSetPassword) isEvent = false;
-  else if (pwPending) isEvent = true; // event-provisioned account (sm26-register / sm26-provision)
+  else if (storedNext) isEvent = isEventPath(storedNext);
+  // The event provisioners of today (sm26-register, sm26-provision,
+  // sm26-attendee-invite, sponsor-invite) set pw_pending with no reason: SM26. One
+  // that names another reason (a later event) gets the neutral page and the member
+  // home, unless it stores pw_pending_next. Same rule as ResetPasswordPage.
+  else if (pwPending) isEvent = !meta.pw_pending_reason;
   else isEvent = sm26Lookup?.uid === uid && !!sm26Lookup?.registered;
 
-  const storedNext = mustSetPassword ? safeNext(typeof meta.pw_pending_next === 'string' ? meta.pw_pending_next : null, { deny: ['/welcome'] }) : null;
   const next = explicitNext ?? storedNext ?? (isEvent ? EVENT_HUB : mustSetPassword ? AFTER_SIGNUP : MEMBER_HOME);
 
   const finish = () => {
@@ -463,7 +470,7 @@ export function WelcomePage() {
         ? t('welcome.secureTitleNamed', '{{name}}, secure your account', { name: firstName })
         : t('welcome.secureTitle', 'Secure your account');
   const description = retype
-    ? t('welcome.retypeDesc', 'Your e-mail address is confirmed. To finish, type your password once more: the one you chose when you signed up, or a new one. Did someone else sign up with your address? Choose a new password: the other one stops working.')
+    ? t('welcome.retypeIntro', 'Your e-mail address is confirmed. To finish, type your password in both boxes: the one you chose when you signed up, or a new one.')
     : mustSetPassword
       ? t('welcome.forcedDesc', 'Your e-mail address is confirmed. Choose a password to finish creating your account.')
       : isEvent
@@ -486,17 +493,17 @@ export function WelcomePage() {
           {/* Lets password managers file the new password under the right account. */}
           <input type="email" name="username" autoComplete="username" value={user.email ?? ''} readOnly hidden />
           <div className="space-y-2">
-            <AuthLabel htmlFor="welcome-password">{t('auth.password', 'Password')}</AuthLabel>
+            <AuthLabel htmlFor="welcome-password">{retype ? t('welcome.retypeLabel', 'Your password') : t('auth.password', 'Password')}</AuthLabel>
             <PasswordInput
               id="welcome-password"
               value={pw}
               onChange={e => setPw(e.target.value)}
-              placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
+              placeholder={retype ? undefined : t('authRefonte.signup.passwordPlaceholder', 'At least 8 characters')}
               autoComplete="new-password"
             />
           </div>
           <div className="space-y-2">
-            <AuthLabel htmlFor="welcome-password2">{t('auth.confirmPassword', 'Confirm Password')}</AuthLabel>
+            <AuthLabel htmlFor="welcome-password2">{t('authRefonte.signup.confirmPassword', 'Confirm password')}</AuthLabel>
             <PasswordInput
               id="welcome-password2"
               value={pw2}
@@ -537,11 +544,13 @@ export function WelcomePage() {
           </Button>
           {mustSetPassword ? (
             <FieldHint className="text-center">
-              {t('welcome.forcedHint', 'This step is required: it makes sure only you can sign in to this account.')}
+              {retype
+                ? t('welcome.retypeHint', 'This step is required. If you did not sign up yourself, choose a new password: only yours will work.')
+                : t('welcome.forcedHint', 'This step is required: it makes sure only you can sign in to this account.')}
             </FieldHint>
           ) : (
             <div className="text-center">
-              <UnderlineLink arrow={false} onClick={skipHasPassword} disabled={busy} className="!text-sm !font-medium">
+              <UnderlineLink arrow={false} onClick={skipHasPassword} disabled={busy} className="min-h-11 !text-sm !font-medium">
                 {isEvent
                   ? t('welcome.skipEvent', 'I already have a password — take me to my event hub')
                   : t('welcome.skipContinue', 'I already have a password — continue')}

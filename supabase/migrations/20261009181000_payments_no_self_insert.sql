@@ -1,6 +1,7 @@
 -- Members can no longer create payments rows themselves.
 --
--- NOT APPLIED. Written by the reliability lane (branch rf-rel, 9 Oct 2026). Independent of
+-- APPLIED on 9 Oct 2026 (schema_migrations version 20261009180303). Written by the
+-- reliability lane (branch rf-rel, 9 Oct 2026). Independent of
 -- 20261009180000_payment_email_log.sql (either order). Down script:
 -- supabase/migrations/down/20261009181000_payments_no_self_insert.down.sql. Dry run:
 -- supabase/dryrun/20261009181000_payments_no_self_insert.dryrun.sql.

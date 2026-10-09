@@ -1,3 +1,7 @@
+-- HISTORICAL: already run, and the migration was applied on 9 Oct 2026 (schema_migrations
+-- 20261009180349). Do not run it again: its first checks ("table absent before the
+-- migration") FAIL by design once the table exists.
+--
 -- DRY RUN of supabase/migrations/20261009180000_payment_email_log.sql.
 -- NOT A MIGRATION: never apply it, never commit it to the database.
 --

@@ -7,6 +7,7 @@ import { Eyebrow } from '@/components/brand/Eyebrow';
 import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, FieldError, FieldHint, PasswordInput } from '@/components/auth/fields';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
+import { signUpErrorMessage } from '@/lib/authErrors';
 import { PersonaType } from '@/types/database';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
@@ -341,7 +342,7 @@ export function SignupForm({ onSuccess, defaultPersona }: SignupFormProps) {
     setLoading(false);
     captcha.reset(); // a token works once, whatever the answer
     if (error) {
-      toast({ title: t('auth.error'), description: error.message, variant: 'destructive' });
+      toast({ title: t('auth.error'), description: signUpErrorMessage(error, t), variant: 'destructive' });
     } else if (needsConfirmation) {
       // "Confirm email" ON: no session until the link is opened. onSuccess would
       // send callers to /onboarding, which bounces a signed-out visitor.

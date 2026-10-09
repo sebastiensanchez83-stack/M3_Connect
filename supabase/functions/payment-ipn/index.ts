@@ -19,7 +19,11 @@
  *         be one of Lyra's public demo keys), else 503 and a clear log line;
  *       - the notification must be for M3's shop (answer.shopId = LYRA_SHOP_ID) and
  *         in the expected mode: PRODUCTION unless LYRA_MODE is TEST (an unset mode
- *         counts as PRODUCTION). Anything else is acknowledged and ignored.
+ *         counts as PRODUCTION). Anything else is never applied. A PAID one is a
+ *         set-up mistake that may have charged a customer (e.g. LYRA_MODE=TEST left
+ *         behind with the production keys): M3's admins get an e-mail (once per
+ *         transaction, flag in payments.metadata.ipn_review) and Lyra gets 503, so that
+ *         its retries apply it once the secrets are fixed. Any other status: 200.
  *     Lyra re-sends a refused (non-2xx) IPN a few times over about an hour, ONLY if
  *     "automatic retry" is on for the IPN rule in the Lyra back office. Any other
  *     algorithm: 400. The signature is compared in constant time.
@@ -39,18 +43,25 @@
  *         change;
  *       - at most ONE e-mail per (payment id, status): the e-mail is sent only by the
  *         request that inserts that key into public.payment_email_log (primary key
- *         (payment_id, status); migration 20261009180000_payment_email_log.sql). If
- *         the e-mail cannot be sent for a passing reason, the key is released and the
- *         IPN answered 500 so that Lyra's retry sends it; the retry changes nothing
- *         else. Without the table (migration not applied yet) no payment e-mail is
- *         sent, the log says so and the IPN is answered 503, so that a retry after
- *         the migration sends it: never a duplicate.
+ *         (payment_id, status); migration 20261009180000_payment_email_log.sql), and
+ *         the key is marked sent (sent_at, migration 20261009190000) once it went out.
+ *         If the e-mail cannot be sent for a passing reason, the key is released and
+ *         the IPN answered 500 so that Lyra's retry sends it; the retry changes
+ *         nothing else. A notification that finds the key still being sent (no
+ *         sent_at, under 10 minutes old) gets 503, so that a Lyra retry comes back
+ *         after the first request has either sent it or released the key; an older
+ *         key never marked sent was abandoned (time-out, crash) and is taken over
+ *         (claimEmail). Without the table no payment e-mail is sent, the log says so
+ *         and the IPN is answered 503, so that a retry after the migration sends it.
+ *       - a payment that failed for good is also reported to M3's admins (the e-mail
+ *         tells the customer that M3 will contact them), once, with that e-mail.
  *       - if marking the event registration paid fails, the payment is put back to
  *         its previous status and the IPN answered 500, so that the retry redoes
  *         both; if even that fails, M3's admins are alerted.
  *
  *  4. THE AMOUNT COMES FROM THE DATABASE. The e-mail shows payments.amount_cents and
- *     payments.currency. The amount Lyra reports is only compared with them: a "PAID"
+ *     payments.currency, and the title of the event (events, through the payment's
+ *     event registration). The amount Lyra reports is only compared with them: a "PAID"
  *     notification whose amount or currency differs is NOT applied (the payment stays
  *     as it was, the mismatch is kept in payments.metadata.ipn_mismatch) and M3's
  *     admins get an e-mail (notify-admins), since the customer has been charged.
@@ -81,6 +92,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 /** Lyra's documentation keys ("...DEMOPRIVATEKEY..."): public, so never a valid secret. */
 const PUBLIC_DEMO_KEY_RE = /DEMOPRIVATEKEY/i;
 const EMAIL_LOG_TABLE = 'payment_email_log';
+/** A claimed e-mail key never marked sent after this long belongs to a request that died. */
+const STALE_CLAIM_MIN = 10;
 
 type Status = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
 
@@ -180,6 +193,82 @@ function formatAmount(cents: number, currency: string): string {
   }
 }
 
+// deno-lint-ignore no-explicit-any
+type Db = any;
+
+/**
+ * The right to send the e-mail of (payment, status), held through a row of
+ * payment_email_log (primary key payment_id + status):
+ *   'mine'  -- this request inserted the key (or took over an abandoned one): send;
+ *   'done'  -- the e-mail went out already (sent_at set);
+ *   'busy'  -- another request holds the key and has not finished: answer 503 so
+ *              that Lyra tries again later;
+ *   'error' -- the key could not be recorded (table missing...): answer 503.
+ * A key never marked sent and older than STALE_CLAIM_MIN belongs to a request that
+ * died half way (time-out, crash): one request takes it over, through a conditional
+ * update of created_at. Without the sent_at column (migration 20261009190000 not
+ * applied) an existing key counts as 'done', as before.
+ */
+async function claimEmail(db: Db, paymentId: string, status: 'paid' | 'failed'): Promise<'mine' | 'done' | 'busy' | 'error'> {
+  const { error: claimError } = await db.from(EMAIL_LOG_TABLE).insert({ payment_id: paymentId, status });
+  if (!claimError) return 'mine';
+  if (claimError.code !== '23505') {
+    const missing = claimError.code === '42P01' || claimError.code === 'PGRST205' || /does not exist|could not find the table/i.test(claimError.message || '');
+    console.error(missing
+      ? `IPN: no ${status} e-mail for payment ${paymentId} yet: table public.${EMAIL_LOG_TABLE} is missing (apply migration 20261009180000_payment_email_log.sql); answering 503 so that Lyra's retry sends it`
+      : `IPN: no ${status} e-mail for payment ${paymentId} yet: could not record it (${claimError.code || ''} ${claimError.message || ''}); answering 503 so that Lyra's retry sends it`);
+    return 'error';
+  }
+  const { data: row, error: readError } = await db
+    .from(EMAIL_LOG_TABLE)
+    .select('sent_at, created_at')
+    .eq('payment_id', paymentId)
+    .eq('status', status)
+    .maybeSingle();
+  if (readError) {
+    console.warn(`IPN: ${status} e-mail key of payment ${paymentId} exists; sent_at unreadable (${readError.code || ''} ${readError.message || ''}), counted as sent`);
+    return 'done';
+  }
+  if (!row) return 'busy'; // given back a moment ago: the next retry claims it
+  if (row.sent_at) return 'done';
+  // Postgres gives microseconds; keep milliseconds so that Date.parse reads it anywhere.
+  const age = Date.now() - Date.parse(String(row.created_at).replace(/(\.\d{3})\d+/, '$1'));
+  if (!(age > STALE_CLAIM_MIN * 60_000)) {
+    console.warn(`IPN: ${status} e-mail of payment ${paymentId} is being sent by another request; answering 503`);
+    return 'busy';
+  }
+  const { data: taken, error: takeError } = await db
+    .from(EMAIL_LOG_TABLE)
+    .update({ created_at: new Date().toISOString() })
+    .eq('payment_id', paymentId)
+    .eq('status', status)
+    .is('sent_at', null)
+    .eq('created_at', row.created_at)
+    .select('payment_id');
+  if (takeError || !(taken?.length)) {
+    if (takeError) console.error(`IPN: abandoned ${status} e-mail key of payment ${paymentId} could not be taken over:`, takeError.message);
+    return 'busy';
+  }
+  console.warn(`IPN: ${status} e-mail key of payment ${paymentId} was abandoned ${Math.round(age / 60_000)} min ago; taken over`);
+  return 'mine';
+}
+
+/** The event an event payment is for, from the database (never from Lyra). '' when unknown. */
+async function eventTitleOf(db: Db, payment: Json): Promise<string> {
+  if (payment?.payment_type !== 'event_participation' || !payment?.reference_id) return '';
+  const { data, error } = await db
+    .from('event_registrations')
+    .select('events(title)')
+    .eq('id', payment.reference_id)
+    .maybeSingle();
+  if (error) {
+    console.warn(`IPN: event of payment ${payment.id} not read (${error.message}); the e-mail names none`);
+    return '';
+  }
+  const ev = Array.isArray(data?.events) ? data.events[0] : data?.events;
+  return typeof ev?.title === 'string' ? ev.title.replace(/\s+/g, ' ').trim().slice(0, 160) : '';
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return text('Method not allowed', 405);
 
@@ -253,16 +342,16 @@ Deno.serve(async (req) => {
     return text('Ignored', 200);
   }
   const answerShop = plain(answer?.shopId, 40);
-  if (answerShop && answerShop !== LYRA_SHOP_ID) {
-    console.error(`IPN ignored for payment ${paymentId}: notification for shop ${answerShop}, not LYRA_SHOP_ID`);
-    return text('Ignored', 200);
-  }
   if (!answerShop) console.warn(`IPN for payment ${paymentId}: no shopId in the answer (signature checked with this shop's password)`);
   const answerMode = String(answer?.orderDetails?.mode || '').toUpperCase();
-  if (answerMode && answerMode !== EXPECTED_MODE) {
-    console.warn(`IPN ignored for payment ${paymentId}: ${plain(answerMode, 20)}-mode notification, ${EXPECTED_MODE} expected (LYRA_MODE)`);
-    return text('Ignored', 200);
-  }
+  // Signed with M3's password, yet for another shop or mode: a set-up mistake, e.g. a
+  // LYRA_MODE=TEST secret left behind once the production keys are in. Handled below,
+  // once the payment is read: never applied, and never silent for a payment.
+  const wrongSetup = answerShop && answerShop !== LYRA_SHOP_ID
+    ? `notification for shop ${answerShop}, not LYRA_SHOP_ID`
+    : answerMode && answerMode !== EXPECTED_MODE
+      ? `${plain(answerMode, 20)}-mode notification, ${EXPECTED_MODE} expected (LYRA_MODE)`
+      : '';
   const transactions: Json[] = Array.isArray(answer?.transactions) ? answer.transactions : [];
   const firstTx: Json = transactions[0] || {};
   if (String(firstTx?.operationType || '').toUpperCase() === 'CREDIT') {
@@ -272,9 +361,9 @@ Deno.serve(async (req) => {
   const target = targetStatus(answer?.orderStatus);
   // UNPAID while the order is still OPEN = one refused attempt; the buyer may retry.
   const finalOrder = String(answer?.orderCycle || 'CLOSED').toUpperCase() !== 'OPEN';
-  const txUuid = typeof firstTx?.uuid === 'string' ? firstTx.uuid.slice(0, 100) : '';
+  const txUuid = typeof firstTx?.uuid === 'string' ? plain(firstTx.uuid) : '';
   const txId = typeof firstTx?.transactionDetails?.cardDetails?.legacyTransId === 'string'
-    ? firstTx.transactionDetails.cardDetails.legacyTransId.slice(0, 100)
+    ? plain(firstTx.transactionDetails.cardDetails.legacyTransId)
     : '';
   const reportedCents = Number(answer?.orderDetails?.orderTotalAmount ?? firstTx?.amount);
   const reportedCurrency = String(answer?.orderDetails?.orderCurrency ?? firstTx?.currency ?? '').toUpperCase();
@@ -294,6 +383,38 @@ Deno.serve(async (req) => {
     console.warn(`IPN ignored: payment ${paymentId} does not exist`);
     return text('Ignored', 200);
   }
+  const meta: Json = (payment.metadata && typeof payment.metadata === 'object' && !Array.isArray(payment.metadata)) ? payment.metadata : {};
+
+  if (wrongSetup) {
+    if (String(answer?.orderStatus || '').toUpperCase() !== 'PAID') {
+      console.warn(`IPN ignored for payment ${paymentId}: ${wrongSetup}`);
+      return text('Ignored', 200);
+    }
+    // The customer may have been charged: M3 is told (once per transaction) and the
+    // notification is refused with 503, so that Lyra's retries apply it once the
+    // secrets are fixed (if "automatic retry" is on in the Lyra back office).
+    console.error(`IPN NOT APPLIED for payment ${paymentId}: ${wrongSetup}. Fix the Lyra secrets (Supabase dashboard, Edge Functions > Secrets); Lyra's retry then applies it.`);
+    const reviewKey = txUuid || 'no-transaction';
+    if (meta?.ipn_review?.transaction_uuid !== reviewKey) {
+      const { error: flagError } = await db
+        .from('payments')
+        .update({
+          metadata: { ...meta, ipn_review: { reason: wrongSetup.slice(0, 120), transaction_uuid: reviewKey, at: new Date().toISOString() } },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', paymentId);
+      if (flagError) console.error(`IPN: could not record the review flag on payment ${paymentId}:`, flagError.message);
+      await alertM3('payment needs review', [
+        `Lyra reported a payment as PAID, but the notification does not match the platform's Lyra settings, so it was NOT applied.`,
+        `Reason: ${wrongSetup}`,
+        `Payment: ${paymentId}`,
+        `Lyra transaction: ${plain(txUuid) || 'n/a'}`,
+        `Check the secrets LYRA_SHOP_ID, LYRA_API_PASSWORD and LYRA_MODE (unset or PRODUCTION for real payments). Once fixed, Lyra's next retry applies it; otherwise mark the payment paid by hand.`,
+      ]);
+    }
+    return text('Payment notifications are not set up for this shop or mode', 503);
+  }
+
   if (!target) {
     console.log(`IPN: payment ${paymentId} order status "${String(answer?.orderStatus || '').slice(0, 40)}" recorded nowhere (in progress)`);
     return text('OK', 200);
@@ -304,7 +425,6 @@ Deno.serve(async (req) => {
     const dbCurrency = String(payment.currency || 'EUR').toUpperCase();
     if (!Number.isInteger(reportedCents) || reportedCents !== payment.amount_cents || reportedCurrency !== dbCurrency) {
       console.error(`IPN AMOUNT MISMATCH for payment ${paymentId}: Lyra reports ${reportedCents} ${reportedCurrency}, the database expects ${payment.amount_cents} ${dbCurrency}. Not marked paid; M3 must review it.`);
-      const meta = (payment.metadata && typeof payment.metadata === 'object' && !Array.isArray(payment.metadata)) ? payment.metadata : {};
       // The same transaction reported again (a second IPN for it): M3 already knows.
       const alreadyFlagged = !!txUuid && meta?.ipn_mismatch?.transaction_uuid === txUuid;
       const { error: flagError } = await db
@@ -406,23 +526,24 @@ Deno.serve(async (req) => {
   const emailStatus = statusNow === target && (target === 'paid' || (target === 'failed' && finalOrder)) ? target : null;
   if (!emailStatus) return text('OK', 200);
 
-  const { error: claimError } = await db.from(EMAIL_LOG_TABLE).insert({ payment_id: paymentId, status: emailStatus });
-  if (claimError) {
-    if (claimError.code === '23505') return text('OK', 200); // already e-mailed (or being e-mailed)
-    const missing = claimError.code === '42P01' || claimError.code === 'PGRST205' || /does not exist|could not find the table/i.test(claimError.message || '');
-    console.error(missing
-      ? `IPN: no ${emailStatus} e-mail for payment ${paymentId} yet: table public.${EMAIL_LOG_TABLE} is missing (apply migration 20261009180000_payment_email_log.sql); answering 503 so that Lyra's retry sends it`
-      : `IPN: no ${emailStatus} e-mail for payment ${paymentId} yet: could not record it (${claimError.code || ''} ${claimError.message || ''}); answering 503 so that Lyra's retry sends it`);
-    // The status change is already saved; a retry changes nothing else and sends the
-    // e-mail once the key can be recorded.
-    return text('E-mail not sent yet', 503);
-  }
+  const claim = await claimEmail(db, paymentId, emailStatus);
+  if (claim === 'done') return text('OK', 200);
+  // Another request holds the key and has not finished: Lyra tries again later, and
+  // by then the e-mail is either sent (200) or its key given back (sent then).
+  if (claim === 'busy') return text('E-mail being sent', 503);
+  // Could not record the key. The status change is already saved; a retry changes
+  // nothing else and sends the e-mail once the key can be recorded.
+  if (claim === 'error') return text('E-mail not sent yet', 503);
 
   const amount = formatAmount(payment.amount_cents, payment.currency);
+  const eventTitle = await eventTitleOf(db, payment);
   const data: Record<string, string> = emailStatus === 'paid'
-    ? { amount, payment_type: String(payment.payment_type || ''), transaction_id: txUuid || txId || paymentId }
+    // Lyra's short transaction number first: the one printed on its own receipt.
+    ? { amount, payment_type: String(payment.payment_type || ''), transaction_id: txId || txUuid || paymentId }
     : { amount };
+  if (eventTitle) data.event_title = eventTitle;
   let outcome: 'sent' | 'permanent' | 'retry' = 'retry';
+  let optedOut = false;
   try {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/send-notification`, {
       method: 'POST',
@@ -440,6 +561,7 @@ Deno.serve(async (req) => {
     const detail = (await res.text().catch(() => '')).slice(0, 300);
     if (res.ok) {
       outcome = 'sent'; // includes "skipped: user opted out" (their own choice)
+      optedOut = /"skipped"\s*:\s*true/.test(detail);
       console.log(`IPN: ${emailStatus} e-mail for payment ${paymentId}: ${detail}`);
     } else if (res.status === 400) {
       outcome = 'permanent'; // e.g. no address for this account: a retry cannot help
@@ -454,11 +576,32 @@ Deno.serve(async (req) => {
   if (outcome === 'retry') {
     // Give the key back and let Lyra retry the IPN: the retry changes nothing else.
     const { error: releaseError } = await db.from(EMAIL_LOG_TABLE).delete().eq('payment_id', paymentId).eq('status', emailStatus);
-    if (releaseError) {
-      console.error(`IPN: could not release the e-mail key of payment ${paymentId}; no retry will send it:`, releaseError.message);
-      return text('OK', 200);
-    }
-    return text('E-mail not sent yet', 500);
+    if (!releaseError) return text('E-mail not sent yet', 500);
+    // Kept, never marked sent: a notification after 10 minutes takes it over.
+    console.error(`IPN: could not release the e-mail key of payment ${paymentId}; a notification after ${STALE_CLAIM_MIN} minutes will take it over:`, releaseError.message);
+  } else {
+    const { error: markError } = await db.from(EMAIL_LOG_TABLE)
+      .update({ sent_at: new Date().toISOString() })
+      .eq('payment_id', paymentId)
+      .eq('status', emailStatus);
+    // Without the column (migration 20261009190000 not applied) the key alone still
+    // blocks a second e-mail, as before.
+    if (markError) console.warn(`IPN: ${emailStatus} e-mail of payment ${paymentId} not marked sent (${markError.code || ''} ${markError.message || ''})`);
+  }
+
+  if (emailStatus === 'failed') {
+    // The customer is told that M3 will contact them: M3 must know. Once per
+    // payment, like the e-mail (this request holds its key).
+    await alertM3('payment failed', [
+      `Lyra reported a payment as finally refused: nothing was charged.`,
+      `Payment: ${paymentId}`,
+      `Amount: ${plain(payment.amount_cents)} cents, currency ${plain(payment.currency, 10) || 'EUR'}`,
+      `Account (user id): ${plain(payment.user_id)}`,
+      payment.reference_id ? `Event registration: ${plain(payment.reference_id)}` : `Payment type: ${plain(payment.payment_type, 40)}`,
+      outcome === 'sent' && !optedOut
+        ? `The customer was e-mailed that the M3 team will contact them to settle it.`
+        : `The customer was NOT e-mailed (${optedOut ? 'payment e-mails switched off in their settings' : 'the e-mail could not be sent'}): contact them to settle it.`,
+    ]);
   }
   return text('OK', 200);
 });

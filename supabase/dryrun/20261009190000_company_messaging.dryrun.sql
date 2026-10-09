@@ -1751,7 +1751,7 @@ begin
       get stacked diagnostics v_err = message_text, v_state = returned_sqlstate;
     end;
     v_ok := coalesce(v_err is null and v_i = 1 and not v_b and v_t2 = c_reply
-                     and v_t = 'true/true/false,false/false/true', false);
+                     and v_t = 't/t/f,f/f/t', false);
     results := results || pg_temp.dr('A06', v_ok, 'S has 1 unread (the reply); thread = [first, mine] then [reply, OM]. '
       || coalesce(v_err, format('unread=%s mine=%s thread=%s', v_i, v_b, v_t)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
@@ -2637,7 +2637,7 @@ begin
     exception when others then
       get stacked diagnostics v_err = message_text, v_state = returned_sqlstate;
     end;
-    v_ok := coalesce(v_err is null and v_t = 'pending/false/true pending/false/true pending/false/true ', false);
+    v_ok := coalesce(v_err is null and v_t = 'pending/f/t pending/f/t pending/f/t ', false);
     results := results || pg_temp.dr('C05', v_ok, 'old-client inserts unchanged (600 chars ok, duplicates ok, never auto-connected, status forced pending, org filled): '
       || coalesce(v_err, v_t));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;

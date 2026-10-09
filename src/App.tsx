@@ -52,6 +52,7 @@ const ReferenceRejectPage = lazyWithRetry(() => import('@/pages/ReferenceRejectP
 const UnsubscribePage = lazyWithRetry(() => import('@/pages/UnsubscribePage').then(m => ({ default: m.UnsubscribePage })));
 const AboutPage = lazyWithRetry(() => import('@/pages/AboutPage').then(m => ({ default: m.AboutPage })));
 const ContactPage = lazyWithRetry(() => import('@/pages/ContactPage').then(m => ({ default: m.ContactPage })));
+const HelpPage = lazyWithRetry(() => import('@/pages/HelpPage').then(m => ({ default: m.HelpPage })));
 const PrivacyPage = lazyWithRetry(() => import('@/pages/PrivacyPage').then(m => ({ default: m.PrivacyPage })));
 const TermsPage = lazyWithRetry(() => import('@/pages/TermsPage').then(m => ({ default: m.TermsPage })));
 const MentionsLegalesPage = lazyWithRetry(() => import('@/pages/MentionsLegalesPage').then(m => ({ default: m.MentionsLegalesPage })));
@@ -229,6 +230,7 @@ function App() {
               <Route path="/unsubscribe" element={<UnsubscribePage />} />
               <Route path="/about" element={<AboutPage />} />
               <Route path="/contact" element={<ContactPage />} />
+              <Route path="/help" element={<HelpPage />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/terms" element={<TermsPage />} />
               <Route path="/mentions-legales" element={<MentionsLegalesPage />} />

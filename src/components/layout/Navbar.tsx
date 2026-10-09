@@ -19,7 +19,7 @@ import { SignupForm } from '@/components/auth/SignupForm';
 import { readAuthLanding, type AuthLanding } from '@/components/auth/AuthRedirector';
 import {
   Menu, X, ChevronDown, Plus, Inbox,
-  Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock,
+  Building2, UserPlus, LogOut, Shield, Check, LayoutDashboard, UserCircle, ClipboardList, Lock, LifeBuoy,
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { useEntitlements } from '@/hooks/useEntitlements';
@@ -547,6 +547,15 @@ export function Navbar() {
                       </DropdownMenuItem>
                     </>
                   )}
+
+                  {/* The help centre (/help): answers in plain words, then a person at M3. */}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild className="cursor-pointer rounded-field">
+                    <Link to="/help" className="flex items-center gap-2.5">
+                      <LifeBuoy className="h-4 w-4 text-meta" />
+                      {t('nav.help', 'Help')}
+                    </Link>
+                  </DropdownMenuItem>
 
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer rounded-field text-red-600 focus:bg-red-50 focus:text-red-700">

@@ -11,6 +11,7 @@ import { CoverImage } from '@/components/ui/CoverImage';
 import { CardMedia, CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
+import { HelpTip } from '@/components/help/HelpTip';
 import {
   BlockSkeleton, MemberBanner, MemberEmpty, MemberPanel, RowSkeleton, StatusPill,
 } from '@/components/member/MemberUI';
@@ -718,7 +719,14 @@ function Alerts({
         <MemberBanner
           tone="warning"
           icon={Clock}
-          title={t('dashboard.statusPendingTitle')}
+          title={(
+            <>
+              {t('dashboard.statusPendingTitle')}{' '}
+              <HelpTip title={t('help.tips.reviewTitle', 'Why M3 checks your account')} more="verification-time">
+                {t('help.tips.review', 'Every company and every person is checked by the M3 team, so members know who they talk to. There is nothing else to do: we e-mail you when it is done.')}
+              </HelpTip>
+            </>
+          )}
           body={t('memberHome.alerts.pendingBody', 'The M3 team reviews each new account, usually within 24 to 48 business hours, and emails you as soon as yours is approved. Meanwhile, public resources and events are open to you.')}
           action={(
             <nav aria-label={t('dashboard.pendingMeanwhile', 'While you wait')} className="flex flex-col gap-1.5 sm:items-end">
@@ -734,7 +742,14 @@ function Alerts({
         <MemberBanner
           tone="danger"
           icon={XCircle}
-          title={t('dashboard.statusRejectedTitle')}
+          title={(
+            <>
+              {t('dashboard.statusRejectedTitle')}{' '}
+              <HelpTip title={t('help.tips.rejectedTitle', 'What you can do now')} more="verification-rejected">
+                {t('help.tips.rejected', 'Read the reason, correct your details with “Edit and resubmit”, and the M3 team looks again. Think it is a mistake? Write to us.')}
+              </HelpTip>
+            </>
+          )}
           body={profile.rejection_reason ? t('dashboard.statusRejectedBody', { reason: profile.rejection_reason }) : undefined}
           action={(
             <div className="flex flex-col gap-1.5 sm:items-end">
@@ -745,7 +760,19 @@ function Alerts({
         />
       )}
       {isVerified && hasOrganization && !orgVerified && (
-        <MemberBanner tone="warning" icon={Clock} title={t('dashboard.orgPendingTitle', { org: orgName })} body={t('dashboard.orgPendingBody')} />
+        <MemberBanner
+          tone="warning"
+          icon={Clock}
+          title={(
+            <>
+              {t('dashboard.orgPendingTitle', { org: orgName })}{' '}
+              <HelpTip title={t('help.tips.orgReviewTitle', 'Your company is checked too')} more="verification-company">
+                {t('help.tips.orgReview', 'M3 checks the company as well as the people. Publishing, the opportunities and messages open once it is approved; we e-mail you.')}
+              </HelpTip>
+            </>
+          )}
+          body={t('dashboard.orgPendingBody')}
+        />
       )}
       {incomplete && (
         <MemberBanner

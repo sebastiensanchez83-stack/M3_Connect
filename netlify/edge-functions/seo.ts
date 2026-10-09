@@ -287,6 +287,7 @@ export const config = {
     '/opportunities',
     '/about',
     '/contact',
+    '/help',
     '/sm26',
     '/sm26/vote',
     '/wys26',

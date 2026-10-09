@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { LucideIcon } from 'lucide-react';
 import { ArrowRight, Check, CheckCircle2 } from 'lucide-react';
 import { Eyebrow } from '@/components/brand/Eyebrow';
+import { HelpTip } from '@/components/help/HelpTip';
 import { RowSkeleton, ROW_FOCUS } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
 import { avatarProblem, saveProfileFields, uploadAvatar } from '@/components/account/profileActions';
@@ -114,6 +115,9 @@ export function TodoList({
         <Eyebrow as="h3" className="min-w-0">
           <span id="todo-title" ref={headingRef} tabIndex={-1} className="focus:outline-none">{t('dash.todoTitle', 'To do')}</span>
         </Eyebrow>
+        <HelpTip title={t('help.tips.todoTitle', 'What is in To do?')} more="account-dashboard" className="text-meta">
+          {t('help.tips.todo', 'What waits for you: first the answers people expect, then what is missing on your company page and your profile. Click a line to do it in a small window.')}
+        </HelpTip>
       </header>
       <p className="sr-only" role="status" aria-live="polite">{announce}</p>
 

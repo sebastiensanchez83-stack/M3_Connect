@@ -38,7 +38,13 @@ const ERRORS: Record<string, string> = {
   missing_token: 'This link is incomplete. Please use the buttons in the email we sent you.',
   invalid_token: 'This link is no longer valid. It may have been replaced by a newer invitation.',
   cancelled: 'This jury session has been cancelled. Yachting Ventures will be in touch about a new slot.',
+  edition_over: 'Smart Marina 2026 is over, so answers can no longer be changed.',
 };
+
+// sm_startup_confirm_by_token refuses an answer once the edition's edit deadline
+// has passed (sm_participant_edits_locked, migration 20261009160000). Opening the
+// link without an answer still shows the slot.
+const isEditionOver = (message?: string) => /is over: registrations can no longer be changed/i.test(message || '');
 
 export function SM26StartupRsvpPage() {
   const [params] = useSearchParams();
@@ -50,7 +56,7 @@ export function SM26StartupRsvpPage() {
 
   const send = useCallback(async (ans: string | null) => {
     const { data: res, error } = await supabase.rpc('sm_startup_confirm_by_token', { p_token: token, p_answer: ans });
-    if (error) return { ok: false, error: 'server_error' } as Payload;
+    if (error) return { ok: false, error: isEditionOver(error.message) ? 'edition_over' : 'server_error' } as Payload;
     return (res || { ok: false, error: 'unknown' }) as Payload;
   }, [token]);
 

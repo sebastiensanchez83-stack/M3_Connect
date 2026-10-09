@@ -1,16 +1,12 @@
-import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
-import { Graticule } from '@/components/motion/Graticule';
-import { useMotion } from '@/components/motion/MotionProvider';
-import { useInView } from '@/components/motion/useInView';
 
 /**
- * The network's live figures, right under the hero: a white card on a chart
- * graticule (24 px grid) with a ruler along its top edge that draws itself from
- * left to right (1.2 s), once, when the band scrolls into view. The four figures
- * show their final value at once (no count-up). Two columns on phones, four from md.
+ * The network's live figures, right under the hero: a plain white card (Victor,
+ * 9 Oct 2026: the chart grid and the ruler that used to sit behind the figures
+ * read as clutter), four cells split by hairlines. The figures show their final
+ * value at once (no count-up). Two columns on phones, four from md.
  *
  * Figures are the live counts of networkStats (or the admin's typed figures,
  * shown "N+"); the marinas line adds how many of them are members (an owner on
@@ -26,17 +22,10 @@ export interface HomeFigures {
   manual: boolean;
 }
 
-const RULER =
-  'repeating-linear-gradient(90deg,#b3bdcd 0 1px,transparent 1px 24px) 0 0/100% 6px no-repeat,' +
-  'repeating-linear-gradient(90deg,#8792a7 0 1px,transparent 1px 96px) 0 0/100% 11px no-repeat';
-
 export function FiguresBand({ figures, loading, className }: { figures: HomeFigures; loading: boolean; className?: string }) {
   const { t, i18n } = useTranslation();
   // The final figure at once, never a count-up from 0 (Oct 2026 design review).
   const numberLocale = i18n.language === 'fr' ? 'fr-FR' : 'en-GB';
-  const { reduced } = useMotion();
-  const ref = useRef<HTMLElement>(null);
-  const inView = useInView(ref, { disabled: reduced, threshold: 0.25 });
   const suffix = figures.manual ? '+' : '';
 
   const items: { key: string; to: string; value: number | null; label: string; sub: string }[] = [
@@ -75,18 +64,7 @@ export function FiguresBand({ figures, loading, className }: { figures: HomeFigu
 
   return (
     <div className={cn('mx-auto mt-4 w-full max-w-7xl px-4 sm:px-6 md:mt-6', className)}>
-      <section ref={ref} aria-label={t('homePage.figures.label', 'Smart Marina Connect in figures')} className="relative overflow-hidden rounded-card border border-rule bg-white">
-        <Graticule cell={24} graduations={false} opacity={0.06} className="absolute inset-0 h-full w-full" />
-        {/* The ruler along the top edge draws itself from the left. */}
-        <span
-          aria-hidden="true"
-          className={cn(
-            'pointer-events-none absolute inset-x-0 top-0 h-3 origin-left',
-            !reduced && '[transition:transform_1200ms_cubic-bezier(.215,.61,.355,1)_150ms]',
-            !inView && 'scale-x-0',
-          )}
-          style={{ background: RULER }}
-        />
+      <section aria-label={t('homePage.figures.label', 'Smart Marina Connect in figures')} className="relative overflow-hidden rounded-card border border-rule bg-white">
         <ul className="relative grid grid-cols-2 md:grid-cols-4">
           {items.map((item, i) => (
             <li

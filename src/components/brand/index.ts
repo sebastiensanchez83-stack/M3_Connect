@@ -7,12 +7,12 @@
  *  2. CardShell / OrgCard              card lift 4 px, picture 1.05, gold title line + small arrow
  *  3. SplitHero + HeroIn               marine split hero: text left, rounded photo frame right
  *  4. EventCard                        the "next event" card floating over the frame's corner (M3 events turning every 6 s)
- *  5. NewsBand                         thin band of figures, events, new members and articles sliding sideways
+ *  5. NewsBand                         the news ticker: articles, new members, events sliding sideways (SiteTicker)
  *  6. Carousel                         scroll-snap row of large cards: drag, buttons, dots, keyboard
  *  7. AccordionCards                   photo cards that open on hover or focus
  *  8. BgRevealPanel                    navy panel whose background scales in
  *  9. UnderlineLink                    gold line growing from the left + right arrow
- * 10. SearchField                      the search pill: gold compass, typed placeholder
+ * 10. SearchField                      the search pill: gold compass, typed placeholder, suggestions
  * 11. NewsletterField                  e-mail pill, unticked consent
  * Layout pieces (Navbar, Footer, PageHero) live in components/layout and components/ui.
  */

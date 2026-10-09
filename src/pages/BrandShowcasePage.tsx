@@ -59,11 +59,10 @@ export function BrandShowcasePage() {
   const examples = [t('brand.search.ex1'), t('brand.search.ex2'), t('brand.search.ex3'), t('brand.search.ex4')];
   const events = featuredEventItems(t);
   const news: NewsItem[] = [
-    { id: 'n1', lead: figures.marinas !== null ? String(figures.marinas) : undefined, text: 'marinas listed', href: '/directory?type=marina' },
-    { id: 'n2', lead: figures.partners !== null ? String(figures.partners) : undefined, text: 'service providers', href: '/directory?type=partner' },
-    { id: 'n3', lead: 'D-51 ·', text: 'World Yachting Summit · Dubai · By invitation (sample)', href: '/wys26' },
-    { id: 'n4', lead: 'New member', text: 'Sample Marina Azzurra (sample)', href: '/directory' },
-    { id: 'n5', lead: 'Latest article', text: 'A sample article title (sample)', href: '/resources' },
+    { id: 'n1', kind: 'Event', text: 'World Yachting Summit · Dubai · 27 Nov 2026 (sample)', href: '/wys26' },
+    { id: 'n2', kind: 'Article', text: 'A sample article title (sample)', href: '/resources' },
+    { id: 'n3', kind: 'New member', text: 'Sample Marina Azzurra, Marina, Italy (sample)', href: '/directory' },
+    { id: 'n4', kind: 'Webinar', text: 'A sample webinar · 12 Nov 2026 (sample)', href: '/events?type=webinar' },
   ];
 
   return (
@@ -97,7 +96,7 @@ export function BrandShowcasePage() {
       </SplitHero>
       <NewsBand items={news} />
       <p className="mx-auto max-w-7xl px-4 pt-4 text-xs text-meta sm:px-6">
-        Motion: {reduced ? 'reduced (final states)' : paused ? 'paused' : 'running'}. The full-width header is transparent over the hero, turns white with a thin border once the page scrolls, shows a gold reading line along its bottom edge and hides on scroll down. The band above slides sideways, pauses on hover and focus, and wraps statically under reduced motion or the global pause.
+        Motion: {reduced ? 'reduced (final states)' : paused ? 'paused' : 'running'}. The full-width header is transparent over the hero, turns white with a thin border once the page scrolls, shows a gold reading line along its bottom edge and hides on scroll down. The news ticker above slides sideways, pauses on hover, and stands still as a row that scrolls sideways under reduced motion, the global pause or keyboard focus (the site-wide one sits above the header: SiteTicker).
       </p>
 
       <Section id="tokens" title="Tokens" note="CSS variables on :root, wired into Tailwind. shadcn names (primary, secondary, muted, accent, border, ring) point at the same tokens.">

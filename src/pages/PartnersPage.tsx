@@ -21,11 +21,14 @@ import { CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { ContactCard } from '@/components/brand/ContactCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { TYPE_RGB, orgTypeTone } from '@/components/brand/OrgCard';
-import { SearchField } from '@/components/brand/SearchField';
+import { SearchField, type SuggestGroup } from '@/components/brand/SearchField';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { registerOrgRefonteStrings } from '@/i18n/refonte-org';
 
 registerOrgRefonteStrings();
+
+/** The sponsors' search suggests companies: the sponsors themselves (suggestScope "sponsors"). */
+const SPONSOR_SUGGESTIONS: readonly SuggestGroup[] = ['companies'];
 
 /**
  * /partners — the companies that sponsor M3's events (refonte v2).
@@ -303,6 +306,9 @@ export function PartnersPage() {
               onSearch={() => (document.activeElement as HTMLElement | null)?.blur()}
               label={t('partnersPage.search', 'Search by name, country, sector…')}
               placeholder={t('partnersPage.search', 'Search by name, country, sector…')}
+              // The sponsors' names: this page lists the event sponsors only.
+              suggest={SPONSOR_SUGGESTIONS}
+              suggestScope="sponsors"
             />
           )}
           <UnderlineLink to="/sponsor" tone="light">

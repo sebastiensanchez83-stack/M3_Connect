@@ -26,7 +26,7 @@ import { useMediaQuery } from '@/components/motion/useReducedMotion';
 import { useParallax } from '@/components/motion/useParallax';
 import { subscribeScroll } from '@/components/motion/scrollLoop';
 import { BgRevealPanel } from '@/components/brand/BgRevealPanel';
-import { SearchField } from '@/components/brand/SearchField';
+import { SearchField, type SuggestGroup } from '@/components/brand/SearchField';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { featuredEventItems } from '@/components/brand/m3Events';
 import { CardShell, StretchedLink } from '@/components/brand/CardShell';
@@ -181,6 +181,9 @@ const TIER_ORDER: Record<string, number> = { main_sponsor: 0, premium_sponsor: 1
 const isPaying = (tier: string) => (SPONSOR_TIERS as string[]).includes(tier);
 
 const PAGE_SIZE = 24;
+
+/** The search's suggestions here: companies by name, and the themes and sectors that open a filter. */
+const DIRECTORY_SUGGESTIONS: readonly SuggestGroup[] = ['companies', 'themes'];
 
 /** The header bar's height while it shows: 64 px on phones, 72 px from md (--header-full, index.css). */
 function headerBand(): number {
@@ -929,6 +932,7 @@ export function DirectoryPage() {
                 examples={searchExamples}
                 placeholder={t('directory.searchPlaceholder', 'Name, service, country…')}
                 label={t('directory.searchLabel', 'Search the directory')}
+                suggest={DIRECTORY_SUGGESTIONS}
               />
 
               {/* Phones and tablets: the Filters button is a round one next to the search. */}

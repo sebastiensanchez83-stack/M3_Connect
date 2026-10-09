@@ -33,6 +33,31 @@ function isSessionGone(error: AuthErrorLike): boolean {
   return error.name === 'AuthSessionMissingError' || SESSION_GONE_CODES.has(error.code ?? '') || error.status === 401;
 }
 
+// Where /welcome sends an account that still owes its password step (see WelcomePage).
+const EVENT_HUB = '/sm26/me';
+const AFTER_SIGNUP = '/onboarding';
+
+/**
+ * Where to go after the password is saved, for an account that was still flagged
+ * pw_pending when the link was opened, or null for any other account.
+ *
+ * Such an account has never had a password of its own: an event-provisioned one
+ * (SM26 access link, sponsor invitation) or a sign-up confirmed through /welcome
+ * (claim code: pw_pending_next is /onboarding?code=..., where the company is
+ * claimed). If the person reaches this page through "Forgot password?" instead of
+ * their /welcome link, the link carries no ?next=, and saving the password clears
+ * the flag: without this, they were signed out and sent to the home page, and the
+ * step /welcome would have taken them to (claiming the company, the event hub) was
+ * lost. Same destinations as WelcomePage: the stored pw_pending_next, else
+ * /onboarding after a sign-up, else the event hub.
+ */
+function pendingDestination(meta: Record<string, unknown> | undefined): string | null {
+  if (!meta || meta.pw_pending !== true) return null;
+  const stored = safeNext(typeof meta.pw_pending_next === 'string' ? meta.pw_pending_next : null, { deny: ['/reset-password', '/welcome'] });
+  if (stored) return stored;
+  return meta.pw_pending_reason === 'signup' ? AFTER_SIGNUP : EVENT_HUB;
+}
+
 export function ResetPasswordPage() {
   const { t, i18n } = useTranslation();
   const [password, setPassword] = useState('');
@@ -58,7 +83,11 @@ export function ResetPasswordPage() {
   const lost = useRef(false);
   // The account the link signed in, to pre-fill the request for a fresh one.
   const accountEmail = useRef('');
+  // Where a pw_pending account goes once its password is saved (pendingDestination).
+  const [pendingNext, setPendingNext] = useState<string | null>(null);
   const redirectTimer = useRef<number | undefined>(undefined);
+  // Where to go after saving: the link's own ?next= first, else the pw_pending fallback.
+  const destination = next ?? pendingNext;
 
   useEffect(() => () => window.clearTimeout(redirectTimer.current), []);
 
@@ -81,9 +110,10 @@ export function ResetPasswordPage() {
     // copied or bookmarked URL carries nothing usable.
     const scrubUrl = () => window.history.replaceState({}, '', window.location.pathname);
 
-    const ready = (email?: string | null) => {
+    const ready = (user?: { email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
       if (!mounted || lost.current) return;
-      if (email) accountEmail.current = email;
+      if (user?.email) accountEmail.current = user.email;
+      setPendingNext(pendingDestination(user?.user_metadata));
       setSessionReady(true);
       setChecking(false);
       scrubUrl();
@@ -94,7 +124,7 @@ export function ResetPasswordPage() {
     // for the link: only the calls below (or a recovery event) decide.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!mounted || !session) return;
-      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && !fromLink)) ready(session.user?.email);
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && !fromLink)) ready(session.user);
     });
 
     void (async () => {
@@ -106,7 +136,7 @@ export function ResetPasswordPage() {
           typeParam && OTP_TYPES.includes(typeParam) ? (typeParam as EmailOtpType) : 'recovery';
         const { data, error: otpError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
         if (!mounted) return;
-        if (data?.session) { ready(data.session.user?.email); return; }
+        if (data?.session) { ready(data.session.user); return; }
         if (otpError) logAuthError('verifyOtp failed:', otpError);
       }
 
@@ -116,7 +146,7 @@ export function ResetPasswordPage() {
       if (code) {
         const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
         if (!mounted) return;
-        if (data?.session) { ready(data.session.user?.email); return; }
+        if (data?.session) { ready(data.session.user); return; }
         if (exchangeError) logAuthError('Code exchange failed:', exchangeError);
         // supabase-js may have redeemed the code itself at start-up
         // (detectSessionInUrl), which spends it before the call above and only
@@ -127,7 +157,7 @@ export function ResetPasswordPage() {
         if (!new URLSearchParams(window.location.search).has('code')) {
           const { data: { session } } = await supabase.auth.getSession();
           if (!mounted) return;
-          if (session) { ready(session.user?.email); return; }
+          if (session) { ready(session.user); return; }
         }
       }
 
@@ -143,7 +173,7 @@ export function ResetPasswordPage() {
       if (!fromLink) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!mounted) return;
-        if (session) { ready(session.user?.email); return; }
+        if (session) { ready(session.user); return; }
       }
 
       // Nothing resolved outright. Give the hash-fragment listener a moment if a
@@ -254,15 +284,16 @@ export function ResetPasswordPage() {
 
       setSuccess(true);
 
-      if (next) {
-        // In-app change: keep them signed in and put them back where they started.
+      if (destination) {
+        // In-app change (`next`), or an account that still owed its password step
+        // (pendingDestination): keep them signed in and take them on.
         // A full page load, not a router navigation: the link's session arrives as
         // PASSWORD_RECOVERY, which AuthContext only records — it never loads that
         // account's profile and organisations. Opened on another device, or with
         // someone else signed in here, an in-app jump would land on a page with no
         // profile (or the previous account's). The reload starts from the stored
-        // session. `next` is already a path on this site (safeNext).
-        redirectTimer.current = window.setTimeout(() => window.location.replace(next), 1500);
+        // session. Both are paths on this site (safeNext).
+        redirectTimer.current = window.setTimeout(() => window.location.replace(destination), 1500);
       } else {
         // Recovery from an email link: sign out so the new password gets used once,
         // which confirms to them that it works.
@@ -353,6 +384,8 @@ export function ResetPasswordPage() {
         title={t('resetPassword.successTitle', 'Password updated!')}
         lead={next
           ? t('resetPassword.takingYouBack', 'Taking you back...')
+          : destination
+            ? t('resetPassword.takingYouOn', 'Taking you to the next step...')
           : t('resetPassword.signInAgain', 'Sign in with your new password — redirecting...')}
       />
     );

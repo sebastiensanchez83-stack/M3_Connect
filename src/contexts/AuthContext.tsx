@@ -3,6 +3,7 @@ import { User, Session, AuthChangeEvent } from '@supabase/supabase-js'
 import { supabase, setAuthListener } from '@/lib/supabase'
 import { Profile, Organization, OrgMemberRole, SPONSOR_TIERS } from '@/types/database'
 import { getStoredInvite } from '@/lib/invite-store'
+import { throughWelcome } from '@/lib/confirmationLink'
 import { notifyAdmin } from '@/lib/notifications'
 
 interface AuthContextType {
@@ -352,9 +353,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── signUp ─────────────────────────────────────────────────────────
   const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string, captchaToken?: string | null) => {
-    const emailRedirectTo = getStoredInvite()
+    // The activation link lands on /welcome first (forced password step: closes the
+    // pre-registration takeover once "Confirm email" is ON), then goes on there.
+    const emailRedirectTo = throughWelcome(getStoredInvite()
       ? `${window.location.origin}/join/${getStoredInvite()}?email_confirmed=true`
-      : `${window.location.origin}/onboarding?email_confirmed=true`
+      : `${window.location.origin}/onboarding?email_confirmed=true`)
     const { data, error } = await supabase.auth.signUp({
       email,
       password,

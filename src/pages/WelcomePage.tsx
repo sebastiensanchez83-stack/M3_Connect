@@ -27,8 +27,12 @@ const AFTER_SIGNUP = '/onboarding';
 //    and sponsor-invite — event-provisioned accounts (pw_pending) set their
 //    password here BEFORE reaching their hub; AuthRedirector routes any
 //    pw_pending account here until that is done;
-//  - claim-code sign-up confirmations (type=signup, next=/onboarding);
-//  - sign-in links (LoginForm "Email me a sign-in link", the resend below).
+//  - sign-up confirmations (type=signup): claim-code ones (next=/onboarding?code=…)
+//    and, through throughWelcome (src/lib/confirmationLink.ts), every other
+//    activation link the app asks GoTrue for. A type=signup link always ends with
+//    the forced password step.
+// There is no e-mailed sign-in link any more (password mandatory, Victor 6 Oct
+// 2026): a dead link is replaced by a link to choose a password (/reset-password).
 // The SM26 banner and "event hub" wording only show for event links; everything
 // else gets the neutral Smart Marina Connect version.
 // Logged-out visitors (expired / already-used link) get a clean "send me a new
@@ -339,32 +343,33 @@ export function WelcomePage() {
     const email = resendEmail.trim().toLowerCase();
     if (!email) return;
     setBusy(true);
-    // Sends a fresh link to an EXISTING account only (no signup here). It comes
-    // back here, to the same destination as the link that failed.
-    const redirect = new URL('/welcome', window.location.origin);
+    // Passwords are mandatory (Victor, 6 Oct 2026): no e-mailed sign-in link any
+    // more. A dead access link is replaced by a link to choose a password, the same
+    // e-mail as "Forgot password?". /reset-password redeems it on any device, saves
+    // the password, clears pw_pending and takes them on: to the same destination as
+    // the link that failed, else where /welcome would have (pendingDestination there).
+    const redirect = new URL('/reset-password', window.location.origin);
     if (explicitNext) redirect.searchParams.set('next', explicitNext);
     redirect.searchParams.set('lang', lang);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false, emailRedirectTo: redirect.toString() },
-    });
+    let error: AuthErrorLike | null = null;
+    try {
+      ({ error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: redirect.toString() }));
+    } catch (err) {
+      error = err instanceof Error ? err : { message: String(err) };
+    }
     setBusy(false);
     if (error) {
-      // An unknown address is answered like a known one: which addresses have
-      // an account is not ours to disclose.
-      const unknownAccount = error.code === 'otp_disabled' || /signups not allowed/i.test(error.message || '');
-      if (!unknownAccount) {
-        console.error('Access link could not be sent:', error.code ?? error.name, error.message);
-        const tooSoon = isRateLimited(error);
-        toast({
-          title: tooSoon
-            ? t('welcome.resendTooSoon', 'Please wait a minute before asking for another link.')
-            : t('welcome.resendFailed', 'Could not send the link'),
-          description: tooSoon ? undefined : t('welcome.tryAgain', 'Please try again in a moment.'),
-          variant: 'destructive',
-        });
-        return;
-      }
+      // GoTrue answers an unknown address like a known one: nothing to hide here.
+      console.error('Password link could not be sent:', error.code ?? error.name, error.message);
+      const tooSoon = isRateLimited(error);
+      toast({
+        title: tooSoon
+          ? t('welcome.resendTooSoon', 'Please wait a minute before asking for another link.')
+          : t('welcome.resendFailed', 'Could not send the link'),
+        description: tooSoon ? undefined : t('welcome.tryAgain', 'Please try again in a moment.'),
+        variant: 'destructive',
+      });
+      return;
     }
     setResent(true);
   };
@@ -378,17 +383,17 @@ export function WelcomePage() {
         <AuthStatus
           tone={linkFailed ? 'warning' : 'default'}
           icon={linkFailed ? <AlertTriangle className="h-6 w-6" /> : <Mail className="h-6 w-6" />}
-          title={linkFailed ? t('welcome.linkInvalidTitle', "This link can't be used") : t('welcome.getLinkTitle', 'Get your access link')}
+          title={linkFailed ? t('welcome.linkInvalidTitle', "This link can't be used") : t('welcome.passwordLinkTitle', 'Get a link to set your password')}
         >
           <p className="text-sm leading-6 text-meta">
             {linkFailed
-              ? t('welcome.linkInvalidDesc', "Links in our e-mails work once and expire. This one has already been used, has run out, or was replaced by a newer link. Enter your e-mail address and we'll send you a fresh one.")
-              : t('welcome.getLinkDesc', "Access links work once and expire quickly. Enter the e-mail address of your account and we'll send you a fresh one.")}
+              ? t('welcome.passwordLinkInvalidDesc', "Links in our e-mails work once and expire. This one has already been used, has run out, or was replaced by a newer one. Enter your e-mail address: we'll send you a link to choose your password.")
+              : t('welcome.passwordLinkDesc', "Enter the e-mail address of your account: we'll send you a link to choose your password. It works once, on any device.")}
           </p>
           {resent ? (
             <AuthNotice tone="success" role="status">
               <p className="break-words">
-                {t('welcome.linkSent', 'If an account exists for {{email}}, a new access link is on its way. Check your inbox (and your spam folder).', { email: resendEmail.trim().toLowerCase() })}
+                {t('welcome.passwordLinkSent', 'If an account exists for {{email}}, a link to choose your password is on its way. Check your inbox (and your spam folder).', { email: resendEmail.trim().toLowerCase() })}
               </p>
             </AuthNotice>
           ) : (
@@ -405,7 +410,7 @@ export function WelcomePage() {
                 />
               </div>
               <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !resendEmail.trim()}>
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.sendLink', 'E-mail me a new access link')}
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.reauthSend', 'E-mail me a link to set my password')}
               </Button>
               <FieldHint className="text-center">
                 {t('welcome.haveLogin', 'Already have a password? Use {{login}} (top-right) instead.', { login: t('nav.login', 'Login') })}

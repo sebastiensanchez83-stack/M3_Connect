@@ -67,6 +67,7 @@ export function ProtectedRoute({
   lockedMessage,
   bypassEntitlement,
 }: ProtectedRouteProps) {
+  const { t } = useTranslation();
   const { user, loading, profile, isVerified, isAdmin, isModerator } = useAuth();
   const { isFeatureEnabled, isLoading: entitlementsLoading } = useEntitlements();
 
@@ -94,7 +95,8 @@ export function ProtectedRoute({
 
   // Check verified
   if (requireVerified && !isVerified) {
-    return showLocked ? <LockedState message={lockedMessage || 'Your account must be verified to access this feature.'} /> : <RedirectWithToast to="/account" message="Your account must be verified to access this feature." />;
+    const message = t('authRefonte.gate.needsVerified', 'This page opens once M3 has verified your account.');
+    return showLocked ? <LockedState message={lockedMessage || message} /> : <RedirectWithToast to="/account" message={message} />;
   }
 
   // Check persona (with admin/moderator & entitlement bypass)
@@ -102,18 +104,21 @@ export function ProtectedRoute({
     const hasEntitlementBypass = bypassEntitlement ? isFeatureEnabled(bypassEntitlement) : false;
     const canBypass = isAdmin || isModerator || hasEntitlementBypass;
     if (!canBypass) {
-      return showLocked ? <LockedState message={lockedMessage || 'This feature is not available for your account type.'} /> : <RedirectWithToast to={redirectTo} message="This feature is not available for your account type." />;
+      const message = t('authRefonte.gate.wrongType', 'This page is not available for your type of account.');
+      return showLocked ? <LockedState message={lockedMessage || message} /> : <RedirectWithToast to={redirectTo} message={message} />;
     }
   }
 
   // Check admin
   if (requireAdmin && !isAdmin) {
-    return showLocked ? <LockedState message={lockedMessage || 'Admin access required.'} /> : <RedirectWithToast to={redirectTo} message="Admin access required." />;
+    const message = t('authRefonte.gate.adminOnly', 'This page is for the M3 team only.');
+    return showLocked ? <LockedState message={lockedMessage || message} /> : <RedirectWithToast to={redirectTo} message={message} />;
   }
 
   // Check moderator
   if (requireModerator && !isModerator) {
-    return showLocked ? <LockedState message={lockedMessage || 'Access denied.'} /> : <RedirectWithToast to={redirectTo} message="Access denied." />;
+    const message = t('authRefonte.gate.staffOnly', 'This page is for the M3 team only.');
+    return showLocked ? <LockedState message={lockedMessage || message} /> : <RedirectWithToast to={redirectTo} message={message} />;
   }
 
   return <>{children}</>;
@@ -156,7 +161,7 @@ function LockedState({ message }: { message: string }) {
       <Button asChild variant="ctaOnDark">
         {user
           ? <Link to="/#dashboard">{t('authRefonte.gate.dashboard', 'Back to the dashboard')}</Link>
-          : <Link to="/">{t('common.goHome', 'Go to Homepage')}</Link>}
+          : <Link to="/">{t('authRefonte.gate.home', 'Go to the home page')}</Link>}
       </Button>
     </AuthShell>
   );

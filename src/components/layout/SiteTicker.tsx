@@ -15,18 +15,22 @@ import { englishCountryName } from '@/lib/countryNames';
  * (NewsBand) at the very top of the page, above the header.
  *
  * Where: on every page for signed-in members, and on the home page for
- * visitors too. Never on working or one-off screens: the admin, onboarding, the
- * sign-in flows (/welcome, /reset-password), /unsubscribe, the WYS guest pass,
- * the SM26 kiosks and consoles (/sm26/… but not /sm26 itself), team invitations
- * (/join/<id>) and the reference confirmation links.
+ * visitors too (and for accounts still registering or rejected, so never on
+ * the registration they are kept on). Never on working or one-off screens: the
+ * admin, onboarding, the sign-in flows (/welcome,
+ * /reset-password), /unsubscribe, the WYS guest pass, the SM26 kiosks and
+ * consoles (/sm26/… but not /sm26 itself), the sponsorship console
+ * (/sponsorship/…), team invitations (/join/<id>) and the reference
+ * confirmation links.
  *
  * Why above the header: it is in the normal flow, so it scrolls away with the
  * page after 36–40 px and never takes room from the reading; the header stays
  * sticky right under it. The heroes that sit under a transparent header
  * (headerOverlay.ts) are untouched: the header still floats over them, the strip
  * simply comes first, and on a navy hero it reads as its top edge (the same slot
- * as the home page's announcement strip). Under the header it would have had to
- * float over those heroes and hide their top.
+ * as the home page's announcement strip, which stays above it, as does the
+ * admin's impersonation banner). Under the header it would have had to float
+ * over those heroes and hide their top.
  *
  * In the DOM it comes AFTER the header (App.tsx), drawn first with `order`: a
  * keyboard user meets the main navigation before a dozen news links.
@@ -41,36 +45,52 @@ const HIDDEN_ON: RegExp[] = [
   /^\/wys26\/guest(\/|$)/,
   // SM26 kiosks, consoles and token pages; the /sm26 hub itself keeps the strip.
   /^\/sm26\/./,
+  // The sponsorship fulfilment console.
+  /^\/sponsorship(\/|$)/,
   // The team invitation (/join itself is the membership presentation).
   /^\/join\/./,
   /^\/reference\//,
 ];
 
-/** Whether the strip belongs on this page for this visitor. */
+/** Whether the strip belongs on this page for this visitor (routes match whatever the case, as the router does). */
 export function tickerVisible(pathname: string, signedIn: boolean): boolean {
-  const path = pathname.replace(/\/+$/, '') || '/';
+  const path = pathname.toLowerCase().replace(/\/+$/, '') || '/';
   if (HIDDEN_ON.some((re) => re.test(path))) return false;
   return path === '/' || signedIn;
 }
 
-/** A session is stored in this browser: on a first load, while auth is still reading it, a member is presumed. */
-function hasStoredSession(): boolean {
+/**
+ * The account of the session stored in this browser, read while auth is still
+ * loading on a first load (a member is then presumed, so the strip neither
+ * blinks nor shifts the page): its id, '?' when a session is stored but
+ * unreadable, or null when there is none.
+ */
+function storedSessionUser(): string | null {
   try {
     const host = new URL(import.meta.env.VITE_SUPABASE_URL || '').hostname.split('.')[0];
-    return !!window.localStorage.getItem(`sb-${host}-auth-token`);
+    const raw = window.localStorage.getItem(`sb-${host}-auth-token`);
+    if (!raw) return null;
+    const id = (JSON.parse(raw) as { user?: { id?: unknown } } | null)?.user?.id;
+    return typeof id === 'string' && id ? id : '?';
   } catch {
-    return false;
+    return null;
   }
 }
 
 const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
-/** The ticker's items: events first, then articles and members, taken in turn so the kinds alternate. */
+const WYS_DATE = '2026-11-27T10:00:00+04:00';
+
+/**
+ * The ticker's items: events first, then articles and members, taken in turn so
+ * the kinds alternate. Until the World Yachting Summit has passed, it is always
+ * there, even when nothing could be read (the strip never vanishes and shifts
+ * the page once shown).
+ */
 function useTickerItems(data: TickerData | null): NewsItem[] {
   const { t } = useTranslation();
   const typeLabel = useOrgTypeLabel();
   return useMemo(() => {
-    if (!data) return [];
     const date = (iso: string, timeZone?: string) => {
       try {
         return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone }).format(new Date(iso));
@@ -82,13 +102,13 @@ function useTickerItems(data: TickerData | null): NewsItem[] {
     // ── Events and webinars, soonest first; the World Yachting Summit links to its own page ──
     const wysItem = (): NewsItem & { at: string } => ({
       id: 'wys26',
-      at: '2026-11-27T10:00:00+04:00',
+      at: WYS_DATE,
       kind: t('brand.news.event', 'Event'),
-      text: [t('brand.events.wys.title', 'World Yachting Summit'), t('brand.events.wys.place', 'Dubai'), date('2026-11-27T10:00:00+04:00', 'Asia/Dubai')].join(' · '),
+      text: [t('brand.events.wys.title', 'World Yachting Summit'), t('brand.events.wys.place', 'Dubai'), date(WYS_DATE, 'Asia/Dubai')].join(' · '),
       href: WYS26_PATH,
     });
     const events: (NewsItem & { at: string })[] = [];
-    for (const e of data.events) {
+    for (const e of data?.events ?? []) {
       if (isWys26Event(e.title)) {
         if (!events.some((x) => x.id === 'wys26')) events.push(wysItem());
         continue;
@@ -118,7 +138,7 @@ function useTickerItems(data: TickerData | null): NewsItem[] {
           return t('brand.news.article', 'Article');
       }
     };
-    const articles: NewsItem[] = data.articles.map((r) => ({
+    const articles: NewsItem[] = (data?.articles ?? []).map((r) => ({
       id: `article-${r.id}`,
       kind: articleKind(r.type),
       text: clip(r.title),
@@ -126,7 +146,7 @@ function useTickerItems(data: TickerData | null): NewsItem[] {
     }));
 
     // ── Newest members: "Name, Marina, Spain" ──
-    const members: NewsItem[] = data.members.map((o) => ({
+    const members: NewsItem[] = (data?.members ?? []).map((o) => ({
       id: `member-${o.id}`,
       kind: t('brand.news.newMember', 'New member'),
       text: [
@@ -151,11 +171,20 @@ function useTickerItems(data: TickerData | null): NewsItem[] {
 }
 
 export function SiteTicker() {
-  const { pathname } = useLocation();
-  const { user, loading: authLoading } = useAuth();
-  const signedIn = user ? true : authLoading ? hasStoredSession() : false;
-  const visible = tickerVisible(pathname, signedIn);
-  const { data, loading } = useNewsTicker(visible, signedIn ? 'member' : 'visitor', pathname);
+  const { pathname, search } = useLocation();
+  const { user, profile, loading: authLoading } = useAuth();
+  const stored = !user && authLoading ? storedSessionUser() : null;
+  const signedIn = !!user || !!stored;
+  // A draft account is kept on its registration until it is finished, a rejected one on its account
+  // page (AuthRedirector): no news there; they get the visitors' strip (the home page only).
+  const registering = !!user && !!profile && (profile.onboarding_status === 'draft' || profile.access_status === 'rejected');
+  // The registration screen itself (also the "under review" step of one just submitted): never.
+  const onRegistration =
+    pathname.toLowerCase().replace(/\/+$/, '') === '/account' && new URLSearchParams(search).get('tab') === 'complete-registration';
+  const visible = !onRegistration && tickerVisible(pathname, signedIn && !registering);
+  // Kept apart per account: row security may show members a little more, and signing out does not reload the page.
+  const scope = signedIn ? `member:${user?.id ?? stored}` : 'visitor';
+  const { data, loading } = useNewsTicker(visible, scope, pathname);
   const items = useTickerItems(data);
   const shown = visible && (loading || items.length > 0);
 

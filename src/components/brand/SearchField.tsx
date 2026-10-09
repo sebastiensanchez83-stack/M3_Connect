@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { useMotion } from '@/components/motion/MotionProvider';
 import { useOnScreen } from '@/components/motion/useInView';
 import type { SuggestGroup, SuggestScope } from '@/lib/searchSuggestions';
-import { SuggestionPopup, useSuggestionSections, type SuggestOption } from './SearchSuggestions';
+import { SuggestionPopup, WANTED_ROOM, roomAround, useAnchoredPlacement, useSuggestionSections, type SuggestOption } from './SearchSuggestions';
 
 export { ALL_SUGGESTIONS, type SuggestGroup } from '@/lib/searchSuggestions';
 
@@ -43,7 +43,10 @@ const TYPED_TONE = 'text-meta/75';
  * what Enter does (SearchSuggestions.tsx). The field is then an ARIA combobox:
  * Up and Down move through the options, Enter opens the one chosen (or searches
  * when none is), Esc closes the list; a click elsewhere closes it too. Each page
- * asks for the groups it is about (the library: articles only).
+ * asks for the groups it is about (the library: articles only). On a page that
+ * filters as you type, the list only opens when it has something to suggest
+ * (the page's own results already answer the rest). When the list opens with
+ * little room under the field, the page scrolls up a little to make room.
  */
 export function SearchField({
   examples,
@@ -176,20 +179,48 @@ export function SearchField({
     scope: suggestScope,
     enabled: suggestOn && inUse,
   });
-  const open = suggestOn && inUse && !dismissed && ready;
   const listboxId = `${id}-suggestions`;
   const optionId = useCallback((i: number) => `${id}-option-${i}`, [id]);
+  /** Enter goes to the directory search (no onSearch): the last line says so. */
+  const toDirectory = !onSearch && action === '/directory';
   const seeAll = useMemo<SuggestOption>(
     () => ({
       id: 'see-all',
       group: 'all',
-      label: t('brand.suggest.seeAll', { query: value.trim(), defaultValue: 'See all results for “{{query}}”' }),
+      label: toDirectory
+        ? t('brand.suggest.seeAllDirectory', { query: value.trim(), defaultValue: 'Search the directory for “{{query}}”' })
+        : t('brand.suggest.seeAll', { query: value.trim(), defaultValue: 'See all results for “{{query}}”' }),
       visual: { kind: 'icon', icon: Search },
     }),
-    [t, value],
+    [t, value, toDirectory],
   );
   const options = useMemo(() => [...sections.flatMap((s) => s.options), seeAll], [sections, seeAll]);
   const suggestionCount = options.length - 1;
+  /** The page filters its own list as you type (directory, library, sponsors). */
+  const filtersInPlace = controlled && !!onValueChange;
+  // There, the page's results already answer: the list only opens with something to suggest.
+  const open = suggestOn && inUse && !dismissed && ready && (!filtersInPlace || suggestionCount > 0);
+  const place = useAnchoredPlacement(pillRef, open);
+  /** The list is on screen (it waits while the field is out of sight): what the combobox says. */
+  const expanded = open && place !== null;
+
+  // The list opens with little room under the field (a hero low on a laptop screen, a phone with its
+  // keyboard out): the page scrolls up a little, never hiding the field under the header.
+  const openedOnce = useRef(false);
+  useEffect(() => {
+    if (!open) {
+      openedOnce.current = false;
+      return;
+    }
+    if (openedOnce.current) return;
+    openedOnce.current = true;
+    const el = pillRef.current;
+    if (!el) return;
+    const room = roomAround(el);
+    if (room.below >= WANTED_ROOM) return;
+    const by = Math.min(room.above, WANTED_ROOM - room.below);
+    if (by > 8) window.scrollBy({ top: by, behavior: reduced ? 'auto' : 'smooth' });
+  }, [open, reduced]);
 
   // A new search starts with no option chosen (Enter then searches); a shorter list keeps the choice in range.
   useEffect(() => setActive(-1), [value]);
@@ -244,9 +275,9 @@ export function SearchField({
     const n = options.length;
     switch (e.key) {
       case 'ArrowDown':
-        if (!ready) return;
+        if (!ready || (filtersInPlace && suggestionCount === 0)) return;
         e.preventDefault();
-        if (!open) {
+        if (!expanded) {
           setDismissed(false);
           setActive(0);
           return;
@@ -254,18 +285,18 @@ export function SearchField({
         setActive((i) => (i + 1 >= n ? 0 : i + 1));
         return;
       case 'ArrowUp':
-        if (!open) return;
+        if (!expanded) return;
         e.preventDefault();
         setActive((i) => (i <= 0 ? n - 1 : i - 1));
         return;
       case 'Enter':
-        if (open && active >= 0 && options[active]) {
+        if (expanded && active >= 0 && options[active]) {
           e.preventDefault();
           choose(options[active]);
         }
         return;
       case 'Escape':
-        if (open) {
+        if (expanded) {
           // The list closes; the text stays (a second Esc clears the field, as browsers do).
           e.preventDefault();
           setDismissed(true);
@@ -334,9 +365,9 @@ export function SearchField({
             }}
             role={suggestOn ? 'combobox' : undefined}
             aria-autocomplete={suggestOn ? 'list' : undefined}
-            aria-expanded={suggestOn ? open : undefined}
-            aria-controls={open ? listboxId : undefined}
-            aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
+            aria-expanded={suggestOn ? expanded : undefined}
+            aria-controls={expanded ? listboxId : undefined}
+            aria-activedescendant={expanded && active >= 0 ? optionId(active) : undefined}
             placeholder={typing ? '' : staticPlaceholder}
             autoComplete="off"
             className={cn(
@@ -382,16 +413,15 @@ export function SearchField({
         <>
           {/* Said once the list has settled: how many suggestions there are. */}
           <span className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-            {open && settled
+            {expanded && settled
               ? suggestionCount > 0
                 ? t('brand.suggest.count', { count: suggestionCount, defaultValue_one: '{{count}} suggestion', defaultValue_other: '{{count}} suggestions' })
                 : t('brand.suggest.noneShort', 'No suggestions')
               : ''}
           </span>
           <SuggestionPopup
-            anchorRef={pillRef}
+            place={open ? place : null}
             popupRef={popupRef}
-            open={open}
             listboxId={listboxId}
             optionId={optionId}
             sections={sections}

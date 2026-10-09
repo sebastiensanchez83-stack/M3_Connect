@@ -18,8 +18,8 @@ import { WYS26_EVENT_ID } from '@/components/brand/m3Events';
  *
  * Kept in memory and in this tab's sessionStorage, so moving from page to page
  * neither refetches nor blinks; after 5 minutes the next page asks again, the
- * old items staying on screen meanwhile. Kept apart for visitors and signed-in
- * members (row-level security may show members a little more).
+ * old items staying on screen meanwhile. Kept apart for visitors and for each
+ * signed-in account (row-level security may show members a little more).
  */
 
 export interface TickerArticle {
@@ -52,7 +52,8 @@ export interface TickerData {
   events: TickerEvent[];
 }
 
-export type TickerScope = 'visitor' | 'member';
+/** 'visitor', or 'member:<account id>' (each account its own copy). */
+export type TickerScope = string;
 
 /** How many of each kind the ticker carries. */
 export const TICKER_PER_KIND = 4;

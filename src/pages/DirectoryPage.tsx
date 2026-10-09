@@ -182,8 +182,8 @@ const isPaying = (tier: string) => (SPONSOR_TIERS as string[]).includes(tier);
 
 const PAGE_SIZE = 24;
 
-/** The search's suggestions here: companies by name, and the themes and sectors that open a filter. */
-const DIRECTORY_SUGGESTIONS: readonly SuggestGroup[] = ['companies', 'themes'];
+/** The search's suggestions here: companies by name, and the countries, themes and sectors that open a filter. */
+const DIRECTORY_SUGGESTIONS: readonly SuggestGroup[] = ['companies', 'countries', 'themes'];
 
 /** The header bar's height while it shows: 64 px on phones, 72 px from md (--header-full, index.css). */
 function headerBand(): number {

@@ -29,6 +29,8 @@ export function CookieBanner() {
 
   return (
     <div
+      // Read by the search suggestions (SearchSuggestions.tsx), which keep clear of the banner.
+      data-cookie-banner=""
       className="fixed bottom-0 inset-x-0 z-50 animate-slide-up"
       role="banner"
       aria-label={t('cookieBanner.ariaLabel', 'Cookie consent')}

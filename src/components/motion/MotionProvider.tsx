@@ -18,7 +18,13 @@ import { useReducedMotion } from './useReducedMotion';
  * CSS listens to, so a purely CSS loop needs no React code to obey it.
  */
 
-const STORAGE_KEY = 'smc-motion-paused';
+/**
+ * "-v2" since 9 Oct 2026: a pause pressed while the redesign was being
+ * previewed (Victor: "the banner does not scroll") must not keep the new news
+ * ticker and the heroes still for good without anyone remembering why. The
+ * pause controls are all still there (WCAG 2.2.2).
+ */
+const STORAGE_KEY = 'smc-motion-paused-v2';
 
 interface MotionState {
   reduced: boolean;

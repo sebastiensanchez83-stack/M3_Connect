@@ -418,9 +418,13 @@
 /* A slim strip of links sliding sideways (NewsBand): the list is repeated until
    it fills the strip, and the track slides by exactly one copy (--news-unit), at
    --news-duration. Paused while the pointer rests on it and under the global
-   pause. Under reduced motion, the global pause or keyboard focus inside, the
-   component renders one copy in a row that scrolls sideways (.is-static), its
-   right edge fading to say there is more. */
+   pause. Under reduced motion, the global pause, its own pause or keyboard
+   focus inside, the component renders one copy in a row that scrolls sideways
+   (.is-static); an edge fades only where more is hidden (.more-start,
+   .more-end), and a focused link is kept clear of the fades (scroll-padding).
+   .news-chosen: the visitor pressed the strip's own Play although the computer
+   or the site asks for stillness; the two rules at the end of this file let it
+   run then. */
 .news-viewport.is-moving {
   overflow: hidden;
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%);
@@ -431,8 +435,19 @@
   overflow-y: hidden;
   overscroll-behavior-x: contain;
   scrollbar-width: none;
+  scroll-padding-inline: 40px;
+}
+.news-viewport.is-static.more-end {
   -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent 100%);
   mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent 100%);
+}
+.news-viewport.is-static.more-start {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 32px);
+  mask-image: linear-gradient(90deg, transparent 0, #000 32px);
+}
+.news-viewport.is-static.more-start.more-end {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 32px, #000 calc(100% - 32px), transparent 100%);
 }
 .news-viewport.is-static::-webkit-scrollbar { display: none; }
 .news-track {
@@ -738,7 +753,7 @@ html[data-motion-paused] .motion-loop::after,
 html[data-motion-paused] .logo-marquee-track,
 html[data-motion-paused] .typed-caret,
 html[data-motion-paused] .evc-seg > i,
-html[data-motion-paused] .news-track,
+html[data-motion-paused] .news-track:not(.news-chosen),
 html[data-motion-paused] .hero-breathe,
 html[data-motion-paused] .bathy-drift-b {
   animation-play-state: paused !important;
@@ -762,7 +777,7 @@ body:has(.fixed.bottom-0.inset-x-0.z-40:not(.lg\:hidden)) .footer-last-row {
   .bathy-drift,
   .bathy-drift-b,
   .logo-marquee-track,
-  .news-track,
+  .news-track:not(.news-chosen),
   .typed-caret {
     animation: none !important;
   }

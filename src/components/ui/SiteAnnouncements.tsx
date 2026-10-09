@@ -62,7 +62,8 @@ export function AnnouncementBar() {
   const ann = useAnnouncement('announcement_top', pathname === '/');
   if (pathname !== '/' || !ann || hidden) return null;
   return (
-    <div className="bg-navy-deep text-white">
+    // [order:-10000]: above the news ticker (drawn first with order-first, App.tsx); a hairline parts the two navy strips.
+    <div className="border-b border-white/10 bg-navy-deep text-white [order:-10000]">
       <div className="mx-auto flex min-h-10 max-w-7xl items-center gap-3 px-4 py-1.5 sm:px-6">
         <Megaphone className="h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
         <UnderlineLink

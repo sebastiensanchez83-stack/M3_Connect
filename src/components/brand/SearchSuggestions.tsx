@@ -1,30 +1,32 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { CalendarDays, FileText, Loader2, Search, type LucideIcon } from 'lucide-react';
+import { CalendarDays, FileText, Loader2, MapPin, Search, type LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 import { LogoTile, useOrgTypeLabel } from './OrgCard';
 import { WYS26_PATH, isWys26Event, wys26Upcoming } from '@/components/events/WysInvitationCard';
 import { THEMES, themeForSector, getTheme } from '@/lib/themes';
 import { displayCase } from '@/lib/displayCase';
 import { englishCountryName } from '@/lib/countryNames';
 import {
-  PER_GROUP, cacheKey, cachedSuggestions, fetchSuggestions, fold, matchRank, searchWords,
+  PER_GROUP, PER_GROUP_COMPACT, cacheKey, cachedSuggestions, fetchSuggestions, fold, hasAllWords, matchCountries, matchRank, searchWords,
   type SuggestGroup, type SuggestResults, type SuggestScope,
 } from '@/lib/searchSuggestions';
 
 /**
  * The suggestions under the search pill (SearchField `suggest`): grouped
- * (companies, articles, events and webinars, themes and sectors), the typed
- * letters in bold, and a last line "See all results for 'x'" that does what
- * Enter does. Asked from 2 characters, 200 ms after the last keystroke; a slower
- * answer to an older search is dropped (aborted, and its sequence number no
- * longer the latest).
+ * (companies, countries, articles, events and webinars, themes and sectors),
+ * the typed letters in bold, and below the list, always in sight, "See all
+ * results for 'x'" that does what Enter does. Asked from 2 characters, 200 ms
+ * after the last keystroke; a slower answer to an older search is dropped
+ * (aborted, and its sequence number no longer the latest).
  *
- * The list is drawn in a portal, fixed under the pill (or above it when the
- * screen has more room there), so the heroes' and the directory toolbar's
- * clipping never cuts it. SearchField owns the combobox (focus stays in the
- * field; the options are pointed at with aria-activedescendant).
+ * The list is drawn in a portal, fixed under the pill (or above it when there
+ * is clearly more room there), between the header bar and a cookie banner, so
+ * neither covers it and the heroes' and the directory toolbar's clipping never
+ * cuts it. SearchField owns the combobox (focus stays in the field; the options
+ * are pointed at with aria-activedescendant) and the placement.
  */
 
 export interface SuggestOption {
@@ -64,11 +66,13 @@ export function useSuggestionSections({
   enabled: boolean;
 }): { sections: SuggestSection[]; loading: boolean; settled: boolean; ready: boolean } {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const viewer = user?.id ?? 'anon';
   const typeLabel = useOrgTypeLabel();
   const q = query.trim();
   const ready = enabled && groups.length > 0 && q.length >= 2;
   const groupsKey = groups.join(',');
-  const key = ready ? cacheKey(q, groups, scope) : '';
+  const key = ready ? cacheKey(q, groups, scope, viewer) : '';
   const [state, setState] = useState<{ key: string; q: string; results: SuggestResults | null; failed: boolean }>({
     key: '',
     q: '',
@@ -88,14 +92,15 @@ export function useSuggestionSections({
     const ctrl = new AbortController();
     const timer = window.setTimeout(() => {
       const id = ++seq.current;
-      fetchSuggestions(q, groups, scope, ctrl.signal).then(
+      fetchSuggestions(q, groups, scope, ctrl.signal, viewer).then(
         (results) => {
           if (id !== seq.current || ctrl.signal.aborted) return;
           setState({ key, q, results, failed: false });
         },
         () => {
           if (id !== seq.current || ctrl.signal.aborted) return;
-          setState((s) => ({ ...s, key, q, failed: true }));
+          // The last answer stays, still marked as the answer to ITS letters, so what no longer matches is filtered out.
+          setState((s) => ({ ...s, key, failed: true }));
         },
       );
     }, 200);
@@ -103,7 +108,7 @@ export function useSuggestionSections({
       window.clearTimeout(timer);
       ctrl.abort();
     };
-    // groups is read through groupsKey.
+    // groups is read through groupsKey; the viewer is part of the key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, key, groupsKey, scope]);
 
@@ -119,12 +124,9 @@ export function useSuggestionSections({
         return '';
       }
     };
-    // Themes are local: they follow every letter at once. The rest follows the last answer.
+    // Themes and countries are matched here: they follow every letter at once. The rest follows the last answer.
     const words = searchWords(q);
-    const hasAll = (text: string) => {
-      const f = fold(text);
-      return words.length > 0 && words.every((w) => f.includes(w));
-    };
+    const hasAll = (text: string) => hasAllWords(text, words);
     const out: SuggestSection[] = [];
     // An answer to fewer letters still on screen while the next one is on its way: what no longer matches goes at once.
     const stale = searchWords(shownQ).join(' ') !== words.join(' ');
@@ -144,6 +146,23 @@ export function useSuggestionSections({
           };
         });
         if (options.length) out.push({ group: g, title: t('brand.suggest.companies', 'Companies'), options });
+      }
+
+      if (g === 'countries' && results) {
+        const options: SuggestOption[] = matchCountries(results.countries, q).slice(0, PER_GROUP).map((c) => ({
+          id: `country-${c.slug}`,
+          group: 'countries',
+          label: t('brand.suggest.countryLabel', { country: c.name, defaultValue: 'Companies in {{country}}' }),
+          sub: t('brand.suggest.countrySub', {
+            count: c.count,
+            defaultValue_one: '{{count}} company in the directory',
+            defaultValue_other: '{{count}} companies in the directory',
+          }),
+          // The directory opens with this country's filter on (DirectoryPage reads ?country=).
+          href: `/directory?country=${encodeURIComponent(c.slug)}`,
+          visual: { kind: 'icon', icon: MapPin },
+        }));
+        if (options.length) out.push({ group: g, title: t('brand.suggest.countries', 'Countries'), options });
       }
 
       if (g === 'articles' && results) {
@@ -240,6 +259,8 @@ export function useSuggestionSections({
         if (list.length) out.push({ group: g, title: t('brand.suggest.themes', 'Themes and sectors'), options: list });
       }
     }
+    // Three groups or more (home, 404): fewer of each, so the list stays short and "See all" close.
+    if (out.length >= 3) return out.map((s) => ({ ...s, options: s.options.slice(0, PER_GROUP_COMPACT) }));
     return out;
     // typeLabel only reads `t`; shownQ marks a new answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -298,12 +319,46 @@ export function Highlight({ text, query }: { text: string; query: string }) {
   return <>{parts}</>;
 }
 
-/* ─── Popup ──────────────────────────────────────────────────────── */
+/* ─── Placement ──────────────────────────────────────────────────── */
 
-type Placement = { left: number; width: number; top?: number; bottom?: number; maxHeight: number };
+export type Placement = { left: number; width: number; top?: number; bottom?: number; maxHeight: number };
 
-/** Fixed coordinates under (or over) the anchor, followed on scroll, resize and the phone keyboard. */
-function useAnchoredPlacement(anchorRef: RefObject<HTMLElement>, open: boolean): Placement | null {
+/** The bottom edge of the site header's bar while it shows (0 when tucked away above the screen). */
+function headerBottom(): number {
+  const bar = document.querySelector('header')?.firstElementChild;
+  if (!bar) return 0;
+  const b = bar.getBoundingClientRect();
+  return b.height > 0 && b.bottom > 0 ? b.bottom : 0;
+}
+
+/**
+ * The free screen around the anchor: from under the header bar to the top of a
+ * cookie banner (or the bottom of the visible screen, phone keyboard out).
+ */
+export function roomAround(el: HTMLElement): { rect: DOMRect; top: number; bottom: number; above: number; below: number } {
+  const rect = el.getBoundingClientRect();
+  const vv = window.visualViewport;
+  let bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+  const cookie = document.querySelector('[data-cookie-banner]');
+  if (cookie) {
+    const ct = cookie.getBoundingClientRect().top;
+    if (ct > 0 && ct < bottom) bottom = ct;
+  }
+  const top = headerBottom();
+  return { rect, top, bottom, above: rect.top - top - 16, below: bottom - rect.bottom - 16 };
+}
+
+/** The list's room under the field below which it asks the page to scroll up a little. */
+export const WANTED_ROOM = 280;
+
+/**
+ * Fixed coordinates under (or over) the anchor, followed on scroll, resize and
+ * the phone keyboard: never under the header bar nor a cookie banner. Under it
+ * by default; over it only when the room under it is short (< 168 px) and
+ * there is more above. Null while the field is out of sight (under the header,
+ * or scrolled away): the list waits for it to come back.
+ */
+export function useAnchoredPlacement(anchorRef: RefObject<HTMLElement>, open: boolean): Placement | null {
   const [place, setPlace] = useState<Placement | null>(null);
   useLayoutEffect(() => {
     if (!open) {
@@ -315,23 +370,18 @@ function useAnchoredPlacement(anchorRef: RefObject<HTMLElement>, open: boolean):
       frame = 0;
       const el = anchorRef.current;
       if (!el) return;
-      const r = el.getBoundingClientRect();
-      const vv = window.visualViewport;
-      const viewBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
-      // The field has scrolled out of sight: the list waits for it to come back.
-      if (r.bottom < 0 || r.top > viewBottom) {
+      const { rect: r, top, bottom, above, below } = roomAround(el);
+      if (r.bottom < top || r.top > bottom) {
         setPlace(null);
         return;
       }
       const vw = document.documentElement.clientWidth;
       const width = Math.min(Math.max(r.width, 320), vw - 16);
       const left = Math.min(Math.max(8, r.left), vw - 8 - width);
-      const below = viewBottom - r.bottom - 16;
-      const above = r.top - 16;
       const next: Placement =
-        below < 240 && above > below
-          ? { left, width, bottom: window.innerHeight - r.top + 8, maxHeight: Math.min(above - 8, 520) }
-          : { left, width, top: r.bottom + 8, maxHeight: Math.min(Math.max(below - 8, 168), 520) };
+        below < 168 && above > below
+          ? { left, width, bottom: window.innerHeight - r.top + 8, maxHeight: Math.min(above, 520) }
+          : { left, width, top: r.bottom + 8, maxHeight: Math.min(Math.max(below, 120), 520) };
       setPlace((p) =>
         p && p.left === next.left && p.width === next.width && p.top === next.top && p.bottom === next.bottom && p.maxHeight === next.maxHeight ? p : next,
       );
@@ -344,16 +394,22 @@ function useAnchoredPlacement(anchorRef: RefObject<HTMLElement>, open: boolean):
     window.addEventListener('resize', schedule, { passive: true });
     window.visualViewport?.addEventListener('resize', schedule);
     window.visualViewport?.addEventListener('scroll', schedule);
+    // The header slides in and out (0.35 s) after a scroll: measured again once it has.
+    const header = document.querySelector('header');
+    header?.addEventListener('transitionend', schedule);
     return () => {
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener('scroll', schedule, { capture: true });
       window.removeEventListener('resize', schedule);
       window.visualViewport?.removeEventListener('resize', schedule);
       window.visualViewport?.removeEventListener('scroll', schedule);
+      header?.removeEventListener('transitionend', schedule);
     };
   }, [open, anchorRef]);
   return place;
 }
+
+/* ─── Popup ──────────────────────────────────────────────────────── */
 
 function OptionVisual({ visual }: { visual: SuggestOption['visual'] }) {
   if (visual.kind === 'logo') return <LogoTile src={visual.src} name={visual.name} type={visual.type} size={36} />;
@@ -366,9 +422,8 @@ function OptionVisual({ visual }: { visual: SuggestOption['visual'] }) {
 }
 
 export function SuggestionPopup({
-  anchorRef,
+  place,
   popupRef,
-  open,
   listboxId,
   optionId,
   sections,
@@ -381,13 +436,13 @@ export function SuggestionPopup({
   onChoose,
   onActivate,
 }: {
-  anchorRef: RefObject<HTMLElement>;
+  /** Where to draw the list (useAnchoredPlacement); nothing is drawn while null. */
+  place: Placement | null;
   popupRef: RefObject<HTMLDivElement>;
-  open: boolean;
   listboxId: string;
   optionId: (index: number) => string;
   sections: SuggestSection[];
-  /** The last option: "See all results for 'x'". */
+  /** The last option, always in sight under the list: "See all results for 'x'". */
   seeAll: SuggestOption;
   query: string;
   activeIndex: number;
@@ -398,16 +453,22 @@ export function SuggestionPopup({
   onActivate: (index: number) => void;
 }) {
   const { t } = useTranslation();
-  const place = useAnchoredPlacement(anchorRef, open);
-  const listRef = useRef<HTMLDivElement>(null);
+  /** The active option changed under the pointer: the list must not scroll then (it would move under the mouse). */
+  const byPointer = useRef(false);
 
   // The option chosen with the arrow keys stays in view.
   useEffect(() => {
-    if (!open || activeIndex < 0) return;
+    if (!place || activeIndex < 0) return;
+    if (byPointer.current) {
+      byPointer.current = false;
+      return;
+    }
     document.getElementById(optionId(activeIndex))?.scrollIntoView({ block: 'nearest' });
-  }, [open, activeIndex, optionId]);
+    // place: only whether it is drawn matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [!!place, activeIndex, optionId]);
 
-  if (!open || !place || typeof document === 'undefined') return null;
+  if (!place || typeof document === 'undefined') return null;
   const count = sections.reduce((n, s) => n + s.options.length, 0);
   let index = -1;
 
@@ -421,10 +482,10 @@ export function SuggestionPopup({
         id={optionId(i)}
         role="option"
         aria-selected={active}
-        // Focus stays in the field: the pointer never takes it.
-        onMouseDown={(e) => e.preventDefault()}
         onMouseMove={() => {
-          if (!active) onActivate(i);
+          if (active) return;
+          byPointer.current = true;
+          onActivate(i);
         }}
         onClick={() => onChoose(o)}
         className={cn(
@@ -450,37 +511,47 @@ export function SuggestionPopup({
     );
   };
 
+  const message = loading
+    ? t('brand.suggest.searching', 'Searching…')
+    : settled
+      ? t('brand.suggest.none', { query: query.trim(), defaultValue: 'No quick matches. Press Enter to see all results for “{{query}}”.' })
+      : null;
+
   return createPortal(
     <div
       ref={popupRef}
+      // Focus stays in the field: a press anywhere in the list (an option, its scrollbar) never takes it.
+      onMouseDown={(e) => e.preventDefault()}
       className="fixed z-[45] flex flex-col overflow-hidden rounded-card border border-rule bg-white text-ink shadow-drawer"
       style={{ left: place.left, width: place.width, top: place.top, bottom: place.bottom, maxHeight: place.maxHeight }}
     >
-      <div ref={listRef} id={listboxId} role="listbox" aria-label={label} className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
-        {sections.map((s) => {
-          const headingId = `${listboxId}-${s.group}`;
-          return (
-            <div key={s.group} role="presentation" className="pb-1">
-              <span id={headingId} role="presentation" className="text-meta-caps block px-3 pb-1 pt-2.5">
-                {s.title}
-              </span>
-              <div role="group" aria-labelledby={headingId}>
-                {s.options.map((o) => renderOption(o))}
-              </div>
-            </div>
-          );
-        })}
-        {count === 0 && (
-          <p role="presentation" className="flex items-center gap-2 px-3 py-3 text-[14px] leading-5 text-meta">
-            {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-            {loading
-              ? t('brand.suggest.searching', 'Searching…')
-              : settled
-                ? t('brand.suggest.none', 'No suggestions. Try another spelling, or see all results.')
-                : null}
-          </p>
+      {/* Searching… / no quick matches: outside the listbox, which holds options only. */}
+      {count === 0 && message && (
+        <p className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3 text-[14px] leading-5 text-meta">
+          {loading && <Loader2 className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />}
+          {message}
+        </p>
+      )}
+      <div id={listboxId} role="listbox" aria-label={label} className="flex min-h-0 flex-1 flex-col">
+        {count > 0 && (
+          <div role="presentation" className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1.5">
+            {sections.map((s) => {
+              const headingId = `${listboxId}-${s.group}`;
+              return (
+                <div key={s.group} role="presentation" className="pb-1">
+                  <span id={headingId} role="presentation" className="text-meta-caps block px-3 pb-1 pt-2.5">
+                    {s.title}
+                  </span>
+                  <div role="group" aria-labelledby={headingId}>
+                    {s.options.map((o) => renderOption(o))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
-        <div role="presentation" className={cn(count > 0 && 'mt-1 border-t border-rule pt-1.5')}>
+        {/* "See all results": under the list, never scrolled away. */}
+        <div role="presentation" className={cn('shrink-0 p-1.5', count > 0 && 'border-t border-rule')}>
           {renderOption(seeAll, true)}
         </div>
       </div>

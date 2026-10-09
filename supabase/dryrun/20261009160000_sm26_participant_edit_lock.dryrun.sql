@@ -11,13 +11,21 @@
 --   A. snapshot of every policy (public + storage) and of the ACL of every sm_*
 --      function, taken before the migration;
 --   B. the migration body, verbatim;
---   C. one DO block: structural checks (S1-S4), then the cases. Each case runs in
+--   C. one DO block: structural checks (S1-S5), then the cases. Each case runs in
 --      its own sub-transaction as the simulated caller (set local role
 --      authenticated/anon + request.jwt.claims), records its outcome, and is rolled
 --      back before the next case starts, so cases cannot affect each other.
 --      Cases marked OPEN first move edit_locks_at and roster_locks_at to
 --      2099-12-31 inside that case only: they show the pre-lock behaviour, i.e.
 --      that a LOCKED denial comes from the lock and not from something else.
+--      A case's setup (run as postgres, inside the case, rolled back with it) may
+--      create a temporary second sm_event that is still open (G cases), fake
+--      event-media object rows in the participant's folder (H cases), or disable
+--      the sm_attendee_guard trigger (B04b).
+--      Expectations: allow; rls = SQLSTATE 42501 or 0 rows written (a policy or
+--      privilege refused it, not some other error); deny = any refusal (only for
+--      anon cases refused before the lock too); lock = the "is over" message;
+--      err:<text>; ret:<value>.
 --
 -- Callers (looked up read-only on production, 9 Oct 2026)
 --   participant 79a8edb6-81f3-45e4-8af8-80b737294e6e (persona partner, verified),
@@ -32,8 +40,13 @@
 -- Expectations: LOCKED participant writes and RPCs denied (RPCs with the
 -- "Smart Marina 2026 is over" message); claim, autoclaim, feedback, networking
 -- pass and reads still work; staff writes and staff RPCs (sm_ensure_badges
--- included) work; anon unchanged; S4: no existing policy or ACL changed, only the
--- 23 new policies and the guard's ACL added.
+-- included) work; anon unchanged; with a second open event, rows can no longer be
+-- attached to or moved under the locked registration, while the open event itself
+-- still works (G); the files behind locked rows can no longer be replaced or
+-- deleted, new <uid>/sm26/ uploads still can (H); the two sync helpers refuse anon
+-- and authenticated (F05, F06); S4: no existing policy or ACL changed except the
+-- two sync helpers' ACLs; added = 23 + 3 policies and 5 new functions' ACLs.
+-- Expected result: "N PASS, 0 FAIL".
 
 -- ─── A. Snapshot ─────────────────────────────────────────────────────────────
 create temp table _dryrun_before on commit drop as
@@ -57,7 +70,7 @@ begin
     select * from (values
       ('public.sm_restart_registration(uuid)', '7528623091de09b5b1d9cdfb87beff18', '8645da374cacd1bfab19c41bad3b1204'),
       ('public.sm_confirm_attendees(uuid, boolean)', '8933eeb78bad25c0f8bd2d3753336b77', '5207c34f2083b122280c21aec567d350'),
-      ('public.sm_set_onsite_attendance(uuid, boolean)', '1b330aca1f5691c4295550d5146dd21d', '156d91c3e479363a43b01cf85096a921'),
+      ('public.sm_set_onsite_attendance(uuid, boolean)', '1b330aca1f5691c4295550d5146dd21d', 'b2223d1c999d188f9430f1222d7bc707'),
       ('public.sm_ensure_module_row(uuid, boolean)', '7d52947375c15a230ab206e992fbef99', '5ad7008715ba3e3f7d7de9beee6ebea0'),
       ('public.sm_ecat_respond(uuid, text, text, text[])', 'd3df7c405c70682fbd24c6509826c1a1', 'ceb4e61f4b99d1f1580899721e042f8e'),
       ('public.sm_ecat_apply_to_profile(uuid, text, text)', 'ab3db4cb83822b873c76326d8ea7ade0', '12d393c58462562b218dcb5c89dddb31'),
@@ -78,6 +91,66 @@ end
 $pre$;
 
 -- ─── 1. The guard ────────────────────────────────────────────────────────────
+-- 1a. When participant changes stop for an event (null = never). No caller test
+--     here: the guard below and sm_media_object_locked add the staff exemption.
+--     Not executable by anon/authenticated; service_role for sm26-attendee-invite.
+create or replace function public.sm_participant_lock_instant(p_event_id uuid, p_scope text default 'registration')
+returns timestamptz
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $function$
+declare
+  v_raw text;
+  v_tz  text;
+  v_end date;
+begin
+  if p_event_id is null then
+    return null;
+  end if;
+
+  select nullif(btrim(e.settings ->> (case when p_scope = 'roster' then 'roster_locks_at' else 'edit_locks_at' end)), ''),
+         e.timezone, e.end_date
+    into v_raw, v_tz, v_end
+    from public.sm_event e
+   where e.id = p_event_id;
+
+  -- Unknown event: nothing to lock against.
+  if not found then
+    return null;
+  end if;
+
+  -- No deadline set (never set, or cleared in the admin Health tab): the event's
+  -- last day closes it, so a finished edition cannot be reopened by one empty
+  -- save. Staff reopen by setting a later date. No end_date either: open.
+  if v_raw is null then
+    if v_end is null then
+      return null;
+    end if;
+    v_raw := to_char(v_end, 'YYYY-MM-DD');
+  end if;
+
+  -- 'YYYY-MM-DD': open through that day in the event's timezone, locked from
+  -- 00:00 the next day (sm_deadline_instant). Anything else is read as a timestamp.
+  begin
+    return public.sm_deadline_instant(v_raw, v_tz);
+  exception when others then
+    return '-infinity'::timestamptz;  -- unreadable deadline: fail closed
+  end;
+end
+$function$;
+
+comment on function public.sm_participant_lock_instant(uuid, text) is
+  'Instant from which participants can no longer change their registration for this event: '
+  'settings.edit_locks_at (roster_locks_at for p_scope = ''roster''), a plain date meaning '
+  '"open through that day, event time"; when the key is absent, the event''s end_date; null = '
+  'never; -infinity = unreadable (locked). 20261009160000.';
+
+revoke all on function public.sm_participant_lock_instant(uuid, text) from public, anon, authenticated;
+grant execute on function public.sm_participant_lock_instant(uuid, text) to service_role;
+
+-- 1b. The guard every policy and RPC below calls.
 create or replace function public.sm_participant_edits_locked(p_event_id uuid, p_scope text default 'registration')
 returns boolean
 language plpgsql
@@ -86,8 +159,6 @@ security definer
 set search_path = ''
 as $function$
 declare
-  v_raw   text;
-  v_tz    text;
   v_close timestamptz;
 begin
   -- No event to lock against: leave the decision to the caller's other checks.
@@ -98,38 +169,65 @@ begin
   if public.sm_is_staff() then
     return false;
   end if;
-
-  select nullif(btrim(e.settings ->> (case when p_scope = 'roster' then 'roster_locks_at' else 'edit_locks_at' end)), ''),
-         e.timezone
-    into v_raw, v_tz
-    from public.sm_event e
-   where e.id = p_event_id;
-
-  -- Unknown event, or no deadline set: open (the browser reads it the same way).
-  if v_raw is null then
-    return false;
-  end if;
-
-  -- 'YYYY-MM-DD': open through that day in the event's timezone, locked from
-  -- 00:00 the next day. Anything else is read as a timestamp. The exception
-  -- block sits here, not around the whole body, so staff and events without a
-  -- deadline never open a sub-transaction (policies call this once per row).
-  begin
-    v_close := public.sm_deadline_instant(v_raw, v_tz);
-  exception when others then
-    return true;  -- unreadable deadline: fail closed (staff returned above)
-  end;
+  v_close := public.sm_participant_lock_instant(p_event_id, p_scope);
   return v_close is not null and now() >= v_close;
 end
 $function$;
 
 comment on function public.sm_participant_edits_locked(uuid, text) is
   'True when the caller is not SM staff and the event''s participant deadline has passed '
-  '(settings.edit_locks_at, or roster_locks_at for p_scope = ''roster''). Used by the '
-  '*_while_editable RLS policies and the participant RPCs. 20261009160000.';
+  '(sm_participant_lock_instant: settings.edit_locks_at, or roster_locks_at for p_scope = ''roster'', '
+  'else the event''s end_date). Once true, a participant can no longer: update the registration; '
+  'add, change or delete role assignments, logistics, logistics items, startup / marina / architecture '
+  'module rows, attendees (roster scope); comment on, approve or apply e-catalogue pages; book, switch '
+  'or cancel workshops; answer pitch-slot invitations (signed in or by e-mailed link); set juror on-site '
+  'attendance; restart the registration; confirm the roster (roster scope); or replace / delete the files '
+  'behind those rows in event-media. Feedback, networking, the public vote, jury scoring and claiming are '
+  'not affected. Used by the *_while_editable and event_media_sm_locked_* policies and the participant '
+  'RPCs. 20261009160000.';
 
 revoke all on function public.sm_participant_edits_locked(uuid, text) from public;
 grant execute on function public.sm_participant_edits_locked(uuid, text) to anon, authenticated, service_role;
+
+-- 1c. The same test through a parent row. A child row's own event_id is not tied
+--     to its parent's (the FKs only reference sm_event), so each policy checks
+--     both: otherwise, once a second event is open, a participant could insert a
+--     row for their locked registration tagged with the open event, or move an
+--     open-event row under it. Unknown id: not locked (the FK refuses it anyway).
+create or replace function public.sm_registration_edits_locked(p_registration_id uuid, p_scope text default 'registration')
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $function$
+  select public.sm_participant_edits_locked(
+    (select r.event_id from public.sm_registration r where r.id = p_registration_id), p_scope);
+$function$;
+
+create or replace function public.sm_role_assignment_edits_locked(p_role_assignment_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $function$
+  select public.sm_participant_edits_locked(
+    (select r.event_id
+       from public.sm_role_assignment ra
+       join public.sm_registration r on r.id = ra.registration_id
+      where ra.id = p_role_assignment_id));
+$function$;
+
+comment on function public.sm_registration_edits_locked(uuid, text) is
+  'sm_participant_edits_locked for the event of this registration. 20261009160000.';
+comment on function public.sm_role_assignment_edits_locked(uuid) is
+  'sm_participant_edits_locked for the event of the registration behind this role assignment. 20261009160000.';
+
+revoke all on function public.sm_registration_edits_locked(uuid, text) from public;
+revoke all on function public.sm_role_assignment_edits_locked(uuid) from public;
+grant execute on function public.sm_registration_edits_locked(uuid, text) to anon, authenticated, service_role;
+grant execute on function public.sm_role_assignment_edits_locked(uuid) to anon, authenticated, service_role;
 
 -- ─── 2. RLS: restrictive write policies (staff OR not locked) ────────────────
 drop policy if exists sm_registration_update_while_editable on public.sm_registration;
@@ -141,119 +239,218 @@ create policy sm_registration_update_while_editable on public.sm_registration
 drop policy if exists sm_role_assignment_insert_while_editable on public.sm_role_assignment;
 create policy sm_role_assignment_insert_while_editable on public.sm_role_assignment
   as restrictive for insert
-  with check (not public.sm_participant_edits_locked(event_id));
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_role_assignment_update_while_editable on public.sm_role_assignment;
 create policy sm_role_assignment_update_while_editable on public.sm_role_assignment
   as restrictive for update
-  using (not public.sm_participant_edits_locked(event_id))
-  with check (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id))
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_role_assignment_delete_while_editable on public.sm_role_assignment;
 create policy sm_role_assignment_delete_while_editable on public.sm_role_assignment
   as restrictive for delete
-  using (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_attendee_insert_while_editable on public.sm_attendee;
 create policy sm_attendee_insert_while_editable on public.sm_attendee
   as restrictive for insert
-  with check (not public.sm_participant_edits_locked(event_id, 'roster'));
+  with check (not public.sm_participant_edits_locked(event_id, 'roster') and not public.sm_registration_edits_locked(registration_id, 'roster'));
 
 drop policy if exists sm_attendee_update_while_editable on public.sm_attendee;
 create policy sm_attendee_update_while_editable on public.sm_attendee
   as restrictive for update
-  using (not public.sm_participant_edits_locked(event_id, 'roster'))
-  with check (not public.sm_participant_edits_locked(event_id, 'roster'));
+  using (not public.sm_participant_edits_locked(event_id, 'roster') and not public.sm_registration_edits_locked(registration_id, 'roster'))
+  with check (not public.sm_participant_edits_locked(event_id, 'roster') and not public.sm_registration_edits_locked(registration_id, 'roster'));
 
 drop policy if exists sm_attendee_delete_while_editable on public.sm_attendee;
 create policy sm_attendee_delete_while_editable on public.sm_attendee
   as restrictive for delete
-  using (not public.sm_participant_edits_locked(event_id, 'roster'));
+  using (not public.sm_participant_edits_locked(event_id, 'roster') and not public.sm_registration_edits_locked(registration_id, 'roster'));
 
 drop policy if exists sm_logistics_insert_while_editable on public.sm_logistics;
 create policy sm_logistics_insert_while_editable on public.sm_logistics
   as restrictive for insert
-  with check (not public.sm_participant_edits_locked(event_id));
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_logistics_update_while_editable on public.sm_logistics;
 create policy sm_logistics_update_while_editable on public.sm_logistics
   as restrictive for update
-  using (not public.sm_participant_edits_locked(event_id))
-  with check (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id))
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_logistics_delete_while_editable on public.sm_logistics;
 create policy sm_logistics_delete_while_editable on public.sm_logistics
   as restrictive for delete
-  using (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_logistics_item_insert_while_editable on public.sm_logistics_item;
 create policy sm_logistics_item_insert_while_editable on public.sm_logistics_item
   as restrictive for insert
-  with check (not public.sm_participant_edits_locked(event_id));
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_logistics_item_update_while_editable on public.sm_logistics_item;
 create policy sm_logistics_item_update_while_editable on public.sm_logistics_item
   as restrictive for update
-  using (not public.sm_participant_edits_locked(event_id))
-  with check (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id))
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_logistics_item_delete_while_editable on public.sm_logistics_item;
 create policy sm_logistics_item_delete_while_editable on public.sm_logistics_item
   as restrictive for delete
-  using (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_registration_edits_locked(registration_id));
 
 drop policy if exists sm_startup_profile_insert_while_editable on public.sm_startup_profile;
 create policy sm_startup_profile_insert_while_editable on public.sm_startup_profile
   as restrictive for insert
-  with check (not public.sm_participant_edits_locked(event_id));
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_startup_profile_update_while_editable on public.sm_startup_profile;
 create policy sm_startup_profile_update_while_editable on public.sm_startup_profile
   as restrictive for update
-  using (not public.sm_participant_edits_locked(event_id))
-  with check (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id))
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_startup_profile_delete_while_editable on public.sm_startup_profile;
 create policy sm_startup_profile_delete_while_editable on public.sm_startup_profile
   as restrictive for delete
-  using (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_architecture_entry_insert_while_editable on public.sm_architecture_entry;
 create policy sm_architecture_entry_insert_while_editable on public.sm_architecture_entry
   as restrictive for insert
-  with check (not public.sm_participant_edits_locked(event_id));
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_architecture_entry_update_while_editable on public.sm_architecture_entry;
 create policy sm_architecture_entry_update_while_editable on public.sm_architecture_entry
   as restrictive for update
-  using (not public.sm_participant_edits_locked(event_id))
-  with check (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id))
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_architecture_entry_delete_while_editable on public.sm_architecture_entry;
 create policy sm_architecture_entry_delete_while_editable on public.sm_architecture_entry
   as restrictive for delete
-  using (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_marina_extra_insert_while_editable on public.sm_marina_extra;
 create policy sm_marina_extra_insert_while_editable on public.sm_marina_extra
   as restrictive for insert
-  with check (not public.sm_participant_edits_locked(event_id));
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_marina_extra_update_while_editable on public.sm_marina_extra;
 create policy sm_marina_extra_update_while_editable on public.sm_marina_extra
   as restrictive for update
-  using (not public.sm_participant_edits_locked(event_id))
-  with check (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id))
+  with check (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_marina_extra_delete_while_editable on public.sm_marina_extra;
 create policy sm_marina_extra_delete_while_editable on public.sm_marina_extra
   as restrictive for delete
-  using (not public.sm_participant_edits_locked(event_id));
+  using (not public.sm_participant_edits_locked(event_id) and not public.sm_role_assignment_edits_locked(role_assignment_id));
 
 drop policy if exists sm_ecat_comment_insert_while_editable on public.sm_ecat_comment;
 create policy sm_ecat_comment_insert_while_editable on public.sm_ecat_comment
   as restrictive for insert
   with check (not public.sm_participant_edits_locked((select p.event_id from public.sm_ecat_page p where p.id = sm_ecat_comment.ecat_page_id)));
+
+-- ─── 2b. Storage: the files behind the locked rows ────────────────────────────
+-- event_media_insert_own / _update_own / _delete_own let a participant upsert,
+-- overwrite or delete anything under their own "<uid>/" folder (and delete in an
+-- org-mate's). The locked rows keep pointing at the same paths, so the files
+-- behind them could still be swapped. Participant upload paths (src/):
+--   <uid>/<role assignment id>/<field>/...   module and asset uploads
+--   <uid>/logistics/<logistics item id>/...  logistics photos
+--   <uid>/ecat-change/<e-catalogue page>/... change-request attachments
+--   <uid>/<event slug>/...                   registration form, marina module ("sm26")
+-- The first three name their row, so they lock exactly like it. The slug folder
+-- names only the edition, and the next edition's pages may keep writing
+-- "<uid>/sm26/": there, only files that already existed when the edition locked
+-- are frozen (update / delete), and new uploads stay allowed (a new file cannot
+-- be attached to a locked row). Not matched, so unchanged: "architecture/" (own
+-- policies, closed 2026-08-19), "ecat/" (Yacht Club / staff designs),
+-- "media-kits/" (staff / Yacht Club), imported/, invoices/, letterhead/.
+create or replace function public.sm_media_object_locked(p_name text, p_created_at timestamptz default null)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $function$
+declare
+  c_uuid  constant text := '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$';
+  v_seg2  text := split_part(coalesce(p_name, ''), '/', 2);
+  v_seg3  text := split_part(coalesce(p_name, ''), '/', 3);
+  v_event uuid;
+  v_reg   uuid;
+  v_close timestamptz;
+begin
+  if v_seg2 = '' or public.sm_is_staff() then
+    return false;
+  end if;
+
+  if v_seg2 ~ c_uuid then
+    return public.sm_role_assignment_edits_locked(v_seg2::uuid);
+  end if;
+
+  if v_seg2 = 'logistics' and v_seg3 ~ c_uuid then
+    select i.event_id, i.registration_id into v_event, v_reg
+      from public.sm_logistics_item i where i.id = v_seg3::uuid;
+    return public.sm_participant_edits_locked(v_event) or public.sm_registration_edits_locked(v_reg);
+  end if;
+
+  if v_seg2 = 'ecat-change' and v_seg3 ~ c_uuid then
+    select p.event_id into v_event from public.sm_ecat_page p where p.id = v_seg3::uuid;
+    return public.sm_participant_edits_locked(v_event);
+  end if;
+
+  -- <uid>/<event slug>/...: existing objects only (p_created_at is null for an upload).
+  if p_created_at is not null then
+    select e.id into v_event from public.sm_event e where e.slug = v_seg2;
+    if v_event is not null and public.sm_participant_edits_locked(v_event) then
+      v_close := public.sm_participant_lock_instant(v_event);
+      return v_close is null or v_close = '-infinity'::timestamptz or p_created_at < v_close;
+    end if;
+  end if;
+
+  return false;
+end
+$function$;
+
+comment on function public.sm_media_object_locked(text, timestamptz) is
+  'True when a non-staff caller may no longer write this event-media object: it sits under '
+  '<uid>/<role assignment>/, <uid>/logistics/<item>/ or <uid>/ecat-change/<page>/ of a locked '
+  'event, or under <uid>/<event slug>/ and existed before that event locked (p_created_at). '
+  'Used by the event_media_sm_locked_* policies. 20261009160000.';
+
+revoke all on function public.sm_media_object_locked(text, timestamptz) from public;
+grant execute on function public.sm_media_object_locked(text, timestamptz) to anon, authenticated, service_role;
+
+drop policy if exists event_media_sm_locked_insert on storage.objects;
+create policy event_media_sm_locked_insert on storage.objects
+  as restrictive for insert to authenticated
+  with check (bucket_id <> 'event-media' or not public.sm_media_object_locked(name, null));
+
+drop policy if exists event_media_sm_locked_update on storage.objects;
+create policy event_media_sm_locked_update on storage.objects
+  as restrictive for update to authenticated
+  using (bucket_id <> 'event-media' or not public.sm_media_object_locked(name, created_at))
+  with check (bucket_id <> 'event-media' or not public.sm_media_object_locked(name, created_at));
+
+drop policy if exists event_media_sm_locked_delete on storage.objects;
+create policy event_media_sm_locked_delete on storage.objects
+  as restrictive for delete to authenticated
+  using (bucket_id <> 'event-media' or not public.sm_media_object_locked(name, created_at));
+
+-- ─── 2c. Two SECURITY DEFINER helpers anyone could call ──────────────────────
+-- sm_sync_headcount_to_roster rewrites any confirmed registration's num_attendees
+-- (the invoiced headcount) and sm_sync_architecture_assignments rewrites an
+-- event's architecture jury pairings; both had EXECUTE for PUBLIC, anon and
+-- authenticated and no caller check. Their only callers are the SECURITY DEFINER
+-- triggers sm_attendee_headcount_trg, sm_registration_confirm_headcount_trg,
+-- sm_arch_assignments_autosync and sm_arch_assignments_file_autosync, which run
+-- as postgres (owner): unaffected. Nothing in src/ or supabase/functions calls them.
+revoke execute on function public.sm_sync_headcount_to_roster(uuid) from public, anon, authenticated;
+revoke execute on function public.sm_sync_architecture_assignments(uuid) from public, anon, authenticated;
 
 -- ─── 3. Participant RPCs: same definitions + one "Edition over" check ─────────
 CREATE OR REPLACE FUNCTION public.sm_restart_registration(p_event_id uuid)
@@ -320,7 +517,7 @@ begin
     raise exception 'Not authorized';
   end if;
   -- Edition over: participants can no longer change this; staff still can (sm_participant_edits_locked).
-  if public.sm_participant_edits_locked(v_event) then
+  if public.sm_participant_edits_locked(v_event) or public.sm_registration_edits_locked(v_reg) then
     raise exception 'Smart Marina 2026 is over: registrations can no longer be changed.';
   end if;
 
@@ -743,18 +940,26 @@ declare
   c_j_uid   constant uuid := 'e327ed64-c8c6-40ad-a4d1-afb4d59105ef';  -- participant juror
   c_j_ra    constant uuid := 'e62abacf-2cda-4e4f-b115-26bdbf480031';  -- their jury role assignment
   c_s_uid   constant uuid := '9e51b498-d4d9-4a66-91f5-0c4e66185179';  -- staff (admin, verified)
-  c_new_md5 constant jsonb := '{"public.sm_restart_registration(uuid)":"8645da374cacd1bfab19c41bad3b1204","public.sm_confirm_attendees(uuid, boolean)":"5207c34f2083b122280c21aec567d350","public.sm_set_onsite_attendance(uuid, boolean)":"156d91c3e479363a43b01cf85096a921","public.sm_ensure_module_row(uuid, boolean)":"5ad7008715ba3e3f7d7de9beee6ebea0","public.sm_ecat_respond(uuid, text, text, text[])":"ceb4e61f4b99d1f1580899721e042f8e","public.sm_ecat_apply_to_profile(uuid, text, text)":"12d393c58462562b218dcb5c89dddb31","public.sm_book_workshop(uuid)":"5da1e23e2c9043b14f7d788eed76f142","public.sm_switch_workshop(uuid)":"7752c87470a512417bc10d065c9ea22a","public.sm_cancel_workshop(uuid)":"dbe46248a1aa2ab7dae7c400258ba36a","public.sm_startup_set_attendance(uuid, text)":"5a1d28df7036e18d1b553b5a1d7c2ac1","public.sm_startup_confirm_by_token(text, text)":"936e21598779fce4eba352bf943a6a26"}';
+  c_new_md5 constant jsonb := '{"public.sm_restart_registration(uuid)":"8645da374cacd1bfab19c41bad3b1204","public.sm_confirm_attendees(uuid, boolean)":"5207c34f2083b122280c21aec567d350","public.sm_set_onsite_attendance(uuid, boolean)":"b2223d1c999d188f9430f1222d7bc707","public.sm_ensure_module_row(uuid, boolean)":"5ad7008715ba3e3f7d7de9beee6ebea0","public.sm_ecat_respond(uuid, text, text, text[])":"ceb4e61f4b99d1f1580899721e042f8e","public.sm_ecat_apply_to_profile(uuid, text, text)":"12d393c58462562b218dcb5c89dddb31","public.sm_book_workshop(uuid)":"5da1e23e2c9043b14f7d788eed76f142","public.sm_switch_workshop(uuid)":"7752c87470a512417bc10d065c9ea22a","public.sm_cancel_workshop(uuid)":"dbe46248a1aa2ab7dae7c400258ba36a","public.sm_startup_set_attendance(uuid, text)":"5a1d28df7036e18d1b553b5a1d7c2ac1","public.sm_startup_confirm_by_token(text, text)":"936e21598779fce4eba352bf943a6a26"}';
+  -- G cases: a temporary second event with no deadline (created inside each G
+  -- case as postgres, rolled back with it), owned by the same participant.
+  c_g_ev    constant uuid := 'd0000000-0000-4000-8000-000000000001';
+  c_g_reg   constant uuid := 'd0000000-0000-4000-8000-000000000002';
+  c_g_att   constant uuid := 'd0000000-0000-4000-8000-000000000003';
+  c_g_ra    constant uuid := 'd0000000-0000-4000-8000-000000000004';
   -- resolved below, as postgres, before any role switch
   v_p_ra uuid; v_p_att uuid; v_p_item uuid; v_p_page uuid; v_p_ws uuid; v_p_jsess uuid; v_p_token text;
   v_c_uid uuid; v_c_email text; v_code text; v_unclaimed2 uuid; v_reads text; v_reads_q text;
   v_q_guard text; v_q_reg text; v_q_ra text; v_q_att_ins text; v_q_att_upd text; v_q_log text;
   v_q_item_ins text; v_q_sp text; v_q_comment text; v_q_confirm text; v_q_restart text; v_q_onsite text;
   v_q_module text;
+  v_setup_g text; v_setup_h text; v_obj_slug text; v_obj_ra text; v_obj_new text; v_obj_late text;
+  v_q_obj_upd_slug text; v_q_obj_del_ra text; v_q_obj_ins_ra text; v_q_obj_ins_slug text; v_q_obj_upd_late text;
   tests jsonb;
   t jsonb;
   d record;
-  v_uid uuid; v_dml boolean; v_ret text; v_n bigint; v_err text; v_exp text; v_pass boolean; v_out text;
-  v_added int := 0; v_added_list text := ''; v_bad int := 0;
+  v_uid uuid; v_dml boolean; v_ret text; v_n bigint; v_err text; v_state text; v_exp text; v_pass boolean; v_out text;
+  v_added int := 0; v_added_list text := ''; v_bad int := 0; v_changed int := 0; v_changed_list text := '';
   n_pass int := 0; n_fail int := 0;
   results text := '';
 begin
@@ -816,15 +1021,65 @@ begin
   if v_n = 23 then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
   results := results || format(E'\n%s S2 restrictive *_while_editable policies: %s (want 23)',
     case when v_n = 23 then 'PASS' else 'FAIL' end, v_n);
+  select count(*) into v_n from pg_policies
+   where schemaname = 'storage' and tablename = 'objects' and policyname like 'event\_media\_sm\_locked\_%'
+     and permissive = 'RESTRICTIVE' and roles = array['authenticated']::name[];
+  if v_n = 3 then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
+  results := results || format(E'\n%s S2 restrictive event_media_sm_locked_* storage policies for authenticated: %s (want 3)',
+    case when v_n = 3 then 'PASS' else 'FAIL' end, v_n);
+  -- Every policy that checks the row's own event on a child table also checks the parent's.
+  select count(*) into v_n from pg_policies
+   where schemaname = 'public' and policyname like '%\_while\_editable'
+     and tablename in ('sm_role_assignment', 'sm_attendee', 'sm_logistics', 'sm_logistics_item',
+                       'sm_startup_profile', 'sm_architecture_entry', 'sm_marina_extra')
+     and coalesce(qual, '') || coalesce(with_check, '') ~ 'sm_(registration|role_assignment)_edits_locked';
+  if v_n = 21 then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
+  results := results || format(E'\n%s S2 child-table policies that also check the parent registration''s event: %s (want 21)',
+    case when v_n = 21 then 'PASS' else 'FAIL' end, v_n);
 
-  -- ── S3. The guard: SECURITY DEFINER, STABLE, search_path '' ───────────────
-  select p.prosecdef and p.provolatile = 's' and p.proconfig = array['search_path=""']
-    into v_pass from pg_proc p where p.oid = 'public.sm_participant_edits_locked(uuid, text)'::regprocedure;
-  if coalesce(v_pass, false) then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
-  results := results || format(E'\n%s S3 guard is security definer, stable, search_path empty',
-    case when coalesce(v_pass, false) then 'PASS' else 'FAIL' end);
+  -- ── S3. The new functions: SECURITY DEFINER, STABLE, search_path '', owner postgres
+  -- (postgres has BYPASSRLS and owns sm_event / profiles: the guard must read them
+  -- whoever calls it).
+  for d in
+    select f as fn, p.oid is not null as found,
+           coalesce(p.prosecdef and p.provolatile = 's' and p.proconfig = array['search_path=""']
+                    and pg_get_userbyid(p.proowner) = 'postgres', false) as ok
+      from unnest(array['public.sm_participant_lock_instant(uuid,text)', 'public.sm_participant_edits_locked(uuid,text)',
+                        'public.sm_registration_edits_locked(uuid,text)', 'public.sm_role_assignment_edits_locked(uuid)',
+                        'public.sm_media_object_locked(text,timestamptz)']) f
+      left join pg_proc p on p.oid = to_regprocedure(f)
+  loop
+    if d.ok then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
+    results := results || format(E'\n%s S3 %s: security definer, stable, search_path empty, owner postgres',
+      case when d.ok then 'PASS' else 'FAIL' end, d.fn);
+  end loop;
+  -- Who may call them: the policy helpers anon/authenticated (policies run as the
+  -- caller); the instant only service_role.
+  v_pass := has_function_privilege('authenticated', 'public.sm_participant_edits_locked(uuid,text)', 'EXECUTE')
+        and has_function_privilege('anon', 'public.sm_registration_edits_locked(uuid,text)', 'EXECUTE')
+        and has_function_privilege('authenticated', 'public.sm_role_assignment_edits_locked(uuid)', 'EXECUTE')
+        and has_function_privilege('authenticated', 'public.sm_media_object_locked(text,timestamptz)', 'EXECUTE')
+        and not has_function_privilege('anon', 'public.sm_participant_lock_instant(uuid,text)', 'EXECUTE')
+        and not has_function_privilege('authenticated', 'public.sm_participant_lock_instant(uuid,text)', 'EXECUTE')
+        and has_function_privilege('service_role', 'public.sm_participant_lock_instant(uuid,text)', 'EXECUTE');
+  if v_pass then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
+  results := results || format(E'\n%s S3 EXECUTE: policy helpers for anon/authenticated, sm_participant_lock_instant for service_role only',
+    case when v_pass then 'PASS' else 'FAIL' end);
+
+  -- ── S5. The two sync helpers: no longer callable by anon/authenticated ─────
+  v_pass := not has_function_privilege('anon', 'public.sm_sync_headcount_to_roster(uuid)', 'EXECUTE')
+        and not has_function_privilege('authenticated', 'public.sm_sync_headcount_to_roster(uuid)', 'EXECUTE')
+        and not has_function_privilege('anon', 'public.sm_sync_architecture_assignments(uuid)', 'EXECUTE')
+        and not has_function_privilege('authenticated', 'public.sm_sync_architecture_assignments(uuid)', 'EXECUTE')
+        and has_function_privilege('service_role', 'public.sm_sync_headcount_to_roster(uuid)', 'EXECUTE')
+        and has_function_privilege('service_role', 'public.sm_sync_architecture_assignments(uuid)', 'EXECUTE');
+  if v_pass then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
+  results := results || format(E'\n%s S5 sm_sync_headcount_to_roster / sm_sync_architecture_assignments: anon and authenticated revoked, service_role kept',
+    case when v_pass then 'PASS' else 'FAIL' end);
 
   -- ── S4. Nothing else changed: existing policies and sm_* ACLs identical ────
+  -- Expected differences: added = the 23 + 3 new policies and the ACLs of the 5 new
+  -- functions; changed = the ACLs of the two sync helpers. Anything else fails.
   for d in
     with now_ as (
       select 'acl ' || p.oid::regprocedure::text as k, coalesce(p.proacl::text, '') as v
@@ -840,20 +1095,29 @@ begin
      where b.v is distinct from x.v
      order by 1
   loop
-    if d.before_v is null then
+    if d.before_v is null
+       and (d.k ~ '^policy public\.sm_\w+\.sm_\w+_while_editable$'
+            or d.k ~ '^policy storage\.objects\.event_media_sm_locked_(insert|update|delete)$'
+            or d.k ~ '^acl (public\.)?sm_(participant_lock_instant|participant_edits_locked|registration_edits_locked|role_assignment_edits_locked|media_object_locked)\(') then
       v_added := v_added + 1;
-      v_added_list := v_added_list || ' ' || d.k;
+    elsif d.before_v is not null and d.after_v is not null
+       and d.k ~ '^acl (public\.)?sm_sync_(headcount_to_roster|architecture_assignments)\(' then
+      v_changed := v_changed + 1;
+      v_changed_list := v_changed_list || format(' %s: %s -> %s', d.k, d.before_v, d.after_v);
     else
       v_bad := v_bad + 1;
-      results := results || format(E'\nFAIL S4 %s: %s', case when d.after_v is null then 'removed' else 'changed' end, d.k);
+      results := results || format(E'\nFAIL S4 unexpected %s: %s',
+        case when d.before_v is null then 'addition' when d.after_v is null then 'removal' else 'change' end, d.k);
     end if;
   end loop;
-  if v_bad = 0 and v_added = 23 + 1 then
+  if v_bad = 0 and v_added = 23 + 3 + 5 and v_changed = 2 then
     n_pass := n_pass + 1;
-    results := results || format(E'\nPASS S4 no existing policy or sm_* ACL changed; added %s (23 policies + the guard''s ACL)', v_added);
+    results := results || format(E'\nPASS S4 no other policy or sm_* ACL changed; added %s (23 + 3 policies, 5 function ACLs); changed%s',
+      v_added, v_changed_list);
   else
     n_fail := n_fail + 1;
-    results := results || format(E'\nFAIL S4 changed/removed %s, added %s:%s', v_bad, v_added, v_added_list);
+    results := results || format(E'\nFAIL S4 unexpected %s, added %s (want 31), sync ACLs changed %s (want 2)%s',
+      v_bad, v_added, v_changed, v_changed_list);
   end if;
 
   -- ── The cases ─────────────────────────────────────────────────────────────
@@ -871,6 +1135,45 @@ begin
   v_q_onsite  := format('select public.sm_set_onsite_attendance(%L, true)::text', c_j_ra);
   v_q_module  := format('select public.sm_ensure_module_row(%L)', v_p_ra);
 
+  -- G setup (as postgres, inside the case): a second event that is still open (no
+  -- deadline, ends in 51 days) and a confirmed registration of the same participant
+  -- in it, with one attendee and one role assignment. Claims cleared first so the
+  -- registration / role guards treat these inserts as the system's.
+  v_setup_g := format($s$
+    select set_config('request.jwt.claims', '', true), set_config('request.jwt.claim.sub', '', true);
+    insert into public.sm_event (id, slug, name, start_date, end_date, timezone, settings)
+      values (%1$L, 'dry-run-open-event', 'Dry run open event', current_date + 50, current_date + 51, 'Europe/Monaco', '{}'::jsonb);
+    insert into public.sm_registration (id, event_id, user_id, status, first_name, last_name, email)
+      values (%2$L, %1$L, %5$L, 'confirmed', 'Dry', 'Run', 'dry-run-open-reg@example.invalid');
+    insert into public.sm_attendee (id, registration_id, event_id, first_name, last_name, email)
+      values (%3$L, %2$L, %1$L, 'Dry', 'Run', 'dry-run-open-att@example.invalid');
+    insert into public.sm_role_assignment (id, registration_id, event_id, role, status)
+      values (%4$L, %2$L, %1$L, 'investor', 'confirmed')
+  $s$, c_g_ev, c_g_reg, c_g_att, c_g_ra, c_p_uid);
+
+  -- H setup (as postgres, inside the case): three event-media objects in the
+  -- participant's folder (rows only, no file; the participant has none today):
+  -- one under <uid>/sm26/ and one under <uid>/<their role assignment>/ that
+  -- existed before the lock, and one under <uid>/sm26/ created now. The storage
+  -- API sets storage.allow_delete_query for its own deletes; so does this setup.
+  v_obj_slug := c_p_uid::text || '/sm26/dry-run/old-logo.png';
+  v_obj_ra   := c_p_uid::text || '/' || v_p_ra::text || '/logo/dry-run-old.png';
+  v_obj_late := c_p_uid::text || '/sm26/dry-run/after-the-lock.png';
+  v_setup_h := format($s$
+    select set_config('storage.allow_delete_query', 'true', true);
+    insert into storage.objects (bucket_id, name, owner_id, created_at, updated_at, metadata) values
+      ('event-media', %1$L, %4$L, '2026-09-01 10:00+00', '2026-09-01 10:00+00', '{"dry_run": true}'::jsonb),
+      ('event-media', %2$L, %4$L, '2026-09-01 10:00+00', '2026-09-01 10:00+00', '{"dry_run": true}'::jsonb),
+      ('event-media', %3$L, %4$L, now(), now(), '{"dry_run": true}'::jsonb)
+  $s$, v_obj_slug, v_obj_ra, v_obj_late, c_p_uid::text);
+  v_q_obj_upd_slug := format('update storage.objects set metadata = metadata || %L::jsonb where bucket_id = %L and name = %L', '{"touched": true}', 'event-media', v_obj_slug);
+  v_q_obj_upd_late := format('update storage.objects set metadata = metadata || %L::jsonb where bucket_id = %L and name = %L', '{"touched": true}', 'event-media', v_obj_late);
+  v_q_obj_del_ra   := format('delete from storage.objects where bucket_id = %L and name = %L', 'event-media', v_obj_ra);
+  v_q_obj_ins_ra   := format('insert into storage.objects (bucket_id, name, owner_id, metadata) values (%L, %L, %L, %L::jsonb)',
+                             'event-media', c_p_uid::text || '/' || v_p_ra::text || '/logo/dry-run-new.png', c_p_uid::text, '{}');
+  v_q_obj_ins_slug := format('insert into storage.objects (bucket_id, name, owner_id, metadata) values (%L, %L, %L, %L::jsonb)',
+                             'event-media', c_p_uid::text || '/sm26/dry-run/brand-new.png', c_p_uid::text, '{}');
+
   select jsonb_agg(jsonb_build_object('id', c.id, 'who', c.who, 'open', c.is_open, 'expect', c.expect,
                                       'label', c.label, 'q', c.q, 'setup', c.setup) order by c.ord)
     into tests
@@ -881,8 +1184,23 @@ begin
       (103, 'A03', 'participant', true,  'ret:false', 'guard, deadlines in 2099', v_q_guard, null),
       (104, 'A04', 'staff',       false, 'ret:false', 'guard, staff never locked', v_q_guard, null),
       (105, 'A05', 'anon',        false, 'ret:true',  'guard, anon (a boolean, nothing else)', v_q_guard, null),
-      (106, 'A06', 'participant', false, 'ret:false', 'guard, no edit_locks_at key = open', v_q_guard,
+      (106, 'A06', 'participant', false, 'ret:true',  'guard, edit_locks_at cleared: end_date (2026-09-21) still locks', v_q_guard,
             format('update public.sm_event set settings = settings - %L where id = %L', 'edit_locks_at', c_ev)),
+      (111, 'A11', 'participant', false, 'ret:false', 'guard, no key and end_date in 30 days = open', v_q_guard,
+            format('update public.sm_event set settings = settings - %L, end_date = current_date + 30 where id = %L', 'edit_locks_at', c_ev)),
+      (112, 'A12', 'participant', false, 'ret:false', 'guard, no key and no end_date = open', v_q_guard,
+            format('update public.sm_event set settings = settings - %L, end_date = null where id = %L', 'edit_locks_at', c_ev)),
+      (113, 'A13', 'participant', false, 'ret:true',  'guard, roster_locks_at cleared: end_date still locks the roster',
+            format('select public.sm_participant_edits_locked(%L, %L)::text', c_ev, 'roster'),
+            format('update public.sm_event set settings = settings - %L where id = %L', 'roster_locks_at', c_ev)),
+      (114, 'A14', 'staff',       false, 'ret:false', 'media helper, staff never locked',
+            format('select public.sm_media_object_locked(%L, %L::timestamptz)::text', c_p_uid::text || '/sm26/x.png', '2026-09-01'), null),
+      (115, 'A15', 'participant', false, 'ret:true',  'media helper, <uid>/sm26/ file from before the lock',
+            format('select public.sm_media_object_locked(%L, %L::timestamptz)::text', c_p_uid::text || '/sm26/x.png', '2026-09-01'), null),
+      (116, 'A16', 'participant', false, 'ret:false', 'media helper, <uid>/sm26/ new upload',
+            format('select public.sm_media_object_locked(%L, null)::text', c_p_uid::text || '/sm26/x.png'), null),
+      (117, 'A17', 'participant', false, 'ret:false', 'media helper, <uid>/media-kits/ (not participant data)',
+            format('select public.sm_media_object_locked(%L, %L::timestamptz)::text', c_p_uid::text || '/media-kits/' || c_p_reg::text || '/x.png', '2026-09-01'), null),
       (107, 'A07', 'participant', false, 'ret:true',  'guard, unreadable deadline fails closed', v_q_guard,
             format('update public.sm_event set settings = jsonb_set(settings, %L, %L::jsonb) where id = %L', '{edit_locks_at}', '"not a date"', c_ev)),
       (108, 'A08', 'participant', false, 'ret:false', 'guard, deadline today (Monaco) = open all day', v_q_guard,
@@ -892,31 +1210,39 @@ begin
       (110, 'A10', 'participant', false, 'ret:false', 'guard, null event id', 'select public.sm_participant_edits_locked(null)::text', null),
 
       -- B. Participant writes through the API (RLS)
-      (201, 'B01', 'participant', false, 'deny',  'update own registration', v_q_reg, null),
+      -- "rls" = refused by a policy or a privilege (SQLSTATE 42501, or 0 rows written).
+      (201, 'B01', 'participant', false, 'rls',   'update own registration', v_q_reg, null),
       (202, 'B01', 'participant', true,  'allow', 'update own registration', v_q_reg, null),
-      (203, 'B02', 'participant', false, 'deny',  'update own role assignment module_data', v_q_ra, null),
+      (203, 'B02', 'participant', false, 'rls',   'update own role assignment module_data', v_q_ra, null),
       (204, 'B02', 'participant', true,  'allow', 'update own role assignment module_data', v_q_ra, null),
-      (205, 'B03', 'participant', false, 'deny',  'delete own role assignment (would cascade to reviews, votes, e-catalogue)',
+      (205, 'B03', 'participant', false, 'rls',   'delete own role assignment (would cascade to reviews, votes, e-catalogue)',
             format('delete from public.sm_role_assignment where id = %L', v_p_ra), null),
-      (206, 'B04', 'participant', false, 'deny',  'insert an attendee', v_q_att_ins, null),
+      (205.5, 'B03', 'participant', true, 'allow', 'delete own role assignment (would cascade to reviews, votes, e-catalogue)',
+            format('delete from public.sm_role_assignment where id = %L', v_p_ra), null),
+      -- B04: the sm_attendee_guard trigger refuses this insert before RLS is
+      -- evaluated; B04b disables that trigger inside the case to show the policy
+      -- refuses it on its own.
+      (206, 'B04', 'participant', false, 'err:attendee list is locked', 'insert an attendee (trigger)', v_q_att_ins, null),
+      (206.5, 'B04b', 'participant', false, 'rls', 'insert an attendee (policy alone, trigger disabled)', v_q_att_ins,
+            'alter table public.sm_attendee disable trigger trg_sm_attendee_guard'),
       (207, 'B04', 'participant', true,  'allow', 'insert an attendee', v_q_att_ins, null),
-      (208, 'B05', 'participant', false, 'deny',  'update an attendee', v_q_att_upd, null),
+      (208, 'B05', 'participant', false, 'rls',   'update an attendee', v_q_att_upd, null),
       (209, 'B05', 'participant', true,  'allow', 'update an attendee', v_q_att_upd, null),
-      (210, 'B06', 'participant', false, 'deny',  'delete an attendee', format('delete from public.sm_attendee where id = %L', v_p_att), null),
+      (210, 'B06', 'participant', false, 'rls',   'delete an attendee', format('delete from public.sm_attendee where id = %L', v_p_att), null),
       (211, 'B06', 'participant', true,  'allow', 'delete an attendee', format('delete from public.sm_attendee where id = %L', v_p_att), null),
-      (212, 'B07', 'participant', false, 'deny',  'update logistics', v_q_log, null),
+      (212, 'B07', 'participant', false, 'rls',   'update logistics', v_q_log, null),
       (213, 'B07', 'participant', true,  'allow', 'update logistics', v_q_log, null),
-      (214, 'B08', 'participant', false, 'deny',  'insert a logistics item', v_q_item_ins, null),
+      (214, 'B08', 'participant', false, 'rls',   'insert a logistics item', v_q_item_ins, null),
       (215, 'B08', 'participant', true,  'allow', 'insert a logistics item', v_q_item_ins, null),
-      (216, 'B09', 'participant', false, 'deny',  'update a logistics item', format('update public.sm_logistics_item set needs_approval = needs_approval where id = %L', v_p_item), null),
+      (216, 'B09', 'participant', false, 'rls',   'update a logistics item', format('update public.sm_logistics_item set needs_approval = needs_approval where id = %L', v_p_item), null),
       (217, 'B09', 'participant', true,  'allow', 'update a logistics item', format('update public.sm_logistics_item set needs_approval = needs_approval where id = %L', v_p_item), null),
-      (218, 'B10', 'participant', false, 'deny',  'delete a logistics item', format('delete from public.sm_logistics_item where id = %L', v_p_item), null),
+      (218, 'B10', 'participant', false, 'rls',   'delete a logistics item', format('delete from public.sm_logistics_item where id = %L', v_p_item), null),
       (219, 'B10', 'participant', true,  'allow', 'delete a logistics item', format('delete from public.sm_logistics_item where id = %L', v_p_item), null),
-      (220, 'B11', 'participant', false, 'deny',  'update startup profile', v_q_sp, null),
+      (220, 'B11', 'participant', false, 'rls',   'update startup profile', v_q_sp, null),
       (221, 'B11', 'participant', true,  'allow', 'update startup profile', v_q_sp, null),
-      (222, 'B12', 'participant', false, 'deny',  'insert a marina module row', format('insert into public.sm_marina_extra (role_assignment_id, event_id) values (%L, %L)', v_p_ra, c_ev), null),
+      (222, 'B12', 'participant', false, 'rls',   'insert a marina module row', format('insert into public.sm_marina_extra (role_assignment_id, event_id) values (%L, %L)', v_p_ra, c_ev), null),
       (223, 'B12', 'participant', true,  'allow', 'insert a marina module row', format('insert into public.sm_marina_extra (role_assignment_id, event_id) values (%L, %L)', v_p_ra, c_ev), null),
-      (224, 'B13', 'participant', false, 'deny',  'insert an e-catalogue comment', v_q_comment, null),
+      (224, 'B13', 'participant', false, 'rls',   'insert an e-catalogue comment', v_q_comment, null),
       (225, 'B13', 'participant', true,  'allow', 'insert an e-catalogue comment', v_q_comment, null),
 
       -- C. Participant RPCs (SECURITY DEFINER)
@@ -968,14 +1294,59 @@ begin
       (510, 'E10', 'staff', false, 'ret:true', 'sm_set_onsite_attendance (admin console)', v_q_onsite, null),
       (511, 'E11', 'staff', false, 'ret:sm_startup_profile', 'sm_ensure_module_row (admin console)', v_q_module, null),
       (512, 'E12', 'staff', false, 'allow', 'sm_ensure_badges (check-in console)', format('select public.sm_ensure_badges(%L)::text', c_ev), null),
+      (513, 'E13', 'staff', false, 'allow', 'delete a participant role assignment', format('delete from public.sm_role_assignment where id = %L', v_p_ra), null),
+      (514, 'E14', 'staff', false, 'allow', 'sm_restart_registration (staff own registration, not refused by the lock)', v_q_restart, null),
 
-      -- F. Anon: unchanged (denied before the lock too)
-      (601, 'F01', 'anon', false, 'deny',  'update a registration', v_q_reg, null),
-      (602, 'F01', 'anon', true,  'deny',  'update a registration', v_q_reg, null),
-      (603, 'F02', 'anon', false, 'deny',  'insert an attendee', v_q_att_ins, null),
-      (604, 'F03', 'anon', false, 'deny',  'sm_restart_registration', v_q_restart, null),
-      (605, 'F03', 'anon', true,  'deny',  'sm_restart_registration', v_q_restart, null),
-      (606, 'F04', 'anon', false, 'allow', 'public vote status (read)', 'select public.sm_public_vote_status()::text', null)
+      -- F. Anon: unchanged (denied before the lock too), and the two sync helpers
+      (601, 'F01', 'anon', false, 'rls',   'update a registration', v_q_reg, null),
+      (602, 'F01', 'anon', true,  'rls',   'update a registration', v_q_reg, null),
+      (603, 'F02', 'anon', false, 'rls',   'insert an attendee', v_q_att_ins, null),
+      (603.5, 'F02', 'anon', true, 'rls',  'insert an attendee', v_q_att_ins, null),
+      (604, 'F03', 'anon', false, 'deny',  'sm_restart_registration (Not authorized)', v_q_restart, null),
+      (605, 'F03', 'anon', true,  'deny',  'sm_restart_registration (Not authorized)', v_q_restart, null),
+      (606, 'F04', 'anon', false, 'allow', 'public vote status (read)', 'select public.sm_public_vote_status()::text', null),
+      (607, 'F05', 'anon',        false, 'rls', 'sm_sync_headcount_to_roster (EXECUTE revoked)', format('select public.sm_sync_headcount_to_roster(%L)::text', c_p_reg), null),
+      (608, 'F05', 'participant', false, 'rls', 'sm_sync_headcount_to_roster (EXECUTE revoked)', format('select public.sm_sync_headcount_to_roster(%L)::text', c_p_reg), null),
+      (609, 'F06', 'anon',        false, 'rls', 'sm_sync_architecture_assignments (EXECUTE revoked)', format('select public.sm_sync_architecture_assignments(%L)::text', c_ev), null),
+
+      -- G. A second, still-open event (temporary, created in each case): the lock
+      --    follows the PARENT registration, not only the row's own event_id.
+      (701, 'G01', 'participant', false, 'rls',   'insert an attendee into the locked registration, tagged with the open event',
+            format('insert into public.sm_attendee (registration_id, event_id, first_name, last_name, email) values (%L, %L, %L, %L, %L)', c_p_reg, c_g_ev, 'Dry', 'Run', 'dry-run-g01@example.invalid'), v_setup_g),
+      (702, 'G01', 'participant', true,  'allow', 'insert an attendee into the locked registration, tagged with the open event',
+            format('insert into public.sm_attendee (registration_id, event_id, first_name, last_name, email) values (%L, %L, %L, %L, %L)', c_p_reg, c_g_ev, 'Dry', 'Run', 'dry-run-g01@example.invalid'), v_setup_g),
+      (703, 'G02', 'participant', false, 'rls',   'move an open-event attendee under the locked registration',
+            format('update public.sm_attendee set registration_id = %L where id = %L', c_p_reg, c_g_att), v_setup_g),
+      (704, 'G02', 'participant', true,  'allow', 'move an open-event attendee under the locked registration',
+            format('update public.sm_attendee set registration_id = %L where id = %L', c_p_reg, c_g_att), v_setup_g),
+      (705, 'G03', 'participant', false, 'rls',   'insert a logistics item for the locked registration, tagged with the open event',
+            format('insert into public.sm_logistics_item (registration_id, event_id) values (%L, %L)', c_p_reg, c_g_ev), v_setup_g),
+      (706, 'G03', 'participant', true,  'allow', 'insert a logistics item for the locked registration, tagged with the open event',
+            format('insert into public.sm_logistics_item (registration_id, event_id) values (%L, %L)', c_p_reg, c_g_ev), v_setup_g),
+      (707, 'G04', 'participant', false, 'rls',   'insert a module row for the locked role assignment, tagged with the open event',
+            format('insert into public.sm_marina_extra (role_assignment_id, event_id) values (%L, %L)', v_p_ra, c_g_ev), v_setup_g),
+      (708, 'G04', 'participant', true,  'allow', 'insert a module row for the locked role assignment, tagged with the open event',
+            format('insert into public.sm_marina_extra (role_assignment_id, event_id) values (%L, %L)', v_p_ra, c_g_ev), v_setup_g),
+      (709, 'G05', 'participant', false, 'rls',   'move an open-event role assignment under the locked registration',
+            format('update public.sm_role_assignment set registration_id = %L where id = %L', c_p_reg, c_g_ra), v_setup_g),
+      (710, 'G05', 'participant', true,  'allow', 'move an open-event role assignment under the locked registration',
+            format('update public.sm_role_assignment set registration_id = %L where id = %L', c_p_reg, c_g_ra), v_setup_g),
+      (711, 'G06', 'participant', false, 'allow', 'the open event itself still works: update its attendee',
+            format('update public.sm_attendee set job_title = %L where id = %L', 'Dry run', c_g_att), v_setup_g),
+      (712, 'G07', 'participant', false, 'allow', 'the open event itself still works: add a logistics item',
+            format('insert into public.sm_logistics_item (registration_id, event_id) values (%L, %L)', c_g_reg, c_g_ev), v_setup_g),
+
+      -- H. Files in event-media behind the locked rows (storage.objects rows only)
+      (801, 'H01', 'participant', false, 'rls',   'replace a <uid>/sm26/ file from before the lock', v_q_obj_upd_slug, v_setup_h),
+      (802, 'H01', 'participant', true,  'allow', 'replace a <uid>/sm26/ file from before the lock', v_q_obj_upd_slug, v_setup_h),
+      (803, 'H02', 'participant', false, 'rls',   'delete a <uid>/<role assignment>/ file', v_q_obj_del_ra, v_setup_h),
+      (804, 'H02', 'participant', true,  'allow', 'delete a <uid>/<role assignment>/ file', v_q_obj_del_ra, v_setup_h),
+      (805, 'H03', 'participant', false, 'rls',   'upload a new <uid>/<role assignment>/ file', v_q_obj_ins_ra, v_setup_h),
+      (806, 'H03', 'participant', true,  'allow', 'upload a new <uid>/<role assignment>/ file', v_q_obj_ins_ra, v_setup_h),
+      (807, 'H04', 'participant', false, 'allow', 'upload a new <uid>/sm26/ file (path may be reused by the next edition)', v_q_obj_ins_slug, v_setup_h),
+      (808, 'H05', 'participant', false, 'allow', 'replace a <uid>/sm26/ file created after the lock', v_q_obj_upd_late, v_setup_h),
+      (809, 'H06', 'staff',       false, 'allow', 'replace a participant''s <uid>/sm26/ file', v_q_obj_upd_slug, v_setup_h),
+      (810, 'H07', 'staff',       false, 'allow', 'delete a participant''s <uid>/<role assignment>/ file', v_q_obj_del_ra, v_setup_h)
     ) as c(ord, id, who, is_open, expect, label, q, setup);
 
   for t in select value from jsonb_array_elements(tests) loop
@@ -986,7 +1357,7 @@ begin
                when 'claimer'     then v_c_uid
              end;
     v_dml := upper(left(ltrim(t->>'q'), 6)) <> 'SELECT';
-    v_ret := null; v_n := null; v_err := null;
+    v_ret := null; v_n := null; v_err := null; v_state := null;
     begin
       if (t->>'open')::boolean then
         update public.sm_event
@@ -1014,19 +1385,26 @@ begin
       raise exception using errcode = 'DRY01', message = 'case finished';
     exception
       when sqlstate 'DRY01' then null;
-      when others then v_err := sqlerrm;
+      when others then v_err := sqlerrm; v_state := sqlstate;
     end;
 
+    -- allow: no error and (a read, or at least one row written)
+    -- rls:   refused by a policy or a privilege: SQLSTATE 42501, or 0 rows written
+    -- deny:  refused for any reason (anon cases refused before the lock too)
+    -- lock:  refused with the "is over" message of the 11 RPCs
+    -- err:x  an error whose message contains x;  ret:x  returned exactly x
     v_exp := t->>'expect';
     v_out := case
-               when v_err is not null then 'error: ' || v_err
+               when v_err is not null then format('error %s: %s', v_state, v_err)
                when v_dml then v_n || ' row(s) written'
                else 'returned ' || coalesce(v_ret, 'null')
              end;
     v_pass := coalesce(case
                 when v_exp = 'allow' then v_err is null and (not v_dml or v_n > 0)
+                when v_exp = 'rls'   then v_state = '42501' or (v_err is null and v_dml and v_n = 0)
                 when v_exp = 'deny'  then v_err is not null or (v_dml and v_n = 0)
                 when v_exp = 'lock'  then v_err like '%is over: registrations can no longer be changed%'
+                when v_exp like 'err:%' then strpos(v_err, substr(v_exp, 5)) > 0
                 when v_exp like 'ret:%' then v_err is null and v_ret is not distinct from substr(v_exp, 5)
                 when v_exp = 'info'  then true
               end, false);

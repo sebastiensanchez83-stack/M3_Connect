@@ -99,7 +99,7 @@ export function AdminSM26Health() {
     const { error } = await supabase.rpc('sm_set_edit_deadline', { p_event_id: eventId, p_date: editDeadline || null });
     setSavingDeadline(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: editDeadline ? `Editing closes after ${editDeadline}` : 'Editing deadline cleared' });
+    toast({ title: editDeadline ? `Editing closes after ${editDeadline}` : 'Editing deadline cleared: editing closes after the event\'s last day' });
   };
 
   // Date after which the attendee roster is final (participants can't add/edit
@@ -110,7 +110,7 @@ export function AdminSM26Health() {
     const { error } = await supabase.rpc('sm_set_roster_deadline', { p_event_id: eventId, p_date: rosterDeadline || null });
     setSavingRoster(false);
     if (error) { toast({ title: 'Could not save', description: error.message, variant: 'destructive' }); return; }
-    toast({ title: rosterDeadline ? `Attendee list closes after ${rosterDeadline}` : 'Attendee deadline cleared' });
+    toast({ title: rosterDeadline ? `Attendee list closes after ${rosterDeadline}` : 'Attendee deadline cleared: the list closes after the event\'s last day' });
   };
 
   // Pre-event reminder: a test to myself, or a one-off send to all confirmed
@@ -378,7 +378,7 @@ export function AdminSM26Health() {
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4 space-y-3">
           <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Lock className="h-4 w-4 text-gray-400" /> Participant editing deadline</div>
-          <p className="text-xs text-gray-500">After this date, participants can no longer edit their registration or details (editing stays open through the day itself). Clear the date for no deadline.</p>
+          <p className="text-xs text-gray-500">After this date (open through the day itself, event time), the database refuses every participant change: registration and role details, logistics, workshop bookings, pitch-slot answers, e-catalogue comments and sign-off, on-site attendance, and replacing their uploaded files. Staff are never locked. Feedback, networking and the public vote are not affected. If you clear the date, editing closes after the event's last day.</p>
           <div className="flex flex-wrap items-center gap-2">
             <input type="date" value={editDeadline} onChange={e => setEditDeadline(e.target.value)} className="h-9 text-sm border border-gray-200 rounded-md px-2.5" />
             <Button size="sm" variant="outline" className="gap-1.5" onClick={saveDeadline} disabled={savingDeadline}>
@@ -391,7 +391,7 @@ export function AdminSM26Health() {
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4 space-y-3">
           <div className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Lock className="h-4 w-4 text-gray-400" /> Attendee list deadline</div>
-          <p className="text-xs text-gray-500">After this date, companies can no longer add or change the people attending under their registration (the list stays open through the day itself, Monaco time). Separate from the general editing deadline. Clear the date for no deadline.</p>
+          <p className="text-xs text-gray-500">After this date, companies can no longer add or change the people attending under their registration (the list stays open through the day itself, Monaco time). Separate from the general editing deadline. If you clear the date, the list closes after the event's last day.</p>
           <div className="flex flex-wrap items-center gap-2">
             <input type="date" value={rosterDeadline} onChange={e => setRosterDeadline(e.target.value)} className="h-9 text-sm border border-gray-200 rounded-md px-2.5" />
             <Button size="sm" variant="outline" className="gap-1.5" onClick={saveRosterDeadline} disabled={savingRoster}>

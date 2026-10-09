@@ -4,6 +4,7 @@ import { Helmet } from 'react-helmet-async';
 import { supabase } from '@/lib/supabase';
 import { CheckCircle2, XCircle, Loader2, CalendarDays, Video } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SM26_EDITION_OVER } from '@/components/sm26/sm26Edition';
 
 // The startup half of SM26JuryRsvpPage. The token identifies one company on one
 // session, so no login is needed — which matters because sm_registration.user_id
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button';
 
 interface Payload {
   ok: boolean; error?: string; status?: string; company?: string; first_name?: string;
+  locked?: boolean; // client-side: the server refused an answer because the edition is over
   session?: {
     title: string; slot_label: string | null; scheduled_at: string; duration_minutes: number;
     juror_count: number; startup_count: number; zoom_sent: boolean; zoom_join_url: string | null;
@@ -43,7 +45,9 @@ const ERRORS: Record<string, string> = {
 
 // sm_startup_confirm_by_token refuses an answer once the edition's edit deadline
 // has passed (sm_participant_edits_locked, migration 20261009160000). Opening the
-// link without an answer still shows the slot.
+// link without an answer still shows the slot, so a refused answer falls back to
+// showing it read-only. While SM26_EDITION_OVER is set, the page never sends an
+// answer (old e-mailed links carry one in the URL) and shows no buttons.
 const isEditionOver = (message?: string) => /is over: registrations can no longer be changed/i.test(message || '');
 
 export function SM26StartupRsvpPage() {
@@ -56,7 +60,14 @@ export function SM26StartupRsvpPage() {
 
   const send = useCallback(async (ans: string | null) => {
     const { data: res, error } = await supabase.rpc('sm_startup_confirm_by_token', { p_token: token, p_answer: ans });
-    if (error) return { ok: false, error: isEditionOver(error.message) ? 'edition_over' : 'server_error' } as Payload;
+    if (error) {
+      if (ans && isEditionOver(error.message)) {
+        const { data: view, error: viewErr } = await supabase.rpc('sm_startup_confirm_by_token', { p_token: token, p_answer: null });
+        if (!viewErr && view) return { ...(view as Payload), locked: true };
+        return { ok: false, error: 'edition_over' } as Payload;
+      }
+      return { ok: false, error: 'server_error' } as Payload;
+    }
     return (res || { ok: false, error: 'unknown' }) as Payload;
   }, [token]);
 
@@ -64,7 +75,7 @@ export function SM26StartupRsvpPage() {
     let cancelled = false;
     (async () => {
       if (!token) { setData({ ok: false, error: 'missing_token' }); setLoading(false); return; }
-      const res = await send(answer === 'confirmed' || answer === 'declined' ? answer : null);
+      const res = await send(!SM26_EDITION_OVER && (answer === 'confirmed' || answer === 'declined') ? answer : null);
       if (!cancelled) { setData(res); setLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -79,6 +90,7 @@ export function SM26StartupRsvpPage() {
 
   const s = data?.session;
   const status = data?.status;
+  const readOnly = SM26_EDITION_OVER || !!data?.locked;
 
   return (
     <div className="min-h-[70vh] bg-gray-50 flex items-center justify-center px-4 py-12">
@@ -113,7 +125,7 @@ export function SM26StartupRsvpPage() {
               ) : (
                 <><CalendarDays className="h-12 w-12 text-primary mx-auto mb-4" />
                   <h1 className="text-2xl font-bold text-gray-900 mb-2">Your pitch session</h1>
-                  <p className="text-sm text-gray-500">Please confirm that {data.company} will be there.</p></>
+                  <p className="text-sm text-gray-500">{readOnly ? ERRORS.edition_over : `Please confirm that ${data.company} will be there.`}</p></>
               )}
             </div>
 
@@ -137,19 +149,27 @@ export function SM26StartupRsvpPage() {
               </a>
             )}
 
-            <div className="flex gap-2 mt-5">
-              <Button variant={status === 'confirmed' ? 'default' : 'outline'} className="flex-1"
-                disabled={!!saving} onClick={() => change('confirmed')}>
-                {saving === 'confirmed' ? <Loader2 className="h-4 w-4 animate-spin" /> : "We'll be there"}
-              </Button>
-              <Button variant={status === 'declined' ? 'default' : 'outline'} className="flex-1"
-                disabled={!!saving} onClick={() => change('declined')}>
-                {saving === 'declined' ? <Loader2 className="h-4 w-4 animate-spin" /> : "We can't make it"}
-              </Button>
-            </div>
-            <p className="text-xs text-gray-400 text-center mt-3">
-              You can change your answer here at any time, or see everything in your <Link to="/sm26/me" className="text-primary">event space</Link>.
-            </p>
+            {readOnly ? (
+              <p className="text-xs text-gray-400 text-center mt-5">
+                {status === 'confirmed' || status === 'declined' ? `${ERRORS.edition_over} ` : ''}See everything in your <Link to="/sm26/me" className="text-primary">event space</Link>.
+              </p>
+            ) : (
+              <>
+                <div className="flex gap-2 mt-5">
+                  <Button variant={status === 'confirmed' ? 'default' : 'outline'} className="flex-1"
+                    disabled={!!saving} onClick={() => change('confirmed')}>
+                    {saving === 'confirmed' ? <Loader2 className="h-4 w-4 animate-spin" /> : "We'll be there"}
+                  </Button>
+                  <Button variant={status === 'declined' ? 'default' : 'outline'} className="flex-1"
+                    disabled={!!saving} onClick={() => change('declined')}>
+                    {saving === 'declined' ? <Loader2 className="h-4 w-4 animate-spin" /> : "We can't make it"}
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-400 text-center mt-3">
+                  You can change your answer here at any time, or see everything in your <Link to="/sm26/me" className="text-primary">event space</Link>.
+                </p>
+              </>
+            )}
           </>
         )}
       </div>

@@ -5,10 +5,12 @@
  * registration". So the participant pages (/sm26/register, the event hub
  * SM26MyRegistrationPage, /sm26/claim) are read-only while this is true.
  *
- * A client-side switch only: the admin consoles (/admin/sm26/*) keep editing
- * registrations, and the server still accepts participant writes (the RLS policies
- * and RPCs listed in the 8 Oct 2026 report); new registrations are refused server-side
- * by sm_registrations_open().
+ * This switch only shapes the pages. The server enforces the same thing on its own:
+ * once sm_event.settings.edit_locks_at / roster_locks_at have passed,
+ * sm_participant_edits_locked() makes the participant write policies and RPCs refuse
+ * non-staff callers with "Smart Marina 2026 is over: registrations can no longer be
+ * changed." (migration 20261009160000), and new registrations are refused by
+ * sm_registrations_open(). The admin consoles (/admin/sm26/*) keep editing.
  */
 export const SM26_EDITION_OVER = true;
 

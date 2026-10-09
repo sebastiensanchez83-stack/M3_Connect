@@ -14,8 +14,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // sm_attendee_guard trigger -- which enforces the admin-set roster deadline only
 // for current_user = 'authenticated' -- never saw it: any member of the
 // registered company could still create verified accounts after the deadline.
-// Non-staff callers are now refused once sm_roster_locked(event) is true (or if
-// that check cannot be made). Staff are not affected.
+// Non-staff callers are now refused once sm_roster_locked(event) is true, or once
+// sm_participant_lock_instant(event, 'roster') has passed (the same date, falling
+// back to the event's end_date when none is set), or if either check cannot be
+// made. Staff are not affected.
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -119,7 +121,14 @@ Deno.serve(async (req) => {
   if (!isStaff) {
     const { data: locked, error: lockErr } = await admin.rpc("sm_roster_locked", { p_event: a.event_id });
     if (lockErr) console.error("sm_roster_locked failed", lockErr);
-    if (lockErr || locked !== false) {
+    // The database's own roster lock (migration 20261009160000): roster_locks_at,
+    // or the event's last day when no roster date is set, so clearing the date in
+    // the admin Health tab does not reopen invitations for a finished edition.
+    // null = no deadline; an unreadable or missing answer counts as locked.
+    const { data: closesAt, error: closeErr } = await admin.rpc("sm_participant_lock_instant", { p_event_id: a.event_id, p_scope: "roster" });
+    if (closeErr) console.error("sm_participant_lock_instant failed", closeErr);
+    const closed = closesAt !== null && !(Date.now() < Date.parse(String(closesAt)));
+    if (lockErr || locked !== false || closeErr || closed) {
       return json(req, { error: "The attendee list is locked — the deadline has passed. Contact events@m3monaco.com." }, 403);
     }
   }

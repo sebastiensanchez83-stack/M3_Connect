@@ -77,6 +77,12 @@ create trigger trg_link_guest_registrations
 drop trigger if exists gl_guest_queue_provisioning on public.gl_guest;
 drop trigger if exists gl_guest_engine_guard on public.gl_guest;
 
+-- 14b. guards on events / event_registrations
+drop trigger if exists events_publish_guard on public.events;
+drop trigger if exists event_registrations_engine_guard on public.event_registrations;
+drop function if exists public.events_publish_guard();
+drop function if exists public.event_registrations_engine_guard();
+
 -- New functions
 drop function if exists public.admin_clone_event(uuid, jsonb);
 drop function if exists public.admin_save_event(jsonb);
@@ -232,6 +238,10 @@ alter table public.profiles
   drop column if exists email_proven_at,
   drop column if exists email_changed_at;
 
+-- Comments the up script set on columns that stay (none existed before).
+comment on column public.profiles.email is null;
+comment on column public.gl_guest.token is null;
+
 -- 3. gl_guest: legacy CHECKs back, new columns and indexes off
 alter table public.gl_guest drop constraint if exists gl_guest_status_check;
 alter table public.gl_guest add constraint gl_guest_status_check check (status = any (array['requested', 'invited', 'confirmed', 'declined', 'rejected', 'cancelled']));
@@ -290,3 +300,4 @@ alter table public.gl_event
 --   md5(prosrc) get_my_event_access = d02afdef0bb982e128b33da6d03025be
 --   md5(prosrc) prevent_profile_privilege_escalation = e29979e16e96d0552bfae5474e909c76
 --   select tgname from pg_trigger where tgrelid = 'public.profiles'::regclass and tgname = 'trg_link_guest_registrations';  -> 1 row
+--   select count(*) from pg_trigger where tgname in ('event_registrations_engine_guard', 'events_publish_guard');  -> 0

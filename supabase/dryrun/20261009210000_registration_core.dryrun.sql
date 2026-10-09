@@ -10,6 +10,8 @@
 --   select count(*) from information_schema.tables where table_name in ('gl_ticket', 'gl_access_token');  -> 0
 --   select count(*) from cron.job where jobname like 'registration-cron-%';                                 -> 0
 --   select count(*) from public.events where title like 'Dry run%';                                          -> 0
+--   select count(*) from pg_trigger where tgname in ('event_registrations_engine_guard', 'events_publish_guard');  -> 0
+--   select value from public.platform_settings where key = 'registration_flags';                              -> every flag false
 --
 -- Locks: like the migration itself, this holds ACCESS EXCLUSIVE locks on
 -- profiles, gl_event and gl_guest, and blocks writes to auth.users (CREATE
@@ -24,7 +26,9 @@
 --      all events), computed with that account's claims;
 --   B. the migration body, verbatim (assembled from the migration file);
 --   C. one DO block: structural checks (S..), then a setup (two test events made
---      with admin_save_event as staff, two rows on canary-onsite), then cases.
+--      and published with admin_save_event as staff, flags webinar_v2 / onsite_v2
+--      switched on for those two saves and off again; two rows on canary-onsite),
+--      then cases.
 --      Each case runs in its own sub-transaction: optional setup as postgres,
 --      then the statement as the simulated caller (set local role anon /
 --      authenticated / service_role + request.jwt.claims; "postgres" = no role
@@ -45,7 +49,7 @@
 -- transaction; a concurrent write (WYS request; on SM26 only sm_autoclaim_by_email
 -- linking an imported registration to a new account) shows as a FAIL of S07 /
 -- S14; re-run in that case.
--- Expected result: "156 PASS, 0 FAIL" (22 structural checks, 134 cases).
+-- Expected result: "181 PASS, 0 FAIL" (23 structural checks, 158 cases).
 
 set local lock_timeout = '5s';
 set local statement_timeout = '120s';
@@ -152,7 +156,8 @@ $snap$;
 --  0. Lock and statement timeouts (set local). This file takes ACCESS EXCLUSIVE
 --     locks on gl_event, gl_guest and profiles (profiles is read by
 --     is_moderator(), so by almost every RLS policy) and SHARE ROW EXCLUSIVE on
---     auth.users (foreign keys, triggers). lock_timeout 5 s: if another session
+--     auth.users (foreign keys, triggers), events and event_registrations
+--     (triggers; reads go on, writes wait). lock_timeout 5 s: if another session
 --     holds one of them, the migration gives up instead of queueing every
 --     request of the live site behind it. "canceling statement due to lock
 --     timeout": nothing was applied; run it again a little later.
@@ -197,18 +202,22 @@ $snap$;
 --     gl_resolve_access_token. Public: public_registration_events().
 -- 10. Triggers on gl_guest:
 --       gl_guest_engine_guard (BEFORE INSERT OR UPDATE): guest_list_v1 rows keep
---         the legacy 6 statuses / 3 sources and no checkin_token; core_v2 rows:
---         source 'request' only in invitation mode, a new 'plus_one' row only
---         when the event allows plus-ones, checkin_token minted at confirmation
---         when door_token = 'separate'; cancelled_at and updated_at stamped.
---         guest-list only writes legacy values, so it is never blocked on wys26.
+--         the legacy 6 statuses / 3 sources and no checkin_token, and a NEW v1
+--         row keeps a user_id only when that account proved the row's address
+--         (else user_id is dropped silently); core_v2 rows: source 'request'
+--         written only in invitation mode (existing rows stay editable after a
+--         mode change), a new 'plus_one' row only when the event allows
+--         plus-ones, checkin_token minted at confirmation when door_token =
+--         'separate'; cancelled_at and updated_at stamped. guest-list only
+--         writes legacy values and never user_id, so it is never blocked on wys26.
 --       gl_guest_queue_provisioning (AFTER INSERT OR UPDATE OF status): a row
 --         becoming 'confirmed' on an on-site event queues one
---         account_provision_job (ON CONFLICT DO NOTHING). Its body is wrapped in
---         EXCEPTION WHEN OTHERS -> RAISE WARNING: it can never abort a write of
---         guest-list. Backfill: a row ALREADY confirmed on an on-site event when
---         this migration runs (a wys26 guest approved before the apply) gets its
---         job too, once (same ON CONFLICT DO NOTHING).
+--         account_provision_job; a row confirmed AGAIN re-queues its job when it
+--         was skipped or failed (a queued or done job is left alone). Its body is
+--         wrapped in EXCEPTION WHEN OTHERS -> RAISE WARNING: it can never abort a
+--         write of guest-list. Backfill: a row ALREADY confirmed on an on-site
+--         event when this migration runs (a wys26 guest approved before the
+--         apply) gets its job too, once (ON CONFLICT DO NOTHING).
 -- 11. Identity: attach_my_records(), attach_my_records_for(uuid),
 --     mark_email_proven(), on_email_proven(uuid), complete_signup_for(uuid)
 --     (a no-op placeholder that Phase 2 replaces), and two AFTER UPDATE
@@ -220,9 +229,21 @@ $snap$;
 --     DROP TRIGGER trg_link_guest_registrations (its function is kept, unused).
 -- 12. Read model: my_participations(); get_my_event_access() re-created
 --     (DROP + CREATE in this transaction, same arguments, same ACL) with one more
---     column replay_url and a gl_guest branch; its legacy branch is unchanged.
+--     column replay_url and a gl_guest branch; its legacy branch keeps its
+--     rules and ignores core_v2 events (every current answer is unchanged).
+--     "Proven" everywhere = profiles.email_proven_at set AND profiles.email (the
+--     address it was stamped for) = auth.users.email.
 -- 13. gl_checkin_v2() (gl_checkin untouched, md5-checked).
--- 14. admin_save_event(jsonb), admin_clone_event(uuid, jsonb).
+-- 14. admin_save_event(jsonb), admin_clone_event(uuid, jsonb). events.access_level
+--     is always 'public' for core_v2 events (gl_event.access gates registration
+--     only). Publishing a core_v2 event needs registration flag webinar_v2 /
+--     onsite_v2 (the old main site would send visitors to a missing page).
+-- 14b. Two guards on legacy tables, inert for every existing event:
+--     event_registrations_engine_guard (BEFORE INSERT OR UPDATE OF event_id ON
+--     event_registrations): no legacy registration on a core_v2 event (RLS
+--     path and the service-role guest-webinar-register alike);
+--     events_publish_guard (BEFORE INSERT OR UPDATE OF published ON events):
+--     a core_v2 event becomes published only while its flag is on.
 -- 15. invoke_registration_cron(text) + 3 pg_cron jobs calling the
 --     registration-cron edge function with the Vault service key. Each call is
 --     skipped in SQL unless its flag is on (and, for provisioning, unless there
@@ -254,7 +275,8 @@ $snap$;
 -- get_my_event_access by column name, and does not call the new functions.
 -- Only effect: a new account no longer auto-links a legacy webinar guest row
 -- typed with the same, unproven address (trg_link_guest_registrations dropped;
--- the proof-based attach replaces it).
+-- the proof-based attach replaces it). The two guards of 14b act only on
+-- core_v2 events, which main never creates.
 --
 -- ════════════════════════════════════════════════════════════════════════════
 -- Checks after applying (read-only)
@@ -267,6 +289,7 @@ $snap$;
 --   select status, source, count(*) from gl_guest group by 1, 2;     -> only legacy values
 --   select tgname from pg_trigger where tgrelid = 'auth.users'::regclass and not tgisinternal;
 --     -> on_auth_user_created, on_auth_user_email_changed, on_auth_user_email_confirmed
+--   select tgrelid::regclass, tgname from pg_trigger where tgname in ('event_registrations_engine_guard', 'events_publish_guard');  -> 2 rows
 --   select jobname, schedule from cron.job where jobname like 'registration-cron-%';   -> 3 jobs
 --   scripts/contract/sm26-snapshot.sql before and after: core tables identical.
 -- Dry run: supabase/dryrun/20261009210000_registration_core.dryrun.sql
@@ -290,8 +313,8 @@ begin
   -- must stay byte-identical (gl_checkin_v2 is a separate function).
   for r in
     select * from (values
-      ('public.get_my_event_access(uuid[])', 'd02afdef0bb982e128b33da6d03025be', 'da83ffe7ddf99171b8562a314c9e8a90'),
-      ('public.prevent_profile_privilege_escalation()', 'e29979e16e96d0552bfae5474e909c76', 'dfb6e6d972116d766e6164a9ee01689d'),
+      ('public.get_my_event_access(uuid[])', 'd02afdef0bb982e128b33da6d03025be', '067870bb68772a8b5792b7d826714dd2'),
+      ('public.prevent_profile_privilege_escalation()', 'e29979e16e96d0552bfae5474e909c76', '282c96e21016508d996f7d1124ce5093'),
       ('public.gl_checkin(uuid, uuid, uuid, boolean)', 'e2a63a98dcb1f5625b24d71f0cda3a62', 'e2a63a98dcb1f5625b24d71f0cda3a62')
     ) v(fn, reviewed_md5, patched_md5)
   loop
@@ -687,6 +710,7 @@ BEGIN
       NEW.email_proven_at  := NULL;
       NEW.email_changed_at := NULL;
       NEW.signup_source    := NULL;
+      NEW.signup_intent    := NULL;
     END IF;
   END IF;
 
@@ -891,11 +915,28 @@ declare
   v_pf_job text;
   v_pf_phone text;
   v_pf_country text;
+  v_pf_status text;
   v_org_name text;
+  v_consents jsonb;
+  v_source_detail jsonb;
 begin
   if p is null or jsonb_typeof(p) <> 'object' then
     return jsonb_build_object('ok', false, 'error', 'bad_input');
   end if;
+  -- Public input stored as is: only the known keys, short scalar values.
+  --   consents      {terms_at, image, marketing_at}
+  --   source_detail {entry, ref, utm_source, utm_medium, utm_campaign, utm_term, utm_content}
+  select coalesce(jsonb_object_agg(c.key, case when jsonb_typeof(c.value) = 'string'
+                                                then to_jsonb(left(c.value #>> '{}', 100)) else c.value end), '{}'::jsonb)
+    into v_consents
+    from jsonb_each(case when jsonb_typeof(p -> 'consents') = 'object' then p -> 'consents' else '{}'::jsonb end) c
+   where c.key in ('terms_at', 'image', 'marketing_at')
+     and jsonb_typeof(c.value) in ('string', 'boolean');
+  select coalesce(jsonb_object_agg(s.key, to_jsonb(left(s.value #>> '{}', 200))), '{}'::jsonb)
+    into v_source_detail
+    from jsonb_each(case when jsonb_typeof(p -> 'source_detail') = 'object' then p -> 'source_detail' else '{}'::jsonb end) s
+   where s.key in ('entry', 'ref', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content')
+     and jsonb_typeof(s.value) = 'string';
   begin
     v_user := nullif(p ->> 'user_id', '')::uuid;
     v_org := nullif(p ->> 'organization_id', '')::uuid;
@@ -926,9 +967,14 @@ begin
     select left(btrim(coalesce(pr.first_name, '')), 80), left(btrim(coalesce(pr.last_name, '')), 80),
            nullif(left(btrim(coalesce(pr.job_title, '')), 160), ''),
            nullif(left(btrim(coalesce(pr.phone, '')), 40), ''),
-           nullif(left(btrim(coalesce(pr.country, '')), 80), '')
-      into v_pf_first, v_pf_last, v_pf_job, v_pf_phone, v_pf_country
+           nullif(left(btrim(coalesce(pr.country, '')), 80), ''),
+           pr.access_status::text
+      into v_pf_first, v_pf_last, v_pf_job, v_pf_phone, v_pf_country, v_pf_status
       from public.profiles pr where pr.user_id = v_user;
+    -- A suspended account has no capability (spec 9), registration included.
+    if v_pf_status = 'suspended' then
+      return jsonb_build_object('ok', false, 'error', 'account_suspended');
+    end if;
     -- A company is linked only if the person belongs to it.
     if v_org is not null and not exists (select 1 from public.organization_members m
                                           where m.organization_id = v_org and m.user_id = v_user) then
@@ -1090,19 +1136,19 @@ begin
            first_name = v_first, last_name = v_last,
            company = v_company, job_title = v_job, phone = v_phone, country = v_country,
            ticket_key = v_ticket_key, answers = v_answers,
-           consents = case when jsonb_typeof(p -> 'consents') = 'object' then p -> 'consents' else '{}'::jsonb end,
-           source_detail = case when jsonb_typeof(p -> 'source_detail') = 'object' then p -> 'source_detail' else g.source_detail end,
+           consents = v_consents,
+           source_detail = case when v_source_detail <> '{}'::jsonb then v_source_detail else g.source_detail end,
            cancelled_at = null, responded_at = null, decided_at = null, decided_by = null,
-           info_request = null, info_requested_at = null
+           info_request = null, info_requested_at = null,
+           -- a new registration: reminders and the first-opening signal start over
+           reminders_sent = '{}'::jsonb, link_opened_at = null
      where g.id = v_existing.id
      returning g.id into v_id;
   else
     insert into public.gl_guest (event_id, source, status, first_name, last_name, email, phone, company, job_title, country,
                                  user_id, organization_id, ticket_key, answers, consents, source_detail)
     values (ev.id, v_source, v_status, v_first, v_last, v_email, v_phone, v_company, v_job, v_country,
-            v_user, v_org, v_ticket_key, v_answers,
-            case when jsonb_typeof(p -> 'consents') = 'object' then p -> 'consents' else '{}'::jsonb end,
-            case when jsonb_typeof(p -> 'source_detail') = 'object' then p -> 'source_detail' else '{}'::jsonb end)
+            v_user, v_org, v_ticket_key, v_answers, v_consents, v_source_detail)
     returning id into v_id;
   end if;
 
@@ -1404,8 +1450,25 @@ begin
       raise exception using errcode = '23514',
         message = 'gl_guest_engine_guard: a guest-list event uses gl_guest.token at the door, not checkin_token';
     end if;
+    -- gl_guest.token is the personal link AND the door QR here, and
+    -- my_participations() shows it to the linked account: a NEW row is linked
+    -- only to the account that PROVED this row's address (Confirm email is off:
+    -- anyone can sign up with someone else's address). Otherwise user_id is
+    -- dropped, silently; attach (token link, or proof) links it later.
+    if tg_op = 'INSERT' and new.user_id is not null
+       and not exists (select 1 from public.profiles p join auth.users u on u.id = p.user_id
+                        where p.user_id = new.user_id
+                          and p.email_proven_at is not null
+                          and lower(p.email) = lower(u.email)
+                          and lower(u.email) = lower(btrim(new.email))) then
+      new.user_id := null;
+    end if;
   elsif v_engine = 'core_v2' then
-    if new.source = 'request' and v_mode <> 'invitation' then
+    -- Checked on the value being written only: an existing 'request' row stays
+    -- editable (decisions, door, cancel, attach, account deletion) after staff
+    -- move the event out of invitation mode.
+    if new.source = 'request' and v_mode <> 'invitation'
+       and (tg_op = 'INSERT' or old.source is distinct from 'request') then
       raise exception using errcode = '23514',
         message = 'gl_guest_engine_guard: source request is only for invitation-mode events';
     end if;
@@ -1477,7 +1540,7 @@ begin
     v_due := case when v_timing = 'after_event'
                   then coalesce(v_send_at, v_ends + interval '1 day', now())
                   else now() end;
-    insert into public.account_provision_job (source_kind, source_id, email, payload, email_due_at)
+    insert into public.account_provision_job as j (source_kind, source_id, email, payload, email_due_at)
     values ('gl_guest', new.id, lower(btrim(new.email)),
             jsonb_build_object(
               'first_name', new.first_name, 'last_name', new.last_name,
@@ -1485,7 +1548,16 @@ begin
               'company', new.company, 'gl_event_id', new.event_id, 'event_slug', v_slug,
               'guest_user_id', new.user_id),
             v_due)
-    on conflict (source_kind, source_id) where source_id is not null do nothing;
+    -- A registration confirmed AGAIN (declined then accepted, cancelled then
+    -- re-approved, reactivated) whose job was skipped (no longer confirmed when
+    -- provision-person looked) or failed is queued again with fresh data and the
+    -- default choices (gl_decide_v2 then stores the staff choices). A job that is
+    -- queued or done is left alone.
+    on conflict (source_kind, source_id) where source_id is not null do update
+       set status = 'queued', attempts = 0, last_error = null, done_at = null, email_sent_at = null,
+           email = excluded.email, payload = excluded.payload, email_due_at = excluded.email_due_at,
+           org_action = '{"mode": "none"}'::jsonb, validate_person = true, created_by = null
+     where j.status in ('skipped', 'failed');
   exception when others then
     raise warning 'gl_guest_queue_provisioning(%): % (%)', new.id, sqlerrm, sqlstate;
   end;
@@ -1547,12 +1619,15 @@ as $function$
 declare
   v_email text;
   v_proven timestamptz;
+  v_proven_for text;
   v_gl integer := 0;
   v_legacy integer := 0;
 begin
+  -- Proven = email_proven_at set AND profiles.email (the address the proof was
+  -- stamped for; synced by the auth triggers) still equals the auth e-mail.
   select lower(u.email) into v_email from auth.users u where u.id = p_user_id;
-  select pr.email_proven_at into v_proven from public.profiles pr where pr.user_id = p_user_id;
-  if v_email is null or v_proven is null then
+  select pr.email_proven_at, lower(pr.email) into v_proven, v_proven_for from public.profiles pr where pr.user_id = p_user_id;
+  if v_email is null or v_proven is null or v_proven_for is distinct from v_email then
     return 0;
   end if;
 
@@ -1586,7 +1661,9 @@ as $function$
   select case when auth.uid() is null then 0 else public.attach_my_records_for(auth.uid()) end
 $function$;
 
--- The person proved they read the current address: stamp, attach, finish sign-up.
+-- The person proved they read the current address: stamp (and bring
+-- profiles.email in line with it), then attach and finish sign-up. The stamp is
+-- kept even when attach or complete_signup fails (each runs in its own block).
 create or replace function public.on_email_proven(p_user_id uuid)
 returns jsonb
 language plpgsql
@@ -1595,14 +1672,28 @@ security definer
 set search_path = ''
 as $function$
 declare
-  v_attached integer;
+  v_attached integer := 0;
   v_signup jsonb;
 begin
-  update public.profiles
-     set email_proven_at = now()
-   where user_id = p_user_id and email_proven_at is null;
-  v_attached := public.attach_my_records_for(p_user_id);
-  v_signup := public.complete_signup_for(p_user_id);
+  update public.profiles pr
+     set email_proven_at = now(),
+         email = u.email
+    from auth.users u
+   where pr.user_id = p_user_id
+     and u.id = pr.user_id
+     and u.email is not null
+     and (pr.email_proven_at is null or lower(coalesce(pr.email, '')) <> lower(u.email));
+  begin
+    v_attached := public.attach_my_records_for(p_user_id);
+  exception when others then
+    raise warning 'on_email_proven(%): attach failed: % (%)', p_user_id, sqlerrm, sqlstate;
+  end;
+  begin
+    v_signup := public.complete_signup_for(p_user_id);
+  exception when others then
+    raise warning 'on_email_proven(%): complete_signup failed: % (%)', p_user_id, sqlerrm, sqlstate;
+    v_signup := jsonb_build_object('done', false, 'reason', 'error');
+  end;
   return jsonb_build_object('proven', true, 'attached', v_attached, 'signup', v_signup);
 end
 $function$;
@@ -1624,18 +1715,21 @@ declare
   v_link_at timestamptz;
   v_changed timestamptz;
   v_proven timestamptz;
+  v_proven_for text;
   v_out jsonb;
 begin
   if v_uid is null then
     raise exception using errcode = '42501', message = 'not_signed_in';
   end if;
-  select pr.email_proven_at, pr.email_changed_at into v_proven, v_changed
+  select pr.email_proven_at, pr.email_changed_at, lower(pr.email) into v_proven, v_changed, v_proven_for
     from public.profiles pr where pr.user_id = v_uid;
   if not found then
     return jsonb_build_object('proven', false, 'stamped', false, 'reason', 'no_profile');
   end if;
 
-  if v_proven is not null then
+  -- Proven only for the current auth address (profiles.email = auth e-mail).
+  if v_proven is not null
+     and v_proven_for is not distinct from (select lower(u.email) from auth.users u where u.id = v_uid) then
     return jsonb_build_object('proven', true, 'stamped', false,
                               'attached', public.attach_my_records_for(v_uid));
   end if;
@@ -1704,6 +1798,8 @@ as $function$
 declare
   v_proven boolean;
 begin
+  -- If this block fails, profiles.email keeps the OLD address, so any proof left
+  -- in email_proven_at no longer counts (proven = profiles.email = auth e-mail).
   begin
     v_proven := old.email_change_sent_at is not null
                 and nullif(old.email_change, '') is not null
@@ -1713,11 +1809,16 @@ begin
            email_changed_at = now(),
            email_proven_at = case when v_proven then now() else null end
      where user_id = new.id;
+  exception when others then
+    raise warning 'on_auth_email_changed(%): % (%)', new.id, sqlerrm, sqlstate;
+  end;
+  -- Separate block: a failing attach never undoes the profile update above.
+  begin
     if v_proven then
       perform public.attach_my_records_for(new.id);
     end if;
   exception when others then
-    raise warning 'on_auth_email_changed(%): % (%)', new.id, sqlerrm, sqlstate;
+    raise warning 'on_auth_email_changed(%): attach failed: % (%)', new.id, sqlerrm, sqlstate;
   end;
   return null;
 end
@@ -1757,7 +1858,9 @@ security definer
 set search_path = ''
 as $function$
   with me as (
-    select u.id as uid, lower(u.email) as email, (pr.email_proven_at is not null) as proven
+    -- proven = the proof was stamped for the CURRENT auth address
+    select u.id as uid, lower(u.email) as email,
+           coalesce(pr.email_proven_at is not null and lower(pr.email) = lower(u.email), false) as proven
       from auth.users u
       left join public.profiles pr on pr.user_id = u.id
      where u.id = auth.uid()
@@ -1795,7 +1898,10 @@ as $function$
              when 'cancelled' then 'cancelled'
            end as status_display,
            g.payment_status as payment_display,
-           case when ev.engine = 'guest_list_v1' then '/' || ev.slug || '/guest?t=' || g.token::text end as status_url,
+           -- v1: the token is also the WYS door QR; shown only once the caller's
+           -- address is proven (a user_id link alone may come from an account
+           -- opened with someone else's address).
+           case when ev.engine = 'guest_list_v1' and me.proven then '/' || ev.slug || '/guest?t=' || g.token::text end as status_url,
            ((w.starts_at is null or w.starts_at > now())
              and case when ev.engine = 'guest_list_v1' then g.status = 'requested'
                       else g.status in ('requested', 'needs_info', 'waitlisted', 'invited', 'approved', 'confirmed') end) as can_cancel,
@@ -1847,6 +1953,9 @@ as $function$
         on r.user_id = me.uid
         or (me.proven and r.user_id is null and lower(r.guest_email) = me.email)
       join public.events e on e.id = r.event_id
+     -- a core_v2 event registers in gl_guest only (a legacy row there is refused
+     -- by event_registrations_engine_guard and never counts)
+     where not exists (select 1 from public.gl_event x where x.legacy_event_id = r.event_id and x.engine = 'core_v2')
   ),
   sm as (
     select 'sm26'::text,
@@ -1897,7 +2006,9 @@ as $function$
 $function$;
 
 -- get_my_event_access: same arguments, one more column (replay_url). The legacy
--- branch (event_registrations) is byte-identical; a gl_guest branch is added.
+-- branch (event_registrations) keeps its rules and ignores core_v2 events (none
+-- has a catalogue row today: every current answer is unchanged, dry run S15); a
+-- gl_guest branch is added.
 -- DROP + CREATE because the return type changes; same ACL re-granted below.
 drop function if exists public.get_my_event_access(uuid[]);
 CREATE FUNCTION public.get_my_event_access(p_event_ids uuid[] DEFAULT NULL::uuid[])
@@ -1915,12 +2026,14 @@ AS $function$
              where u.id = auth.uid()
                and u.email_confirmed_at is not null) as email,
            -- registration core (20261009210000): a gl_guest row found by e-mail
-           -- counts only once that e-mail is PROVEN (profiles.email_proven_at)
+           -- counts only once that e-mail is PROVEN (profiles.email_proven_at,
+           -- stamped for the current address: profiles.email = auth e-mail)
            (select lower(u.email)
               from auth.users u
               join public.profiles p on p.user_id = u.id
              where u.id = auth.uid()
-               and p.email_proven_at is not null) as proven_email
+               and p.email_proven_at is not null
+               and lower(p.email) = lower(u.email)) as proven_email
   ),
   mine as (
     select distinct r.event_id
@@ -1935,6 +2048,9 @@ AS $function$
        -- an invitation request is not a seat until staff approve it
        and not (coalesce(e.invitation_only, false) and r.payment_status = 'pending_approval')
        and (p_event_ids is null or r.event_id = any(p_event_ids))
+       -- registration core: a core_v2 event registers in gl_guest only; a legacy
+       -- row on it (refused since this migration) never counts
+       and not exists (select 1 from public.gl_event x where x.legacy_event_id = r.event_id and x.engine = 'core_v2')
   ),
   -- registration core: a CONFIRMED gl_guest row of the caller on the event's
   -- registration (gl_event.legacy_event_id = events.id)
@@ -2046,6 +2162,8 @@ declare
   v_hidden boolean;
   v_capacity integer;
   v_keys text[];
+  v_publish boolean;
+  v_flag text;
 begin
   if not public.is_moderator() then
     raise exception using errcode = '42501', message = 'forbidden';
@@ -2131,11 +2249,30 @@ begin
     end if;
   end if;
 
-  -- events: the public catalogue row.
+  -- Publishing waits for the new registration front: while flag webinar_v2
+  -- (webinars) / onsite_v2 (on-site) is off, the old main site is live and sends
+  -- visitors of an event with a gl_event slug to /{slug}, a page it does not
+  -- have. Same rule for direct writes: events_publish_guard.
+  v_publish := case when v_hidden then false
+                    when v_ev ? 'published' then coalesce((v_ev ->> 'published')::boolean, false)
+                    when v_event_id is null then false
+                    else v_published end;
+  if coalesce(v_publish, false) and not coalesce(v_published, false) then
+    v_flag := case when v_kind = 'webinar' then 'webinar_v2' else 'onsite_v2' end;
+    if not coalesce((select (ps.value ->> v_flag) = 'true' from public.platform_settings ps where ps.key = 'registration_flags'), false) then
+      raise exception using errcode = '22023', message = 'publish_needs_flag',
+        detail = format('Publishing waits for the new registration pages (flag %s).', v_flag);
+    end if;
+  end if;
+
+  -- events: the public catalogue row. access_level stays 'public': the event page
+  -- is visible to everyone; gl_event.access ('members' = verified person) gates
+  -- the registration only (events.access_level 'members' would mean marketplace
+  -- access in can_access_resource, a different audience).
   if v_event_id is null then
     insert into public.events (title, event_type, invitation_only, access_level, published, meeting_url)
     values (v_title, case when v_kind = 'webinar' then 'webinar' else 'on_site' end,
-            v_mode = 'invitation', v_access, false, null)
+            v_mode = 'invitation', 'public', false, null)
     returning id into v_event_id;
   end if;
   update public.events e
@@ -2158,12 +2295,10 @@ begin
          event_website_url = case when v_ev ? 'event_website_url' then nullif(v_ev ->> 'event_website_url', '') else e.event_website_url end,
          image_url = case when v_ev ? 'image_url' then nullif(v_ev ->> 'image_url', '') else e.image_url end,
          replay_url = case when v_ev ? 'replay_url' then nullif(v_ev ->> 'replay_url', '') else e.replay_url end,
-         published = case when v_hidden then false
-                          when v_ev ? 'published' then coalesce((v_ev ->> 'published')::boolean, false)
-                          else e.published end,
+         published = v_publish,
          event_type = case when v_kind = 'webinar' then 'webinar' else 'on_site' end,
          invitation_only = (v_mode = 'invitation'),
-         access_level = v_access,
+         access_level = 'public',
          max_attendance = v_capacity,
          -- The join link is never public: it lives in gl_event.meeting_url.
          meeting_url = null
@@ -2354,6 +2489,74 @@ end
 $function$;
 
 -- ═════════════════════════════════════════════════════════════════════════════
+-- 14b. Guards on the legacy catalogue tables. Both look for a core_v2 gl_event
+--      on the row's event: none exists today, so they change nothing for the
+--      old live client. SECURITY DEFINER: gl_event is staff-only under RLS.
+-- ═════════════════════════════════════════════════════════════════════════════
+-- A core_v2 event registers in gl_guest only. A legacy event_registrations row
+-- on it would give its holder the join link through the legacy branch of
+-- get_my_event_access and skip M3 review and capacity. Covers the RLS path
+-- (event_reg_insert) and the service-role guest-webinar-register alike.
+create or replace function public.event_registrations_engine_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+begin
+  if exists (select 1 from public.gl_event g where g.legacy_event_id = new.event_id and g.engine = 'core_v2') then
+    raise exception using errcode = '23514',
+      message = 'event_registrations_engine_guard: this event takes registrations through the registration function only';
+  end if;
+  return new;
+end
+$function$;
+
+drop trigger if exists event_registrations_engine_guard on public.event_registrations;
+create trigger event_registrations_engine_guard
+  before insert or update of event_id on public.event_registrations
+  for each row execute function public.event_registrations_engine_guard();
+
+-- A core_v2 event becomes published only while its registration flag is on
+-- (webinar_v2 for webinars, onsite_v2 for on-site events): until then the old
+-- main site is live, and its event page sends every visitor of an event that
+-- has a gl_event slug (gl_event_slug_for is engine-blind) to /{slug}, which
+-- main does not have. Covers direct writes (the events admin list); new events
+-- are checked by admin_save_event itself (their gl_event row comes after).
+create or replace function public.events_publish_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+declare
+  v_kind text;
+  v_flag text;
+begin
+  if tg_op = 'UPDATE' and old.published is true then
+    return new;
+  end if;
+  select g.kind into v_kind from public.gl_event g where g.legacy_event_id = new.id and g.engine = 'core_v2';
+  if v_kind is null then
+    return new;
+  end if;
+  v_flag := case when v_kind = 'webinar' then 'webinar_v2' else 'onsite_v2' end;
+  if not coalesce((select (ps.value ->> v_flag) = 'true' from public.platform_settings ps where ps.key = 'registration_flags'), false) then
+    raise exception using errcode = '22023', message = 'publish_needs_flag',
+      detail = format('Publishing waits for the new registration pages (flag %s).', v_flag);
+  end if;
+  return new;
+end
+$function$;
+
+drop trigger if exists events_publish_guard on public.events;
+create trigger events_publish_guard
+  before insert or update of published on public.events
+  for each row
+  when (new.published is true)
+  execute function public.events_publish_guard();
+
+-- ═════════════════════════════════════════════════════════════════════════════
 -- 15. pg_cron: registration-cron (Vault service key, as invoke_send_profile_reminders)
 -- ═════════════════════════════════════════════════════════════════════════════
 create or replace function public.invoke_registration_cron(p_job text)
@@ -2454,6 +2657,8 @@ revoke all on function public.gl_guest_engine_guard() from public, anon, authent
 revoke all on function public.gl_guest_queue_provisioning() from public, anon, authenticated;
 revoke all on function public.on_auth_email_confirmed() from public, anon, authenticated;
 revoke all on function public.on_auth_email_changed() from public, anon, authenticated;
+revoke all on function public.event_registrations_engine_guard() from public, anon, authenticated;
+revoke all on function public.events_publish_guard() from public, anon, authenticated;
 grant execute on function public.gl_try_ts(text) to service_role;
 grant execute on function public.gl_event_window(uuid) to service_role;
 grant execute on function public.gl_seats_held(uuid, text) to service_role;
@@ -2506,6 +2711,8 @@ declare
   c_member uuid;
   c_member_email text;
   c_member2 uuid;
+  c_member2_email text;
+  v_fresh uuid := gen_random_uuid();
   c_sm uuid;
   v_wys uuid;
   v_c1 uuid;
@@ -2549,7 +2756,7 @@ begin
      and not exists (select 1 from public.gl_guest g where lower(g.email) = lower(u2.email))
      and not exists (select 1 from public.event_registrations er where er.user_id is null and lower(er.guest_email) = lower(u2.email))
    order by p.created_at limit 1;
-  select p.user_id into c_member2
+  select p.user_id, lower(u2.email) into c_member2, c_member2_email
     from public.profiles p join auth.users u2 on u2.id = p.user_id
    where p.access_status = 'verified' and p.persona not in ('admin', 'moderator')
      and p.user_id <> c_member
@@ -2588,10 +2795,10 @@ begin
   create temp table _dr_checks (id text, ok boolean, label text) on commit drop;
   insert into _dr_checks values
     ('S01', (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.prevent_profile_privilege_escalation()'::regprocedure)
-            = 'dfb6e6d972116d766e6164a9ee01689d',
+            = '282c96e21016508d996f7d1124ce5093',
      'profile guard = the patched body (exact old body + block 1b)'),
     ('S02', (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.get_my_event_access(uuid[])'::regprocedure)
-            = 'da83ffe7ddf99171b8562a314c9e8a90'
+            = '067870bb68772a8b5792b7d826714dd2'
             and (select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.gl_checkin(uuid, uuid, uuid, boolean)'::regprocedure)
             = 'e2a63a98dcb1f5625b24d71f0cda3a62',
      'get_my_event_access = the patched body; gl_checkin untouched'),
@@ -2727,7 +2934,12 @@ begin
                          where e.kind = 'onsite' and g.status = 'confirmed'
                            and not exists (select 1 from public.account_provision_job j
                                             where j.source_kind = 'gl_guest' and j.source_id = g.id)),
-     'backfill: every guest already confirmed on an on-site event has a provisioning job');
+     'backfill: every guest already confirmed on an on-site event has a provisioning job'),
+    ('S23', exists (select 1 from pg_trigger where tgrelid = 'public.event_registrations'::regclass and tgname = 'event_registrations_engine_guard' and not tgisinternal)
+            and exists (select 1 from pg_trigger where tgrelid = 'public.events'::regclass and tgname = 'events_publish_guard' and not tgisinternal)
+            and not has_function_privilege('authenticated', 'public.event_registrations_engine_guard()', 'execute')
+            and not has_function_privilege('authenticated', 'public.events_publish_guard()', 'execute'),
+     'guards installed: no legacy registration on a core_v2 event; a core_v2 event is published only with its flag on');
   for r in select * from _dr_checks order by id loop
     if coalesce(r.ok, false) then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
     results := results || format(E'\n%s %s %s', case when coalesce(r.ok, false) then 'PASS' else 'FAIL' end, r.id, r.label);
@@ -2737,6 +2949,7 @@ begin
   begin
     perform set_config('request.jwt.claim.sub', '', true);
     perform set_config('request.jwt.claims', json_build_object('sub', c_staff, 'role', 'authenticated')::text, true);
+    update public.platform_settings set value = value || '{"webinar_v2": true, "onsite_v2": true}'::jsonb where key = 'registration_flags';
     v_out := public.admin_save_event(jsonb_build_object(
       'event', jsonb_build_object('title', 'Dry run webinar', 'date_time', now() + interval '7 days',
                                   'end_date_time', now() + interval '7 days 1 hour', 'published', true),
@@ -2760,6 +2973,7 @@ begin
                                                         jsonb_build_object('value', 'vegetarian', 'label', 'Vegetarian'))),
         jsonb_build_object('key', 'linkedin', 'label', 'LinkedIn', 'kind', 'url', 'profile_field', 'linkedin_url'))));
     v_o := (v_out ->> 'gl_event_id')::uuid;
+    update public.platform_settings set value = value || '{"webinar_v2": false, "onsite_v2": false}'::jsonb where key = 'registration_flags';
     perform set_config('request.jwt.claims', '', true);
 
     insert into public.gl_guest (event_id, source, status, first_name, last_name, email)
@@ -2830,7 +3044,22 @@ begin
       'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email) values (%L, 'plus_one', 'requested', 'Dry', 'Plus', 'dryrun-g15@example.invalid')$q$, v_o)),
     jsonb_build_object('id', 'G16', 'who', 'service', 'expect', 'allow', 'label', 'core_v2 event with plus_ones = 1 takes a plus-one row',
       'setup', format($q$update public.gl_event set plus_ones = 1 where id = %L$q$, v_o),
-      'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email) values (%L, 'plus_one', 'requested', 'Dry', 'Plus', 'dryrun-g16@example.invalid')$q$, v_o))
+      'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email) values (%L, 'plus_one', 'requested', 'Dry', 'Plus', 'dryrun-g16@example.invalid')$q$, v_o)),
+    jsonb_build_object('id', 'G17', 'who', 'service', 'expect', 'allow', 'label', 'v1 insert linked to an account that did not prove the address: user_id dropped (the token is the WYS door QR)',
+      'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email, user_id) values (%L, 'request', 'requested', 'Dry', 'Unproven', %L, %L)$q$, v_c1, c_member2_email, c_member2),
+      'chk', format($q$select user_id is null from public.gl_guest where event_id = %L and lower(email) = %L$q$, v_c1, c_member2_email)),
+    jsonb_build_object('id', 'G18', 'who', 'service', 'expect', 'allow', 'label', 'v1 insert linked to the account that proved this address: user_id kept',
+      'setup', format($q$update public.profiles set email_proven_at = now() where user_id = %L$q$, c_member2),
+      'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email, user_id) values (%L, 'request', 'requested', 'Dry', 'Unproven', %L, %L)$q$, v_c1, c_member2_email, c_member2),
+      'chk', format($q$select user_id = %L from public.gl_guest where event_id = %L and lower(email) = %L$q$, c_member2, v_c1, c_member2_email)),
+    jsonb_build_object('id', 'G19', 'who', 'service', 'expect', 'ret:confirmed', 'label', 'a request row stays decidable after staff move the event out of invitation mode',
+      'setup', format($q$update public.gl_event set registration_mode = 'invitation', public_requests = true where id = %1$L; with ins as (insert into public.gl_guest (event_id, source, status, first_name, last_name, email, ticket_key) values (%1$L, 'request', 'requested', 'Dry', 'Req', 'dryrun-req@example.invalid', 'visitor') returning id) select set_config('dryrun.g', (select id::text from ins), true); update public.gl_event set registration_mode = 'review' where id = %1$L$q$, v_o),
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'approve', %L)) ->> 'status'$q$, v_o, c_staff),
+      'chk', $q$select status = 'confirmed' and checkin_token is not null and source = 'request' from public.gl_guest where id = current_setting('dryrun.g')::uuid$q$),
+    jsonb_build_object('id', 'G20', 'who', 'staff', 'expect', 'ret:true', 'label', 'and a confirmed request row still scans at the door after the mode change',
+      'setup', format($q$update public.gl_event set registration_mode = 'invitation', public_requests = true where id = %1$L; with ins as (insert into public.gl_guest (event_id, source, status, first_name, last_name, email, ticket_key) values (%1$L, 'request', 'requested', 'Dry', 'Req', 'dryrun-req@example.invalid', 'visitor') returning id) select set_config('dryrun.g', (select id::text from ins), true); update public.gl_guest set status = 'confirmed' where id = current_setting('dryrun.g')::uuid; update public.gl_event set registration_mode = 'review' where id = %1$L$q$, v_o),
+      'q', format($q$select (public.gl_checkin_v2(%L, (select checkin_token from public.gl_guest where id = current_setting('dryrun.g')::uuid), null, false)) ->> 'ok'$q$, v_o),
+      'chk', $q$select checked_in_at is not null from public.gl_guest where id = current_setting('dryrun.g')::uuid$q$)
   );
 
   -- ── Cases: atomic registration (service role, as the registration function) ──
@@ -2905,7 +3134,17 @@ begin
     jsonb_build_object('id', 'R25', 'who', 'service', 'expect', 'ret:confirmed', 'label', 'one-click (signed in, nothing typed): required fields come from the profile',
       'setup', format($q$update public.profiles set first_name = coalesce(nullif(first_name, ''), 'Dry'), last_name = coalesce(nullif(last_name, ''), 'Member'), job_title = 'Dry profile title', country = 'Monaco' where user_id = %L; update public.gl_event set standard_fields = '{"job_title": "required", "country": "required"}'::jsonb where id = %L$q$, c_member, v_w),
       'q', format($q$select (public.gl_register_v2(jsonb_build_object('gl_event_id', %L, 'user_id', %L))) ->> 'status'$q$, v_w, c_member),
-      'chk', format($q$select job_title = 'Dry profile title' and country = 'Monaco' and lower(email) = %3$L from public.gl_guest where event_id = %1$L and user_id = %2$L$q$, v_w, c_member, c_member_email))
+      'chk', format($q$select job_title = 'Dry profile title' and country = 'Monaco' and lower(email) = %3$L from public.gl_guest where event_id = %1$L and user_id = %2$L$q$, v_w, c_member, c_member_email)),
+    jsonb_build_object('id', 'R26', 'who', 'service', 'expect', 'ret:account_suspended', 'label', 'a suspended account cannot register',
+      'setup', format($q$update public.profiles set access_status = 'suspended' where user_id = %L$q$, c_member2),
+      'q', format($q$select (public.gl_register_v2(jsonb_build_object('gl_event_id', %L, 'user_id', %L))) ->> 'error'$q$, v_w, c_member2)),
+    jsonb_build_object('id', 'R27', 'who', 'service', 'expect', 'ret:confirmed', 'label', 'consents and source details keep only the known keys',
+      'q', format($q$select (public.gl_register_v2(jsonb_build_object('gl_event_id', %L, 'email', 'dryrun-r27@example.invalid', 'first_name', 'Dry', 'last_name', 'Keys', 'consents', '{"terms_at": "2026-10-09T10:00:00Z", "image": true, "junk": "x"}'::jsonb, 'source_detail', '{"entry": "campaign", "utm_source": "news", "evil": {"a": 1}, "ref": 123}'::jsonb))) ->> 'status'$q$, v_w),
+      'chk', format($q$select consents = '{"terms_at": "2026-10-09T10:00:00Z", "image": true}'::jsonb and source_detail = '{"entry": "campaign", "utm_source": "news"}'::jsonb from public.gl_guest where event_id = %L and email = 'dryrun-r27@example.invalid'$q$, v_w)),
+    jsonb_build_object('id', 'R28', 'who', 'service', 'expect', 'ret:true', 'label', 'a reactivated registration starts its reminders and first-opening signal over',
+      'setup', format($q$select %s; update public.gl_guest set status = 'cancelled', reminders_sent = '{"P1D": "2026-10-01T00:00:00Z"}'::jsonb, link_opened_at = now() where event_id = %L$q$, r_wa, v_w),
+      'q', format($q$select (%s) ->> 'reactivated'$q$, r_wa),
+      'chk', format($q$select count(*) = 1 and bool_and(reminders_sent = '{}'::jsonb and link_opened_at is null and status = 'confirmed') from public.gl_guest where event_id = %L$q$, v_w))
   );
 
   -- ── Cases: status-link tokens ──
@@ -2960,6 +3199,7 @@ begin
     jsonb_build_object('id', 'A01', 'who', 'member', 'expect', 'err:forbidden', 'label', 'a member cannot save an event',
       'q', $q$select public.admin_save_event('{}'::jsonb)::text$q$),
     jsonb_build_object('id', 'A02', 'who', 'staff', 'expect', 'allow', 'label', 'staff create a webinar: events + gl_event in step, join link kept private',
+      'setup', $q$update public.platform_settings set value = value || '{"webinar_v2": true}'::jsonb where key = 'registration_flags'$q$,
       'q', $q$select public.admin_save_event(jsonb_build_object('event', jsonb_build_object('title', 'Dry run A02', 'published', true), 'registration', jsonb_build_object('slug', 'dryrun-a02', 'kind', 'webinar', 'meeting_url', 'https://example.invalid/a02')))::text$q$,
       'chk', $q$select e.event_type = 'webinar' and e.meeting_url is null and e.published and not e.invitation_only and e.access_level = 'public'
                        and g.engine = 'core_v2' and g.door_token = 'separate' and not g.requests_open and g.registration_mode = 'instant'
@@ -3005,7 +3245,25 @@ begin
       'q', format($q$update public.gl_event set door_token = 'separate' where id = %L$q$, v_wys)),
     jsonb_build_object('id', 'A15', 'who', 'staff', 'expect', 'allow', 'label', 'a core_v2 event keeps its own door pass whatever the editor sends',
       'q', format($q$select public.admin_save_event(jsonb_build_object('id', %L, 'registration', jsonb_build_object('door_token', 'shared')))::text$q$, v_w),
-      'chk', format($q$select door_token = 'separate' from public.gl_event where id = %L$q$, v_w))
+      'chk', format($q$select door_token = 'separate' from public.gl_event where id = %L$q$, v_w)),
+    jsonb_build_object('id', 'A16', 'who', 'staff', 'expect', 'allow', 'label', 'members-only registration keeps the event page public (events.access_level public)',
+      'q', format($q$select public.admin_save_event(jsonb_build_object('id', %L, 'registration', jsonb_build_object('access', 'members')))::text$q$, v_w),
+      'chk', format($q$select g.access = 'members' and e.access_level = 'public' from public.gl_event g join public.events e on e.id = g.legacy_event_id where g.id = %L$q$, v_w)),
+    jsonb_build_object('id', 'A17', 'who', 'member', 'expect', 'ret:1', 'label', 'a verified member sees a members-only event in the catalogue',
+      'setup', format($q$select set_config('request.jwt.claims', %L, true); select public.admin_save_event(jsonb_build_object('id', %L, 'registration', jsonb_build_object('access', 'members')))$q$, json_build_object('sub', c_staff, 'role', 'authenticated')::text, v_w),
+      'q', format($q$select count(*)::text from public.events where id = %L$q$, v_w_event)),
+    jsonb_build_object('id', 'A18', 'who', 'anon', 'expect', 'ret:1', 'label', 'so does a visitor (the page then says members only)',
+      'setup', format($q$select set_config('request.jwt.claims', %L, true); select public.admin_save_event(jsonb_build_object('id', %L, 'registration', jsonb_build_object('access', 'members')))$q$, json_build_object('sub', c_staff, 'role', 'authenticated')::text, v_w),
+      'q', format($q$select count(*)::text from public.events where id = %L$q$, v_w_event)),
+    jsonb_build_object('id', 'A19', 'who', 'staff', 'expect', 'err:publish_needs_flag', 'label', 'publishing a new event waits for its registration flag (old main site still live)',
+      'q', $q$select public.admin_save_event(jsonb_build_object('event', jsonb_build_object('title', 'Dry run A19', 'published', true), 'registration', jsonb_build_object('slug', 'dryrun-a19', 'kind', 'webinar')))::text$q$),
+    jsonb_build_object('id', 'A20', 'who', 'staff', 'expect', 'err:publish_needs_flag', 'label', 'publishing from the events list waits for the flag too',
+      'setup', format($q$update public.events set published = false where id = (select legacy_event_id from public.gl_event where id = %1$L)$q$, v_o),
+      'q', format($q$update public.events set published = true where id = (select legacy_event_id from public.gl_event where id = %L)$q$, v_o)),
+    jsonb_build_object('id', 'A21', 'who', 'staff', 'expect', 'allow', 'label', 'with onsite_v2 on, the same publication goes through',
+      'setup', format($q$update public.events set published = false where id = (select legacy_event_id from public.gl_event where id = %1$L); update public.platform_settings set value = value || '{"onsite_v2": true}'::jsonb where key = 'registration_flags'$q$, v_o),
+      'q', format($q$update public.events set published = true where id = (select legacy_event_id from public.gl_event where id = %L)$q$, v_o),
+      'chk', format($q$select published from public.events where id = (select legacy_event_id from public.gl_event where id = %L)$q$, v_o))
   );
 
   -- ── Cases: profiles and the guard ──
@@ -3032,7 +3290,12 @@ begin
       'chk', format($q$select email_proven_at is not null from public.profiles where user_id = %L$q$, c_member)),
     jsonb_build_object('id', 'P08', 'who', 'member2', 'expect', 'ret:0', 'label', 'another member does not see my sectors',
       'setup', format($q$insert into public.profile_interest_sectors (user_id, sector_id) values (%L, %L)$q$, c_member, v_sector),
-      'q', format($q$select count(*)::text from public.profile_interest_sectors where user_id = %L$q$, c_member))
+      'q', format($q$select count(*)::text from public.profile_interest_sectors where user_id = %L$q$, c_member)),
+    jsonb_build_object('id', 'P09', 'who', 'member', 'expect', 'allow', 'label', 'an API profile insert starts with no proof, no sign-up record and the JWT e-mail',
+      'claims', jsonb_build_object('sub', v_fresh, 'email', 'dryrun-fresh@example.invalid'),
+      'setup', format($q$insert into auth.users (id, email, aud, role) values (%1$L, 'dryrun-fresh@example.invalid', 'authenticated', 'authenticated'); delete from public.profiles where user_id = %1$L$q$, v_fresh),
+      'q', format($q$insert into public.profiles (user_id, persona, email, email_proven_at, signup_source, signup_intent) values (%L, 'individual', 'dryrun-other@example.invalid', now(), 'provisioned', '{"action": "new"}'::jsonb)$q$, v_fresh),
+      'chk', format($q$select email = 'dryrun-fresh@example.invalid' and email_proven_at is null and email_changed_at is null and signup_source is null and signup_intent is null and access_status = 'pending' from public.profiles where user_id = %L$q$, v_fresh))
   );
 
   -- ── Cases: e-mail proof and attach ──
@@ -3089,7 +3352,7 @@ begin
       'q', $q$select public.attach_my_records()::text$q$,
       'chk', format($q$select user_id = %L from public.gl_guest where id = %L$q$, c_member, v_gwys)),
     jsonb_build_object('id', 'M15', 'who', 'member', 'expect', 'ret:0', 'label', 'attach never gives one account two rows on one event',
-      'setup', format($q$update public.profiles set email_proven_at = now() where user_id = %1$L; insert into public.gl_guest (event_id, source, status, first_name, last_name, email, user_id) values (%2$L, 'request', 'requested', 'Dry', 'Other', 'dryrun-other@example.invalid', %1$L)$q$, c_member, v_c1),
+      'setup', format($q$update public.profiles set email_proven_at = now() where user_id = %1$L; insert into public.gl_guest (event_id, source, status, first_name, last_name, email) values (%2$L, 'request', 'requested', 'Dry', 'Other', 'dryrun-other@example.invalid'); update public.gl_guest set user_id = %1$L where event_id = %2$L and email = 'dryrun-other@example.invalid'$q$, c_member, v_c1),
       'q', $q$select public.attach_my_records()::text$q$),
     jsonb_build_object('id', 'M16', 'who', 'member', 'expect', 'ret:link_session_too_old', 'label', 'an e-mail-link session older than 15 minutes proves nothing',
       'claims', jsonb_build_object('amr', jsonb_build_array(jsonb_build_object('method', 'otp', 'timestamp', v_epoch - 7200))),
@@ -3098,7 +3361,22 @@ begin
     jsonb_build_object('id', 'M17', 'who', 'member', 'expect', 'ret:true', 'label', 'a view-as-user an hour before does not block a fresh link session',
       'claims', jsonb_build_object('amr', jsonb_build_array(jsonb_build_object('method', 'magiclink', 'timestamp', v_epoch))),
       'setup', format($q$insert into public.admin_impersonation_log (admin_user_id, target_user_id, target_email, created_at) values (%L, %L, %L, now() - interval '1 hour')$q$, c_staff, c_member, c_member_email),
-      'q', $q$select (public.mark_email_proven()) ->> 'stamped'$q$)
+      'q', $q$select (public.mark_email_proven()) ->> 'stamped'$q$),
+    jsonb_build_object('id', 'M18', 'who', 'postgres', 'expect', 'allow', 'label', 'the proof stamp survives an attach failing inside the auth confirmation',
+      'setup', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email) values (%1$L, 'request', 'requested', 'Dry', 'Attach', %2$L); alter table public.gl_guest add constraint dryrun_block check (false) not valid; update auth.users set email_confirmed_at = null, confirmation_sent_at = now() - interval '5 minutes', invited_at = null, recovery_sent_at = null where id = %3$L$q$, v_c1, c_member2_email, c_member2),
+      'q', format($q$update auth.users set email_confirmed_at = now() where id = %L$q$, c_member2),
+      'chk', format($q$select (select email_proven_at is not null from public.profiles where user_id = %1$L)
+                          and (select user_id is null from public.gl_guest where event_id = %2$L and lower(email) = %3$L)$q$, c_member2, v_c1, c_member2_email)),
+    jsonb_build_object('id', 'M19', 'who', 'member', 'expect', 'ret:0', 'label', 'a proof stamped for another address (profiles.email out of step) counts for nothing',
+      'setup', format($q$update public.profiles set email_proven_at = now(), email = 'dryrun-stale@example.invalid' where user_id = %L$q$, c_member),
+      'q', $q$select public.attach_my_records()::text$q$,
+      'chk', format($q$select user_id is null from public.gl_guest where id = %L$q$, v_gwys)),
+    jsonb_build_object('id', 'M20', 'who', 'member', 'expect', 'ret:true', 'label', 'a fresh e-mail-link session proves the current address again and puts profiles.email back in step',
+      'claims', jsonb_build_object('amr', jsonb_build_array(jsonb_build_object('method', 'otp', 'timestamp', v_epoch))),
+      'setup', format($q$update public.profiles set email_proven_at = now(), email = 'dryrun-stale@example.invalid' where user_id = %L$q$, c_member),
+      'q', $q$select (public.mark_email_proven()) ->> 'stamped'$q$,
+      'chk', format($q$select (select lower(email) = %2$L and email_proven_at is not null from public.profiles where user_id = %1$L)
+                          and (select user_id = %1$L from public.gl_guest where id = %3$L)$q$, c_member, c_member_email, v_gwys))
   );
 
   -- ── Cases: read model and event access ──
@@ -3116,6 +3394,9 @@ begin
     jsonb_build_object('id', 'MP5', 'who', 'member', 'expect', 'ret:confirmed', 'label', 'signed-in webinar registration shows as confirmed',
       'setup', format('select %s', r_wm),
       'q', format($q$select status_display from public.my_participations() where gl_event_id = %L$q$, v_w)),
+    jsonb_build_object('id', 'MP6', 'who', 'member', 'expect', 'ret:none/under_review', 'label', 'unproven: a guest-list row linked to the account is listed without its personal link (door QR)',
+      'setup', format($q$update public.gl_guest set user_id = %L where id = %L$q$, c_member, v_gwys),
+      'q', format($q$select coalesce(status_url, 'none') || '/' || status_display from public.my_participations() where gl_event_id = %L$q$, v_c1)),
     jsonb_build_object('id', 'E01', 'who', 'member', 'expect', 'ret:https://example.invalid/meet', 'label', 'a confirmed registrant gets the join link',
       'setup', format('select %s', r_wm),
       'q', format($q$select meeting_url from public.get_my_event_access(array[%L]::uuid[])$q$, v_w_event)),
@@ -3132,6 +3413,16 @@ begin
     jsonb_build_object('id', 'E06', 'who', 'member', 'expect', 'ret:none', 'label', 'a registration still under review gets no join link',
       'setup', format($q$update public.gl_event set registration_mode = 'review' where id = %L; select %s$q$, v_w, r_wm),
       'q', format($q$select coalesce((select meeting_url from public.get_my_event_access(array[%L]::uuid[])), 'none')$q$, v_w_event)),
+    jsonb_build_object('id', 'E07', 'who', 'member2', 'expect', 'err:event_registrations_engine_guard', 'label', 'no legacy registration on a core_v2 event through the API',
+      'q', format($q$insert into public.event_registrations (event_id, user_id, registration_type, payment_status) values (%L, %L, 'standard', 'free')$q$, v_w_event, c_member2)),
+    jsonb_build_object('id', 'E08', 'who', 'service', 'expect', 'err:event_registrations_engine_guard', 'label', 'nor through guest-webinar-register (service role)',
+      'q', format($q$insert into public.event_registrations (event_id, registration_type, payment_status, guest_email, guest_first_name, guest_last_name) values (%L, 'guest', 'free', 'dryrun-e08@example.invalid', 'Dry', 'Guest')$q$, v_w_event)),
+    jsonb_build_object('id', 'E09', 'who', 'member', 'expect', 'ret:none', 'label', 'a legacy row on a core_v2 event (made before the guard) gives no join link',
+      'setup', format($q$alter table public.event_registrations disable trigger event_registrations_engine_guard; insert into public.event_registrations (event_id, user_id, registration_type, payment_status) values (%L, %L, 'standard', 'free'); alter table public.event_registrations enable trigger event_registrations_engine_guard$q$, v_w_event, c_member),
+      'q', format($q$select coalesce((select meeting_url from public.get_my_event_access(array[%L]::uuid[])), 'none')$q$, v_w_event)),
+    jsonb_build_object('id', 'E10', 'who', 'member', 'expect', 'ret:0', 'label', 'and is not listed in my_participations',
+      'setup', format($q$alter table public.event_registrations disable trigger event_registrations_engine_guard; insert into public.event_registrations (event_id, user_id, registration_type, payment_status) values (%L, %L, 'standard', 'free'); alter table public.event_registrations enable trigger event_registrations_engine_guard$q$, v_w_event, c_member),
+      'q', format($q$select count(*)::text from public.my_participations() where engine = 'legacy' and event_id = %L$q$, v_w_event)),
     jsonb_build_object('id', 'L01', 'who', 'anon', 'expect', 'ret:1', 'label', 'the public list shows an open published event',
       'q', $q$select count(*)::text from public.public_registration_events() where slug = 'dryrun-webinar' and state = 'open'$q$),
     jsonb_build_object('id', 'L02', 'who', 'anon', 'expect', 'ret:0', 'label', 'hidden canaries and unpublished events are not listed',
@@ -3165,6 +3456,14 @@ begin
       'q', $q$insert into public.account_provision_job (source_kind, email) values ('staff', 'dryrun@example.invalid')$q$),
     jsonb_build_object('id', 'J04', 'who', 'anon', 'expect', 'rls', 'label', 'anon cannot read the outbox',
       'q', $q$select count(*)::text from public.account_provision_job$q$),
+    jsonb_build_object('id', 'J05', 'who', 'postgres', 'expect', 'allow', 'label', 'confirmed again after its job was skipped: the job is queued again (one job)',
+      'setup', format($q$update public.gl_guest set status = 'confirmed' where id = %1$L; update public.account_provision_job set status = 'skipped', email_due_at = null, done_at = now() where source_id = %1$L; update public.gl_guest set status = 'declined' where id = %1$L$q$, v_gconf),
+      'q', format($q$update public.gl_guest set status = 'confirmed' where id = %L$q$, v_gconf),
+      'chk', format($q$select count(*) = 1 and bool_and(status = 'queued' and attempts = 0 and done_at is null and email_due_at is not null) from public.account_provision_job where source_id = %L$q$, v_gconf)),
+    jsonb_build_object('id', 'J06', 'who', 'postgres', 'expect', 'allow', 'label', 'a job already done is left alone when the registration is confirmed again',
+      'setup', format($q$update public.gl_guest set status = 'confirmed' where id = %1$L; update public.account_provision_job set status = 'done', done_at = now() where source_id = %1$L; update public.gl_guest set status = 'declined' where id = %1$L$q$, v_gconf),
+      'q', format($q$update public.gl_guest set status = 'confirmed' where id = %L$q$, v_gconf),
+      'chk', format($q$select count(*) = 1 and bool_and(status = 'done') from public.account_provision_job where source_id = %L$q$, v_gconf)),
     jsonb_build_object('id', 'CR1', 'who', 'postgres', 'expect', 'ret:skipped', 'label', 'provisioning flag on but nothing queued: no call',
       'setup', $q$delete from public.account_provision_job; update public.platform_settings set value = value || '{"provisioning": true}'::jsonb where key = 'registration_flags'$q$,
       'q', $q$select public.invoke_registration_cron('provision')$q$),

@@ -29,8 +29,12 @@
 -- concurrent SM26 write (none expected: SM26 is locked; sm_autoclaim_by_email
 -- can still link an imported registration to a new account) would show as a
 -- FAIL of S07; a WYS request sent during the run, as a FAIL of S09. Re-run.
--- Locks: lock_timeout 5 s (below and in the body). "canceling statement due to
--- lock timeout" = nothing was kept; run it again a little later.
+-- Locks: like the migration itself, this holds ACCESS EXCLUSIVE locks on
+-- platform_settings (CREATE POLICY) and gl_event (ALTER TABLE) until it ends (a
+-- few seconds): the homepage figures (display_stats) and /wys26 wait behind it.
+-- Run it at a quiet moment. lock_timeout 5 s (below and in the body):
+-- "canceling statement due to lock timeout" = nothing was kept; run it again a
+-- little later.
 -- Expected result: "25 PASS, 0 FAIL" (13 structural checks, 12 cases).
 
 set local lock_timeout = '5s';

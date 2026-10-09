@@ -11,13 +11,15 @@
 -- if anything must be kept:
 --   copy (select * from public.conversation_messages) to stdout with csv header;  -- etc.
 
--- The Friday job
+-- The Friday job (normally removed first by 20261009190001_messages_digest_cron.down.sql;
+-- repeated here so this file is enough on its own)
 SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'messages-digest-friday';
 
 -- RPCs and helpers
-DROP FUNCTION IF EXISTS public.invoke_messages_digest();
+DROP FUNCTION IF EXISTS public.invoke_messages_digest(boolean);
+DROP FUNCTION IF EXISTS public.msg_digest_due(timestamptz);
 DROP FUNCTION IF EXISTS public.msg_digest_batch(date, integer);
-DROP FUNCTION IF EXISTS public.msg_mark_read(uuid);
+DROP FUNCTION IF EXISTS public.msg_mark_read(uuid, timestamptz);
 DROP FUNCTION IF EXISTS public.msg_thread(uuid);
 DROP FUNCTION IF EXISTS public.msg_conversations();
 DROP FUNCTION IF EXISTS public.msg_unread_count();
@@ -43,6 +45,7 @@ DROP FUNCTION IF EXISTS public.msg_pair_open_request(uuid, uuid);
 DROP FUNCTION IF EXISTS public.msg_orgs_sectors_match(uuid, uuid);
 DROP FUNCTION IF EXISTS public.msg_can_write(uuid, uuid);
 DROP FUNCTION IF EXISTS public.msg_my_side_org(uuid);
+DROP FUNCTION IF EXISTS public.msg_can_report(uuid);
 DROP FUNCTION IF EXISTS public.msg_can_access(uuid);
 DROP FUNCTION IF EXISTS public.msg_side(uuid, uuid);
 DROP FUNCTION IF EXISTS public.msg_user_org_ids(uuid);

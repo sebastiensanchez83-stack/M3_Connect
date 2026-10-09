@@ -6,9 +6,9 @@ import { MessagesView } from '@/components/messages/MessagesView';
  * what the member's company sent (src/components/messages/MessagesView.tsx). The
  * name stays so the dashboard's Messages tile and /inbox keep importing it.
  *
- * What moved out: team invitations sent and join requests are in "My team" (join
- * requests also show here, under "Waiting for your answer", for the owner);
- * recommendation requests are in "References".
+ * What moved out: team invitations sent and people asking to join the company are
+ * in "My team" (join requests also in the dashboard's to-do); recommendation
+ * requests are in "References".
  */
 export function InboxTab() {
   return <MessagesView />;

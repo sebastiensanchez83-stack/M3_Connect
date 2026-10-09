@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, Loader2, Users } from 'lucide-react';
@@ -49,6 +49,8 @@ export function SendMessageDialog({
   const hintId = useId();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  // Set before any await: a double click must not send the message twice.
+  const sendingRef = useRef(false);
   const [match, setMatch] = useState<boolean | null>(null);
   const [done, setDone] = useState<SentFirstMessage | null>(null);
   const [problem, setProblem] = useState<{ message: string; already: boolean } | null>(null);
@@ -68,23 +70,28 @@ export function SendMessageDialog({
   const ready = text.trim().length > 0 && left >= 0;
 
   const send = async () => {
-    if (!uid || !ready || sending) return;
-    const fresh = await requireFreshSession();
-    if (!fresh) return;
-    setSending(true);
-    setProblem(null);
-    const result = await sendFirstMessage({ uid, myOrgId, targetOrgId: org.id, targetUserId: org.contactUserId, message: text });
-    setSending(false);
-    if (result.ok) {
-      setDone({ id: result.id, connected: result.connected });
-      setText('');
-      onSent({ id: result.id, connected: result.connected });
-      return;
-    }
-    if (result.reason === 'error') {
-      toast({ title: t('messages.sendFailed', 'Not sent'), description: result.message, variant: 'destructive' });
-    } else {
-      setProblem({ message: result.message, already: result.reason === 'already' });
+    if (!uid || !ready || sendingRef.current) return;
+    sendingRef.current = true;
+    try {
+      const fresh = await requireFreshSession();
+      if (!fresh) return;
+      setSending(true);
+      setProblem(null);
+      const result = await sendFirstMessage({ uid, myOrgId, targetOrgId: org.id, targetUserId: org.contactUserId, message: text });
+      if (result.ok) {
+        setDone({ id: result.id, connected: result.connected });
+        setText('');
+        onSent({ id: result.id, connected: result.connected });
+        return;
+      }
+      if (result.reason === 'error') {
+        toast({ title: t('messages.sendFailed', 'Not sent'), description: result.message, variant: 'destructive' });
+      } else {
+        setProblem({ message: result.message, already: result.reason === 'already' });
+      }
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
   };
 
@@ -111,10 +118,10 @@ export function SendMessageDialog({
               </DialogDescription>
             </DialogHeader>
             <div className="mt-6 flex flex-col-reverse justify-center gap-3 sm:flex-row">
-              <Button variant="ctaOutline" size="sm" arrow={false} onClick={() => onOpenChange(false)}>
+              <Button variant="ctaOutline" size="sm" arrow={false} className="min-h-11" onClick={() => onOpenChange(false)}>
                 {t('common.close', 'Close')}
               </Button>
-              <Button asChild variant="cta" size="sm">
+              <Button asChild variant="cta" size="sm" className="min-h-11">
                 <Link to={threadHref} onClick={() => onOpenChange(false)}>
                   {done.connected ? t('messages.first.openConversation', 'Open the conversation') : t('messages.first.openMessages', 'Go to my messages')}
                 </Link>
@@ -139,7 +146,7 @@ export function SendMessageDialog({
                 <span>
                   {match
                     ? t('messages.first.matchHint', 'Your activities match: you will be connected straight away and can talk at once.')
-                    : t('messages.first.decideHint', '{{name}} will decide whether to connect. If they accept, you can talk here, and M3 introduces you by e-mail.', { name: org.name })}
+                    : t('messages.first.decideHintMessages', '{{name}} will decide whether to connect. If they accept, you can talk in Messages, and M3 introduces you by e-mail.', { name: org.name })}
                 </span>
               </p>
             )}
@@ -178,10 +185,10 @@ export function SendMessageDialog({
             )}
 
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <Button variant="ctaOutline" size="sm" arrow={false} onClick={() => onOpenChange(false)}>
+              <Button variant="ctaOutline" size="sm" arrow={false} className="min-h-11" onClick={() => onOpenChange(false)}>
                 {t('common.cancel', 'Cancel')}
               </Button>
-              <Button variant="cta" size="sm" roll={!sending} arrow={!sending} onClick={send} disabled={!ready || sending}>
+              <Button variant="cta" size="sm" roll={!sending} arrow={!sending} className="min-h-11" onClick={send} disabled={!ready || sending}>
                 {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                 {t('messages.first.send', 'Send the message')}
               </Button>

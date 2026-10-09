@@ -15,12 +15,17 @@
 //
 // Each send: claim the digest_log row (status 'sending'; a conflict means another run
 // has it: skipped), send through Resend, then mark it 'sent' (or delete the claim when
-// Resend refused, so a later run retries). The unsubscribe link is personal and signed
+// Resend refused, so the 10:30 run retries). The unsubscribe link is personal and signed
 // (category b2b), exactly like send-notification's; the one-click header points at the
 // unsubscribe function.
 //
-// Trigger: pg_cron job "messages-digest-friday", Fridays 08:00 UTC, which calls
-// public.invoke_messages_digest() (POST with the Vault service_role key).
+// Trigger: pg_cron job "messages-digest-friday" (LAUNCH-DAY migration
+// 20261009190001_messages_digest_cron.sql), which calls public.invoke_messages_digest()
+// (POST with the Vault service_role key). It goes ahead on Fridays at 10:00 and 10:30
+// in Monaco, summer and winter time alike: the 10:30 run sends what the first one
+// left (time budget below, a send Resend refused). Deploy this function only on the
+// day the refonte replaces the old site (the old site still e-mails each request and
+// has no Messages screen).
 // Security: verify_jwt = TRUE, and the caller must hold a service-role key (the env
 // key, or a JWT GoTrue accepts as service role): the anon key and member tokens are
 // refused (401). To run it by hand:
@@ -28,6 +33,7 @@
 //   body {}                     send this week's digests
 //   body {"dry_run": true}      count and render them, send and log nothing
 //   body {"limit": 50}          at most 50 people in this run
+// or, from SQL, outside the Friday 10:00 Monaco window: SELECT public.invoke_messages_digest(true);
 //
 // No e-mail address is ever logged. E-mails are in English. This file must not
 // contain a literal backslash-u escape (the MCP deploy tool mangles them).
@@ -43,7 +49,7 @@ const SITE_URL = (Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com").
 
 /** Resend accepts 2 requests a second by default: one e-mail every 600 ms. */
 const SEND_GAP_MS = 600;
-/** Stop starting new e-mails after this long (the edge runtime has a wall-clock limit); a later run continues. */
+/** Stop starting new e-mails after this long (the edge runtime has a wall-clock limit); the 10:30 run continues. */
 const TIME_BUDGET_MS = 110_000;
 const DEFAULT_LIMIT = 300;
 
@@ -721,7 +727,7 @@ Deno.serve(async (req: Request) => {
         .eq("user_id", row.user_id).eq("kind", "messages").eq("week_start", row.week_start);
       result.sent++;
     } else {
-      // Not sent: release the claim so a later run this week retries.
+      // Not sent: release the claim so the 10:30 run (or a run by hand) retries.
       await db.from("digest_log").delete()
         .eq("user_id", row.user_id).eq("kind", "messages").eq("week_start", row.week_start).eq("status", "sending");
       result.failed++;

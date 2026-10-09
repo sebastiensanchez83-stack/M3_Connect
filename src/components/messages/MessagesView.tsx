@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Check, Clock, Inbox, MessageSquare, RefreshCw, UserPlus, X } from 'lucide-react';
+import { Check, Clock, Flag, Inbox, MessageSquare, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CardShell } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
@@ -9,15 +9,12 @@ import { LogoTile } from '@/components/brand/OrgCard';
 import { MemberEmpty, RowSkeleton, StatusPill } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
 import { useInboxCount } from '@/hooks/useInboxCount';
-import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { displayCase } from '@/lib/displayCase';
-import { scrollTopUnderBars } from '@/lib/scrollTarget';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { answerConnectionRequest, type OrgRef } from '@/components/inbox/inboxActions';
-import { answerJoinRequest } from '@/components/organization/orgActions';
-import { ThreadView } from './ThreadView';
+import { ReportDialog, ThreadView } from './ThreadView';
 import {
   loadConversations, loadRequests, markThreadRead, shortWhen,
   type Conversation, type ConnectionRequest,
@@ -28,13 +25,17 @@ import {
  * companies (Victor's decisions of 9 Oct 2026). Shown in the home dashboard's
  * Messages tile and at /inbox.
  *
- *   Waiting for your answer   first messages sent to my company (anyone in it may
- *                             accept or decline; the first answer counts), and, for
- *                             an owner, people asking to join the company
+ *   Requests waiting for your answer
+ *                             first messages sent to my company (anyone in it may
+ *                             accept or decline; the first answer counts; any of
+ *                             them can also report one to M3)
  *   Conversations             one per company I am connected with: its logo and
  *                             name, the last message, an unread dot, the time
  *   Sent                      what my company wrote that is still waiting (or was
  *                             not accepted)
+ *
+ * People asking to join the company are not here: they are answered in My team
+ * (and the dashboard's to-do), so the Messages count holds only what Messages shows.
  *
  * Opening a conversation shows it beside the list on wide screens, in place of the
  * list on phones (with a way back). /?open=inbox&thread=<id> opens one directly
@@ -44,14 +45,6 @@ import {
  * Wording is plain and every target is at least 44 px: the members are marina and
  * maritime business people, often not at ease with technology.
  */
-
-interface JoinRequest {
-  id: string;
-  email: string;
-  first_name: string | null;
-  last_name: string | null;
-  created_at: string;
-}
 
 const BTN44 = 'h-11 rounded-pill px-4';
 const BTN44_OUTLINE = 'h-11 rounded-pill border-navy/25 bg-white px-4 text-navy hover:border-navy hover:bg-chip hover:text-navy';
@@ -66,7 +59,7 @@ function firstNameOf(full: string | null | undefined): string {
 
 export function MessagesView() {
   const { t } = useTranslation();
-  const { user, profile, organization, orgRole } = useAuth();
+  const { user, profile, organization } = useAuth();
   const inbox = useInboxCount(true);
   const refreshCount = inbox.refresh;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -75,13 +68,12 @@ export function MessagesView() {
   const uid = user?.id ?? null;
   const orgId = organization?.id ?? null;
   const myOrgName = organization?.name ?? '';
-  const isOwner = orgRole === 'owner';
 
   const [conversations, setConversations] = useState<Conversation[] | null>(null);
   const [conversationsOk, setConversationsOk] = useState(true);
   const [received, setReceived] = useState<ConnectionRequest[]>([]);
   const [sent, setSent] = useState<ConnectionRequest[]>([]);
-  const [joins, setJoins] = useState<JoinRequest[]>([]);
+  const [reporting, setReporting] = useState<ConnectionRequest | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -94,16 +86,9 @@ export function MessagesView() {
   const load = useCallback(async () => {
     if (!uid) return;
     lastLoad.current = Date.now();
-    const [conv, reqs, joinRows] = await Promise.all([
+    const [conv, reqs] = await Promise.all([
       loadConversations(),
       loadRequests(uid, orgId).catch(() => null),
-      isOwner && orgId
-        ? supabase.from('organization_invitations')
-          .select('id, email, first_name, last_name, created_at')
-          .eq('organization_id', orgId).eq('status', 'join_requested')
-          .order('created_at', { ascending: false })
-          .then(({ data }) => (data ?? []) as JoinRequest[], () => [] as JoinRequest[])
-        : Promise.resolve([] as JoinRequest[]),
     ]);
     setConversations(conv.items);
     setConversationsOk(conv.ok);
@@ -111,10 +96,9 @@ export function MessagesView() {
       setReceived(reqs.received);
       setSent(reqs.sent);
     }
-    setJoins(joinRows);
     setLoadFailed(!conv.ok && !reqs);
     setLoaded(true);
-  }, [uid, orgId, isOwner]);
+  }, [uid, orgId]);
 
   useEffect(() => {
     setLoaded(false);
@@ -144,13 +128,20 @@ export function MessagesView() {
   // A conversation asked for in the address but not (or not yet) in the list.
   const selectedMissing = loaded && !!selectedId && !selected;
 
+  // On a phone the thread replaces the list: start at its top, its header (Back, the
+  // company, Report) in view. scrollIntoView keeps clear of the sticky site header
+  // (the page's scroll-padding-top, src/index.css), which stays put on working
+  // screens such as this one. Done right after React has shown the thread.
+  const [scrollToThread, setScrollToThread] = useState(0);
+  useLayoutEffect(() => {
+    if (!scrollToThread) return;
+    const el = rootRef.current;
+    if (el && window.matchMedia('(max-width: 1023px)').matches) el.scrollIntoView({ block: 'start' });
+  }, [scrollToThread]);
+
   const open = (id: string) => {
     setSelectedId(id);
-    // On a phone the thread replaces the list: start at its top.
-    requestAnimationFrame(() => {
-      const el = rootRef.current;
-      if (el && window.matchMedia('(max-width: 1023px)').matches) window.scrollTo({ top: scrollTopUnderBars(el, 0, 8) });
-    });
+    setScrollToThread((n) => n + 1);
   };
 
   const back = () => {
@@ -206,22 +197,6 @@ export function MessagesView() {
     }
   };
 
-  const answerJoin = async (j: JoinRequest, approve: boolean) => {
-    const fresh = await requireFreshSession();
-    if (!fresh) return;
-    setActing(j.id);
-    try {
-      await answerJoinRequest(j.id, j.email, myOrgName, approve);
-      setJoins((prev) => prev.filter((x) => x.id !== j.id));
-      toast({ title: approve ? t('messages.joinApproved', 'Welcome to the team') : t('messages.joinDeclined', 'Declined') });
-      refreshCount();
-    } catch (e) {
-      toast({ title: t('messages.answerFailed', 'Your answer was not saved'), description: e instanceof Error ? e.message : undefined, variant: 'destructive' });
-    } finally {
-      setActing(null);
-    }
-  };
-
   /* ---------------------------------------------------------- render */
 
   if (!uid) return null;
@@ -230,17 +205,16 @@ export function MessagesView() {
     return <CardShell><RowSkeleton rows={3} /></CardShell>;
   }
 
-  const waitingCount = received.length + joins.length;
+  const waitingCount = received.length;
   const sentWaiting = sent.filter((s) => s.data.status === 'pending');
   const sentDeclined = sent.filter((s) => s.data.status === 'rejected');
   const nothing = waitingCount === 0 && (conversations?.length ?? 0) === 0 && sent.length === 0;
 
+  // The panel and the page already say what Messages is (their own heading and
+  // description): here, only the way to read again.
   const list = (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[15px] leading-6 text-meta">
-          {t('messages.intro', 'Conversations between your company and other companies. Everyone in your team sees them.')}
-        </p>
+      <div className="flex justify-end">
         <Button size="sm" variant="ghost" className={cn(BTN44, 'gap-1.5 text-navy hover:bg-chip')} onClick={refresh} disabled={refreshing}>
           <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
           {t('messages.refresh', 'Refresh')}
@@ -253,10 +227,10 @@ export function MessagesView() {
         </p>
       )}
 
-      {/* ── Waiting for your answer ── */}
+      {/* ── Requests waiting for your answer ── */}
       {waitingCount > 0 && (
         <section aria-labelledby="msg-waiting">
-          <SectionTitle id="msg-waiting" count={waitingCount}>{t('messages.waitingTitle', 'Waiting for your answer')}</SectionTitle>
+          <SectionTitle id="msg-waiting" count={waitingCount}>{t('messages.requestsTitle', 'Requests waiting for your answer')}</SectionTitle>
           <ul className="space-y-3">
             {received.map((item) => (
               <RequestCard
@@ -268,10 +242,8 @@ export function MessagesView() {
                 onDecline={() => setConfirmDecline(item.data.id)}
                 onConfirmDecline={() => answer(item, 'rejected')}
                 onCancelDecline={() => setConfirmDecline(null)}
+                onReport={() => setReporting(item)}
               />
-            ))}
-            {joins.map((j) => (
-              <JoinCard key={j.id} join={j} orgName={myOrgName} acting={acting === j.id} onAnswer={(approve) => answerJoin(j, approve)} />
             ))}
           </ul>
         </section>
@@ -356,6 +328,15 @@ export function MessagesView() {
     <div ref={rootRef} className="min-w-0 [contain:inline-size] lg:grid lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)] lg:items-start lg:gap-6">
       <div className={cn('min-w-0', threadOpen && 'hidden lg:block')}>{list}</div>
       <div className={cn('min-w-0', !threadOpen && 'hidden lg:block')}>{pane}</div>
+      {reporting && (
+        <ReportDialog
+          open
+          onOpenChange={(o) => { if (!o) setReporting(null); }}
+          requestId={reporting.data.id}
+          otherName={orgName(reporting.org) || reporting.person?.name || t('messages.theCompany', 'the company')}
+          firstMessage
+        />
+      )}
     </div>
   );
 }
@@ -416,7 +397,7 @@ function ConversationRow({ conversation: c, selected, onOpen }: { conversation: 
 
 /** A first message to decide: who wrote it (name, job title, company), the message, Accept / Decline. */
 function RequestCard({
-  item, acting, confirming, onAccept, onDecline, onConfirmDecline, onCancelDecline,
+  item, acting, confirming, onAccept, onDecline, onConfirmDecline, onCancelDecline, onReport,
 }: {
   item: ConnectionRequest;
   acting: boolean;
@@ -425,6 +406,8 @@ function RequestCard({
   onDecline: () => void;
   onConfirmDecline: () => void;
   onCancelDecline: () => void;
+  /** "Report to M3" (spam, rude, someone pretending to be someone else). */
+  onReport: () => void;
 }) {
   const { t } = useTranslation();
   const person = item.person?.name || '';
@@ -479,37 +462,11 @@ function RequestCard({
                 <Button size="sm" variant="outline" className={cn(BTN44_OUTLINE, 'gap-1.5')} onClick={onDecline} disabled={acting}>
                   <X className="h-4 w-4" aria-hidden="true" /> {t('messages.decline', 'Decline')}
                 </Button>
+                <Button size="sm" variant="ghost" className={cn(BTN44, 'gap-1.5 px-3 text-meta hover:bg-chip hover:text-navy')} onClick={onReport} disabled={acting}>
+                  <Flag className="h-4 w-4" aria-hidden="true" /> {t('messages.report.button', 'Report')}
+                </Button>
               </div>
             )}
-          </div>
-        </div>
-      </CardShell>
-    </li>
-  );
-}
-
-/** Someone asking to join my company (owners only). */
-function JoinCard({ join: j, orgName: org, acting, onAnswer }: { join: JoinRequest; orgName: string; acting: boolean; onAnswer: (approve: boolean) => void }) {
-  const { t } = useTranslation();
-  const name = `${j.first_name ?? ''} ${j.last_name ?? ''}`.trim() || j.email;
-  return (
-    <li>
-      <CardShell className="border-gold/60">
-        <div className="flex gap-3 p-4 sm:gap-4 sm:p-5">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-pill bg-gold/25 text-navy"><UserPlus className="h-5 w-5" aria-hidden="true" /></span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">
-              {t('messages.joinTitle', '{{name}} would like to join {{org}}', { name, org: displayCase(org) || org || t('messages.yourCompany', 'your company') })}
-            </p>
-            <p className="text-[14px] leading-5 text-meta [overflow-wrap:anywhere]">{j.email} · {shortWhen(j.created_at)}</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button size="sm" className={cn(BTN44, 'gap-1.5 bg-navy text-white hover:bg-navy/90')} onClick={() => onAnswer(true)} disabled={acting}>
-                <Check className="h-4 w-4" aria-hidden="true" /> {t('messages.joinApprove', 'Approve')}
-              </Button>
-              <Button size="sm" variant="outline" className={cn(BTN44_OUTLINE, 'gap-1.5')} onClick={() => onAnswer(false)} disabled={acting}>
-                <X className="h-4 w-4" aria-hidden="true" /> {t('messages.decline', 'Decline')}
-              </Button>
-            </div>
           </div>
         </div>
       </CardShell>

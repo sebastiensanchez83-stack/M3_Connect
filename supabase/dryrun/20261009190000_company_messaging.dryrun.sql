@@ -1,21 +1,23 @@
 -- DRY RUN of supabase/migrations/20261009190000_company_messaging.sql
+--        and supabase/migrations/20261009190001_messages_digest_cron.sql (launch day)
 -- NOT A MIGRATION: never apply it. NOTHING IS KEPT.
 --
 -- How to run: the WHOLE file in ONE execute_sql call (one implicit transaction).
 -- Do not add BEGIN/COMMIT and do not run it statement by statement. The last
--- statement ends with RAISE EXCEPTION 'DRYRUN ...': the migration, the cron job and
+-- statement ends with RAISE EXCEPTION 'DRYRUN ...': the migrations, the cron job and
 -- every test write roll back; the error text IS the report ("n PASS, m FAIL" first,
 -- then one line per check; INFO lines are not counted).
 -- Tripwire: if the report says "before-snapshot missing", the statements did NOT
 -- run in one transaction and the migration may have been committed: check
 -- information_schema.columns for partner_requests.auto_connected and cron.job for
--- 'messages-digest-friday' at once, and run the down script if they are there.
+-- 'messages-digest-friday' at once, and run the down scripts if they are there.
 --
 -- Layout
 --   A. snapshot (partner_requests policies, row counts by status, cron jobs);
---   B. the migration body, verbatim;
+--   B. the two migrations, verbatim (the company messaging one, then the launch-day
+--      cron one, so the job is checked too);
 --   C. temp helper (pg_temp.dr: formats one report line);
---   D. one DO block: structural checks (S01-S09), then four scenarios (A, B, C, D),
+--   D. one DO block: structural checks (S01-S10), then four scenarios (A, B, C, D),
 --      each in its own sub-transaction rolled back before the next. Inside a
 --      scenario the steps build on each other (a request, then replies, reads,
 --      reports); a step that fails rolls back alone. Callers are simulated with
@@ -33,7 +35,8 @@
 --   U   an unverified account with a company, if any (else INFO)
 --   M   a verified admin
 --
--- Expected: "N PASS, 0 FAIL".
+-- Expected: "N PASS, 0 FAIL". The down scripts have their own dry run:
+-- supabase/dryrun/20261009190000_company_messaging.down.dryrun.sql.
 
 -- ─── A. Snapshot ─────────────────────────────────────────────────────────────
 create temp table _dr_before on commit drop as
@@ -49,7 +52,7 @@ create temp table _dr_before on commit drop as
   select 'cron ' || jobname, schedule || '|' || command
     from cron.job;
 
--- ─── B. The migration, verbatim ──────────────────────────────────────────────
+-- ─── B. The migrations, verbatim ─────────────────────────────────────────────
 -- Company-to-company messaging. Victor's decisions of 9 Oct 2026 (memory
 -- "messaging-decisions"; roadmap docs/ROADMAP_POST_SM26.md, lot 8).
 --
@@ -79,6 +82,8 @@ create temp table _dr_before on commit drop as
 --             have someone to receive it, and must not be suspended;
 --           - one open conversation per pair of companies: refused when a pending or
 --             accepted request already links them, either way ("already_connected");
+--             a transaction lock on the pair makes two simultaneous sends wait for
+--             each other, so the second is refused too;
 --           - when the sectors match (msg_orgs_sectors_match, the rule of
 --             src/lib/sector-matching.ts checkSectorMatch computed here: one company on
 --             the interest side (marina, developer, investor), the other on the service
@@ -88,8 +93,15 @@ create temp table _dr_before on commit drop as
 --             status 'accepted', answered_by_user_id null, answered_at now(),
 --             auto_connected true. No e-mail is sent for it (the client sends none).
 --       * auto_connected is always computed here; whatever a client sends is ignored.
---     BEFORE UPDATE trigger trg_partner_requests_msg_update: origin and auto_connected
---     cannot be changed by a self-service update.
+--     BEFORE UPDATE trigger trg_partner_requests_msg_update, self-service updates:
+--       * origin and auto_connected cannot be changed;
+--       * an accepted or declined request is FINAL. The UPDATE policy of 20261008200000
+--         lets the sender set 'withdrawn' or 'pending' from any status: the sender
+--         could make a conversation vanish for both teams (and escape a report), or
+--         put a declined message back in front of the company again and again. Neither
+--         the old nor the new site has a screen that does it;
+--       * re-opening a withdrawn request must not make a second open request between
+--         the same two companies ("already_connected").
 --  3. One more SELECT policy on partner_requests: the members of the SENDING company
 --     (partner_organization_id) read its requests, so a colleague sees what their team
 --     already wrote and the conversation belongs to both teams.
@@ -97,18 +109,21 @@ create temp table _dr_before on commit drop as
 --       conversation_messages  the messages of an accepted connection, after its first
 --                              message (which stays partner_requests.message and is
 --                              shown first, by msg_thread). Read: verified members of
---                              either company (or the two people of the request). Write:
+--                              either company, as they are NOW (msg_side: someone who
+--                              left a company no longer reads or writes as it, even
+--                              when they wrote or received the first message). Write:
 --                              the same, as themselves, for their own side; the author's
 --                              company is set by trigger. 60 messages per author per hour.
 --                              No update or delete for members (deleted_at is for M3).
 --       conversation_reads     (request, user, last_read_at): what each person has read.
 --                              Written by msg_mark_read() only; a user reads their rows.
---       conversation_reports   "Report to M3": a verified party reports a conversation
---                              (optionally one message) with a reason; the trigger keeps
+--       conversation_reports   "Report to M3": a verified member of either company
+--                              reports a conversation, or a first message whatever its
+--                              status (msg_can_report), with a reason; the trigger keeps
 --                              an excerpt of the last 30 messages for M3 (who otherwise
 --                              cannot read conversations). 10 reports per person per day.
 --                              Reporters read their reports; verified moderators read
---                              all and close them.
+--                              all and close them (B2B requests page of the admin).
 --       digest_log             one row per person and week for the Friday digest
 --                              (messages-digest edge function); service role only.
 --  5. RPCs for the new client (SECURITY DEFINER, each checks the caller):
@@ -116,16 +131,19 @@ create temp table _dr_before on commit drop as
 --                                   last message, unread count
 --       msg_thread(request)         one conversation, oldest first, with each author's
 --                                   name, job title, photo and company
---       msg_mark_read(request)      marks it read now
+--       msg_mark_read(request, until) marks it read up to the newest message shown
 --       msg_unread_count()          the unread messages of all the caller's conversations
 --       msg_orgs_sectors_match(a,b) the sector rule above (public data)
 --       msg_pair_open_request(a,b)  the open request between two companies, only when the
 --                                   caller belongs to one of them (or the service role)
+--       msg_can_report(request)     the caller may report it (policy helper)
 --     Unread rule (one place, msg_unread_items): a message counts for a person when it
 --     comes from the OTHER company (not them, not a colleague), is not deleted, and is
---     newer than their last_read_at in that conversation. The first message counts too
---     when the connection was made automatically (nobody on the receiving side has seen
---     it as a request); after a manual acceptance it was already read as a request.
+--     newer than their last_read_at in that conversation (when they never opened it:
+--     the day they joined their company, so a new colleague does not inherit every
+--     past message as unread). The first message counts too when the connection was
+--     made automatically (nobody on the receiving side has seen it as a request);
+--     after a manual acceptance it was already read as a request.
 --  6. Friday digest: msg_digest_batch() (service role only) lists, per verified person
 --     whose "B2B connections" e-mails are on (profiles.notification_prefs ->> 'b2b' not
 --     'false', send-notification's TYPE_TO_CATEGORY category) and who has no digest_log
@@ -134,8 +152,12 @@ create temp table _dr_before on commit drop as
 --     pending requests sent to their company in that time (up to 5). The edge function
 --     messages-digest sends one e-mail per person and logs it in digest_log.
 --     public.invoke_messages_digest() POSTs the function with the Vault service key (the
---     pattern of invoke_send_profile_reminders), pg_cron job "messages-digest-friday"
---     every Friday at 08:00 UTC (10:00 in Monaco in summer, 09:00 in winter).
+--     pattern of invoke_send_profile_reminders), only on Fridays between 10:00 and 10:59
+--     in Monaco (msg_digest_due, summer and winter time alike).
+--     THE CRON JOB IS NOT IN THIS FILE: 20261009190001_messages_digest_cron.sql
+--     schedules "messages-digest-friday" (08:00, 08:30, 09:00, 09:30 UTC on Fridays,
+--     of which the 10:00 and 10:30 Monaco runs go ahead). Apply it, and deploy the
+--     messages-digest function, only on the day the refonte replaces the old site.
 --
 -- ════════════════════════════════════════════════════════════════════════════
 -- Old client (main, live): unchanged
@@ -144,12 +166,14 @@ create temp table _dr_before on commit drop as
 --  auto-connects. Its inserts always set partner_user_id to the signed-in user. Its
 --  reads all filter on partner_user_id / marina_user_id, so the new SELECT policy
 --  shows it nothing new (the admin counts run as moderators, who already read all).
---  The only change it can meet: a 21st request by the same person within 24 h is
---  refused (the most anyone sent in a day so far is 10). The new tables, functions
---  and the cron job are unknown to it.
+--  The only changes it can meet: a 21st request by the same person within 24 h is
+--  refused (the most anyone sent in a day so far is 10), and a request already
+--  accepted or declined can no longer be withdrawn or re-opened by its sender (it
+--  has no screen for either). The new tables and functions are unknown to it, and
+--  nothing in this file sends an e-mail or schedules a job.
 --
 -- No sm_* or gl_* object is read or written. Idempotent (IF NOT EXISTS, OR REPLACE,
--- DROP POLICY IF EXISTS, cron.schedule upserts by name).
+-- DROP POLICY IF EXISTS).
 --
 -- ════════════════════════════════════════════════════════════════════════════
 -- Checks after applying (read-only)
@@ -158,13 +182,14 @@ create temp table _dr_before on commit drop as
 --     -> trg_partner_requests_before_insert, trg_partner_requests_before_update,
 --        trg_partner_requests_msg_insert, trg_partner_requests_msg_update, trg_partner_requests_updated_at
 --   select count(*) from public.partner_requests where auto_connected;            -> 0
---   select jobname, schedule, command from cron.job where jobname = 'messages-digest-friday';
---     -> '0 8 * * 5', 'SELECT public.invoke_messages_digest();'
+--   select count(*) from cron.job where jobname = 'messages-digest-friday';      -> 0 (launch file)
 --   select has_function_privilege('authenticated', 'public.msg_digest_batch(date, integer)', 'execute'); -> false
 --   select has_function_privilege('anon', 'public.msg_conversations()', 'execute');                       -> false
 --
 -- UNDO: supabase/migrations/down/20261009190000_company_messaging.down.sql
--- Dry run: supabase/dryrun/20261009190000_company_messaging.dryrun.sql
+-- Dry run: supabase/dryrun/20261009190000_company_messaging.dryrun.sql (this file and
+-- the launch file together), and ..._company_messaging.down.dryrun.sql (both up, then
+-- both down, in one rolled-back transaction).
 
 -- ─── 1. partner_requests: two columns ──────────────────────────────────────
 ALTER TABLE public.partner_requests
@@ -222,6 +247,9 @@ $function$;
 
 -- Which side of a request a user is on: 'partner' (the company that wrote first) or
 -- 'marina' (the company that received it), null when neither. Internal.
+-- A side that names a company is that company's members, NOW: the person who wrote
+-- or received the request no longer speaks for it once they have left it. The
+-- person counts only for a side without a company (none on 9 Oct 2026).
 CREATE OR REPLACE FUNCTION public.msg_side(p_request uuid, p_user uuid)
  RETURNS text
  LANGUAGE sql
@@ -230,10 +258,10 @@ CREATE OR REPLACE FUNCTION public.msg_side(p_request uuid, p_user uuid)
  SET search_path TO ''
 AS $function$
   select case
-           when r.partner_user_id = p_user
-             or (r.partner_organization_id is not null and r.partner_organization_id = any (o.orgs)) then 'partner'
-           when r.marina_user_id = p_user
-             or (r.marina_organization_id is not null and r.marina_organization_id = any (o.orgs)) then 'marina'
+           when (r.partner_organization_id is not null and r.partner_organization_id = any (o.orgs))
+             or (r.partner_organization_id is null and r.partner_user_id = p_user) then 'partner'
+           when (r.marina_organization_id is not null and r.marina_organization_id = any (o.orgs))
+             or (r.marina_organization_id is null and r.marina_user_id = p_user) then 'marina'
          end
     from public.partner_requests r
    cross join (select public.msg_user_org_ids(p_user) as orgs) o
@@ -272,6 +300,22 @@ AS $function$
          end
     from public.partner_requests r
    where r.id = p_request;
+$function$;
+
+-- The signed-in account may report this request or conversation to M3: verified and
+-- on one of its two sides, whatever its status (an unwanted first message waiting for
+-- an answer, or one already declined, can be reported too).
+CREATE OR REPLACE FUNCTION public.msg_can_report(p_request uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+  select coalesce(
+           public.is_verified(NULL::public.persona_enum)
+           and public.msg_side(p_request, auth.uid()) is not null,
+           false);
 $function$;
 
 -- A message may be written as this company in this conversation.
@@ -398,6 +442,12 @@ begin
       raise exception 'This company cannot receive messages at the moment'
         using errcode = 'P0001', hint = 'target_suspended';
     end if;
+    -- Two colleagues writing to the same company at the same moment: the second waits
+    -- here for the first to commit, then sees its request (each statement of this
+    -- function reads afresh) and is refused.
+    perform pg_advisory_xact_lock(hashtextextended(
+      'msg_pair:' || least(new.partner_organization_id, new.marina_organization_id)::text
+        || ':' || greatest(new.partner_organization_id, new.marina_organization_id)::text, 0));
     if public.msg_pair_open_request(new.partner_organization_id, new.marina_organization_id) is not null then
       raise exception 'Your companies are already in touch: open the conversation in Messages'
         using errcode = '23505', hint = 'already_connected';
@@ -424,6 +474,18 @@ CREATE TRIGGER trg_partner_requests_msg_insert
   BEFORE INSERT ON public.partner_requests
   FOR EACH ROW EXECUTE FUNCTION public.partner_requests_msg_before_insert();
 
+-- Self-service updates (SECURITY INVOKER: the service role, SECURITY DEFINER code,
+-- verified moderators and foreign-key actions pass through):
+--   * origin and auto_connected stay as they are;
+--   * an answered request is final: once accepted (a conversation both companies
+--     read) or declined, nobody moves it any more. The existing UPDATE policy let
+--     the sender set 'withdrawn' or 'pending' from ANY status, so the sender could
+--     make a conversation vanish for both teams (and escape a report), or put a
+--     declined message back in front of the company again and again. The receiving
+--     side was already limited to one answer (partner_requests_before_update). No
+--     screen of the old or the new site withdraws or re-opens a request;
+--   * a withdrawn request re-opened by its sender must not make a second open
+--     request between the two companies.
 CREATE OR REPLACE FUNCTION public.partner_requests_msg_before_update()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -433,13 +495,25 @@ begin
   if current_user = 'authenticated' and not public.is_moderator() then
     new.origin := old.origin;
     new.auto_connected := old.auto_connected;
+    if new.status is distinct from old.status then
+      if old.status in ('accepted', 'rejected') then
+        raise exception 'This request has already been answered and can no longer be changed'
+          using errcode = 'P0001', hint = 'already_answered';
+      end if;
+      if new.status = 'pending'
+         and old.partner_organization_id is not null and old.marina_organization_id is not null
+         and public.msg_pair_open_request(old.partner_organization_id, old.marina_organization_id) is not null then
+        raise exception 'Your companies are already in touch: open the conversation in Messages'
+          using errcode = '23505', hint = 'already_connected';
+      end if;
+    end if;
   end if;
   return new;
 end
 $function$;
 
 COMMENT ON FUNCTION public.partner_requests_msg_before_update() IS
-  'BEFORE UPDATE on partner_requests: origin and auto_connected stay as they are for self-service updates. 2026-10-09.';
+  'BEFORE UPDATE on partner_requests, self-service only: origin and auto_connected stay as they are; an accepted or declined request is final; a re-opened request must not duplicate an open one between the same companies. 2026-10-09.';
 
 DROP TRIGGER IF EXISTS trg_partner_requests_msg_update ON public.partner_requests;
 CREATE TRIGGER trg_partner_requests_msg_update
@@ -634,6 +708,12 @@ begin
     end if;
     new.excerpt := public.msg_report_excerpt(new.partner_request_id);
   else
+    -- A foreign key's ON DELETE SET NULL (a profile, company or message deleted)
+    -- arrives here as an UPDATE fired from another trigger: let it through, or the
+    -- report would keep pointing at a row that no longer exists.
+    if pg_trigger_depth() > 1 then
+      return new;
+    end if;
     -- Moderators (RLS) close or reopen a report; the rest stays as reported.
     new.partner_request_id := old.partner_request_id;
     new.message_id := old.message_id;
@@ -683,7 +763,7 @@ CREATE POLICY conversation_reads_select_own ON public.conversation_reads
 DROP POLICY IF EXISTS conversation_reports_insert ON public.conversation_reports;
 CREATE POLICY conversation_reports_insert ON public.conversation_reports
   FOR INSERT TO authenticated
-  WITH CHECK (reporter_user_id = (select auth.uid()) AND public.msg_can_access(partner_request_id));
+  WITH CHECK (reporter_user_id = (select auth.uid()) AND public.msg_can_report(partner_request_id));
 
 DROP POLICY IF EXISTS conversation_reports_select ON public.conversation_reports;
 CREATE POLICY conversation_reports_select ON public.conversation_reports
@@ -716,7 +796,10 @@ GRANT ALL ON TABLE public.digest_log TO service_role;
 -- ─── 8. Unread rule and the client RPCs ────────────────────────────────────
 
 -- THE unread rule (see the header), for any user: internal (the client RPCs pass
--- auth.uid(); the digest passes each recipient). Accepted conversations only.
+-- auth.uid(); the digest passes each recipient). Accepted conversations only, of the
+-- companies the user belongs to now (msg_side's rule). Someone who never opened a
+-- conversation counts from the day they joined their company: a new colleague does
+-- not find every past message unread.
 CREATE OR REPLACE FUNCTION public.msg_unread_items(p_user uuid, p_since timestamptz DEFAULT NULL)
  RETURNS TABLE (
    partner_request_id uuid,
@@ -737,16 +820,20 @@ AS $function$
   ),
   threads as (
     select r.id, r.partner_user_id, r.partner_organization_id, r.message, r.created_at, r.auto_connected,
-           rd.last_read_at
+           coalesce(rd.last_read_at,
+                    (select min(om.joined_at) from public.organization_members om
+                      where om.user_id = p_user
+                        and om.organization_id in (r.partner_organization_id, r.marina_organization_id)),
+                    '-infinity'::timestamptz) as last_read_at
       from public.partner_requests r
      cross join mine
       left join public.conversation_reads rd on rd.partner_request_id = r.id and rd.user_id = p_user
      where p_user is not null
        and r.status = 'accepted'
-       and (r.partner_user_id = p_user
-         or r.marina_user_id = p_user
-         or r.partner_organization_id = any (mine.orgs)
-         or r.marina_organization_id = any (mine.orgs))
+       and ((r.partner_organization_id is not null and r.partner_organization_id = any (mine.orgs))
+         or (r.partner_organization_id is null and r.partner_user_id = p_user)
+         or (r.marina_organization_id is not null and r.marina_organization_id = any (mine.orgs))
+         or (r.marina_organization_id is null and r.marina_user_id = p_user))
   )
   select t.id, m.id, m.author_user_id, m.author_org_id, m.body, m.created_at, false
     from threads t
@@ -755,7 +842,7 @@ AS $function$
    where m.deleted_at is null
      and m.author_user_id is distinct from p_user
      and (m.author_org_id is null or not (m.author_org_id = any (mine.orgs)))
-     and m.created_at > coalesce(t.last_read_at, '-infinity'::timestamptz)
+     and m.created_at > t.last_read_at
      and m.created_at > coalesce(p_since, '-infinity'::timestamptz)
   union all
   select t.id, null::uuid, t.partner_user_id, t.partner_organization_id, btrim(t.message), t.created_at, true
@@ -765,7 +852,7 @@ AS $function$
      and nullif(btrim(t.message), '') is not null
      and t.partner_user_id is distinct from p_user
      and (t.partner_organization_id is null or not (t.partner_organization_id = any (mine.orgs)))
-     and t.created_at > coalesce(t.last_read_at, '-infinity'::timestamptz)
+     and t.created_at > t.last_read_at
      and t.created_at > coalesce(p_since, '-infinity'::timestamptz);
 $function$;
 
@@ -816,7 +903,8 @@ AS $function$
     select r.id, r.partner_user_id, r.marina_user_id, r.partner_organization_id, r.marina_organization_id,
            r.message, r.created_at, r.answered_at, r.auto_connected,
            case
-             when r.partner_user_id = me.uid or r.partner_organization_id = any (me.orgs) then 'partner'
+             when (r.partner_organization_id is not null and r.partner_organization_id = any (me.orgs))
+               or (r.partner_organization_id is null and r.partner_user_id = me.uid) then 'partner'
              else 'marina'
            end as side
       from public.partner_requests r
@@ -824,10 +912,10 @@ AS $function$
      where me.uid is not null
        and public.is_verified(NULL::public.persona_enum)
        and r.status = 'accepted'
-       and (r.partner_user_id = me.uid
-         or r.marina_user_id = me.uid
-         or r.partner_organization_id = any (me.orgs)
-         or r.marina_organization_id = any (me.orgs))
+       and ((r.partner_organization_id is not null and r.partner_organization_id = any (me.orgs))
+         or (r.partner_organization_id is null and r.partner_user_id = me.uid)
+         or (r.marina_organization_id is not null and r.marina_organization_id = any (me.orgs))
+         or (r.marina_organization_id is null and r.marina_user_id = me.uid))
   ),
   unread as (
     select u.partner_request_id, count(*)::integer as n
@@ -937,20 +1025,26 @@ AS $function$
    order by i.created_at, i.is_first desc;
 $function$;
 
--- Marks a conversation read now for the signed-in account.
-CREATE OR REPLACE FUNCTION public.msg_mark_read(p_request uuid)
+-- Marks a conversation read for the signed-in account, up to p_until: the time of the
+-- newest message the screen has shown (now when not given, never later than now). A
+-- message that arrives between the screen's read and this call stays unread. The
+-- marker never moves back.
+CREATE OR REPLACE FUNCTION public.msg_mark_read(p_request uuid, p_until timestamptz DEFAULT NULL)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
  SET search_path TO ''
 AS $function$
+declare
+  v_at timestamptz := least(now(), coalesce(p_until, now()));
 begin
   if not public.msg_can_access(p_request) then
     raise exception 'You cannot open this conversation' using errcode = '42501';
   end if;
   insert into public.conversation_reads (partner_request_id, user_id, last_read_at)
-  values (p_request, auth.uid(), now())
-  on conflict (partner_request_id, user_id) do update set last_read_at = excluded.last_read_at;
+  values (p_request, auth.uid(), v_at)
+  on conflict (partner_request_id, user_id)
+    do update set last_read_at = greatest(public.conversation_reads.last_read_at, excluded.last_read_at);
 end
 $function$;
 
@@ -1023,7 +1117,8 @@ AS $function$
       join public.partner_requests r
         on r.status = 'pending'
        and r.partner_user_id is distinct from pe.user_id
-       and (r.marina_user_id = pe.user_id or r.marina_organization_id = any (pe.orgs))
+       and ((r.marina_organization_id is not null and r.marina_organization_id = any (pe.orgs))
+         or (r.marina_organization_id is null and r.marina_user_id = pe.user_id))
        and not (r.partner_organization_id is not null and r.partner_organization_id = any (pe.orgs))
        and r.created_at > pe.since
   ),
@@ -1053,9 +1148,26 @@ AS $function$
    limit greatest(coalesce(p_limit, 500), 0);
 $function$;
 
--- pg_cron job "messages-digest-friday": POST messages-digest with the Vault
--- service_role_key (as invoke_send_profile_reminders). Exits quietly without secrets.
-CREATE OR REPLACE FUNCTION public.invoke_messages_digest()
+-- Is it digest time? Fridays, 10:00 to 10:59 in Monaco (Victor's "10:00 Monaco"),
+-- summer and winter time alike. pg_cron counts in UTC, so the job runs at 08:00,
+-- 08:30, 09:00 and 09:30 UTC on Fridays and only the two runs that fall at 10:00 and
+-- 10:30 in Monaco go ahead: the 10:30 one sends what the first left (time budget,
+-- a refused send); digest_log keeps it from sending anything twice.
+CREATE OR REPLACE FUNCTION public.msg_digest_due(p_at timestamptz DEFAULT now())
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE
+ SET search_path TO ''
+AS $function$
+  select extract(isodow from (p_at at time zone 'Europe/Monaco')) = 5
+     and extract(hour from (p_at at time zone 'Europe/Monaco')) = 10;
+$function$;
+
+-- pg_cron job "messages-digest-friday" (scheduled by the LAUNCH migration
+-- 20261009190001_messages_digest_cron.sql, not here): POST messages-digest with the
+-- Vault service_role_key (as invoke_send_profile_reminders), at digest time only
+-- (p_force skips that check, for a run by hand). Exits quietly without secrets.
+CREATE OR REPLACE FUNCTION public.invoke_messages_digest(p_force boolean DEFAULT false)
  RETURNS void
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -1065,6 +1177,10 @@ DECLARE
   v_url TEXT;
   v_key TEXT;
 BEGIN
+  IF NOT coalesce(p_force, false) AND NOT public.msg_digest_due(now()) THEN
+    RETURN;
+  END IF;
+
   BEGIN
     SELECT decrypted_secret INTO v_url FROM vault.decrypted_secrets WHERE name = 'project_url' LIMIT 1;
     SELECT decrypted_secret INTO v_key FROM vault.decrypted_secrets WHERE name = 'service_role_key' LIMIT 1;
@@ -1090,8 +1206,8 @@ BEGIN
 END;
 $function$;
 
-COMMENT ON FUNCTION public.invoke_messages_digest() IS
-  'pg_cron job messages-digest-friday: POST messages-digest with the Vault service_role_key. Not callable by anon/authenticated. 2026-10-09.';
+COMMENT ON FUNCTION public.invoke_messages_digest(boolean) IS
+  'pg_cron job messages-digest-friday: POST messages-digest with the Vault service_role_key, Fridays 10:00-10:59 Monaco only unless p_force. Not callable by anon/authenticated. 2026-10-09.';
 
 -- ─── 10. Function privileges ───────────────────────────────────────────────
 -- Internal (any user id as argument, or e-mail addresses): service role only.
@@ -1100,7 +1216,8 @@ REVOKE ALL ON FUNCTION public.msg_side(uuid, uuid) FROM PUBLIC, anon, authentica
 REVOKE ALL ON FUNCTION public.msg_unread_items(uuid, timestamptz) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.msg_report_excerpt(uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.msg_digest_batch(date, integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.invoke_messages_digest() FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.invoke_messages_digest(boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.msg_digest_due(timestamptz) FROM PUBLIC, anon, authenticated;
 -- (The four trigger functions keep their default privileges: a function returning
 -- trigger cannot be called directly, and the triggers fire for the clients' writes.)
 GRANT EXECUTE ON FUNCTION public.msg_user_org_ids(uuid) TO service_role;
@@ -1108,10 +1225,12 @@ GRANT EXECUTE ON FUNCTION public.msg_side(uuid, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.msg_unread_items(uuid, timestamptz) TO service_role;
 GRANT EXECUTE ON FUNCTION public.msg_report_excerpt(uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.msg_digest_batch(date, integer) TO service_role;
-GRANT EXECUTE ON FUNCTION public.invoke_messages_digest() TO service_role;
+GRANT EXECUTE ON FUNCTION public.invoke_messages_digest(boolean) TO service_role;
+GRANT EXECUTE ON FUNCTION public.msg_digest_due(timestamptz) TO service_role;
 
 -- Signed-in members (each checks the caller itself; used by RLS policies or the client).
 REVOKE ALL ON FUNCTION public.msg_can_access(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_can_report(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_my_side_org(uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_can_write(uuid, uuid) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_orgs_sectors_match(uuid, uuid) FROM PUBLIC, anon;
@@ -1119,8 +1238,9 @@ REVOKE ALL ON FUNCTION public.msg_pair_open_request(uuid, uuid) FROM PUBLIC, ano
 REVOKE ALL ON FUNCTION public.msg_unread_count() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_conversations() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.msg_thread(uuid) FROM PUBLIC, anon;
-REVOKE ALL ON FUNCTION public.msg_mark_read(uuid) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.msg_mark_read(uuid, timestamptz) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.msg_can_access(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_can_report(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_my_side_org(uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_can_write(uuid, uuid) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_orgs_sectors_match(uuid, uuid) TO authenticated, service_role;
@@ -1128,12 +1248,39 @@ GRANT EXECUTE ON FUNCTION public.msg_pair_open_request(uuid, uuid) TO authentica
 GRANT EXECUTE ON FUNCTION public.msg_unread_count() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_conversations() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.msg_thread(uuid) TO authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.msg_mark_read(uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.msg_mark_read(uuid, timestamptz) TO authenticated, service_role;
 
--- ─── 11. The Friday job ────────────────────────────────────────────────────
+-- ─── 11. The Friday job: NOT here ──────────────────────────────────────────
+-- It is scheduled by 20261009190001_messages_digest_cron.sql, applied only on the
+-- day the refonte replaces the old site on smartmarinaconnect.com (the old site has
+-- no Messages screen, still e-mails each request, and ignores /?open=inbox).
+
+-- ─── B2. The launch-day migration, verbatim ─────────────────────────────────
+-- LAUNCH-DAY migration: the Friday messages digest (company messaging, Victor's
+-- decisions of 9 Oct 2026). Needs 20261009190000_company_messaging.sql first.
+--
+-- APPLY IT ONLY ON THE DAY THE REFONTE REPLACES THE OLD SITE on
+-- smartmarinaconnect.com, together with the deploy of the messages-digest edge
+-- function (verify_jwt = true). Before that day the live site has no Messages
+-- screen, still e-mails each request as it arrives (partner_request_received) and
+-- ignores /?open=inbox: a digest would announce those requests a second time and
+-- send people to a button that does nothing.
+--
+-- What it does: pg_cron job "messages-digest-friday" at 08:00, 08:30, 09:00 and
+-- 09:30 UTC on Fridays. public.invoke_messages_digest() goes ahead only between
+-- 10:00 and 10:59 in Monaco (msg_digest_due), so two runs a Friday reach the edge
+-- function, at 10:00 and 10:30 Monaco time in summer and in winter alike. The
+-- second sends what the first left (its time budget, a send Resend refused);
+-- digest_log stops anything from being sent twice.
+--
+-- Check after applying:
+--   select jobname, schedule, command from cron.job where jobname = 'messages-digest-friday';
+--     -> '0,30 8,9 * * 5', 'SELECT public.invoke_messages_digest();'
+-- UNDO: supabase/migrations/down/20261009190001_messages_digest_cron.down.sql
+
 SELECT cron.schedule(
   'messages-digest-friday',
-  '0 8 * * 5',
+  '0,30 8,9 * * 5',
   $cmd$SELECT public.invoke_messages_digest();$cmd$
 );
 
@@ -1153,7 +1300,7 @@ declare
   v_s uuid; v_os uuid; v_c uuid; v_om uuid; v_r uuid; v_r2 uuid; v_on uuid; v_n uuid; v_x uuid; v_u uuid; v_m uuid;
   v_os_name text; v_om_name text;
   v_r_pref boolean; v_s_pref boolean; v_n_pref boolean;
-  v_req uuid; v_req2 uuid;
+  v_req uuid; v_req2 uuid; v_msg uuid; v_rep uuid; v_ts timestamptz;
   v_status text; v_auto boolean; v_at timestamptz; v_by uuid; v_origin text;
   v_i integer; v_j integer; v_k integer;
   v_t text; v_t2 text; v_b boolean; v_b2 boolean; v_u1 uuid; v_u2 uuid;
@@ -1210,8 +1357,8 @@ begin
     from (select 'cron ' || jobname as k, schedule || '|' || command as v from cron.job) a
     full join (select k, v from _dr_before where k like 'cron %') b on a.k = b.k;
   select schedule || ' | ' || command into v_t from cron.job where jobname = 'messages-digest-friday';
-  v_ok := v_i = 1 and v_j = 0 and v_t = '0 8 * * 5 | SELECT public.invoke_messages_digest();';
-  results := results || pg_temp.dr('S05', v_ok, format('cron: %s added, %s other changed; messages-digest-friday = %s', v_i, v_j, coalesce(v_t, 'missing')));
+  v_ok := v_i = 1 and v_j = 0 and v_t = '0,30 8,9 * * 5 | SELECT public.invoke_messages_digest();';
+  results := results || pg_temp.dr('S05', v_ok, format('cron (launch file): %s added, %s other changed; messages-digest-friday = %s', v_i, v_j, coalesce(v_t, 'missing')));
   n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
   select count(*) into v_i from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -1233,16 +1380,19 @@ begin
       ('public.msg_user_org_ids(uuid)', 'authenticated', false),
       ('public.msg_side(uuid, uuid)', 'authenticated', false),
       ('public.msg_report_excerpt(uuid)', 'authenticated', false),
-      ('public.invoke_messages_digest()', 'authenticated', false),
-      ('public.invoke_messages_digest()', 'anon', false),
+      ('public.invoke_messages_digest(boolean)', 'authenticated', false),
+      ('public.invoke_messages_digest(boolean)', 'anon', false),
+      ('public.msg_digest_due(timestamp with time zone)', 'authenticated', false),
       ('public.msg_conversations()', 'anon', false),
       ('public.msg_thread(uuid)', 'anon', false),
       ('public.msg_unread_count()', 'anon', false),
-      ('public.msg_mark_read(uuid)', 'anon', false),
+      ('public.msg_mark_read(uuid, timestamp with time zone)', 'anon', false),
       ('public.msg_pair_open_request(uuid, uuid)', 'anon', false),
+      ('public.msg_can_report(uuid)', 'anon', false),
       ('public.msg_conversations()', 'authenticated', true),
       ('public.msg_thread(uuid)', 'authenticated', true),
-      ('public.msg_mark_read(uuid)', 'authenticated', true),
+      ('public.msg_mark_read(uuid, timestamp with time zone)', 'authenticated', true),
+      ('public.msg_can_report(uuid)', 'authenticated', true),
       ('public.msg_unread_count()', 'authenticated', true),
       ('public.msg_orgs_sectors_match(uuid, uuid)', 'authenticated', true),
       ('public.msg_pair_open_request(uuid, uuid)', 'authenticated', true),
@@ -1271,6 +1421,23 @@ begin
     ) as x(t, r, p, want);
   v_ok := v_t is null;
   results := results || pg_temp.dr('S08', v_ok, 'table privileges' || coalesce(': wrong ' || v_t, ' as intended'));
+  n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+  -- S10: digest time = Fridays 10:00-10:59 in Monaco, summer (UTC+2) and winter (UTC+1) alike.
+  select string_agg(x.ts::text || '=' || public.msg_digest_due(x.ts)::text, '; ')
+           filter (where public.msg_digest_due(x.ts) <> x.want)
+    into v_t
+    from (values
+      ('2026-10-16 08:00:00+00'::timestamptz, true),   -- Friday, 10:00 Monaco (summer time)
+      ('2026-10-16 08:30:00+00'::timestamptz, true),   -- the 10:30 catch-up
+      ('2026-10-16 09:00:00+00'::timestamptz, false),  -- 11:00 Monaco
+      ('2026-10-30 08:30:00+00'::timestamptz, false),  -- Friday after 25 Oct: 09:30 Monaco
+      ('2026-10-30 09:00:00+00'::timestamptz, true),   -- 10:00 Monaco (winter time)
+      ('2026-10-30 09:30:00+00'::timestamptz, true),
+      ('2026-10-15 08:00:00+00'::timestamptz, false)   -- a Thursday
+    ) as x(ts, want);
+  v_ok := v_t is null;
+  results := results || pg_temp.dr('S10', v_ok, 'digest time (msg_digest_due)' || coalesce(': wrong ' || v_t, ': Fridays 10:00-10:59 Monaco, summer and winter'));
   n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
   /* ═══════════════════════ callers (read-only lookups) ═══════════════════════ */
@@ -1456,21 +1623,21 @@ begin
       || coalesce(v_err, format('rows=%s first=%s author=S %s company ok=%s mine=%s', v_i, v_b, v_u1 = v_s, v_t2 = v_os_name, v_b2)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
-    -- A05: R replies, pretending to be S for OS: written as R for OM, trimmed.
-    v_err := null; v_u1 := null; v_u2 := null; v_t := null;
+    -- A05: R replies, pretending to be S for OS, dated 2000: written as R for OM, now, trimmed.
+    v_err := null; v_u1 := null; v_u2 := null; v_t := null; v_ts := null; v_msg := null;
     begin
       perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
       set local role authenticated;
       insert into public.conversation_messages (partner_request_id, author_user_id, author_org_id, body, created_at)
       values (v_req, v_s, v_os, '  ' || c_reply || '  ', '2000-01-01')
-      returning author_user_id, author_org_id, body into v_u1, v_u2, v_t;
+      returning id, author_user_id, author_org_id, body, created_at into v_msg, v_u1, v_u2, v_t, v_ts;
       reset role;
     exception when others then
       get stacked diagnostics v_err = message_text, v_state = returned_sqlstate;
     end;
-    v_ok := coalesce(v_err is null and v_u1 = v_r and v_u2 = v_om and v_t = c_reply, false);
-    results := results || pg_temp.dr('A05', v_ok, 'R replies (author and company forced to R / OM, text trimmed). '
-      || coalesce(v_err, format('author=R %s company=OM %s', v_u1 = v_r, v_u2 = v_om)));
+    v_ok := coalesce(v_err is null and v_u1 = v_r and v_u2 = v_om and v_t = c_reply and v_ts = now(), false);
+    results := results || pg_temp.dr('A05', v_ok, 'R replies (author, company and time forced to R / OM / now, text trimmed). '
+      || coalesce(v_err, format('author=R %s company=OM %s dated now %s', v_u1 = v_r, v_u2 = v_om, v_ts = now())));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
     -- A06: S now has R's reply unread; the thread reads first message then the reply.
@@ -1503,6 +1670,22 @@ begin
     v_ok := v_i = case when v_r_pref then 1 else 0 end and v_j = case when v_s_pref then 1 else 0 end and v_k = 0;
     results := results || pg_temp.dr('A07', v_ok, format('digest batch: R row with OS preview %s (expected %s), S row with OM preview %s (expected %s), outsider rows %s',
       v_i, v_r_pref::int, v_j, v_s_pref::int, v_k));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- A07b: R turns "B2B" e-mails off: no digest for R (sub-block, undone at once).
+    v_i := null; v_err := null;
+    begin
+      update public.profiles
+         set notification_prefs = coalesce(notification_prefs, '{}'::jsonb) || '{"b2b": false}'::jsonb
+       where user_id = v_r;
+      select count(*) into v_i from public.msg_digest_batch(null, 100000) d where d.user_id = v_r;
+      raise exception using errcode = 'DRY02', message = 'undo A07b';
+    exception
+      when sqlstate 'DRY02' then null;
+      when others then get stacked diagnostics v_err = message_text;
+    end;
+    v_ok := coalesce(v_err is null and v_i = 0, false);
+    results := results || pg_temp.dr('A07b', v_ok, 'with b2b e-mails off, R gets no digest: ' || coalesce(v_err, format('%s rows', v_i)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
     -- A08: a digest_log row for this week takes R out of the batch (no second send).
@@ -1794,6 +1977,130 @@ begin
       || coalesce(v_err, format('origin=%s auto=%s', v_origin, v_auto)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
+    -- A22: the sender cannot withdraw the open conversation, nor set it back to pending.
+    v_t := '';
+    v_err := null; v_state := null; v_hint := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      update public.partner_requests set status = 'withdrawn' where id = v_req;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_err = message_text, v_state = returned_sqlstate, v_hint = pg_exception_hint;
+    end;
+    v_t := v_t || 'withdrawn ' || coalesce(v_hint, v_state, 'ALLOWED');
+    v_err := null; v_state := null; v_hint := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      update public.partner_requests set status = 'pending' where id = v_req;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_err = message_text, v_state = returned_sqlstate, v_hint = pg_exception_hint;
+    end;
+    v_t := v_t || ', pending ' || coalesce(v_hint, v_state, 'ALLOWED');
+    v_i := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_r, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      select count(*) into v_i from public.msg_thread(v_req);
+      reset role;
+    exception when others then
+      get stacked diagnostics v_err = message_text;
+    end;
+    select status::text into v_status from public.partner_requests where id = v_req;
+    v_ok := v_t = 'withdrawn already_answered, pending already_answered' and v_status = 'accepted' and v_i >= 2;
+    results := results || pg_temp.dr('A22', v_ok, format('sender changes an open conversation: %s; status still %s; R still reads %s messages', v_t, v_status, v_i));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- A23: a report on one message keeps working when that message is deleted (FK set null passes the trigger).
+    v_err := null; v_rep := null; v_u1 := null; v_i := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      insert into public.conversation_reports (partner_request_id, message_id, reason)
+      values (v_req, v_msg, 'Dry run: this one message.')
+      returning id, message_id into v_rep, v_u1;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_err = message_text, v_state = returned_sqlstate;
+    end;
+    perform set_config('request.jwt.claims', '', true);
+    if v_rep is not null then
+      delete from public.conversation_messages where id = v_msg;
+      select count(*) filter (where message_id is null) into v_i from public.conversation_reports where id = v_rep;
+    end if;
+    v_ok := coalesce(v_err is null and v_u1 = v_msg and v_i = 1, false);
+    results := results || pg_temp.dr('A23', v_ok, 'report on a message; the message deleted -> report kept with message_id null. '
+      || coalesce(v_err, format('kept message=%s, set to null after delete=%s', v_u1 = v_msg, v_i)));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- A24: S leaves OS (sub-block, undone): S no longer reads, writes or reports in the
+    -- conversation they started, and no longer sees it listed.
+    v_err := null; v_i := null; v_j := null; v_k := null; v_t := null; v_t2 := null;
+    begin
+      delete from public.organization_members where user_id = v_s and organization_id = v_os;
+      update public.organizations set owner_user_id = null where id = v_os and owner_user_id = v_s;
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        select count(*) into v_i from public.msg_thread(v_req);
+        select count(*) into v_j from public.msg_conversations() c where c.partner_request_id = v_req;
+        v_k := public.msg_unread_count();
+        reset role;
+      exception when others then
+        get stacked diagnostics v_err = message_text;
+      end;
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        insert into public.conversation_messages (partner_request_id, body) values (v_req, 'Dry run: written after leaving');
+        reset role;
+        v_t := 'ALLOWED';
+      exception when others then
+        get stacked diagnostics v_t = returned_sqlstate;
+      end;
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        insert into public.conversation_reports (partner_request_id, reason) values (v_req, 'Dry run: report after leaving');
+        reset role;
+        v_t2 := 'ALLOWED';
+      exception when others then
+        get stacked diagnostics v_t2 = returned_sqlstate;
+      end;
+      raise exception using errcode = 'DRY02', message = 'undo A24';
+    exception when sqlstate 'DRY02' then null;
+    end;
+    perform set_config('request.jwt.claims', '', true);
+    v_ok := coalesce(v_err is null and v_i = 0 and v_j = 0 and v_k = 0 and v_t = '42501' and v_t2 = '42501', false);
+    results := results || pg_temp.dr('A24', v_ok, 'S removed from OS: thread, list and unread empty, writing and reporting refused. '
+      || coalesce(v_err, format('thread=%s list=%s unread=%s write=%s report=%s', v_i, v_j, v_k, v_t, v_t2)));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- A25: X joins OM now (sub-block, undone): X reads the conversation, and nothing
+    -- written before they joined counts as unread for them.
+    v_err := null; v_i := null; v_j := null;
+    begin
+      insert into public.organization_members (organization_id, user_id) values (v_om, v_x);
+      begin
+        perform set_config('request.jwt.claims', json_build_object('sub', v_x, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        select count(*) into v_i from public.msg_thread(v_req);
+        select c.unread_count into v_j from public.msg_conversations() c where c.partner_request_id = v_req;
+        reset role;
+      exception when others then
+        get stacked diagnostics v_err = message_text;
+      end;
+      raise exception using errcode = 'DRY02', message = 'undo A25';
+    exception when sqlstate 'DRY02' then null;
+    end;
+    perform set_config('request.jwt.claims', '', true);
+    v_ok := coalesce(v_err is null and v_i >= 1 and v_j = 0, false);
+    results := results || pg_temp.dr('A25', v_ok, 'a new colleague (X joins OM) reads the thread with 0 unread. '
+      || coalesce(v_err, format('thread rows=%s unread=%s', v_i, v_j)));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
     raise exception using errcode = 'DRY01', message = 'scenario A finished';
   exception
     when sqlstate 'DRY01' then null;
@@ -1912,6 +2219,72 @@ begin
     end;
     v_ok := coalesce(v_err like '%already been answered%', false);
     results := results || pg_temp.dr('B07', v_ok, 'a second answer is still refused: ' || coalesce(v_err, 'ALLOWED'));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- B08: the sender cannot withdraw a conversation accepted by hand either.
+    v_err := null; v_hint := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      update public.partner_requests set status = 'withdrawn' where id = v_req;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_err = message_text, v_state = returned_sqlstate, v_hint = pg_exception_hint;
+    end;
+    v_ok := v_hint = 'already_answered';
+    results := results || pg_temp.dr('B08', v_ok, 'sender withdraws an accepted conversation: ' || coalesce(v_hint, v_err, 'ALLOWED'));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- B09: a declined request cannot be put back in front of the company (old-client insert, N declines, S re-opens).
+    v_err := null; v_hint := null; v_req2 := null; v_t := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      insert into public.partner_requests (partner_user_id, marina_user_id, message) values (v_s, v_n, 'Dry run: to be declined')
+      returning id into v_req2;
+      perform set_config('request.jwt.claims', json_build_object('sub', v_n, 'role', 'authenticated')::text, true);
+      update public.partner_requests set status = 'rejected' where id = v_req2;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_t = message_text;
+    end;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      update public.partner_requests set status = 'pending' where id = v_req2;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_err = message_text, v_state = returned_sqlstate, v_hint = pg_exception_hint;
+    end;
+    select status::text into v_status from public.partner_requests where id = v_req2;
+    v_ok := coalesce(v_t is null and v_hint = 'already_answered' and v_status = 'rejected', false);
+    results := results || pg_temp.dr('B09', v_ok, 'sender re-opens a declined request: '
+      || coalesce(v_t, coalesce(v_hint, v_err, 'ALLOWED') || ', status ' || coalesce(v_status, '?')));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- B10: a withdrawn request re-opened while the two companies already have a conversation is refused.
+    v_err := null; v_hint := null; v_req2 := null; v_t := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      insert into public.partner_requests (partner_user_id, marina_user_id, message) values (v_s, v_n, 'Dry run: to be withdrawn')
+      returning id into v_req2;
+      update public.partner_requests set status = 'withdrawn' where id = v_req2;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_t = message_text;
+    end;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      update public.partner_requests set status = 'pending' where id = v_req2;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_err = message_text, v_state = returned_sqlstate, v_hint = pg_exception_hint;
+    end;
+    v_ok := coalesce(v_t is null and v_hint = 'already_connected', false);
+    results := results || pg_temp.dr('B10', v_ok, 'withdraw then re-open beside an open conversation: '
+      || coalesce(v_t, coalesce(v_hint, v_err, 'ALLOWED')));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
     raise exception using errcode = 'DRY01', message = 'scenario B finished';
@@ -2132,6 +2505,27 @@ begin
     v_ok := v_t = 'ok' and v_i = 60 and v_hint = 'rate_limited' and v_t2 = '23514';
     results := results || pg_temp.dr('D01', v_ok, format('60 messages in an hour accepted (%s, %s), the 61st -> %s; 4001 characters -> %s',
       v_i, v_t, coalesce(v_hint, coalesce(v_err, 'ALLOWED')), coalesce(v_t2, 'ALLOWED')));
+    n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+    -- D02: msg_mark_read up to the newest message shown: what came after stays unread;
+    -- the marker never moves back.
+    v_err := null; v_i := null; v_j := null; v_k := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      perform public.msg_mark_read(v_req, now() - interval '1 second');
+      select c.unread_count into v_i from public.msg_conversations() c where c.partner_request_id = v_req;
+      perform public.msg_mark_read(v_req);
+      select c.unread_count into v_j from public.msg_conversations() c where c.partner_request_id = v_req;
+      perform public.msg_mark_read(v_req, '2000-01-01');
+      select c.unread_count into v_k from public.msg_conversations() c where c.partner_request_id = v_req;
+      reset role;
+    exception when others then
+      get stacked diagnostics v_err = message_text;
+    end;
+    v_ok := coalesce(v_err is null and v_i = 60 and v_j = 0 and v_k = 0, false);
+    results := results || pg_temp.dr('D02', v_ok, 'read up to an earlier message: 60 still unread; read now: 0; an older time later: still 0. '
+      || coalesce(v_err, format('%s / %s / %s', v_i, v_j, v_k)));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
     raise exception using errcode = 'DRY01', message = 'scenario D finished';

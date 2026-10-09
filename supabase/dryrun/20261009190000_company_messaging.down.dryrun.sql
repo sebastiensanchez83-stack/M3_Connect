@@ -1,3 +1,56 @@
+-- DRY RUN of the DOWN scripts of company messaging:
+--   supabase/migrations/down/20261009190001_messages_digest_cron.down.sql
+--   supabase/migrations/down/20261009190000_company_messaging.down.sql
+-- NOT A MIGRATION: never apply it. NOTHING IS KEPT.
+--
+-- How to run: the WHOLE file in ONE execute_sql call (one implicit transaction),
+-- with no BEGIN/COMMIT. It applies both migrations, then both down scripts, and
+-- checks that the database is back exactly as before: partner_requests (columns,
+-- constraints, indexes, triggers, policies, rows by status), no msg_* function, no
+-- conversation_* or digest_log table, no messages-digest-friday job. The last
+-- statement ends with RAISE EXCEPTION 'DRYRUN ...': everything rolls back and the
+-- error text is the report ("n PASS, m FAIL", then one line per check).
+-- Tripwire: "before-snapshot missing" means the statements did NOT run in one
+-- transaction: check information_schema.columns for partner_requests.auto_connected
+-- and cron.job for 'messages-digest-friday' at once.
+--
+-- Expected: "4 PASS, 0 FAIL".
+
+-- ─── A. Snapshot ─────────────────────────────────────────────────────────────
+create temp table _dr_before on commit drop as
+  select * from (
+    select 'col ' || column_name as k, data_type || '|' || is_nullable || '|' || coalesce(column_default, '') as v
+      from information_schema.columns where table_schema = 'public' and table_name = 'partner_requests'
+    union all
+    select 'constraint ' || conname, pg_get_constraintdef(oid)
+      from pg_constraint where conrelid = 'public.partner_requests'::regclass
+    union all
+    select 'index ' || indexname, indexdef
+      from pg_indexes where schemaname = 'public' and tablename = 'partner_requests'
+    union all
+    select 'trigger ' || tgname, pg_get_triggerdef(oid)
+      from pg_trigger where tgrelid = 'public.partner_requests'::regclass and not tgisinternal
+    union all
+    select 'policy ' || policyname, cmd || '|' || roles::text || '|' || coalesce(qual, '') || '|' || coalesce(with_check, '')
+      from pg_policies where schemaname = 'public' and tablename = 'partner_requests'
+    union all
+    select 'count ' || status::text, count(*)::text from public.partner_requests group by status
+    union all
+    select 'fn ' || p.oid::regprocedure::text, ''
+      from pg_proc p
+     where p.pronamespace = 'public'::regnamespace
+       and (p.proname like 'msg\_%' or p.proname like 'conversation\_%' or p.proname like 'partner\_requests\_msg\_%'
+            or p.proname = 'invoke_messages_digest')
+    union all
+    select 'table ' || c.relname, ''
+      from pg_class c
+     where c.relnamespace = 'public'::regnamespace
+       and c.relname in ('conversation_messages', 'conversation_reads', 'conversation_reports', 'digest_log')
+    union all
+    select 'cron ' || jobname, schedule || '|' || command from cron.job
+  ) s;
+
+-- ─── B. The migrations, verbatim ─────────────────────────────────────────────
 -- Company-to-company messaging. Victor's decisions of 9 Oct 2026 (memory
 -- "messaging-decisions"; roadmap docs/ROADMAP_POST_SM26.md, lot 8).
 --
@@ -1199,3 +1252,204 @@ GRANT EXECUTE ON FUNCTION public.msg_mark_read(uuid, timestamptz) TO authenticat
 -- It is scheduled by 20261009190001_messages_digest_cron.sql, applied only on the
 -- day the refonte replaces the old site on smartmarinaconnect.com (the old site has
 -- no Messages screen, still e-mails each request, and ignores /?open=inbox).
+
+-- ─── B2. The launch-day migration, verbatim ─────────────────────────────────
+-- LAUNCH-DAY migration: the Friday messages digest (company messaging, Victor's
+-- decisions of 9 Oct 2026). Needs 20261009190000_company_messaging.sql first.
+--
+-- APPLY IT ONLY ON THE DAY THE REFONTE REPLACES THE OLD SITE on
+-- smartmarinaconnect.com, together with the deploy of the messages-digest edge
+-- function (verify_jwt = true). Before that day the live site has no Messages
+-- screen, still e-mails each request as it arrives (partner_request_received) and
+-- ignores /?open=inbox: a digest would announce those requests a second time and
+-- send people to a button that does nothing.
+--
+-- What it does: pg_cron job "messages-digest-friday" at 08:00, 08:30, 09:00 and
+-- 09:30 UTC on Fridays. public.invoke_messages_digest() goes ahead only between
+-- 10:00 and 10:59 in Monaco (msg_digest_due), so two runs a Friday reach the edge
+-- function, at 10:00 and 10:30 Monaco time in summer and in winter alike. The
+-- second sends what the first left (its time budget, a send Resend refused);
+-- digest_log stops anything from being sent twice.
+--
+-- Check after applying:
+--   select jobname, schedule, command from cron.job where jobname = 'messages-digest-friday';
+--     -> '0,30 8,9 * * 5', 'SELECT public.invoke_messages_digest();'
+-- UNDO: supabase/migrations/down/20261009190001_messages_digest_cron.down.sql
+
+SELECT cron.schedule(
+  'messages-digest-friday',
+  '0,30 8,9 * * 5',
+  $cmd$SELECT public.invoke_messages_digest();$cmd$
+);
+
+-- ─── C. What the migrations added (to prove they ran before the down scripts) ──
+create temp table _dr_mid on commit drop as
+  select (select count(*) from pg_proc p
+           where p.pronamespace = 'public'::regnamespace and p.proname like 'msg\_%') as fns,
+         (select count(*) from pg_class c
+           where c.relnamespace = 'public'::regnamespace
+             and c.relname in ('conversation_messages', 'conversation_reads', 'conversation_reports', 'digest_log')) as tbls,
+         (select count(*) from information_schema.columns
+           where table_schema = 'public' and table_name = 'partner_requests' and column_name in ('origin', 'auto_connected')) as cols,
+         (select count(*) from cron.job where jobname = 'messages-digest-friday') as jobs;
+
+-- ─── D. The down scripts, verbatim: the launch one first, then the main one ──
+-- DOWN for supabase/migrations/20261009190001_messages_digest_cron.sql
+--
+-- Stops the Friday messages digest: the pg_cron job goes, nothing else. Messages,
+-- read markers and digest_log stay. To stop sending at once without this file,
+-- undeploying the messages-digest edge function has the same effect.
+
+SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'messages-digest-friday';
+
+-- DOWN for supabase/migrations/20261009190000_company_messaging.sql
+--
+-- Removes company messaging. Run it only together with a client that no longer
+-- uses it (the refonte's Messages screen, the company page's "Send a message" and
+-- the messages-digest edge function), and undeploy messages-digest first.
+--
+-- DATA LOSS: every conversation message, read marker, report and digest log row is
+-- dropped, and partner_requests loses origin / auto_connected. Requests that were
+-- auto-connected stay 'accepted' (with answered_by_user_id null): the old client
+-- shows them as accepted connections, which they are. Export the four tables first
+-- if anything must be kept:
+--   copy (select * from public.conversation_messages) to stdout with csv header;  -- etc.
+
+-- The Friday job (normally removed first by 20261009190001_messages_digest_cron.down.sql;
+-- repeated here so this file is enough on its own)
+SELECT cron.unschedule(jobid) FROM cron.job WHERE jobname = 'messages-digest-friday';
+
+-- RPCs and helpers
+DROP FUNCTION IF EXISTS public.invoke_messages_digest(boolean);
+DROP FUNCTION IF EXISTS public.msg_digest_due(timestamptz);
+DROP FUNCTION IF EXISTS public.msg_digest_batch(date, integer);
+DROP FUNCTION IF EXISTS public.msg_mark_read(uuid, timestamptz);
+DROP FUNCTION IF EXISTS public.msg_thread(uuid);
+DROP FUNCTION IF EXISTS public.msg_conversations();
+DROP FUNCTION IF EXISTS public.msg_unread_count();
+DROP FUNCTION IF EXISTS public.msg_unread_items(uuid, timestamptz);
+
+-- Tables (their policies, triggers and indexes go with them)
+DROP TABLE IF EXISTS public.digest_log;
+DROP TABLE IF EXISTS public.conversation_reports;
+DROP TABLE IF EXISTS public.conversation_reads;
+DROP TABLE IF EXISTS public.conversation_messages;
+DROP FUNCTION IF EXISTS public.conversation_reports_before_write();
+DROP FUNCTION IF EXISTS public.msg_report_excerpt(uuid);
+DROP FUNCTION IF EXISTS public.conversation_messages_before_insert();
+
+-- partner_requests: policy, triggers, columns, indexes
+DROP POLICY IF EXISTS partner_requests_select_sender_org ON public.partner_requests;
+DROP TRIGGER IF EXISTS trg_partner_requests_msg_insert ON public.partner_requests;
+DROP TRIGGER IF EXISTS trg_partner_requests_msg_update ON public.partner_requests;
+DROP FUNCTION IF EXISTS public.partner_requests_msg_before_insert();
+DROP FUNCTION IF EXISTS public.partner_requests_msg_before_update();
+
+DROP FUNCTION IF EXISTS public.msg_pair_open_request(uuid, uuid);
+DROP FUNCTION IF EXISTS public.msg_orgs_sectors_match(uuid, uuid);
+DROP FUNCTION IF EXISTS public.msg_can_write(uuid, uuid);
+DROP FUNCTION IF EXISTS public.msg_my_side_org(uuid);
+DROP FUNCTION IF EXISTS public.msg_can_report(uuid);
+DROP FUNCTION IF EXISTS public.msg_can_access(uuid);
+DROP FUNCTION IF EXISTS public.msg_side(uuid, uuid);
+DROP FUNCTION IF EXISTS public.msg_user_org_ids(uuid);
+
+DROP INDEX IF EXISTS public.partner_requests_sender_created_idx;
+DROP INDEX IF EXISTS public.partner_requests_org_pair_idx;
+DROP INDEX IF EXISTS public.partner_requests_marina_org_status_idx;
+
+ALTER TABLE public.partner_requests DROP CONSTRAINT IF EXISTS partner_requests_origin_check;
+ALTER TABLE public.partner_requests
+  DROP COLUMN IF EXISTS origin,
+  DROP COLUMN IF EXISTS auto_connected;
+
+-- ─── E. Checks ───────────────────────────────────────────────────────────────
+do $dryrun$
+declare
+  results text := '';
+  n_pass integer := 0;
+  n_fail integer := 0;
+  v_ok boolean;
+  v_i integer; v_j integer; v_k integer;
+  v_t text;
+  v_mid record;
+begin
+  if to_regclass('pg_temp._dr_before') is null then
+    raise exception 'DRYRUN FAIL before-snapshot missing: the statements did not run in one transaction; check whether the migration was committed';
+  end if;
+
+  -- D01: the migrations really ran (so the down scripts had something to remove).
+  select * into v_mid from _dr_mid;
+  v_ok := v_mid.fns >= 15 and v_mid.tbls = 4 and v_mid.cols = 2 and v_mid.jobs = 1;
+  results := results || format(E'\n%s D01 after the migrations: %s msg_* functions, %s tables, %s columns, %s cron job',
+    case when v_ok then 'PASS' else 'FAIL' end, v_mid.fns, v_mid.tbls, v_mid.cols, v_mid.jobs);
+  n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+  -- D02: after both down scripts, the snapshot is identical.
+  select count(*) filter (where b.k is null), count(*) filter (where a.k is null), count(*) filter (where a.v is distinct from b.v and a.k is not null and b.k is not null),
+         string_agg(coalesce(a.k, b.k), ', ') filter (where a.k is null or b.k is null or a.v is distinct from b.v)
+    into v_i, v_j, v_k, v_t
+    from (
+      select 'col ' || column_name as k, data_type || '|' || is_nullable || '|' || coalesce(column_default, '') as v
+        from information_schema.columns where table_schema = 'public' and table_name = 'partner_requests'
+      union all
+      select 'constraint ' || conname, pg_get_constraintdef(oid)
+        from pg_constraint where conrelid = 'public.partner_requests'::regclass
+      union all
+      select 'index ' || indexname, indexdef
+        from pg_indexes where schemaname = 'public' and tablename = 'partner_requests'
+      union all
+      select 'trigger ' || tgname, pg_get_triggerdef(oid)
+        from pg_trigger where tgrelid = 'public.partner_requests'::regclass and not tgisinternal
+      union all
+      select 'policy ' || policyname, cmd || '|' || roles::text || '|' || coalesce(qual, '') || '|' || coalesce(with_check, '')
+        from pg_policies where schemaname = 'public' and tablename = 'partner_requests'
+      union all
+      select 'count ' || status::text, count(*)::text from public.partner_requests group by status
+      union all
+      select 'fn ' || p.oid::regprocedure::text, ''
+        from pg_proc p
+       where p.pronamespace = 'public'::regnamespace
+         and (p.proname like 'msg\_%' or p.proname like 'conversation\_%' or p.proname like 'partner\_requests\_msg\_%'
+              or p.proname = 'invoke_messages_digest')
+      union all
+      select 'table ' || c.relname, ''
+        from pg_class c
+       where c.relnamespace = 'public'::regnamespace
+         and c.relname in ('conversation_messages', 'conversation_reads', 'conversation_reports', 'digest_log')
+      union all
+      select 'cron ' || jobname, schedule || '|' || command from cron.job
+    ) a
+    full join _dr_before b on a.k = b.k;
+  v_ok := v_i = 0 and v_j = 0 and v_k = 0;
+  results := results || format(E'\n%s D02 back to the snapshot: %s left over, %s missing, %s changed%s',
+    case when v_ok then 'PASS' else 'FAIL' end, v_i, v_j, v_k, coalesce(' (' || v_t || ')', ''));
+  n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+  -- D03: nothing of messaging is left, by name.
+  select count(*) into v_i from pg_proc p
+   where p.pronamespace = 'public'::regnamespace
+     and (p.proname like 'msg\_%' or p.proname in ('invoke_messages_digest', 'partner_requests_msg_before_insert',
+          'partner_requests_msg_before_update', 'conversation_messages_before_insert', 'conversation_reports_before_write'));
+  select count(*) into v_j from pg_class c
+   where c.relnamespace = 'public'::regnamespace
+     and c.relname in ('conversation_messages', 'conversation_reads', 'conversation_reports', 'digest_log');
+  select count(*) into v_k from information_schema.columns
+   where table_schema = 'public' and table_name = 'partner_requests' and column_name in ('origin', 'auto_connected');
+  v_ok := v_i = 0 and v_j = 0 and v_k = 0;
+  results := results || format(E'\n%s D03 no messaging function (%s), table (%s) or column (%s) left',
+    case when v_ok then 'PASS' else 'FAIL' end, v_i, v_j, v_k);
+  n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+  -- D04: the Friday job is gone, the other jobs untouched.
+  select count(*) into v_i from cron.job where jobname = 'messages-digest-friday';
+  select count(*) into v_j from cron.job;
+  select count(*) into v_k from _dr_before where k like 'cron %';
+  v_ok := v_i = 0 and v_j = v_k;
+  results := results || format(E'\n%s D04 cron: messages-digest-friday %s, %s jobs (before: %s)',
+    case when v_ok then 'PASS' else 'FAIL' end, case when v_i = 0 then 'gone' else 'STILL THERE' end, v_j, v_k);
+  n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
+
+  raise exception 'DRYRUN %', format('%s PASS, %s FAIL (company messaging DOWN scripts, run %s)', n_pass, n_fail, now()) || results;
+end
+$dryrun$;

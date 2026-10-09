@@ -93,12 +93,18 @@ export interface WaitingConnection {
 }
 
 /**
- * The connection requests waiting for my answer (received, pending: the
- * inbox's own "waiting for you" rule), newest first, with who sent them.
+ * The connection requests waiting for my answer (received, pending: the rule of
+ * Messages and of the count, src/hooks/useInboxCount.ts), newest first, with who
+ * sent them. Addressed to a company I belong to now, or, for an old request
+ * without a company, to me.
  */
 export async function loadWaitingConnections(uid: string, activeOrgId: string | null): Promise<WaitingConnection[]> {
   const orgIds = [...new Set([...(await myOrganizationIds(uid)), ...(activeOrgId ? [activeOrgId] : [])])];
-  const rows = (await loadPartnerRows(uid, orgIds)).filter((r) => r.partner_user_id !== uid && r.status === 'pending');
+  const rows = (await loadPartnerRows(uid, orgIds)).filter((r) =>
+    r.partner_user_id !== uid
+    && r.status === 'pending'
+    && (r.marina_organization_id ? orgIds.includes(r.marina_organization_id) : r.marina_user_id === uid)
+    && !(r.partner_organization_id && orgIds.includes(r.partner_organization_id)));
   const people = await fetchPeople([...new Set(rows.map((r) => r.partner_user_id))]);
   const missing = rows.filter((r) => !r.partner_org).map((r) => r.partner_user_id);
   const fallbackOrgs: Record<string, PersonOrg> = missing.length ? await fetchPeopleOrgs(missing) : {};

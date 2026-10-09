@@ -10,9 +10,14 @@ import { myOrganizationIds } from '@/components/inbox/inboxCounts';
  *   - unread messages: messages from the other company in my conversations that I
  *     have not opened yet (the database's rule, msg_unread_count(), migration
  *     20261009190000_company_messaging.sql; 0 until it is applied);
- *   - requests: first messages sent to me or my company and still waiting for an
- *     answer (requests I or my company sent are not waiting for me), plus, for an
- *     organisation's owner, the people asking to join it.
+ *   - requests: first messages sent to my company (or, for an old request without
+ *     one, to me) and still waiting for an answer, whatever their age (requests I or
+ *     my company sent are not waiting for me). Messages lists exactly these, so the
+ *     dot can always be cleared there.
+ *
+ * total = unread messages + requests. People asking to join the owner's company
+ * (`joins`) are counted apart: they are answered in My team and the dashboard's
+ * to-do, not in Messages, so they are not in the total.
  *
  * One shared store, so the navbar and the dashboard never show two numbers and
  * never run the queries twice; `refresh()` asks again (Messages calls it after a
@@ -24,10 +29,11 @@ export interface InboxCount {
   messages: number;
   /** Received first messages still pending. */
   connections: number;
-  /** Join requests waiting for the owner. */
+  /** Join requests waiting for the owner (My team; not in the total). */
   joins: number;
-  /** connections + joins: everything waiting for an answer. */
+  /** First messages waiting for an answer (= connections). */
   requests: number;
+  /** messages + requests: the navbar dot and the Messages tile. */
   total: number;
 }
 
@@ -66,9 +72,13 @@ async function load(key: string, uid: string, orgId: string | null, isOwner: boo
   const promise = (async () => {
     try {
       // Since 8 Oct 2026 a request goes to the whole receiving company: count the
-      // ones addressed to me and to any organisation I belong to.
+      // ones addressed to any organisation I belong to now, and the old ones without
+      // a company addressed to me (the database's rule, msg_side).
       const orgIds = await myOrganizationIds(uid);
-      const audience = [`marina_user_id.eq.${uid}`, ...(orgIds.length ? [`marina_organization_id.in.(${orgIds.join(',')})`] : [])].join(',');
+      const audience = [
+        `and(marina_organization_id.is.null,marina_user_id.eq.${uid})`,
+        ...(orgIds.length ? [`marina_organization_id.in.(${orgIds.join(',')})`] : []),
+      ].join(',');
       let pending = supabase.from('partner_requests').select('id', { count: 'exact', head: true })
         .eq('status', 'pending').neq('partner_user_id', uid).or(audience);
       // Not the ones a colleague sent (the sending company reads its requests too).
@@ -87,7 +97,7 @@ async function load(key: string, uid: string, orgId: string | null, isOwner: boo
       fetchedAt = Date.now();
       // A different account (or company) may have taken over meanwhile: only the current key is kept.
       if (snapshot.key === key) {
-        emit({ key, value: { messages, connections, joins, requests: connections + joins, total: messages + connections + joins } });
+        emit({ key, value: { messages, connections, joins, requests: connections, total: messages + connections } });
       }
     } catch {
       /* the count is a hint: it stays as it was */

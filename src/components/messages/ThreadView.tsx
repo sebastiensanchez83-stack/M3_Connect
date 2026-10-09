@@ -29,9 +29,10 @@ import {
  * only the database's own access rules decide what is read (msg_thread).
  * Opening it, or receiving a new message while it is open, marks it read.
  *
- * The composer: Enter sends, Shift + Enter starts a new line (as in most chat
- * tools), 4,000 characters at most. "Report" tells the M3 team, never the other
- * company.
+ * The composer: with a keyboard and mouse, Enter sends and Shift + Enter starts a
+ * new line (as in most chat tools); on a phone or tablet (no Shift key) Enter
+ * starts a new line and the Send button sends. 4,000 characters at most. "Report"
+ * tells the M3 team, never the other company.
  */
 
 const POLL_MS = 15_000;
@@ -54,7 +55,12 @@ export function ThreadView({
   const [failed, setFailed] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // Set before any await: a second Enter while the first send starts must not send the text twice.
+  const sendingRef = useRef(false);
   const [reportOpen, setReportOpen] = useState(false);
+  // Touch-only devices (phones, tablets without a mouse or trackpad) have no Shift
+  // key: there Enter makes a new line and the button sends.
+  const [touchKeyboard] = useState(() => typeof window !== 'undefined' && !!window.matchMedia && !window.matchMedia('(any-pointer: fine)').matches);
   const logRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
   const lastSeen = useRef<string | null>(null);
@@ -83,7 +89,8 @@ export function ThreadView({
       const key = newestOther ? `${newestOther.id}` : '';
       if (first || (newestOther && key !== lastSeen.current)) {
         lastSeen.current = key;
-        await markThreadRead(id).catch(() => {});
+        // Read up to the newest message shown: one that arrives meanwhile stays unread.
+        await markThreadRead(id, newest?.createdAt ?? null).catch(() => {});
         onReadRef.current();
       }
       if (first && newest) stickToBottom.current = true;
@@ -128,7 +135,16 @@ export function ThreadView({
   const send = async (e?: FormEvent) => {
     e?.preventDefault();
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sendingRef.current) return;
+    sendingRef.current = true;
+    try {
+      await sendNow(text);
+    } finally {
+      sendingRef.current = false;
+    }
+  };
+
+  const sendNow = async (text: string) => {
     const fresh = await requireFreshSession();
     if (!fresh) return;
     setSending(true);
@@ -163,7 +179,7 @@ export function ThreadView({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === 'Enter' && !e.shiftKey && !touchKeyboard && !e.nativeEvent.isComposing) {
       e.preventDefault();
       void send();
     }
@@ -204,10 +220,10 @@ export function ThreadView({
           variant="ghost"
           onClick={() => setReportOpen(true)}
           className="h-11 min-w-11 shrink-0 gap-1.5 rounded-pill px-3 text-meta hover:bg-chip hover:text-navy"
+          title={t('messages.report.buttonSr', 'Report this conversation to M3')}
         >
           <Flag className="h-4 w-4" aria-hidden="true" />
-          <span className="hidden sm:inline">{t('messages.report.button', 'Report')}</span>
-          <span className="sr-only sm:hidden">{t('messages.report.buttonSr', 'Report this conversation to M3')}</span>
+          {t('messages.report.button', 'Report')}
         </Button>
       </div>
 
@@ -268,6 +284,7 @@ export function ThreadView({
             onKeyDown={onKeyDown}
             rows={2}
             maxLength={THREAD_MESSAGE_MAX}
+            enterKeyHint={touchKeyboard ? 'enter' : 'send'}
             aria-describedby={hintId}
             placeholder={t('messages.composer.placeholder', 'Write a message…')}
             className="block max-h-40 min-h-11 w-full min-w-0 flex-1 resize-y rounded-field border border-rule bg-white px-3.5 py-2.5 text-[16px] leading-6 text-ink placeholder:text-meta focus:outline-none focus-visible:shadow-focus"
@@ -282,7 +299,9 @@ export function ThreadView({
           </Button>
         </div>
         <p id={hintId} className="mt-2 text-[12px] leading-[17px] text-meta">
-          {t('messages.composer.hint', 'Enter sends, Shift + Enter starts a new line. Everyone in both companies can read this conversation.')}
+          {touchKeyboard
+            ? t('messages.composer.hintTouch', 'Everyone in both companies can read this conversation.')
+            : t('messages.composer.hint', 'Enter sends, Shift + Enter starts a new line. Everyone in both companies can read this conversation.')}
           {draft.length > THREAD_MESSAGE_MAX - 300 && (
             <span className="ml-1 tabular-nums">({THREAD_MESSAGE_MAX - draft.length} {t('messages.composer.left', 'characters left')})</span>
           )}
@@ -299,8 +318,13 @@ export function ThreadView({
 function MessageBubble({ message: m }: { message: ThreadMessage }) {
   const { t } = useTranslation();
   const mine = m.fromMySide;
-  const name = m.authorName ? displayCase(m.authorName) || m.authorName : t('messages.formerMember', 'Former member');
   const company = m.authorOrgName ? displayCase(m.authorOrgName) || m.authorOrgName : '';
+  // No name: an account without one ("A member", then its company), or one deleted since.
+  const name = m.authorName
+    ? displayCase(m.authorName) || m.authorName
+    : m.authorUserId
+    ? t('messages.aMember', 'A member')
+    : t('messages.formerMember', 'Former member');
   return (
     <li className={cn('flex flex-col', mine ? 'items-end' : 'items-start')}>
       <p className={cn('mb-1 max-w-[90%] text-[13px] leading-[18px] text-meta [overflow-wrap:anywhere]', mine && 'text-right')}>
@@ -326,37 +350,65 @@ function MessageBubble({ message: m }: { message: ThreadMessage }) {
   );
 }
 
-/** "Report to M3": a reason, sent to the M3 team only. */
-function ReportDialog({ open, onOpenChange, requestId, otherName }: { open: boolean; onOpenChange: (o: boolean) => void; requestId: string; otherName: string }) {
+/**
+ * "Report to M3": a reason, sent to the M3 team only (they see it on the admin's
+ * B2B requests page). For a conversation, or for a first message still waiting
+ * (`firstMessage`).
+ */
+export function ReportDialog({
+  open, onOpenChange, requestId, otherName, firstMessage = false,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  requestId: string;
+  otherName: string;
+  firstMessage?: boolean;
+}) {
   const { t } = useTranslation();
   const [reason, setReason] = useState('');
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const fieldId = useId();
 
   useEffect(() => { if (open) setReason(''); }, [open]);
 
   const submit = async () => {
-    if (!reason.trim() || sending) return;
-    const fresh = await requireFreshSession();
-    if (!fresh) return;
-    setSending(true);
-    const r = await reportConversation(requestId, reason);
-    setSending(false);
-    if (!r.ok) {
-      toast({ title: t('messages.report.failed', 'Not sent'), description: r.message, variant: 'destructive' });
-      return;
+    if (!reason.trim() || sendingRef.current) return;
+    sendingRef.current = true;
+    try {
+      const fresh = await requireFreshSession();
+      if (!fresh) return;
+      setSending(true);
+      const r = await reportConversation(requestId, reason);
+      setSending(false);
+      if (!r.ok) {
+        toast({ title: t('messages.report.failed', 'Not sent'), description: r.message, variant: 'destructive' });
+        return;
+      }
+      onOpenChange(false);
+      toast({
+        title: t('messages.report.done', 'Thank you'),
+        description: firstMessage
+          ? t('messages.report.doneBodyFirst', 'The M3 team will look at this message.')
+          : t('messages.report.doneBody', 'The M3 team will look at this conversation.'),
+      });
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
-    onOpenChange(false);
-    toast({ title: t('messages.report.done', 'Thank you'), description: t('messages.report.doneBody', 'The M3 team will look at this conversation.') });
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md rounded-card">
         <DialogHeader>
-          <DialogTitle className="text-navy">{t('messages.report.title', 'Report this conversation to M3')}</DialogTitle>
+          <DialogTitle className="text-navy">
+            {firstMessage
+              ? t('messages.report.titleFirst', 'Report this message to M3')
+              : t('messages.report.title', 'Report this conversation to M3')}
+          </DialogTitle>
           <DialogDescription className="text-[15px] leading-6">
-            {t('messages.report.intro', 'Tell us what is wrong (spam, rude messages, someone pretending to be someone else). The M3 team reads every report. {{name}} is not told.', { name: otherName })}
+            {t('messages.report.introReview', 'Tell us what is wrong (spam, rude messages, someone pretending to be someone else). The M3 team will review it. {{name}} is not told.', { name: otherName })}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
@@ -371,8 +423,8 @@ function ReportDialog({ open, onOpenChange, requestId, otherName }: { open: bool
           />
         </div>
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <Button variant="ctaOutline" size="sm" arrow={false} onClick={() => onOpenChange(false)}>{t('common.cancel', 'Cancel')}</Button>
-          <Button variant="cta" size="sm" roll={!sending} arrow={!sending} onClick={submit} disabled={!reason.trim() || sending}>
+          <Button variant="ctaOutline" size="sm" arrow={false} className="min-h-11" onClick={() => onOpenChange(false)}>{t('common.cancel', 'Cancel')}</Button>
+          <Button variant="cta" size="sm" roll={!sending} arrow={!sending} className="min-h-11" onClick={submit} disabled={!reason.trim() || sending}>
             {sending && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
             {t('messages.report.send', 'Send to M3')}
           </Button>

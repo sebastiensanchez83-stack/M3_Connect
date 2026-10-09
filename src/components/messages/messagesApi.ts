@@ -1,3 +1,4 @@
+import i18n from '@/i18n';
 import { supabase } from '@/lib/supabase';
 import { fetchPeople, type OrgRef, type PartnerRequestData, type PersonRef } from '@/components/inbox/inboxActions';
 import { myOrganizationIds } from '@/components/inbox/inboxCounts';
@@ -147,27 +148,40 @@ export type SendResult = { ok: true } | { ok: false; rateLimited: boolean; messa
 /** Posts a message in a conversation (the database sets the author, company and time). */
 export async function sendThreadMessage(requestId: string, body: string): Promise<SendResult> {
   const text = body.trim();
-  if (!text) return { ok: false, rateLimited: false, message: 'Write a message first.' };
+  if (!text) return { ok: false, rateLimited: false, message: i18n.t('messages.err.empty', 'Write a message first.') };
   const { error } = await supabase.from('conversation_messages').insert({ partner_request_id: requestId, body: text.slice(0, THREAD_MESSAGE_MAX) });
   if (!error) return { ok: true };
   const rateLimited = error.hint === 'rate_limited';
   return {
     ok: false,
     rateLimited,
-    message: rateLimited ? error.message : 'Your message could not be sent. Please check your connection and try again.',
+    message: rateLimited
+      ? i18n.t('messages.err.tooManyPerHour', 'You have sent many messages in the last hour. Please wait a little before sending more.')
+      : i18n.t('messages.err.notSent', 'Your message could not be sent. Please check your connection and try again.'),
   };
 }
 
-/** Marks a conversation read now (best effort). */
-export async function markThreadRead(requestId: string): Promise<void> {
-  await supabase.rpc('msg_mark_read', { p_request: requestId });
+/**
+ * Marks a conversation read (best effort), up to `until`: the time of the newest
+ * message on screen, so one that arrived meanwhile stays unread. Now when not given.
+ */
+export async function markThreadRead(requestId: string, until?: string | null): Promise<void> {
+  await supabase.rpc('msg_mark_read', { p_request: requestId, p_until: until ?? null });
 }
 
-/** "Report to M3": a row the M3 team reviews (with the last messages, for context). */
+/**
+ * "Report to M3": a row the M3 team reviews (with the last messages, for context),
+ * on a conversation or on a first message, whatever its status.
+ */
 export async function reportConversation(requestId: string, reason: string): Promise<{ ok: boolean; message?: string }> {
   const { error } = await supabase.from('conversation_reports').insert({ partner_request_id: requestId, reason: reason.trim().slice(0, 1000) });
   if (!error) return { ok: true };
-  return { ok: false, message: error.hint === 'rate_limited' ? error.message : 'Your report could not be sent. Please try again, or write to events@m3monaco.com.' };
+  return {
+    ok: false,
+    message: error.hint === 'rate_limited'
+      ? i18n.t('messages.err.tooManyReports', 'You have sent many reports today. Please write to M3 at events@m3monaco.com.')
+      : i18n.t('messages.err.reportNotSent', 'Your report could not be sent. Please try again, or write to events@m3monaco.com.'),
+  };
 }
 
 /** Unread messages in all the member's conversations; 0 when it cannot be read. */
@@ -198,10 +212,14 @@ const PR_SELECT = `
 type PRRow = PartnerRequestData & { partner_org: OrgRef | null; marina_org: OrgRef | null };
 
 /**
- * Requests waiting for my company's answer, and the ones my company sent that are
- * still waiting or were declined (the last 90 days). The sender's colleagues see
- * what their company sent (the migration's sender-company read; before it, only
- * one's own).
+ * Requests waiting for my company's answer (all of them, whatever their age: the
+ * count in the navbar and the dashboard tile has no date limit either), and the
+ * ones my company sent that are still waiting, or were declined in the last 90
+ * days. The sender's colleagues see what their company sent (the migration's
+ * sender-company read; before it, only one's own).
+ *
+ * A side that names a company is that company's members, now (the database's rule,
+ * msg_side): someone who left a company no longer sees what was sent to or by it.
  */
 export async function loadRequests(uid: string, activeOrgId: string | null): Promise<{ received: ConnectionRequest[]; sent: ConnectionRequest[] }> {
   const orgIds = [...new Set([...(await myOrganizationIds(uid)), ...(activeOrgId ? [activeOrgId] : [])])];
@@ -217,13 +235,13 @@ export async function loadRequests(uid: string, activeOrgId: string | null): Pro
     .from('partner_requests')
     .select(PR_SELECT)
     .or(audience)
-    .in('status', ['pending', 'rejected'])
-    .gte('created_at', since)
+    // A second or() is ANDed with the first by PostgREST.
+    .or(`status.eq.pending,and(status.eq.rejected,created_at.gte."${since}")`)
     .order('created_at', { ascending: false });
   if (error) throw error;
   const rows = (data ?? []) as unknown as PRRow[];
 
-  const isMySide = (userId: string, orgId: string | null) => userId === uid || (!!orgId && mine.has(orgId));
+  const isMySide = (userId: string, orgId: string | null) => (orgId ? mine.has(orgId) : userId === uid);
   const received: PRRow[] = [];
   const sent: PRRow[] = [];
   for (const r of rows) {
@@ -298,6 +316,48 @@ export async function findCompanyConnection(uid: string, myOrgIds: string[], tar
   return { id: best.id, status: best.status, direction: sentByMe ? 'sent' : 'received' };
 }
 
+export type ExistingContact =
+  /** Already connected: the text was added to that conversation. */
+  | { kind: 'posted'; id: string }
+  /** A first message is already waiting between the two companies (sent: ours; received: theirs). */
+  | { kind: 'waiting'; direction: 'sent' | 'received' }
+  /** Already connected, but the message could not be added. */
+  | { kind: 'failed'; message: string }
+  /** Not in touch yet: send a first message (a new request) as usual. */
+  | { kind: 'none' };
+
+/**
+ * Two companies share ONE conversation (Victor, 9 Oct 2026). Before another page
+ * writes a new first message to a company (an RFP's "Express interest", Deal flow),
+ * this checks where my company already stands with it: connected, the text goes into
+ * that conversation instead of opening a second one; a first message already waiting
+ * either way, nothing new is sent. `text` is what would have been sent.
+ */
+export async function routeToExistingConversation(args: {
+  uid: string;
+  activeOrgId: string | null;
+  targetOrgId: string | null;
+  text: string;
+}): Promise<ExistingContact> {
+  const text = args.text.trim();
+  if (!args.targetOrgId || !text) return { kind: 'none' };
+  const myOrgIds = [...new Set([...(await myOrganizationIds(args.uid)), ...(args.activeOrgId ? [args.activeOrgId] : [])])];
+  if (myOrgIds.includes(args.targetOrgId)) return { kind: 'none' };
+  const conn = await findCompanyConnection(args.uid, myOrgIds, args.targetOrgId);
+  if (!conn) return { kind: 'none' };
+  if (conn.status === 'pending') return { kind: 'waiting', direction: conn.direction };
+  const { error } = await supabase.from('conversation_messages').insert({ partner_request_id: conn.id, body: text.slice(0, THREAD_MESSAGE_MAX) });
+  if (!error) return { kind: 'posted', id: conn.id };
+  // Before the messaging migration there is no conversation to add to: the old way.
+  if (error.code === '42P01' || error.code === 'PGRST205') return { kind: 'none' };
+  return {
+    kind: 'failed',
+    message: error.hint === 'rate_limited'
+      ? i18n.t('messages.err.tooManyPerHour', 'You have sent many messages in the last hour. Please wait a little before sending more.')
+      : i18n.t('messages.err.notSent', 'Your message could not be sent. Please check your connection and try again.'),
+  };
+}
+
 export type FirstMessageResult =
   | { ok: true; id: string; connected: boolean }
   | { ok: false; reason: 'already' | 'rate_limited' | 'length' | 'not_validated' | 'own' | 'no_team' | 'error'; message: string };
@@ -315,8 +375,9 @@ export async function sendFirstMessage(args: {
   message: string;
 }): Promise<FirstMessageResult> {
   const message = args.message.trim();
+  const lengthMessage = i18n.t('messages.err.firstLength', 'Write a message of 1 to {{max}} characters.', { max: MAX_FIRST_MESSAGE });
   if (!message || message.length > MAX_FIRST_MESSAGE) {
-    return { ok: false, reason: 'length', message: `Write a message of 1 to ${MAX_FIRST_MESSAGE} characters.` };
+    return { ok: false, reason: 'length', message: lengthMessage };
   }
   const row = {
     partner_user_id: args.uid,
@@ -336,13 +397,15 @@ export async function sendFirstMessage(args: {
   if (!error && data) return { ok: true, id: data.id, connected: data.status === 'accepted' };
 
   const hint = error?.hint || '';
-  if (hint === 'already_connected') return { ok: false, reason: 'already', message: 'Your companies are already in touch. Open the conversation in Messages.' };
-  if (hint === 'rate_limited') return { ok: false, reason: 'rate_limited', message: error?.message || 'You have sent many messages today. Please try again tomorrow.' };
-  if (hint === 'message_length') return { ok: false, reason: 'length', message: `Write a message of 1 to ${MAX_FIRST_MESSAGE} characters.` };
-  if (hint === 'company_not_validated') return { ok: false, reason: 'not_validated', message: 'You can send messages once the M3 team has validated your company.' };
-  if (hint === 'own_company') return { ok: false, reason: 'own', message: 'This is your own company.' };
-  if (hint === 'no_team' || hint === 'target_suspended') return { ok: false, reason: 'no_team', message: error?.message || 'This company cannot receive messages yet.' };
-  return { ok: false, reason: 'error', message: 'Your message could not be sent. Please check your connection and try again.' };
+  const t = (key: string, fallback: string) => i18n.t(key, fallback);
+  if (hint === 'already_connected') return { ok: false, reason: 'already', message: t('messages.err.already', 'Your companies are already in touch. Open the conversation in Messages.') };
+  if (hint === 'rate_limited') return { ok: false, reason: 'rate_limited', message: t('messages.err.tooManyPerDay', 'You have reached the limit of 20 new messages to companies in 24 hours. Please try again tomorrow.') };
+  if (hint === 'message_length') return { ok: false, reason: 'length', message: lengthMessage };
+  if (hint === 'company_not_validated') return { ok: false, reason: 'not_validated', message: t('messages.err.notValidated', 'You can send messages once the M3 team has validated your company.') };
+  if (hint === 'own_company') return { ok: false, reason: 'own', message: t('messages.err.own', 'This is your own company.') };
+  if (hint === 'no_team') return { ok: false, reason: 'no_team', message: t('messages.err.noTeam', 'This company has nobody on the platform to receive your message yet.') };
+  if (hint === 'target_suspended') return { ok: false, reason: 'no_team', message: t('messages.err.suspended', 'This company cannot receive messages at the moment.') };
+  return { ok: false, reason: 'error', message: t('messages.err.notSent', 'Your message could not be sent. Please check your connection and try again.') };
 }
 
 /* ------------------------------------------------------------------ dates */
@@ -355,7 +418,7 @@ export function shortWhen(iso: string | null | undefined, now = new Date()): str
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
   if (days <= 0) return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-  if (days === 1) return 'Yesterday';
+  if (days === 1) return i18n.t('messages.yesterday', 'Yesterday');
   if (days < 7) return d.toLocaleDateString('en-GB', { weekday: 'short' });
   return d.toLocaleDateString('en-GB', d.getFullYear() === now.getFullYear()
     ? { day: 'numeric', month: 'short' }
@@ -368,8 +431,8 @@ export function dayLabel(iso: string, now = new Date()): string {
   if (Number.isNaN(d.getTime())) return '';
   const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Yesterday';
+  if (days === 0) return i18n.t('messages.today', 'Today');
+  if (days === 1) return i18n.t('messages.yesterday', 'Yesterday');
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 

@@ -34,6 +34,7 @@ import { Eyebrow } from '@/components/brand/Eyebrow';
 import { LogoTile } from '@/components/brand/OrgCard';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { BathyPattern } from '@/components/motion/BathyPattern';
+import { routeToExistingConversation } from '@/components/messages/messagesApi';
 import { registerOrgRefonteStrings } from '@/i18n/refonte-org';
 
 registerOrgRefonteStrings();
@@ -542,6 +543,38 @@ export function OpportunitiesPage() {
       // exactly as it was; the marina's team sees it in Messages, where any of them
       // accepts or declines it. No e-mail on arrival (Victor, 9 Oct 2026): it is in
       // their Friday summary.
+      // Two companies share ONE conversation: already connected, the interest goes
+      // into it; a first message already waiting either way, nothing new is sent.
+      const typed = interestMessage.trim();
+      const kindLabel = interestTarget.type === 'rfp' ? 'RFP' : 'consultation';
+      const existing = await routeToExistingConversation({
+        uid: user.id,
+        activeOrgId: organization?.id ?? null,
+        targetOrgId: interestTarget.marina_organization_id,
+        text: `Interest in your ${kindLabel}: ${interestTarget.title}${typed ? `\n\n${typed}` : ''}`,
+      });
+      if (existing.kind === 'posted') {
+        setExistingInterests((prev) => new Set([...prev, interestKey(interestTarget.marina_user_id, interestTarget.sector_id)]));
+        toast({
+          title: t('opportunities.interestSent', 'Interest expressed successfully'),
+          description: t('opportunities.interestInConversation', 'It was added to your conversation with this marina, in Messages.'),
+        });
+        setInterestOpen(false);
+        return;
+      }
+      if (existing.kind === 'waiting') {
+        toast({
+          title: t('opportunities.interestAlreadyTitle', 'You are already in touch'),
+          description: existing.direction === 'sent'
+            ? t('opportunities.interestAlreadySent', 'Your company has already written to this marina. Once they accept, mention this request in your conversation in Messages.')
+            : t('opportunities.interestAlreadyReceived', 'This marina has written to your company: accept their message in Messages to start the conversation.'),
+        });
+        return;
+      }
+      if (existing.kind === 'failed') {
+        toast({ title: t('opportunities.error', 'Error'), description: existing.message, variant: 'destructive' });
+        return;
+      }
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
         marina_user_id: interestTarget.marina_user_id,

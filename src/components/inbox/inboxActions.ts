@@ -5,9 +5,9 @@ import { displayCase } from '@/lib/displayCase';
 import { myOrganizationIds } from './inboxCounts';
 
 /**
- * The connection requests' reads and answer, taken out of InboxTab so the
- * dashboard's "Answer 2 connection requests" window does exactly what the
- * inbox does (same rows, same update, same e-mail). InboxTab uses these too.
+ * The connection requests' reads and answer, shared by Messages
+ * (src/components/messages) and the dashboard's "Answer 2 connection requests"
+ * window, so both do exactly the same (same rows, same update, same e-mail).
  */
 
 export type PartnerStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn';
@@ -115,10 +115,12 @@ export type AnswerResult =
   | { ok: false; taken: boolean; message?: string };
 
 /**
- * Accepts or declines a connection request: only one still pending (a
- * colleague may have answered in the meantime; the database refuses a second
- * answer too), then the e-mail to the sender (fire and forget; the server takes
- * the company name from the database and checks that this account answered).
+ * Accepts or declines a connection request (a first message): only one still
+ * pending (a colleague may have answered in the meantime; the database refuses a
+ * second answer too). Accepting sends the introduction e-mail to the sender (fire
+ * and forget; the server takes the company name from the database and checks that
+ * this account answered). Declining sends NO e-mail (Victor, 9 Oct 2026: the only
+ * instant e-mail of messaging is the introduction when a company accepts).
  */
 export async function answerConnectionRequest(
   request: Pick<PartnerRequestData, 'id' | 'partner_user_id'>,
@@ -145,12 +147,6 @@ export async function answerConnectionRequest(
         acceptor_email: me.email || '',
         acceptor_name: `${me.firstName || ''} ${me.lastName || ''}`.trim() || companyName,
       },
-    });
-  } else {
-    sendNotification({
-      type: 'partner_request_rejected',
-      userId: request.partner_user_id,
-      data: { marina_name: companyName },
     });
   }
   return { ok: true };

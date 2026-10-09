@@ -21,7 +21,6 @@ import { useEntitlements } from '@/hooks/useEntitlements';
 import { supabase } from '@/lib/supabase';
 import { requireFreshSession } from '@/lib/session';
 import { toast } from '@/hooks/use-toast';
-import { sendNotification } from '@/lib/notifications';
 import { THEMES, getTheme, themeForSector, type Theme, type ThemeKey } from '@/lib/themes';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { CREATE_ACTIONS, canCreate, type CreateAction, type CreateCapability } from '@/lib/nav';
@@ -538,10 +537,11 @@ export function OpportunitiesPage() {
     setInterestSending(true);
     try {
       // Answering a need the marina published is always allowed, whatever the
-      // sectors of the two organisations: the marina asked for answers. The
-      // sector rule (src/lib/sector-matching.ts) stays on cold connection
-      // requests, made from a company or a member page.
-      // What is written and notified stays exactly as it was on the old page.
+      // sectors of the two organisations: the marina asked for answers (and since
+      // 9 Oct 2026 no sector rule gates any first message). What is written stays
+      // exactly as it was; the marina's team sees it in Messages, where any of them
+      // accepts or declines it. No e-mail on arrival (Victor, 9 Oct 2026): it is in
+      // their Friday summary.
       const { error } = await supabase.from('partner_requests').insert({
         partner_user_id: user.id,
         marina_user_id: interestTarget.marina_user_id,
@@ -554,23 +554,12 @@ export function OpportunitiesPage() {
 
       if (error) throw error;
 
-      // Notify the marina owner
-      const partnerName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A member';
-      sendNotification({
-        type: 'partner_request_received',
-        userId: interestTarget.marina_user_id,
-        data: {
-          partner_name: partnerName,
-          message: interestMessage.trim() || `Interest in ${interestTarget.type === 'rfp' ? 'RFP' : 'consultation'}: ${interestTarget.title}`,
-        },
-      });
-
       // Track locally so the button is disabled immediately (composite key)
       setExistingInterests((prev) => new Set([...prev, interestKey(interestTarget.marina_user_id, interestTarget.sector_id)]));
 
       toast({
         title: t('opportunities.interestSent', 'Interest expressed successfully'),
-        description: t('opportunities.interestSentDesc', 'The marina has been notified of your interest.'),
+        description: t('opportunities.interestSentInMessages', 'The marina team sees it in their Messages. Their answer will show in yours.'),
       });
       setInterestOpen(false);
     } catch (err: unknown) {

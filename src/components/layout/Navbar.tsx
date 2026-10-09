@@ -271,8 +271,8 @@ export function Navbar() {
     access: access ? { media: access.media, sponsor: access.sponsorIds.length > 0, manager: access.manager } : null,
   }));
   const inboxLabel = inbox.total > 0
-    ? t('nav.inboxWaiting', { count: inbox.total, defaultValue_one: 'Inbox, {{count}} request waiting', defaultValue_other: 'Inbox, {{count}} requests waiting' })
-    : t('nav.inbox', 'Inbox');
+    ? t('nav.messagesWaiting', { count: inbox.total, defaultValue_one: 'Messages, {{count}} waiting', defaultValue_other: 'Messages, {{count}} waiting' })
+    : t('nav.messages', 'Messages');
 
   // ---------------------------------------------------------------- nav model
   const navItems: NavItem[] = user

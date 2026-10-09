@@ -289,19 +289,9 @@ export function DealFlowPage() {
         return;
       }
 
-      // Fire-and-forget notification (don't await — keeps the dialog snappy)
-      void supabase.functions.invoke('send-notification', {
-        body: {
-          type: 'partner_request_received',
-          user_id: ownerMember.user_id,
-          data: {
-            partner_name: organization?.name || 'An investor',
-            message: interestMessage.trim() || '',
-          },
-        },
-      });
-
-      toast({ title: 'Interest sent', description: `${interestTarget.name} will be notified.` });
+      // No e-mail on arrival (Victor, 9 Oct 2026): the company's team sees it in
+      // Messages, where any of them accepts or declines it, and in their Friday summary.
+      toast({ title: 'Interest sent', description: `The ${interestTarget.name} team sees it in their Messages. Their answer will show in yours.` });
       setInterestTarget(null);
       setInterestMessage('');
     } finally {

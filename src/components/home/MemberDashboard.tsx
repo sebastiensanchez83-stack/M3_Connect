@@ -394,16 +394,20 @@ export default function MemberDashboard() {
     tiles.push({ key: 'registrations', panel: 'registrations', icon: getHomeSection('registrations')!.icon, title: label('registrations'), status, tone: sm26What ? 'done' : 'plain' });
   }
 
-  // Messages
-  tiles.push({
-    key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, title: label('inbox'),
-    tone: inbox.total > 0 ? 'action' : 'plain',
-    // The pill already gives the number.
-    status: !inbox.loaded ? loadingLine : inbox.total > 0
-      ? t('dash.st.waitingNoCount', 'Waiting for your answer')
-      : t('dash.st.nothingWaiting', 'Nothing waiting for you'),
-    count: { value: inbox.total, label: t('dash.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' }) },
-  });
+  // Messages: "3 unread messages · 1 request waiting" (useInboxCount, the navbar dot's count).
+  {
+    const parts: string[] = [];
+    if (inbox.messages > 0) parts.push(t('dash.st.unreadMessages', { count: inbox.messages, defaultValue_one: '{{count}} unread message', defaultValue_other: '{{count}} unread messages' }));
+    if (inbox.requests > 0) parts.push(t('dash.st.requestsWaiting', { count: inbox.requests, defaultValue_one: '{{count}} request waiting', defaultValue_other: '{{count}} requests waiting' }));
+    tiles.push({
+      key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, title: label('inbox'),
+      tone: inbox.total > 0 ? 'action' : 'plain',
+      status: !inbox.loaded ? loadingLine : parts.length > 0
+        ? parts.join(' · ')
+        : t('dash.st.noNewMessages', 'No new messages'),
+      count: { value: inbox.total, label: t('dash.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' }) },
+    });
+  }
 
   // My requests
   tiles.push({

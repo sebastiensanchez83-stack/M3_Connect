@@ -17,6 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import {
   AdminPageHeader, AdminKpiCard, AdminSectionLabel, AdminStatusPill, ADMIN_BTN,
 } from './AdminUI';
+import { useReviewCount } from './reviewQueueCount';
 import { supabase } from '@/lib/supabase';
 import { TIER_LABELS, TIER_COLORS, OrgTier } from '@/types/database';
 import {
@@ -112,24 +113,6 @@ const LEAD_STATUS_COLORS: Record<string, string> = {
 
 /* ══════════════════════════════ REVIEW QUEUE CARD ══════════════════════════════ */
 
-/**
- * The figure of "N items to review": admin_review_queue_count() (staff only,
- * migration 20261009230000). null while unknown: function not deployed yet, or
- * any error. Keyed on the user id (auth re-emits the user on every tab refocus).
- */
-function useReviewQueueCount(uid: string | undefined): number | null {
-  const [count, setCount] = useState<number | null>(null);
-  useEffect(() => {
-    if (!uid) return;
-    let alive = true;
-    supabase.rpc('admin_review_queue_count').then(({ data, error }) => {
-      if (alive) setCount(!error && typeof data === 'number' ? data : null);
-    });
-    return () => { alive = false; };
-  }, [uid]);
-  return count;
-}
-
 /** "N items to review": the way into /admin/review. Not shown while the count is unknown. */
 function ReviewQueueCard({ count, isAdmin }: { count: number | null; isAdmin: boolean }) {
   const { t } = useTranslation();
@@ -154,7 +137,7 @@ function ReviewQueueCard({ count, isAdmin }: { count: number | null; isAdmin: bo
         <span className="block text-[13px] leading-5 text-meta">
           {waiting
             ? (isAdmin
-              ? t('adminReview.card.body', 'People, companies, event requests and content waiting for a decision from M3.')
+              ? t('adminReview.card.body', 'Reported conversations, people, companies, event requests and content waiting for a decision from M3.')
               : t('adminReview.card.bodyModerator', 'Reported conversations, webinar proposals and article drafts waiting for review.'))
             : t('adminReview.card.noneBody', 'Everything waiting for M3 has been handled.')}
         </span>
@@ -173,7 +156,8 @@ function ReviewQueueCard({ count, isAdmin }: { count: number | null; isAdmin: bo
 export function AdminDashboard() {
   const { t } = useTranslation();
   const { user, isAdmin, profile } = useAuth();
-  const reviewCount = useReviewQueueCount(user?.id);
+  // The figure AdminPage reads once for the whole admin area (sidebar badge, this card).
+  const { count: reviewCount, refresh: refreshReviewCount } = useReviewCount();
   const navigate = useNavigate();
   /** Navigate to admin sub-page with pre-set URL filters */
   const nav = (path: string, params?: Record<string, string | undefined>) => {
@@ -538,9 +522,7 @@ export function AdminDashboard() {
     </div>
   );
 
-  // People waiting are counted once: by the review card when its figure is known, else here.
-  const usersInStrip = reviewCount === null ? stats.usersWaiting48h : 0;
-  const totalUrgent = usersInStrip + stats.oldLeadsNotContacted + stats.oldB2BRequests
+  const totalUrgent = stats.usersWaiting48h + stats.oldLeadsNotContacted + stats.oldB2BRequests
     + stats.pendingRegistrations;
 
   /* ══════════════════════════════ MODERATOR DASHBOARD ══════════════════════════════ */
@@ -570,7 +552,7 @@ export function AdminDashboard() {
           description={t('adminUi.pages.moderatorDashboard')}
           meta={<span>Welcome back, {profile?.first_name || 'Moderator'} — {new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>}
           actions={
-            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={loadDashboard}>
+            <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => { loadDashboard(); refreshReviewCount(); }}>
               <RefreshCw className="h-4 w-4 mr-2" />Refresh
             </Button>
           }
@@ -658,7 +640,8 @@ export function AdminDashboard() {
   /* ══════════════════════════════ ADMIN RENDER ══════════════════════════════ */
 
   const priorityItems = [
-    { key: 'users', icon: UserCheck, count: usersInStrip, label: 'users waiting >48h', onClick: () => nav('/admin/users', { status: 'pending' }) },
+    // Into the review list (people only) once it is live, else the pending users.
+    { key: 'users', icon: UserCheck, count: stats.usersWaiting48h, label: 'users waiting >48h', onClick: () => (reviewCount !== null ? nav('/admin/review', { type: 'person' }) : nav('/admin/users', { status: 'pending' })) },
     { key: 'leads', icon: Target, count: stats.oldLeadsNotContacted, label: 'leads not contacted', onClick: () => nav('/admin/leads', { status: 'new' }) },
     { key: 'b2b', icon: Link2, count: stats.oldB2BRequests, label: 'B2B unanswered 7d+', onClick: () => nav('/admin/partner-requests') },
     { key: 'events', icon: Calendar, count: stats.pendingRegistrations, label: 'event approvals', onClick: () => nav('/admin/events') },
@@ -672,6 +655,9 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-8">
+
+      {/* ═══ FIRST: EVERYTHING WAITING FOR M3 (/admin/review) ═══ */}
+      <ReviewQueueCard count={reviewCount} isAdmin />
 
       {/* ═══ TOP: PRIORITY STRIP ═══ */}
       {totalUrgent > 0 && (
@@ -710,14 +696,11 @@ export function AdminDashboard() {
         description={t('adminUi.pages.dashboard')}
         meta={<span>{new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>}
         actions={
-          <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={loadDashboard}>
+          <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => { loadDashboard(); refreshReviewCount(); }}>
             <RefreshCw className="h-4 w-4 mr-2" />Refresh
           </Button>
         }
       />
-
-      {/* ═══ EVERYTHING WAITING FOR M3 (/admin/review) ═══ */}
-      <ReviewQueueCard count={reviewCount} isAdmin />
 
       {/* ═══ ROW 1: PERFORMANCE KPIs ═══ */}
       <div>

@@ -54,14 +54,26 @@
 -- Sources (read-only; production values checked 9 Oct 2026)
 -- ════════════════════════════════════════════════════════════════════════════
 --   person         profiles.access_status = 'pending' and onboarding_status
---                  <> 'draft' (a draft is still filling in the form; 10 rows).
---                  Company = their organization_members row (owner first).
+--                  <> 'draft' (10 rows today; the 8 drafts are still filling
+--                  in the form). Company = their organization_members row
+--                  (owner first).
+--                  E-mail = the login address (auth.users.email), never
+--                  profiles.email alone: any member can PATCH profiles.email on
+--                  their own row and Confirm email is OFF, so no address here is
+--                  proven. 'email_proven' appears only once the registration
+--                  lane adds profiles.email_proven_at (proven = stamp set AND
+--                  profiles.email = auth.users.email); the page shows the
+--                  domain match as a neutral hint until it is true.
 --                  Facts: e-mail, its domain, public e-mail provider
---                  (is_public_email_domain), persona, job title, company id /
---                  name / status / type / country / website / role / members,
---                  e-mail domain = website host (null when unknown or public),
---                  registered for Smart Marina 2026 (sm_attendee, READ ONLY:
---                  same user_id or same e-mail).
+--                  (is_public_email_domain), persona, job title, the person's
+--                  own country and "LinkedIn given" (profiles.country /
+--                  linkedin_url, read through to_jsonb: they arrive with the
+--                  registration lane), company id / name / status / type /
+--                  country / website / role / members, e-mail domain = website
+--                  host (null when unknown or public), confirmed for Smart
+--                  Marina 2026 (sm_attendee + sm_registration, READ ONLY: an
+--                  attending attendee of a confirmed registration, linked by
+--                  user_id; by e-mail only when that address is proven).
 --   company        organizations.access_status = 'pending', except (a) a
 --                  company already shown on a waiting person's card (that
 --                  person's company, owner first: AdminUserDetail's Approve
@@ -75,12 +87,19 @@
 --                  gl_event.hidden when that column exists). Facts include the
 --                  engine (gl_event.engine when it exists, else
 --                  'guest_list_v1'): the page offers the quick Approve / Refuse
---                  of the guest-list edge function only for guest_list_v1.
+--                  of the guest-list edge function only for guest_list_v1, and
+--                  only guest_list_v1 rows link to /admin/guest-list/<slug>. A
+--                  core_v2 row (registration lane) links to its event,
+--                  /admin/events/<legacy_event_id> (else /admin/events): the
+--                  guest list's own Approve e-mails the gl_guest.token QR, which
+--                  a core_v2 door (checkin_token) refuses.
 --   report         conversation_reports.status = 'open', only if that table
 --                  exists (it ships with the messaging lane, migration
 --                  20261009190000). Read through EXECUTE so this function is
---                  valid without it; if its columns differ, the reports are
---                  skipped with a WARNING and the rest of the queue still loads.
+--                  valid without it; if its columns differ, ONE stand-in row
+--                  (id 00000000-..., facts {"unreadable": true}) says the
+--                  reports could not be listed, with a WARNING in the logs, and
+--                  the rest of the queue still loads.
 --                  Facts carry the reason and the excerpt (the last messages
 --                  at the time of the report: the only way M3 reads a
 --                  conversation). url = /admin/partner-requests, where the
@@ -92,7 +111,8 @@
 --                  projects are inserted as 'new'). 0 rows today.
 --   webinar        webinar_requests in submitted / under_review. 0 rows today.
 --   resource_draft resource_drafts in submitted / review_1 / review_2 (the
---                  "Pending Drafts" of /admin/resources). 0 rows today.
+--                  "Pending Drafts" of /admin/resources), linked to the draft's
+--                  own screen /admin/resources/<id>?type=draft. 0 rows today.
 --   sponsorship    legacy sponsorship_requests in pending / paid. 0 rows.
 --   exposition     legacy exposition_requests in pending / paid. 0 rows.
 --   Not included: reference bypass requests (the table was dropped by
@@ -108,7 +128,8 @@
 --   Additive: two new functions. No table, column, policy, trigger or grant on
 --   an existing object changes. The old live client (main) never calls them.
 --   Read only: no INSERT / UPDATE / DELETE anywhere; no sm_* row is written
---   (sm_attendee is only read); gl_guest tokens are not read or returned.
+--   (sm_attendee and sm_registration are only read); gl_guest tokens are not
+--   read or returned; auth.users is read for the login e-mail only.
 --   Personal data (names, e-mails) goes to verified staff only, as the admin
 --   screens already show it (profiles_select_auth, gl_guest_staff: is_moderator).
 --   Called from the SQL editor or with the service key (no JWT sub), it raises
@@ -171,8 +192,23 @@ begin
          order by r.created_at asc, r.id
       $q$;
     exception
-      when undefined_table or undefined_column or undefined_function or datatype_mismatch then
-        raise warning 'admin_review_queue: reported conversations skipped (% %)', sqlstate, sqlerrm;
+      when undefined_table then
+        -- Dropped between the check above and the read: nothing to report.
+        null;
+      when undefined_column or undefined_function or datatype_mismatch then
+        -- The table exists but not as expected: say so on the list (one stand-in
+        -- row the page shows without a Close button), never drop reports silently.
+        raise warning 'admin_review_queue: reported conversations could not be read (% %)', sqlstate, sqlerrm;
+        return query
+          select 'report'::text,
+                 '00000000-0000-0000-0000-000000000000'::uuid,
+                 'Reported conversations could not be listed here'::text,
+                 null::text,
+                 now(),
+                 now(),
+                 '/admin/partner-requests'::text,
+                 1,
+                 jsonb_build_object('unreadable', true);
     end;
   end if;
 
@@ -204,13 +240,17 @@ begin
            nullif(concat_ws(' @ ', nullif(btrim(g.job_title), ''), nullif(btrim(g.company), '')), '')::text as subtitle,
            g.created_at as created_at,
            g.created_at as waiting_since,
-           ('/admin/guest-list/' || e.slug)::text as url,
+           -- Only a guest_list_v1 event opens the guest list (its Approve e-mails the
+           -- gl_guest.token QR); a core_v2 event opens its own event screen.
+           (case when ge.engine = 'guest_list_v1' then '/admin/guest-list/' || e.slug
+                 when e.legacy_event_id is not null then '/admin/events/' || e.legacy_event_id::text
+                 else '/admin/events' end)::text as url,
            2 as priority,
            jsonb_strip_nulls(jsonb_build_object(
              'event_id', e.id,
              'event_slug', e.slug,
              'event_title', e.title,
-             'engine', coalesce(to_jsonb(e) ->> 'engine', 'guest_list_v1'),
+             'engine', ge.engine,
              'source', g.source,
              'email', nullif(btrim(g.email), ''),
              'country', nullif(btrim(g.country), ''),
@@ -224,31 +264,43 @@ begin
              'seats_held', coalesce(s.held, 0))) as facts
       from public.gl_guest g
       join public.gl_event e on e.id = g.event_id
+      -- engine / hidden arrive with the registration lane: read through to_jsonb.
+      cross join lateral (
+        select coalesce(to_jsonb(e) ->> 'engine', 'guest_list_v1') as engine,
+               coalesce((to_jsonb(e) ->> 'hidden')::boolean, false) as hidden
+      ) ge
       left join public.gl_guest h on h.id = g.plus_one_of
       left join seats s on s.event_id = e.id
      where v_admin
        and g.status = 'requested'
        and e.slug not like 'canary-%'
-       and not coalesce((to_jsonb(e) ->> 'hidden')::boolean, false)
+       and not ge.hidden
 
     union all
 
     -- 3. People waiting for access (form sent, not a draft), priority 3.
+    --    E-mail = the login address (auth.users.email): profiles.email is writable
+    --    by its owner, and no address here is proven (Confirm email is OFF).
     select 'person'::text,
            p.user_id,
            coalesce(nullif(btrim(concat_ws(' ', btrim(p.first_name), btrim(p.last_name))), ''),
-                    nullif(btrim(p.email), ''), 'Unnamed account')::text,
+                    nullif(d.email, ''), 'Unnamed account')::text,
            nullif(concat_ws(' @ ', nullif(btrim(p.job_title), ''), nullif(btrim(o.name), '')), '')::text,
            p.created_at,
            p.created_at,
            ('/admin/users/' || p.user_id::text)::text,
            3,
            jsonb_strip_nulls(jsonb_build_object(
-             'email', nullif(btrim(p.email), ''),
+             'email', nullif(d.email, ''),
              'email_domain', nullif(d.edomain, ''),
+             -- left out (null) until profiles.email_proven_at exists
+             'email_proven', d.proven,
              'public_email', case when d.edomain <> '' then public.is_public_email_domain(d.edomain) end,
              'persona', p.persona::text,
              'job_title', nullif(btrim(p.job_title), ''),
+             -- profiles.country / linkedin_url arrive with the registration lane
+             'person_country', nullif(btrim(d.pj ->> 'country'), ''),
+             'linkedin', case when d.pj ? 'linkedin_url' then nullif(btrim(d.pj ->> 'linkedin_url'), '') is not null end,
              'onboarding_status', p.onboarding_status::text,
              'company_id', o.id,
              'company_name', nullif(btrim(o.name), ''),
@@ -265,17 +317,35 @@ begin
                                     or right(d.edomain, length(d.whost) + 1) = '.' || d.whost
                                     or right(d.whost, length(d.edomain) + 1) = '.' || d.edomain
                              end,
-             'sm26', exists (select 1 from public.sm_attendee a
-                              where a.user_id = p.user_id
-                                 or (p.email is not null and lower(a.email) = lower(btrim(p.email))))))
+             -- An attending attendee of a confirmed SM26 registration (READ ONLY), linked
+             -- by account; by e-mail only when that address is proven.
+             'sm26', exists (select 1
+                               from public.sm_attendee a
+                               join public.sm_registration r on r.id = a.registration_id
+                              where r.status = 'confirmed'
+                                and a.attending
+                                and (a.user_id = p.user_id
+                                     or (d.proven is true and d.lemail <> ''
+                                         and lower(btrim(a.email)) = d.lemail)))))
       from public.profiles p
+      left join auth.users u on u.id = p.user_id
       left join member_org mo on mo.user_id = p.user_id
       left join public.organizations o on o.id = mo.organization_id
       left join org_size os on os.organization_id = o.id
       cross join lateral (
-        select lower(split_part(coalesce(btrim(p.email), ''), '@', 2)) as edomain,
+        select x.email,
+               lower(x.email) as lemail,
+               lower(split_part(x.email, '@', 2)) as edomain,
                lower(regexp_replace(regexp_replace(btrim(coalesce(o.website, '')), '^[a-z][a-z0-9+.-]*://', '', 'i'),
-                                    '^www\.|[/:?#].*$', '', 'g')) as whost
+                                    '^www\.|[/:?#].*$', '', 'g')) as whost,
+               x.pj,
+               -- proven = the stamp is set AND the stamped copy is still the login address
+               case when x.pj ? 'email_proven_at'
+                    then (x.pj ->> 'email_proven_at') is not null
+                         and coalesce(lower(btrim(p.email)) = lower(btrim(u.email)), false)
+               end as proven
+          from (select coalesce(nullif(btrim(u.email), ''), nullif(btrim(p.email), ''), '') as email,
+                       to_jsonb(p) as pj) x
       ) d
      where v_admin
        and p.access_status::text = 'pending'
@@ -426,7 +496,7 @@ begin
            nullif(btrim(concat_ws(' ', btrim(a.first_name), btrim(a.last_name))), '')::text,
            rd.created_at,
            coalesce(rd.updated_at, rd.created_at),
-           '/admin/resources?tab=drafts'::text,
+           ('/admin/resources/' || rd.id::text || '?type=draft')::text,
            4,
            jsonb_strip_nulls(jsonb_build_object(
              'status', rd.status::text,
@@ -483,7 +553,7 @@ end;
 $function$;
 
 comment on function public.admin_review_queue() is
-  'M3 review queue (/admin/review): one row per item waiting for M3 staff (kind, id, title, subtitle, created_at, waiting_since, url, priority 1-4, facts), most urgent first, then longest waiting first. Read only. Verified staff only (42501 otherwise); moderators get reported conversations, webinar proposals and article drafts only. conversation_reports is read only if it exists. A later overload must DROP this signature first (PostgREST ambiguity). Migration 20261009230000.';
+  'M3 review queue (/admin/review): one row per item waiting for M3 staff (kind, id, title, subtitle, created_at, waiting_since, url, priority 1-4, facts), most urgent first, then longest waiting first. Read only. Verified staff only (42501 otherwise); moderators get reported conversations, webinar proposals and article drafts only. conversation_reports is read only if it exists (one stand-in row with facts.unreadable when its columns differ). A later overload must DROP this signature first (PostgREST ambiguity). Migration 20261009230000.';
 
 create or replace function public.admin_review_queue_count()
 returns integer

@@ -16,6 +16,7 @@ import { toast } from '@/hooks/use-toast';
 import { guestList, partsLabel } from '@/lib/guestList';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+import { REVIEW_QUEUE_EVENT } from './reviewQueueCount';
 import {
   ADMIN_BTN, ADMIN_BTN_DANGER, ADMIN_BTN_PRIMARY, AdminEmpty, AdminLoading, AdminPageHeader, AdminSegmented,
   AdminStatusPill, statusLabel, type AdminTone,
@@ -35,19 +36,23 @@ import {
  *   refused here through the guest-list edge function's `decide`, the same call
  *   as the Approve / Refuse buttons of /admin/guest-list/<slug>, with the same
  *   capacity question; the decision is then noted in review_log through
- *   review_log_add() when that function exists (registration lane);
+ *   review_log_add() when that function exists (registration lane). These two
+ *   buttons only show while the switch platform_settings.registration_flags
+ *   .review_queue is on (spec 13; off or missing = the guest list decides);
  * - a reported conversation is closed with the same staff update as the
  *   messaging lane's "Reported conversations" panel (conversation_reports
  *   status 'closed', allowed by that table's is_moderator() policy).
  * Everything else opens its own screen. Moderators only get the links their
  * screens allow (webinar proposals and article drafts).
  *
- * Order: most urgent kind first, then the one waiting longest (the function's
- * order), or newest first. "Urgent" = a report, or a person, company or event
- * request waiting 2 days or more (the promised delay).
+ * Order "Most urgent first": reported conversations, then people, companies
+ * and event requests past the promised delay, then the rest; inside each group
+ * the function's order (most urgent kind, then waiting longest). Or newest
+ * first. The promised delay is platform_settings.review_sla_text ("within 2
+ * working days"), counted in working days (Monday to Friday).
  *
  * After every load the page announces the new total on the window
- * ('smc:review-queue-changed', detail.count) so the sidebar badge follows.
+ * (REVIEW_QUEUE_EVENT, detail.count) so the sidebar badge follows.
  */
 
 type ReviewKind =
@@ -65,8 +70,9 @@ interface ReviewItem {
   id: string;
   title: string;
   subtitle: string | null;
-  created_at: string;
-  waiting_since: string;
+  created_at: string | null;
+  /** Null only on old rows whose source column allows it (marina projects, old request forms). */
+  waiting_since: string | null;
   url: string;
   priority: number;
   facts: Record<string, FactValue>;
@@ -89,8 +95,6 @@ type DialogState =
   | { mode: 'capacity'; item: ReviewItem; held: number; capacity: number; adding: number }
   | { mode: 'refuse'; item: ReviewItem; notify: boolean }
   | { mode: 'close'; item: ReviewItem };
-
-const QUEUE_EVENT = 'smc:review-queue-changed';
 
 /** The kinds whose screen a moderator (not admin) may open; every other screen is behind AdminOnlyGuard. */
 const MODERATOR_SCREENS: ReviewKind[] = ['webinar', 'resource_draft'];
@@ -130,37 +134,91 @@ function websiteHost(url: string | undefined): string | undefined {
   return host || undefined;
 }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+function toTime(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime();
+  return Number.isNaN(ms) ? null : ms;
 }
 
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
+function formatDate(iso: string | null | undefined): string {
+  const ms = toTime(iso);
+  return ms === null ? '' : new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function formatDateTime(iso: string | null | undefined): string {
+  const ms = toTime(iso);
+  return ms === null
     ? ''
-    : d.toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    : new Date(ms).toLocaleString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-/** "Waiting 3 days" and how many whole days that is. */
-function waiting(iso: string, t: TFunction): { text: string; days: number } {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms)) return { text: '', days: 0 };
-  const hours = Math.max(0, Math.floor(ms / 3_600_000));
+const DAY_MS = 86_400_000;
+
+/** Whole working days (Monday to Friday) since a moment: Friday 18:00 counts 1 on Monday 18:00. */
+function workingDaysSince(ms: number, now = Date.now()): number {
+  let n = 0;
+  // Bounded: a few hundred steps for an item waiting a year.
+  for (let at = ms + DAY_MS; at <= now && n < 1000; at += DAY_MS) {
+    const day = new Date(at).getDay();
+    if (day !== 0 && day !== 6) n += 1;
+  }
+  return n;
+}
+
+/** "Waiting 3 days" (calendar time). Empty when the date is unknown. */
+function waiting(iso: string | null, t: TFunction): string {
+  const start = toTime(iso);
+  if (start === null) return '';
+  const hours = Math.max(0, Math.floor((Date.now() - start) / 3_600_000));
   const days = Math.floor(hours / 24);
-  if (hours < 1) return { text: t('adminReview.wait.now', 'Waiting less than an hour'), days };
-  if (hours < 24) {
-    return { text: t('adminReview.wait.hours', { count: hours, defaultValue_one: 'Waiting {{count}} hour', defaultValue_other: 'Waiting {{count}} hours' }), days };
-  }
-  if (days < 14) {
-    return { text: t('adminReview.wait.days', { count: days, defaultValue_one: 'Waiting {{count}} day', defaultValue_other: 'Waiting {{count}} days' }), days };
-  }
+  if (hours < 1) return t('adminReview.wait.now', 'Waiting less than an hour');
+  if (hours < 24) return t('adminReview.wait.hours', { count: hours, defaultValue_one: 'Waiting {{count}} hour', defaultValue_other: 'Waiting {{count}} hours' });
+  if (days < 14) return t('adminReview.wait.days', { count: days, defaultValue_one: 'Waiting {{count}} day', defaultValue_other: 'Waiting {{count}} days' });
   if (days < 60) {
     const weeks = Math.floor(days / 7);
-    return { text: t('adminReview.wait.weeks', { count: weeks, defaultValue_one: 'Waiting {{count}} week', defaultValue_other: 'Waiting {{count}} weeks' }), days };
+    return t('adminReview.wait.weeks', { count: weeks, defaultValue_one: 'Waiting {{count}} week', defaultValue_other: 'Waiting {{count}} weeks' });
   }
   const months = Math.floor(days / 30);
-  return { text: t('adminReview.wait.months', { count: months, defaultValue_one: 'Waiting {{count}} month', defaultValue_other: 'Waiting {{count}} months' }), days };
+  return t('adminReview.wait.months', { count: months, defaultValue_one: 'Waiting {{count}} month', defaultValue_other: 'Waiting {{count}} months' });
+}
+
+/* ─── the promised delay and the queue switch (platform_settings) ─── */
+
+interface QueueSettings {
+  /** "within N working days" (review_sla_text); 2 when missing or unreadable. */
+  slaDays: number;
+  /** registration_flags.review_queue: the quick Approve / Refuse of event requests. Off when missing. */
+  quickDecisions: boolean;
+}
+
+const DEFAULT_SETTINGS: QueueSettings = { slaDays: 2, quickDecisions: false };
+
+function readSettings(rows: { key: string; value: unknown }[] | null): QueueSettings {
+  const out = { ...DEFAULT_SETTINGS };
+  for (const r of rows ?? []) {
+    if (r.key === 'review_sla_text' && typeof r.value === 'string') {
+      const m = /(\d+)\s*working\s*days?/i.exec(r.value);
+      const n = m ? Number(m[1]) : NaN;
+      if (Number.isInteger(n) && n >= 1 && n <= 30) out.slaDays = n;
+    }
+    if (r.key === 'registration_flags' && r.value && typeof r.value === 'object') {
+      out.quickDecisions = (r.value as Record<string, unknown>).review_queue === true;
+    }
+  }
+  return out;
+}
+
+/** Past the promised delay: a person, company or event request waiting at least the SLA, in working days. */
+function isOverdue(item: ReviewItem, slaDays: number): boolean {
+  if (item.kind !== 'person' && item.kind !== 'company' && item.kind !== 'event_request') return false;
+  const start = toTime(item.waiting_since);
+  return start !== null && workingDaysSince(start) >= slaDays;
+}
+
+/** 0 = a reported conversation, 1 = past the promised delay, 2 = the rest. */
+function urgencyRank(item: ReviewItem, slaDays: number): number {
+  if (item.kind === 'report') return 0;
+  return isOverdue(item, slaDays) ? 1 : 2;
 }
 
 /* ─── words ─── */
@@ -171,7 +229,7 @@ function kindLabel(kind: ReviewKind, t: TFunction): string {
     case 'event_request': return t('adminReview.kind.eventRequest', 'Event request');
     case 'person': return t('adminReview.kind.person', 'New member');
     case 'company': return t('adminReview.kind.company', 'Company');
-    case 'need': return t('adminReview.kind.need', 'Need to publish');
+    case 'need': return t('adminReview.kind.need', 'New need');
     case 'webinar': return t('adminReview.kind.webinar', 'Webinar proposal');
     case 'resource_draft': return t('adminReview.kind.resourceDraft', 'Article draft');
     case 'sponsorship': return t('adminReview.kind.sponsorship', 'Old sponsorship request');
@@ -185,7 +243,7 @@ function chipLabel(kind: ReviewKind, t: TFunction): string {
     case 'event_request': return t('adminReview.chip.eventRequest', 'Event requests');
     case 'person': return t('adminReview.chip.person', 'People');
     case 'company': return t('adminReview.chip.company', 'Companies');
-    case 'need': return t('adminReview.chip.need', 'Needs to publish');
+    case 'need': return t('adminReview.chip.need', 'New needs');
     case 'webinar': return t('adminReview.chip.webinar', 'Webinar proposals');
     case 'resource_draft': return t('adminReview.chip.resourceDraft', 'Article drafts');
     case 'sponsorship': return t('adminReview.chip.sponsorship', 'Old sponsorship requests');
@@ -193,15 +251,19 @@ function chipLabel(kind: ReviewKind, t: TFunction): string {
   }
 }
 
-function openLabel(kind: ReviewKind, t: TFunction): string {
-  switch (kind) {
+function openLabel(item: ReviewItem, t: TFunction): string {
+  switch (item.kind) {
     case 'report': return t('adminReview.open.report', 'See all reports');
-    case 'event_request': return t('adminReview.open.eventRequest', 'Open the guest list');
+    case 'event_request':
+      // Only a guest-list event (wys26) opens its guest list; the others open their event.
+      return item.facts.engine === 'guest_list_v1'
+        ? t('adminReview.open.eventRequest', 'Open the guest list')
+        : t('adminReview.open.event', 'Open the event');
     case 'person': return t('adminReview.open.person', 'Review and decide');
     case 'company': return t('adminReview.open.company', 'Open the company');
     case 'need': return t('adminReview.open.need', 'Open the need');
     case 'webinar': return t('adminReview.open.webinar', 'Open the proposal');
-    case 'resource_draft': return t('adminReview.open.resourceDraft', 'Open the drafts');
+    case 'resource_draft': return t('adminReview.open.resourceDraft', 'Open the draft');
     case 'sponsorship':
     case 'exposition': return t('adminReview.open.request', 'Open the request');
   }
@@ -209,6 +271,7 @@ function openLabel(kind: ReviewKind, t: TFunction): string {
 
 function sinceLabel(item: ReviewItem, t: TFunction): string {
   const date = formatDate(item.waiting_since);
+  if (!date) return '';
   switch (item.kind) {
     case 'person': return t('adminReview.since.person', 'Signed up {{date}}', { date });
     case 'company': return t('adminReview.since.company', 'Created {{date}}', { date });
@@ -262,7 +325,7 @@ interface Description {
 }
 
 /** What the item asks for, its key facts and an optional quote, in plain words. */
-function describe(item: ReviewItem, t: TFunction): Description {
+function describe(item: ReviewItem, t: TFunction, canOpen: boolean): Description {
   const f = item.facts || {};
   const chips: FactChip[] = [];
   const push = (c: FactChip | false | undefined) => { if (c && c.label) chips.push(c); };
@@ -294,13 +357,33 @@ function describe(item: ReviewItem, t: TFunction): Description {
       if (companyType && str(f, 'company_type') !== str(f, 'persona')) {
         push({ label: t('adminReview.fact.companyType', 'Company: {{type}}', { type: companyType }) });
       }
-      push({ label: str(f, 'company_country') ?? '' });
+      // Rights follow the company type: M3 chooses one when it is missing.
+      if (company && companyStatus === 'pending' && !str(f, 'company_type')) {
+        push({ label: t('adminReview.fact.noCompanyType', 'Company type not chosen'), tone: 'warning' });
+      }
+      // The person's own country (asked at sign-up), then the company's when it differs.
+      const personCountry = str(f, 'person_country');
+      const companyCountry = str(f, 'company_country');
+      push({ label: personCountry ?? '' });
+      if (companyCountry && companyCountry.toLowerCase() !== (personCountry ?? '').toLowerCase()) {
+        push({ label: personCountry ? t('adminReview.fact.companyCountry', 'Company in {{country}}', { country: companyCountry }) : companyCountry });
+      }
       if (str(f, 'company_role') === 'owner') push({ label: t('adminReview.fact.owner', 'Company owner') });
+      // No address is proven yet (sign-up does not confirm it): a domain match is only a hint until
+      // email_proven is true. email_proven is absent until the database records the proof.
       const domain = str(f, 'email_domain');
+      const proven = bool(f, 'email_proven');
+      if (proven === true) push({ label: t('adminReview.fact.emailProven', 'E-mail address confirmed'), tone: 'success', icon: Check });
+      else if (proven === false) push({ label: t('adminReview.fact.emailNotProven', 'E-mail address not confirmed yet') });
       if (bool(f, 'public_email')) {
         push({ label: t('adminReview.fact.personalEmail', 'Personal e-mail address'), tone: 'warning', icon: Mail, title: domain });
       } else if (bool(f, 'domain_match') === true) {
-        push({ label: t('adminReview.fact.domainMatch', 'E-mail matches the website'), tone: 'success', icon: Check, title: domain });
+        push(proven === true
+          ? { label: t('adminReview.fact.domainMatch', 'E-mail matches the website'), tone: 'success', icon: Check, title: domain }
+          : {
+            label: t('adminReview.fact.domainMatchUnproven', 'Same domain as the website (address not verified)'),
+            title: t('adminReview.fact.domainMatchUnprovenHint', 'Anyone can sign up with any address: this is a hint, not a proof.'),
+          });
       } else if (bool(f, 'domain_match') === false) {
         push({
           label: t('adminReview.fact.domainMismatch', 'E-mail does not match the website'),
@@ -309,7 +392,8 @@ function describe(item: ReviewItem, t: TFunction): Description {
           title: [domain, websiteHost(str(f, 'company_website'))].filter(Boolean).join(' / '),
         });
       }
-      if (bool(f, 'sm26')) push({ label: t('adminReview.fact.sm26', 'Registered for Smart Marina 2026'), tone: 'info' });
+      if (bool(f, 'linkedin')) push({ label: t('adminReview.fact.linkedin', 'LinkedIn given'), tone: 'success' });
+      if (bool(f, 'sm26')) push({ label: t('adminReview.fact.sm26Confirmed', 'Confirmed for Smart Marina 2026'), tone: 'info' });
       const members = num(f, 'company_members');
       if (members !== undefined && members > 1) {
         push({ label: t('adminReview.fact.members', { count: members, defaultValue_one: '{{count}} person in the company', defaultValue_other: '{{count}} people in the company' }) });
@@ -322,7 +406,7 @@ function describe(item: ReviewItem, t: TFunction): Description {
       const ownerStatus = str(f, 'owner_status');
       let what: string;
       if (members === 0) what = t('adminReview.what.companyEmpty', 'Waiting for approval, and no one belongs to it yet');
-      else if (ownerStatus === 'rejected') what = t('adminReview.what.companyOwnerRejected', 'Its owner was not accepted. Open the company to refuse it too, or keep it for later.');
+      else if (ownerStatus === 'rejected') what = t('adminReview.what.companyOwnerRejected', 'Its owner was not accepted. Open the company and refuse it too, so it leaves this list.');
       else if (ownerStatus === 'verified') what = t('adminReview.what.companyOwnerVerified', 'Its owner is approved, the company is still waiting');
       else what = t('adminReview.what.company', 'Waiting for approval');
       const type = companyTypeLabel(str(f, 'company_type'), t);
@@ -362,6 +446,15 @@ function describe(item: ReviewItem, t: TFunction): Description {
     }
 
     case 'report': {
+      if (bool(f, 'unreadable')) {
+        // admin_review_queue() could not read conversation_reports (columns changed): never drop them silently.
+        return {
+          what: canOpen
+            ? t('adminReview.what.reportUnreadable', 'The reported conversations could not be read here. Open B2B requests in the menu to see them.')
+            : t('adminReview.what.reportUnreadableModerator', 'The reported conversations could not be read here. Ask an administrator to look under B2B requests.'),
+          chips,
+        };
+      }
       const by = [str(f, 'reporter_name'), str(f, 'reporter_company')].filter(Boolean).join(', ');
       const what = by
         ? t('adminReview.what.reportBy', 'Reported to M3 by {{by}}', { by })
@@ -444,6 +537,10 @@ function describe(item: ReviewItem, t: TFunction): Description {
         chips,
       };
     }
+
+    default:
+      // A kind this page does not know yet (load() leaves them out; kept as a safety net).
+      return { what: '', chips };
   }
 }
 
@@ -458,6 +555,7 @@ export function AdminReviewQueue() {
   const [sort, setSort] = useState<'urgent' | 'newest'>('urgent');
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [settings, setSettings] = useState<QueueSettings>(DEFAULT_SETTINGS);
   const [params, setParams] = useSearchParams();
   const loadedOnce = useRef(false);
 
@@ -471,7 +569,12 @@ export function AdminReviewQueue() {
 
   const load = useCallback(async () => {
     if (loadedOnce.current) setRefreshing(true);
-    const { data, error } = await supabase.rpc('admin_review_queue');
+    const [{ data, error }, conf] = await Promise.all([
+      supabase.rpc('admin_review_queue'),
+      // The promised delay and the queue switch; unreadable = 2 working days, quick decisions off.
+      supabase.from('platform_settings').select('key, value').in('key', ['review_sla_text', 'registration_flags']),
+    ]);
+    setSettings(conf.error ? DEFAULT_SETTINGS : readSettings(conf.data as { key: string; value: unknown }[] | null));
     if (error) {
       const msg = error.message || '';
       const missing = error.code === 'PGRST202' || error.code === '42883'
@@ -481,10 +584,11 @@ export function AdminReviewQueue() {
         toast({ title: t('adminReview.toast.reloadFailed', 'The list could not be refreshed'), description: msg, variant: 'destructive' });
       } else setState('error');
     } else {
-      const rows = (Array.isArray(data) ? data : []) as ReviewItem[];
+      // Only the kinds this page knows: a later migration may add others before its screen ships.
+      const rows = ((Array.isArray(data) ? data : []) as ReviewItem[]).filter(r => (KIND_ORDER as string[]).includes(r.kind));
       setItems(rows.map(r => ({ ...r, facts: r.facts && typeof r.facts === 'object' ? r.facts : {} })));
       setState('ready');
-      window.dispatchEvent(new CustomEvent(QUEUE_EVENT, { detail: { count: rows.length } }));
+      window.dispatchEvent(new CustomEvent(REVIEW_QUEUE_EVENT, { detail: { count: rows.length } }));
     }
     loadedOnce.current = true;
     setRefreshing(false);
@@ -504,9 +608,11 @@ export function AdminReviewQueue() {
 
   const visible = useMemo(() => {
     const list = filter === 'all' ? items : items.filter(i => i.kind === filter);
-    if (sort === 'urgent') return list; // the function's order: most urgent kind, then waiting longest
-    return [...list].sort((a, b) => new Date(b.waiting_since).getTime() - new Date(a.waiting_since).getTime());
-  }, [items, filter, sort]);
+    // Most urgent first: reports, then what is past the promised delay, then the rest. The sort is
+    // stable, so each group keeps the function's order (most urgent kind, then waiting longest).
+    if (sort === 'urgent') return [...list].sort((a, b) => urgencyRank(a, settings.slaDays) - urgencyRank(b, settings.slaDays));
+    return [...list].sort((a, b) => (toTime(b.waiting_since) ?? 0) - (toTime(a.waiting_since) ?? 0));
+  }, [items, filter, sort, settings.slaDays]);
 
   /* ─── quick decisions on a guest-list request (same call as /admin/guest-list/<slug>) ─── */
 
@@ -599,7 +705,7 @@ export function AdminReviewQueue() {
     } else if (!data?.length) {
       toast({ title: t('adminReview.toast.alreadyClosed', 'Already closed'), description: t('adminReview.toast.alreadyClosedBody', 'Someone else closed this report. The list is now up to date.') });
     } else {
-      toast({ title: t('adminReview.toast.closed', 'Report closed'), description: t('adminReview.toast.closedBody', 'Nobody is told. An administrator can reopen it from the reports page.') });
+      toast({ title: t('adminReview.toast.closed', 'Report closed'), description: t('adminReview.toast.closedBody', 'Nobody is told. An administrator can reopen it under B2B requests in the menu.') });
     }
     await load();
   };
@@ -619,7 +725,7 @@ export function AdminReviewQueue() {
     <AdminPageHeader
       title={t('adminReview.title', 'To review')}
       count={state === 'ready' ? items.length : undefined}
-      description={t('adminReview.description', 'Everything waiting for a decision from the M3 team, most urgent first. Open an item to decide.')}
+      description={t('adminReview.description', 'Everything waiting for a decision from the M3 team. Decide with the buttons on a card, or open it.')}
       meta={!isAdmin ? <span>{t('adminReview.moderatorNote', 'As a moderator, you see reported conversations, webinar proposals and article drafts. People, companies and event requests are reviewed by the administrators.')}</span> : undefined}
       actions={refreshButton}
     />
@@ -672,7 +778,7 @@ export function AdminReviewQueue() {
             label={t('adminReview.sortLabel', 'Order')}
             value={sort}
             onChange={setSort}
-            className="shrink-0 self-start whitespace-nowrap"
+            className="shrink-0 self-start whitespace-nowrap [&>button]:h-11"
             options={[
               { value: 'urgent', label: t('adminReview.sort.urgent', 'Most urgent first') },
               { value: 'newest', label: t('adminReview.sort.newest', 'Newest first') },
@@ -707,6 +813,8 @@ export function AdminReviewQueue() {
               item={item}
               busy={busy}
               canOpen={isAdmin || MODERATOR_SCREENS.includes(item.kind)}
+              quickDecisions={settings.quickDecisions}
+              slaDays={settings.slaDays}
               onApprove={() => setDialog({ mode: 'approve', item })}
               onRefuse={() => setDialog({ mode: 'refuse', item, notify: false })}
               onClose={() => setDialog({ mode: 'close', item })}
@@ -774,17 +882,18 @@ export function AdminReviewQueue() {
                   {t('adminReview.refuse.body', 'The request is marked as refused. They will not be told unless you tick the box below.')}
                 </DialogDescription>
               </DialogHeader>
-              <div className="flex items-start gap-3 rounded-xl border border-rule bg-white px-3 py-2.5 text-[14px] leading-5 text-navy">
+              {/* The whole row is the label: a 44 px target, not only the small box. */}
+              <label
+                htmlFor="review-refuse-notify"
+                className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-rule bg-white px-3 py-2.5 text-[14px] leading-5 text-navy transition-colors hover:border-navy/30"
+              >
                 <Checkbox
                   id="review-refuse-notify"
                   checked={dialog.notify}
                   onCheckedChange={v => setDialog(d => (d && d.mode === 'refuse' ? { ...d, notify: v === true } : d))}
-                  className="mt-0.5"
                 />
-                <label htmlFor="review-refuse-notify" className="cursor-pointer">
-                  {t('adminReview.refuse.notify', 'Send them a polite decline e-mail')}
-                </label>
-              </div>
+                <span>{t('adminReview.refuse.notify', 'Send them a polite decline e-mail')}</span>
+              </label>
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={() => setDialog(null)} disabled={busy}>
                   {t('adminReview.cancel', 'Cancel')}
@@ -802,7 +911,7 @@ export function AdminReviewQueue() {
               <DialogHeader>
                 <DialogTitle>{t('adminReview.close.title', 'Close this report?')}</DialogTitle>
                 <DialogDescription>
-                  {t('adminReview.close.body', 'Close it once you have read it and done what was needed. It leaves this list and nobody is told. An administrator can reopen it from the reports page.')}
+                  {t('adminReview.close.body', 'Close it once you have read it and done what was needed. It leaves this list and nobody is told. An administrator can reopen it under B2B requests in the menu.')}
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="gap-2 sm:gap-2">
@@ -847,19 +956,26 @@ function TypeChip({ active, onClick, icon: Icon, label, count }: {
   );
 }
 
-function ReviewCard({ item, busy, canOpen, onApprove, onRefuse, onClose }: {
-  item: ReviewItem; busy: boolean; canOpen: boolean; onApprove: () => void; onRefuse: () => void; onClose: () => void;
+function ReviewCard({ item, busy, canOpen, quickDecisions, slaDays, onApprove, onRefuse, onClose }: {
+  item: ReviewItem; busy: boolean; canOpen: boolean; quickDecisions: boolean; slaDays: number;
+  onApprove: () => void; onRefuse: () => void; onClose: () => void;
 }) {
   const { t } = useTranslation();
   const Icon = KIND_ICON[item.kind] ?? Inbox;
-  const d = describe(item, t);
-  const wait = waiting(item.waiting_since, t);
-  const late = wait.days >= 2;
-  // "Urgent" = a report, or a person, company or event request past the promised 2 days.
-  const urgent = item.kind === 'report' || (item.priority <= 3 && late);
+  const d = describe(item, t, canOpen);
+  // The stand-in row of an unreadable reports table: nothing to close, no date of its own.
+  const unreadable = item.kind === 'report' && item.facts.unreadable === true;
+  const waitText = unreadable ? '' : waiting(item.waiting_since, t);
+  // Red "Urgent" only for a reported conversation; amber "Over N working days" for a person, company or
+  // event request past the promised delay (the same rule as the "Most urgent first" order).
+  const urgent = item.kind === 'report';
+  const overdue = isOverdue(item, slaDays);
+  // Contact and "since" date; an old row without a date shows neither.
+  const contactLine = unreadable ? '' : [d.contact, sinceLabel(item, t)].filter(Boolean).join(' · ');
 
-  // Quick decisions: only a request on a guest-list event (engine guest_list_v1), like the guest list's own buttons.
-  const quick = item.kind === 'event_request' && item.facts.engine === 'guest_list_v1' && !!str(item.facts, 'event_slug');
+  // Quick decisions: only a request on a guest-list event (engine guest_list_v1), like the guest list's own
+  // buttons, and only while the review_queue switch is on.
+  const quick = quickDecisions && item.kind === 'event_request' && item.facts.engine === 'guest_list_v1' && !!str(item.facts, 'event_slug');
   const hasPart = item.facts.wants_conference === true || item.facts.wants_gala === true;
 
   return (
@@ -867,13 +983,20 @@ function ReviewCard({ item, busy, canOpen, onApprove, onRefuse, onClose }: {
       <div className="flex flex-wrap items-center gap-2">
         <AdminStatusPill tone="info" icon={Icon}>{kindLabel(item.kind, t)}</AdminStatusPill>
         {urgent && <AdminStatusPill tone="danger" icon={AlertTriangle}>{t('adminReview.urgent', 'Urgent')}</AdminStatusPill>}
-        <span
-          className={cn('ml-auto inline-flex items-center gap-1 text-[13px] font-medium leading-5', late ? 'text-amber-800' : 'text-meta')}
-          title={formatDateTime(item.waiting_since)}
-        >
-          <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-          {wait.text}
-        </span>
+        {overdue && (
+          <AdminStatusPill tone="warning" icon={Clock} title={t('adminReview.overdueHint', 'M3 promises an answer within {{count}} working days.', { count: slaDays })}>
+            {t('adminReview.overdue', { count: slaDays, defaultValue_one: 'Over {{count}} working day', defaultValue_other: 'Over {{count}} working days' })}
+          </AdminStatusPill>
+        )}
+        {waitText && (
+          <span
+            className={cn('ml-auto inline-flex items-center gap-1 text-[13px] font-medium leading-5', overdue ? 'text-amber-800' : 'text-meta')}
+            title={formatDateTime(item.waiting_since)}
+          >
+            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+            {waitText}
+          </span>
+        )}
       </div>
 
       <h3 className="mt-3 text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">{item.title}</h3>
@@ -907,9 +1030,7 @@ function ReviewCard({ item, busy, canOpen, onApprove, onRefuse, onClose }: {
         </ul>
       )}
 
-      <p className="mt-3 text-[13px] leading-5 text-meta [overflow-wrap:anywhere]">
-        {[d.contact, sinceLabel(item, t)].filter(Boolean).join(' · ')}
-      </p>
+      {contactLine && <p className="mt-3 text-[13px] leading-5 text-meta [overflow-wrap:anywhere]">{contactLine}</p>}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
         {quick && (
@@ -937,7 +1058,7 @@ function ReviewCard({ item, busy, canOpen, onApprove, onRefuse, onClose }: {
             </Button>
           </>
         )}
-        {item.kind === 'report' && (
+        {item.kind === 'report' && !unreadable && (
           <Button
             size="sm"
             className={cn(ADMIN_BTN_PRIMARY, TALL)}
@@ -952,7 +1073,7 @@ function ReviewCard({ item, busy, canOpen, onApprove, onRefuse, onClose }: {
         {canOpen && (
           <Button asChild variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)}>
             <Link to={item.url}>
-              {openLabel(item.kind, t)}
+              {openLabel(item, t)}
               <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
             </Link>
           </Button>

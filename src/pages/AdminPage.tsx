@@ -1,13 +1,13 @@
 import { useEffect, useState, Suspense } from 'react';
-import { Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Menu, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { AdminLoading } from '@/components/admin/AdminUI';
+import { ReviewCountContext, useReviewCountSource } from '@/components/admin/reviewQueueCount';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
-import { supabase } from '@/lib/supabase';
 import '@/styles/admin-skin.css';
 
 /* ─── Lazy admin sub-pages ───
@@ -76,33 +76,6 @@ const AdminGuestList = lazyWithRetry(() => import('@/components/admin/AdminGuest
 const AdminGuestCheckin = lazyWithRetry(() => import('@/components/admin/AdminGuestCheckin').then(m => ({ default: m.AdminGuestCheckin })));
 const AdminReviewQueue = lazyWithRetry(() => import('@/components/admin/AdminReviewQueue').then(m => ({ default: m.AdminReviewQueue })));
 
-/**
- * The number on the sidebar's "To review" entry: admin_review_queue_count()
- * (staff only, migration 20261009230000). Read again on every admin route change
- * and whenever the review page announces a new total ('smc:review-queue-changed').
- * null = unknown (function not deployed yet, or an error): no badge.
- */
-function useReviewCount(enabled: boolean, uid: string | undefined, pathname: string): number | null {
-  const [count, setCount] = useState<number | null>(null);
-  useEffect(() => {
-    if (!enabled || !uid) return;
-    let alive = true;
-    const fetchCount = () => {
-      supabase.rpc('admin_review_queue_count').then(({ data, error }) => {
-        if (alive) setCount(!error && typeof data === 'number' ? data : null);
-      });
-    };
-    const onChange = (e: Event) => {
-      const n = (e as CustomEvent<{ count?: unknown }>).detail?.count;
-      if (typeof n === 'number') setCount(n); else fetchCount();
-    };
-    fetchCount();
-    window.addEventListener('smc:review-queue-changed', onChange);
-    return () => { alive = false; window.removeEventListener('smc:review-queue-changed', onChange); };
-  }, [enabled, uid, pathname]);
-  return count;
-}
-
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
   const { isAdmin } = useAuth();
@@ -140,7 +113,9 @@ export function AdminPage() {
   const { loading, isAdmin, isModerator, user } = useAuth();
   const { pathname } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const reviewCount = useReviewCount(isModerator, user?.id, pathname);
+  // One figure for the whole admin area (sidebar badge, phone bar, dashboard card).
+  const review = useReviewCountSource(isModerator, user?.id, pathname);
+  const reviewCount = review.count;
 
   // Escape closes the phone menu.
   useEffect(() => {
@@ -159,6 +134,7 @@ export function AdminPage() {
   const frozen = pathname.startsWith('/admin/sm26');
 
   return (
+    <ReviewCountContext.Provider value={review}>
     <div className="flex min-h-[calc(100vh-4rem)] bg-page">
       <AdminSidebar reviewCount={reviewCount} />
       <div className="min-w-0 flex-1">
@@ -174,6 +150,17 @@ export function AdminPage() {
             {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
           <span className="text-[14px] font-semibold text-navy">{isAdmin ? t('adminUi.adminArea') : t('adminUi.moderatorArea')}</span>
+          {/* The rail is hidden on a phone: say here that items are waiting. */}
+          {!!reviewCount && !pathname.startsWith('/admin/review') && (
+            <Link
+              to="/admin/review"
+              aria-label={t('adminReview.card.count', { count: reviewCount, defaultValue_one: '{{count}} item to review', defaultValue_other: '{{count}} items to review' })}
+              className="ml-auto inline-flex h-11 shrink-0 items-center gap-1.5 rounded-pill bg-gold px-3 text-[13px] font-bold text-navy transition-colors hover:bg-gold/80 focus:outline-none focus-visible:shadow-focus"
+            >
+              {t('adminReview.nav', 'To review')}
+              <span className="tabular-nums">{reviewCount}</span>
+            </Link>
+          )}
         </div>
         {/* Phone menu */}
         {sidebarOpen && (
@@ -249,5 +236,6 @@ export function AdminPage() {
         </div>
       </div>
     </div>
+    </ReviewCountContext.Provider>
   );
 }

@@ -1,210 +1,377 @@
 /**
- * payment-ipn — Supabase Edge Function
- * Receives IPN (Instant Payment Notification) callbacks from SogeCommerce / Lyra.
- * Verifies HMAC-SHA-256 signature, updates payment status, and triggers notifications.
+ * payment-ipn -- Supabase Edge Function. verify_jwt = false: Lyra cannot send a JWT;
+ * the HMAC signature below is the only proof that a call comes from Lyra.
  *
- * POST /functions/v1/payment-ipn
- * Content-Type: application/x-www-form-urlencoded
- * Body: kr-hash, kr-hash-algorithm, kr-answer, kr-hash-key
+ * Receives the IPN (Instant Payment Notification) of SogeCommerce / Lyra, REST API V4:
+ *   POST /functions/v1/payment-ipn
+ *   Content-Type: application/x-www-form-urlencoded
+ *   Body: kr-hash, kr-hash-algorithm, kr-hash-key, kr-answer (JSON of the V4 Payment)
+ *
+ * What changed (reliability pass before WYS, 9 Oct 2026):
+ *
+ *  1. FAILS CLOSED. The key used to fall back to Lyra's PUBLIC demo key when the
+ *     secret was missing, so anyone could sign a fake "PAID" notification. Now:
+ *       kr-hash-key "password"    (what Lyra sends with an IPN) -> LYRA_API_PASSWORD
+ *       kr-hash-key "sha256_hmac" (a browser-return payload)   -> LYRA_HMAC_KEY
+ *     Missing secret, or a value that is one of Lyra's public demo keys: the IPN is
+ *     refused with 503 and a clear log line; Lyra retries it later, so nothing is
+ *     lost once the secret is set. Any other kr-hash-key or algorithm: 400.
+ *     The signature is compared in constant time.
+ *
+ *  2. E-MAILS ARE SENT. The confirmation used to go to send-notification with the
+ *     anon key and no Authorization header, which send-notification refuses (401),
+ *     so no payment e-mail ever went out. It now calls send-notification as the
+ *     SERVICE caller (Authorization: Bearer <service-role key>, the rule documented
+ *     in send-notification: "service -- another edge function holding the
+ *     service-role key"). Paid -> payment_confirmed; failed for good -> payment_failed.
+ *
+ *  3. IDEMPOTENT. Lyra re-sends an IPN until it gets a 2xx, and may send several for
+ *     one order. Two guards:
+ *       - the status only moves through a conditional UPDATE (from pending / failed /
+ *         cancelled; never away from paid or refunded), so the side effects (the
+ *         event registration marked paid) run once, for the request that made the
+ *         change;
+ *       - at most ONE e-mail per (payment id, status): the e-mail is sent only by the
+ *         request that inserts that key into public.payment_email_log (primary key
+ *         (payment_id, status); migration 20261009180000_payment_email_log.sql). If
+ *         the e-mail cannot be sent for a passing reason, the key is released and the
+ *         IPN answered 500 so that Lyra's retry sends it; the retry changes nothing
+ *         else. Without the table (migration not applied yet) no payment e-mail is
+ *         sent and the log says so: never a duplicate.
+ *
+ *  4. THE AMOUNT COMES FROM THE DATABASE. The e-mail shows payments.amount_cents and
+ *     payments.currency. The amount Lyra reports is only compared with them: a "PAID"
+ *     notification whose amount or currency differs is NOT applied (the payment stays
+ *     as it was, the mismatch is logged and kept in payments.metadata.ipn_mismatch for
+ *     M3 to review).
+ *
+ *  5. NO AUTOMATIC RIGHTS. The platform is free (Victor, 6 Oct 2026) and M3 validates
+ *     every company and person: the old "membership" branch (organisation and every
+ *     member verified on payment) and the "additional_seats" branch (max_seats raised
+ *     by a number taken from the payment's metadata) are gone. Such a payment is still
+ *     recorded as paid and e-mailed; M3 acts on it by hand. Only "event_participation"
+ *     keeps its effect: the linked event_registrations row is marked paid.
+ *
+ * Unknown payment, no payment id, a refund or an in-between status (RUNNING, ...):
+ * answered 200 and logged, since a retry would not change anything.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'content-type',
-};
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
+const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+// Lyra signs an IPN with the REST API password (the one create-payment uses for Basic
+// auth), and the browser-return payload with the HMAC-SHA-256 key.
+const LYRA_API_PASSWORD = (Deno.env.get('LYRA_API_PASSWORD') || '').trim();
+const LYRA_HMAC_KEY = (Deno.env.get('LYRA_HMAC_KEY') || '').trim();
+const LYRA_MODE = (Deno.env.get('LYRA_MODE') || '').trim().toUpperCase();
 
-const LYRA_HMAC_KEY = Deno.env.get('LYRA_HMAC_KEY') || 'testpassword_DEMOPRIVATEKEY23G4475zXZQ2UA5x7M'; // demo key
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Lyra's documentation keys ("...DEMOPRIVATEKEY..."): public, so never a valid secret. */
+const PUBLIC_DEMO_KEY_RE = /DEMOPRIVATEKEY/i;
+const EMAIL_LOG_TABLE = 'payment_email_log';
 
-async function verifyHmac(krAnswer: string, receivedHash: string, hashKey: string): Promise<boolean> {
-  const key = hashKey === 'sha256_hmac' ? LYRA_HMAC_KEY : LYRA_HMAC_KEY;
-  const encoder = new TextEncoder();
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(key),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const signature = await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(krAnswer));
-  const computed = Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-  return computed === receivedHash;
+type Status = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
+
+function text(body: string, status: number): Response {
+  return new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+}
+
+/** The configured secret for this kind of signature, or null (missing / public demo key). */
+function keyFor(hashKey: string): string | null {
+  const key = hashKey === 'password' ? LYRA_API_PASSWORD : hashKey === 'sha256_hmac' ? LYRA_HMAC_KEY : '';
+  if (!key || PUBLIC_DEMO_KEY_RE.test(key)) return null;
+  return key;
+}
+
+function sameText(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a);
+  const y = enc.encode(b);
+  if (x.length !== y.length) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}
+
+async function hmacHex(key: string, message: string): Promise<string> {
+  const enc = new TextEncoder();
+  const cryptoKey = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', cryptoKey, enc.encode(message));
+  return Array.from(new Uint8Array(sig), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// deno-lint-ignore no-explicit-any
+type Json = any;
+
+/** The payment id this order was created with (create-payment puts it in the metadata and uses it as orderId). */
+function paymentIdOf(answer: Json): string | null {
+  const firstTx = Array.isArray(answer?.transactions) ? answer.transactions[0] : null;
+  const candidates = [
+    answer?.metadata?.payment_id,
+    answer?.orderDetails?.metadata?.payment_id,
+    firstTx?.metadata?.payment_id,
+    answer?.orderDetails?.orderId,
+  ];
+  for (const c of candidates) {
+    if (typeof c === 'string' && UUID_RE.test(c.trim())) return c.trim().toLowerCase();
+  }
+  return null;
+}
+
+/** Lyra's order status as ours; null = nothing to record (RUNNING, PARTIALLY_PAID, ...). */
+function targetStatus(orderStatus: unknown): Status | null {
+  switch (String(orderStatus || '').toUpperCase()) {
+    case 'PAID': return 'paid';
+    case 'UNPAID': return 'failed';
+    case 'ABANDONED':
+    case 'CANCELLED': return 'cancelled';
+    default: return null;
+  }
+}
+
+function formatAmount(cents: number, currency: string): string {
+  const cur = (currency || 'EUR').toUpperCase();
+  try {
+    return new Intl.NumberFormat('en-GB', { style: 'currency', currency: cur }).format(cents / 100);
+  } catch {
+    return `${(cents / 100).toFixed(2)} ${cur}`;
+  }
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: CORS_HEADERS });
-  }
-  if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405, headers: CORS_HEADERS });
+  if (req.method !== 'POST') return text('Method not allowed', 405);
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.error('IPN refused: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not set');
+    return text('Server not configured', 503);
   }
 
+  // ── 1. Read and verify the signature ──────────────────────────────────────
+  let krHash = '';
+  let krHashAlgorithm = '';
+  let krAnswer = '';
+  let krHashKey = '';
   try {
     const contentType = req.headers.get('content-type') || '';
-    let krHash: string, krHashAlgorithm: string, krAnswer: string, krHashKey: string;
-
-    if (contentType.includes('application/x-www-form-urlencoded')) {
-      const formData = await req.formData();
-      krHash = formData.get('kr-hash') as string || '';
-      krHashAlgorithm = formData.get('kr-hash-algorithm') as string || '';
-      krAnswer = formData.get('kr-answer') as string || '';
-      krHashKey = formData.get('kr-hash-key') as string || '';
+    if (contentType.includes('application/x-www-form-urlencoded') || contentType.includes('multipart/form-data')) {
+      const form = await req.formData();
+      krHash = String(form.get('kr-hash') ?? '');
+      krHashAlgorithm = String(form.get('kr-hash-algorithm') ?? '');
+      krAnswer = String(form.get('kr-answer') ?? '');
+      krHashKey = String(form.get('kr-hash-key') ?? '');
     } else {
       const body = await req.json();
-      krHash = body['kr-hash'] || body.krHash || '';
-      krHashAlgorithm = body['kr-hash-algorithm'] || body.krHashAlgorithm || '';
-      krAnswer = body['kr-answer'] || body.krAnswer || '';
-      krHashKey = body['kr-hash-key'] || body.krHashKey || '';
+      krHash = String(body?.['kr-hash'] ?? '');
+      krHashAlgorithm = String(body?.['kr-hash-algorithm'] ?? '');
+      krAnswer = String(body?.['kr-answer'] ?? '');
+      krHashKey = String(body?.['kr-hash-key'] ?? '');
     }
-
-    if (!krAnswer || !krHash) {
-      console.error('IPN: Missing kr-answer or kr-hash');
-      return new Response('Bad Request', { status: 400, headers: CORS_HEADERS });
-    }
-
-    const valid = await verifyHmac(krAnswer, krHash, krHashKey);
-    if (!valid) {
-      console.error('IPN: Invalid HMAC signature');
-      return new Response('Invalid signature', { status: 403, headers: CORS_HEADERS });
-    }
-
-    const answer = JSON.parse(krAnswer);
-    const transactionStatus = answer.orderStatus;
-    const transactions = answer.transactions || [];
-    const firstTx = transactions[0] || {};
-    const txUuid = firstTx.uuid || '';
-    const txId = firstTx.transactionDetails?.cardDetails?.legacyTransId || '';
-    const metadata = answer.metadata || {};
-    const paymentId = metadata.payment_id;
-    const paymentType = metadata.payment_type;
-    const organizationId = metadata.organization_id;
-
-    if (!paymentId) {
-      console.error('IPN: No payment_id in metadata');
-      return new Response('Missing payment_id', { status: 400, headers: CORS_HEADERS });
-    }
-
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-
-    let status = 'pending';
-    if (transactionStatus === 'PAID') status = 'paid';
-    else if (transactionStatus === 'UNPAID' || transactionStatus === 'ERROR') status = 'failed';
-    else if (transactionStatus === 'CANCELLED') status = 'cancelled';
-
-    const updates: Record<string, unknown> = {
-      status,
-      transaction_id: txId,
-      transaction_uuid: txUuid,
-      updated_at: new Date().toISOString(),
-    };
-    if (status === 'paid') {
-      updates.paid_at = new Date().toISOString();
-    }
-
-    const { data: payment, error: updateError } = await supabase
-      .from('payments')
-      .update(updates)
-      .eq('id', paymentId)
-      .select('user_id, organization_id, payment_type, amount_cents, reference_id, metadata')
-      .single();
-
-    if (updateError) {
-      console.error('IPN: Failed to update payment:', updateError);
-      return new Response('DB error', { status: 500, headers: CORS_HEADERS });
-    }
-
-    // Post-payment actions
-    if (status === 'paid' && payment) {
-      // Send payment confirmation notification
-      try {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('first_name, email')
-          .eq('user_id', payment.user_id)
-          .single();
-
-        await fetch(`${SUPABASE_URL}/functions/v1/send-notification`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': Deno.env.get('SUPABASE_ANON_KEY') || '',
-          },
-          body: JSON.stringify({
-            type: 'payment_confirmed',
-            user_id: payment.user_id,
-            data: {
-              amount: `€${(payment.amount_cents / 100).toFixed(2)}`,
-              payment_type: payment.payment_type,
-              transaction_id: txUuid || txId || paymentId,
-            },
-          }),
-        });
-      } catch (e) {
-        console.warn('IPN: notification failed (non-blocking):', e);
-      }
-
-      // If membership payment, verify the organization AND the user's profile
-      if (payment.payment_type === 'membership' && payment.organization_id) {
-        await supabase
-          .from('organizations')
-          .update({ access_status: 'verified' })
-          .eq('id', payment.organization_id);
-
-        // Also verify the user's profile (partner was in 'payment_pending' state)
-        await supabase
-          .from('profiles')
-          .update({ access_status: 'verified' })
-          .eq('user_id', payment.user_id);
-
-        // Verify all members of this org (they inherit the org's verified status)
-        const { data: orgMembers } = await supabase
-          .from('organization_members')
-          .select('user_id')
-          .eq('organization_id', payment.organization_id);
-        if (orgMembers && orgMembers.length > 0) {
-          const memberIds = orgMembers.map((m: { user_id: string }) => m.user_id);
-          await supabase
-            .from('profiles')
-            .update({ access_status: 'verified' })
-            .in('user_id', memberIds)
-            .eq('access_status', 'payment_pending');
-        }
-      }
-
-      // If additional seats, increment max_seats on the organization
-      if (payment.payment_type === 'additional_seats' && payment.organization_id) {
-        const seatsCount = payment.metadata?.seats_count ? parseInt(payment.metadata.seats_count as string) : 1;
-        const { data: currentOrg } = await supabase
-          .from('organizations')
-          .select('max_seats')
-          .eq('id', payment.organization_id)
-          .single();
-        if (currentOrg) {
-          await supabase
-            .from('organizations')
-            .update({ max_seats: (currentOrg.max_seats || 1) + seatsCount })
-            .eq('id', payment.organization_id);
-        }
-      }
-
-      // If event participation, confirm the registration
-      if (payment.payment_type === 'event_participation' && payment.reference_id) {
-        await supabase
-          .from('event_registrations')
-          .update({ payment_status: 'paid' })
-          .eq('id', payment.reference_id);
-      }
-    }
-
-    console.log(`IPN: Payment ${paymentId} updated to ${status} (tx: ${txUuid})`);
-    return new Response('OK', { status: 200, headers: CORS_HEADERS });
-  } catch (err) {
-    console.error('IPN error:', err);
-    return new Response('Internal error', { status: 500, headers: CORS_HEADERS });
+  } catch {
+    console.error('IPN refused: unreadable body');
+    return text('Bad Request', 400);
   }
+
+  if (!krAnswer || !krHash) {
+    console.error('IPN refused: kr-answer or kr-hash missing');
+    return text('Bad Request', 400);
+  }
+  if (krHashAlgorithm.toLowerCase() !== 'sha256_hmac') {
+    console.error(`IPN refused: unsupported kr-hash-algorithm "${krHashAlgorithm.slice(0, 40)}"`);
+    return text('Bad Request', 400);
+  }
+  if (krHashKey !== 'password' && krHashKey !== 'sha256_hmac') {
+    console.error(`IPN refused: unsupported kr-hash-key "${krHashKey.slice(0, 40)}"`);
+    return text('Bad Request', 400);
+  }
+  const key = keyFor(krHashKey);
+  if (!key) {
+    const name = krHashKey === 'password' ? 'LYRA_API_PASSWORD' : 'LYRA_HMAC_KEY';
+    console.error(`IPN REFUSED: ${name} is not set (or is a public demo key). Set it in the Supabase dashboard (Edge Functions > Secrets); Lyra will retry this notification.`);
+    return text('Payment notifications are not configured', 503);
+  }
+  const computed = await hmacHex(key, krAnswer);
+  if (!sameText(computed, krHash.trim().toLowerCase())) {
+    console.error('IPN refused: invalid signature');
+    return text('Invalid signature', 403);
+  }
+
+  // ── 2. What the notification says (signed by Lyra from here on) ────────────
+  let answer: Json;
+  try {
+    answer = JSON.parse(krAnswer);
+  } catch {
+    console.error('IPN refused: kr-answer is not JSON');
+    return text('Bad Request', 400);
+  }
+
+  const paymentId = paymentIdOf(answer);
+  if (!paymentId) {
+    console.warn('IPN ignored: no payment id in the order (not created by create-payment)');
+    return text('Ignored', 200);
+  }
+  const answerMode = String(answer?.orderDetails?.mode || '').toUpperCase();
+  if (LYRA_MODE === 'PRODUCTION' && answerMode === 'TEST') {
+    console.warn(`IPN ignored for payment ${paymentId}: TEST-mode notification while LYRA_MODE is PRODUCTION`);
+    return text('Ignored', 200);
+  }
+  const transactions: Json[] = Array.isArray(answer?.transactions) ? answer.transactions : [];
+  const firstTx: Json = transactions[0] || {};
+  if (String(firstTx?.operationType || '').toUpperCase() === 'CREDIT') {
+    console.warn(`IPN ignored for payment ${paymentId}: refund (CREDIT) notification, handled by M3 by hand`);
+    return text('Ignored', 200);
+  }
+  const target = targetStatus(answer?.orderStatus);
+  // UNPAID while the order is still OPEN = one refused attempt; the buyer may retry.
+  const finalOrder = String(answer?.orderCycle || 'CLOSED').toUpperCase() !== 'OPEN';
+  const txUuid = typeof firstTx?.uuid === 'string' ? firstTx.uuid.slice(0, 100) : '';
+  const txId = typeof firstTx?.transactionDetails?.cardDetails?.legacyTransId === 'string'
+    ? firstTx.transactionDetails.cardDetails.legacyTransId.slice(0, 100)
+    : '';
+  const reportedCents = Number(answer?.orderDetails?.orderTotalAmount ?? firstTx?.amount);
+  const reportedCurrency = String(answer?.orderDetails?.orderCurrency ?? firstTx?.currency ?? '').toUpperCase();
+
+  const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+
+  const { data: payment, error: loadError } = await db
+    .from('payments')
+    .select('id, user_id, payment_type, amount_cents, currency, status, reference_id, reference_type, metadata')
+    .eq('id', paymentId)
+    .maybeSingle();
+  if (loadError) {
+    console.error(`IPN: could not read payment ${paymentId}:`, loadError.message);
+    return text('DB error', 500);
+  }
+  if (!payment) {
+    console.warn(`IPN ignored: payment ${paymentId} does not exist`);
+    return text('Ignored', 200);
+  }
+  if (!target) {
+    console.log(`IPN: payment ${paymentId} order status "${String(answer?.orderStatus || '').slice(0, 40)}" recorded nowhere (in progress)`);
+    return text('OK', 200);
+  }
+
+  // ── 3. The amount is the database's; Lyra's must match it to count as paid ─
+  if (target === 'paid') {
+    const dbCurrency = String(payment.currency || 'EUR').toUpperCase();
+    if (!Number.isInteger(reportedCents) || reportedCents !== payment.amount_cents || reportedCurrency !== dbCurrency) {
+      console.error(`IPN AMOUNT MISMATCH for payment ${paymentId}: Lyra reports ${reportedCents} ${reportedCurrency}, the database expects ${payment.amount_cents} ${dbCurrency}. Not marked paid; M3 must review it.`);
+      const meta = (payment.metadata && typeof payment.metadata === 'object' && !Array.isArray(payment.metadata)) ? payment.metadata : {};
+      const { error: flagError } = await db
+        .from('payments')
+        .update({
+          metadata: {
+            ...meta,
+            ipn_mismatch: {
+              reported_cents: Number.isFinite(reportedCents) ? reportedCents : null,
+              reported_currency: reportedCurrency.slice(0, 10),
+              transaction_uuid: txUuid,
+              at: new Date().toISOString(),
+            },
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', paymentId);
+      if (flagError) console.error(`IPN: could not record the mismatch on payment ${paymentId}:`, flagError.message);
+      return text('OK', 200);
+    }
+  }
+
+  // ── 4. Move the status, once ──────────────────────────────────────────────
+  // Never away from paid or refunded; never "again" to the same status.
+  const from: Status[] = (['pending', 'failed', 'cancelled'] as Status[]).filter((s) => s !== target);
+  const now = new Date().toISOString();
+  const updates: Record<string, unknown> = { status: target, updated_at: now };
+  if (txId) updates.transaction_id = txId;
+  if (txUuid) updates.transaction_uuid = txUuid;
+  if (target === 'paid') updates.paid_at = now;
+
+  const { data: moved, error: updateError } = await db
+    .from('payments')
+    .update(updates)
+    .eq('id', paymentId)
+    .in('status', from)
+    .select('id');
+  if (updateError) {
+    console.error(`IPN: could not update payment ${paymentId}:`, updateError.message);
+    return text('DB error', 500);
+  }
+  const transitioned = (moved?.length ?? 0) > 0;
+  const statusNow: string = transitioned ? target : String(payment.status);
+  if (transitioned) {
+    console.log(`IPN: payment ${paymentId} ${payment.status} -> ${target} (tx ${txUuid || txId || 'n/a'})`);
+  } else if (statusNow !== target) {
+    console.warn(`IPN: payment ${paymentId} is ${statusNow}; a "${target}" notification does not change it`);
+  }
+
+  // Side effects: only for the request that made the change.
+  if (transitioned && target === 'paid') {
+    if (payment.payment_type === 'event_participation' && payment.reference_id &&
+        (!payment.reference_type || payment.reference_type === 'event_participation')) {
+      const { error: regError } = await db
+        .from('event_registrations')
+        .update({ payment_status: 'paid' })
+        .eq('id', payment.reference_id);
+      if (regError) console.error(`IPN: payment ${paymentId} paid, but event registration ${payment.reference_id} could not be marked paid:`, regError.message);
+    } else if (payment.payment_type === 'membership' || payment.payment_type === 'additional_seats') {
+      console.warn(`IPN: ${payment.payment_type} payment ${paymentId} paid. No automatic change (platform free, M3 validates): review it in the admin.`);
+    }
+  }
+
+  // ── 5. One e-mail per (payment, status) ───────────────────────────────────
+  const emailStatus = statusNow === target && (target === 'paid' || (target === 'failed' && finalOrder)) ? target : null;
+  if (!emailStatus) return text('OK', 200);
+
+  const { error: claimError } = await db.from(EMAIL_LOG_TABLE).insert({ payment_id: paymentId, status: emailStatus });
+  if (claimError) {
+    if (claimError.code === '23505') return text('OK', 200); // already e-mailed (or being e-mailed)
+    const missing = claimError.code === '42P01' || claimError.code === 'PGRST205' || /does not exist|could not find the table/i.test(claimError.message || '');
+    console.error(missing
+      ? `IPN: no ${emailStatus} e-mail for payment ${paymentId}: table public.${EMAIL_LOG_TABLE} is missing (apply migration 20261009180000_payment_email_log.sql)`
+      : `IPN: no ${emailStatus} e-mail for payment ${paymentId}: could not record it (${claimError.code || ''} ${claimError.message || ''})`);
+    return text('OK', 200);
+  }
+
+  const amount = formatAmount(payment.amount_cents, payment.currency);
+  const data: Record<string, string> = emailStatus === 'paid'
+    ? { amount, payment_type: String(payment.payment_type || ''), transaction_id: txUuid || txId || paymentId }
+    : { amount };
+  let outcome: 'sent' | 'permanent' | 'retry' = 'retry';
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/send-notification`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        apikey: SUPABASE_SERVICE_KEY,
+      },
+      body: JSON.stringify({
+        type: emailStatus === 'paid' ? 'payment_confirmed' : 'payment_failed',
+        user_id: payment.user_id,
+        data,
+      }),
+    });
+    const detail = (await res.text().catch(() => '')).slice(0, 300);
+    if (res.ok) {
+      outcome = 'sent'; // includes "skipped: user opted out" (their own choice)
+      console.log(`IPN: ${emailStatus} e-mail for payment ${paymentId}: ${detail}`);
+    } else if (res.status === 400) {
+      outcome = 'permanent'; // e.g. no address for this account: a retry cannot help
+      console.error(`IPN: ${emailStatus} e-mail for payment ${paymentId} refused (400): ${detail}`);
+    } else {
+      console.error(`IPN: ${emailStatus} e-mail for payment ${paymentId} failed (${res.status}): ${detail}`);
+    }
+  } catch (e) {
+    console.error(`IPN: ${emailStatus} e-mail for payment ${paymentId} failed:`, e instanceof Error ? e.message : String(e));
+  }
+
+  if (outcome === 'retry') {
+    // Give the key back and let Lyra retry the IPN: the retry changes nothing else.
+    const { error: releaseError } = await db.from(EMAIL_LOG_TABLE).delete().eq('payment_id', paymentId).eq('status', emailStatus);
+    if (releaseError) {
+      console.error(`IPN: could not release the e-mail key of payment ${paymentId}; no retry will send it:`, releaseError.message);
+      return text('OK', 200);
+    }
+    return text('E-mail not sent yet', 500);
+  }
+  return text('OK', 200);
 });

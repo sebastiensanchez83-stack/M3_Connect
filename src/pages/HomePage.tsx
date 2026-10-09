@@ -5,6 +5,7 @@ import { Seo } from '@/components/seo/Seo';
 import { AlertCircle, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { Sm26WelcomeBadge } from '@/components/home/Sm26WelcomeBadge';
 import { supabase } from '@/lib/supabase';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { THEMES, themesForSectors, type ThemeKey } from '@/lib/themes';
@@ -401,6 +402,8 @@ export function HomePage() {
                 </button>
               </div>
             )}
+            {/* Took part in Smart Marina 2026 (themselves or their team): a small mark, linked to My events. */}
+            <Sm26WelcomeBadge />
             <HeroIn as="p" delay={260} className="mt-5 max-w-[560px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
               {t('memberHome.heroSubtitle', 'Your dashboard is right below: your profile, your company, your events and your requests, all managed from here.')}
             </HeroIn>

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { saveNotificationPrefs } from '@/components/account/profileActions';
 import { toast } from '@/hooks/use-toast';
 import {
   Bell, Link2, ClipboardList, Award, Calendar, CreditCard, Users, ShieldCheck, Mail, Info,
@@ -20,7 +20,7 @@ interface CategoryDef {
   critical?: boolean;
 }
 
-const CATEGORIES: CategoryDef[] = [
+export const CATEGORIES: CategoryDef[] = [
   {
     key: 'b2b',
     icon: <Link2 className="h-5 w-5 text-blue-500" />,
@@ -103,10 +103,12 @@ export function NotificationPreferencesTab() {
     const nextPrefs = { ...prefs, [key]: enabled };
     setPrefs(nextPrefs); // optimistic
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({ notification_prefs: nextPrefs })
-      .eq('user_id', user.id);
+    let error: Error | null = null;
+    try {
+      await saveNotificationPrefs(user.id, nextPrefs);
+    } catch (err: unknown) {
+      error = err instanceof Error ? err : new Error(String(err));
+    }
 
     if (error) {
       // revert on failure

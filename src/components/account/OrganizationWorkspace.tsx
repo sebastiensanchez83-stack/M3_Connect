@@ -17,14 +17,15 @@ import { cn } from '@/lib/utils';
  * stays where it was. Sections are found by the `data-org-section="<key>"`
  * markers of OrganizationTab, and otherwise by its headings; a section that
  * can't be found simply gets no chip. `section=<key>` in the address deep-links
- * to one (/?open=organization&section=team, the dashboard's nudges); an unknown
- * value is ignored.
+ * to one (/?open=company&section=capital: the My company panel's "More
+ * settings"); the `section` prop does the same from code (the My team panel's
+ * full editor opens on the team). An unknown value is ignored.
  *
  * The bar sticks under the site header, which tucks away on scroll down
  * (`.sticky.top-16` follows --header-h, smc-motion.css). None of its ancestors
  * may clip (no overflow-hidden), or it stops sticking.
  */
-type OrgSectionKey = 'branding' | 'gallery' | 'details' | 'team' | 'documents' | 'capital' | 'thesis';
+export type OrgSectionKey = 'branding' | 'gallery' | 'details' | 'team' | 'documents' | 'capital' | 'thesis';
 const ORG_SECTION_ORDER: OrgSectionKey[] = ['branding', 'gallery', 'details', 'team', 'documents', 'capital', 'thesis'];
 
 /** Where the header's lower edge is right now: 64 or 72 px, 0 while it is tucked away (--header-h). */
@@ -91,7 +92,10 @@ function addInnerSections(profileCard: HTMLElement, labels: { details: string[] 
   if (details && profileCard.contains(details) && !found.has('details')) found.set('details', details);
 }
 
-export function OrganizationWorkspace() {
+export function OrganizationWorkspace({ section }: {
+  /** A section to jump to once it exists, instead of the address's `section`. */
+  section?: OrgSectionKey;
+} = {}) {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -99,7 +103,7 @@ export function OrganizationWorkspace() {
   const appliedRef = useRef<string | null>(null);
   const [keys, setKeys] = useState<OrgSectionKey[]>([]);
   const [active, setActive] = useState<OrgSectionKey | null>(null);
-  const requested = searchParams.get('section');
+  const requested = section ?? searchParams.get('section');
   const navRef = useRef<HTMLElement>(null);
   const barHeight = useCallback(() => navRef.current?.offsetHeight ?? 56, []);
 

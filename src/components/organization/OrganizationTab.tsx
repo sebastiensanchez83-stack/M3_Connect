@@ -14,7 +14,6 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
 import { requireFreshSession } from '@/lib/session';
-import { sendNotification } from '@/lib/notifications';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -34,20 +33,13 @@ import { BTN, BTN_OUTLINE } from '@/components/member/MemberUI';
 import { isSponsorTier } from '@/types/database';
 import { CapitalIntentSection } from '@/components/capital/CapitalIntentSection';
 import { InvestmentThesisSection } from '@/components/capital/InvestmentThesisSection';
-import { resizeImage, fileMeta } from '@/lib/image';
+import {
+  addOrgGalleryImages, answerJoinRequest, cancelTeamInvitation, deleteOrgDocument, fetchOrgDocuments, imageProblem,
+  invitationProblem, inviterName, leaveOrg, removeOrgBrandImage, removeOrgGalleryImage, removeOrgMember,
+  resendTeamInvitation, sendTeamInvitation, uploadOrgBrandImage, uploadOrgDocument, ORG_DOC_MAX_BYTES, type OrgDocument,
+} from './orgActions';
 
 // PaymentForm removed — member tier is free, payment integration deferred
-
-interface OrgDocument {
-  id: string;
-  organization_id: string;
-  uploaded_by: string;
-  file_name: string;
-  file_url: string;
-  file_size: number;
-  description: string | null;
-  created_at: string;
-}
 
 const timelineOptions = [
   { value: 'immediate', label: 'Immediate' },
@@ -74,7 +66,7 @@ function valueKeys(values: string[]): string[] {
 
 export function OrganizationTab() {
   const { t } = useTranslation();
-  const { user, profile, refreshProfile } = useAuth();
+  const { user, profile, organization: activeOrg, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<OrganizationMember[]>([]);
@@ -164,24 +156,14 @@ export function OrganizationTab() {
     if (!org || !user || !files.length) return;
     setGalleryBusy(true);
     try {
-      const added: string[] = [];
-      for (const file of Array.from(files).slice(0, 12)) {
-        if (!file.type.startsWith('image/')) continue;
-        if (file.size > 25 * 1024 * 1024) { toast({ title: `${file.name} is too large`, description: 'Max 25 MB', variant: 'destructive' }); continue; }
-        const blob = await resizeImage(file, 1400, 1400);
-        const ctype = (blob as Blob).type || file.type;
-        const ext = ctype === 'image/png' ? 'png' : ctype === 'image/webp' ? 'webp' : 'jpg';
-        const fileName = `${org.id}/gallery-${Date.now()}-${Math.floor(Math.random() * 100000)}.${ext}`;
-        const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, blob, { cacheControl: '3600', upsert: false, contentType: ctype });
-        if (upErr) { toast({ title: `Couldn't upload ${file.name}`, description: upErr.message, variant: 'destructive' }); continue; }
-        added.push(supabase.storage.from('org-logos').getPublicUrl(fileName).data.publicUrl);
+      const { next, added, skipped } = await addOrgGalleryImages(org.id, org.gallery || [], Array.from(files));
+      for (const sk of skipped) {
+        if (sk.reason === 'size') toast({ title: `${sk.name} is too large`, description: 'Max 25 MB', variant: 'destructive' });
+        else toast({ title: `Couldn't upload ${sk.name}`, description: sk.message, variant: 'destructive' });
       }
-      if (added.length) {
-        const next = [...(org.gallery || []), ...added];
-        const { error } = await supabase.rpc('update_org_gallery', { p_org_id: org.id, p_urls: next });
-        if (error) throw error;
+      if (added) {
         setOrg({ ...org, gallery: next });
-        toast({ title: `Added ${added.length} image${added.length > 1 ? 's' : ''}` });
+        toast({ title: `Added ${added} image${added > 1 ? 's' : ''}` });
       }
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
@@ -191,36 +173,29 @@ export function OrganizationTab() {
 
   const removeGalleryImage = async (url: string) => {
     if (!org) return;
-    const next = (org.gallery || []).filter(u => u !== url);
-    const { error } = await supabase.rpc('update_org_gallery', { p_org_id: org.id, p_urls: next });
-    if (error) { toast({ title: 'Could not remove', description: error.message, variant: 'destructive' }); return; }
-    setOrg({ ...org, gallery: next });
+    try {
+      const next = await removeOrgGalleryImage(org.id, org.gallery || [], url);
+      setOrg({ ...org, gallery: next });
+    } catch (err: unknown) {
+      toast({ title: 'Could not remove', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    }
   };
 
   // ── Logo upload handler ──
   const handleLogoUpload = async (file: File) => {
     if (!org || !user) return;
-    if (!file.type.startsWith('image/')) {
+    const problem = imageProblem(file);
+    if (problem === 'type') {
       toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP, GIF, SVG)', variant: 'destructive' });
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
+    if (problem === 'size') {
       toast({ title: 'File too large', description: 'Maximum 25 MB', variant: 'destructive' });
       return;
     }
     setUploadingLogo(true);
     try {
-      const meta = await fileMeta(file);
-      const blob = await resizeImage(file, 600, 600); // shrink big files; keep PNG/SVG transparency
-      const ctype = (blob as Blob).type || file.type;
-      const ext = ctype === 'image/svg+xml' ? 'svg' : ctype === 'image/png' ? 'png' : 'jpg';
-      const fileName = `${org.id}/logo-${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, blob, { cacheControl: '3600', upsert: true, contentType: ctype });
-      if (upErr) throw upErr;
-      const { data: urlData } = supabase.storage.from('org-logos').getPublicUrl(fileName);
-      const logoUrl = urlData.publicUrl;
-      const { error: dbErr } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'logo', p_url: logoUrl });
-      if (dbErr) throw dbErr;
+      const { url: logoUrl, meta } = await uploadOrgBrandImage(org.id, 'logo', file);
       setOrg({ ...org, logo_url: logoUrl });
       setLogoMeta(meta);
       toast({ title: 'Logo updated', description: meta });
@@ -233,8 +208,7 @@ export function OrganizationTab() {
   const handleRemoveLogo = async () => {
     if (!org) return;
     try {
-      const { error } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'logo', p_url: null });
-      if (error) throw error;
+      await removeOrgBrandImage(org.id, 'logo');
       setOrg({ ...org, logo_url: null });
       toast({ title: 'Logo removed' });
     } catch (err: unknown) {
@@ -245,27 +219,18 @@ export function OrganizationTab() {
   // ── Cover banner upload handler ──
   const handleBannerUpload = async (file: File) => {
     if (!org || !user) return;
-    if (!file.type.startsWith('image/')) {
+    const problem = imageProblem(file);
+    if (problem === 'type') {
       toast({ title: 'Invalid file type', description: 'Please upload an image (JPEG, PNG, WebP)', variant: 'destructive' });
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
+    if (problem === 'size') {
       toast({ title: 'File too large', description: 'Maximum 25 MB', variant: 'destructive' });
       return;
     }
     setUploadingBanner(true);
     try {
-      const meta = await fileMeta(file);
-      const blob = await resizeImage(file, 2000, 700); // wide cover; shrinks big files
-      const ctype = (blob as Blob).type || file.type;
-      const ext = ctype === 'image/svg+xml' ? 'svg' : ctype === 'image/png' ? 'png' : 'jpg';
-      const fileName = `${org.id}/banner-${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('org-logos').upload(fileName, blob, { cacheControl: '3600', upsert: true, contentType: ctype });
-      if (upErr) throw upErr;
-      const { data: urlData } = supabase.storage.from('org-logos').getPublicUrl(fileName);
-      const bannerUrl = urlData.publicUrl;
-      const { error: dbErr } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'banner', p_url: bannerUrl });
-      if (dbErr) throw dbErr;
+      const { url: bannerUrl, meta } = await uploadOrgBrandImage(org.id, 'banner', file);
       setOrg({ ...org, banner_url: bannerUrl });
       setBannerMeta(meta);
       toast({ title: 'Cover photo updated', description: meta });
@@ -278,8 +243,7 @@ export function OrganizationTab() {
   const handleRemoveBanner = async () => {
     if (!org) return;
     try {
-      const { error } = await supabase.rpc('update_org_branding', { p_org_id: org.id, p_field: 'banner', p_url: null });
-      if (error) throw error;
+      await removeOrgBrandImage(org.id, 'banner');
       setOrg({ ...org, banner_url: null });
       toast({ title: 'Cover photo removed' });
     } catch (err: unknown) {
@@ -289,17 +253,12 @@ export function OrganizationTab() {
 
   // ── Document handlers ──
   const fetchDocs = useCallback(async (orgId: string) => {
-    const { data } = await supabase
-      .from('organization_documents')
-      .select('*')
-      .eq('organization_id', orgId)
-      .order('created_at', { ascending: false });
-    if (data) setOrgDocs(data as OrgDocument[]);
+    setOrgDocs(await fetchOrgDocuments(orgId));
   }, []);
 
   const handleDocUpload = async (file: File) => {
     if (!org || !user) return;
-    if (file.size > 20 * 1024 * 1024) {
+    if (file.size > ORG_DOC_MAX_BYTES) {
       toast({ title: 'File too large', description: 'Maximum 20 MB', variant: 'destructive' });
       return;
     }
@@ -307,21 +266,7 @@ export function OrganizationTab() {
     if (!uid) return;
     setUploadingDoc(true);
     try {
-      const storagePath = `${org.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      const { error: upErr } = await supabase.storage.from('org-documents').upload(storagePath, file, { cacheControl: '3600' });
-      if (upErr) throw upErr;
-      // For private bucket, we build a signed URL or use the path for later download
-      const { data: signedData } = await supabase.storage.from('org-documents').createSignedUrl(storagePath, 60 * 60 * 24 * 365);
-      const fileUrl = signedData?.signedUrl || storagePath;
-      const { error: dbErr } = await supabase.from('organization_documents').insert({
-        organization_id: org.id,
-        uploaded_by: user.id,
-        file_name: file.name,
-        file_url: fileUrl,
-        file_size: file.size,
-        description: docDescription.trim() || null,
-      });
-      if (dbErr) throw dbErr;
+      await uploadOrgDocument(org.id, user.id, file, docDescription);
       toast({ title: 'Document uploaded' });
       setDocDescription('');
       fetchDocs(org.id);
@@ -334,8 +279,7 @@ export function OrganizationTab() {
   const handleDeleteDoc = async (doc: OrgDocument) => {
     if (!window.confirm(`Delete "${doc.file_name}"?`)) return;
     try {
-      const { error } = await supabase.from('organization_documents').delete().eq('id', doc.id);
-      if (error) throw error;
+      await deleteOrgDocument(doc.id);
       setOrgDocs(prev => prev.filter(d => d.id !== doc.id));
       toast({ title: 'Document deleted' });
     } catch (err: unknown) {
@@ -345,17 +289,22 @@ export function OrganizationTab() {
 
   // Use user.id as stable dependency (user object reference changes on every auth state update)
   const userId = user?.id;
+  // The company the member acts for (AuthContext). With several memberships the
+  // lookup below takes that one: a single-row read used to fail on them and
+  // showed the "create your organisation" form instead.
+  const activeOrgId = activeOrg?.id ?? null;
 
   const fetchOrg = useCallback(async () => {
     if (!userId) return;
     setLoading(true);
     try {
       // Get user's org membership
-      const { data: membership } = await supabase
+      const { data: memberships } = await supabase
         .from('organization_members')
         .select('organization_id, role')
-        .eq('user_id', userId)
-        .maybeSingle();
+        .eq('user_id', userId);
+      const rows = (memberships ?? []) as { organization_id: string; role: string }[];
+      const membership = rows.find((m) => m.organization_id === activeOrgId) ?? rows[0] ?? null;
 
       if (!membership) {
         setOrg(null);
@@ -471,7 +420,7 @@ export function OrganizationTab() {
       if (import.meta.env.DEV) console.error('Error fetching org:', err);
     }
     setLoading(false);
-  }, [userId, fetchDocs]);
+  }, [userId, activeOrgId, fetchDocs]);
 
   useEffect(() => { fetchOrg(); }, [fetchOrg]);
 
@@ -677,9 +626,8 @@ export function OrganizationTab() {
     if (!org || !inviteForm.email.trim()) return;
 
     // Capacity check — block invite if at max_seats (marinas/developers have unlimited seats)
-    const isMarinaOrg = org.organization_type === 'marina' || org.organization_type === 'developer';
-    const totalOccupied = members.length + invitations.length;
-    if (!isMarinaOrg && org.max_seats && totalOccupied >= org.max_seats) {
+    const problem = invitationProblem(org, members.length + invitations.length, inviteForm.email);
+    if (problem === 'capacity') {
       const tierLabel = TIER_LABELS[(org.tier || 'member') as OrgTier];
       toast({
         title: 'Team capacity reached',
@@ -690,8 +638,7 @@ export function OrganizationTab() {
     }
 
     // Domain check — skip for marina orgs (marinas use personal emails, invite-only)
-    const inviteDomain = inviteForm.email.split('@')[1]?.toLowerCase();
-    if (org.primary_domain && org.organization_type !== 'marina' && inviteDomain !== org.primary_domain) {
+    if (problem === 'domain') {
       toast({ title: t('common.error'), description: t('org.inviteDomainMismatch'), variant: 'destructive' });
       return;
     }
@@ -699,44 +646,10 @@ export function OrganizationTab() {
     if (!uid) return;
     setInviting(true);
     try {
-      const { error } = await supabase
-        .from('organization_invitations')
-        .insert({
-          organization_id: org.id,
-          email: inviteForm.email.trim().toLowerCase(),
-          normalized_domain: inviteDomain || null,
-          invited_by_user_id: user!.id,
-          first_name: inviteForm.firstName.trim() || null,
-          last_name: inviteForm.lastName.trim() || null,
-        });
-
-      if (error) throw error;
-
-      // Fetch the newly created invitation ID so we can include it in the email link
-      const { data: newInvite } = await supabase
-        .from('organization_invitations')
-        .select('id')
-        .eq('organization_id', org.id)
-        .eq('email', inviteForm.email.trim().toLowerCase())
-        .eq('status', 'pending')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      const inviteUrl = newInvite?.id
-        ? `${window.location.origin}/join/${newInvite.id}`
-        : window.location.origin;
-
-      // Send invitation email via edge function
-      sendNotification({
-        type: 'team_invitation',
-        email: inviteForm.email.trim().toLowerCase(),
-        data: {
-          org_name: org.name || 'An organization',
-          inviter_name: profile?.first_name ? `${profile.first_name}${profile.last_name ? ' ' + profile.last_name : ''}` : user?.email?.split('@')[0] || 'A team member',
-          signup_url: inviteUrl,
-          first_name: inviteForm.firstName.trim() || '',
-        },
+      await sendTeamInvitation(org, user!.id, inviterName(profile, user?.email), {
+        email: inviteForm.email,
+        firstName: inviteForm.firstName,
+        lastName: inviteForm.lastName,
       });
 
       toast({ title: t('org.inviteSent'), description: t('org.inviteSentDesc', { email: inviteForm.email }) });
@@ -751,11 +664,7 @@ export function OrganizationTab() {
 
   const handleCancelInvitation = async (invId: string) => {
     try {
-      const { error } = await supabase
-        .from('organization_invitations')
-        .update({ status: 'cancelled' })
-        .eq('id', invId);
-      if (error) throw error;
+      await cancelTeamInvitation(invId);
       toast({ title: t('org.invitationCancelled') });
       fetchOrg();
     } catch (err: unknown) {
@@ -765,18 +674,8 @@ export function OrganizationTab() {
 
   const handleApproveJoinRequest = async (invId: string, invEmail: string) => {
     try {
-      const { error } = await supabase.rpc('approve_join_request', { p_invitation_id: invId });
-      if (error) throw error;
+      await answerJoinRequest(invId, invEmail, org?.name, true);
       toast({ title: 'Join request approved', description: `${invEmail} has been added to the team.` });
-      // Notify the requester by email
-      sendNotification({
-        type: 'join_request_approved',
-        email: invEmail,
-        data: {
-          org_name: org?.name || 'Your organization',
-          first_name: '',
-        },
-      });
       fetchOrg();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
@@ -786,18 +685,8 @@ export function OrganizationTab() {
   const handleRejectJoinRequest = async (invId: string, invEmail: string) => {
     if (!window.confirm(`Reject join request from ${invEmail}?`)) return;
     try {
-      const { error } = await supabase.rpc('reject_join_request', { p_invitation_id: invId });
-      if (error) throw error;
+      await answerJoinRequest(invId, invEmail, org?.name, false);
       toast({ title: 'Join request rejected' });
-      // Notify the requester by email
-      sendNotification({
-        type: 'join_request_rejected',
-        email: invEmail,
-        data: {
-          org_name: org?.name || 'Your organization',
-          first_name: '',
-        },
-      });
       fetchOrg();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
@@ -810,11 +699,7 @@ export function OrganizationTab() {
     const name = fullN || member.profiles?.email?.split('@')[0] || 'this member';
     if (!window.confirm(t('org.removeMemberConfirm', { name }))) return;
     try {
-      const { error } = await supabase
-        .from('organization_members')
-        .delete()
-        .eq('id', member.id);
-      if (error) throw error;
+      await removeOrgMember(member.id);
       toast({ title: t('org.memberRemoved') });
       fetchOrg();
     } catch (err: unknown) {
@@ -826,12 +711,7 @@ export function OrganizationTab() {
     if (!org || !user) return;
     if (!window.confirm(t('org.leaveConfirm'))) return;
     try {
-      const { error } = await supabase
-        .from('organization_members')
-        .delete()
-        .eq('organization_id', org.id)
-        .eq('user_id', user.id);
-      if (error) throw error;
+      await leaveOrg(org.id, user.id);
       toast({ title: t('org.leftOrg') });
       setOrg(null);
       setMembers([]);
@@ -1877,17 +1757,7 @@ export function OrganizationTab() {
                           size="sm"
                           className="h-9 rounded-pill px-3 text-xs font-semibold text-navy hover:bg-chip"
                           onClick={() => {
-                            const reminderUrl = `${window.location.origin}/join/${inv.id}`;
-                            sendNotification({
-                              type: 'team_invitation_reminder',
-                              email: inv.email,
-                              data: {
-                                org_name: org.name || 'An organization',
-                                inviter_name: profile?.first_name ? `${profile.first_name}${profile.last_name ? ' ' + profile.last_name : ''}` : user?.email?.split('@')[0] || 'A team member',
-                                signup_url: reminderUrl,
-                                first_name: inv.first_name || '',
-                              },
-                            });
+                            resendTeamInvitation(org, inv, inviterName(profile, user?.email));
                             toast({ title: 'Reminder sent', description: `Resent invitation to ${inv.email}` });
                           }}
                           title="Resend invitation email"

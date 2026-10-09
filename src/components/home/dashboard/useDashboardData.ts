@@ -66,6 +66,7 @@ export interface OrgCounts {
   orgId: string;
   members: number;
   sectors: number;
+  documents: number;
 }
 
 export interface InboxPreview {
@@ -86,6 +87,7 @@ export interface DashboardData {
   upcomingCount: number;
   pastCount: number;
   resources: DashResource[];
+  /** The company's page as stored now (every member: anyone in the company edits it). */
   brand: OrgBrand | null;
   orgCounts: OrgCounts | null;
   inboxLatest: InboxPreview[];
@@ -98,7 +100,6 @@ export interface DashboardDataInput {
   orgId: string | undefined;
   orgType: string | null;
   persona: string | undefined;
-  isOwner: boolean;
   /** Marinas and developers: they publish; service providers and media answer. */
   isDemand: boolean;
   isSupply: boolean;
@@ -147,7 +148,7 @@ const EMPTY_COUNTS: Record<RequestKind, number> = { projects: 0, rfps: 0, consul
 
 export function useDashboardData(input: DashboardDataInput): DashboardData {
   const {
-    uid, orgId, orgType, persona, isOwner, isDemand, isSupply, canSeeOpportunities,
+    uid, orgId, orgType, persona, isDemand, isSupply, canSeeOpportunities,
     canProjects, canRFPs, canConsultations, isPartnerOrg, hasShortlist, enabled, version,
   } = input;
   const [data, setData] = useState<Omit<DashboardData, 'loading'>>({
@@ -177,14 +178,16 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
       if (firstLoad.current) setLoading(true);
       const now = Date.now();
       const sectorTable = sectorTableFor(persona);
-      // The profile meter is the owner's; its sectors are the ones the
-      // organisation editor writes — interests for a marina, services otherwise.
-      const meterOn = isOwner && !!orgId;
+      // The company's page (logo, cover, description, photos, sectors, team,
+      // documents): its tile says what is missing, for every member. Its sectors
+      // are the ones the organisation editor writes — interests for a marina,
+      // services otherwise.
+      const meterOn = !!orgId;
       const orgSectorTable = orgType === 'marina' ? 'organization_interest_sectors' : 'organization_service_sectors';
 
       const [
         sectorRes, rfpRes, consultRes, myRfpRes, myConsultRes, myProjRes, myWebinarRes, accessRes, resRes,
-        orgRes, memberCountRes, orgSectorCountRes, inboxRes, refRes, shortlistRes,
+        orgRes, memberCountRes, orgSectorCountRes, inboxRes, refRes, shortlistRes, docCountRes,
       ] = await Promise.all([
         safe<{ sector_id: string }[]>(sectorTable && orgId ? supabase.from(sectorTable).select('sector_id').eq('organization_id', orgId) : null),
         safe<{ id: string; title: string; deadline_date: string | null; created_at: string; sector_id: string | null }[]>(isSupply && canSeeOpportunities
@@ -223,6 +226,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
           .order('created_at', { ascending: false }).limit(3)),
         safe<{ status: string }[]>(isPartnerOrg && orgId ? supabase.from('reference_requests').select('status').eq('partner_organization_id', orgId) : null),
         safe<unknown>(hasShortlist ? supabase.from('org_bookmarks').select('id', { count: 'exact', head: true }).eq('user_id', uid) : null),
+        safe<unknown>(meterOn ? supabase.from('organization_documents').select('id', { count: 'exact', head: true }).eq('organization_id', orgId) : null),
       ]);
       if (!alive) return;
 
@@ -300,7 +304,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
         pastCount,
         resources: resources.slice(0, 4),
         brand: meterOn ? orgRes.data ?? null : null,
-        orgCounts: meterOn && orgId ? { orgId, members: memberCountRes.count ?? 0, sectors: orgSectorCountRes.count ?? 0 } : null,
+        orgCounts: meterOn && orgId ? { orgId, members: memberCountRes.count ?? 0, sectors: orgSectorCountRes.count ?? 0, documents: docCountRes.count ?? 0 } : null,
         inboxLatest: (inboxRes.data ?? []).map((r) => ({ id: r.id, org: r.partner_org?.name ?? null, status: r.status, created_at: r.created_at })),
         references: refs ? {
           total: refs.length,
@@ -318,7 +322,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
       if (alive) setLoading(false);
     });
     return () => { alive = false; };
-  }, [uid, orgId, orgType, persona, isOwner, isDemand, isSupply, canSeeOpportunities, canProjects, canRFPs, canConsultations, isPartnerOrg, hasShortlist, enabled, version]);
+  }, [uid, orgId, orgType, persona, isDemand, isSupply, canSeeOpportunities, canProjects, canRFPs, canConsultations, isPartnerOrg, hasShortlist, enabled, version]);
 
   return { ...data, loading: enabled ? loading : false };
 }

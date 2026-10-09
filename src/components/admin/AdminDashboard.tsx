@@ -113,15 +113,12 @@ const LEAD_STATUS_COLORS: Record<string, string> = {
 /* ══════════════════════════════ REVIEW QUEUE CARD ══════════════════════════════ */
 
 /**
- * "N items to review": the way into /admin/review. The figure comes from
- * admin_review_queue_count() (staff only, migration 20261009230000); while that
- * function is not deployed (or on any error) the card is not shown.
+ * The figure of "N items to review": admin_review_queue_count() (staff only,
+ * migration 20261009230000). null while unknown: function not deployed yet, or
+ * any error. Keyed on the user id (auth re-emits the user on every tab refocus).
  */
-function ReviewQueueCard() {
-  const { t } = useTranslation();
-  const { user } = useAuth();
+function useReviewQueueCount(uid: string | undefined): number | null {
   const [count, setCount] = useState<number | null>(null);
-  const uid = user?.id;
   useEffect(() => {
     if (!uid) return;
     let alive = true;
@@ -130,6 +127,12 @@ function ReviewQueueCard() {
     });
     return () => { alive = false; };
   }, [uid]);
+  return count;
+}
+
+/** "N items to review": the way into /admin/review. Not shown while the count is unknown. */
+function ReviewQueueCard({ count, isAdmin }: { count: number | null; isAdmin: boolean }) {
+  const { t } = useTranslation();
   if (count === null) return null;
   const waiting = count > 0;
   return (
@@ -150,7 +153,9 @@ function ReviewQueueCard() {
         </span>
         <span className="block text-[13px] leading-5 text-meta">
           {waiting
-            ? t('adminReview.card.body', 'People, companies, event requests and content waiting for a decision from M3.')
+            ? (isAdmin
+              ? t('adminReview.card.body', 'People, companies, event requests and content waiting for a decision from M3.')
+              : t('adminReview.card.bodyModerator', 'Reported conversations, webinar proposals and article drafts waiting for review.'))
             : t('adminReview.card.noneBody', 'Everything waiting for M3 has been handled.')}
         </span>
       </span>
@@ -168,6 +173,7 @@ function ReviewQueueCard() {
 export function AdminDashboard() {
   const { t } = useTranslation();
   const { user, isAdmin, profile } = useAuth();
+  const reviewCount = useReviewQueueCount(user?.id);
   const navigate = useNavigate();
   /** Navigate to admin sub-page with pre-set URL filters */
   const nav = (path: string, params?: Record<string, string | undefined>) => {
@@ -295,8 +301,8 @@ export function AdminDashboard() {
         supabase.from('partner_requests').select('id', { count: 'exact' }).eq('status', 'pending'),
         supabase.from('rfps').select('id', { count: 'exact' }).eq('is_open', true),
         supabase.from('consultations').select('id', { count: 'exact' }).eq('is_open', true),
-        // Aging queries
-        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'pending').lte('created_at', fortyEightHoursAgo),
+        // Aging queries (users waiting: form sent, not a draft, the same rule as /admin/review)
+        supabase.from('profiles').select('user_id', { count: 'exact' }).eq('access_status', 'pending').neq('onboarding_status', 'draft').lte('created_at', fortyEightHoursAgo),
         supabase.from('partner_requests').select('id', { count: 'exact' }).eq('status', 'pending').lte('created_at', sevenDaysAgo),
         supabase.from('partner_leads').select('id', { count: 'exact' }).eq('status', 'new').lte('created_at', fortyEightHoursAgo),
         // Trends
@@ -532,7 +538,9 @@ export function AdminDashboard() {
     </div>
   );
 
-  const totalUrgent = stats.usersWaiting48h + stats.oldLeadsNotContacted + stats.oldB2BRequests
+  // People waiting are counted once: by the review card when its figure is known, else here.
+  const usersInStrip = reviewCount === null ? stats.usersWaiting48h : 0;
+  const totalUrgent = usersInStrip + stats.oldLeadsNotContacted + stats.oldB2BRequests
     + stats.pendingRegistrations;
 
   /* ══════════════════════════════ MODERATOR DASHBOARD ══════════════════════════════ */
@@ -568,7 +576,7 @@ export function AdminDashboard() {
           }
         />
 
-        <ReviewQueueCard />
+        <ReviewQueueCard count={reviewCount} isAdmin={false} />
 
         {/* ─── Your Activity Overview ─── */}
         <div>
@@ -650,7 +658,7 @@ export function AdminDashboard() {
   /* ══════════════════════════════ ADMIN RENDER ══════════════════════════════ */
 
   const priorityItems = [
-    { key: 'users', icon: UserCheck, count: stats.usersWaiting48h, label: 'users waiting >48h', onClick: () => nav('/admin/users', { status: 'pending' }) },
+    { key: 'users', icon: UserCheck, count: usersInStrip, label: 'users waiting >48h', onClick: () => nav('/admin/users', { status: 'pending' }) },
     { key: 'leads', icon: Target, count: stats.oldLeadsNotContacted, label: 'leads not contacted', onClick: () => nav('/admin/leads', { status: 'new' }) },
     { key: 'b2b', icon: Link2, count: stats.oldB2BRequests, label: 'B2B unanswered 7d+', onClick: () => nav('/admin/partner-requests') },
     { key: 'events', icon: Calendar, count: stats.pendingRegistrations, label: 'event approvals', onClick: () => nav('/admin/events') },
@@ -664,9 +672,6 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-8">
-
-      {/* ═══ TOP: EVERYTHING WAITING FOR M3 ═══ */}
-      <ReviewQueueCard />
 
       {/* ═══ TOP: PRIORITY STRIP ═══ */}
       {totalUrgent > 0 && (
@@ -710,6 +715,9 @@ export function AdminDashboard() {
           </Button>
         }
       />
+
+      {/* ═══ EVERYTHING WAITING FOR M3 (/admin/review) ═══ */}
+      <ReviewQueueCard count={reviewCount} isAdmin />
 
       {/* ═══ ROW 1: PERFORMANCE KPIs ═══ */}
       <div>
@@ -1199,7 +1207,7 @@ export function AdminDashboard() {
         <AdminSectionLabel icon={AlertCircle}>All Action Items</AdminSectionLabel>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           {[
-            { label: 'Pending Users', value: stats.pendingUsers, icon: UserCheck, link: '/admin/users', params: { status: 'pending' } },
+            { label: 'Pending accounts, unfinished included', value: stats.pendingUsers, icon: UserCheck, link: '/admin/users', params: { status: 'pending' } },
             { label: 'Event Approvals', value: stats.pendingRegistrations, icon: Calendar, link: '/admin/events', params: {} },
             { label: 'Webinar Reqs', value: stats.newWebinars, icon: MessageSquare, link: '/admin/webinars', params: { status: 'submitted' } },
             { label: 'Resource Drafts', value: stats.pendingResourceDrafts, icon: FolderOpen, link: '/admin/resources', params: { tab: 'drafts' } },

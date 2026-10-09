@@ -31,10 +31,20 @@ import {
  * and the key facts, and links to the existing screen that decides it.
  *
  * Quick decisions exist only where an existing staff action does exactly that:
- * an event invitation request on a guest-list event (wys26) is approved or
- * refused here through the guest-list edge function's `decide`, the same call
- * as the Approve / Refuse buttons of /admin/guest-list/<slug>, with the same
- * capacity question. Everything else opens its own screen.
+ * - an event invitation request on a guest-list event (wys26) is approved or
+ *   refused here through the guest-list edge function's `decide`, the same call
+ *   as the Approve / Refuse buttons of /admin/guest-list/<slug>, with the same
+ *   capacity question; the decision is then noted in review_log through
+ *   review_log_add() when that function exists (registration lane);
+ * - a reported conversation is closed with the same staff update as the
+ *   messaging lane's "Reported conversations" panel (conversation_reports
+ *   status 'closed', allowed by that table's is_moderator() policy).
+ * Everything else opens its own screen. Moderators only get the links their
+ * screens allow (webinar proposals and article drafts).
+ *
+ * Order: most urgent kind first, then the one waiting longest (the function's
+ * order), or newest first. "Urgent" = a report, or a person, company or event
+ * request waiting 2 days or more (the promised delay).
  *
  * After every load the page announces the new total on the window
  * ('smc:review-queue-changed', detail.count) so the sidebar badge follows.
@@ -77,9 +87,16 @@ interface DecideResult {
 type DialogState =
   | { mode: 'approve'; item: ReviewItem }
   | { mode: 'capacity'; item: ReviewItem; held: number; capacity: number; adding: number }
-  | { mode: 'refuse'; item: ReviewItem; notify: boolean };
+  | { mode: 'refuse'; item: ReviewItem; notify: boolean }
+  | { mode: 'close'; item: ReviewItem };
 
 const QUEUE_EVENT = 'smc:review-queue-changed';
+
+/** The kinds whose screen a moderator (not admin) may open; every other screen is behind AdminOnlyGuard. */
+const MODERATOR_SCREENS: ReviewKind[] = ['webinar', 'resource_draft'];
+
+/** Touch targets of at least 44 px on this page (the kit's buttons are 40 px). */
+const TALL = 'h-11';
 
 const KIND_ICON: Record<ReviewKind, LucideIcon> = {
   report: Flag,
@@ -154,7 +171,7 @@ function kindLabel(kind: ReviewKind, t: TFunction): string {
     case 'event_request': return t('adminReview.kind.eventRequest', 'Event request');
     case 'person': return t('adminReview.kind.person', 'New member');
     case 'company': return t('adminReview.kind.company', 'Company');
-    case 'need': return t('adminReview.kind.need', 'Published need');
+    case 'need': return t('adminReview.kind.need', 'Need to publish');
     case 'webinar': return t('adminReview.kind.webinar', 'Webinar proposal');
     case 'resource_draft': return t('adminReview.kind.resourceDraft', 'Article draft');
     case 'sponsorship': return t('adminReview.kind.sponsorship', 'Old sponsorship request');
@@ -168,7 +185,7 @@ function chipLabel(kind: ReviewKind, t: TFunction): string {
     case 'event_request': return t('adminReview.chip.eventRequest', 'Event requests');
     case 'person': return t('adminReview.chip.person', 'People');
     case 'company': return t('adminReview.chip.company', 'Companies');
-    case 'need': return t('adminReview.chip.need', 'Needs');
+    case 'need': return t('adminReview.chip.need', 'Needs to publish');
     case 'webinar': return t('adminReview.chip.webinar', 'Webinar proposals');
     case 'resource_draft': return t('adminReview.chip.resourceDraft', 'Article drafts');
     case 'sponsorship': return t('adminReview.chip.sponsorship', 'Old sponsorship requests');
@@ -178,7 +195,7 @@ function chipLabel(kind: ReviewKind, t: TFunction): string {
 
 function openLabel(kind: ReviewKind, t: TFunction): string {
   switch (kind) {
-    case 'report': return t('adminReview.open.report', 'Open the connection');
+    case 'report': return t('adminReview.open.report', 'See all reports');
     case 'event_request': return t('adminReview.open.eventRequest', 'Open the guest list');
     case 'person': return t('adminReview.open.person', 'Review and decide');
     case 'company': return t('adminReview.open.company', 'Open the company');
@@ -233,7 +250,16 @@ function companyTypeLabel(type: string | undefined, t: TFunction): string | unde
 }
 
 interface FactChip { label: string; tone?: AdminTone; icon?: LucideIcon; title?: string }
-interface Description { what: string; quote?: string; quoteLabel?: string; chips: FactChip[]; contact?: string }
+interface Description {
+  what: string;
+  quote?: string;
+  quoteLabel?: string;
+  chips: FactChip[];
+  contact?: string;
+  /** A longer text behind a "show" toggle (a report's last messages). */
+  more?: string;
+  moreLabel?: string;
+}
 
 /** What the item asks for, its key facts and an optional quote, in plain words. */
 function describe(item: ReviewItem, t: TFunction): Description {
@@ -254,7 +280,13 @@ function describe(item: ReviewItem, t: TFunction): Description {
       } else if (companyStatus === 'verified') {
         what = t('adminReview.what.personVerifiedCompany', 'Joins {{company}}, an approved company', { company });
       } else {
-        what = t('adminReview.what.personOtherCompany', 'Joins {{company}} (company {{status}})', { company, status: statusLabel(companyStatus).toLowerCase() });
+        // The agreed status words (spec 2.3), never the raw database value.
+        const status = companyStatus === 'rejected'
+          ? t('adminReview.status.rejected', 'not accepted')
+          : companyStatus === 'suspended'
+            ? t('adminReview.status.suspended', 'suspended')
+            : statusLabel(companyStatus).toLowerCase();
+        what = t('adminReview.what.personOtherCompany', 'Joins {{company}} (company {{status}})', { company, status });
       }
       push({ label: personaLabel(str(f, 'persona'), t) ?? '', tone: 'navy' });
       // The company's type only when it says something the person's own type does not.
@@ -290,12 +322,12 @@ function describe(item: ReviewItem, t: TFunction): Description {
       const ownerStatus = str(f, 'owner_status');
       let what: string;
       if (members === 0) what = t('adminReview.what.companyEmpty', 'Waiting for approval, and no one belongs to it yet');
-      else if (ownerStatus === 'rejected') what = t('adminReview.what.companyOwnerRejected', 'Still waiting for approval, but its owner was not accepted');
+      else if (ownerStatus === 'rejected') what = t('adminReview.what.companyOwnerRejected', 'Its owner was not accepted. Open the company to refuse it too, or keep it for later.');
       else if (ownerStatus === 'verified') what = t('adminReview.what.companyOwnerVerified', 'Its owner is approved, the company is still waiting');
       else what = t('adminReview.what.company', 'Waiting for approval');
       const type = companyTypeLabel(str(f, 'company_type'), t);
       push(type ? { label: type, tone: 'navy' } : { label: t('adminReview.fact.noType', 'Type not chosen'), tone: 'warning' });
-      push({ label: str(f, 'country') ?? '' });
+      // The country is already the subtitle.
       push({ label: t('adminReview.fact.members', { count: members, defaultValue_one: '{{count}} person in the company', defaultValue_other: '{{count}} people in the company' }) });
       const owner = str(f, 'owner_name');
       if (owner) push({ label: t('adminReview.fact.ownerName', 'Owner: {{name}}', { name: owner }) });
@@ -335,7 +367,15 @@ function describe(item: ReviewItem, t: TFunction): Description {
         ? t('adminReview.what.reportBy', 'Reported to M3 by {{by}}', { by })
         : t('adminReview.what.report', 'Reported to M3 by a member');
       if (bool(f, 'one_message')) push({ label: t('adminReview.fact.oneMessage', 'About one message'), tone: 'warning' });
-      return { what, chips, quote: str(f, 'reason'), quoteLabel: t('adminReview.quote.reason', 'Reason given') };
+      return {
+        what,
+        chips,
+        quote: str(f, 'reason'),
+        quoteLabel: t('adminReview.quote.reason', 'Reason given'),
+        // The only way M3 reads a conversation: the last messages, copied when the report was sent.
+        more: str(f, 'excerpt'),
+        moreLabel: t('adminReview.more.excerpt', 'The last messages at the time of the report'),
+      };
     }
 
     case 'need': {
@@ -415,7 +455,7 @@ export function AdminReviewQueue() {
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'missing' | 'error'>('loading');
   const [refreshing, setRefreshing] = useState(false);
-  const [sort, setSort] = useState<'urgent' | 'oldest'>('urgent');
+  const [sort, setSort] = useState<'urgent' | 'newest'>('urgent');
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [busy, setBusy] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -464,8 +504,8 @@ export function AdminReviewQueue() {
 
   const visible = useMemo(() => {
     const list = filter === 'all' ? items : items.filter(i => i.kind === filter);
-    if (sort === 'urgent') return list; // the function's order: most urgent, then newest
-    return [...list].sort((a, b) => new Date(a.waiting_since).getTime() - new Date(b.waiting_since).getTime());
+    if (sort === 'urgent') return list; // the function's order: most urgent kind, then waiting longest
+    return [...list].sort((a, b) => new Date(b.waiting_since).getTime() - new Date(a.waiting_since).getTime());
   }, [items, filter, sort]);
 
   /* ─── quick decisions on a guest-list request (same call as /admin/guest-list/<slug>) ─── */
@@ -483,6 +523,20 @@ export function AdminReviewQueue() {
     return r;
   };
 
+  /** One review_log row per decision (spec 8.1). review_log_add() ships with the registration lane:
+   *  until it exists the call fails quietly, and the decision itself is already saved. */
+  const logDecision = (item: ReviewItem, action: 'approve' | 'reject', details: Record<string, unknown>) => {
+    void supabase
+      .rpc('review_log_add', {
+        p_subject_type: 'registration',
+        p_subject_id: item.id,
+        p_action: action,
+        p_note: null,
+        p_details: { source: 'review_queue', gl_event_id: str(item.facts, 'event_id') ?? null, ...details },
+      })
+      .then(() => undefined, () => undefined);
+  };
+
   const approve = async (item: ReviewItem, force = false) => {
     const r = await decide(item, 'approve', force ? { force: true } : {});
     if (r.error === 'capacity') {
@@ -492,15 +546,18 @@ export function AdminReviewQueue() {
     setDialog(null);
     if (r.error) {
       toast({ title: t('adminReview.toast.notDone', 'Not done'), description: r.error, variant: 'destructive' });
-    } else if (!r.approved) {
+    } else if (!r.approved || ((r.sent ?? 0) + (r.failed ?? 0)) === 0) {
+      // No pass was attempted: someone else decided between the read and the update.
       toast({ title: t('adminReview.toast.alreadyDecided', 'Already decided'), description: t('adminReview.toast.alreadyDecidedBody', 'Someone else decided this request. The list is now up to date.') });
     } else if (r.failed) {
+      logDecision(item, 'approve', { status: 'confirmed', forced: force || undefined, pass_emailed: false });
       toast({
         title: t('adminReview.toast.approvedNoMail', 'Approved, but the e-mail was not sent'),
         description: t('adminReview.toast.approvedNoMailBody', 'Send the entry pass again from the guest list.'),
         variant: 'destructive',
       });
     } else {
+      logDecision(item, 'approve', { status: 'confirmed', forced: force || undefined, pass_emailed: true });
       toast({ title: t('adminReview.toast.approved', 'Approved'), description: t('adminReview.toast.approvedBody', 'The entry pass was e-mailed.') });
     }
     await load();
@@ -514,6 +571,7 @@ export function AdminReviewQueue() {
     } else if (!r.rejected) {
       toast({ title: t('adminReview.toast.alreadyDecided', 'Already decided'), description: t('adminReview.toast.alreadyDecidedBody', 'Someone else decided this request. The list is now up to date.') });
     } else {
+      logDecision(item, 'reject', { status: 'rejected', notify });
       toast({
         title: t('adminReview.toast.refused', 'Request refused'),
         description: notify
@@ -524,12 +582,34 @@ export function AdminReviewQueue() {
     await load();
   };
 
+  /* ─── close a reported conversation (same staff update as the messaging lane's reports panel) ─── */
+
+  const closeReport = async (item: ReviewItem) => {
+    setBusy(true);
+    const { data, error } = await supabase
+      .from('conversation_reports')
+      .update({ status: 'closed' })
+      .eq('id', item.id)
+      .eq('status', 'open')
+      .select('id');
+    setBusy(false);
+    setDialog(null);
+    if (error) {
+      toast({ title: t('adminReview.toast.notDone', 'Not done'), description: error.message, variant: 'destructive' });
+    } else if (!data?.length) {
+      toast({ title: t('adminReview.toast.alreadyClosed', 'Already closed'), description: t('adminReview.toast.alreadyClosedBody', 'Someone else closed this report. The list is now up to date.') });
+    } else {
+      toast({ title: t('adminReview.toast.closed', 'Report closed'), description: t('adminReview.toast.closedBody', 'Nobody is told. An administrator can reopen it from the reports page.') });
+    }
+    await load();
+  };
+
   /* ─── render ─── */
 
   if (state === 'loading') return <AdminLoading />;
 
   const refreshButton = (
-    <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => load()} disabled={refreshing}>
+    <Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={() => load()} disabled={refreshing}>
       <RefreshCw className={cn('mr-2 h-4 w-4', refreshing && 'animate-spin motion-reduce:animate-none')} aria-hidden="true" />
       {t('adminUi.refresh', 'Refresh')}
     </Button>
@@ -540,7 +620,7 @@ export function AdminReviewQueue() {
       title={t('adminReview.title', 'To review')}
       count={state === 'ready' ? items.length : undefined}
       description={t('adminReview.description', 'Everything waiting for a decision from the M3 team, most urgent first. Open an item to decide.')}
-      meta={!isAdmin ? <span>{t('adminReview.moderatorNote', 'As a moderator, you see webinar proposals and article drafts. People, companies and event requests are reviewed by the administrators.')}</span> : undefined}
+      meta={!isAdmin ? <span>{t('adminReview.moderatorNote', 'As a moderator, you see reported conversations, webinar proposals and article drafts. People, companies and event requests are reviewed by the administrators.')}</span> : undefined}
       actions={refreshButton}
     />
   );
@@ -561,7 +641,7 @@ export function AdminReviewQueue() {
               icon={AlertTriangle}
               title={t('adminReview.error.title', 'The list could not be loaded')}
               body={t('adminReview.error.body', 'Check your connection, then try again.')}
-              action={<Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => load()}>{t('adminReview.error.retry', 'Try again')}</Button>}
+              action={<Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={() => load()}>{t('adminReview.error.retry', 'Try again')}</Button>}
             />
           )}
         </div>
@@ -577,7 +657,12 @@ export function AdminReviewQueue() {
 
       {items.length > 0 && (
         <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div role="group" aria-label={t('adminReview.filterLabel', 'Show one type')} className="flex min-w-0 flex-1 flex-wrap gap-2">
+          {/* Phone: one line that scrolls sideways, so the first item stays in view. No sticky element inside. */}
+          <div
+            role="group"
+            aria-label={t('adminReview.filterLabel', 'Show one type')}
+            className="-mx-4 flex min-w-0 flex-1 flex-nowrap gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0"
+          >
             <TypeChip active={filter === 'all'} onClick={() => setFilter('all')} icon={Inbox} label={t('adminReview.chip.all', 'Everything')} count={items.length} />
             {presentKinds.map(k => (
               <TypeChip key={k} active={filter === k} onClick={() => setFilter(k)} icon={KIND_ICON[k]} label={chipLabel(k, t)} count={counts[k]} />
@@ -590,7 +675,7 @@ export function AdminReviewQueue() {
             className="shrink-0 self-start whitespace-nowrap"
             options={[
               { value: 'urgent', label: t('adminReview.sort.urgent', 'Most urgent first') },
-              { value: 'oldest', label: t('adminReview.sort.oldest', 'Waiting longest') },
+              { value: 'newest', label: t('adminReview.sort.newest', 'Newest first') },
             ]}
           />
         </div>
@@ -601,7 +686,9 @@ export function AdminReviewQueue() {
           <AdminEmpty
             icon={CheckCircle2}
             title={t('adminReview.empty.title', 'Nothing to review')}
-            body={t('adminReview.empty.body', 'Everything waiting for the M3 team has been handled. New sign-ups and requests appear here as soon as they arrive.')}
+            body={isAdmin
+              ? t('adminReview.empty.body', 'Everything waiting for the M3 team has been handled. New sign-ups and requests appear here as soon as they arrive.')
+              : t('adminReview.empty.bodyModerator', 'Nothing waiting for you. New reported conversations, webinar proposals and article drafts appear here as soon as they are sent.')}
           />
         </div>
       ) : visible.length === 0 ? (
@@ -609,7 +696,7 @@ export function AdminReviewQueue() {
           <AdminEmpty
             icon={Inbox}
             title={t('adminReview.emptyFilter.title', 'Nothing of this type to review')}
-            action={<Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => setFilter('all')}>{t('adminReview.emptyFilter.showAll', 'Show everything')}</Button>}
+            action={<Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={() => setFilter('all')}>{t('adminReview.emptyFilter.showAll', 'Show everything')}</Button>}
           />
         </div>
       ) : (
@@ -619,8 +706,10 @@ export function AdminReviewQueue() {
               key={`${item.kind}:${item.id}`}
               item={item}
               busy={busy}
+              canOpen={isAdmin || MODERATOR_SCREENS.includes(item.kind)}
               onApprove={() => setDialog({ mode: 'approve', item })}
               onRefuse={() => setDialog({ mode: 'refuse', item, notify: false })}
+              onClose={() => setDialog({ mode: 'close', item })}
             />
           ))}
         </ul>
@@ -638,13 +727,15 @@ export function AdminReviewQueue() {
                   <DialogTitle>{t('adminReview.approve.title', 'Approve {{name}}?', { name: dialog.item.title })}</DialogTitle>
                   <DialogDescription>
                     {t('adminReview.approve.body', '{{name}} gets a confirmed seat for {{parts}} at {{event}}. Their entry pass with its QR code is e-mailed right away.', { name: dialog.item.title, parts, event })}
+                    {' '}
+                    {t('adminReview.approve.parts', 'To change the parts, open the guest list instead.')}
                   </DialogDescription>
                 </DialogHeader>
                 <DialogFooter className="gap-2 sm:gap-2">
-                  <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => setDialog(null)} disabled={busy}>
+                  <Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={() => setDialog(null)} disabled={busy}>
                     {t('adminReview.cancel', 'Cancel')}
                   </Button>
-                  <Button size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => approve(dialog.item)} disabled={busy}>
+                  <Button size="sm" className={cn(ADMIN_BTN_PRIMARY, TALL)} onClick={() => approve(dialog.item)} disabled={busy}>
                     <Check className="mr-1.5 h-4 w-4" aria-hidden="true" />
                     {t('adminReview.approve.confirm', 'Approve and e-mail the pass')}
                   </Button>
@@ -665,10 +756,10 @@ export function AdminReviewQueue() {
                 </DialogDescription>
               </DialogHeader>
               <DialogFooter className="gap-2 sm:gap-2">
-                <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => setDialog(null)} disabled={busy}>
+                <Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={() => setDialog(null)} disabled={busy}>
                   {t('adminReview.capacity.no', 'No, keep the limit')}
                 </Button>
-                <Button size="sm" className={ADMIN_BTN_PRIMARY} onClick={() => approve(dialog.item, true)} disabled={busy}>
+                <Button size="sm" className={cn(ADMIN_BTN_PRIMARY, TALL)} onClick={() => approve(dialog.item, true)} disabled={busy}>
                   {t('adminReview.capacity.yes', 'Approve over capacity')}
                 </Button>
               </DialogFooter>
@@ -680,7 +771,7 @@ export function AdminReviewQueue() {
               <DialogHeader>
                 <DialogTitle>{t('adminReview.refuse.title', 'Refuse the request from {{name}}?', { name: dialog.item.title })}</DialogTitle>
                 <DialogDescription>
-                  {t('adminReview.refuse.body', 'The request is marked as refused. Without the e-mail below, they are not told.')}
+                  {t('adminReview.refuse.body', 'The request is marked as refused. They will not be told unless you tick the box below.')}
                 </DialogDescription>
               </DialogHeader>
               <div className="flex items-start gap-3 rounded-xl border border-rule bg-white px-3 py-2.5 text-[14px] leading-5 text-navy">
@@ -695,12 +786,32 @@ export function AdminReviewQueue() {
                 </label>
               </div>
               <DialogFooter className="gap-2 sm:gap-2">
-                <Button variant="outline" size="sm" className={ADMIN_BTN} onClick={() => setDialog(null)} disabled={busy}>
+                <Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={() => setDialog(null)} disabled={busy}>
                   {t('adminReview.cancel', 'Cancel')}
                 </Button>
-                <Button variant="outline" size="sm" className={ADMIN_BTN_DANGER} onClick={() => refuse(dialog.item, dialog.notify)} disabled={busy}>
+                <Button variant="outline" size="sm" className={cn(ADMIN_BTN_DANGER, TALL)} onClick={() => refuse(dialog.item, dialog.notify)} disabled={busy}>
                   <X className="mr-1.5 h-4 w-4" aria-hidden="true" />
                   {t('adminReview.refuse.confirm', 'Refuse the request')}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {dialog?.mode === 'close' && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{t('adminReview.close.title', 'Close this report?')}</DialogTitle>
+                <DialogDescription>
+                  {t('adminReview.close.body', 'Close it once you have read it and done what was needed. It leaves this list and nobody is told. An administrator can reopen it from the reports page.')}
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter className="gap-2 sm:gap-2">
+                <Button variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)} onClick={() => setDialog(null)} disabled={busy}>
+                  {t('adminReview.cancel', 'Cancel')}
+                </Button>
+                <Button size="sm" className={cn(ADMIN_BTN_PRIMARY, TALL)} onClick={() => closeReport(dialog.item)} disabled={busy}>
+                  <Check className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                  {t('adminReview.close.confirm', 'Close the report')}
                 </Button>
               </DialogFooter>
             </>
@@ -722,7 +833,7 @@ function TypeChip({ active, onClick, icon: Icon, label, count }: {
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'inline-flex h-10 items-center gap-1.5 rounded-pill border px-3.5 text-[13px] font-semibold transition-colors',
+        'inline-flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-pill border px-3.5 text-[13px] font-semibold transition-colors',
         'focus:outline-none focus-visible:shadow-focus',
         active ? 'border-navy bg-navy text-white' : 'border-rule bg-white text-navy hover:border-navy/30 hover:bg-chip',
       )}
@@ -736,15 +847,16 @@ function TypeChip({ active, onClick, icon: Icon, label, count }: {
   );
 }
 
-function ReviewCard({ item, busy, onApprove, onRefuse }: {
-  item: ReviewItem; busy: boolean; onApprove: () => void; onRefuse: () => void;
+function ReviewCard({ item, busy, canOpen, onApprove, onRefuse, onClose }: {
+  item: ReviewItem; busy: boolean; canOpen: boolean; onApprove: () => void; onRefuse: () => void; onClose: () => void;
 }) {
   const { t } = useTranslation();
   const Icon = KIND_ICON[item.kind] ?? Inbox;
   const d = describe(item, t);
   const wait = waiting(item.waiting_since, t);
-  const urgent = item.priority <= 2;
   const late = wait.days >= 2;
+  // "Urgent" = a report, or a person, company or event request past the promised 2 days.
+  const urgent = item.kind === 'report' || (item.priority <= 3 && late);
 
   // Quick decisions: only a request on a guest-list event (engine guest_list_v1), like the guest list's own buttons.
   const quick = item.kind === 'event_request' && item.facts.engine === 'guest_list_v1' && !!str(item.facts, 'event_slug');
@@ -776,6 +888,15 @@ function ReviewCard({ item, busy, onApprove, onRefuse }: {
         </blockquote>
       )}
 
+      {d.more && (
+        <details className="mt-2">
+          <summary className="inline-flex min-h-11 cursor-pointer items-center text-[14px] font-semibold text-navy underline decoration-navy/30 underline-offset-[3px] hover:decoration-gold">
+            {d.moreLabel}
+          </summary>
+          <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap rounded-xl bg-page p-3 font-sans text-[13px] leading-5 text-navy [overflow-wrap:anywhere]">{d.more}</pre>
+        </details>
+      )}
+
       {d.chips.length > 0 && (
         <ul className="mt-3 flex flex-wrap gap-1.5" aria-label={t('adminReview.factsLabel', 'Key facts')}>
           {d.chips.map((c, i) => (
@@ -795,7 +916,7 @@ function ReviewCard({ item, busy, onApprove, onRefuse }: {
           <>
             <Button
               size="sm"
-              className={ADMIN_BTN_PRIMARY}
+              className={cn(ADMIN_BTN_PRIMARY, TALL)}
               onClick={onApprove}
               disabled={busy || !hasPart}
               aria-label={t('adminReview.approve.aria', 'Approve {{name}}', { name: item.title })}
@@ -806,7 +927,7 @@ function ReviewCard({ item, busy, onApprove, onRefuse }: {
             <Button
               variant="outline"
               size="sm"
-              className={ADMIN_BTN_DANGER}
+              className={cn(ADMIN_BTN_DANGER, TALL)}
               onClick={onRefuse}
               disabled={busy}
               aria-label={t('adminReview.refuse.aria', 'Refuse the request from {{name}}', { name: item.title })}
@@ -816,12 +937,26 @@ function ReviewCard({ item, busy, onApprove, onRefuse }: {
             </Button>
           </>
         )}
-        <Button asChild variant="outline" size="sm" className={ADMIN_BTN}>
-          <Link to={item.url}>
-            {openLabel(item.kind, t)}
-            <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
-          </Link>
-        </Button>
+        {item.kind === 'report' && (
+          <Button
+            size="sm"
+            className={cn(ADMIN_BTN_PRIMARY, TALL)}
+            onClick={onClose}
+            disabled={busy}
+            aria-label={t('adminReview.close.aria', 'Close the report about {{name}}', { name: item.title })}
+          >
+            <Check className="mr-1.5 h-4 w-4" aria-hidden="true" />
+            {t('adminReview.close.button', 'Close the report')}
+          </Button>
+        )}
+        {canOpen && (
+          <Button asChild variant="outline" size="sm" className={cn(ADMIN_BTN, TALL)}>
+            <Link to={item.url}>
+              {openLabel(item.kind, t)}
+              <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
+            </Link>
+          </Button>
+        )}
         {quick && !hasPart && (
           <span className="text-[13px] leading-5 text-meta">
             {t('adminReview.approve.needPart', 'Choose conference or gala dinner in the guest list first.')}

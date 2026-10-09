@@ -3,8 +3,8 @@
 --
 -- Run it as ONE query text (one implicit transaction). The last statement ends
 -- with RAISE EXCEPTION 'DRYRUN ...': the report is the error message, and
--- everything (the two functions, the test UPDATE of one profile, the stand-in
--- tables) rolls back.
+-- everything (the two functions, the test UPDATEs of two profiles, the test
+-- webinar proposal and article draft, the stand-in tables) rolls back.
 -- Tripwire: if the report starts with "FAIL before-snapshot missing", the
 -- statements did NOT run in one transaction and the migration may have been
 -- committed: check pg_proc for admin_review_queue at once.
@@ -12,20 +12,26 @@
 -- Expected report: every line PASS, except INFO lines. T12 and T13 only run
 -- while public.conversation_reports does NOT exist (the messaging lane's
 -- migration 20261009190000 not applied yet): they create a stand-in table and
--- undo it at once. If it exists, they print INFO and T6 compares the real
--- open-report count instead.
--- T11, T12 and T13 undo their own writes at once (inner block that raises
--- 'dryrun-undo'); everything else goes with the final RAISE.
+-- undo it at once. If it exists, they print INFO, and T6 and T11 compare the
+-- real open-report count instead.
+-- T11, T12, T13, T15 and T16 undo their own writes at once (inner block that
+-- raises 'dryrun-undo'); everything else goes with the final RAISE. T14 checks
+-- that nothing they wrote is left.
 --
 -- Real ids, looked up read-only on 9 Oct 2026:
 --   verified admin (is_moderator(), is_admin()): 9e51b498-d4d9-4a66-91f5-0c4e66185179
+--     (T16 marks it 'suspended' for one inner block, then undoes it.)
 --   verified marina member, not staff:           0f8c900e-5e63-404c-96ca-58a0718541a8
---     (T11 turns this profile into a verified moderator for one inner block,
---      then undoes it: there is no moderator account in production.)
+--     (T11, T12 and T15 turn this profile into a verified moderator for one
+--      inner block, then undo it: there is no moderator account in production.
+--      T15 also writes one webinar proposal and one article draft in its name,
+--      undone with it. Those two tables have UPDATE triggers only; profiles has
+--      no trigger with an outside effect.)
 -- Production on 9 Oct 2026 (read-only): 10 people waiting (pending, not draft),
--- 1 pending company with no pending member, 3 wys26 requests, 0 RFPs /
--- consultations / marina projects / webinar proposals / article drafts / old
--- sponsorship and exposition requests. T6 recomputes these live.
+-- 1 pending company that no person card shows (its only person was not
+-- accepted), 3 wys26 requests, 0 RFPs / consultations / marina projects /
+-- webinar proposals / article drafts / old sponsorship and exposition
+-- requests. T6 recomputes these live.
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- 0. Before the migration: tripwire and whether the functions already exist.
@@ -73,10 +79,19 @@ $before$;
 --                      3 person or company waiting for access, 4 content
 --                      (needs, webinar proposals, article drafts, old queues)
 --       facts          jsonb of key facts for the 10-second card (see below)
---     Rows come sorted: priority, then newest waiting_since first.
---     Verified admins see every kind. A verified moderator (not admin) sees only
---     the kinds whose screens a moderator may open: webinar proposals and
---     article drafts (every other screen is behind AdminOnlyGuard).
+--     Rows come sorted: priority, then the one waiting LONGEST first (oldest
+--     waiting_since first), so a forgotten item is never last in its group.
+--     Verified admins see every kind. A verified moderator (not admin) sees the
+--     kinds a moderator may handle: webinar proposals, article drafts (every
+--     other screen is behind AdminOnlyGuard) and reported conversations
+--     (conversation_reports RLS: is_moderator() reads and closes them; the page
+--     closes a report with that same update, no screen needed).
+--
+--   Later versions: the spec plans admin_review_queue(filter jsonb). A later
+--   migration MUST drop public.admin_review_queue() and
+--   public.admin_review_queue_count() before adding an overload with a DEFAULT,
+--   or supabase.rpc('admin_review_queue') becomes ambiguous in PostgREST
+--   (PGRST203) and the page, the badge and the dashboard card go blank.
 --
 --   public.admin_review_queue_count()
 --     SECURITY INVOKER, STABLE: count(*) of the above for the caller (the
@@ -97,12 +112,13 @@ $before$;
 --                  e-mail domain = website host (null when unknown or public),
 --                  registered for Smart Marina 2026 (sm_attendee, READ ONLY:
 --                  same user_id or same e-mail).
---   company        organizations.access_status = 'pending' with NO pending
---                  member: a pending company whose person is waiting is shown
---                  on that person's card (AdminUserDetail's Approve verifies
---                  both), and a company whose people are all still drafts is
---                  not waiting for M3 yet (1 row: its only person was not
---                  accepted).
+--   company        organizations.access_status = 'pending', except (a) a
+--                  company already shown on a waiting person's card (that
+--                  person's company, owner first: AdminUserDetail's Approve
+--                  verifies both) and (b) a company whose people are all still
+--                  drafts (not waiting for M3 yet). A pending company is never
+--                  hidden only because some other member is pending. 1 row
+--                  today: its only person was not accepted.
 --   event_request  gl_guest.status = 'requested' (requests and plus-ones; 3
 --                  wys26 rows), read like /admin/guest-list/<slug> reads them.
 --                  Canary and hidden events are left out (slug 'canary-%',
@@ -115,6 +131,12 @@ $before$;
 --                  20261009190000). Read through EXECUTE so this function is
 --                  valid without it; if its columns differ, the reports are
 --                  skipped with a WARNING and the rest of the queue still loads.
+--                  Facts carry the reason and the excerpt (the last messages
+--                  at the time of the report: the only way M3 reads a
+--                  conversation). url = /admin/partner-requests, where the
+--                  messaging lane's "Reported conversations" panel lists them;
+--                  the queue card itself closes a report (status 'closed'
+--                  through the table's staff RLS, exactly like that panel).
 --   need           rfps and consultations in submitted / under_review;
 --                  marina_projects in new / submitted / under_review (new
 --                  projects are inserted as 'new'). 0 rows today.
@@ -168,8 +190,9 @@ begin
   end if;
   v_admin := coalesce(public.is_admin(), false);
 
-  -- 1. Reported conversations (priority 1). Optional table: read through EXECUTE.
-  if v_admin and pg_catalog.to_regclass('public.conversation_reports') is not null then
+  -- 1. Reported conversations (priority 1), admins and moderators (the table's
+  --    staff RLS is is_moderator()). Optional table: read through EXECUTE.
+  if pg_catalog.to_regclass('public.conversation_reports') is not null then
     begin
       return query execute $q$
         select 'report'::text,
@@ -179,10 +202,11 @@ begin
                nullif(left(btrim(r.reason), 160), '')::text,
                r.created_at,
                r.created_at,
-               coalesce('/admin/partner-requests/' || r.partner_request_id::text, '/admin/partner-requests')::text,
+               '/admin/partner-requests'::text,
                1,
                jsonb_strip_nulls(jsonb_build_object(
-                 'reason', nullif(left(btrim(r.reason), 600), ''),
+                 'reason', nullif(left(btrim(r.reason), 1000), ''),
+                 'excerpt', nullif(left(btrim(r.excerpt), 30000), ''),
                  'reporter_name', nullif(btrim(concat_ws(' ', btrim(rp.first_name), btrim(rp.last_name))), ''),
                  'reporter_company', nullif(btrim(ro.name), ''),
                  'partner_request_id', r.partner_request_id,
@@ -194,7 +218,7 @@ begin
           left join public.organizations ro on ro.id = r.reporter_org_id
           left join public.profiles rp on rp.user_id = r.reporter_user_id
          where r.status = 'open'
-         order by r.created_at desc, r.id
+         order by r.created_at asc, r.id
       $q$;
     exception
       when undefined_table or undefined_column or undefined_function or datatype_mismatch then
@@ -309,7 +333,7 @@ begin
 
     union all
 
-    -- 4. Companies waiting with no person waiting for them, priority 3.
+    -- 4. Companies waiting that no person card shows, priority 3.
     select 'company'::text,
            o.id,
            coalesce(nullif(btrim(o.name), ''), 'Unnamed company')::text,
@@ -336,11 +360,21 @@ begin
       ) w
      where v_admin
        and o.access_status = 'pending'
+       -- (a) not already on a waiting person's card (section 3 shows member_org)
        and not exists (select 1
-                         from public.organization_members m
-                         join public.profiles mp on mp.user_id = m.user_id
-                        where m.organization_id = o.id
-                          and mp.access_status::text = 'pending')
+                         from member_org mo2
+                         join public.profiles mp on mp.user_id = mo2.user_id
+                        where mo2.organization_id = o.id
+                          and mp.access_status::text = 'pending'
+                          and mp.onboarding_status::text <> 'draft')
+       -- (b) not a company whose people are all still drafts (an empty one is shown)
+       and not (exists (select 1 from public.organization_members m where m.organization_id = o.id)
+                and not exists (select 1
+                                  from public.organization_members m
+                                  left join public.profiles mp on mp.user_id = m.user_id
+                                 where m.organization_id = o.id
+                                   and not (coalesce(mp.access_status::text, '') = 'pending'
+                                            and coalesce(mp.onboarding_status::text, '') = 'draft')))
 
     union all
 
@@ -494,12 +528,12 @@ begin
   )
   select q.kind, q.id, q.title, q.subtitle, q.created_at, q.waiting_since, q.url, q.priority, q.facts
     from q
-   order by q.priority, q.waiting_since desc nulls last, q.kind, q.id;
+   order by q.priority, q.waiting_since asc nulls last, q.kind, q.id;
 end;
 $function$;
 
 comment on function public.admin_review_queue() is
-  'M3 review queue (/admin/review): one row per item waiting for M3 staff (kind, id, title, subtitle, created_at, waiting_since, url, priority 1-4, facts). Read only. Verified staff only (42501 otherwise); moderators get webinar proposals and article drafts only. conversation_reports is read only if it exists. Migration 20261009230000.';
+  'M3 review queue (/admin/review): one row per item waiting for M3 staff (kind, id, title, subtitle, created_at, waiting_since, url, priority 1-4, facts), most urgent first, then longest waiting first. Read only. Verified staff only (42501 otherwise); moderators get reported conversations, webinar proposals and article drafts only. conversation_reports is read only if it exists. A later overload must DROP this signature first (PostgREST ambiguity). Migration 20261009230000.';
 
 create or replace function public.admin_review_queue_count()
 returns integer
@@ -536,12 +570,20 @@ declare
   v_expected text;
   v_got text;
   v_exp_mod bigint;
+  v_open_reports bigint := 0;
   v_pr uuid;
+  v_wr uuid;
+  v_rd uuid;
+  v_all bigint;
+  v_mod_reports bigint;
+  v_mod_total bigint;
+  v_excerpt text;
   v_reports_table constant boolean := to_regclass('public.conversation_reports') is not null;
   c_admin constant uuid := '9e51b498-d4d9-4a66-91f5-0c4e66185179';
   c_member constant uuid := '0f8c900e-5e63-404c-96ca-58a0718541a8';
   c_kinds constant text[] := array['company', 'event_request', 'exposition', 'need', 'person', 'report',
                                    'resource_draft', 'sponsorship', 'webinar'];
+  c_mod_kinds constant text[] := array['report', 'resource_draft', 'webinar'];
 begin
   -- T0 tripwire: block 0 ran in this same transaction.
   r := r || nl || case when current_setting('smc_dryrun.before', true) = 'ok'
@@ -565,6 +607,10 @@ begin
      where p.oid = 'public.admin_review_queue_count()'::regprocedure;
     r := r || nl || case when v = 'secdef=f volatile=s lang=sql config_like_is_moderator=t' then 'PASS ' else 'FAIL ' end
               || 'admin_review_queue_count shape: ' || coalesce(v, '(missing)');
+    -- One signature each: an overload would make supabase.rpc() ambiguous (PGRST203).
+    select count(*) into n from pg_proc p
+     where p.pronamespace = 'public'::regnamespace and p.proname in ('admin_review_queue', 'admin_review_queue_count');
+    r := r || nl || case when n = 2 then 'PASS ' else 'FAIL ' end || 'one signature per function (no overload): ' || n || ' found';
   exception when others then
     r := r || nl || 'FAIL shapes: ' || sqlstate || ' ' || sqlerrm;
   end;
@@ -655,19 +701,30 @@ begin
               || 'no-JWT session (' || current_user || ') refused (' || sqlstate || ')';
   end;
 
-  -- Expected rows per kind, computed independently as the migration role (all rows visible).
+  -- Expected rows per kind, computed as the migration role (all rows visible). The company rule is the
+  -- migration's: pending, not on a waiting person's card (that person's company, owner first), and not
+  -- a company whose people are all still drafts.
   begin
     if v_reports_table then
-      execute 'select count(*) from public.conversation_reports where status = ''open''' into k;
-    else
-      k := 0;
+      execute 'select count(*) from public.conversation_reports where status = ''open''' into v_open_reports;
     end if;
     v_expected := format(
       'company=%s event_request=%s exposition=%s need=%s person=%s report=%s resource_draft=%s sponsorship=%s webinar=%s',
       (select count(*) from public.organizations o
         where o.access_status = 'pending'
-          and not exists (select 1 from public.organization_members m join public.profiles p on p.user_id = m.user_id
-                           where m.organization_id = o.id and p.access_status::text = 'pending')),
+          and not exists (select 1
+                            from (select distinct on (m.user_id) m.user_id, m.organization_id
+                                    from public.organization_members m
+                                   order by m.user_id, (m.role = 'owner') desc, m.joined_at asc nulls last, m.organization_id) mo
+                            join public.profiles p on p.user_id = mo.user_id
+                           where mo.organization_id = o.id
+                             and p.access_status::text = 'pending' and p.onboarding_status::text <> 'draft')
+          and not (exists (select 1 from public.organization_members m where m.organization_id = o.id)
+                   and not exists (select 1 from public.organization_members m
+                                     left join public.profiles p on p.user_id = m.user_id
+                                    where m.organization_id = o.id
+                                      and not (coalesce(p.access_status::text, '') = 'pending'
+                                               and coalesce(p.onboarding_status::text, '') = 'draft')))),
       (select count(*) from public.gl_guest g join public.gl_event e on e.id = g.event_id
         where g.status = 'requested' and e.slug not like 'canary-%'
           and not coalesce((to_jsonb(e) ->> 'hidden')::boolean, false)),
@@ -676,13 +733,15 @@ begin
         + (select count(*) from public.consultations where status in ('submitted', 'under_review'))
         + (select count(*) from public.marina_projects where status in ('new', 'submitted', 'under_review')),
       (select count(*) from public.profiles where access_status::text = 'pending' and onboarding_status::text <> 'draft'),
-      k,
+      v_open_reports,
       (select count(*) from public.resource_drafts where status::text in ('submitted', 'review_1', 'review_2')),
       (select count(*) from public.sponsorship_requests where status in ('pending', 'paid')),
       (select count(*) from public.webinar_requests where status::text in ('submitted', 'under_review')));
-    v_exp_mod := (select count(*) from public.webinar_requests where status::text in ('submitted', 'under_review'))
+    -- A moderator: reported conversations, webinar proposals and article drafts.
+    v_exp_mod := v_open_reports
+               + (select count(*) from public.webinar_requests where status::text in ('submitted', 'under_review'))
                + (select count(*) from public.resource_drafts where status::text in ('submitted', 'review_1', 'review_2'));
-    r := r || nl || 'INFO expected per kind: ' || v_expected;
+    r := r || nl || 'INFO expected per kind: ' || v_expected || ' (moderator: ' || v_exp_mod || ')';
   exception when others then
     r := r || nl || 'FAIL expected counts: ' || sqlstate || ' ' || sqlerrm;
   end;
@@ -708,15 +767,16 @@ begin
     r := r || nl || 'FAIL admin read: ' || sqlstate || ' ' || sqlerrm;
   end;
 
-  -- T7 order: priority ascending, then waiting_since newest first.
+  -- T7 order: priority ascending, then the one waiting longest first (oldest waiting_since first).
   begin
     with x as (
       select e.ord, (e.val ->> 'priority')::int as p, (e.val ->> 'waiting_since')::timestamptz as ws
         from jsonb_array_elements(v_rows) with ordinality as e(val, ord)
     )
     select count(*) into n from x a join x b on b.ord = a.ord + 1
-     where b.p < a.p or (b.p = a.p and b.ws > a.ws);
-    r := r || nl || case when n = 0 then 'PASS ' else 'FAIL ' end || 'rows sorted by priority, newest first: ' || n || ' pair(s) out of order';
+     where b.p < a.p or (b.p = a.p and b.ws < a.ws);
+    r := r || nl || case when n = 0 then 'PASS ' else 'FAIL ' end
+              || 'rows sorted by priority, then waiting longest first: ' || n || ' pair(s) out of order';
   exception when others then
     r := r || nl || 'FAIL order: ' || sqlstate || ' ' || sqlerrm;
   end;
@@ -735,7 +795,9 @@ begin
 
   -- T10 content: people are pending non-draft profiles linked to their own user page; a person's company
   --     is one of their memberships; event requests link to their guest list and carry their engine; no
-  --     gl_guest token appears anywhere in the output; no company row has a pending member.
+  --     gl_guest token appears anywhere in the output; a company row is never on a person card nor a
+  --     company of drafts only; and no pending company is lost (each one is a company row, on a person
+  --     card, or a company of drafts only).
   begin
     select count(*) into n from jsonb_array_elements(v_rows) e
      where e ->> 'kind' = 'person'
@@ -764,18 +826,39 @@ begin
 
     select count(*) into n from jsonb_array_elements(v_rows) e
      where e ->> 'kind' = 'company'
-       and exists (select 1 from public.organization_members m join public.profiles p on p.user_id = m.user_id
-                    where m.organization_id = (e ->> 'id')::uuid and p.access_status::text = 'pending');
-    r := r || nl || case when n = 0 then 'PASS ' else 'FAIL ' end || 'company rows have no pending member: ' || n || ' bad';
+       and (exists (select 1 from jsonb_array_elements(v_rows) p
+                     where p ->> 'kind' = 'person' and p -> 'facts' ->> 'company_id' = e ->> 'id')
+            or not exists (select 1 from public.organizations o where o.id = (e ->> 'id')::uuid and o.access_status = 'pending')
+            or (exists (select 1 from public.organization_members mm where mm.organization_id = (e ->> 'id')::uuid)
+                and not exists (select 1 from public.organization_members mm
+                                  left join public.profiles p on p.user_id = mm.user_id
+                                 where mm.organization_id = (e ->> 'id')::uuid
+                                   and not (coalesce(p.access_status::text, '') = 'pending'
+                                            and coalesce(p.onboarding_status::text, '') = 'draft'))));
+    r := r || nl || case when n = 0 then 'PASS ' else 'FAIL ' end
+              || 'company rows are pending, not on a person card, not drafts only: ' || n || ' bad';
+
+    select count(*) into n from public.organizations o
+     where o.access_status = 'pending'
+       and not exists (select 1 from jsonb_array_elements(v_rows) e where e ->> 'kind' = 'company' and e ->> 'id' = o.id::text)
+       and not exists (select 1 from jsonb_array_elements(v_rows) e where e ->> 'kind' = 'person' and e -> 'facts' ->> 'company_id' = o.id::text)
+       and not (exists (select 1 from public.organization_members mm where mm.organization_id = o.id)
+                and not exists (select 1 from public.organization_members mm
+                                  left join public.profiles p on p.user_id = mm.user_id
+                                 where mm.organization_id = o.id
+                                   and not (coalesce(p.access_status::text, '') = 'pending'
+                                            and coalesce(p.onboarding_status::text, '') = 'draft')));
+    r := r || nl || case when n = 0 then 'PASS ' else 'FAIL ' end
+              || 'no pending company lost (company row, person card or drafts only): ' || n || ' lost';
   exception when others then
     r := r || nl || 'FAIL content checks: ' || sqlstate || ' ' || sqlerrm;
   end;
 
-  -- T11 a verified moderator (not admin) sees only webinar proposals and article drafts. There is no
-  --     moderator in production: the member profile becomes one for this inner block (as the migration
-  --     role, no JWT: the staff guard trusts it), then everything is undone ('dryrun-undo').
+  -- T11 a verified moderator (not admin) sees only reported conversations, webinar proposals and article
+  --     drafts. There is no moderator in production: the member profile becomes one for this inner block
+  --     (as the migration role, no JWT: the staff guard trusts it), then everything is undone ('dryrun-undo').
   begin
-    v := null; n := null; m := null;
+    v := null; n := null; m := null; k := null;
     begin
       perform set_config('request.jwt.claims', '', true);
       update public.profiles set persona = 'moderator' where user_id = c_member and access_status::text = 'verified';
@@ -790,7 +873,7 @@ begin
       if sqlerrm <> 'dryrun-undo' then raise; end if;
     end;
     r := r || nl || case when k = 1 and n = v_exp_mod and m = n
-                               and coalesce(v, '') in ('', 'resource_draft', 'webinar', 'resource_draft,webinar')
+                               and coalesce(string_to_array(nullif(v, ''), ','), '{}'::text[]) <@ c_mod_kinds
                          then 'PASS ' else 'FAIL ' end
               || format('moderator (undone): %s row(s) of kinds [%s], count() %s, expected %s', n, v, m, v_exp_mod);
   exception when others then
@@ -798,13 +881,15 @@ begin
   end;
 
   -- T12 reported conversations: with a stand-in public.conversation_reports (the messaging lane's columns),
-  --     one open report comes first, priority 1, linked to its B2B request; a closed one is left out.
-  --     Undone at once. Skipped when the real table exists (T6 compared its open reports).
+  --     one open report comes first, priority 1, linked to the reports page, with its excerpt; a closed one
+  --     is left out; a moderator sees it too. Undone at once. Skipped when the real table exists (T6 and
+  --     T11 counted its open reports).
   if v_reports_table then
-    r := r || nl || 'INFO stand-in report checks skipped: public.conversation_reports exists (see T6)';
+    r := r || nl || 'INFO stand-in report checks skipped: public.conversation_reports exists (see T6 and T11)';
   else
     begin
-      v := null; w := null; n := null; m := null;
+      v := null; w := null; n := null; m := null; k := null;
+      v_excerpt := null; v_mod_reports := null; v_mod_total := null;
       begin
         create table public.conversation_reports (
           id uuid primary key default gen_random_uuid(),
@@ -820,26 +905,39 @@ begin
           handled_at timestamptz,
           created_at timestamptz not null default now());
         v_pr := coalesce((select pr.id from public.partner_requests pr order by pr.created_at limit 1), gen_random_uuid());
-        insert into public.conversation_reports (partner_request_id, reporter_user_id, reason)
-        values (v_pr, c_member, 'Dry run: unwanted messages');
+        insert into public.conversation_reports (partner_request_id, reporter_user_id, reason, excerpt)
+        values (v_pr, c_member, 'Dry run: unwanted messages', 'Dry run: the last messages');
         insert into public.conversation_reports (partner_request_id, reporter_user_id, reason, status)
         values (v_pr, c_member, 'Dry run: closed report', 'closed');
+        -- the admin
         perform set_config('request.jwt.claims', json_build_object('sub', c_admin, 'role', 'authenticated')::text, true);
         set local role authenticated;
-        select count(*) filter (where q.kind = 'report'), min(q.url) filter (where q.kind = 'report'), count(*)
-          into n, v, k from public.admin_review_queue() q;
+        select count(*) filter (where q.kind = 'report'), min(q.url) filter (where q.kind = 'report'),
+               min(q.facts ->> 'excerpt') filter (where q.kind = 'report'), count(*)
+          into n, v, v_excerpt, k from public.admin_review_queue() q;
         select format('%s/%s', q.kind, q.priority) into w from public.admin_review_queue() q limit 1;
         select public.admin_review_queue_count() into m;
+        reset role;
+        -- a moderator (the member, for this block only)
+        perform set_config('request.jwt.claims', '', true);
+        update public.profiles set persona = 'moderator' where user_id = c_member and access_status::text = 'verified';
+        perform set_config('request.jwt.claims', json_build_object('sub', c_member, 'role', 'authenticated')::text, true);
+        set local role authenticated;
+        select count(*) filter (where q.kind = 'report'), count(*) into v_mod_reports, v_mod_total from public.admin_review_queue() q;
         reset role;
         raise exception 'dryrun-undo';
       exception when raise_exception then
         if sqlerrm <> 'dryrun-undo' then raise; end if;
       end;
-      r := r || nl || case when n = 1 and v = '/admin/partner-requests/' || v_pr::text and w = 'report/1'
+      r := r || nl || case when n = 1 and v = '/admin/partner-requests' and w = 'report/1'
+                                 and v_excerpt = 'Dry run: the last messages'
                                  and k = jsonb_array_length(v_rows) + 1 and m = k
                            then 'PASS ' else 'FAIL ' end
-                || format('stand-in reports (undone): %s open report row(s), first row %s, url ok %s, rows %s (+1 expected), count() %s',
-                          n, w, v = '/admin/partner-requests/' || v_pr::text, k, m);
+                || format('stand-in reports, admin (undone): %s open report row(s), first row %s, url %s, excerpt %s, rows %s (+1 expected), count() %s',
+                          n, w, v, v_excerpt is not null, k, m);
+      r := r || nl || case when v_mod_reports = 1 and v_mod_total = v_exp_mod + 1 then 'PASS ' else 'FAIL ' end
+                || format('stand-in reports, moderator (undone): %s report row(s), %s row(s) in all (%s expected)',
+                          v_mod_reports, v_mod_total, v_exp_mod + 1);
     exception when others then
       r := r || nl || 'FAIL stand-in reports: ' || sqlstate || ' ' || sqlerrm;
     end;
@@ -867,13 +965,89 @@ begin
     end;
   end if;
 
-  -- T14 nothing else: no conversation_reports stand-in survived, and the member profile is unchanged.
+  -- T15 the moderator kinds on real rows (production has none): one webinar proposal and one article draft
+  --     written in the member's name, as the migration role. A moderator gets exactly these two (priority
+  --     4, their own screens) on top of the rest of their list; the admin gets them on top of everything.
+  --     Undone at once.
   begin
-    select format('reports_table=%s member_persona=%s',
+    v := null; n := null; m := null; k := null; v_all := null; v_wr := null; v_rd := null;
+    begin
+      perform set_config('request.jwt.claims', '', true);
+      update public.profiles set persona = 'moderator' where user_id = c_member and access_status::text = 'verified';
+      insert into public.webinar_requests (user_id, title, description, status)
+      values (c_member, 'Dry run webinar proposal', 'Dry run: never kept', 'submitted')
+      returning id into v_wr;
+      insert into public.resource_drafts (created_by, title, content, status)
+      values (c_member, 'Dry run article draft', 'Dry run: never kept', 'submitted')
+      returning id into v_rd;
+      -- the moderator
+      perform set_config('request.jwt.claims', json_build_object('sub', c_member, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      select coalesce(string_agg(format('%s/%s/%s', q.kind, q.priority, q.url), ',' order by q.kind), ''), count(*)
+        into v, n from public.admin_review_queue() q where q.id in (v_wr, v_rd);
+      select count(*) into m from public.admin_review_queue() q;
+      reset role;
+      -- the admin
+      perform set_config('request.jwt.claims', json_build_object('sub', c_admin, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      select count(*) filter (where q.id in (v_wr, v_rd)), count(*) into k, v_all from public.admin_review_queue() q;
+      reset role;
+      raise exception 'dryrun-undo';
+    exception when raise_exception then
+      if sqlerrm <> 'dryrun-undo' then raise; end if;
+    end;
+    r := r || nl || case when n = 2
+                               and v = format('resource_draft/4/%s,webinar/4/%s', '/admin/resources?tab=drafts', '/admin/webinars/' || v_wr::text)
+                               and m = v_exp_mod + 2
+                         then 'PASS ' else 'FAIL ' end
+              || format('moderator sees a webinar proposal and an article draft (undone): %s row(s) [%s], %s in all (%s expected)',
+                        n, v, m, v_exp_mod + 2);
+    r := r || nl || case when k = 2 and v_all = jsonb_array_length(v_rows) + 2 then 'PASS ' else 'FAIL ' end
+              || format('admin sees them too (undone): %s of 2, %s rows in all (%s expected)', k, v_all, jsonb_array_length(v_rows) + 2);
+  exception when others then
+    r := r || nl || 'FAIL moderator kinds on real rows: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T16 deny: a staff account that is no longer verified (the admin, suspended for this inner block).
+  begin
+    v := null; k := null;
+    begin
+      perform set_config('request.jwt.claims', '', true);
+      update public.profiles set access_status = 'suspended' where user_id = c_admin and access_status::text = 'verified';
+      get diagnostics k = row_count;
+      perform set_config('request.jwt.claims', json_build_object('sub', c_admin, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      begin
+        perform count(*) from public.admin_review_queue();
+        v := 'allowed';
+      exception when others then
+        v := sqlstate;
+      end;
+      reset role;
+      raise exception 'dryrun-undo';
+    exception when raise_exception then
+      if sqlerrm <> 'dryrun-undo' then raise; end if;
+    end;
+    r := r || nl || case when k = 1 and v = '42501' then 'PASS ' else 'FAIL ' end
+              || format('suspended admin refused (undone): %s profile(s) suspended, result %s', k, v);
+  exception when others then
+    r := r || nl || 'FAIL suspended admin: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T14 nothing else: no conversation_reports stand-in survived, both profiles are unchanged, and no
+  --     dry-run webinar proposal or article draft is left.
+  begin
+    select format('reports_table=%s member_persona=%s admin=%s/%s dryrun_webinars=%s dryrun_drafts=%s',
                   to_regclass('public.conversation_reports') is not null,
-                  (select p.persona::text from public.profiles p where p.user_id = c_member))
+                  (select p.persona::text from public.profiles p where p.user_id = c_member),
+                  (select p.persona::text from public.profiles p where p.user_id = c_admin),
+                  (select p.access_status::text from public.profiles p where p.user_id = c_admin),
+                  (select count(*) from public.webinar_requests w2 where w2.user_id = c_member and w2.title = 'Dry run webinar proposal'),
+                  (select count(*) from public.resource_drafts d2 where d2.created_by = c_member and d2.title = 'Dry run article draft'))
       into v;
-    r := r || nl || case when v = format('reports_table=%s member_persona=marina', v_reports_table) then 'PASS ' else 'FAIL ' end
+    r := r || nl || case when v = format('reports_table=%s member_persona=marina admin=admin/verified dryrun_webinars=0 dryrun_drafts=0',
+                                         v_reports_table)
+                         then 'PASS ' else 'FAIL ' end
               || 'inner blocks undone: ' || v;
   exception when others then
     r := r || nl || 'FAIL undo check: ' || sqlstate || ' ' || sqlerrm;

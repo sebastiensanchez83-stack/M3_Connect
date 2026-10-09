@@ -5,7 +5,7 @@ import {
   Users, FileText, Calendar, Anchor, Radio, Link2, ClipboardList, MessageSquare,
   Award, LayoutDashboard, Settings, Image, Building2, Tag, TrendingUp, Ship,
   ChevronRight, Store, UsersRound, Megaphone, Plus, QrCode, CalendarDays, BookOpen, Truck,
-  Scale, Activity, Upload, Newspaper, Mail, Archive,
+  Scale, Activity, Upload, Newspaper, Mail, Archive, Inbox,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
@@ -23,7 +23,7 @@ interface NavItem { to: string; label: string; icon?: ReactNode; exact?: boolean
 
 const ICON = 'h-4 w-4 shrink-0';
 
-export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean; onNavigate?: () => void } = {}) {
+export function AdminSidebar({ mobile = false, onNavigate, reviewCount = null }: { mobile?: boolean; onNavigate?: () => void; reviewCount?: number | null } = {}) {
   const { t } = useTranslation();
   const location = useLocation();
   const { profile, isAdmin } = useAuth();
@@ -153,6 +153,16 @@ export function AdminSidebar({ mobile = false, onNavigate }: { mobile?: boolean;
         {/* Overview */}
         <div className={cn(sectionLabel, 'pt-1')}>Overview</div>
         {renderItem({ to: '/admin', label: isAdmin ? t('admin.dashboard') : 'Moderator Dashboard', icon: <LayoutDashboard className={ICON} />, exact: true })}
+        {/* Everything waiting for M3 (/admin/review), with its count from admin_review_queue_count() */}
+        <Link to="/admin/review" onClick={onNavigate} className={linkClass(isActive('/admin/review'))} aria-current={isActive('/admin/review') ? 'page' : undefined}>
+          <Inbox className={ICON} />
+          <span className="min-w-0 flex-1 truncate">{t('adminReview.nav', 'To review')}</span>
+          {!!reviewCount && (
+            <span className="shrink-0 rounded-pill bg-gold px-2 text-[12px] font-bold leading-5 tabular-nums text-navy">
+              {reviewCount}<span className="sr-only"> {t('adminReview.navCount', 'waiting')}</span>
+            </span>
+          )}
+        </Link>
         {isAdmin && renderItem({ to: '/admin/pulse', label: 'Industry Pulse', icon: <TrendingUp className={ICON} /> })}
 
         {/* Events */}

@@ -7,6 +7,7 @@ import { toast } from '@/hooks/use-toast';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { AdminLoading } from '@/components/admin/AdminUI';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
+import { supabase } from '@/lib/supabase';
 import '@/styles/admin-skin.css';
 
 /* ─── Lazy admin sub-pages ───
@@ -73,6 +74,34 @@ const AdminSM26Import = lazyWithRetry(() => import('@/components/admin/AdminSM26
 const AdminMediaDownloads = lazyWithRetry(() => import('@/components/admin/AdminMediaDownloads').then(m => ({ default: m.AdminMediaDownloads })));
 const AdminGuestList = lazyWithRetry(() => import('@/components/admin/AdminGuestList').then(m => ({ default: m.AdminGuestList })));
 const AdminGuestCheckin = lazyWithRetry(() => import('@/components/admin/AdminGuestCheckin').then(m => ({ default: m.AdminGuestCheckin })));
+const AdminReviewQueue = lazyWithRetry(() => import('@/components/admin/AdminReviewQueue').then(m => ({ default: m.AdminReviewQueue })));
+
+/**
+ * The number on the sidebar's "To review" entry: admin_review_queue_count()
+ * (staff only, migration 20261009230000). Read again on every admin route change
+ * and whenever the review page announces a new total ('smc:review-queue-changed').
+ * null = unknown (function not deployed yet, or an error): no badge.
+ */
+function useReviewCount(enabled: boolean, uid: string | undefined, pathname: string): number | null {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!enabled || !uid) return;
+    let alive = true;
+    const fetchCount = () => {
+      supabase.rpc('admin_review_queue_count').then(({ data, error }) => {
+        if (alive) setCount(!error && typeof data === 'number' ? data : null);
+      });
+    };
+    const onChange = (e: Event) => {
+      const n = (e as CustomEvent<{ count?: unknown }>).detail?.count;
+      if (typeof n === 'number') setCount(n); else fetchCount();
+    };
+    fetchCount();
+    window.addEventListener('smc:review-queue-changed', onChange);
+    return () => { alive = false; window.removeEventListener('smc:review-queue-changed', onChange); };
+  }, [enabled, uid, pathname]);
+  return count;
+}
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -108,9 +137,10 @@ function AdminLazyFallback() {
 /* ─── Admin / Moderator Page ─── */
 export function AdminPage() {
   const { t } = useTranslation();
-  const { loading, isAdmin, isModerator } = useAuth();
+  const { loading, isAdmin, isModerator, user } = useAuth();
   const { pathname } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const reviewCount = useReviewCount(isModerator, user?.id, pathname);
 
   // Escape closes the phone menu.
   useEffect(() => {
@@ -130,7 +160,7 @@ export function AdminPage() {
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] bg-page">
-      <AdminSidebar />
+      <AdminSidebar reviewCount={reviewCount} />
       <div className="min-w-0 flex-1">
         {/* Phone bar: opens the menu (the rail is hidden below md) */}
         <div className="sticky top-16 z-30 flex h-12 items-center gap-2 border-b border-rule bg-white px-3 md:hidden">
@@ -150,7 +180,7 @@ export function AdminPage() {
           <div className="fixed inset-x-0 bottom-0 top-16 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('adminUi.menu')}>
             <div className="absolute inset-0 bg-navy-deep/45" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
             <div className="relative h-full w-64 max-w-[85vw] shadow-drawer">
-              <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} />
+              <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} reviewCount={reviewCount} />
             </div>
           </div>
         )}
@@ -158,6 +188,8 @@ export function AdminPage() {
         <Suspense fallback={<AdminLazyFallback />}>
           <Routes>
             <Route path="/" element={<AdminDashboard />} />
+            {/* Moderators too: admin_review_queue() gives them only what their screens can open. */}
+            <Route path="/review" element={<AdminReviewQueue />} />
             <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
             <Route path="/users/:id" element={<AdminOnlyGuard><AdminUserDetail /></AdminOnlyGuard>} />
             <Route path="/organizations" element={<AdminOnlyGuard><AdminOrganizations /></AdminOnlyGuard>} />

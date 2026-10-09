@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 // Filtered navigation helper: builds URL with search params
 import {
@@ -8,7 +8,7 @@ import {
   CreditCard, TrendingUp, AlertCircle, DollarSign, Ship, Newspaper,
   ArrowUpRight, ArrowDownRight, Clock, CheckCircle, XCircle, Eye,
   BarChart3, Activity, Zap, AlertTriangle, Target, Flame,
-  UserX, Star, Lightbulb, TrendingDown, ArrowRight,
+  UserX, Star, Lightbulb, TrendingDown, ArrowRight, Inbox,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -109,6 +109,59 @@ const LEAD_STATUS_COLORS: Record<string, string> = {
   new: '#d7a647', qualified: '#4a6fa5', in_discussion: '#1f7a8c',
   signed: '#0b2653', rejected: '#b91c1c',
 };
+
+/* ══════════════════════════════ REVIEW QUEUE CARD ══════════════════════════════ */
+
+/**
+ * "N items to review": the way into /admin/review. The figure comes from
+ * admin_review_queue_count() (staff only, migration 20261009230000); while that
+ * function is not deployed (or on any error) the card is not shown.
+ */
+function ReviewQueueCard() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const [count, setCount] = useState<number | null>(null);
+  const uid = user?.id;
+  useEffect(() => {
+    if (!uid) return;
+    let alive = true;
+    supabase.rpc('admin_review_queue_count').then(({ data, error }) => {
+      if (alive) setCount(!error && typeof data === 'number' ? data : null);
+    });
+    return () => { alive = false; };
+  }, [uid]);
+  if (count === null) return null;
+  const waiting = count > 0;
+  return (
+    <Link
+      to="/admin/review"
+      className={`group flex items-center gap-4 rounded-card border bg-white p-4 transition-[box-shadow,border-color] duration-200 hover:shadow-hover focus:outline-none focus-visible:shadow-focus motion-reduce:transition-none sm:p-5 ${
+        waiting ? 'border-gold/60 hover:border-gold' : 'border-rule hover:border-navy/25'
+      }`}
+    >
+      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${waiting ? 'bg-gold/25' : 'bg-chip'} text-navy`}>
+        {waiting ? <Inbox className="h-5 w-5" aria-hidden="true" /> : <CheckCircle className="h-5 w-5" aria-hidden="true" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[18px] font-semibold leading-6 tabular-nums text-navy">
+          {waiting
+            ? t('adminReview.card.count', { count, defaultValue_one: '{{count}} item to review', defaultValue_other: '{{count}} items to review' })
+            : t('adminReview.card.none', 'Nothing to review')}
+        </span>
+        <span className="block text-[13px] leading-5 text-meta">
+          {waiting
+            ? t('adminReview.card.body', 'People, companies, event requests and content waiting for a decision from M3.')
+            : t('adminReview.card.noneBody', 'Everything waiting for M3 has been handled.')}
+        </span>
+      </span>
+      <span className="hidden shrink-0 items-center gap-1 text-[14px] font-semibold text-navy sm:inline-flex">
+        {t('adminReview.card.open', 'Open the list')}
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" aria-hidden="true" />
+      </span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-meta sm:hidden" aria-hidden="true" />
+    </Link>
+  );
+}
 
 /* ══════════════════════════════ COMPONENT ══════════════════════════════ */
 
@@ -515,6 +568,8 @@ export function AdminDashboard() {
           }
         />
 
+        <ReviewQueueCard />
+
         {/* ─── Your Activity Overview ─── */}
         <div>
           <AdminSectionLabel icon={BarChart3}>Your Activity</AdminSectionLabel>
@@ -609,6 +664,9 @@ export function AdminDashboard() {
 
   return (
     <div className="space-y-8">
+
+      {/* ═══ TOP: EVERYTHING WAITING FOR M3 ═══ */}
+      <ReviewQueueCard />
 
       {/* ═══ TOP: PRIORITY STRIP ═══ */}
       {totalUrgent > 0 && (

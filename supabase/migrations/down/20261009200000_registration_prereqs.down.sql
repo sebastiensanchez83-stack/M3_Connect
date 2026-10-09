@@ -2,6 +2,10 @@
 -- Apply only AFTER the undo of 20261009210000_registration_core (checked below).
 -- What it loses: the three platform_settings keys (flag positions, SLA text,
 -- digest recipients) and the two canary events with any test rows on them.
+-- On "canceling statement due to lock timeout": run it again a little later.
+
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
 
 do $pre$
 begin

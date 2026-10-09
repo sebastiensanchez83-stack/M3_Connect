@@ -8,10 +8,16 @@
 --     record, e-mail proof) and profile_interest_sectors are DROPPED: export them
 --     first if they hold anything worth keeping;
 --   * user_id links set on gl_guest by attach / provisioning are dropped with the
---     column (event_registrations links set by attach stay).
+--     column (event_registrations links set by attach stay);
+--   * account_provision_job (queued jobs included, backfilled ones too) and
+--     review_log are DROPPED.
 -- Edge functions that use these objects (registration, registration-cron,
 -- provision-person) must be switched off first (flags off, functions removed).
 -- Then undo 20261009200000_registration_prereqs if needed.
+-- On "canceling statement due to lock timeout": run it again a little later.
+
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
 
 do $pre$
 begin
@@ -87,6 +93,7 @@ drop function if exists public.public_registration_events();
 drop function if exists public.gl_resolve_access_token(text, boolean);
 drop function if exists public.gl_issue_access_token(uuid);
 drop function if exists public.gl_register_v2(jsonb);
+drop function if exists public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text);
 drop function if exists public.gl_registration_state(uuid, uuid, text);
 drop function if exists public.gl_seats_held(uuid, text);
 drop function if exists public.gl_event_window(uuid);
@@ -256,6 +263,7 @@ alter table public.gl_guest
 -- 1. gl_event columns
 alter table public.gl_event drop constraint if exists gl_event_instant_is_webinar;
 alter table public.gl_event drop constraint if exists gl_event_v2_no_legacy_requests;
+alter table public.gl_event drop constraint if exists gl_event_door_matches_engine;
 drop index if exists public.gl_event_legacy_event_uq;
 alter table public.gl_event
   drop column if exists engine,

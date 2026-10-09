@@ -3,7 +3,13 @@
 -- triggers or anything near SM26, and compare the two outputs:
 --   * section sm26: rows, fingerprint and last_change must be IDENTICAL before
 --     and after (SM26 is frozen; the fingerprint is an md5 of every row's full
---     content, so any write shows). "expected" is the 9 Oct 2026 count;
+--     content, so any write shows). "expected" is the 9 Oct 2026 count.
+--     One writer is still open on purpose: sm_autoclaim_by_email (called by the
+--     dashboards) links an imported sm_registration to the account that has its
+--     e-mail (user_id, claim_code, organization_id; sm_role_assignment
+--     organization_id). If sm_registration / sm_role_assignment changed and
+--     nothing else did, check that first:
+--       select id, user_id, updated_at from sm_registration order by updated_at desc limit 5;
 --   * section gl: the "must be 0" lines must say ok; the wys26 token
 --     fingerprint must be identical before and after (tokens are printed in
 --     QR codes and e-mailed links).
@@ -60,11 +66,11 @@ union all
 select 'gl', 'wys26 by status', string_agg(x.status || '=' || x.n, ', ' order by x.status), null, null, null, 'info'
   from (select g.status, count(*) as n from public.gl_guest g where g.event_id = (select id from wys) group by g.status) x
 union all
-select 'gl', 'core_v2 confirmed on-site rows without a provisioning job (must be 0; -1 = before registration_core)',
+select 'gl', 'confirmed on-site rows (wys26 included) without a provisioning job (must be 0; -1 = before registration_core)',
        (xpath('/row/n/text()', query_to_xml(
           case when to_regclass('public.account_provision_job') is not null then
             'select count(*) as n from public.gl_guest g join public.gl_event e on e.id = g.event_id
-              where e.engine = ''core_v2'' and e.kind = ''onsite'' and g.status = ''confirmed''
+              where e.kind = ''onsite'' and g.status = ''confirmed''
                 and not exists (select 1 from public.account_provision_job j
                                  where j.source_kind = ''gl_guest'' and j.source_id = g.id)'
           else 'select -1 as n' end, false, true, '')))[1]::text,

@@ -22,10 +22,17 @@
 -- ════════════════════════════════════════════════════════════════════════════
 -- 1. create extension pg_trgm in schema extensions (used by Phase 2 company
 --    matching; nothing uses it yet).
+-- 0. Lock and statement timeouts (set local): this file takes short exclusive
+--    locks on platform_settings and gl_event (read by every visitor). If another
+--    session holds them, it gives up after 5 s instead of queueing every request
+--    of the live site behind it. "canceling statement due to lock timeout": just
+--    run it again a little later (nothing was applied).
 -- 2. create_organization(): the exact current body (md5-checked below) minus the
 --    auto-verify block. A company created by a verified person now stays
---    'pending' like any other, until M3 verifies it. Nothing else changes:
---    signature, SECURITY DEFINER, search_path, owner.
+--    'pending' like any other, until M3 verifies it, and the audit log gets an
+--    'organization_pending_review' event (reason creator_verified) so the review
+--    queue of Phase 3 can list those companies. Nothing else changes: signature,
+--    SECURITY DEFINER, search_path, owner.
 --    EXECUTE is revoked from PUBLIC and anon (an anonymous caller could only fail:
 --    auth.uid() is null). authenticated keeps it: the live sign-up wizard
 --    (OnboardingPage, OrganizationTab) calls it. Revoking it from authenticated
@@ -33,7 +40,9 @@
 --    VISIBLE ON THE LIVE SITE (decided): a verified member who creates a company
 --    from the old wizard gets a pending company. The old wizard still says
 --    "Your company is set up and live" and marks the company onboarding
---    'completed'; staff find it in the companies list (status pending).
+--    'completed'. Nobody is alerted: until the review queue exists, staff look
+--    at Admin > Companies (status pending) once a week; the registration-cron
+--    digest (EDGE lane) also counts pending companies.
 -- 3. platform_settings, three new keys (ON CONFLICT DO NOTHING, so an existing
 --    value is never overwritten):
 --      registration_flags        every switch of spec §13, all false
@@ -53,7 +62,12 @@
 --                     adds the engine column); door rehearsal and the
 --                     guest-list contract tests (scripts/contract/guest-list.mjs)
 --      canary-v2      becomes core_v2 / webinar / instant in
---                     20261009210000_registration_core
+--                     20261009210000_registration_core. Fixed dates
+--                     2027-06-30 10:00-11:00 UTC (settings.starts_at / ends_at),
+--                     so it stays open through the 13-20 Nov rehearsal, WYS and
+--                     the December work. To move them later (staff SQL):
+--                     update gl_event set settings = settings || '{"starts_at":
+--                     "...Z", "ends_at": "...Z"}' where slug = 'canary-v2';
 --    Both: no legacy_event_id (no row in the public events catalogue), no staff
 --    alert address, requests_open = FALSE. Deviation from spec §11
 --    (requests_open = true): the contract script opens canary-onsite at the start
@@ -72,14 +86,17 @@
 -- ════════════════════════════════════════════════════════════════════════════
 --   select extname, extnamespace::regnamespace from pg_extension where extname = 'pg_trgm';      -> extensions
 --   select md5(replace(prosrc, chr(13), '')) from pg_proc where oid = 'public.create_organization(text,text,text,text,text,text,text)'::regprocedure;
---                                                         -> 128d6edc3e572bf22792fa5dab433030
+--                                                         -> 6d5ac0be95f51ded1635d8f00bd2bf02
 --   select has_function_privilege('anon', 'public.create_organization(text,text,text,text,text,text,text)', 'execute');  -> false
 --   select key, value from platform_settings where key in ('registration_flags', 'review_sla_text');
 --   select slug, hidden, requests_open, legacy_event_id from gl_event order by slug;
 -- Dry run: supabase/dryrun/20261009200000_registration_prereqs.dryrun.sql
 -- Undo:    supabase/migrations/down/20261009200000_registration_prereqs.down.sql
 
--- ─── 0. Preconditions ───────────────────────────────────────────────────────
+-- ─── 0. Timeouts and preconditions ──────────────────────────────────────────
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 do $pre$
 declare
   v_md5 text;
@@ -91,7 +108,7 @@ begin
     from pg_proc p
    where p.oid = 'public.create_organization(text, text, text, text, text, text, text)'::regprocedure;
   if v_md5 is distinct from '4f6d46f8cef3b685ddceb138a8362bce'
-     and v_md5 is distinct from '128d6edc3e572bf22792fa5dab433030' then
+     and v_md5 is distinct from '6d5ac0be95f51ded1635d8f00bd2bf02' then
     raise exception 'registration_prereqs: create_organization changed since 9 Oct 2026 (md5 %); re-read it with pg_get_functiondef and rebuild this migration', v_md5;
   end if;
 
@@ -121,6 +138,7 @@ DECLARE
   v_org_id UUID;
   v_slug TEXT;
   v_user_id UUID := auth.uid();
+  v_verified BOOLEAN;
 BEGIN
   -- Check user isn't already in an org
   IF EXISTS (SELECT 1 FROM public.organization_members WHERE user_id = v_user_id) THEN
@@ -146,7 +164,11 @@ BEGIN
 
   -- No auto-verification (registration_prereqs, 9 Oct 2026): M3 validates every
   -- company, including one created by an already-verified person. The company
-  -- stays 'pending' until staff verify it.
+  -- stays 'pending' until staff verify it; the audit log marks it for review.
+  SELECT (access_status = 'verified') INTO v_verified FROM public.profiles WHERE user_id = v_user_id;
+  IF COALESCE(v_verified, false) THEN
+    PERFORM public.log_org_event(v_org_id, 'organization_pending_review', jsonb_build_object('reason', 'creator_verified'));
+  END IF;
 
   -- Log
   PERFORM public.log_org_event(v_org_id, 'organization_created', jsonb_build_object('name', p_name));
@@ -214,7 +236,8 @@ values
      'date_label', 'Test only',
      'venue', 'Online',
      -- No catalogue row: the registration core reads the dates from here.
-     'starts_at', to_char((date_trunc('day', now()) + interval '30 days 10 hours') at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
-     'ends_at', to_char((date_trunc('day', now()) + interval '30 days 11 hours') at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+     -- Fixed, after the rehearsal, WYS and December (see the header to move them).
+     'starts_at', '2027-06-30T10:00:00Z',
+     'ends_at', '2027-06-30T11:00:00Z'),
    true)
 on conflict (slug) do nothing;

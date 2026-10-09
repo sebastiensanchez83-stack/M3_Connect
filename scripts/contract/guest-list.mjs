@@ -12,7 +12,9 @@
 // E-MAILS to the CONTRACT_EMAIL inbox. It never touches another event: it
 // refuses any slug that does not start with "canary-", and any event that is
 // not hidden or has a public catalogue row. It deletes the canary's guest rows
-// at the start and at the end, and leaves requests closed.
+// at the start and at the end, and leaves requests closed. It refuses to run
+// while the registration switch "provisioning" is on (approvals queue account
+// jobs; their rows are deleted at the end, so provision-person skips them).
 //
 // Usage (Node 18+, no dependency):
 //   SUPABASE_URL=https://<ref>.supabase.co \
@@ -142,6 +144,12 @@ async function main() {
   if (!ev) die(`no gl_event "${SLUG}" (apply 20261009200000_registration_prereqs)`);
   if (ev.legacy_event_id) die(`"${SLUG}" has a public catalogue row: refusing`);
   if (ev.hidden !== true) die(`"${SLUG}" is not hidden: refusing`);
+  // Approvals and RSVP accepts below queue account-provisioning jobs for the
+  // CONTRACT_EMAIL addresses (registration_core). With the 'provisioning' switch
+  // on, the 5-minute cron could create real accounts and send set-password
+  // e-mails before the clean-up deletes the rows: refuse.
+  const flags = await rest('GET', 'platform_settings?key=eq.registration_flags&select=value');
+  if (flags[0]?.value?.provisioning === true) die('the "provisioning" switch is ON: switch it off before a contract run');
   const originalCapacity = ev.capacity;
 
   try {

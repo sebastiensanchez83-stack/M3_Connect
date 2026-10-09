@@ -14,6 +14,8 @@
 -- Locks: like the migration itself, this holds ACCESS EXCLUSIVE locks on
 -- profiles, gl_event and gl_guest, and blocks writes to auth.users (CREATE
 -- TRIGGER), until it ends (a few seconds). Run it at a quiet moment.
+-- lock_timeout 5 s and statement_timeout 120 s are set first: "canceling
+-- statement due to lock timeout" means nothing was kept; run it again later.
 --
 -- Layout
 --   A. snapshot before the body: function ACLs, policies, triggers, SM26
@@ -40,9 +42,13 @@
 --   sm      an account attending a confirmed SM26 registration
 --   service = role service_role (the edge functions), anon = no account
 -- READ COMMITTED: the SM26 fingerprint and the wys26 rows are read twice in this
--- transaction; a concurrent write (WYS request, none expected on SM26) shows as a
--- FAIL of S07 / S14; re-run in that case.
--- Expected result: "N PASS, 0 FAIL".
+-- transaction; a concurrent write (WYS request; on SM26 only sm_autoclaim_by_email
+-- linking an imported registration to a new account) shows as a FAIL of S07 /
+-- S14; re-run in that case.
+-- Expected result: "156 PASS, 0 FAIL" (22 structural checks, 134 cases).
+
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
 
 -- ─── A. Snapshot ─────────────────────────────────────────────────────────────
 create temp table _dryrun_before on commit drop as
@@ -143,11 +149,21 @@ $snap$;
 -- ════════════════════════════════════════════════════════════════════════════
 -- What this migration adds (all additive; see the contract for every detail)
 -- ════════════════════════════════════════════════════════════════════════════
+--  0. Lock and statement timeouts (set local). This file takes ACCESS EXCLUSIVE
+--     locks on gl_event, gl_guest and profiles (profiles is read by
+--     is_moderator(), so by almost every RLS policy) and SHARE ROW EXCLUSIVE on
+--     auth.users (foreign keys, triggers). lock_timeout 5 s: if another session
+--     holds one of them, the migration gives up instead of queueing every
+--     request of the live site behind it. "canceling statement due to lock
+--     timeout": nothing was applied; run it again a little later.
 --  1. gl_event: engine, kind, registration_mode, public_requests, access,
 --     opens_at, closes_at, edit_locks_at, waitlist, plus_ones, standard_fields,
 --     account_email_timing, account_email_send_at, meeting_url, replay_url,
 --     reminders, door_token, staff_alert_mode, updated_at; CHECKs
---     gl_event_instant_is_webinar and gl_event_v2_no_legacy_requests; unique
+--     gl_event_instant_is_webinar, gl_event_v2_no_legacy_requests and
+--     gl_event_door_matches_engine (guest_list_v1 = shared door, core_v2 =
+--     separate door: a printed WYS QR can never be refused by a door setting,
+--     and a core_v2 gl_guest.token is never a door pass); unique
 --     legacy_event_id. Every column has a default that reproduces today's
 --     behaviour: an existing or legacy-inserted row is guest_list_v1 / onsite /
 --     invitation / shared door.
@@ -174,19 +190,25 @@ $snap$;
 --  8. guest_signup_rate_limits.scope (nullable) + indexes.
 --  9. Helpers (service role): gl_try_ts, gl_event_window, gl_seats_held,
 --     gl_registration_state, gl_register_v2 (atomic core_v2 registration:
---     capacity, duplicates, tickets, answers), gl_issue_access_token,
+--     capacity, duplicates, tickets, answers, standard fields; refuses an
+--     unpublished catalogue event), gl_decide_v2 (atomic staff decision: event
+--     row locked for capacity, statuses, the provisioning job's choices and
+--     review_log in one transaction), gl_issue_access_token,
 --     gl_resolve_access_token. Public: public_registration_events().
 -- 10. Triggers on gl_guest:
 --       gl_guest_engine_guard (BEFORE INSERT OR UPDATE): guest_list_v1 rows keep
 --         the legacy 6 statuses / 3 sources and no checkin_token; core_v2 rows:
---         source 'request' only in invitation mode, checkin_token minted at
---         confirmation when door_token = 'separate'; cancelled_at and updated_at
---         stamped. guest-list only writes legacy values, so it is never blocked.
+--         source 'request' only in invitation mode, a new 'plus_one' row only
+--         when the event allows plus-ones, checkin_token minted at confirmation
+--         when door_token = 'separate'; cancelled_at and updated_at stamped.
+--         guest-list only writes legacy values, so it is never blocked on wys26.
 --       gl_guest_queue_provisioning (AFTER INSERT OR UPDATE OF status): a row
 --         becoming 'confirmed' on an on-site event queues one
 --         account_provision_job (ON CONFLICT DO NOTHING). Its body is wrapped in
 --         EXCEPTION WHEN OTHERS -> RAISE WARNING: it can never abort a write of
---         guest-list.
+--         guest-list. Backfill: a row ALREADY confirmed on an on-site event when
+--         this migration runs (a wys26 guest approved before the apply) gets its
+--         job too, once (same ON CONFLICT DO NOTHING).
 -- 11. Identity: attach_my_records(), attach_my_records_for(uuid),
 --     mark_email_proven(), on_email_proven(uuid), complete_signup_for(uuid)
 --     (a no-op placeholder that Phase 2 replaces), and two AFTER UPDATE
@@ -204,8 +226,9 @@ $snap$;
 -- 15. invoke_registration_cron(text) + 3 pg_cron jobs calling the
 --     registration-cron edge function with the Vault service key. Each call is
 --     skipped in SQL unless its flag is on (and, for provisioning, unless there
---     is work), so nothing is called before the EDGE lane deploys the function
---     and the coordinator flips a flag.
+--     is work: a queued job, a failed one to retry, or an account e-mail due in
+--     the last 7 days and not sent), so nothing is called before the EDGE lane
+--     deploys the function and the coordinator flips a flag.
 --
 -- ════════════════════════════════════════════════════════════════════════════
 -- WYS (wys26, guest_list_v1) keeps working exactly
@@ -220,7 +243,9 @@ $snap$;
 -- SM26: no sm_* row is written; my_participations() and the e-mail match read
 -- sm_registration / sm_attendee / sm_role_assignment / sm_event only.
 -- sm_autoclaim_by_email is NOT revoked (deviation from spec §4.7: the member
--- dashboard of the redesign uses it to show Smart Marina participation).
+-- dashboard of the redesign uses it to show Smart Marina participation). It is
+-- the one remaining writer of sm_registration.user_id keyed on an UNPROVEN auth
+-- e-mail (outside this migration; see docs/registration-contract.md §9).
 -- partner_requests: untouched (another lane).
 --
 -- Old live client (main): no visible change. It never writes the frozen profile
@@ -234,6 +259,7 @@ $snap$;
 -- ════════════════════════════════════════════════════════════════════════════
 -- Checks after applying (read-only)
 -- ════════════════════════════════════════════════════════════════════════════
+--   select conname from pg_constraint where conrelid = 'public.gl_event'::regclass and conname = 'gl_event_door_matches_engine';  -> 1 row
 --   select slug, engine, kind, registration_mode, door_token, account_email_timing, requests_open, hidden from gl_event order by slug;
 --     -> canary-onsite guest_list_v1 onsite invitation shared with_confirmation f t
 --        canary-v2     core_v2 webinar instant separate with_confirmation f t
@@ -246,7 +272,10 @@ $snap$;
 -- Dry run: supabase/dryrun/20261009210000_registration_core.dryrun.sql
 -- Undo:    supabase/migrations/down/20261009210000_registration_core.down.sql
 
--- ─── 0. Preconditions ───────────────────────────────────────────────────────
+-- ─── 0. Timeouts and preconditions ──────────────────────────────────────────
+set local lock_timeout = '5s';
+set local statement_timeout = '120s';
+
 do $pre$
 declare
   r record;
@@ -346,6 +375,13 @@ begin
     alter table public.gl_event add constraint gl_event_v2_no_legacy_requests
       check (engine = 'guest_list_v1' or requests_open = false);
   end if;
+  -- The door follows the engine: the WYS QR (gl_guest.token) is always admitted
+  -- on a guest_list_v1 event, and a core_v2 gl_guest.token is never a pass (it
+  -- is also the key of guest-list's public guest / rsvp / plus_one actions).
+  if not exists (select 1 from pg_constraint where conrelid = 'public.gl_event'::regclass and conname = 'gl_event_door_matches_engine') then
+    alter table public.gl_event add constraint gl_event_door_matches_engine
+      check ((engine = 'guest_list_v1' and door_token = 'shared') or (engine = 'core_v2' and door_token = 'separate'));
+  end if;
 end
 $c$;
 
@@ -358,7 +394,7 @@ comment on column public.gl_event.registration_mode is 'instant (webinars only) 
 comment on column public.gl_event.meeting_url is 'Webinar join link. Staff-only (RLS); served to confirmed registrants by get_my_event_access and the registration function. Never stored in events.meeting_url for core_v2 events.';
 comment on column public.gl_event.replay_url is 'Replay link for registrants (events.replay_url stays the public one).';
 comment on column public.gl_event.reminders is 'ISO-8601 durations before the start, e.g. ["P1D","PT1H"] (webinar) or ["P7D"] (on-site).';
-comment on column public.gl_event.door_token is 'shared = the QR carries gl_guest.token (guest_list_v1); separate = it carries gl_guest.checkin_token (core_v2 default).';
+comment on column public.gl_event.door_token is 'shared = the QR carries gl_guest.token (guest_list_v1, always); separate = it carries gl_guest.checkin_token (core_v2, always). CHECK gl_event_door_matches_engine.';
 comment on column public.gl_event.standard_fields is '{company, job_title, phone, country}: required | optional | hidden. Missing key = optional.';
 
 -- Backfill. wys26: today's behaviour, account e-mail sent at confirmation.
@@ -764,12 +800,18 @@ declare
   v_mine_status text;
   v_held integer;
   v_state text;
+  v_published boolean;
 begin
   select * into ev from public.gl_event where id = p_gl_event_id;
   if not found then
     return jsonb_build_object('state', 'not_found');
   end if;
   select * into w from public.gl_event_window(ev.id);
+  -- A draft of the editor (catalogue row not published, event not hidden) takes
+  -- no registration. Hidden events (canaries, tests) are reachable by link.
+  if ev.legacy_event_id is not null then
+    select e.published into v_published from public.events e where e.id = ev.legacy_event_id;
+  end if;
 
   if p_user_id is not null then
     -- Signed in: the auth e-mail is the person's address.
@@ -790,6 +832,7 @@ begin
   v_state := case
     when v_mine_id is not null and v_mine_status not in ('cancelled', 'declined') then 'registered'
     when ev.engine = 'guest_list_v1' then case when ev.requests_open then 'open' else 'closed' end
+    when ev.legacy_event_id is not null and not ev.hidden and not coalesce(v_published, true) then 'not_published'
     when ev.opens_at is not null and now() < ev.opens_at then 'not_yet_open'
     when now() > coalesce(ev.closes_at, w.ends_at, 'infinity'::timestamptz) then 'closed'
     when ev.access = 'members' and not coalesce(v_verified, false) then 'members_only'
@@ -841,6 +884,14 @@ declare
   q record;
   v_val jsonb;
   v_id uuid;
+  v_sf jsonb;
+  v_missing text[] := '{}';
+  v_pf_first text;
+  v_pf_last text;
+  v_pf_job text;
+  v_pf_phone text;
+  v_pf_country text;
+  v_org_name text;
 begin
   if p is null or jsonb_typeof(p) <> 'object' then
     return jsonb_build_object('ok', false, 'error', 'bad_input');
@@ -864,24 +915,38 @@ begin
     return jsonb_build_object('ok', false, 'error', 'wrong_engine');
   end if;
 
-  -- Signed in: the auth e-mail is forced, empty names come from the profile.
+  -- Signed in: the auth e-mail is forced. Empty fields come from the profile
+  -- (names, job title, phone, country) and the company name from the person's
+  -- company, so a one-click registration still fills what the event requires.
   if v_user is not null then
     select lower(u.email) into v_email from auth.users u where u.id = v_user;
     if v_email is null then
       return jsonb_build_object('ok', false, 'error', 'unknown_user');
     end if;
-    if v_first = '' or v_last = '' then
-      select coalesce(nullif(v_first, ''), left(btrim(coalesce(pr.first_name, '')), 80)),
-             coalesce(nullif(v_last, ''), left(btrim(coalesce(pr.last_name, '')), 80))
-        into v_first, v_last
-        from public.profiles pr where pr.user_id = v_user;
-      v_first := coalesce(v_first, ''); v_last := coalesce(v_last, '');
-    end if;
+    select left(btrim(coalesce(pr.first_name, '')), 80), left(btrim(coalesce(pr.last_name, '')), 80),
+           nullif(left(btrim(coalesce(pr.job_title, '')), 160), ''),
+           nullif(left(btrim(coalesce(pr.phone, '')), 40), ''),
+           nullif(left(btrim(coalesce(pr.country, '')), 80), '')
+      into v_pf_first, v_pf_last, v_pf_job, v_pf_phone, v_pf_country
+      from public.profiles pr where pr.user_id = v_user;
     -- A company is linked only if the person belongs to it.
     if v_org is not null and not exists (select 1 from public.organization_members m
                                           where m.organization_id = v_org and m.user_id = v_user) then
       v_org := null;
     end if;
+    if v_org is not null then
+      select nullif(left(btrim(o.name), 160), '') into v_org_name from public.organizations o where o.id = v_org;
+    elsif (select count(*) from public.organization_members m where m.user_id = v_user) = 1 then
+      select nullif(left(btrim(o.name), 160), '') into v_org_name
+        from public.organization_members m join public.organizations o on o.id = m.organization_id
+       where m.user_id = v_user;
+    end if;
+    if v_first = '' then v_first := coalesce(v_pf_first, ''); end if;
+    if v_last = '' then v_last := coalesce(v_pf_last, ''); end if;
+    v_job := coalesce(v_job, v_pf_job);
+    v_phone := coalesce(v_phone, v_pf_phone);
+    v_country := coalesce(v_country, v_pf_country);
+    v_company := coalesce(v_company, v_org_name);
   else
     v_org := null;
   end if;
@@ -889,8 +954,22 @@ begin
   if length(v_email) > 200 or v_email !~ '^[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@.]{2,}$' then
     return jsonb_build_object('ok', false, 'error', 'invalid_email');
   end if;
-  if v_first = '' or v_last = '' then
-    return jsonb_build_object('ok', false, 'error', 'missing_fields');
+
+  -- The event's standard fields (gl_event.standard_fields): a hidden field is
+  -- never stored, a required one must be there. Missing key = optional.
+  v_sf := case when jsonb_typeof(ev.standard_fields) = 'object' then ev.standard_fields else '{}'::jsonb end;
+  if v_sf ->> 'company' = 'hidden' then v_company := null; end if;
+  if v_sf ->> 'job_title' = 'hidden' then v_job := null; end if;
+  if v_sf ->> 'phone' = 'hidden' then v_phone := null; end if;
+  if v_sf ->> 'country' = 'hidden' then v_country := null; end if;
+  if v_first = '' then v_missing := array_append(v_missing, 'first_name'::text); end if;
+  if v_last = '' then v_missing := array_append(v_missing, 'last_name'::text); end if;
+  if v_sf ->> 'company' = 'required' and v_company is null then v_missing := array_append(v_missing, 'company'::text); end if;
+  if v_sf ->> 'job_title' = 'required' and v_job is null then v_missing := array_append(v_missing, 'job_title'::text); end if;
+  if v_sf ->> 'phone' = 'required' and v_phone is null then v_missing := array_append(v_missing, 'phone'::text); end if;
+  if v_sf ->> 'country' = 'required' and v_country is null then v_missing := array_append(v_missing, 'country'::text); end if;
+  if cardinality(v_missing) > 0 then
+    return jsonb_build_object('ok', false, 'error', 'missing_fields', 'fields', to_jsonb(v_missing));
   end if;
 
   -- One registration per person per event: (event, e-mail) or (event, account).
@@ -905,7 +984,7 @@ begin
   end if;
 
   v_state := public.gl_registration_state(ev.id, v_user, v_email);
-  if v_state ->> 'state' in ('not_yet_open', 'closed', 'members_only', 'invitation_only') then
+  if v_state ->> 'state' in ('not_published', 'not_yet_open', 'closed', 'members_only', 'invitation_only') then
     return jsonb_build_object('ok', false, 'state', v_state ->> 'state');
   end if;
 
@@ -1049,6 +1128,165 @@ begin
 end
 $function$;
 
+-- Atomic staff decision on core_v2 registrations (spec 4.1 "decide"). The
+-- registration function calls it with the service role once it has checked the
+-- staff session; p_actor is that staff member (checked again here). ONE
+-- transaction: the event row is locked (capacity holds against concurrent
+-- approvals and registrations), the statuses change (the guard mints
+-- checkin_token, the provisioning trigger queues the job), the staff choices
+-- are stored on the jobs this decision queued BEFORE anything can process them,
+-- and one review_log row is written per changed registration. Sends no e-mail:
+-- the caller e-mails the rows listed in "changed".
+create or replace function public.gl_decide_v2(
+  p_gl_event_id uuid,
+  p_guest_ids uuid[],
+  p_decision text,
+  p_actor uuid,
+  p_org_action jsonb default '{"mode": "none"}'::jsonb,
+  p_validate_person boolean default true,
+  p_force boolean default false,
+  p_info_request text default null,
+  p_note text default null)
+returns jsonb
+language plpgsql
+volatile
+security definer
+set search_path = ''
+as $function$
+declare
+  ev public.gl_event;
+  v_from text[];
+  v_to text;
+  v_ids uuid[];
+  v_changed uuid[];
+  v_held integer;
+  v_jobs integer := 0;
+  v_info text := nullif(left(btrim(coalesce(p_info_request, '')), 2000), '');
+  v_mode text;
+  t record;
+begin
+  if p_decision is null or p_decision not in ('approve', 'reject', 'waitlist', 'request_info') then
+    return jsonb_build_object('ok', false, 'error', 'bad_decision');
+  end if;
+  if p_guest_ids is null or cardinality(p_guest_ids) = 0 or cardinality(p_guest_ids) > 200 then
+    return jsonb_build_object('ok', false, 'error', 'bad_input');
+  end if;
+  if p_actor is null or not exists (select 1 from public.profiles pr
+                                     where pr.user_id = p_actor
+                                       and pr.persona in ('admin', 'moderator')
+                                       and pr.access_status = 'verified') then
+    return jsonb_build_object('ok', false, 'error', 'forbidden');
+  end if;
+
+  -- {mode: none|link|create, org_id, type, name, website, country, as_owner}
+  v_mode := case when jsonb_typeof(p_org_action) = 'object' then coalesce(p_org_action ->> 'mode', '') else '' end;
+  if v_mode not in ('none', 'link', 'create') then
+    return jsonb_build_object('ok', false, 'error', 'bad_org_action');
+  end if;
+  if v_mode = 'link' then
+    begin
+      if not exists (select 1 from public.organizations o where o.id = (p_org_action ->> 'org_id')::uuid) then
+        return jsonb_build_object('ok', false, 'error', 'bad_org_action');
+      end if;
+    exception when others then
+      return jsonb_build_object('ok', false, 'error', 'bad_org_action');
+    end;
+  elsif v_mode = 'create' and coalesce(btrim(p_org_action ->> 'name'), '') = '' then
+    return jsonb_build_object('ok', false, 'error', 'bad_org_action');
+  end if;
+  if p_decision = 'request_info' and v_info is null then
+    return jsonb_build_object('ok', false, 'error', 'info_request_required');
+  end if;
+
+  select * into ev from public.gl_event where id = p_gl_event_id for update;
+  if ev.id is null then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if ev.engine <> 'core_v2' then
+    return jsonb_build_object('ok', false, 'error', 'wrong_engine');
+  end if;
+
+  v_from := case p_decision
+              when 'approve' then array['requested', 'needs_info', 'waitlisted']
+              when 'reject' then array['requested', 'needs_info', 'waitlisted']
+              when 'waitlist' then array['requested', 'needs_info']
+              else array['requested', 'waitlisted'] end;
+  v_to := case p_decision
+            when 'approve' then 'confirmed'
+            when 'reject' then 'rejected'
+            when 'waitlist' then 'waitlisted'
+            else 'needs_info' end;
+
+  select coalesce(array_agg(x.id), '{}') into v_ids
+    from (select g.id from public.gl_guest g
+           where g.event_id = ev.id and g.id = any (p_guest_ids) and g.status = any (v_from)
+           order by g.created_at
+           for update) x;
+
+  -- Capacity (spec 4.1: seats held = confirmed + invited + approved), event and
+  -- tickets. p_force = staff chose to go over.
+  if p_decision = 'approve' and not coalesce(p_force, false) and cardinality(v_ids) > 0 then
+    v_held := public.gl_seats_held(ev.id);
+    if ev.capacity is not null and v_held + cardinality(v_ids) > ev.capacity then
+      return jsonb_build_object('ok', false, 'error', 'capacity', 'held', v_held,
+                                'capacity', ev.capacity, 'adding', cardinality(v_ids));
+    end if;
+    for t in
+      select k.ticket_key, count(*)::integer as adding, tk.capacity
+        from public.gl_guest k
+        join public.gl_ticket tk on tk.event_id = ev.id and tk.key = k.ticket_key
+       where k.id = any (v_ids) and tk.capacity is not null
+       group by k.ticket_key, tk.capacity
+    loop
+      v_held := public.gl_seats_held(ev.id, t.ticket_key);
+      if v_held + t.adding > t.capacity then
+        return jsonb_build_object('ok', false, 'error', 'ticket_capacity', 'ticket_key', t.ticket_key,
+                                  'held', v_held, 'capacity', t.capacity, 'adding', t.adding);
+      end if;
+    end loop;
+  end if;
+
+  with up as (
+    update public.gl_guest g
+       set status = v_to,
+           decided_at = now(),
+           decided_by = p_actor,
+           info_request = case when v_to = 'needs_info' then v_info else g.info_request end,
+           info_requested_at = case when v_to = 'needs_info' then now() else g.info_requested_at end
+     where g.id = any (v_ids) and g.status = any (v_from)
+    returning g.id
+  )
+  select coalesce(array_agg(up.id), '{}') into v_changed from up;
+
+  -- The provisioning trigger queued the jobs of on-site confirmations with the
+  -- defaults; the staff choices land on them in this same transaction.
+  if v_to = 'confirmed' and cardinality(v_changed) > 0 then
+    update public.account_provision_job j
+       set org_action = p_org_action,
+           validate_person = coalesce(p_validate_person, true),
+           created_by = p_actor
+     where j.source_kind = 'gl_guest' and j.source_id = any (v_changed) and j.status = 'queued';
+    get diagnostics v_jobs = row_count;
+  end if;
+
+  insert into public.review_log (subject_type, subject_id, action, note, details, actor_id)
+  select 'registration', x.id, p_decision, nullif(left(btrim(coalesce(p_note, '')), 4000), ''),
+         jsonb_strip_nulls(jsonb_build_object(
+           'gl_event_id', ev.id, 'status', v_to,
+           'org_action', case when v_to = 'confirmed' then p_org_action end,
+           'validate_person', case when v_to = 'confirmed' then coalesce(p_validate_person, true) end,
+           'forced', case when coalesce(p_force, false) then true end,
+           'info_request', case when v_to = 'needs_info' then v_info end)),
+         p_actor
+    from unnest(v_changed) as x(id);
+
+  return jsonb_build_object('ok', true, 'decision', p_decision, 'status', v_to,
+                            'changed', to_jsonb(v_changed),
+                            'skipped', to_jsonb(array(select u from unnest(p_guest_ids) u where u <> all (v_changed))),
+                            'jobs', v_jobs);
+end
+$function$;
+
 -- Status links (core_v2 only). Returns the RAW token once; only its sha256 is stored.
 create or replace function public.gl_issue_access_token(p_guest_id uuid)
 returns text
@@ -1147,8 +1385,9 @@ declare
   v_engine text;
   v_mode text;
   v_door text;
+  v_plus smallint;
 begin
-  select e.engine, e.registration_mode, e.door_token into v_engine, v_mode, v_door
+  select e.engine, e.registration_mode, e.door_token, e.plus_ones into v_engine, v_mode, v_door, v_plus
     from public.gl_event e where e.id = new.event_id;
 
   if v_engine = 'guest_list_v1' then
@@ -1169,6 +1408,17 @@ begin
     if new.source = 'request' and v_mode <> 'invitation' then
       raise exception using errcode = '23514',
         message = 'gl_guest_engine_guard: source request is only for invitation-mode events';
+    end if;
+    -- A new plus-one only where the event allows plus-ones (guest-list's public
+    -- plus_one action knows nothing of core_v2). Existing rows stay editable.
+    if new.source = 'plus_one' and coalesce(v_plus, 0) = 0 then
+      if tg_op = 'INSERT' then
+        raise exception using errcode = '23514',
+          message = 'gl_guest_engine_guard: this event does not take plus-ones';
+      elsif old.source is distinct from 'plus_one' then
+        raise exception using errcode = '23514',
+          message = 'gl_guest_engine_guard: this event does not take plus-ones';
+      end if;
     end if;
     -- The door pass is minted when the row becomes confirmed.
     if new.status = 'confirmed' and v_door = 'separate' and new.checkin_token is null then
@@ -1249,6 +1499,25 @@ create trigger gl_guest_queue_provisioning
   for each row
   when (new.status = 'confirmed')
   execute function public.gl_guest_queue_provisioning();
+
+-- Backfill: rows already confirmed on an on-site event (a wys26 guest approved
+-- before this migration) get the job the trigger would have queued. Same payload
+-- and due date as the trigger; idempotent. 0 rows on 9 Oct (3 wys26 requests).
+insert into public.account_provision_job (source_kind, source_id, email, payload, email_due_at)
+select 'gl_guest', g.id, lower(btrim(g.email)),
+       jsonb_build_object(
+         'first_name', g.first_name, 'last_name', g.last_name,
+         'job_title', g.job_title, 'country', g.country, 'phone', g.phone,
+         'company', g.company, 'gl_event_id', g.event_id, 'event_slug', e.slug,
+         'guest_user_id', g.user_id),
+       case when e.account_email_timing = 'after_event'
+            then coalesce(e.account_email_send_at, w.ends_at + interval '1 day', now())
+            else now() end
+  from public.gl_guest g
+  join public.gl_event e on e.id = g.event_id
+  cross join lateral public.gl_event_window(e.id) w
+ where e.kind = 'onsite' and g.status = 'confirmed'
+on conflict (source_kind, source_id) where source_id is not null do nothing;
 
 -- ═════════════════════════════════════════════════════════════════════════════
 -- 11. Identity: e-mail proof and attach
@@ -1338,9 +1607,10 @@ begin
 end
 $function$;
 
--- Called by /welcome, /reset-password and /verify-email: stamps proof when THIS
--- session was opened from an auth e-mail link (JWT amr), after the last e-mail
--- change, and not by an admin's "view as user".
+-- Called by /welcome, /reset-password and /verify-email as soon as the page
+-- opens: stamps proof when THIS session was opened from an auth e-mail link (JWT
+-- amr) less than 15 minutes ago, after the last e-mail change, and not by an
+-- admin's "view as user".
 create or replace function public.mark_email_proven()
 returns jsonb
 language plpgsql
@@ -1381,8 +1651,18 @@ begin
   if v_changed is not null and v_link_at < v_changed then
     return jsonb_build_object('proven', false, 'stamped', false, 'reason', 'email_changed_since');
   end if;
+  -- Only a FRESH link session proves the current address: the pages call this
+  -- right after the click. An older session (amr entries live as long as the
+  -- session) may predate an e-mail change made before this migration, which
+  -- email_changed_at does not know about.
+  if v_link_at < now() - interval '15 minutes' then
+    return jsonb_build_object('proven', false, 'stamped', false, 'reason', 'link_session_too_old');
+  end if;
+  -- An admin "view as user" session is opened from a magic link a few seconds
+  -- after admin-impersonate logs it.
   if exists (select 1 from public.admin_impersonation_log l
-              where l.target_user_id = v_uid and l.created_at >= v_link_at - interval '5 minutes') then
+              where l.target_user_id = v_uid
+                and l.created_at between v_link_at - interval '5 minutes' and v_link_at + interval '1 minute') then
     return jsonb_build_object('proven', false, 'stamped', false, 'reason', 'impersonation');
   end if;
 
@@ -1921,7 +2201,8 @@ begin
          meeting_url = case when v_rg ? 'meeting_url' then nullif(btrim(v_rg ->> 'meeting_url'), '') else g.meeting_url end,
          replay_url = case when v_rg ? 'replay_url' then nullif(btrim(v_rg ->> 'replay_url'), '') else g.replay_url end,
          reminders = case when v_rg ? 'reminders' then v_rg -> 'reminders' else g.reminders end,
-         door_token = case when v_rg ? 'door_token' then coalesce(nullif(v_rg ->> 'door_token', ''), 'separate') else g.door_token end,
+         -- core_v2 always has its own door pass (CHECK gl_event_door_matches_engine)
+         door_token = 'separate',
          staff_alert_mode = case when v_rg ? 'staff_alert_mode' then coalesce(nullif(v_rg ->> 'staff_alert_mode', ''), 'each') else g.staff_alert_mode end,
          notify_email = case when v_rg ? 'notify_email' then nullif(btrim(v_rg ->> 'notify_email'), '') else g.notify_email end,
          settings = case when jsonb_typeof(v_rg -> 'settings') = 'object' then g.settings || (v_rg -> 'settings') else g.settings end,
@@ -2054,7 +2335,7 @@ begin
             'public_requests', src.public_requests, 'access', src.access, 'capacity', src.capacity,
             'waitlist', src.waitlist, 'plus_ones', src.plus_ones, 'standard_fields', src.standard_fields,
             'account_email_timing', src.account_email_timing, 'reminders', src.reminders,
-            'door_token', 'separate', 'staff_alert_mode', src.staff_alert_mode,
+            'staff_alert_mode', src.staff_alert_mode,
             'notify_email', src.notify_email, 'hidden', src.hidden, 'settings', src.settings)
           || case when jsonb_typeof(v_o -> 'registration') = 'object' then v_o -> 'registration' else '{}'::jsonb end;
 
@@ -2101,7 +2382,12 @@ begin
       and exists (select 1 from public.account_provision_job j
                    where j.status = 'queued'
                       or (j.status = 'failed' and j.attempts < 5)
-                      or (j.status = 'done' and j.email_sent_at is null and j.email_due_at <= now()))
+                      -- an account e-mail due and not sent; provision-person sets
+                      -- email_due_at = null when none is to be sent. Backstop: an
+                      -- e-mail overdue by more than 7 days no longer wakes the
+                      -- cron on its own (it is still sent on the next run).
+                      or (j.status = 'done' and j.email_sent_at is null
+                          and j.email_due_at <= now() and j.email_due_at > now() - interval '7 days'))
     when 'reminders' then
       coalesce((v_flags ->> 'webinar_v2')::boolean, false) or coalesce((v_flags ->> 'onsite_v2')::boolean, false)
     when 'digest' then
@@ -2157,6 +2443,7 @@ revoke all on function public.gl_event_window(uuid) from public, anon, authentic
 revoke all on function public.gl_seats_held(uuid, text) from public, anon, authenticated;
 revoke all on function public.gl_registration_state(uuid, uuid, text) from public, anon, authenticated;
 revoke all on function public.gl_register_v2(jsonb) from public, anon, authenticated;
+revoke all on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) from public, anon, authenticated;
 revoke all on function public.gl_issue_access_token(uuid) from public, anon, authenticated;
 revoke all on function public.gl_resolve_access_token(text, boolean) from public, anon, authenticated;
 revoke all on function public.complete_signup_for(uuid) from public, anon, authenticated;
@@ -2172,6 +2459,7 @@ grant execute on function public.gl_event_window(uuid) to service_role;
 grant execute on function public.gl_seats_held(uuid, text) to service_role;
 grant execute on function public.gl_registration_state(uuid, uuid, text) to service_role;
 grant execute on function public.gl_register_v2(jsonb) to service_role;
+grant execute on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) to service_role;
 grant execute on function public.gl_issue_access_token(uuid) to service_role;
 grant execute on function public.gl_resolve_access_token(text, boolean) to service_role;
 grant execute on function public.complete_signup_for(uuid) to service_role;
@@ -2202,6 +2490,7 @@ revoke all on function public.public_registration_events() from public;
 grant execute on function public.public_registration_events() to anon, authenticated, service_role;
 
 comment on function public.gl_register_v2(jsonb) is 'Service role. Atomic core_v2 registration: {ok, duplicate, reactivated, guest_id, status} or {ok:false, error|state}. See docs/registration-contract.md.';
+comment on function public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text) is 'Service role. Atomic staff decision on core_v2 registrations (approve / reject / waitlist / request_info): capacity under the event lock, statuses, provisioning job choices, review_log. See docs/registration-contract.md.';
 comment on function public.my_participations() is 'Signed-in read model: every registration of the caller across gl_guest (both engines), legacy event_registrations and SM26 (read-only).';
 comment on function public.mark_email_proven() is 'Stamps profiles.email_proven_at when the session was opened from an auth e-mail link, then attaches records. Called by /welcome, /reset-password, /verify-email.';
 comment on function public.admin_save_event(jsonb) is 'Staff. Writes events + gl_event (+ gl_ticket, gl_question) in one transaction; core_v2 only.';
@@ -2237,6 +2526,7 @@ declare
   r_wm text;
   r_v2 text;
   r_c1 text;
+  r_dec text;
   tests jsonb := '[]'::jsonb;
   t jsonb;
   v_uid uuid;
@@ -2352,6 +2642,9 @@ begin
             and not has_function_privilege('authenticated', 'public.attach_my_records_for(uuid)', 'execute')
             and not has_function_privilege('authenticated', 'public.complete_signup_for(uuid)', 'execute')
             and not has_function_privilege('authenticated', 'public.invoke_registration_cron(text)', 'execute')
+            and not has_function_privilege('authenticated', 'public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text)', 'execute')
+            and not has_function_privilege('anon', 'public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text)', 'execute')
+            and has_function_privilege('service_role', 'public.gl_decide_v2(uuid, uuid[], text, uuid, jsonb, boolean, boolean, text, text)', 'execute')
             and not has_function_privilege('anon', 'public.my_participations()', 'execute')
             and not has_function_privilege('anon', 'public.mark_email_proven()', 'execute')
             and not has_function_privilege('anon', 'public.admin_save_event(jsonb)', 'execute')
@@ -2425,7 +2718,16 @@ begin
      'cron invoker dormant while the flags are off'),
     ('S20', (select count(*) from public.gl_guest where status not in ('requested', 'invited', 'confirmed', 'declined', 'rejected', 'cancelled')
                                                      or source not in ('request', 'invitation', 'plus_one')) = 0,
-     'every existing guest row still has a legacy status and source');
+     'every existing guest row still has a legacy status and source'),
+    ('S21', exists (select 1 from pg_constraint where conrelid = 'public.gl_event'::regclass and conname = 'gl_event_door_matches_engine')
+            and not exists (select 1 from public.gl_event
+                             where not ((engine = 'guest_list_v1' and door_token = 'shared') or (engine = 'core_v2' and door_token = 'separate'))),
+     'door follows the engine (CHECK gl_event_door_matches_engine): guest_list_v1 shared, core_v2 separate'),
+    ('S22', not exists (select 1 from public.gl_guest g join public.gl_event e on e.id = g.event_id
+                         where e.kind = 'onsite' and g.status = 'confirmed'
+                           and not exists (select 1 from public.account_provision_job j
+                                            where j.source_kind = 'gl_guest' and j.source_id = g.id)),
+     'backfill: every guest already confirmed on an on-site event has a provisioning job');
   for r in select * from _dr_checks order by id loop
     if coalesce(r.ok, false) then n_pass := n_pass + 1; else n_fail := n_fail + 1; end if;
     results := results || format(E'\n%s %s %s', case when coalesce(r.ok, false) then 'PASS' else 'FAIL' end, r.id, r.label);
@@ -2446,7 +2748,7 @@ begin
     v_w := (v_out ->> 'gl_event_id')::uuid;
     v_w_event := (v_out ->> 'event_id')::uuid;
     v_out := public.admin_save_event(jsonb_build_object(
-      'event', jsonb_build_object('title', 'Dry run on-site', 'date_time', now() + interval '30 days', 'published', false),
+      'event', jsonb_build_object('title', 'Dry run on-site', 'date_time', now() + interval '30 days', 'published', true),
       'registration', jsonb_build_object('slug', 'dryrun-onsite', 'kind', 'onsite', 'registration_mode', 'review', 'capacity', 10),
       'tickets', jsonb_build_array(
         jsonb_build_object('key', 'visitor', 'label', 'Visitor'),
@@ -2523,7 +2825,12 @@ begin
       'chk', format($q$select email_due_at = '2026-11-28 06:00+00'::timestamptz from public.account_provision_job where source_id = %L$q$, v_gconf)),
     jsonb_build_object('id', 'G14', 'who', 'service', 'expect', 'allow', 'label', 'v1 plus-one request of a confirmed guest (guest-list plus_one)',
       'setup', format($q$update public.gl_guest set status = 'confirmed' where id = %L$q$, v_gconf),
-      'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email, plus_one_of, wants_conference, wants_gala) values (%L, 'plus_one', 'requested', 'Dry', 'Plus', 'dryrun-plus@example.invalid', %L, true, true)$q$, v_c1, v_gconf))
+      'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email, plus_one_of, wants_conference, wants_gala) values (%L, 'plus_one', 'requested', 'Dry', 'Plus', 'dryrun-plus@example.invalid', %L, true, true)$q$, v_c1, v_gconf)),
+    jsonb_build_object('id', 'G15', 'who', 'service', 'expect', 'err:gl_guest_engine_guard', 'label', 'core_v2 event without plus-ones refuses a plus-one row (guest-list plus_one on a v2 token)',
+      'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email) values (%L, 'plus_one', 'requested', 'Dry', 'Plus', 'dryrun-g15@example.invalid')$q$, v_o)),
+    jsonb_build_object('id', 'G16', 'who', 'service', 'expect', 'allow', 'label', 'core_v2 event with plus_ones = 1 takes a plus-one row',
+      'setup', format($q$update public.gl_event set plus_ones = 1 where id = %L$q$, v_o),
+      'q', format($q$insert into public.gl_guest (event_id, source, status, first_name, last_name, email) values (%L, 'plus_one', 'requested', 'Dry', 'Plus', 'dryrun-g16@example.invalid')$q$, v_o))
   );
 
   -- ── Cases: atomic registration (service role, as the registration function) ──
@@ -2584,7 +2891,21 @@ begin
     jsonb_build_object('id', 'R21', 'who', 'service', 'expect', 'ret:requested', 'label', 'invitation mode with public requests: requested, source request',
       'setup', format($q$update public.gl_event set registration_mode = 'invitation', public_requests = true where id = %L$q$, v_o),
       'q', format($q$select (public.gl_register_v2(jsonb_build_object('gl_event_id', %L, 'email', 'dryrun-o@example.invalid', 'first_name', 'Dry', 'last_name', 'Onsite', 'ticket_key', 'visitor', 'answers', '{"diet":"none"}'::jsonb))) ->> 'status'$q$, v_o),
-      'chk', format($q$select source = 'request' from public.gl_guest where event_id = %L and email = 'dryrun-o@example.invalid'$q$, v_o))
+      'chk', format($q$select source = 'request' from public.gl_guest where event_id = %L and email = 'dryrun-o@example.invalid'$q$, v_o)),
+    jsonb_build_object('id', 'R22', 'who', 'service', 'expect', 'ret:not_published', 'label', 'an unpublished draft (not hidden) takes no registration',
+      'setup', format($q$update public.events set published = false where id = (select legacy_event_id from public.gl_event where id = %L)$q$, v_o),
+      'q', format($q$select (public.gl_register_v2(jsonb_build_object('gl_event_id', %L, 'email', 'dryrun-o@example.invalid', 'first_name', 'Dry', 'last_name', 'Onsite', 'ticket_key', 'visitor', 'answers', '{"diet":"none"}'::jsonb))) ->> 'state'$q$, v_o)),
+    jsonb_build_object('id', 'R23', 'who', 'service', 'expect', 'ret:missing_fields:job_title', 'label', 'a required standard field is enforced (fields listed)',
+      'setup', format($q$update public.gl_event set standard_fields = '{"job_title": "required"}'::jsonb where id = %L$q$, v_w),
+      'q', format($q$select (x ->> 'error') || ':' || (x -> 'fields' ->> 0) from (select %s as x) s$q$, r_wa)),
+    jsonb_build_object('id', 'R24', 'who', 'service', 'expect', 'ret:confirmed', 'label', 'a hidden standard field is never stored',
+      'setup', format($q$update public.gl_event set standard_fields = '{"phone": "hidden"}'::jsonb where id = %L$q$, v_w),
+      'q', format($q$select (public.gl_register_v2(jsonb_build_object('gl_event_id', %L, 'email', 'dryrun-r24@example.invalid', 'first_name', 'Dry', 'last_name', 'Hidden', 'phone', '+377 1111', 'job_title', 'Tester'))) ->> 'status'$q$, v_w),
+      'chk', format($q$select phone is null and job_title = 'Tester' from public.gl_guest where event_id = %L and email = 'dryrun-r24@example.invalid'$q$, v_w)),
+    jsonb_build_object('id', 'R25', 'who', 'service', 'expect', 'ret:confirmed', 'label', 'one-click (signed in, nothing typed): required fields come from the profile',
+      'setup', format($q$update public.profiles set first_name = coalesce(nullif(first_name, ''), 'Dry'), last_name = coalesce(nullif(last_name, ''), 'Member'), job_title = 'Dry profile title', country = 'Monaco' where user_id = %L; update public.gl_event set standard_fields = '{"job_title": "required", "country": "required"}'::jsonb where id = %L$q$, c_member, v_w),
+      'q', format($q$select (public.gl_register_v2(jsonb_build_object('gl_event_id', %L, 'user_id', %L))) ->> 'status'$q$, v_w, c_member),
+      'chk', format($q$select job_title = 'Dry profile title' and country = 'Monaco' and lower(email) = %3$L from public.gl_guest where event_id = %1$L and user_id = %2$L$q$, v_w, c_member, c_member_email))
   );
 
   -- ── Cases: status-link tokens ──
@@ -2679,7 +3000,12 @@ begin
                           and g.registration_mode = 'instant' and e.published and e.title = 'Dry run webinar'
                      from public.gl_event g join public.events e on e.id = g.legacy_event_id where g.id = %L$q$, v_w)),
     jsonb_build_object('id', 'A13', 'who', 'staff', 'expect', 'err:slug_invalid', 'label', 'slug format',
-      'q', $q$select public.admin_save_event(jsonb_build_object('event', jsonb_build_object('title', 'Dry'), 'registration', jsonb_build_object('slug', 'Dry Run')))::text$q$)
+      'q', $q$select public.admin_save_event(jsonb_build_object('event', jsonb_build_object('title', 'Dry'), 'registration', jsonb_build_object('slug', 'Dry Run')))::text$q$),
+    jsonb_build_object('id', 'A14', 'who', 'postgres', 'expect', 'err:gl_event_door_matches_engine', 'label', 'the WYS door cannot be switched to checkin_token (printed QR codes stay valid)',
+      'q', format($q$update public.gl_event set door_token = 'separate' where id = %L$q$, v_wys)),
+    jsonb_build_object('id', 'A15', 'who', 'staff', 'expect', 'allow', 'label', 'a core_v2 event keeps its own door pass whatever the editor sends',
+      'q', format($q$select public.admin_save_event(jsonb_build_object('id', %L, 'registration', jsonb_build_object('door_token', 'shared')))::text$q$, v_w),
+      'chk', format($q$select door_token = 'separate' from public.gl_event where id = %L$q$, v_w))
   );
 
   -- ── Cases: profiles and the guard ──
@@ -2764,7 +3090,15 @@ begin
       'chk', format($q$select user_id = %L from public.gl_guest where id = %L$q$, c_member, v_gwys)),
     jsonb_build_object('id', 'M15', 'who', 'member', 'expect', 'ret:0', 'label', 'attach never gives one account two rows on one event',
       'setup', format($q$update public.profiles set email_proven_at = now() where user_id = %1$L; insert into public.gl_guest (event_id, source, status, first_name, last_name, email, user_id) values (%2$L, 'request', 'requested', 'Dry', 'Other', 'dryrun-other@example.invalid', %1$L)$q$, c_member, v_c1),
-      'q', $q$select public.attach_my_records()::text$q$)
+      'q', $q$select public.attach_my_records()::text$q$),
+    jsonb_build_object('id', 'M16', 'who', 'member', 'expect', 'ret:link_session_too_old', 'label', 'an e-mail-link session older than 15 minutes proves nothing',
+      'claims', jsonb_build_object('amr', jsonb_build_array(jsonb_build_object('method', 'otp', 'timestamp', v_epoch - 7200))),
+      'q', $q$select (public.mark_email_proven()) ->> 'reason'$q$,
+      'chk', format($q$select email_proven_at is null from public.profiles where user_id = %L$q$, c_member)),
+    jsonb_build_object('id', 'M17', 'who', 'member', 'expect', 'ret:true', 'label', 'a view-as-user an hour before does not block a fresh link session',
+      'claims', jsonb_build_object('amr', jsonb_build_array(jsonb_build_object('method', 'magiclink', 'timestamp', v_epoch))),
+      'setup', format($q$insert into public.admin_impersonation_log (admin_user_id, target_user_id, target_email, created_at) values (%L, %L, %L, now() - interval '1 hour')$q$, c_staff, c_member, c_member_email),
+      'q', $q$select (public.mark_email_proven()) ->> 'stamped'$q$)
   );
 
   -- ── Cases: read model and event access ──
@@ -2801,6 +3135,7 @@ begin
     jsonb_build_object('id', 'L01', 'who', 'anon', 'expect', 'ret:1', 'label', 'the public list shows an open published event',
       'q', $q$select count(*)::text from public.public_registration_events() where slug = 'dryrun-webinar' and state = 'open'$q$),
     jsonb_build_object('id', 'L02', 'who', 'anon', 'expect', 'ret:0', 'label', 'hidden canaries and unpublished events are not listed',
+      'setup', format($q$update public.events set published = false where id = (select legacy_event_id from public.gl_event where id = %L)$q$, v_o),
       'q', $q$select count(*)::text from public.public_registration_events() where slug in ('canary-onsite', 'canary-v2', 'dryrun-onsite')$q$),
     jsonb_build_object('id', 'L03', 'who', 'anon', 'expect', 'rls', 'label', 'anon cannot call gl_registration_state',
       'q', format($q$select public.gl_registration_state(%L)::text$q$, v_w))
@@ -2831,15 +3166,65 @@ begin
     jsonb_build_object('id', 'J04', 'who', 'anon', 'expect', 'rls', 'label', 'anon cannot read the outbox',
       'q', $q$select count(*)::text from public.account_provision_job$q$),
     jsonb_build_object('id', 'CR1', 'who', 'postgres', 'expect', 'ret:skipped', 'label', 'provisioning flag on but nothing queued: no call',
-      'setup', $q$update public.platform_settings set value = value || '{"provisioning": true}'::jsonb where key = 'registration_flags'$q$,
+      'setup', $q$delete from public.account_provision_job; update public.platform_settings set value = value || '{"provisioning": true}'::jsonb where key = 'registration_flags'$q$,
       'q', $q$select public.invoke_registration_cron('provision')$q$),
     jsonb_build_object('id', 'CR2', 'who', 'member', 'expect', 'rls', 'label', 'a member cannot start the cron call',
+      'q', $q$select public.invoke_registration_cron('provision')$q$),
+    jsonb_build_object('id', 'CR3', 'who', 'postgres', 'expect', 'ret:skipped', 'label', 'an account e-mail overdue by more than 7 days no longer wakes the cron',
+      'setup', $q$delete from public.account_provision_job; update public.platform_settings set value = value || '{"provisioning": true}'::jsonb where key = 'registration_flags'; insert into public.account_provision_job (source_kind, email, status, email_due_at) values ('staff', 'dryrun-cr3@example.invalid', 'done', now() - interval '10 days')$q$,
       'q', $q$select public.invoke_registration_cron('provision')$q$),
     jsonb_build_object('id', 'X01', 'who', 'service', 'expect', 'ret:true', 'label', 'registration state of an open webinar',
       'q', format($q$select ((public.gl_registration_state(%L)) ->> 'state' = 'open')::text$q$, v_w)),
     jsonb_build_object('id', 'X02', 'who', 'service', 'expect', 'ret:registered', 'label', 'registration state of a registered person',
       'setup', format('select %s', r_wm),
       'q', format($q$select (public.gl_registration_state(%L, %L)) ->> 'state'$q$, v_w, c_member))
+  );
+
+  -- ── Cases: staff decision (gl_decide_v2, service role, as the registration function) ──
+  -- Most cases first add one requested registration on the on-site test event (id in dryrun.g).
+  r_dec := format($q$with ins as (insert into public.gl_guest (event_id, source, status, first_name, last_name, email, ticket_key) values (%L, 'registration', 'requested', 'Dry', 'Decide', 'dryrun-decide@example.invalid', 'visitor') returning id) select set_config('dryrun.g', (select id::text from ins), true)$q$, v_o);
+  tests := tests || jsonb_build_array(
+    jsonb_build_object('id', 'D01', 'who', 'service', 'expect', 'ret:1', 'label', 'approve: confirmed, door pass, job queued WITH the staff choices, review_log, in one call',
+      'setup', r_dec,
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'approve', %L, jsonb_build_object('mode', 'link', 'org_id', (select o.id from public.organizations o order by o.id limit 1)), false)) ->> 'jobs'$q$, v_o, c_staff),
+      'chk', format($q$select (select status = 'confirmed' and checkin_token is not null and decided_by = %1$L and decided_at is not null
+                                from public.gl_guest where id = current_setting('dryrun.g')::uuid)
+                          and (select count(*) = 1 and bool_and(status = 'queued' and org_action ->> 'mode' = 'link' and not validate_person and created_by = %1$L)
+                                 from public.account_provision_job where source_kind = 'gl_guest' and source_id = current_setting('dryrun.g')::uuid)
+                          and (select count(*) = 1 from public.review_log
+                                where subject_type = 'registration' and subject_id = current_setting('dryrun.g')::uuid and action = 'approve' and actor_id = %1$L)$q$, c_staff)),
+    jsonb_build_object('id', 'D02', 'who', 'service', 'expect', 'ret:capacity', 'label', 'approve over capacity is refused (event row locked)',
+      'setup', r_dec || format($q$; update public.gl_event set capacity = 0 where id = %L$q$, v_o),
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'approve', %L)) ->> 'error'$q$, v_o, c_staff),
+      'chk', $q$select status = 'requested' from public.gl_guest where id = current_setting('dryrun.g')::uuid$q$),
+    jsonb_build_object('id', 'D03', 'who', 'service', 'expect', 'ret:confirmed', 'label', 'approve over capacity with force',
+      'setup', r_dec || format($q$; update public.gl_event set capacity = 0 where id = %L$q$, v_o),
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'approve', %L, '{"mode": "none"}'::jsonb, true, true)) ->> 'status'$q$, v_o, c_staff),
+      'chk', $q$select status = 'confirmed' from public.gl_guest where id = current_setting('dryrun.g')::uuid$q$),
+    jsonb_build_object('id', 'D04', 'who', 'service', 'expect', 'ret:ticket_capacity', 'label', 'approve over a ticket capacity is refused',
+      'setup', r_dec || format($q$; update public.gl_ticket set capacity = 0 where event_id = %L and key = 'visitor'$q$, v_o),
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'approve', %L)) ->> 'error'$q$, v_o, c_staff)),
+    jsonb_build_object('id', 'D05', 'who', 'service', 'expect', 'ret:wrong_engine', 'label', 'a guest-list (v1) event is refused (guest-list decides there)',
+      'q', format($q$select (public.gl_decide_v2(%L, array[%L]::uuid[], 'approve', %L)) ->> 'error'$q$, v_c1, v_gconf, c_staff)),
+    jsonb_build_object('id', 'D06', 'who', 'service', 'expect', 'ret:needs_info', 'label', 'request_info: needs_info with the question stamped, no job',
+      'setup', r_dec,
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'request_info', %L, p_info_request => 'Please add your company website.')) ->> 'status'$q$, v_o, c_staff),
+      'chk', $q$select (select info_request = 'Please add your company website.' and info_requested_at is not null from public.gl_guest where id = current_setting('dryrun.g')::uuid)
+                   and not exists (select 1 from public.account_provision_job where source_id = current_setting('dryrun.g')::uuid)$q$),
+    jsonb_build_object('id', 'D07', 'who', 'service', 'expect', 'ret:info_request_required', 'label', 'request_info needs the question',
+      'setup', r_dec,
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'request_info', %L)) ->> 'error'$q$, v_o, c_staff)),
+    jsonb_build_object('id', 'D08', 'who', 'service', 'expect', 'ret:forbidden', 'label', 'the actor must be verified staff',
+      'setup', r_dec,
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'approve', %L)) ->> 'error'$q$, v_o, c_member)),
+    jsonb_build_object('id', 'D09', 'who', 'member', 'expect', 'rls', 'label', 'a member cannot call gl_decide_v2',
+      'q', format($q$select public.gl_decide_v2(%L, array[%L]::uuid[], 'approve', %L)::text$q$, v_o, v_gconf, c_member)),
+    jsonb_build_object('id', 'D10', 'who', 'service', 'expect', 'ret:1/1/rejected', 'label', 'reject: changed and skipped ids reported',
+      'setup', r_dec,
+      'q', format($q$select jsonb_array_length(x -> 'changed') || '/' || jsonb_array_length(x -> 'skipped') || '/' || (x ->> 'status') from (select public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid, %L::uuid], 'reject', %L) as x) s$q$, v_o, v_gconf, c_staff)),
+    jsonb_build_object('id', 'D11', 'who', 'service', 'expect', 'ret:bad_org_action', 'label', 'a malformed company choice is refused',
+      'setup', r_dec,
+      'q', format($q$select (public.gl_decide_v2(%L, array[current_setting('dryrun.g')::uuid], 'approve', %L, '{"mode": "link", "org_id": "not-a-uuid"}'::jsonb)) ->> 'error'$q$, v_o, c_staff))
   );
 
   -- ── Runner ──

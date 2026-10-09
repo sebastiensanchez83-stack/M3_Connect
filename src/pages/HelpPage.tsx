@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import * as AccordionPrimitive from '@radix-ui/react-accordion';
-import { ChevronDown, LifeBuoy, Link2, SearchX } from 'lucide-react';
+import { ChevronDown, HelpCircle, Link2, SearchX } from 'lucide-react';
 import { Seo } from '@/components/seo/Seo';
 import { PageHero } from '@/components/ui/PageHero';
 import { Button } from '@/components/ui/button';
@@ -14,9 +14,9 @@ import { SectionHead } from '@/components/content/ContentParts';
 import { useMotion } from '@/components/motion/MotionProvider';
 import { Reveal } from '@/components/motion/Reveal';
 import { buildHelpSections, PERSONA_SECTION, type HelpItem, type HelpSection } from '@/components/help/helpContent';
+import { buildHelpIndex, helpQueryWords, searchHelp } from '@/components/help/helpSearch';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { fold, searchWords } from '@/lib/searchSuggestions';
 import { plainPageMeta } from '@/lib/seoMeta';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { cn } from '@/lib/utils';
@@ -26,7 +26,9 @@ import { cn } from '@/lib/utils';
  * and indexable.
  *
  *   hero: "How can we help?" and a search that filters the answers as you
- *         type (every word must appear; accents and case ignored);
+ *         type (helpSearch.ts: small words dropped, "email" finds "e-mail",
+ *         keywords; when no answer has every word, the closest ones; the
+ *         sections whose questions hold the words first);
  *   start here: one card per profile (the reader's own is marked "Your
  *         profile"), then one per topic, each a jump to its section;
  *   the answers: per profile, then per topic, as accordions; from 1024 px a
@@ -40,8 +42,6 @@ import { cn } from '@/lib/utils';
  *
  * Sticky-header trap: nothing above the sticky list may have overflow-hidden.
  */
-
-type Indexed = { section: HelpSection; item: HelpItem; text: string };
 
 export function HelpPage() {
   const { t } = useTranslation();
@@ -62,24 +62,17 @@ export function HelpPage() {
   const persona = (profile?.persona as string | undefined) ?? '';
   const mine = !user ? null : !hasOrganization ? 'no-company' : PERSONA_SECTION[persona] ?? null;
 
-  const index = useMemo<Indexed[]>(
-    () => sections.flatMap((section) => section.items.map((item) => ({
-      section,
-      item,
-      text: fold([section.title, item.q, ...item.a, ...(item.steps ?? [])].join(' ')),
-    }))),
-    [sections],
-  );
+  const index = useMemo(() => buildHelpIndex(sections), [sections]);
   const itemIds = useMemo(() => new Set(index.map((x) => x.item.id)), [index]);
 
-  const words = searchWords(query);
+  const words = helpQueryWords(query);
+  const wordsKey = words.join(' ');
   const searching = words.length > 0;
-  const hits = useMemo(
-    () => (searching ? new Set(index.filter((x) => words.every((w) => x.text.includes(w))).map((x) => x.item.id)) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [index, words.join(' ')],
-  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const result = useMemo(() => searchHelp(index, words), [index, wordsKey]);
+  const hits = result.ids;
   const hitCount = hits?.size ?? 0;
+  const closest = result.mode === 'closest';
 
   // A few results: open them at once.
   useEffect(() => {
@@ -88,7 +81,9 @@ export function HelpPage() {
 
   // /help#<question> opens that answer and goes to it; /help#<section> goes to the section.
   useEffect(() => {
-    const id = decodeURIComponent(hash.replace(/^#/, ''));
+    let id = hash.replace(/^#/, '');
+    // A malformed escape (a cut link, "%E0%A4%A") must not break the page.
+    try { id = decodeURIComponent(id); } catch { /* keep it as it is */ }
     if (!id) return;
     if (quietHash.current === id) {
       quietHash.current = null;
@@ -156,8 +151,32 @@ export function HelpPage() {
   const shownSections = sections
     .map((s) => ({ ...s, items: hits ? s.items.filter((i) => hits.has(i.id)) : s.items }))
     .filter((s) => s.items.length > 0);
+  // While searching, the sections whose questions or title hold the words come
+  // first ("email": E-mails and unsubscribing before Service providers), and
+  // the topics before the profiles when that is where they are.
+  const strong = result.strong;
+  const rank = (s: HelpSection) => (strong ? s.items.filter((i) => strong.has(i.id)).length : 0);
+  if (searching) shownSections.sort((a, b) => rank(b) - rank(a));
   const profiles = shownSections.filter((s) => s.group === 'profile');
   const topics = shownSections.filter((s) => s.group === 'topic');
+  const topicsFirst = searching && Math.max(0, ...topics.map(rank)) > Math.max(0, ...profiles.map(rank));
+  const groups = [
+    {
+      id: 'help-profiles',
+      toc: t('help.groupProfilesShort', 'Profiles'),
+      eyebrow: t('help.groupProfilesEyebrow', 'By profile'),
+      title: t('help.groupProfilesTitle', 'Help for your profile'),
+      list: profiles,
+    },
+    {
+      id: 'help-topics',
+      toc: t('help.groupTopics', 'Topics'),
+      eyebrow: t('help.groupTopicsEyebrow', 'By topic'),
+      title: t('help.groupTopicsTitle', 'Help by topic'),
+      list: topics,
+    },
+  ].filter((g) => g.list.length > 0);
+  if (topicsFirst) groups.reverse();
   const allProfiles = sections.filter((s) => s.group === 'profile');
   const allTopics = sections.filter((s) => s.group === 'topic');
 
@@ -181,7 +200,7 @@ export function HelpPage() {
       <PageHero
         image={SITE_IMAGES.contactHero}
         seed="help-hero"
-        icon={LifeBuoy}
+        icon={HelpCircle}
         eyebrow={t('help.eyebrow', 'Help centre')}
         title={t('help.title', 'How can we help?')}
         subtitle={t('help.subtitle', 'Short answers about your account, the M3 checks, your company, messages, publishing a need and events.')}
@@ -195,7 +214,7 @@ export function HelpPage() {
           onValueChange={setQuery}
           onSearch={() => resultsRef.current?.scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' })}
           label={t('help.searchLabel', 'Search the help centre')}
-          placeholder={t('help.searchPlaceholder', 'Type a word, for example password')}
+          placeholder={t('help.searchPlaceholderShort', 'For example: password')}
         />
       </PageHero>
 
@@ -203,16 +222,25 @@ export function HelpPage() {
         <div ref={resultsRef} id="help-results" className="mx-auto max-w-7xl px-4 pb-16 pt-10 sm:px-6 md:pb-24 md:pt-14">
           {/* What the search found, said out loud once the typing settles. */}
           <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-            {searching
-              ? t('help.found', { count: hitCount, query: query.trim(), defaultValue_one: '{{count}} answer for “{{query}}”', defaultValue_other: '{{count}} answers for “{{query}}”' })
-              : ''}
+            {!searching
+              ? ''
+              : closest
+                ? t('help.closestFound', { count: hitCount, defaultValue_one: 'No answer has all these words. The closest answer is below.', defaultValue_other: 'No answer has all these words. The {{count}} closest answers are below.' })
+                : t('help.found', { count: hitCount, query: query.trim(), defaultValue_one: '{{count}} answer for “{{query}}”', defaultValue_other: '{{count}} answers for “{{query}}”' })}
           </p>
 
           {searching ? (
             <div className="mb-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-body-lg text-navy" aria-hidden="true">
-                {t('help.found', { count: hitCount, query: query.trim(), defaultValue_one: '{{count}} answer for “{{query}}”', defaultValue_other: '{{count}} answers for “{{query}}”' })}
-              </p>
+              <div aria-hidden="true">
+                <p className="text-body-lg text-navy">
+                  {closest
+                    ? t('help.closestTitle', { query: query.trim(), defaultValue: 'The closest answers for “{{query}}”' })
+                    : t('help.found', { count: hitCount, query: query.trim(), defaultValue_one: '{{count}} answer for “{{query}}”', defaultValue_other: '{{count}} answers for “{{query}}”' })}
+                </p>
+                {closest && (
+                  <p className="mt-1 text-body text-meta">{t('help.closestBody', 'No answer has all these words. Try fewer words, or write to the team below.')}</p>
+                )}
+              </div>
               {hitCount > 0 && (
                 <UnderlineLink onClick={() => setQuery('')} arrow={false} className="min-h-11 !text-[15px]">
                   {t('help.showAll', 'Show all the questions')}
@@ -243,17 +271,15 @@ export function HelpPage() {
             <div className="lg:grid lg:grid-cols-12 lg:gap-12">
               {/* The sections, following the reader (from 1024 px). No overflow-hidden above it. */}
               <aside className="hidden lg:col-span-3 lg:block">
+                {/* Taller than a laptop screen (1366x768): it scrolls on its own. Overflow on the sticky element itself is fine. */}
                 <nav
                   aria-label={t('help.tocLabel', 'Help sections')}
-                  className="sticky transition-[top] duration-300"
-                  style={{ top: 'calc(var(--header-h, 64px) + 24px)' }}
+                  className="sticky -mx-1 overflow-y-auto overscroll-contain px-1 pb-2 transition-[top] duration-300"
+                  style={{ top: 'calc(var(--header-h, 64px) + 24px)', maxHeight: 'calc(100vh - var(--header-h, 64px) - 48px)' }}
                 >
-                  {[
-                    { label: t('help.groupProfiles', 'Your profile'), list: profiles },
-                    { label: t('help.groupTopics', 'Topics'), list: topics },
-                  ].filter((g) => g.list.length > 0).map((g) => (
-                    <div key={g.label} className="mb-6">
-                      <p className="text-meta-caps mb-2">{g.label}</p>
+                  {groups.map((g) => (
+                    <div key={g.id} className="mb-6">
+                      <p className="text-meta-caps mb-2">{g.toc}</p>
                       <ul className="space-y-0.5 border-l border-rule">
                         {g.list.map((s) => {
                           const on = !searching && activeSection === s.id;
@@ -279,37 +305,23 @@ export function HelpPage() {
               </aside>
 
               <div className="min-w-0 lg:col-span-9">
-                {profiles.length > 0 && (
+                {groups.map((g, i) => (
                   <Group
-                    id="help-profiles"
-                    number="02"
-                    eyebrow={t('help.groupProfilesEyebrow', 'By profile')}
-                    title={t('help.groupProfilesTitle', 'Help for your profile')}
-                    sections={profiles}
+                    key={g.id}
+                    id={g.id}
+                    number={`0${i + 2}`}
+                    eyebrow={g.eyebrow}
+                    title={g.title}
+                    sections={g.list}
                     open={open}
                     onOpenChange={setOpen}
                     flash={flash}
                     mine={mine}
                     member={!!user}
                     onCopy={copyLink}
+                    className={i > 0 ? 'mt-16 md:mt-20' : undefined}
                   />
-                )}
-                {topics.length > 0 && (
-                  <Group
-                    id="help-topics"
-                    number="03"
-                    eyebrow={t('help.groupTopicsEyebrow', 'By topic')}
-                    title={t('help.groupTopicsTitle', 'Help by topic')}
-                    sections={topics}
-                    open={open}
-                    onOpenChange={setOpen}
-                    flash={flash}
-                    mine={mine}
-                    member={!!user}
-                    onCopy={copyLink}
-                    className={profiles.length > 0 ? 'mt-16 md:mt-20' : undefined}
-                  />
-                )}
+                ))}
                 {stuck}
               </div>
             </div>
@@ -333,7 +345,7 @@ function StartHere({ profiles, topics, mine }: { profiles: HelpSection[]; topics
         title={t('help.startTitle', 'Which profile are you?')}
         intro={t('help.startIntro', 'Choose your profile for what you can do on the platform, or a topic below.')}
       />
-      <ul className="mt-8 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+      <ul className="mt-8 grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 xl:grid-cols-6">
         {profiles.map((s) => (
           <li key={s.id} className="flex">
             <JumpCard section={s} mine={s.id === mine} />
@@ -341,7 +353,7 @@ function StartHere({ profiles, topics, mine }: { profiles: HelpSection[]; topics
         ))}
       </ul>
       <h3 className="text-meta-caps mt-10">{t('help.orTopic', 'Or choose a topic')}</h3>
-      <ul className="mt-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
+      <ul className="mt-4 grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-4">
         {topics.map((s) => (
           <li key={s.id} className="flex">
             <JumpCard section={s} />
@@ -355,13 +367,14 @@ function StartHere({ profiles, topics, mine }: { profiles: HelpSection[]; topics
 function JumpCard({ section, mine = false }: { section: HelpSection; mine?: boolean }) {
   const { t } = useTranslation();
   const Icon = section.icon;
+  // Phones: two cards a row, the icon above the title so whole words fit ("connections", "unsubscribing").
   return (
-    <CardShell as="div" interactive className={cn('w-full flex-row items-center gap-3 p-4', mine && 'border-gold ring-1 ring-inset ring-gold')}>
-      <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-field bg-chip text-navy">
-        <Icon className="h-5 w-5" />
+    <CardShell as="div" interactive className={cn('w-full flex-col items-start gap-2 p-3 min-[480px]:flex-row min-[480px]:items-center sm:gap-3 sm:p-4', mine && 'border-gold ring-1 ring-inset ring-gold')}>
+      <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-field bg-chip text-navy sm:h-11 sm:w-11">
+        <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
       </span>
-      <span className="min-w-0 flex-1">
-        <StretchedLink to={`#${section.id}`} className="text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">
+      <span className="min-w-0 flex-1 self-stretch min-[480px]:self-auto">
+        <StretchedLink to={`#${section.id}`} className="text-[15px] font-semibold leading-5 text-navy [overflow-wrap:break-word] sm:text-[16px] sm:leading-6">
           {section.title}
         </StretchedLink>
         {mine && (

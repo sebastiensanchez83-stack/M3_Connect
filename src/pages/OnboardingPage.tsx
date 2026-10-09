@@ -1008,7 +1008,7 @@ export function OnboardingPage() {
             <div className="flex items-center gap-1.5">
               <h2 className="text-card-title text-navy">Have an organization code?</h2>
               <HelpTip title={t('help.tips.codeTitle', 'What is an organization code?')} more="marina-listed" newTab className="text-meta">
-                {t('help.tips.code', 'M3 gives a code to some companies it has already listed, such as marinas in the directory. Enter it to take charge of your page instead of creating a second one. No code? Just fill in the form below.')}
+                {t('help.tips.codeLink', 'M3 gives a code to some companies it has already listed, such as marinas in the directory. Enter it to link your account to your page instead of creating a second one. No code? Just fill in the form below.')}
               </HelpTip>
             </div>
             <p className="mt-1 text-sm leading-6 text-meta">If your marina or organization has already been registered on the platform, enter the code provided to you to join directly.</p>
@@ -1290,7 +1290,7 @@ export function OnboardingPage() {
                     {profile.persona === 'partner' && t('onboarding.partnerForm.serviceSectors')}
                   </Label>
                   <HelpTip title={t('help.tips.sectorsTitle', 'Why sectors matter')} more="company-sectors" newTab className="text-meta">
-                    {t('help.tips.sectors', 'They say what your company offers or looks for. They decide which needs and articles we suggest to you, and whether a first message connects you with a company at once.')}
+                    {t('help.tips.sectorsWhy', 'They say what your company offers or looks for, and decide which needs and articles we suggest to you.')}
                   </HelpTip>
                 </div>
                 <p className="text-[13px] leading-5 text-meta">
@@ -1355,9 +1355,9 @@ export function OnboardingPage() {
         {/* ── What happens next, then the submit button ── */}
         {!alreadyVerified && (
           <p className="flex items-center gap-1.5 text-sm leading-5 text-meta">
-            {t('help.tips.onboardingNextLine', 'Next, the M3 team checks your company.')}
-            <HelpTip title={t('help.tips.onboardingNextTitle', 'What happens after you send this')} more="verification-time" newTab>
-              {t('help.tips.onboardingNext', 'M3 checks your company and your account, usually within 24 to 48 business hours, and e-mails you. Meanwhile you can read the resources and register for webinars.')}
+            <span>{t('help.tips.onboardingNextWhen', 'Next, the M3 team checks your company, usually within 24 to 48 business hours, and e-mails you.')}</span>
+            <HelpTip title={t('help.tips.onboardingWaitTitle', 'While you wait')} more="verification-meanwhile" newTab>
+              {t('help.tips.onboardingWait', 'You can complete your profile, read the public resources and look at the coming events. Registering for events, messages and publishing open once you are approved.')}
             </HelpTip>
           </p>
         )}

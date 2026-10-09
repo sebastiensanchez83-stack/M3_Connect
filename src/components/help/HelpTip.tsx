@@ -17,7 +17,8 @@ import { helpHref } from './helpContent';
  *   </HelpTip>
  *
  * - The button is 24 px to look at and 44 px to touch (a transparent ring
- *   around it), named "Help: <title>", with aria-expanded. It takes the colour
+ *   around it, lifted with z-[1] so a later sibling with its own stacking
+ *   context, such as an opacity-90 paragraph, cannot cover the ring), named "Help: <title>", with aria-expanded. It takes the colour
  *   of the text around it, so it reads on a white card, a yellow banner or navy
  *   (`tone="dark"` only changes the hover).
  * - The card is a non-modal dialog drawn in a portal (so no card with
@@ -165,7 +166,7 @@ export function HelpTip({
         onClick={() => (open ? close(false) : setOpen(true))}
         className={cn(
           // 24 px to look at, 44 px to touch.
-          "relative inline-grid h-6 w-6 shrink-0 place-items-center rounded-full align-middle text-current transition-colors before:absolute before:-inset-2.5 before:content-[''] focus-visible:shadow-focus focus-visible:outline-none",
+          "relative z-[1] inline-grid h-6 w-6 shrink-0 place-items-center rounded-full align-middle text-current transition-colors before:absolute before:-inset-2.5 before:content-[''] focus-visible:shadow-focus focus-visible:outline-none",
           dark ? 'hover:bg-white/15' : 'hover:bg-navy/10',
           open && (dark ? 'bg-white/15' : 'bg-navy/10'),
           className,

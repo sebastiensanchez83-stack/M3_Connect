@@ -230,7 +230,7 @@ export function SubmitConsultationPage() {
               {t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}{' '}
               {/* Learn more opens in a new tab: what was typed in the form stays. */}
               <HelpTip title={t('help.tips.publishTitle', 'What happens next')} more="publishing-review" newTab>
-                {t('help.tips.publish', 'The M3 team reads it, usually within one business day, then publishes it for verified members and e-mails you. Answers arrive in your Messages.')}
+                {t('help.tips.publishNext', 'The M3 team reads it, usually within one business day, then publishes it and e-mails you. Service providers can then answer, and their answers arrive in your Messages.')}
               </HelpTip>
             </>
           )}

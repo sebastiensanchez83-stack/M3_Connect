@@ -723,16 +723,17 @@ function Alerts({
             <>
               {t('dashboard.statusPendingTitle')}{' '}
               <HelpTip title={t('help.tips.reviewTitle', 'Why M3 checks your account')} more="verification-time">
-                {t('help.tips.review', 'Every company and every person is checked by the M3 team, so members know who they talk to. There is nothing else to do: we e-mail you when it is done.')}
+                {t('help.tips.reviewWhy', 'M3 checks every company and every person, so members know who they talk to. You do not need to do anything for the check.')}
               </HelpTip>
             </>
           )}
-          body={t('memberHome.alerts.pendingBody', 'The M3 team reviews each new account, usually within 24 to 48 business hours, and emails you as soon as yours is approved. Meanwhile, public resources and events are open to you.')}
+          // A pending account cannot register for events yet (database rule event_reg_insert): it can look at them.
+          body={t('memberHome.alerts.pendingWhile', 'The M3 team reviews each new account, usually within 24 to 48 business hours, and e-mails you as soon as yours is approved. Meanwhile, the public resources are open to you, and you can look at the coming events.')}
           action={(
             <nav aria-label={t('dashboard.pendingMeanwhile', 'While you wait')} className="flex flex-col gap-1.5 sm:items-end">
               <UnderlineLink onClick={() => onOpen('profile')} className={linkCls}>{t('dashboard.pendingProfile', 'Complete your profile')}</UnderlineLink>
               <UnderlineLink to="/resources" className={linkCls}>{t('dashboard.pendingLibrary', 'Read the library')}</UnderlineLink>
-              <UnderlineLink to="/events?type=webinar" className={linkCls}>{t('dashboard.pendingWebinar', 'Register for a webinar')}</UnderlineLink>
+              <UnderlineLink to="/events?type=webinar" className={linkCls}>{t('dashboard.pendingWebinarsSee', 'See the coming webinars')}</UnderlineLink>
               <UnderlineLink to="/contact" className={linkCls}>{t('dashboard.pendingContact', 'Write to the M3 team')}</UnderlineLink>
             </nav>
           )}
@@ -767,11 +768,12 @@ function Alerts({
             <>
               {t('dashboard.orgPendingTitle', { org: orgName })}{' '}
               <HelpTip title={t('help.tips.orgReviewTitle', 'Your company is checked too')} more="verification-company">
-                {t('help.tips.orgReview', 'M3 checks the company as well as the people. Publishing, the opportunities and messages open once it is approved; we e-mail you.')}
+                {t('help.tips.orgReviewWhat', 'M3 checks the company as well as the people. Publishing a need and writing to other companies open once it is approved.')}
               </HelpTip>
             </>
           )}
-          body={t('dashboard.orgPendingBody')}
+          // The opportunities follow the person's approval (has_marketplace_access), not the company's.
+          body={t('dashboard.orgPendingWhat', 'Publishing a need and writing to other companies open once your company is approved.')}
         />
       )}
       {incomplete && (

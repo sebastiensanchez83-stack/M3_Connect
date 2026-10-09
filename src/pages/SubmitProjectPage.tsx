@@ -232,10 +232,11 @@ export function SubmitProjectPage() {
         <FormFooter
           note={isEditMode ? undefined : (
             <>
-              {t('opportunities.emptyCreatorReviewed', 'Each request is reviewed by the M3 team before it is published.')}{' '}
+              {/* A project is private (marina_projects: its author and M3 only): it is not "published". */}
+              {t('help.tips.projectNote', 'Only you and the M3 team see your project.')}{' '}
               {/* Learn more opens in a new tab: what was typed in the form stays. */}
-              <HelpTip title={t('help.tips.publishTitle', 'What happens next')} more="publishing-review" newTab>
-                {t('help.tips.publish', 'The M3 team reads it, usually within one business day, then publishes it for verified members and e-mails you. Answers arrive in your Messages.')}
+              <HelpTip title={t('help.tips.publishTitle', 'What happens next')} more="publishing-project" newTab>
+                {t('help.tips.project', 'The M3 team reads your project, usually within one business day, and puts you in touch with suitable service providers. Projects are not shown to other members.')}
               </HelpTip>
             </>
           )}

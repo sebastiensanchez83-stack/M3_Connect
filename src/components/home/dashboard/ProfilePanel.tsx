@@ -143,7 +143,7 @@ export function ProfilePanel({ initialSection, onChanged }: { initialSection: st
                 ? t('dash.emailsAll', 'All of them')
                 : t('dash.emailsOff', { count: off, defaultValue_one: 'All but {{count}} kind', defaultValue_other: 'All but {{count}} kinds' })}
               <HelpTip title={t('help.tips.emailsTitle', 'Choosing your e-mails')} more="emails-choose" className="text-meta">
-                {t('help.tips.emails', 'Turn off the kinds of e-mail you do not need. E-mails you ask for, like a password link, always arrive, and every e-mail has an Unsubscribe link.')}
+                {t('help.tips.emailsChoose', 'Turn off the kinds of e-mail you do not need. E-mails you ask for, such as a link to choose a new password, always arrive.')}
               </HelpTip>
             </span>
           )}

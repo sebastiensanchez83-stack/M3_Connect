@@ -29,10 +29,19 @@
 --                      3 person or company waiting for access, 4 content
 --                      (needs, webinar proposals, article drafts, old queues)
 --       facts          jsonb of key facts for the 10-second card (see below)
---     Rows come sorted: priority, then newest waiting_since first.
---     Verified admins see every kind. A verified moderator (not admin) sees only
---     the kinds whose screens a moderator may open: webinar proposals and
---     article drafts (every other screen is behind AdminOnlyGuard).
+--     Rows come sorted: priority, then the one waiting LONGEST first (oldest
+--     waiting_since first), so a forgotten item is never last in its group.
+--     Verified admins see every kind. A verified moderator (not admin) sees the
+--     kinds a moderator may handle: webinar proposals, article drafts (every
+--     other screen is behind AdminOnlyGuard) and reported conversations
+--     (conversation_reports RLS: is_moderator() reads and closes them; the page
+--     closes a report with that same update, no screen needed).
+--
+--   Later versions: the spec plans admin_review_queue(filter jsonb). A later
+--   migration MUST drop public.admin_review_queue() and
+--   public.admin_review_queue_count() before adding an overload with a DEFAULT,
+--   or supabase.rpc('admin_review_queue') becomes ambiguous in PostgREST
+--   (PGRST203) and the page, the badge and the dashboard card go blank.
 --
 --   public.admin_review_queue_count()
 --     SECURITY INVOKER, STABLE: count(*) of the above for the caller (the
@@ -53,12 +62,13 @@
 --                  e-mail domain = website host (null when unknown or public),
 --                  registered for Smart Marina 2026 (sm_attendee, READ ONLY:
 --                  same user_id or same e-mail).
---   company        organizations.access_status = 'pending' with NO pending
---                  member: a pending company whose person is waiting is shown
---                  on that person's card (AdminUserDetail's Approve verifies
---                  both), and a company whose people are all still drafts is
---                  not waiting for M3 yet (1 row: its only person was not
---                  accepted).
+--   company        organizations.access_status = 'pending', except (a) a
+--                  company already shown on a waiting person's card (that
+--                  person's company, owner first: AdminUserDetail's Approve
+--                  verifies both) and (b) a company whose people are all still
+--                  drafts (not waiting for M3 yet). A pending company is never
+--                  hidden only because some other member is pending. 1 row
+--                  today: its only person was not accepted.
 --   event_request  gl_guest.status = 'requested' (requests and plus-ones; 3
 --                  wys26 rows), read like /admin/guest-list/<slug> reads them.
 --                  Canary and hidden events are left out (slug 'canary-%',
@@ -71,6 +81,12 @@
 --                  20261009190000). Read through EXECUTE so this function is
 --                  valid without it; if its columns differ, the reports are
 --                  skipped with a WARNING and the rest of the queue still loads.
+--                  Facts carry the reason and the excerpt (the last messages
+--                  at the time of the report: the only way M3 reads a
+--                  conversation). url = /admin/partner-requests, where the
+--                  messaging lane's "Reported conversations" panel lists them;
+--                  the queue card itself closes a report (status 'closed'
+--                  through the table's staff RLS, exactly like that panel).
 --   need           rfps and consultations in submitted / under_review;
 --                  marina_projects in new / submitted / under_review (new
 --                  projects are inserted as 'new'). 0 rows today.
@@ -124,8 +140,9 @@ begin
   end if;
   v_admin := coalesce(public.is_admin(), false);
 
-  -- 1. Reported conversations (priority 1). Optional table: read through EXECUTE.
-  if v_admin and pg_catalog.to_regclass('public.conversation_reports') is not null then
+  -- 1. Reported conversations (priority 1), admins and moderators (the table's
+  --    staff RLS is is_moderator()). Optional table: read through EXECUTE.
+  if pg_catalog.to_regclass('public.conversation_reports') is not null then
     begin
       return query execute $q$
         select 'report'::text,
@@ -135,10 +152,11 @@ begin
                nullif(left(btrim(r.reason), 160), '')::text,
                r.created_at,
                r.created_at,
-               coalesce('/admin/partner-requests/' || r.partner_request_id::text, '/admin/partner-requests')::text,
+               '/admin/partner-requests'::text,
                1,
                jsonb_strip_nulls(jsonb_build_object(
-                 'reason', nullif(left(btrim(r.reason), 600), ''),
+                 'reason', nullif(left(btrim(r.reason), 1000), ''),
+                 'excerpt', nullif(left(btrim(r.excerpt), 30000), ''),
                  'reporter_name', nullif(btrim(concat_ws(' ', btrim(rp.first_name), btrim(rp.last_name))), ''),
                  'reporter_company', nullif(btrim(ro.name), ''),
                  'partner_request_id', r.partner_request_id,
@@ -150,7 +168,7 @@ begin
           left join public.organizations ro on ro.id = r.reporter_org_id
           left join public.profiles rp on rp.user_id = r.reporter_user_id
          where r.status = 'open'
-         order by r.created_at desc, r.id
+         order by r.created_at asc, r.id
       $q$;
     exception
       when undefined_table or undefined_column or undefined_function or datatype_mismatch then
@@ -265,7 +283,7 @@ begin
 
     union all
 
-    -- 4. Companies waiting with no person waiting for them, priority 3.
+    -- 4. Companies waiting that no person card shows, priority 3.
     select 'company'::text,
            o.id,
            coalesce(nullif(btrim(o.name), ''), 'Unnamed company')::text,
@@ -292,11 +310,21 @@ begin
       ) w
      where v_admin
        and o.access_status = 'pending'
+       -- (a) not already on a waiting person's card (section 3 shows member_org)
        and not exists (select 1
-                         from public.organization_members m
-                         join public.profiles mp on mp.user_id = m.user_id
-                        where m.organization_id = o.id
-                          and mp.access_status::text = 'pending')
+                         from member_org mo2
+                         join public.profiles mp on mp.user_id = mo2.user_id
+                        where mo2.organization_id = o.id
+                          and mp.access_status::text = 'pending'
+                          and mp.onboarding_status::text <> 'draft')
+       -- (b) not a company whose people are all still drafts (an empty one is shown)
+       and not (exists (select 1 from public.organization_members m where m.organization_id = o.id)
+                and not exists (select 1
+                                  from public.organization_members m
+                                  left join public.profiles mp on mp.user_id = m.user_id
+                                 where m.organization_id = o.id
+                                   and not (coalesce(mp.access_status::text, '') = 'pending'
+                                            and coalesce(mp.onboarding_status::text, '') = 'draft')))
 
     union all
 
@@ -450,12 +478,12 @@ begin
   )
   select q.kind, q.id, q.title, q.subtitle, q.created_at, q.waiting_since, q.url, q.priority, q.facts
     from q
-   order by q.priority, q.waiting_since desc nulls last, q.kind, q.id;
+   order by q.priority, q.waiting_since asc nulls last, q.kind, q.id;
 end;
 $function$;
 
 comment on function public.admin_review_queue() is
-  'M3 review queue (/admin/review): one row per item waiting for M3 staff (kind, id, title, subtitle, created_at, waiting_since, url, priority 1-4, facts). Read only. Verified staff only (42501 otherwise); moderators get webinar proposals and article drafts only. conversation_reports is read only if it exists. Migration 20261009230000.';
+  'M3 review queue (/admin/review): one row per item waiting for M3 staff (kind, id, title, subtitle, created_at, waiting_since, url, priority 1-4, facts), most urgent first, then longest waiting first. Read only. Verified staff only (42501 otherwise); moderators get reported conversations, webinar proposals and article drafts only. conversation_reports is read only if it exists. A later overload must DROP this signature first (PostgREST ambiguity). Migration 20261009230000.';
 
 create or replace function public.admin_review_queue_count()
 returns integer

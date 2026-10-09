@@ -6,6 +6,8 @@ import { AlertTriangle, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AuthLoading, AuthShell, AuthStatus } from '@/components/auth/AuthShell';
+import { AuthDialog } from '@/components/auth/AuthDialog';
+import { LoginForm } from '@/components/auth/LoginForm';
 import { AuthInput, AuthLabel, AuthNotice, CTA_WRAP, FieldHint, PasswordInput } from '@/components/auth/fields';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,8 +29,12 @@ const AFTER_SIGNUP = '/onboarding';
 //    and sponsor-invite — event-provisioned accounts (pw_pending) set their
 //    password here BEFORE reaching their hub; AuthRedirector routes any
 //    pw_pending account here until that is done;
-//  - claim-code sign-up confirmations (type=signup, next=/onboarding);
-//  - sign-in links (LoginForm "Email me a sign-in link", the resend below).
+//  - sign-up confirmations (type=signup): claim-code ones (next=/onboarding?code=…)
+//    and, through throughWelcome (src/lib/confirmationLink.ts), every other
+//    activation link the app asks GoTrue for. A type=signup link always ends with
+//    the forced password step.
+// There is no e-mailed sign-in link any more (password mandatory, Victor 6 Oct
+// 2026): a dead link is replaced by a link to choose a password (/reset-password).
 // The SM26 banner and "event hub" wording only show for event links; everything
 // else gets the neutral Smart Marina Connect version.
 // Logged-out visitors (expired / already-used link) get a clean "send me a new
@@ -129,6 +135,9 @@ export function WelcomePage() {
   const [busy, setBusy] = useState(false);
   const [resendEmail, setResendEmail] = useState('');
   const [resent, setResent] = useState(false);
+  // Logged out: "Already have a password? Sign in" opens the sign-in window here
+  // (the header's Sign in sits in the menu on a phone).
+  const [loginOpen, setLoginOpen] = useState(false);
   // Set when this session cannot save a password (see needsFreshSession): the
   // way out is a password link e-mailed to the account.
   const [freshLink, setFreshLink] = useState<'needed' | 'sent' | null>(null);
@@ -216,8 +225,8 @@ export function WelcomePage() {
   const mustSetPassword = !!user && (redeemedType === 'signup' || (pwPending && meta.pw_pending_reason === 'signup'));
 
   // A link with no `next` and no pw_pending flag may still be an SM26 one
-  // (sm26-provision mails existing accounts, the resend below, a sign-in link):
-  // ask whether this person has their own SM26 registration.
+  // (sm26-provision mails existing accounts, an older SM26 access link): ask
+  // whether this person has their own SM26 registration.
   const needsLookup = !!uid && !explicitNext && !mustSetPassword && !pwPending;
   const [sm26Lookup, setSm26Lookup] = useState<{ uid: string; registered: boolean } | null>(null);
   useEffect(() => {
@@ -242,13 +251,20 @@ export function WelcomePage() {
   }, [uid, needsLookup]);
   const lookupPending = needsLookup && sm26Lookup?.uid !== uid;
 
+  // Where the provisioner said to go (pw_pending_next), if anywhere.
+  const storedNext = mustSetPassword || pwPending ? safeNext(typeof meta.pw_pending_next === 'string' ? meta.pw_pending_next : null, { deny: ['/welcome'] }) : null;
+
   let isEvent: boolean;
   if (explicitNext) isEvent = isEventPath(explicitNext);
   else if (!user || mustSetPassword) isEvent = false;
-  else if (pwPending) isEvent = true; // event-provisioned account (sm26-register / sm26-provision)
+  else if (storedNext) isEvent = isEventPath(storedNext);
+  // The event provisioners of today (sm26-register, sm26-provision,
+  // sm26-attendee-invite, sponsor-invite) set pw_pending with no reason: SM26. One
+  // that names another reason (a later event) gets the neutral page and the member
+  // home, unless it stores pw_pending_next. Same rule as ResetPasswordPage.
+  else if (pwPending) isEvent = !meta.pw_pending_reason;
   else isEvent = sm26Lookup?.uid === uid && !!sm26Lookup?.registered;
 
-  const storedNext = mustSetPassword ? safeNext(typeof meta.pw_pending_next === 'string' ? meta.pw_pending_next : null, { deny: ['/welcome'] }) : null;
   const next = explicitNext ?? storedNext ?? (isEvent ? EVENT_HUB : mustSetPassword ? AFTER_SIGNUP : MEMBER_HOME);
 
   const finish = () => {
@@ -289,6 +305,14 @@ export function WelcomePage() {
         variant: 'destructive',
       });
       return;
+    }
+    if (mustSetPassword) {
+      // A sign-up's password may have been typed by someone else (pre-registration
+      // takeover): end every other session of this account, e.g. one opened with
+      // that password between the confirmation and this step. This browser stays
+      // signed in. Best effort: the password itself is saved already.
+      const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
+      if (othersError) console.error('Other sessions could not be ended:', othersError);
     }
     toast({
       title: confirmed
@@ -339,32 +363,33 @@ export function WelcomePage() {
     const email = resendEmail.trim().toLowerCase();
     if (!email) return;
     setBusy(true);
-    // Sends a fresh link to an EXISTING account only (no signup here). It comes
-    // back here, to the same destination as the link that failed.
-    const redirect = new URL('/welcome', window.location.origin);
+    // Passwords are mandatory (Victor, 6 Oct 2026): no e-mailed sign-in link any
+    // more. A dead access link is replaced by a link to choose a password, the same
+    // e-mail as "Forgot password?". /reset-password redeems it on any device, saves
+    // the password, clears pw_pending and takes them on: to the same destination as
+    // the link that failed, else where /welcome would have (pendingDestination there).
+    const redirect = new URL('/reset-password', window.location.origin);
     if (explicitNext) redirect.searchParams.set('next', explicitNext);
     redirect.searchParams.set('lang', lang);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false, emailRedirectTo: redirect.toString() },
-    });
+    let error: AuthErrorLike | null = null;
+    try {
+      ({ error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: redirect.toString() }));
+    } catch (err) {
+      error = err instanceof Error ? err : { message: String(err) };
+    }
     setBusy(false);
     if (error) {
-      // An unknown address is answered like a known one: which addresses have
-      // an account is not ours to disclose.
-      const unknownAccount = error.code === 'otp_disabled' || /signups not allowed/i.test(error.message || '');
-      if (!unknownAccount) {
-        console.error('Access link could not be sent:', error.code ?? error.name, error.message);
-        const tooSoon = isRateLimited(error);
-        toast({
-          title: tooSoon
-            ? t('welcome.resendTooSoon', 'Please wait a minute before asking for another link.')
-            : t('welcome.resendFailed', 'Could not send the link'),
-          description: tooSoon ? undefined : t('welcome.tryAgain', 'Please try again in a moment.'),
-          variant: 'destructive',
-        });
-        return;
-      }
+      // GoTrue answers an unknown address like a known one: nothing to hide here.
+      console.error('Password link could not be sent:', error.code ?? error.name, error.message);
+      const tooSoon = isRateLimited(error);
+      toast({
+        title: tooSoon
+          ? t('welcome.resendTooSoon', 'Please wait a minute before asking for another link.')
+          : t('welcome.resendFailed', 'Could not send the link'),
+        description: tooSoon ? undefined : t('welcome.tryAgain', 'Please try again in a moment.'),
+        variant: 'destructive',
+      });
+      return;
     }
     setResent(true);
   };
@@ -378,17 +403,17 @@ export function WelcomePage() {
         <AuthStatus
           tone={linkFailed ? 'warning' : 'default'}
           icon={linkFailed ? <AlertTriangle className="h-6 w-6" /> : <Mail className="h-6 w-6" />}
-          title={linkFailed ? t('welcome.linkInvalidTitle', "This link can't be used") : t('welcome.getLinkTitle', 'Get your access link')}
+          title={linkFailed ? t('welcome.linkInvalidTitle', "This link can't be used") : t('welcome.passwordLinkTitle', 'Get a link to set your password')}
         >
           <p className="text-sm leading-6 text-meta">
             {linkFailed
-              ? t('welcome.linkInvalidDesc', "Links in our e-mails work once and expire. This one has already been used, has run out, or was replaced by a newer link. Enter your e-mail address and we'll send you a fresh one.")
-              : t('welcome.getLinkDesc', "Access links work once and expire quickly. Enter the e-mail address of your account and we'll send you a fresh one.")}
+              ? t('welcome.passwordLinkInvalidDesc', "Links in our e-mails work once and expire. This one has already been used, has run out, or was replaced by a newer one. Enter your e-mail address: we'll send you a link to choose your password.")
+              : t('welcome.passwordLinkDesc', "Enter the e-mail address of your account: we'll send you a link to choose your password. It works once, on any device.")}
           </p>
           {resent ? (
             <AuthNotice tone="success" role="status">
               <p className="break-words">
-                {t('welcome.linkSent', 'If an account exists for {{email}}, a new access link is on its way. Check your inbox (and your spam folder).', { email: resendEmail.trim().toLowerCase() })}
+                {t('welcome.passwordLinkSent', 'If an account exists for {{email}}, a link to choose your password is on its way. Check your inbox (and your spam folder).', { email: resendEmail.trim().toLowerCase() })}
               </p>
             </AuthNotice>
           ) : (
@@ -405,14 +430,23 @@ export function WelcomePage() {
                 />
               </div>
               <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !resendEmail.trim()}>
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.sendLink', 'E-mail me a new access link')}
+                {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.reauthSend', 'E-mail me a link to set my password')}
               </Button>
-              <FieldHint className="text-center">
-                {t('welcome.haveLogin', 'Already have a password? Use {{login}} (top-right) instead.', { login: t('nav.login', 'Login') })}
-              </FieldHint>
+              <p className="text-center text-sm leading-6 text-meta">
+                {t('welcome.havePassword', 'Already have a password?')}{' '}
+                <UnderlineLink arrow={false} className="min-h-11 !text-sm" onClick={() => setLoginOpen(true)}>
+                  {t('auth.login', 'Sign in')}
+                </UnderlineLink>
+              </p>
             </form>
           )}
         </AuthStatus>
+        <AuthDialog mode="login" open={loginOpen} onOpenChange={setLoginOpen} switchTo={{ onClick: () => { setLoginOpen(false); navigate('/?signup=true'); } }}>
+          <LoginForm
+            next={explicitNext ?? undefined}
+            onSuccess={() => { setLoginOpen(false); navigate(explicitNext ?? MEMBER_HOME, { replace: true }); }}
+          />
+        </AuthDialog>
       </WelcomeShell>
     );
   }
@@ -422,17 +456,26 @@ export function WelcomePage() {
   // verified address is shown instead.
   const firstName = mustSetPassword ? '' : (profile?.first_name || (meta.first_name as string | undefined) || '');
   // Worded so it holds whether or not the account still carries a password typed
-  // on the sign-up form (see setPassword's same-password note).
-  const title = mustSetPassword
-    ? t('welcome.forcedTitle', 'Choose your password')
-    : firstName
-      ? t('welcome.secureTitleNamed', '{{name}}, secure your account', { name: firstName })
-      : t('welcome.secureTitle', 'Secure your account');
-  const description = mustSetPassword
-    ? t('welcome.forcedDesc', 'Your e-mail address is confirmed. Choose a password to finish creating your account.')
-    : isEvent
-      ? t('welcome.eventDesc', 'Your Smart Marina Connect account is ready. Choose a password so you can sign back in anytime — then head to your event hub to complete your participation.')
-      : t('welcome.neutralDesc', 'You are signed in. Choose a password so you can sign back in anytime with your e-mail address.');
+  // on the sign-up form (see setPassword's same-password note). A claim-code
+  // account (app_metadata.claim_org_id: set by claim-code-signup only, never by the
+  // user) never had a password of its own; any other sign-up typed one on the form
+  // moments ago, so it is asked to type it once more (or to choose a new one).
+  const claimSignup = typeof (user?.app_metadata as Record<string, unknown> | undefined)?.claim_org_id === 'string';
+  const retype = mustSetPassword && !claimSignup;
+  const title = retype
+    ? t('welcome.retypeTitle', 'Confirm your password')
+    : mustSetPassword
+      ? t('welcome.forcedTitle', 'Choose your password')
+      : firstName
+        ? t('welcome.secureTitleNamed', '{{name}}, secure your account', { name: firstName })
+        : t('welcome.secureTitle', 'Secure your account');
+  const description = retype
+    ? t('welcome.retypeIntro', 'Your e-mail address is confirmed. To finish, type your password in both boxes: the one you chose when you signed up, or a new one.')
+    : mustSetPassword
+      ? t('welcome.forcedDesc', 'Your e-mail address is confirmed. Choose a password to finish creating your account.')
+      : isEvent
+        ? t('welcome.eventDesc', 'Your Smart Marina Connect account is ready. Choose a password so you can sign back in anytime — then head to your event hub to complete your participation.')
+        : t('welcome.neutralDesc', 'You are signed in. Choose a password so you can sign back in anytime with your e-mail address.');
 
   return (
     <WelcomeShell event={isEvent}>
@@ -450,17 +493,17 @@ export function WelcomePage() {
           {/* Lets password managers file the new password under the right account. */}
           <input type="email" name="username" autoComplete="username" value={user.email ?? ''} readOnly hidden />
           <div className="space-y-2">
-            <AuthLabel htmlFor="welcome-password">{t('auth.password', 'Password')}</AuthLabel>
+            <AuthLabel htmlFor="welcome-password">{retype ? t('welcome.retypeLabel', 'Your password') : t('auth.password', 'Password')}</AuthLabel>
             <PasswordInput
               id="welcome-password"
               value={pw}
               onChange={e => setPw(e.target.value)}
-              placeholder={t('auth.passwordPlaceholder', 'Min. 8 characters')}
+              placeholder={retype ? undefined : t('authRefonte.signup.passwordPlaceholder', 'At least 8 characters')}
               autoComplete="new-password"
             />
           </div>
           <div className="space-y-2">
-            <AuthLabel htmlFor="welcome-password2">{t('auth.confirmPassword', 'Confirm Password')}</AuthLabel>
+            <AuthLabel htmlFor="welcome-password2">{t('authRefonte.signup.confirmPassword', 'Confirm password')}</AuthLabel>
             <PasswordInput
               id="welcome-password2"
               value={pw2}
@@ -495,15 +538,19 @@ export function WelcomePage() {
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {isEvent
               ? t('welcome.ctaEvent', 'Set password & open my event hub')
-              : t('welcome.ctaContinue', 'Set password & continue')}
+              : retype
+                ? t('welcome.ctaRetype', 'Confirm and continue')
+                : t('welcome.ctaContinue', 'Set password & continue')}
           </Button>
           {mustSetPassword ? (
             <FieldHint className="text-center">
-              {t('welcome.forcedHint', 'This step is required: it makes sure only you can sign in to this account.')}
+              {retype
+                ? t('welcome.retypeHint', 'This step is required. If you did not sign up yourself, choose a new password: only yours will work.')
+                : t('welcome.forcedHint', 'This step is required: it makes sure only you can sign in to this account.')}
             </FieldHint>
           ) : (
             <div className="text-center">
-              <UnderlineLink arrow={false} onClick={skipHasPassword} disabled={busy} className="!text-sm !font-medium">
+              <UnderlineLink arrow={false} onClick={skipHasPassword} disabled={busy} className="min-h-11 !text-sm !font-medium">
                 {isEvent
                   ? t('welcome.skipEvent', 'I already have a password — take me to my event hub')
                   : t('welcome.skipContinue', 'I already have a password — continue')}

@@ -91,6 +91,13 @@ export function AuthRedirector() {
     // locked state (/submit-rfp…) do the same through ProtectedRoute.
     if (!user) return
 
+    // The password pages drive their own next step (WelcomePage: ?next= or the stored
+    // pw_pending_next; ResetPasswordPage: ?next= or the pw_pending fallback). A redirect
+    // from here (e.g. to a stored /join invitation) would pull the person off the page
+    // before their password is saved and drop where the link was going.
+    const page = pathname.toLowerCase().replace(/\/+$/, '')
+    if (page === '/welcome' || page === '/reset-password') return
+
     // Event-provisioned accounts finish the welcome step (set password) first.
     // Exempt: the welcome page itself, claim links (auto-claim then hub),
     // password-recovery, and the on-site event info — everything else routes

@@ -23,8 +23,10 @@ import { memberHomeHref } from '@/lib/accountNav';
  *   providers and media; not investors, not visitors;
  * - a project: only its author and the M3 team (the team brokers it);
  * - registering for an event: an account M3 has approved;
- * - a first message to a company, publishing, proposing a webinar: a company
- *   M3 has checked as well.
+ * - a first message to a company, publishing: a company M3 has checked as well;
+ * - proposing a webinar: verified marinas, service providers and media only
+ *   (webinar_requests_insert_owner_eligible; the Create menu still offers it to
+ *   investors and developers, who then get an error: reported to Victor).
  *
  * The profile icons are the home page's (ProfileCards): marina Anchor, service
  * provider LifeBuoy, investor Compass, media Radio.
@@ -115,15 +117,15 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
       ], { keywords: ['port', 'harbour', 'harbor'] }),
       item('marina-listed', 'Our marina is already in the directory. How do we take it over?', [
         'Many marinas are listed already. Open your marina’s page and press “Claim this page”, or press “Claim my marina” in the directory. The M3 team checks the request and links the page to your account.',
-        'If M3 gave you a code for your marina, enter it when you describe your company after signing up.',
-      ], { links: [{ label: 'Open the directory', to: '/directory' }], keywords: ['claim', 'code', 'organization code', 'duplicate'] }),
+        'If M3 sent you an e-mail with your marina’s code, sign up with the button in that e-mail: the code is filled in for you and your account is linked to your marina’s page.',
+      ], { links: [{ label: 'Open the directory', to: '/directory' }], keywords: ['claim', 'code', 'organization code', 'connect link', 'duplicate'] }),
       item('marina-publish', 'How do we publish a need?', [
         'Open My requests on your dashboard and press “Publish a new need”, or use Create at the top of the page. Then choose “Submit an RFP” (a tender), “Request a consultation” (an expert question) or “Submit a project”.',
-        'The M3 team reads it first, usually within one business day. A tender or an expert question is then shown to verified members, and service providers can answer it. A project stays between you and the M3 team.',
+        'The M3 team reads it first, usually within one business day. A tender or an expert question is then shown to verified marinas, developers, service providers and media, and service providers can answer it. A project stays between you and the M3 team.',
       ], { links: [{ label: 'Which kind of need to choose', to: '#publishing-kinds' }], keywords: ['rfp', 'tender', 'consultation', 'post'] }),
       item('marina-details', 'Who sees our marina’s details?', [
         'Everyone can see your marina’s page: name, place, logo and description.',
-        'On the site, the detailed profile (berths, facilities, certifications) and your team are shown to verified members only.',
+        'The site shows the detailed profile (berths, facilities, certifications) and your team to verified members.',
       ], { keywords: ['berths', 'facilities', 'public', 'privacy'] }),
     ]),
 
@@ -149,13 +151,13 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
       ], { links: [{ label: 'Open References', to: memberHomeHref('references'), members: true }], keywords: ['recommendation', 'testimonial'] }),
       item('provider-visibility', 'How can we get more visibility?', [
         'Keep your company page complete: logo, cover photo, description, sectors and photos. Members find you by theme and by country.',
-        'Companies that sponsor one of our events also get a sponsor badge. Event sponsorship is the only paid offer: ask the M3 team.',
+        'Membership is free. Sponsoring one of our events is a paid offer that gives your company a sponsor badge: ask the M3 team.',
       ], { links: [{ label: 'Sponsor an event', to: '/sponsor' }], keywords: ['sponsor', 'sponsorship', 'partner', 'badge', 'visible'] }),
     ]),
 
     section('investor', 'profile', Compass, 'Investors', 'For funds, family offices and strategic investors.', [
       item('investor-can', 'What can an investor do here?', [
-        'See the companies that are raising capital in Deal flow, publish your investment thesis, find companies in the directory, send a message to any company and propose a webinar.',
+        'See the companies that are raising capital in Deal flow, publish your investment thesis, find companies in the directory and send a message to any company.',
       ], { keywords: ['fund', 'investment', 'capital'] }),
       item('investor-deal-flow', 'What is Deal flow?', [
         'Deal flow lists the marinas, developers and service providers that say they are raising capital, with the amount, the stage and the use of funds when they gave them. Tick “Only show members in my focus sectors” to keep the ones in your sectors.',
@@ -176,7 +178,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
 
     section('developer', 'profile', HardHat, 'Developers', 'For marina developers, real-estate groups and builders.', [
       item('developer-can', 'What can a developer do here?', [
-        'Publish the needs of your marina projects (tenders, expert questions and projects), find service providers, read the tenders and expert questions other members publish, send a message to any company and propose a webinar.',
+        'Publish the needs of your marina projects (tenders, expert questions and projects), find service providers, read the tenders and expert questions other members publish, and send a message to any company.',
       ], { keywords: ['real estate', 'builder', 'construction'] }),
       item('developer-or-marina', 'Developer or marina: which profile should I choose?', [
         'Choose Developer if you design, build or own marina projects. Choose Marina if you run or represent a marina or a port.',
@@ -193,7 +195,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'Write to events@m3monaco.com with the name of your outlet and the event you want to cover. The M3 team answers by e-mail.',
       ], { keywords: ['press', 'journalist', 'badge'] }),
       item('media-press-room', 'Where are the press kits?', [
-        'Once M3 has accredited your outlet for an event, a Press room tile appears on your dashboard. It holds the media kits and press releases, and you can add links to the articles you publish.',
+        'Media members have a Press room tile on their dashboard. It holds the media kits and press releases of our events, and you can add links to the articles you publish.',
       ], { keywords: ['press release', 'media kit', 'photos'] }),
     ]),
 
@@ -219,7 +221,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
           'Give your name, your work e-mail, your company and a password.',
           'Describe your company. The M3 team then checks it.',
         ],
-        keywords: ['register', 'registration', 'join', 'new account', 'membership', 'price', 'cost'],
+        keywords: ['sign up', 'register', 'registration', 'join', 'new account', 'membership', 'price', 'cost'],
       }),
       item('account-password', 'I forgot my password.', [
         'Press Sign in, then “Forgot password?”. Type your e-mail and we send you a link to choose a new password. It also works if you never set one, for example when your account was created for an event.',
@@ -229,7 +231,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'At least 8 characters, with one capital letter and one symbol, for example ! or ?. To change it later, open My profile and press “Change password”.',
       ], { keywords: ['change password', 'new password', 'weak'] }),
       item('account-dashboard', 'What is on my dashboard?', [
-        'Your dashboard is the home page once you are signed in. At the top, To do lists what waits for you: first the answers people expect, then what is missing on your company page and your profile. Click a line to do it in a small window.',
+        'Your dashboard is the home page once you are signed in. At the top, To do lists what waits for you: first the messages and requests waiting for your answer, then what is missing on your company page and your profile. Press a line to deal with it.',
         'Below, the tiles hold everything you manage: My profile, My company, My team, My events, Messages and My requests.',
       ], { links: [{ label: 'Open my dashboard', to: '/#dashboard', members: true }], keywords: ['to do', 'todo', 'home', 'tiles', 'account'] }),
       item('account-details', 'How do I change my name, photo or job title?', [
@@ -263,7 +265,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'No. If M3 has already checked your company, you are in as soon as you accept the invitation.',
       ], { keywords: ['invitation', 'invite', 'pending'] }),
       item('verification-company', 'My account is approved, but my company is still being checked.', [
-        'M3 checks the company as well as the people. Until your company is approved, publishing a need and writing to other companies stay closed. There is nothing more to do: the notice on your dashboard goes away once it is approved.',
+        'M3 checks the company as well as the people. Until your company is approved, writing to other companies, publishing a need and proposing a webinar stay closed. There is nothing more to do: the notice on your dashboard goes away once it is approved.',
       ], { keywords: ['pending', 'organisation', 'organization', 'review'] }),
       item('verification-rejected', 'My account was not approved.', [
         'Your dashboard shows the reason. Press “Edit and resubmit” to correct your details, or write to the M3 team if you think it is a mistake.',
@@ -308,7 +310,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
     section('messages', 'topic', MessageSquare, 'Messages and connections', 'Writing to a company, getting connected and the e-mails you get.', [
       item('messages-who', 'Who can I write to?', [
         'Any company on the platform. Open its page and press “Send a message”: a short first message, up to 500 characters. You need a company checked by M3 to write.',
-      ], { keywords: ['contact', 'write', 'connect', 'connection', 'chat'] }),
+      ], { keywords: ['contact', 'contact a marina', 'contact a company', 'supplier', 'service provider', 'reach', 'write', 'connect', 'connection', 'chat'] }),
       item('messages-connected', 'When are we connected?', [
         'When your activities match, for example a marina looking for a sector that a service provider offers, you are connected at once and can talk.',
         'Otherwise the other company decides. Anyone in their team can accept or decline; the first answer counts.',
@@ -317,10 +319,11 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'Both teams. Everyone in the two companies can read and reply, and each message shows who wrote it, their company and the time.',
       ], { keywords: ['colleagues', 'private', 'thread'] }),
       item('messages-where', 'Where do I find my messages?', [
-        'In the Messages tile of your dashboard. On a computer, a number on the tray icon at the top of the page tells you when something waits for you. On a phone, it shows next to Messages in the menu.',
+        'In the Messages tile of your dashboard. On a computer, a number on the inbox icon next to your name, at the top of the page, tells you when something waits for you. On a phone, it shows next to Messages in the menu.',
       ], { links: [{ label: 'Open Messages', to: memberHomeHref('inbox'), members: true }], keywords: ['inbox', 'notifications', 'unread'] }),
       item('messages-emails', 'Do I get an e-mail for each message?', [
-        'No. If something waits for you, you get one summary on Friday. When a company accepts your request, M3 also introduces you by e-mail.',
+        'No. If something waits for you, you get one summary on Friday.',
+        'When a company accepts your message, or you accept theirs, M3 introduces you to each other by e-mail. That e-mail goes to both of you, so each of you sees the other’s address.',
         'You can turn these e-mails off: “Messages from companies” in the e-mails you receive.',
       ], { links: [{ label: 'Choose your e-mails', to: '#emails-choose' }], keywords: ['notifications', 'digest', 'weekly', 'friday'] }),
       item('messages-report', 'Someone sends us unwanted messages.', [
@@ -342,7 +345,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'A project is not published: the M3 team gets back to you.',
       ], { keywords: ['review', 'approval', 'pending', 'published', 'online'] }),
       item('publishing-visible', 'Who sees what I publish?', [
-        'Tenders and expert questions: marinas, developers, service providers and media whose account M3 has approved. Service providers can answer; the others can only read. Investors and visitors do not see them.',
+        'Tenders and expert questions: marinas, developers, service providers and media whose account M3 has approved. Service providers can answer; the others can only read.',
         'Projects: only you and the M3 team.',
       ], { keywords: ['visible', 'public', 'private', 'confidential'] }),
       item('publishing-project', 'What happens to a project?', [
@@ -367,7 +370,7 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'Signed in, you also find the link to join in My events on your dashboard.',
       ], { links: [{ label: 'Open My events', to: memberHomeHref('registrations'), members: true }], keywords: ['zoom', 'link', 'connect', 'live'] }),
       item('events-replay', 'I missed a webinar.', [
-        'Replays are added to the Resources when they are ready. You also find them in My events.',
+        'Replays are added to the Resources when they are ready. If you had registered, you also find the replay in My events.',
       ], { links: [{ label: 'Open the resources', to: '/resources' }], keywords: ['replay', 'recording', 'video', 'watch'] }),
       item('events-cancel', 'How do I cancel my registration?', [
         'Open the event and press “Cancel my registration”. Registered without an account? Write to the M3 team.',
@@ -376,10 +379,11 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'Send a request from the event’s page. The M3 team reviews it and answers by e-mail.',
       ], { keywords: ['invitation only', 'invite', 'request'] }),
       item('events-paid', 'Are events free?', [
-        'Webinars are free. Some events on site have a fee: the event’s page says so, and tells you when payment is due.',
-      ], { keywords: ['price', 'cost', 'fee', 'pay', 'payment', 'ticket'] }),
+        'Webinars are free. Some events on site have a fee: the event’s page says so.',
+        'For an event with a fee, your registration waits for the M3 team, and we e-mail you when payment is due. A question about an invoice? Write to events@m3monaco.com.',
+      ], { keywords: ['price', 'cost', 'fee', 'pay', 'payment', 'ticket', 'invoice', 'receipt', 'member rate'] }),
       item('events-propose', 'Can we give a webinar?', [
-        'Yes. Members whose company M3 has checked can propose one: press Create at the top of the page, then “Propose a webinar”. The M3 team looks at it with you.',
+        'Yes, if you are a marina, a service provider or a media outlet and M3 has checked your company. Press “Propose a webinar” on the Events page, or in My requests on your dashboard. The M3 team looks at it with you.',
       ], { keywords: ['speak', 'speaker', 'present', 'host', 'organise', 'organize'] }),
     ]),
 
@@ -401,19 +405,20 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
         'You can also turn each kind of e-mail off in My profile, and back on at any time.',
       ], { keywords: ['stop', 'opt out', 'unsubscribe'] }),
       item('emails-always', 'Which e-mails always arrive?', [
-        'The ones you ask for yourself, such as the link to choose a new password, and the reminders for a webinar you registered for.',
+        'The ones you ask for yourself, such as the link to choose a new password, and the reminder the day before a webinar you registered for, even if Events is turned off.',
       ], { keywords: ['cannot turn off', 'required'] }),
       item('emails-newsletter', 'How do I stop the newsletter?', [
         'The newsletter is separate. Use the unsubscribe link at the bottom of any newsletter.',
       ], { keywords: ['news', 'mailing', 'unsubscribe'] }),
       item('emails-missing', 'I do not receive your e-mails.', [
-        'Look in your spam folder, and add noreply@smartmarinaconnect.com to your contacts. Still nothing? Write to events@m3monaco.com.',
+        'Look in your spam folder, and add noreply@smartmarinaconnect.com and events@m3monaco.com to your contacts. Still nothing? Write to events@m3monaco.com.',
       ], { keywords: ['spam', 'junk', 'not received', 'missing'] }),
     ]),
 
     section('privacy', 'topic', Lock, 'Privacy', 'Who sees what, and your rights over your data.', [
       item('privacy-visible', 'Who can see my details?', [
-        'Company pages in the directory are public. On the site, people (photo, name and job title) appear on their company’s page for verified members only. Your e-mail address is not shown to other members.',
+        'Company pages in the directory are public. On a company’s page, the site shows its team (photo, name and job title) to verified members.',
+        'Your e-mail address is not shown on the site, but your colleagues can see it. When a company accepts your message, or you accept theirs, M3 introduces you to each other by e-mail, so each of you sees the other’s address.',
       ], { keywords: ['personal data', 'visible', 'public', 'gdpr'] }),
       item('privacy-use', 'What does M3 do with my data?', [
         'We use it to run the platform, check accounts and send you the e-mails you choose. Other members only see what the platform shows them.',

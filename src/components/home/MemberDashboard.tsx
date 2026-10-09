@@ -722,7 +722,7 @@ function Alerts({
           title={(
             <>
               {t('dashboard.statusPendingTitle')}{' '}
-              <HelpTip title={t('help.tips.reviewTitle', 'Why M3 checks your account')} more="verification-time">
+              <HelpTip title={t('help.tips.reviewTitle', 'Why M3 checks your account')} more="verification-why">
                 {t('help.tips.reviewWhy', 'M3 checks every company and every person, so members know who they talk to. You do not need to do anything for the check.')}
               </HelpTip>
             </>
@@ -768,12 +768,13 @@ function Alerts({
             <>
               {t('dashboard.orgPendingTitle', { org: orgName })}{' '}
               <HelpTip title={t('help.tips.orgReviewTitle', 'Your company is checked too')} more="verification-company">
-                {t('help.tips.orgReviewWhat', 'M3 checks the company as well as the people. Publishing a need and writing to other companies open once it is approved.')}
+                {t('help.tips.orgReviewNothing', 'There is nothing more to do. M3 usually checks a company within 24 to 48 business hours, and this notice goes away once it is approved.')}
               </HelpTip>
             </>
           )}
           // The opportunities follow the person's approval (has_marketplace_access), not the company's.
-          body={t('dashboard.orgPendingWhat', 'Publishing a need and writing to other companies open once your company is approved.')}
+          // "Such as": what opens depends on the profile (an investor never publishes a need).
+          body={t('dashboard.orgPendingSome', 'Some features, such as writing to other companies, publishing a need or proposing a webinar, open once your company is approved.')}
         />
       )}
       {incomplete && (

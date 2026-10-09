@@ -33,7 +33,9 @@ import { cn } from '@/lib/utils';
  *         profile"), then one per topic, each a jump to its section;
  *   the answers: per profile, then per topic, as accordions; from 1024 px a
  *         sticky list of the sections follows on the left;
- *   "Still stuck?": the contact card, a mailto to events@m3monaco.com.
+ *   "Still stuck?": the contact card. Its button opens the site's contact
+ *         form (/contact), which works on any computer (a mailto does nothing
+ *         where no mail app is set up), and the line gives events@m3monaco.com.
  *
  * Every question has its own #anchor (/help#verification-time, the ids in
  * helpContent.ts): opening such a link opens that answer, scrolls to it and
@@ -182,13 +184,14 @@ export function HelpPage() {
 
   const meta = plainPageMeta('/help');
 
-  // Still stuck? A person at M3 (events@m3monaco.com).
+  // Still stuck? A person at M3: the contact form, and the address in plain sight.
   const stuck = (
     <Reveal className="mt-16 md:mt-20">
       <ContactCard
         variant="panel"
         title={t('help.stuckTitle', 'Still stuck?')}
-        line={t('help.stuckLine', 'Write to the team. A person at M3 reads every message and answers you by e-mail.')}
+        line={t('help.stuckLineAddress', 'A person at M3 reads every message and answers you by e-mail. You can also write to events@m3monaco.com.')}
+        cta={{ label: t('help.stuckCta', 'Write to the team'), to: '/contact' }}
       />
     </Reveal>
   );
@@ -224,7 +227,9 @@ export function HelpPage() {
           <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {!searching
               ? ''
-              : closest
+              : result.mode === 'none'
+                ? t('help.noneTitle', 'No answer has these words')
+                : closest
                 ? t('help.closestFound', { count: hitCount, defaultValue_one: 'No answer has all these words. The closest answer is below.', defaultValue_other: 'No answer has all these words. The {{count}} closest answers are below.' })
                 : t('help.found', { count: hitCount, query: query.trim(), defaultValue_one: '{{count}} answer for “{{query}}”', defaultValue_other: '{{count}} answers for “{{query}}”' })}
           </p>

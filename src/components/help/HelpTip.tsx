@@ -2,7 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type 
 import { createPortal } from 'react-dom';
 import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Info, X } from 'lucide-react';
+import { ExternalLink, Info, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { helpHref } from './helpContent';
@@ -29,7 +29,7 @@ import { helpHref } from './helpContent';
  *   the focus back to the button. Tab past the last link goes on to what
  *   follows the button on the page, Shift+Tab from the top comes back to it.
  * - `newTab`: "Learn more" opens /help in a new tab (forms: what was typed
- *   stays). Pressing it otherwise leaves the page.
+ *   stays), with a small new-tab icon. Pressing it otherwise leaves the page.
  * - Under reduced motion the card appears without its short fade.
  */
 export function HelpTip({
@@ -190,20 +190,26 @@ export function HelpTip({
               // First frame, before it is measured: off screen, at its final width.
               : { top: 0, left: -10000, width: Math.min(320, document.documentElement.clientWidth - 32) }}
             className={cn(
-              'fixed z-[80] rounded-card border border-rule bg-white p-4 pr-12 text-left font-normal normal-case tracking-normal text-ink shadow-drawer outline-none',
+              // transition-none: duration-150 below times the fade only. Without it, every
+              // property would be transitioned too, and the card would slide in from its
+              // measuring place off screen (left -10000px) and trail behind on scroll.
+              'fixed z-[80] rounded-card border border-rule bg-white p-4 pr-12 text-left font-normal normal-case tracking-normal text-ink shadow-drawer outline-none transition-none',
               // The short fade starts once the card is placed (not while it is measured, hidden).
               place && 'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:zoom-in-95 motion-safe:duration-150',
             )}
           >
             <p id={titleId} className="text-[15px] font-semibold leading-5 text-navy">{title}</p>
             <div id={bodyId} className="mt-1.5 text-[15px] leading-[22px] text-ink">{children}</div>
+            {/* "Learn more" is 44 px tall, like every other control of the card. */}
             {more && (
               newTab ? (
-                <UnderlineLink to={helpHref(more)} target="_blank" rel="noopener" external className="mt-3 !text-[15px]">
+                // A new tab, said in words to screen readers (external) and shown by its icon.
+                <UnderlineLink to={helpHref(more)} target="_blank" rel="noopener" external arrow={false} className="mt-1 min-h-11 !text-[15px]">
                   {t('help.tip.more', 'Learn more')}
+                  <ExternalLink className="ml-1 inline h-3.5 w-3.5 -translate-y-px" aria-hidden="true" />
                 </UnderlineLink>
               ) : (
-                <UnderlineLink to={helpHref(more)} className="mt-3 !text-[15px]">
+                <UnderlineLink to={helpHref(more)} className="mt-1 min-h-11 !text-[15px]">
                   {t('help.tip.more', 'Learn more')}
                 </UnderlineLink>
               )

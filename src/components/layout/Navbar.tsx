@@ -767,14 +767,21 @@ export function Navbar() {
                           </button>
                         </>
                       ) : (
-                        <div className="flex gap-2 px-1 pt-3">
-                          <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
-                            {t('nav.login')}
-                          </Button>
-                          <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupOpen(true); setMobileMenuOpen(false); }}>
-                            {t('nav.signup')}
-                          </Button>
-                        </div>
+                        <>
+                          {/* Signed out too: the help centre ("I cannot sign in", "how do I join"). */}
+                          <Link to="/help" className="focus-ring flex min-h-11 items-center gap-3 rounded-field px-3 py-2.5 text-sm text-ink hover:bg-page" onClick={() => setMobileMenuOpen(false)}>
+                            <HelpCircle className="h-4 w-4 text-meta" aria-hidden="true" />
+                            {t('nav.help', 'Help')}
+                          </Link>
+                          <div className="flex gap-2 px-1 pt-3">
+                            <Button variant="ctaOutline" size="sm" arrow={false} className="flex-1" onClick={() => { setLoginOpen(true); setMobileMenuOpen(false); }}>
+                              {t('nav.login')}
+                            </Button>
+                            <Button variant="cta" size="sm" arrow={false} className="flex-1" onClick={() => { setSignupPersona(undefined); setSignupOpen(true); setMobileMenuOpen(false); }}>
+                              {t('nav.signup')}
+                            </Button>
+                          </div>
+                        </>
                       )}
                     </div>
                   </nav>

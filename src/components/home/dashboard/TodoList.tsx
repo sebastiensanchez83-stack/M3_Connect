@@ -116,7 +116,7 @@ export function TodoList({
           <span id="todo-title" ref={headingRef} tabIndex={-1} className="focus:outline-none">{t('dash.todoTitle', 'To do')}</span>
         </Eyebrow>
         <HelpTip title={t('help.tips.todoTitle', 'What is in To do?')} more="account-dashboard" className="text-meta">
-          {t('help.tips.todo', 'What waits for you: first the answers people expect, then what is missing on your company page and your profile. Click a line to do it in a small window.')}
+          {t('help.tips.todoWaits', 'First the messages and requests waiting for your answer, then what is missing on your company page and your profile. Press a line to deal with it.')}
         </HelpTip>
       </header>
       <p className="sr-only" role="status" aria-live="polite">{announce}</p>

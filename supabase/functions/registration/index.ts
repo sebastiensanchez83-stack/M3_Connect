@@ -1363,7 +1363,17 @@ async function actionForm(req: Request, body: Json, caller: Caller | null, flags
   const ev = ctx.ev;
   const { data: st, error } = await db.rpc("gl_registration_state", caller ? { p_gl_event_id: ev.id, p_user_id: caller.id } : { p_gl_event_id: ev.id });
   if (error) throw error;
-  const s = obj(st);
+  let s = obj(st);
+  // "registered" found through the auth e-mail only counts for an account that proved
+  // it (Confirm email is off: anyone can sign up with someone else's address).
+  if (caller && s.state === "registered" && s.my_guest_id && !caller.proven) {
+    const mine = await loadGuest(String(s.my_guest_id));
+    if (mine?.user_id !== caller.id) {
+      const { data: anonSt } = await db.rpc("gl_registration_state", { p_gl_event_id: ev.id });
+      s = obj(anonSt);
+      if (s.state === "members_only" && obj(caller.profile).access_status === "verified") s.state = "open";
+    }
+  }
   let state = String(s.state || "closed");
   let paused = false;
   if (ev.engine === "core_v2" && state !== "registered" && !v2Enabled(ctx, flags, caller)) {
@@ -1539,6 +1549,8 @@ async function actionRegister(req: Request, body: Json, caller: Caller | null, f
   }
   // Public answer: identical for a new and a repeated registration (no token, no status).
   if (anon) return json(req, { ok: true });
+  // A repeat found through the address of an account that has not proved it: same public answer.
+  if (r.duplicate === true && g?.user_id !== caller!.id && !caller!.proven) return json(req, { ok: true });
   return json(req, { ok: true, status: r.status, duplicate: r.duplicate === true, registration_id: r.guest_id });
 }
 

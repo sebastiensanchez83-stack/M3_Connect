@@ -8,6 +8,13 @@
 -- statements did NOT run in one transaction and the migration may have been
 -- committed: check information_schema.columns for name_search at once.
 --
+-- Expected report: every line PASS, except the INFO lines (privileges on the
+-- new columns; service_role's extra key name_search) and, possibly, T1c
+-- "INFO drop extension unaccent not testable" if this role may not drop the
+-- extension (it belongs to supabase_admin); T1b then carries that check.
+-- T1c, T12, T16, T16b and T21 undo their own writes at once (inner block that
+-- raises 'dryrun-undo'); everything else goes with the final RAISE.
+--
 -- Real ids, looked up read-only on 9 Oct 2026:
 --   "gocek" once folded (all verified, no owner):
 --     488802eb-20c7-4322-959e-cd8fbd1baa0e  D-Marin Göcek
@@ -86,18 +93,16 @@ immutable
 strict
 parallel safe
 set search_path to ''
-as $fn$
-  select pg_catalog.lower(
-    pg_catalog.translate(
-      public.unaccent('public.unaccent'::regdictionary, p),
-      '‘’ʼ`´′‐‑‒–—―',
-      $$''''''------$$
-    )
-  );
-$fn$;
+return pg_catalog.lower(
+  pg_catalog.translate(
+    public.unaccent('public.unaccent'::regdictionary, pg_catalog.normalize(p, 'NFD')),
+    '‘’ʼ`´′‐‑‒–—―',
+    $$''''''------$$
+  )
+);
 
 comment on function public.smc_fold(text) is
-  'Search fold: lower(unaccent(x)), curly apostrophes and long dashes made plain. Source of the *_search generated columns; src/lib/searchSuggestions.ts fold() must match it.';
+  'Search fold: lower(unaccent(NFD(x))), curly apostrophes and long dashes made plain. Source of the *_search generated columns (recompute them if this or unaccent changes); src/lib/searchSuggestions.ts fold() must match it. SQL-standard body: bound to unaccent by OID, so DROP EXTENSION unaccent is refused.';
 
 grant execute on function public.smc_fold(text) to anon, authenticated, service_role;
 
@@ -155,15 +160,55 @@ begin
                        then 'PASS before-snapshot present (one transaction)'
                        else 'FAIL before-snapshot missing: NOT one transaction, the migration may be COMMITTED' end;
 
-  -- T1 the function: immutable, parallel safe, strict, empty search_path (the same setting as is_moderator()).
+  -- T1 the function: immutable, parallel safe, strict, empty search_path (the same setting as is_moderator()),
+  --    SQL-standard body (prosqlbody set, prosrc empty).
   begin
-    select format('volatile=%s parallel=%s strict=%s config=%s', p.provolatile, p.proparallel, p.proisstrict, p.proconfig)
+    select format('volatile=%s parallel=%s strict=%s config=%s sqlbody=%s', p.provolatile, p.proparallel, p.proisstrict,
+                  p.proconfig, p.prosqlbody is not null and coalesce(p.prosrc, '') = '')
       into v from pg_proc p where p.oid = 'public.smc_fold(text)'::regprocedure;
-    r := r || nl || case when v = format('volatile=i parallel=s strict=t config=%s',
+    r := r || nl || case when v = format('volatile=i parallel=s strict=t config=%s sqlbody=true',
                                          (select q.proconfig from pg_proc q where q.oid = 'public.is_moderator()'::regprocedure))
                          then 'PASS ' else 'FAIL ' end || 'smc_fold shape: ' || coalesce(v, '(missing)');
   exception when others then
     r := r || nl || 'FAIL smc_fold shape: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T1b smc_fold is bound to unaccent: pg_depend records the function unaccent(regdictionary, text)
+  --     and the dictionary public.unaccent (normal dependencies).
+  begin
+    select count(*) filter (where d.refclassid = 'pg_proc'::regclass
+                              and d.refobjid = 'public.unaccent(regdictionary,text)'::regprocedure::oid),
+           count(*) filter (where d.refclassid = 'pg_ts_dict'::regclass
+                              and d.refobjid = 'public.unaccent'::regdictionary::oid)
+      into n, m
+      from pg_depend d
+     where d.classid = 'pg_proc'::regclass
+       and d.objid = 'public.smc_fold(text)'::regprocedure::oid
+       and d.deptype = 'n';
+    r := r || nl || case when n = 1 and m = 1 then 'PASS ' else 'FAIL ' end
+              || format('pg_depend smc_fold -> unaccent(regdictionary,text): %s, -> dictionary public.unaccent: %s', n, m);
+  exception when others then
+    r := r || nl || 'FAIL pg_depend smc_fold: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T1c DROP EXTENSION unaccent is refused while smc_fold exists (2BP01). If the drop went through it is
+  --     undone at once (the inner block raises 'dryrun-undo'). The extension belongs to supabase_admin:
+  --     if this role may not drop it at all (42501), the check cannot be made here; T1b covers it.
+  begin
+    begin
+      drop extension unaccent;
+      raise exception 'dryrun-undo';
+    exception
+      when dependent_objects_still_exist then
+        r := r || nl || 'PASS drop extension unaccent refused (2BP01: ' || sqlerrm || ')';
+      when insufficient_privilege then
+        r := r || nl || 'INFO drop extension unaccent not testable as ' || current_user || ' (42501: ' || sqlerrm || '); see T1b';
+      when raise_exception then
+        if sqlerrm <> 'dryrun-undo' then raise; end if;
+        r := r || nl || 'FAIL drop extension unaccent went through (undone): smc_fold is not bound to it';
+    end;
+  exception when others then
+    r := r || nl || 'FAIL drop extension check: ' || sqlstate || ' ' || sqlerrm;
   end;
 
   -- T2 the fold (same strings the browser's fold was checked against).
@@ -186,6 +231,15 @@ begin
     r := r || nl || case when public.smc_fold('e' || chr(769) || 'cole') = 'ecole' then 'PASS ' else 'FAIL ' end
               || 'smc_fold(decomposed é) = ' || public.smc_fold('e' || chr(769) || 'cole');
     r := r || nl || case when public.smc_fold(null) is null then 'PASS ' else 'FAIL ' end || 'smc_fold(null) is null';
+    -- NFD first: letters unaccent's rules list leaves whole, folded like the browser's fold().
+    r := r || nl || case when public.smc_fold('Майами') = 'маиами' then 'PASS ' else 'FAIL ' end
+              || 'smc_fold(Майами) = ' || public.smc_fold('Майами');
+    r := r || nl || case when public.smc_fold('Æ ǽ') = 'ae ae' then 'PASS ' else 'FAIL ' end
+              || 'smc_fold(Æ ǽ) = ' || public.smc_fold('Æ ǽ');
+    r := r || nl || case when public.smc_fold('ǣ ǿ ẛ Ѓ ї ў') = 'ae o s г і у' then 'PASS ' else 'FAIL ' end
+              || 'smc_fold(ǣ ǿ ẛ Ѓ ї ў) = ' || public.smc_fold('ǣ ǿ ẛ Ѓ ї ў');
+    r := r || nl || case when length(public.smc_fold('부산')) = 5 then 'PASS ' else 'FAIL ' end
+              || 'length(smc_fold(부산)) = ' || length(public.smc_fold('부산')) || ' (decomposed jamo, as the browser)';
   exception when others then
     r := r || nl || 'FAIL smc_fold values: ' || sqlstate || ' ' || sqlerrm;
   end;
@@ -453,6 +507,31 @@ begin
     r := r || nl || 'FAIL staff resources/events UPDATE: ' || sqlstate || ' ' || sqlerrm;
   end;
 
+  -- T16b staff (authenticated admin): INSERT an event and an article, the AdminEventDetail /
+  --      AdminResourceDetail path where smc_fold runs as authenticated. Undone at once (inner block
+  --      raises 'dryrun-undo'; plpgsql variables keep their values).
+  begin
+    v := null; w := null;
+    begin
+      perform set_config('request.jwt.claims', json_build_object('sub', c_admin, 'role', 'authenticated')::text, true);
+      set local role authenticated;
+      insert into public.events (title, date_time, published, access_level)
+      values ('Rencontre à Sète (admin dry run)', now(), false, 'public')
+      returning title_search into v;
+      insert into public.resources (title, published)
+      values ('Göcek’s marina (admin dry run)', false)
+      returning title_search into w;
+      raise exception 'dryrun-undo';
+    exception when raise_exception then
+      if sqlerrm <> 'dryrun-undo' then raise; end if;
+    end;
+    r := r || nl || case when v = 'rencontre a sete (admin dry run)' and w = 'gocek''s marina (admin dry run)'
+                         then 'PASS ' else 'FAIL ' end
+              || format('staff INSERT events / resources (undone): %s | %s', coalesce(v, '(null)'), coalesce(w, '(null)'));
+  exception when others then
+    r := r || nl || 'FAIL staff INSERT events/resources: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
   -- T17 service role (edge functions, the CRM pull): no-op UPDATE; select * now carries name_search.
   begin
     perform set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
@@ -523,6 +602,28 @@ begin
   exception when others then
     r := r || nl || case when sqlstate = '428C9' then 'PASS ' else 'FAIL ' end
               || 'INSERT naming title_search refused (' || sqlstate || ')';
+  end;
+
+  -- T21 the recompute the migration header prescribes (ALTER COLUMN ... SET EXPRESSION, PG 17+) runs
+  --     as postgres and leaves no drift. Undone at once (inner block raises 'dryrun-undo').
+  begin
+    v := null;
+    begin
+      alter table public.organizations alter column name_search set expression as (public.smc_fold(name));
+      alter table public.resources alter column title_search set expression as (public.smc_fold(title));
+      alter table public.events alter column title_search set expression as (public.smc_fold(title));
+      v := format('%s/%s/%s',
+        (select count(*) from public.organizations where name_search is distinct from public.smc_fold(name)),
+        (select count(*) from public.resources where title_search is distinct from public.smc_fold(title)),
+        (select count(*) from public.events where title_search is distinct from public.smc_fold(title)));
+      raise exception 'dryrun-undo';
+    exception when raise_exception then
+      if sqlerrm <> 'dryrun-undo' then raise; end if;
+    end;
+    r := r || nl || case when v = '0/0/0' then 'PASS ' else 'FAIL ' end
+              || 'recompute by SET EXPRESSION (undone): drift organizations/resources/events = ' || coalesce(v, '(null)');
+  exception when others then
+    r := r || nl || 'FAIL recompute by SET EXPRESSION: ' || sqlstate || ' ' || sqlerrm;
   end;
 
   raise exception 'DRYRUN %', coalesce(r, '(report lost: a NULL was concatenated)');

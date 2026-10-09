@@ -29,10 +29,14 @@ import { bestSpelling, countrySlug, localizedCountryName } from '@/lib/countryNa
  * with the search folded the same way here (`fold` below: keep the two in step;
  * a name the database finds but `fold` does not is left out of the list).
  *
- * Until that migration is applied the columns do not exist: the first answer
- * says so (42703), and for the rest of the tab's session the search falls back
- * to the names as typed (ILIKE, an accented letter or an apostrophe sent as a
- * one-character wildcard, so "Göcek" finds "Göcek" but "gocek" does not).
+ * The migration goes first. Should this code ever meet a database without the
+ * columns, the first answer says so (42703 / PGRST204 naming a *_search
+ * column), and until the page is reloaded the search falls back to the names
+ * as typed (ILIKE, an accented letter or an apostrophe sent as a one-character
+ * wildcard, so "Göcek" finds "Göcek" but "gocek" does not). A reload asks again.
+ * (The demo branch's in-browser fake backend must serve name_search /
+ * title_search in its fixtures before it takes this code: it answers a filter
+ * on a missing field with no rows, not 42703.)
  *
  * Companies are read in four small queries (names starting with the search,
  * names with a word starting with it, members, and the rest A to Z), so a
@@ -163,37 +167,25 @@ function likeWord(word: string): string {
  */
 type SearchMode = 'folded' | 'typed';
 
-/** Remembered for the tab: the *_search columns are not on the server yet (migration not applied). */
-const FOLD_MISSING_KEY = 'smc.searchfold.missing';
-let foldMissing: boolean | null = null;
-
-function foldColumnsMissing(): boolean {
-  if (foldMissing === null) {
-    try {
-      foldMissing = sessionStorage.getItem(FOLD_MISSING_KEY) === '1';
-    } catch {
-      foldMissing = false;
-    }
-  }
-  return foldMissing;
-}
-
-function rememberFoldColumnsMissing() {
-  foldMissing = true;
-  try {
-    sessionStorage.setItem(FOLD_MISSING_KEY, '1');
-  } catch {
-    /* private mode: remembered for this page only */
-  }
-}
+/**
+ * The *_search columns are not on the server (the migration is not applied).
+ * Kept in memory only, so a reload asks again: a page that met an older
+ * database never keeps the accent-sensitive search once the columns exist.
+ */
+let foldMissing = false;
 
 type Reply = { data: unknown; error: unknown };
 
-/** The column is not there: 42703 (Postgres, a filter or select on it), PGRST204 (PostgREST's schema cache). */
-function missingColumn(r: PromiseSettledResult<Reply>): boolean {
+/**
+ * One of OUR columns is not there: 42703 (Postgres, a filter or select on it)
+ * or PGRST204 (PostgREST's schema cache), and the error names a *_search
+ * column. Any other missing column is a real error, not a reason to fall back.
+ */
+function missingFoldColumn(r: PromiseSettledResult<Reply>): boolean {
   if (r.status !== 'fulfilled' || !r.value.error) return false;
-  const code = (r.value.error as { code?: unknown }).code;
-  return code === '42703' || code === 'PGRST204';
+  const e = r.value.error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  if (e.code !== '42703' && e.code !== 'PGRST204') return false;
+  return /\b(?:name|title)_search\b/.test(`${e.message ?? ''} ${e.details ?? ''} ${e.hint ?? ''}`);
 }
 
 /** 0: the text starts with the search; 1: a word of it does; 2: it only contains it. */
@@ -414,11 +406,11 @@ export async function fetchSuggestions(
   const sectors = groups.includes('themes') ? loadSectors() : Promise.resolve([] as SectorRow[]);
   const countries = groups.includes('countries') ? loadCountries() : Promise.resolve([] as CountryRow[]);
 
-  const mode: SearchMode = foldColumnsMissing() ? 'typed' : 'folded';
+  const mode: SearchMode = foldMissing ? 'typed' : 'folded';
   let db = await askDatabase(mode, q, groups, scope, signal);
-  if (mode === 'folded' && [...db.companies, db.articles, db.events].some(missingColumn)) {
-    // No *_search columns yet (the migration is not applied): today's search, for the rest of the tab's session.
-    rememberFoldColumnsMissing();
+  if (mode === 'folded' && [...db.companies, db.articles, db.events].some(missingFoldColumn)) {
+    // No *_search columns (the migration is not applied): the search as typed, until the page is reloaded.
+    foldMissing = true;
     if (!signal?.aborted) db = await askDatabase('typed', q, groups, scope, signal);
   }
   const [s, k] = await Promise.allSettled([sectors, countries]);

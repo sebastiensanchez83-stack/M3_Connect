@@ -137,15 +137,15 @@ function SignInInPlace({ landing }: { landing: AuthLanding | null }) {
   const { t } = useTranslation();
   useEffect(() => { scrubAuthLandingUrl(); }, []);
   return (
-    <AuthShell title={t('auth.login')} lead={landing ? undefined : t('flows.signIn.lead')}>
+    <AuthShell title={t('auth.login', 'Sign in')} lead={landing ? undefined : t('flows.signIn.lead', 'Sign in to open this page. You will land straight on it.')}>
       <LoginForm
         showConfirmedBanner={landing === 'confirmed'}
         linkError={landing === 'link-error'}
         next={signInDestination()}
       />
       <p className="mt-6 text-center text-sm text-meta">
-        {t('flows.signIn.noAccount')}{' '}
-        <UnderlineLink to="/join" arrow={false}>{t('nav.becomePartner', 'Join the network')}</UnderlineLink>
+        {t('flows.signIn.noAccount', 'No account yet?')}{' '}
+        <UnderlineLink to="/join" arrow={false} className="min-h-11">{t('nav.becomePartner', 'Join the network')}</UnderlineLink>
       </p>
     </AuthShell>
   );

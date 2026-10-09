@@ -387,7 +387,7 @@ export function ResetPasswordPage() {
             )}
           </Button>
           <div className="text-center">
-            <UnderlineLink arrow={false} onClick={() => (window.location.href = '/')}>
+            <UnderlineLink arrow={false} className="min-h-11" onClick={() => (window.location.href = '/')}>
               {t('common.goHome', 'Go to Homepage')}
             </UnderlineLink>
           </div>

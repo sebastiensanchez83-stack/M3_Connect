@@ -1,25 +1,23 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { fetchSm26Attended } from '@/lib/sm26Participation';
 
 /**
  * The parts of the member area whose visibility the server decides, asked once
  * per account and shared (the home dashboard and the navbar's mobile menu):
  *
- *  - sm26: this member took part in the Monaco Smart & Sustainable Marina
- *    Rendezvous 2026: an attendee (attending) of a confirmed registration, most
- *    often their company's, or the owner of one (src/lib/sm26Participation.ts;
- *    before 9 Oct 2026 only owners counted, and most participants are not). The
- *    event is over: the dashboard only marks it, read-only;
  *  - media: the press room is open to them (is_media_user(), the rule the data uses);
  *  - sponsorIds: the sponsors this account is linked to (sp_sponsor_user), for the sponsor portal;
  *  - manager: M3 staff or Yacht Club de Monaco, who run the sponsorship hub (/sponsorship).
  *
+ * Smart Marina 2026 participation used to be asked here too (owners of a
+ * registration only). Since 9 Oct 2026 it has its own hook,
+ * useSm26Participation (attendees count, and the team), read by the dashboard
+ * and the welcome badge; nothing else needs it, so the menus no longer wait for it.
+ *
  * Each query fails on its own into "no".
  */
 export interface MemberAccess {
-  sm26: boolean;
   media: boolean;
   sponsorIds: string[];
   manager: boolean;
@@ -54,8 +52,8 @@ function fetchAccess(uid: string): Promise<MemberAccess> {
       return false;
     }
   })();
-  const promise = Promise.all([fetchSm26Attended(uid), media, sponsorIds, manager])
-    .then(([sm26, m, s, g]) => ({ sm26, media: m, sponsorIds: s, manager: g }));
+  const promise = Promise.all([media, sponsorIds, manager])
+    .then(([m, s, g]) => ({ media: m, sponsorIds: s, manager: g }));
   cache.set(uid, promise);
   return promise;
 }

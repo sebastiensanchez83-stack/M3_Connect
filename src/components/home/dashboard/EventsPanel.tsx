@@ -7,7 +7,7 @@ import { RowSkeleton } from '@/components/member/MemberUI';
 import { RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { cn } from '@/lib/utils';
-import type { Sm26Participation } from '@/hooks/useSm26Participation';
+import { sm26Kind, type Sm26Participation } from '@/hooks/useSm26Participation';
 
 const MyEvents = lazyWithRetry(() => import('@/components/account/MyEvents').then((m) => ({ default: m.MyEvents })));
 
@@ -30,7 +30,8 @@ export function Sm26Block({ sm26 }: { sm26: Sm26Participation }) {
   const [all, setAll] = useState(false);
   const listId = useId();
   const names = sm26.team.people.map((p) => p.name);
-  if (!sm26.attended && names.length === 0) return null;
+  const kind = sm26Kind(sm26);
+  if (!kind) return null;
   return (
     <section aria-labelledby={`${listId}-title`} className="rounded-card border border-teal/25 bg-foam p-4 sm:p-5">
       <div className="flex items-start gap-3">
@@ -39,7 +40,7 @@ export function Sm26Block({ sm26 }: { sm26: Sm26Participation }) {
         </span>
         <div className="min-w-0 flex-1 text-[16px] leading-6 text-navy">
           <h4 id={`${listId}-title`} className="font-semibold">
-            {sm26.attended
+            {kind === 'you'
               ? t('dash.sm26You', 'You attended the Monaco Smart & Sustainable Marina Rendezvous 2026')
               : t('dash.sm26TeamTitle', 'Your company took part in the Monaco Smart & Sustainable Marina Rendezvous 2026')}
           </h4>

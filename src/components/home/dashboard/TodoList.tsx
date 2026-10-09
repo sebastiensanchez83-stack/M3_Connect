@@ -161,7 +161,19 @@ export function TodoList({
                       {p ? t('dash.todoTicked', 'Done, thank you!') : item.hint}
                     </span>
                   </span>
-                  {!p && compact && <ArrowRight className="card-arrow !ml-0 hidden shrink-0 lg:block" strokeWidth={2.25} aria-hidden="true" />}
+                  {/* Phones: always a sign that the row opens something. The display
+                      utilities sit on a wrapper: .card-arrow sets its own display and
+                      comes later in the cascade, so it would beat them on the icon. */}
+                  {!p && (
+                    <span aria-hidden="true" className="flex shrink-0 sm:hidden">
+                      <ArrowRight className="card-arrow !ml-0" strokeWidth={2.25} />
+                    </span>
+                  )}
+                  {!p && compact && (
+                    <span aria-hidden="true" className="hidden shrink-0 lg:flex">
+                      <ArrowRight className="card-arrow !ml-0" strokeWidth={2.25} />
+                    </span>
+                  )}
                   {!p && (
                     <span className={cn('hidden shrink-0 items-center gap-1 text-[15px] font-semibold text-navy sm:inline-flex', compact && 'lg:hidden')}>
                       {t('dash.doItNow', 'Do it now')}

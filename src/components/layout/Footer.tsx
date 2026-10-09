@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { BadgeCheck, ChevronDown, Instagram, Linkedin } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { accountHref } from '@/lib/accountNav';
+import { accountHref, memberHomeHref } from '@/lib/accountNav';
 import { openSignup } from '@/lib/authModal';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -52,14 +52,16 @@ export function Footer() {
     { to: '/partners', label: t('nav.partners') },
   ];
 
-  // A member's own area: the blocks of the home dashboard, each opened in place.
+  // A member's own area: the tiles of the home dashboard, each opened in place,
+  // under the same names as the tiles.
   const yours = user
     ? [
         { to: '/#dashboard', label: t('nav.myDashboard', 'My dashboard') },
-        { to: accountHref('registrations'), label: t('memberHome.sections.registrations', 'My events') },
-        { to: accountHref('organization'), label: t('memberHome.sections.organization', 'Organisation & team') },
-        { to: accountHref('inbox'), label: t('memberHome.sections.inbox', 'Inbox') },
-        { to: accountHref('notifications'), label: t('memberHome.sections.notifications', 'Email notifications') },
+        { to: accountHref('registrations'), label: t('dash.tiles.events', 'My events') },
+        { to: accountHref('organization'), label: t('dash.tiles.company', 'My company') },
+        { to: memberHomeHref('team'), label: t('dash.tiles.team', 'My team') },
+        { to: accountHref('inbox'), label: t('dash.tiles.messages', 'Messages') },
+        { to: accountHref('notifications'), label: t('dash.emailsRow', 'E-mails you receive') },
       ]
     : [
         { to: '/join', label: t('nav.becomePartner') },

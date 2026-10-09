@@ -69,9 +69,12 @@ export function FieldsDialog({
 }) {
   const { t } = useTranslation();
   const baseId = useId();
+  const errorId = `${baseId}-error`;
   const [values, setValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The field the error is about (a required one left empty), if any.
+  const [badField, setBadField] = useState<string | null>(null);
 
   // Fresh values each time the window opens.
   const initialKey = fields.map((f) => `${f.key}=${f.initial}`).join('|');
@@ -79,6 +82,7 @@ export function FieldsDialog({
     if (!open) return;
     setValues(Object.fromEntries(fields.map((f) => [f.key, f.initial])));
     setError(null);
+    setBadField(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialKey]);
 
@@ -89,10 +93,13 @@ export function FieldsDialog({
   const save = async () => {
     if (missing) {
       setError(t('dash.fieldRequired', { label: missing.label, defaultValue: 'Please fill in "{{label}}".' }));
+      setBadField(missing.key);
+      document.getElementById(`${baseId}-${missing.key}`)?.focus();
       return;
     }
     if (unchanged) { onOpenChange(false); return; }
     setError(null);
+    setBadField(null);
     const uid = await requireFreshSession();
     if (!uid) return;
     setSaving(true);
@@ -117,10 +124,15 @@ export function FieldsDialog({
       onSave={save}
       saving={saving}
       error={error}
+      errorId={errorId}
       onCloseAutoFocus={onCloseAutoFocus}
     >
       {fields.map((f, i) => {
         const id = `${baseId}-${f.key}`;
+        const a11y = {
+          'aria-invalid': badField === f.key ? true : undefined,
+          'aria-describedby': error && (!badField || badField === f.key) ? errorId : undefined,
+        } as const;
         return (
           <div key={f.key} className="space-y-2">
             <Label htmlFor={id} className="text-[15px] font-semibold text-navy">
@@ -130,6 +142,7 @@ export function FieldsDialog({
             {f.multiline ? (
               <Textarea
                 id={id}
+                {...a11y}
                 autoFocus={i === 0}
                 value={values[f.key] ?? ''}
                 onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
@@ -140,6 +153,7 @@ export function FieldsDialog({
             ) : (
               <Input
                 id={id}
+                {...a11y}
                 autoFocus={i === 0}
                 value={values[f.key] ?? ''}
                 onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
@@ -340,6 +354,8 @@ export function SectorsDialog({
   const [selected, setSelected] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The current ticks could not be read: saving would wipe them, so Save stays off.
+  const [loadFailed, setLoadFailed] = useState(false);
   const isMarina = orgType === 'marina';
 
   useEffect(() => {
@@ -347,21 +363,30 @@ export function SectorsDialog({
     let alive = true;
     setAll(null);
     setError(null);
+    setLoadFailed(false);
+    const failed = () => {
+      if (!alive) return;
+      setLoadFailed(true);
+      setError(t('dash.loadFailed', 'We could not load this. Please close this window and try again.'));
+    };
     (async () => {
       const [list, mine] = await Promise.all([
         supabase.from('sectors').select('id, label').eq('is_active', true).order('label'),
         supabase.from(orgSectorTable(orgType)).select('sector_id').eq('organization_id', orgId),
       ]);
       if (!alive) return;
+      // supabase-js returns its errors: never show (and save) an empty list over the real one.
+      if (list.error || mine.error) { failed(); return; }
       const ids = ((mine.data ?? []) as { sector_id: string }[]).map((r) => r.sector_id);
       setAll((list.data ?? []) as SectorRow[]);
       setInitial(ids);
       setSelected(ids);
-    })().catch(() => { if (alive) { setAll([]); setError(t('dash.loadFailed', 'We could not load this. Please try again.')); } });
+    })().catch(failed);
     return () => { alive = false; };
   }, [open, orgId, orgType, t]);
 
   const save = async () => {
+    if (!all || loadFailed) return;
     const same = selected.length === initial.length && selected.every((s) => initial.includes(s));
     if (same) { onOpenChange(false); return; }
     const uid = await requireFreshSession();
@@ -390,12 +415,12 @@ export function SectorsDialog({
         : t('dash.sectorsDesc', 'Tick the sectors you work in. Marinas use them to find you.')}
       onSave={save}
       saving={saving}
-      canSave={!!all}
+      canSave={!!all && !loadFailed}
       error={error}
       wide
       onCloseAutoFocus={onCloseAutoFocus}
     >
-      {!all ? (
+      {loadFailed ? null : !all ? (
         <div className="flex items-center justify-center py-10 text-meta" role="status">
           <Loader2 className="mr-2 h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
           {t('dash.loading', 'Loading…')}

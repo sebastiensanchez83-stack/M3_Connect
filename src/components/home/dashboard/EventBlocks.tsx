@@ -83,7 +83,7 @@ export function NextEventCard({ event, lang, onOpenEvents }: { event: DashEvent;
     <CardShell as="section" className="h-full">
       <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-rule px-5 py-4">
         <Eyebrow as="h3">{t('dashboard.nextEventTitle')}</Eyebrow>
-        <UnderlineLink onClick={onOpenEvents} className="!text-[14px] !leading-5">
+        <UnderlineLink onClick={onOpenEvents} className="-my-3 min-h-11 !text-[14px] !leading-5">
           {t('memberHome.sections.registrations', 'My events')}
         </UnderlineLink>
       </header>

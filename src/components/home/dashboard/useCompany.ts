@@ -23,7 +23,7 @@ export interface CompanyDetails {
   documents: number;
 }
 
-export function useCompanyDetails(orgId: string | null, orgType: string | null, reloadKey: number): {
+export function useCompanyDetails(orgId: string | null, orgType: string | null, reloadKey: number | string): {
   data: CompanyDetails | null;
   loading: boolean;
   /** Updates the shown copy at once (the reload that follows confirms it). */
@@ -69,7 +69,7 @@ export interface TeamData {
   invitations: OrganizationInvitation[];
 }
 
-export function useTeam(orgId: string | null, reloadKey: number): { data: TeamData | null; loading: boolean } {
+export function useTeam(orgId: string | null, reloadKey: number | string): { data: TeamData | null; loading: boolean } {
   const [data, setData] = useState<{ orgId: string; value: TeamData } | null>(null);
   const [loading, setLoading] = useState(true);
 

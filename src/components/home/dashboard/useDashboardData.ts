@@ -22,14 +22,6 @@ export interface Opportunity {
   matches: boolean;
 }
 
-export interface MyRequest {
-  id: string;
-  kind: RequestKind;
-  title: string;
-  status: string;
-  created_at: string;
-}
-
 export interface DashEvent {
   id: string;
   title: string;
@@ -66,21 +58,12 @@ export interface OrgCounts {
   orgId: string;
   members: number;
   sectors: number;
-  documents: number;
-}
-
-export interface InboxPreview {
-  id: string;
-  org: string | null;
-  status: string;
-  created_at: string;
 }
 
 export interface DashboardData {
   loading: boolean;
   opportunities: Opportunity[];
   requestCounts: Record<RequestKind, number>;
-  latestRequests: MyRequest[];
   /** My next registered event that has not finished. */
   nextRegistered: DashEvent | null;
   registeredIds: Set<string>;
@@ -90,7 +73,6 @@ export interface DashboardData {
   /** The company's page as stored now (every member: anyone in the company edits it). */
   brand: OrgBrand | null;
   orgCounts: OrgCounts | null;
-  inboxLatest: InboxPreview[];
   references: { total: number; confirmed: number; waiting: number } | null;
   shortlistCount: number | null;
 }
@@ -154,7 +136,6 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
   const [data, setData] = useState<Omit<DashboardData, 'loading'>>({
     opportunities: [],
     requestCounts: EMPTY_COUNTS,
-    latestRequests: [],
     nextRegistered: null,
     registeredIds: new Set(),
     upcomingCount: 0,
@@ -162,7 +143,6 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
     resources: [],
     brand: null,
     orgCounts: null,
-    inboxLatest: [],
     references: null,
     shortlistCount: null,
   });
@@ -178,16 +158,15 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
       if (firstLoad.current) setLoading(true);
       const now = Date.now();
       const sectorTable = sectorTableFor(persona);
-      // The company's page (logo, cover, description, photos, sectors, team,
-      // documents): its tile says what is missing, for every member. Its sectors
-      // are the ones the organisation editor writes — interests for a marina,
-      // services otherwise.
+      // The company's page (logo, cover, description, sectors, team): its tile
+      // says what is missing, for every member. Its sectors are the ones the
+      // organisation editor writes — interests for a marina, services otherwise.
       const meterOn = !!orgId;
       const orgSectorTable = orgType === 'marina' ? 'organization_interest_sectors' : 'organization_service_sectors';
 
       const [
         sectorRes, rfpRes, consultRes, myRfpRes, myConsultRes, myProjRes, myWebinarRes, accessRes, resRes,
-        orgRes, memberCountRes, orgSectorCountRes, inboxRes, refRes, shortlistRes, docCountRes,
+        orgRes, memberCountRes, orgSectorCountRes, refRes, shortlistRes,
       ] = await Promise.all([
         safe<{ sector_id: string }[]>(sectorTable && orgId ? supabase.from(sectorTable).select('sector_id').eq('organization_id', orgId) : null),
         safe<{ id: string; title: string; deadline_date: string | null; created_at: string; sector_id: string | null }[]>(isSupply && canSeeOpportunities
@@ -219,14 +198,8 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
         safe<OrgBrand>(meterOn ? supabase.from('organizations').select('id, logo_url, banner_url, description, gallery').eq('id', orgId).maybeSingle() : null),
         safe<unknown>(meterOn ? supabase.from('organization_members').select('id', { count: 'exact', head: true }).eq('organization_id', orgId) : null),
         safe<unknown>(meterOn ? supabase.from(orgSectorTable).select('sector_id', { count: 'exact', head: true }).eq('organization_id', orgId) : null),
-        // The latest connection requests received (the inbox's own query, shorter).
-        safe<{ id: string; status: string; created_at: string; partner_org: { name: string } | null }[]>(supabase.from('partner_requests')
-          .select('id, status, created_at, partner_org:organizations!partner_requests_partner_organization_id_fkey (name)')
-          .eq('marina_user_id', uid).neq('partner_user_id', uid)
-          .order('created_at', { ascending: false }).limit(3)),
         safe<{ status: string }[]>(isPartnerOrg && orgId ? supabase.from('reference_requests').select('status').eq('partner_organization_id', orgId) : null),
         safe<unknown>(hasShortlist ? supabase.from('org_bookmarks').select('id', { count: 'exact', head: true }).eq('user_id', uid) : null),
-        safe<unknown>(meterOn ? supabase.from('organization_documents').select('id', { count: 'exact', head: true }).eq('organization_id', orgId) : null),
       ]);
       if (!alive) return;
 
@@ -244,14 +217,7 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
         })),
       ].sort((a, b) => Number(b.matches) - Number(a.matches) || b.created_at.localeCompare(a.created_at)).slice(0, 4);
 
-      // My requests, newest first across the four kinds.
-      const projectTitle = (raw: string) => raw.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
-      const all: MyRequest[] = [
-        ...(myProjRes.data ?? []).map((r) => ({ id: r.id, kind: 'projects' as const, title: projectTitle(r.project_type ?? ''), status: r.status, created_at: r.created_at })),
-        ...(myRfpRes.data ?? []).map((r) => ({ id: r.id, kind: 'rfps' as const, title: r.title ?? '', status: r.status, created_at: r.created_at })),
-        ...(myConsultRes.data ?? []).map((r) => ({ id: r.id, kind: 'consultations' as const, title: r.title ?? '', status: r.status, created_at: r.created_at })),
-        ...(myWebinarRes.data ?? []).map((r) => ({ id: r.id, kind: 'webinars' as const, title: r.title ?? '', status: r.status, created_at: r.created_at })),
-      ].sort((a, b) => b.created_at.localeCompare(a.created_at));
+      // My requests: how many of each kind (the panel lists them).
       const requestCounts: Record<RequestKind, number> = {
         projects: myProjRes.data?.length ?? 0,
         rfps: myRfpRes.data?.length ?? 0,
@@ -297,15 +263,13 @@ export function useDashboardData(input: DashboardDataInput): DashboardData {
       setData({
         opportunities,
         requestCounts,
-        latestRequests: all.slice(0, 3),
         nextRegistered: upcomingRegistered[0] ?? null,
         registeredIds: new Set(joinLinks.keys()),
         upcomingCount,
         pastCount,
         resources: resources.slice(0, 4),
         brand: meterOn ? orgRes.data ?? null : null,
-        orgCounts: meterOn && orgId ? { orgId, members: memberCountRes.count ?? 0, sectors: orgSectorCountRes.count ?? 0, documents: docCountRes.count ?? 0 } : null,
-        inboxLatest: (inboxRes.data ?? []).map((r) => ({ id: r.id, org: r.partner_org?.name ?? null, status: r.status, created_at: r.created_at })),
+        orgCounts: meterOn && orgId ? { orgId, members: memberCountRes.count ?? 0, sectors: orgSectorCountRes.count ?? 0 } : null,
         references: refs ? {
           total: refs.length,
           confirmed: refs.filter((r) => r.status === 'confirmed').length,

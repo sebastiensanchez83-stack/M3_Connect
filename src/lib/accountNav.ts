@@ -69,7 +69,7 @@ export const HOME_SECTIONS: HomeSection[] = [
   {
     key: 'profile', icon: UserCircle,
     labelKey: 'dash.tiles.profile', fallback: 'My profile',
-    descKey: 'dash.tiles.profileDesc', descFallback: 'Your photo, your name, your job title, your password and your emails',
+    descKey: 'dash.tiles.profileDesc', descFallback: 'Your photo, your name, your job title, your password and your e-mails',
   },
   {
     key: 'company', icon: Building2,

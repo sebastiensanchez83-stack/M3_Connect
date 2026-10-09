@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type Ref } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -167,9 +167,11 @@ export function EditDialog({
   saving = false,
   canSave = true,
   error,
+  errorId,
   wide = false,
   quietClose = false,
   onCloseAutoFocus,
+  contentRef,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -181,6 +183,10 @@ export function EditDialog({
   saving?: boolean;
   canSave?: boolean;
   error?: string | null;
+  /** The error line's id, so the field can point at it (aria-describedby). */
+  errorId?: string;
+  /** The window itself, to move the focus inside it after an answer. */
+  contentRef?: Ref<HTMLDivElement>;
   /** Lists (photos, requests): a wider window. */
   wide?: boolean;
   /** Without onSave: the closing button is a plain outline one ("I will answer later"), not the gold one. */
@@ -196,7 +202,7 @@ export function EditDialog({
   };
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!saving) onOpenChange(o); }}>
-      <DialogContent className={cn(DIALOG_CLASS, wide && 'max-w-xl')} onCloseAutoFocus={returnFocus} aria-describedby={description ? descId : undefined}>
+      <DialogContent ref={contentRef} className={cn(DIALOG_CLASS, wide && 'max-w-xl')} onCloseAutoFocus={returnFocus} aria-describedby={description ? descId : undefined}>
         <DialogHeader className="pr-8 text-left">
           <DialogTitle className="text-[20px] leading-7 text-navy">{title}</DialogTitle>
           {description && <DialogDescription id={descId} className="text-[15px] leading-6 text-meta">{description}</DialogDescription>}
@@ -204,7 +210,7 @@ export function EditDialog({
         <form onSubmit={submit} className="space-y-5" noValidate>
           {children}
           {error && (
-            <p role="alert" className="rounded-field border border-red-200 bg-red-50 px-3 py-2.5 text-[15px] leading-6 text-red-900">
+            <p id={errorId} role="alert" className="rounded-field border border-red-200 bg-red-50 px-3 py-2.5 text-[15px] leading-6 text-red-900">
               {error}
             </p>
           )}
@@ -220,11 +226,11 @@ export function EditDialog({
                 </Button>
               </>
             ) : quietClose ? (
-              <Button type="button" variant="outline" className={BTN_TOUCH} onClick={() => onOpenChange(false)}>
+              <Button type="button" data-dialog-close="" variant="outline" className={BTN_TOUCH} onClick={() => onOpenChange(false)}>
                 {saveLabel ?? t('dash.done', 'Done')}
               </Button>
             ) : (
-              <Button type="button" variant="cta" size="sm" arrow={false} className="min-w-[7.5rem] justify-center" onClick={() => onOpenChange(false)}>
+              <Button type="button" data-dialog-close="" variant="cta" size="sm" arrow={false} className="min-w-[7.5rem] justify-center" onClick={() => onOpenChange(false)}>
                 {saveLabel ?? t('dash.done', 'Done')}
               </Button>
             )}

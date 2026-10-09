@@ -402,8 +402,6 @@ export function HomePage() {
                 </button>
               </div>
             )}
-            {/* Took part in Smart Marina 2026 (themselves or their team): a small mark, linked to My events. */}
-            <Sm26WelcomeBadge />
             <HeroIn as="p" delay={260} className="mt-5 max-w-[560px] text-[17px] leading-[27px] text-white/85 md:text-[18px] md:leading-[29px]">
               {t('memberHome.heroSubtitle', 'Your dashboard is right below: your profile, your company, your events and your requests, all managed from here.')}
             </HeroIn>
@@ -419,6 +417,8 @@ export function HomePage() {
                 <Link to="/resources">{t('home.exploreResources', 'Explore resources')}</Link>
               </Button>
             </HeroIn>
+            {/* Took part in Smart Marina 2026: a small mark, linked to My events. Last, so nothing above it moves when it arrives. */}
+            <div><Sm26WelcomeBadge /></div>
           </div>
         )}
       </SplitHero>

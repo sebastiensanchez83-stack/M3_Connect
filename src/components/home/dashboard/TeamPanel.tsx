@@ -1,4 +1,5 @@
 import { Suspense, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Award, ChevronDown, Crown, LogOut, Mail, Trash2, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,9 +22,11 @@ const OrganizationWorkspace = lazyWithRetry(() => import('@/components/account/O
 
 /**
  * My team: the people of the company (photo, name, job title, role, and an
- * "Attended SM26" mark for those who came), the invitations still open, and
- * for the owner: invite a colleague, answer people who asked to join, remove
- * someone (after a confirmation). A member who is not the owner can leave.
+ * "Attended Smart Marina 2026" mark for those who came), the invitations still
+ * open, and for the owner: invite a colleague (only while the company has a
+ * free place: otherwise a line says to write to the M3 team), answer people
+ * who asked to join, remove someone (after a confirmation). A member who is
+ * not the owner can leave.
  * Same writes as the full editor (orgActions). Transferring the ownership
  * stays in the full editor, behind "More settings".
  */
@@ -36,12 +39,24 @@ function nameOf(m: TeamMember): string {
   return full || p?.email?.split('@')[0] || 'A member';
 }
 
-export function TeamPanel({ sm26UserIds, onChanged }: { sm26UserIds: string[]; onChanged: () => void }) {
+export function TeamPanel({
+  sm26UserIds,
+  version,
+  onChanged,
+  onInboxChanged,
+}: {
+  sm26UserIds: string[];
+  /** The dashboard's version: a change saved elsewhere (a to-do window) reads the team again. */
+  version: number;
+  onChanged: () => void;
+  /** Join requests were answered: the inbox count (to-do, tiles, navbar) is asked again. */
+  onInboxChanged: () => void;
+}) {
   const { t, i18n } = useTranslation();
   const { user, profile, organization, orgRole, refreshProfile } = useAuth();
   const orgId = organization?.id ?? null;
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading } = useTeam(orgId, reloadKey);
+  const { data, loading } = useTeam(orgId, `${reloadKey}:${version}`);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [joinOpen, setJoinOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm>(null);
@@ -59,8 +74,10 @@ export function TeamPanel({ sm26UserIds, onChanged }: { sm26UserIds: string[]; o
   const pending = invitations.filter((i) => i.status === 'pending');
   const isMarinaOrg = organization.organization_type === 'marina' || organization.organization_type === 'developer';
   const maxSeats = organization.max_seats ?? 0;
-  // The full editor's count: members plus every invitation it lists.
+  // The full editor's count: members plus every invitation it lists (the rule invitationProblem applies).
   const occupied = members.length + invitations.length;
+  // Never offer an invitation that the places would refuse (one-place plans are most companies).
+  const canInvite = isMarinaOrg || !maxSeats || occupied < maxSeats;
   const attended = new Set(sm26UserIds);
 
   const doConfirm = async () => {
@@ -97,17 +114,31 @@ export function TeamPanel({ sm26UserIds, onChanged }: { sm26UserIds: string[]; o
           <p className="text-[17px] font-semibold leading-6 text-navy">
             {t('dash.teamCount', { count: members.length, org: organization.name, defaultValue_one: '{{count}} person in {{org}}', defaultValue_other: '{{count}} people in {{org}}' })}
           </p>
-          {!isMarinaOrg && maxSeats > 0 && (
+          {!isMarinaOrg && maxSeats > 0 && data && (
             <p className="mt-0.5 text-[15px] leading-6 text-meta">
-              {t('dash.seats', { used: members.length, total: maxSeats, defaultValue: '{{used}} of {{total}} places used' })}
+              {t('dash.seats', { used: Math.min(occupied, maxSeats), total: maxSeats, defaultValue: '{{used}} of {{total}} places used' })}
             </p>
           )}
           {!isOwner && <p className="mt-0.5 text-[15px] leading-6 text-meta">{t('dash.teamOwnerOnly', 'Only the company owner can invite or remove people.')}</p>}
+          {isOwner && data && !canInvite && (
+            <p className="mt-1 max-w-xl text-[15px] leading-6 text-ink">
+              {t('dash.seatsFull', {
+                count: maxSeats,
+                defaultValue_one: 'Your company has 1 place on the platform, and it is taken. To add a colleague, write to the M3 team.',
+                defaultValue_other: 'All {{count}} places of your company are taken. To add a colleague, write to the M3 team.',
+              })}
+            </p>
+          )}
         </div>
-        {isOwner && (
-          <Button type="button" variant="cta" size="sm" arrow={false} className="justify-center" onClick={() => setInviteOpen(true)}>
+        {isOwner && (canInvite || !data) && (
+          <Button type="button" variant="cta" size="sm" arrow={false} className="justify-center" disabled={!data} onClick={() => setInviteOpen(true)}>
             <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
             {t('dash.inviteColleague', 'Invite a colleague')}
+          </Button>
+        )}
+        {isOwner && data && !canInvite && (
+          <Button asChild variant="outline" className={cn(BTN_TOUCH, 'shrink-0')}>
+            <Link to="/contact">{t('dash.writeToM3', 'Write to the M3 team')}</Link>
           </Button>
         )}
       </div>
@@ -151,7 +182,7 @@ export function TeamPanel({ sm26UserIds, onChanged }: { sm26UserIds: string[]; o
                         ? <StatusPill tone="info" icon={Crown}>{t('dash.roleOwner', 'Owner')}</StatusPill>
                         : <StatusPill tone="neutral">{t('dash.roleMember', 'Member')}</StatusPill>}
                       {attended.has(m.user_id) && (
-                        <StatusPill tone="success" icon={Award}>{t('dash.attendedSm26', 'Attended SM26')}</StatusPill>
+                        <StatusPill tone="success" icon={Award}>{t('dash.attendedSm26', 'Attended Smart Marina 2026')}</StatusPill>
                       )}
                     </div>
                   </div>
@@ -240,7 +271,11 @@ export function TeamPanel({ sm26UserIds, onChanged }: { sm26UserIds: string[]; o
           <div id="team-more-settings">
             {moreOpen && (
               <Suspense fallback={<div className="rounded-card border border-rule bg-white"><RowSkeleton rows={3} /></div>}>
-                <OrganizationWorkspace section="team" />
+                <OrganizationWorkspace
+                  section="team"
+                  syncAddress={false}
+                  onSaved={() => { setReloadKey((k) => k + 1); onChanged(); onInboxChanged(); }}
+                />
               </Suspense>
             )}
           </div>
@@ -250,7 +285,13 @@ export function TeamPanel({ sm26UserIds, onChanged }: { sm26UserIds: string[]; o
       <InviteDialog open={inviteOpen} onOpenChange={setInviteOpen} org={organization} occupiedSeats={occupied} onSent={reload} />
       <JoinRequestsDialog
         open={joinOpen}
-        onOpenChange={(o) => { setJoinOpen(o); if (!o) reload(); }}
+        onOpenChange={(o) => {
+          setJoinOpen(o);
+          if (o) return;
+          reload();
+          // The to-do, the team and Messages tiles and the navbar count the same requests.
+          onInboxChanged();
+        }}
         org={organization}
         onAnswered={() => undefined}
       />

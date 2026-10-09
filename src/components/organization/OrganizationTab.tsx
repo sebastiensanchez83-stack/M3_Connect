@@ -64,7 +64,10 @@ function valueKeys(values: string[]): string[] {
   });
 }
 
-export function OrganizationTab() {
+export function OrganizationTab({ onSaved }: {
+  /** Something was saved here (the dashboard's My company rows read the company again). */
+  onSaved?: () => void;
+} = {}) {
   const { t } = useTranslation();
   const { user, profile, organization: activeOrg, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -164,6 +167,7 @@ export function OrganizationTab() {
       if (added) {
         setOrg({ ...org, gallery: next });
         toast({ title: `Added ${added} image${added > 1 ? 's' : ''}` });
+        onSaved?.();
       }
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
@@ -176,6 +180,7 @@ export function OrganizationTab() {
     try {
       const next = await removeOrgGalleryImage(org.id, org.gallery || [], url);
       setOrg({ ...org, gallery: next });
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: 'Could not remove', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -199,6 +204,7 @@ export function OrganizationTab() {
       setOrg({ ...org, logo_url: logoUrl });
       setLogoMeta(meta);
       toast({ title: 'Logo updated', description: meta });
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -211,6 +217,7 @@ export function OrganizationTab() {
       await removeOrgBrandImage(org.id, 'logo');
       setOrg({ ...org, logo_url: null });
       toast({ title: 'Logo removed' });
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: 'Error', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -234,6 +241,7 @@ export function OrganizationTab() {
       setOrg({ ...org, banner_url: bannerUrl });
       setBannerMeta(meta);
       toast({ title: 'Cover photo updated', description: meta });
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -246,6 +254,7 @@ export function OrganizationTab() {
       await removeOrgBrandImage(org.id, 'banner');
       setOrg({ ...org, banner_url: null });
       toast({ title: 'Cover photo removed' });
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: 'Error', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -270,6 +279,7 @@ export function OrganizationTab() {
       toast({ title: 'Document uploaded' });
       setDocDescription('');
       fetchDocs(org.id);
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: 'Upload failed', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -282,6 +292,7 @@ export function OrganizationTab() {
       await deleteOrgDocument(doc.id);
       setOrgDocs(prev => prev.filter(d => d.id !== doc.id));
       toast({ title: 'Document deleted' });
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: 'Error', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -616,6 +627,7 @@ export function OrganizationTab() {
       }
       setEditing(false);
       fetchOrg();
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -656,6 +668,7 @@ export function OrganizationTab() {
       setInviteOpen(false);
       setInviteForm({ email: '', firstName: '', lastName: '' });
       fetchOrg();
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -667,6 +680,7 @@ export function OrganizationTab() {
       await cancelTeamInvitation(invId);
       toast({ title: t('org.invitationCancelled') });
       fetchOrg();
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -677,6 +691,7 @@ export function OrganizationTab() {
       await answerJoinRequest(invId, invEmail, org?.name, true);
       toast({ title: 'Join request approved', description: `${invEmail} has been added to the team.` });
       fetchOrg();
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -688,6 +703,7 @@ export function OrganizationTab() {
       await answerJoinRequest(invId, invEmail, org?.name, false);
       toast({ title: 'Join request rejected' });
       fetchOrg();
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -702,6 +718,7 @@ export function OrganizationTab() {
       await removeOrgMember(member.id);
       toast({ title: t('org.memberRemoved') });
       fetchOrg();
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }
@@ -734,6 +751,7 @@ export function OrganizationTab() {
       setTransferOpen(false);
       setTransferTarget(null);
       fetchOrg();
+      onSaved?.();
     } catch (err: unknown) {
       toast({ title: t('common.error'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     }

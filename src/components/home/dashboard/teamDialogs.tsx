@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, Check, CheckCircle2, Loader2, X } from 'lucide-react';
@@ -30,6 +30,25 @@ import { BTN_TOUCH, EditDialog, errorText } from './EditKit';
  */
 
 const ACCEPT = 'h-11 rounded-pill bg-navy px-5 text-[15px] font-semibold text-white hover:bg-navy/90 md:h-11';
+
+/**
+ * After an answer the pressed button gives way to "Accepted" / "Declined":
+ * the focus goes on to the next request's Accept, or to the closing button
+ * when none is left, instead of falling back to the window itself.
+ */
+function useFocusOnAfterAnswer(contentRef: RefObject<HTMLDivElement>, answered: object) {
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root || Object.keys(answered).length === 0) return;
+    const id = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== root && root.contains(active)) return;
+      const next = root.querySelector<HTMLElement>('[data-answer-next]:not([disabled])') ?? root.querySelector<HTMLElement>('[data-dialog-close]');
+      next?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [contentRef, answered]);
+}
 
 /* ------------------------------------------------------------------ invite */
 
@@ -98,11 +117,14 @@ export function InviteDialog({
       saving={saving}
       canSave={!!email.trim()}
       error={error}
+      errorId={`${id}-error`}
     >
       <div className="space-y-2">
         <Label htmlFor={id} className="text-[15px] font-semibold text-navy">{t('dash.inviteEmail', 'Their e-mail address')}</Label>
         <Input
           id={id}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
           type="email"
           inputMode="email"
           autoComplete="off"
@@ -141,6 +163,8 @@ export function ConnectionsDialog({
   const [items, setItems] = useState<WaitingConnection[] | null>(null);
   const [answered, setAnswered] = useState<Answered>({});
   const [acting, setActing] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  useFocusOnAfterAnswer(contentRef, answered);
 
   useEffect(() => {
     if (!open || !uid) return;
@@ -183,6 +207,7 @@ export function ConnectionsDialog({
       quietClose={!(left === 0 && items && items.length > 0)}
       wide
       onCloseAutoFocus={onCloseAutoFocus}
+      contentRef={contentRef}
     >
       {!items ? (
         <div className="flex items-center justify-center py-10 text-meta" role="status">
@@ -225,7 +250,7 @@ export function ConnectionsDialog({
                     </StatusPill>
                   ) : (
                     <>
-                      <Button type="button" className={cn(ACCEPT, 'gap-1.5')} disabled={acting === item.data.id} onClick={() => answer(item, 'accepted')}>
+                      <Button type="button" data-answer-next="" className={cn(ACCEPT, 'gap-1.5')} disabled={acting === item.data.id} onClick={() => answer(item, 'accepted')}>
                         <Check className="h-4 w-4" aria-hidden="true" />
                         {t('dash.accept', 'Accept')}
                         <span className="sr-only"> {person || company}</span>
@@ -269,12 +294,17 @@ export function JoinRequestsDialog({
   const [items, setItems] = useState<JoinRequest[] | null>(null);
   const [answered, setAnswered] = useState<Record<string, 'accepted' | 'rejected'>>({});
   const [acting, setActing] = useState<string | null>(null);
+  // "Decline Sam Rivera?" first: the refusal e-mail leaves at once and cannot be taken back.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  useFocusOnAfterAnswer(contentRef, answered);
 
   useEffect(() => {
     if (!open) return;
     let alive = true;
     setItems(null);
     setAnswered({});
+    setConfirming(null);
     supabase
       .from('organization_invitations')
       .select('id, email, first_name, last_name, created_at')
@@ -292,6 +322,7 @@ export function JoinRequestsDialog({
     try {
       await answerJoinRequest(req.id, req.email, org.name, approve);
       const next = { ...answered, [req.id]: approve ? 'accepted' as const : 'rejected' as const };
+      setConfirming(null);
       setAnswered(next);
       toast({
         title: approve ? t('dash.joinAccepted', 'Welcome to the team') : t('dash.declined', 'Declined'),
@@ -318,6 +349,7 @@ export function JoinRequestsDialog({
       quietClose={!(left === 0 && items && items.length > 0)}
       wide
       onCloseAutoFocus={onCloseAutoFocus}
+      contentRef={contentRef}
     >
       {!items ? (
         <div className="flex items-center justify-center py-10 text-meta" role="status">
@@ -325,7 +357,7 @@ export function JoinRequestsDialog({
           {t('dash.loading', 'Loading…')}
         </div>
       ) : items.length === 0 ? (
-        <p className="rounded-field bg-page px-4 py-6 text-center text-[15px] text-meta">{t('dash.noJoin', 'Nobody is waiting.')}</p>
+        <p className="rounded-field bg-page px-4 py-6 text-center text-[15px] text-meta">{t('dash.noJoin', 'Nobody is waiting any more.')}</p>
       ) : (
         <ul className="space-y-3">
           {items.map((req) => {
@@ -340,14 +372,42 @@ export function JoinRequestsDialog({
                     <StatusPill tone={done === 'accepted' ? 'success' : 'neutral'} icon={done === 'accepted' ? CheckCircle2 : undefined}>
                       {done === 'accepted' ? t('dash.accepted', 'Accepted') : t('dash.declined', 'Declined')}
                     </StatusPill>
+                  ) : confirming === req.id ? (
+                    <>
+                      <span className="w-full text-[15px] font-semibold leading-6 text-navy sm:w-auto">
+                        {t('dash.declineQ', { name, defaultValue: 'Decline {{name}}? We will tell them by e-mail.' })}
+                      </span>
+                      <Button
+                        type="button"
+                        disabled={acting === req.id}
+                        onClick={() => answer(req, false)}
+                        className="h-11 rounded-pill bg-red-700 px-5 text-[15px] font-semibold text-white hover:bg-red-800 md:h-11"
+                      >
+                        {acting === req.id && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
+                        {t('dash.yesDecline', 'Yes, decline')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        autoFocus
+                        className={BTN_TOUCH}
+                        disabled={acting === req.id}
+                        onClick={() => {
+                          setConfirming(null);
+                          requestAnimationFrame(() => contentRef.current?.querySelector<HTMLElement>(`[data-decline="${req.id}"]`)?.focus());
+                        }}
+                      >
+                        {t('dash.keep', 'Keep')}
+                      </Button>
+                    </>
                   ) : (
                     <>
-                      <Button type="button" className={cn(ACCEPT, 'gap-1.5')} disabled={acting === req.id} onClick={() => answer(req, true)}>
+                      <Button type="button" data-answer-next="" className={cn(ACCEPT, 'gap-1.5')} disabled={acting === req.id} onClick={() => answer(req, true)}>
                         <Check className="h-4 w-4" aria-hidden="true" />
                         {t('dash.accept', 'Accept')}
                         <span className="sr-only"> {name}</span>
                       </Button>
-                      <Button type="button" variant="outline" className={cn(BTN_TOUCH, 'gap-1.5')} disabled={acting === req.id} onClick={() => answer(req, false)}>
+                      <Button type="button" data-decline={req.id} variant="outline" className={cn(BTN_TOUCH, 'gap-1.5')} disabled={acting === req.id} onClick={() => setConfirming(req.id)}>
                         <X className="h-4 w-4" aria-hidden="true" />
                         {t('dash.decline', 'Decline')}
                         <span className="sr-only"> {name}</span>

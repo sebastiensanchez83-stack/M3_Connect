@@ -19,7 +19,10 @@ import { cn } from '@/lib/utils';
  * can't be found simply gets no chip. `section=<key>` in the address deep-links
  * to one (/?open=company&section=capital: the My company panel's "More
  * settings"); the `section` prop does the same from code (the My team panel's
- * full editor opens on the team). An unknown value is ignored.
+ * full editor opens on the team). An unknown value is ignored. A section
+ * button writes its key to the address, unless `syncAddress` is false (the
+ * dashboard panels: their own rows read `section`, and a jump inside the editor
+ * must not move them). `onSaved` hears every change the editor saves.
  *
  * The bar sticks under the site header, which tucks away on scroll down
  * (`.sticky.top-16` follows --header-h, smc-motion.css). None of its ancestors
@@ -92,9 +95,13 @@ function addInnerSections(profileCard: HTMLElement, labels: { details: string[] 
   if (details && profileCard.contains(details) && !found.has('details')) found.set('details', details);
 }
 
-export function OrganizationWorkspace({ section }: {
+export function OrganizationWorkspace({ section, syncAddress = true, onSaved }: {
   /** A section to jump to once it exists, instead of the address's `section`. */
   section?: OrgSectionKey;
+  /** False: the section buttons only scroll, they leave the address alone. */
+  syncAddress?: boolean;
+  /** Something was saved in the editor (the company, its pictures, its team…). */
+  onSaved?: () => void;
 } = {}) {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -111,8 +118,10 @@ export function OrganizationWorkspace({ section }: {
   const detailsLabel = t('org.generalDetails', 'General Details');
 
   // The same element across renders, so a scroll-spy update never re-renders
-  // the (large) organisation form.
-  const organizationTab = useMemo(() => <OrganizationTab />, []);
+  // the (large) organisation form; the latest `onSaved` is read through a ref.
+  const onSavedRef = useRef(onSaved);
+  onSavedRef.current = onSaved;
+  const organizationTab = useMemo(() => <OrganizationTab onSaved={() => onSavedRef.current?.()} />, []);
 
   // Find the sections, and find them again whenever the tab's DOM changes
   // (it loads, the edit form opens, a section appears).
@@ -205,6 +214,7 @@ export function OrganizationWorkspace({ section }: {
   const pick = (key: OrgSectionKey) => {
     appliedRef.current = key;
     jumpTo(key, 'smooth');
+    if (!syncAddress) return;
     // Shareable, but a scroll position is not worth a history entry.
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);

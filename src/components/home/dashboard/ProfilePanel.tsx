@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
 import { avatarProblem, saveProfileFields, uploadAvatar } from '@/components/account/profileActions';
@@ -32,6 +33,7 @@ export function ProfilePanel({ initialSection, onChanged }: { initialSection: st
   const [editing, setEditing] = useState<Editing>(null);
   const [saved, flash] = useSavedFlash();
   const opened = useRef(false);
+  const [, setSearchParams] = useSearchParams();
 
   // The old "Email notifications" address lands on its window, once.
   useEffect(() => {
@@ -49,7 +51,17 @@ export function ProfilePanel({ initialSection, onChanged }: { initialSection: st
     await refreshProfile();
     onChanged();
   };
-  const close = (open: boolean) => { if (!open) setEditing(null); };
+  const close = (open: boolean) => {
+    if (open) return;
+    setEditing(null);
+    // The window the address opened (section=notifications) does not open again on a reload.
+    setSearchParams((prev) => {
+      if (!prev.has('section')) return prev;
+      const p = new URLSearchParams(prev);
+      p.delete('section');
+      return p;
+    }, { replace: true });
+  };
 
   const prefs = (profile.notification_prefs ?? {}) as Record<string, unknown>;
   const off = Object.values(prefs).filter((v) => v === false).length;
@@ -107,7 +119,14 @@ export function ProfilePanel({ initialSection, onChanged }: { initialSection: st
         <InfoRow
           label={t('dash.email', 'E-mail address')}
           value={<span className="break-all">{user.email}</span>}
-          hint={t('dash.emailHint', 'You sign in with it. To change it, write to the M3 team.')}
+          hint={(
+            <>
+              {t('dash.emailHintLead', 'You sign in with it. To change it,')}{' '}
+              <Link to="/contact" className="font-semibold text-navy underline decoration-navy/30 underline-offset-4 hover:decoration-gold">
+                {t('dash.writeToM3Lower', 'write to the M3 team')}
+              </Link>.
+            </>
+          )}
         />
         <InfoRow
           label={t('dash.password', 'Password')}

@@ -19,7 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useInboxCount } from '@/hooks/useInboxCount';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
-import { useSm26Participation } from '@/hooks/useSm26Participation';
+import { sm26Kind, sm26TeamWent, useSm26Participation } from '@/hooks/useSm26Participation';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { CREATE_ACTIONS, canCreate } from '@/lib/nav';
 import {
@@ -179,7 +179,8 @@ export default function MemberDashboard() {
   const tileRefs = useRef<Partial<Record<string, HTMLButtonElement | null>>>({});
   const closePanel = useCallback((key: HomePanel) => {
     setPanel(null);
-    if (key === 'inbox') inbox.refresh();
+    // Requests may have been answered there (My team answers join requests too).
+    if (key === 'inbox' || key === 'team') inbox.refresh();
     bump();
     // Back to the tile that opened it.
     requestAnimationFrame(() => tileRefs.current[key]?.focus());
@@ -197,6 +198,14 @@ export default function MemberDashboard() {
   }, [location.key, location.hash]);
 
   const [publishOpen, setPublishOpen] = useState(false);
+
+  // The to-do list waits for the inbox count too (its answers come first), but
+  // never for ever: the count is a hint, and it stays empty if its read fails.
+  const [inboxWait, setInboxWait] = useState(true);
+  useEffect(() => {
+    const id = window.setTimeout(() => setInboxWait(false), 6000);
+    return () => window.clearTimeout(id);
+  }, []);
 
   /* ---------------------------------------------------------- not yet */
 
@@ -288,7 +297,9 @@ export default function MemberDashboard() {
   const isManager = access?.manager === true;
   const layoutReady = !data.loading;
   const nextReg = data.nextRegistered;
-  const sm26Team = sm26?.team.people.length ?? 0;
+  const sm26What = sm26Kind(sm26);
+  // How many of my team went (the accounts My team marks "Attended"): never the whole team by default.
+  const sm26Went = sm26TeamWent(sm26);
 
   /* ---------------------------------------------------------- the tiles */
 
@@ -320,23 +331,36 @@ export default function MemberDashboard() {
     } else if (!companyReady) {
       status = loadingLine;
     } else {
+      // Say WHAT is missing, in a few words: "Logo and cover photo missing".
       const missing = [
-        !brand.logo && t('dash.st.logo', 'Logo missing'),
-        !brand.description && t('dash.st.description', 'Description missing'),
-        counts && !brand.sectors && t('dash.st.sectors', 'Sectors missing'),
-        !brand.banner && t('dash.st.cover', 'Cover photo missing'),
+        !brand.logo && t('dash.st.n.logo', 'logo'),
+        !brand.description && t('dash.st.n.description', 'description'),
+        counts && !brand.sectors && (orgType === 'marina' ? t('dash.st.n.interests', 'interests') : t('dash.st.n.sectors', 'sectors')),
+        !brand.banner && t('dash.st.n.cover', 'cover photo'),
       ].filter(Boolean) as string[];
-      if (missing.length === 1) { status = missing[0]; tone = 'missing'; }
-      else if (missing.length > 1) { status = t('dash.st.toAdd', { count: missing.length, defaultValue: '{{count}} things to add' }); tone = 'missing'; }
-      else if (!orgVerified) status = t('dash.st.checking', 'The M3 team is checking it');
+      const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+      if (missing.length === 1) {
+        status = cap(t('dash.st.oneMissing', { a: missing[0], defaultValue: '{{a}} missing' }));
+        tone = 'missing';
+      } else if (missing.length === 2) {
+        status = cap(t('dash.st.twoMissing', { a: missing[0], b: missing[1], defaultValue: '{{a}} and {{b}} missing' }));
+        tone = 'missing';
+      } else if (missing.length > 2) {
+        status = cap(t('dash.st.manyMissing', { a: missing[0], b: missing[1], count: missing.length - 2, defaultValue: '{{a}}, {{b}} and {{count}} more missing' }));
+        tone = 'missing';
+      } else if (!orgVerified) status = t('dash.st.checking', 'The M3 team is checking it');
       else { status = t('dash.st.allSet', 'All set'); tone = 'done'; }
     }
     tiles.push({ key: 'company', panel: 'company', icon: getHomeSection('company')!.icon, title: label('company'), status, tone });
   }
 
-  // My team (a company is needed)
+  // My team (a company is needed). The number of people is said in words, not repeated in a pill.
   if (visible('team')) {
     const members = counts?.members ?? 0;
+    const maxSeats = organization?.max_seats ?? 0;
+    const unlimited = orgType === 'marina' || orgType === 'developer';
+    // Most companies have one place: never prompt them to invite (the team panel says how to get more).
+    const roomForMore = unlimited || !maxSeats || members < maxSeats;
     let status: string;
     let tone: TileTone = 'plain';
     if (isOwner && inbox.joins > 0) {
@@ -345,35 +369,38 @@ export default function MemberDashboard() {
     } else if (!counts) {
       status = loadingLine;
     } else if (members <= 1) {
-      status = isOwner ? t('dash.st.onlyYouInvite', 'Only you so far. Invite a colleague') : t('dash.st.onlyYou', 'Only you so far');
+      status = isOwner && roomForMore ? t('dash.st.onlyYouInvite', 'Only you so far. Invite a colleague') : t('dash.st.onlyYou', 'Only you so far');
     } else {
       status = t('dash.st.people', { count: members, defaultValue_one: '{{count}} person', defaultValue_other: '{{count}} people' });
-      if (sm26Team > 0) status += ` · ${t('dash.st.teamSm26', 'took part in SM26')}`;
+      if (sm26Went > 0) {
+        status += ` · ${sm26Went >= members
+          ? t('dash.st.allWent', 'Everyone went to Smart Marina 2026')
+          : t('dash.st.teamWent', { count: sm26Went, defaultValue_one: '{{count}} went to Smart Marina 2026', defaultValue_other: '{{count}} went to Smart Marina 2026' })}`;
+      }
     }
-    tiles.push({
-      key: 'team', panel: 'team', icon: getHomeSection('team')!.icon, title: label('team'), status, tone,
-      count: counts ? { value: members, label: t('dash.peopleSr', { count: members, defaultValue_one: '{{count}} person', defaultValue_other: '{{count}} people' }) } : null,
-    });
+    tiles.push({ key: 'team', panel: 'team', icon: getHomeSection('team')!.icon, title: label('team'), status, tone });
   }
 
   // My events
   {
     const parts: string[] = [];
     if (data.upcomingCount > 0) parts.push(t('dash.st.upcoming', { count: data.upcomingCount, defaultValue_one: '{{count}} upcoming event', defaultValue_other: '{{count}} upcoming events' }));
-    if (sm26?.attended) parts.push(t('dash.st.sm26You', 'You attended SM26'));
-    else if (sm26Team > 0) parts.push(t('dash.st.sm26Team', 'Your team attended SM26'));
+    if (sm26What === 'you') parts.push(t('dash.st.sm26You', 'You attended Smart Marina 2026'));
+    else if (sm26What === 'team') parts.push(t('dash.st.sm26Team', 'Your team attended Smart Marina 2026'));
+    else if (sm26What === 'company') parts.push(t('dash.st.sm26Company', 'Your company took part in Smart Marina 2026'));
     const status = data.loading ? loadingLine : parts.length > 0 ? parts.join(' · ')
       : data.pastCount > 0 ? t('dash.st.pastOnly', { count: data.pastCount, defaultValue_one: '{{count}} past event', defaultValue_other: '{{count}} past events' })
         : t('dash.st.noEvents', 'No registration yet');
-    tiles.push({ key: 'registrations', panel: 'registrations', icon: getHomeSection('registrations')!.icon, title: label('registrations'), status, tone: sm26?.attended || sm26Team > 0 ? 'done' : 'plain' });
+    tiles.push({ key: 'registrations', panel: 'registrations', icon: getHomeSection('registrations')!.icon, title: label('registrations'), status, tone: sm26What ? 'done' : 'plain' });
   }
 
   // Messages
   tiles.push({
     key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, title: label('inbox'),
     tone: inbox.total > 0 ? 'action' : 'plain',
+    // The pill already gives the number.
     status: !inbox.loaded ? loadingLine : inbox.total > 0
-      ? t('dash.st.waiting', { count: inbox.total, defaultValue_one: '{{count}} waiting for your answer', defaultValue_other: '{{count}} waiting for your answer' })
+      ? t('dash.st.waitingNoCount', 'Waiting for your answer')
       : t('dash.st.nothingWaiting', 'Nothing waiting for you'),
     count: { value: inbox.total, label: t('dash.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' }) },
   });
@@ -381,8 +408,9 @@ export default function MemberDashboard() {
   // My requests
   tiles.push({
     key: 'requests', panel: 'requests', icon: getHomeSection('requests')!.icon, title: label('requests'), tone: 'plain',
+    // Every request sent, whatever M3 decided: the panel says where each one stands.
     status: data.loading ? loadingLine : requestTotal > 0
-      ? t('dash.st.published', { count: requestTotal, defaultValue_one: '{{count}} published', defaultValue_other: '{{count}} published' })
+      ? t('dash.st.requestsSent', { count: requestTotal, defaultValue_one: '{{count}} request sent', defaultValue_other: '{{count}} requests sent' })
       : createActions.length > 0 ? t('dash.st.publishFirst', 'Nothing yet. Publish a need') : t('dash.st.nothingPublished', 'Nothing published yet'),
   });
 
@@ -431,8 +459,8 @@ export default function MemberDashboard() {
   const panelBody = (key: HomePanel): ReactNode => {
     switch (key) {
       case 'profile': return <ProfilePanel initialSection={section} onChanged={bump} />;
-      case 'company': return <CompanyPanel initialSection={section} onChanged={bump} />;
-      case 'team': return <TeamPanel sm26UserIds={sm26?.team.userIds ?? []} onChanged={bump} />;
+      case 'company': return <CompanyPanel initialSection={section} version={version} onChanged={bump} />;
+      case 'team': return <TeamPanel sm26UserIds={sm26?.team.userIds ?? []} version={version} onChanged={bump} onInboxChanged={inbox.refresh} />;
       case 'registrations': return <EventsPanel sm26={sm26} />;
       case 'inbox': return <InboxTab />;
       case 'requests':
@@ -549,7 +577,7 @@ export default function MemberDashboard() {
           <div className={nextReg ? 'lg:col-span-2' : 'lg:col-span-5'}>
             <TodoList
               items={todos}
-              loading={data.loading && !inbox.loaded}
+              loading={data.loading || (!inbox.loaded && inboxWait)}
               onChanged={bump}
               onInboxChanged={inbox.refresh}
               compact={!!nextReg}
@@ -621,7 +649,7 @@ export default function MemberDashboard() {
           {/* Resources: the library's own cards — sector matches first, else the newest. */}
           <div className="mt-8 flex items-center justify-between gap-4">
             <p className="text-[16px] font-semibold text-navy">{resourcesMatched ? t('dashboard.resourcesForYou') : t('dashboard.resourcesLatest')}</p>
-            <UnderlineLink to="/resources" className="!text-[15px] !leading-5">{t('dashboard.seeAllResources')}</UnderlineLink>
+            <UnderlineLink to="/resources" className="min-h-11 !text-[15px] !leading-5">{t('dashboard.seeAllResources')}</UnderlineLink>
           </div>
           {data.loading ? (
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-hidden="true">

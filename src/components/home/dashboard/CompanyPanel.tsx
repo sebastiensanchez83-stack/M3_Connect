@@ -47,14 +47,23 @@ const ROW_OF_SECTION: Record<string, string> = {
 };
 const EDITOR_SECTIONS = ['more', 'capital', 'thesis'];
 
-export function CompanyPanel({ initialSection, onChanged }: { initialSection: string | null; onChanged: () => void }) {
+export function CompanyPanel({
+  initialSection,
+  version,
+  onChanged,
+}: {
+  initialSection: string | null;
+  /** The dashboard's version: a change saved elsewhere (a to-do window) reads the rows again. */
+  version: number;
+  onChanged: () => void;
+}) {
   const { t } = useTranslation();
   const { user, organization, orgRole, organizations, refreshProfile } = useAuth();
   const [, setSearchParams] = useSearchParams();
   const orgId = organization?.id ?? null;
   const orgType = organization?.organization_type ?? null;
   const [reloadKey, setReloadKey] = useState(0);
-  const { data, loading, patch } = useCompanyDetails(orgId, orgType, reloadKey);
+  const { data, loading, patch } = useCompanyDetails(orgId, orgType, `${reloadKey}:${version}`);
   const [editing, setEditing] = useState<Editing>(null);
   const [saved, flash] = useSavedFlash();
   const [moreOpen, setMoreOpen] = useState(() => !!initialSection && EDITOR_SECTIONS.includes(initialSection));
@@ -64,13 +73,22 @@ export function CompanyPanel({ initialSection, onChanged }: { initialSection: st
   const editorRef = useRef<HTMLDivElement>(null);
   const galleryTouched = useRef(false);
 
-  // An address that points at a row: bring it into view, tint it, focus its button.
-  const pointed = initialSection ? ROW_OF_SECTION[initialSection] ?? null : null;
+  // An address that points at a row (only the one the panel opened with): bring
+  // it into view, tint it, focus its button, then drop it from the address so a
+  // reload does not do it again.
+  const [pointed] = useState(() => (initialSection ? ROW_OF_SECTION[initialSection] ?? null : null));
   const pointedDone = useRef(false);
+  const hasData = !!data;
   useEffect(() => {
-    if (!pointed || pointedDone.current || !data) return;
-    pointedDone.current = true;
+    if (!pointed || pointedDone.current || !hasData) return;
     const timer = window.setTimeout(() => {
+      pointedDone.current = true;
+      setSearchParams((prev) => {
+        if (prev.get('section') === null || EDITOR_SECTIONS.includes(prev.get('section') ?? '')) return prev;
+        const p = new URLSearchParams(prev);
+        p.delete('section');
+        return p;
+      }, { replace: true });
       const row = document.getElementById(`company-row-${pointed}`);
       if (!row) return;
       window.scrollTo({ top: scrollTopUnderBars(row, 0, 24) });
@@ -79,7 +97,7 @@ export function CompanyPanel({ initialSection, onChanged }: { initialSection: st
       window.setTimeout(() => setHighlight(null), 2500);
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [pointed, data]);
+  }, [pointed, hasData, setSearchParams]);
 
   if (!user) return null;
 
@@ -130,6 +148,18 @@ export function CompanyPanel({ initialSection, onChanged }: { initialSection: st
 
   const action = (key: Exclude<Editing, null>, label = change) => (canEdit ? { actionLabel: label, onAction: () => setEditing(key) } : {});
   const place = [org.city, org.country].filter(Boolean).join(', ');
+  // What the full editor adds to the rows, for this kind of company.
+  const moreHint = orgType === 'marina'
+    ? t('dash.moreHintMarina', 'Your marina facts (berths, services, plans), raising money for a project, and the full company form.')
+    : orgType === 'developer'
+      ? t('dash.moreHintDeveloper', 'Raising money for a project, and the full company form.')
+      : orgType === 'investor'
+        ? t('dash.moreHintInvestor', 'What you invest in, and the full company form.')
+        : orgType === 'media_partner'
+          ? t('dash.moreHintMedia', 'Your audience, and the full company form.')
+          : orgType === 'partner'
+            ? t('dash.moreHintPartner', 'Your head office, raising money, sponsoring an event, and the full company form.')
+            : t('dash.moreHintOther', 'The full company form.');
   const verified = org.access_status === 'verified';
 
   return (
@@ -200,7 +230,7 @@ export function CompanyPanel({ initialSection, onChanged }: { initialSection: st
           />
           <InfoRow
             id="company-row-place"
-            label={t('dash.place', 'Country / City')}
+            label={t('dash.placeRow', 'City, country')}
             value={place || <NotFilled />}
             {...action('place')}
             saved={saved === 'place'}
@@ -270,9 +300,7 @@ export function CompanyPanel({ initialSection, onChanged }: { initialSection: st
         >
           <span>
             <span className="block text-[16px] font-semibold text-navy">{moreOpen ? t('dash.hideMore', 'Hide more settings') : t('dash.moreSettings', 'More settings')}</span>
-            <span className="block text-[14px] leading-5 text-meta">
-              {t('dash.moreSettingsHint', 'Marina facts, capital raise, investment thesis, audience, sponsoring and the full company form.')}
-            </span>
+            <span className="block text-[14px] leading-5 text-meta">{moreHint}</span>
           </span>
           <ChevronDown className={cn('h-5 w-5 shrink-0 text-meta transition-transform motion-reduce:transition-none', moreOpen && 'rotate-180')} aria-hidden="true" />
         </button>
@@ -280,7 +308,14 @@ export function CompanyPanel({ initialSection, onChanged }: { initialSection: st
       <div id="company-more-settings" ref={editorRef}>
         {moreOpen && (
           <Suspense fallback={<div className="rounded-card border border-rule bg-white"><RowSkeleton rows={3} /></div>}>
-            <OrganizationWorkspace key={editorKey} />
+            <p className="mb-3 text-[14px] leading-5 text-meta">
+              {t('dash.moreSettingsSave', 'Press Save in this form before you use a "Change" button above, or what you typed here is lost.')}
+            </p>
+            <OrganizationWorkspace
+              key={editorKey}
+              syncAddress={false}
+              onSaved={() => { setReloadKey((k) => k + 1); onChanged(); }}
+            />
           </Suspense>
         )}
       </div>

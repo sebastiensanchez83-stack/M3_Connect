@@ -32,7 +32,8 @@ export type TileTone = 'action' | 'missing' | 'done' | 'plain';
 /**
  * One tile: a big button (or a link, for a tile that leads to its own page)
  * with an icon, a title, an optional count and one line of status. It says
- * whether its panel is open (aria-expanded) and which region it controls.
+ * whether its panel is open (aria-expanded) and, while it is, which region it
+ * controls (the region only exists then).
  */
 export const Tile = forwardRef<HTMLButtonElement, {
   panelKey: string;
@@ -103,7 +104,7 @@ export const Tile = forwardRef<HTMLButtonElement, {
       ref={ref}
       type="button"
       aria-expanded={open}
-      aria-controls={panelDomId(panelKey)}
+      aria-controls={open ? panelDomId(panelKey) : undefined}
       onClick={onClick}
       className={cls}
     >
@@ -159,9 +160,9 @@ export function MiniRow({
   return <li className="-mx-2 flex min-h-11 items-center gap-3 px-2 py-1.5">{inner}</li>;
 }
 
-/** A link at the bottom of a block (gold line on hover, small arrow). */
+/** A link at the bottom of a block (gold line on hover, small arrow), 44 px tall to tap. */
 export function CardLink({ to, children, external = false }: { to: string; children: ReactNode; external?: boolean }) {
-  const cls = 'uline !text-[15px] !leading-5';
+  const cls = 'uline min-h-11 !text-[15px] !leading-5';
   const inner = (
     <>
       <span className="uline-t">{children}</span>

@@ -14,6 +14,20 @@
 // must accept as service role. verify_jwt stays false: the function checks
 // its caller itself. To run it by hand, POST with
 //   Authorization: Bearer <service_role key>
+//
+// Participants (registration spec §4.7, 9 Oct 2026). The three COMPANY reminders
+// (signup_stalled "finish your organization setup", onboarding_incomplete, and
+// verified_but_thin to a company owner) are not sent to participant accounts: people
+// who are here for events and content, without a company. "We're still reviewing your
+// profile" (pending_review_followup) is kept for everyone.
+//   Always excluded: accounts made by the registration flows (profiles.signup_source
+//   webinar / onsite / invitation / provisioned) and sign-ups that chose "No company"
+//   (signup_intent.action = 'none'). None exists before those flows are switched on.
+//   Excluded once registration flag account_signup_v2 is on: every persona
+//   'individual' account (the new sign-up makes "individual" mean "participant").
+//   Until then the live behaviour of this job is unchanged.
+//   If the profile columns of the registration core are not there yet, only the
+//   persona rule applies.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -101,6 +115,51 @@ interface Candidate {
   user_id: string;
   type: string;
   data: Record<string, string>;
+}
+
+// Reminders about a COMPANY; participants never get them (see the header).
+const COMPANY_REMINDERS = new Set([
+  REMINDERS.signup_stalled.type,
+  REMINDERS.onboarding_incomplete.type,
+  REMINDERS.verified_but_thin.type,
+]);
+const PARTICIPANT_SOURCES = new Set(["webinar", "onsite", "invitation", "provisioned"]);
+
+/** The participant accounts among these users (never throws: on error, nobody is excluded). */
+// deno-lint-ignore no-explicit-any
+async function participantIds(supabase: any, userIds: string[], individualsToo: boolean): Promise<Set<string>> {
+  const out = new Set<string>();
+  const ids = [...new Set(userIds)];
+  for (let i = 0; i < ids.length; i += 200) {
+    const chunk = ids.slice(i, i + 200);
+    let rows: Array<Record<string, unknown>> | null = null;
+    const full = await supabase.from("profiles").select("user_id, persona, signup_source, signup_intent").in("user_id", chunk);
+    if (!full.error) rows = full.data;
+    else {
+      // Columns of the registration core missing: persona only.
+      const basic = await supabase.from("profiles").select("user_id, persona").in("user_id", chunk);
+      if (basic.error) {
+        console.error("participantIds:", basic.error.message);
+        continue;
+      }
+      rows = basic.data;
+    }
+    for (const p of rows ?? []) {
+      const intent = p.signup_intent && typeof p.signup_intent === "object" ? (p.signup_intent as Record<string, unknown>) : null;
+      const participant =
+        PARTICIPANT_SOURCES.has(String(p.signup_source ?? "")) ||
+        intent?.action === "none" ||
+        (individualsToo && p.persona === "individual");
+      if (participant) out.add(String(p.user_id));
+    }
+  }
+  return out;
+}
+
+async function accountSignupV2On(supabase: any): Promise<boolean> {
+  const { data } = await supabase.from("platform_settings").select("value").eq("key", "registration_flags").maybeSingle();
+  const v = data?.value;
+  return !!v && typeof v === "object" && (v as Record<string, unknown>).account_signup_v2 === true;
 }
 
 interface RunResult {
@@ -284,6 +343,22 @@ Deno.serve(async (req: Request) => {
           type: r.type,
           data: { org_name: row.name },
         });
+      }
+    }
+  }
+
+  // Participants: no company reminders (see the header).
+  {
+    const companyIds = candidates.filter((c) => COMPANY_REMINDERS.has(c.type)).map((c) => c.user_id);
+    if (companyIds.length) {
+      const individualsToo = await accountSignupV2On(supabase).catch(() => false);
+      const participants = await participantIds(supabase, companyIds, individualsToo);
+      if (participants.size) {
+        const before = candidates.length;
+        for (let i = candidates.length - 1; i >= 0; i--) {
+          if (COMPANY_REMINDERS.has(candidates[i].type) && participants.has(candidates[i].user_id)) candidates.splice(i, 1);
+        }
+        console.log(`Participants left out of company reminders: ${before - candidates.length}`);
       }
     }
   }

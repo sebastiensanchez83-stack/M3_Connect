@@ -272,7 +272,12 @@ export function DealFlowPage() {
         text: typed || 'Investor interest in your raise.',
       });
       if (existing.kind === 'posted') {
-        toast({ title: 'Interest sent', description: `It was added to your conversation with ${interestTarget.name}, in Messages.` });
+        toast({
+          title: 'Interest sent',
+          description: existing.repeated
+            ? `You already told ${interestTarget.name}, in your conversation in Messages.`
+            : `It was added to your conversation with ${interestTarget.name}, in Messages.`,
+        });
         setInterestTarget(null);
         setInterestMessage('');
         return;

@@ -24,9 +24,9 @@ export const CATEGORIES: CategoryDef[] = [
   {
     key: 'b2b',
     icon: <Link2 className="h-5 w-5 text-blue-500" />,
-    title: 'B2B connections',
-    description: 'Contact requests from other members, introductions, declines.',
-    examples: 'Examples: new partner_request_received, partner_request_accepted intro, partner_request_rejected.',
+    title: 'Messages from companies',
+    description: 'The Friday summary of new messages and requests from other companies, and the e-mail when a company accepts yours.',
+    examples: 'Examples: "This week you received 3 messages", the introduction when a company accepts your message.',
   },
   {
     key: 'submissions',

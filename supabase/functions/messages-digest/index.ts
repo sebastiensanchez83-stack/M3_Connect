@@ -3,19 +3,25 @@
 // request: once a week, each person who has something waiting gets ONE e-mail:
 // "This week you received X messages", up to three previews (sender, company, first
 // 140 characters), the requests to connect waiting for their company listed
-// separately, and a button to their Messages (/?open=inbox).
+// separately, and a button to their Messages (/inbox: a signed-out reader gets the
+// sign-in form there, then Messages; /?open=inbox would show them the public home
+// page instead).
 //
 // Who and what: public.msg_digest_batch() (migration 20261009190000_company_messaging.sql)
-// decides it in SQL: verified people whose "B2B connections" e-mails are on
+// decides it in SQL: verified people whose "Messages from companies" e-mails are on
 // (profiles.notification_prefs ->> 'b2b' is not false, the category send-notification
 // uses for b2b), with unread messages from the other company since their last digest
-// (7 days for a first one, never more than 30), or requests sent to their company in
-// that time and still pending. A person already logged in public.digest_log for this
-// ISO week is left out, so a second run in the same week sends nothing twice.
+// (where its data ended, covered_until; 7 days for a first one, never more than 30),
+// or requests sent to their company in that time and still pending. A person whose
+// digest for this ISO week is in public.digest_log (sent, or being sent for less than
+// 15 minutes) is left out, so a second run in the same week sends nothing twice.
 //
-// Each send: claim the digest_log row (status 'sending'; a conflict means another run
-// has it: skipped), send through Resend, then mark it 'sent' (or delete the claim when
-// Resend refused, so the 10:30 run retries). The unsubscribe link is personal and signed
+// Each send: claim the digest_log row (status 'sending', with covered_until = the
+// batch's as_of, where the next digest starts; a conflict means another run has it:
+// skipped; a 'sending' row older than 15 minutes is a run that died and is replaced),
+// send through Resend (15 s at most, with an idempotency key per person and week, so
+// a retry after a lost answer does not send it twice), then mark it 'sent' (or delete
+// the claim when the send failed, so the 10:30 run retries). The unsubscribe link is personal and signed
 // (category b2b), exactly like send-notification's; the one-click header points at the
 // unsubscribe function.
 //
@@ -49,6 +55,10 @@ const SITE_URL = (Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com").
 
 /** Resend accepts 2 requests a second by default: one e-mail every 600 ms. */
 const SEND_GAP_MS = 600;
+/** One call to Resend waits this long at most (budget below + one call stays under the edge wall clock). */
+const SEND_TIMEOUT_MS = 15_000;
+/** A 'sending' claim older than this belongs to a run that died: it is replaced (msg_digest_batch uses the same 15 minutes). */
+const STALE_CLAIM_MS = 15 * 60_000;
 /** Stop starting new e-mails after this long (the edge runtime has a wall-clock limit); the 10:30 run continues. */
 const TIME_BUDGET_MS = 110_000;
 const DEFAULT_LIMIT = 300;
@@ -496,7 +506,7 @@ function digestSubject(c: DigestContent): string {
 /** Subject, HTML and plain-text parts of one digest. Pure: no I/O. */
 function renderDigest(c: DigestContent, unsubscribeUrl: string): { subject: string; html: string; text: string } {
   const subject = digestSubject(c);
-  const inboxUrl = `${SITE_URL}/?open=inbox`;
+  const inboxUrl = `${SITE_URL}/inbox`;
   const prefsUrl = `${SITE_URL}/account?tab=notifications`;
   const who = (it: DigestItem) => (it.company ? `${it.name}, ${it.company}` : it.name);
 
@@ -584,6 +594,7 @@ interface BatchRow {
   email: string;
   first_name: string | null;
   week_start: string;
+  as_of: string | null;
   message_count: number;
   previews: unknown;
   request_count: number;
@@ -668,6 +679,10 @@ Deno.serve(async (req: Request) => {
       continue;
     }
 
+    // A claim left by a run that died (the batch already let this person through): replaced.
+    await db.from("digest_log").delete()
+      .eq("user_id", row.user_id).eq("kind", "messages").eq("week_start", row.week_start)
+      .eq("status", "sending").lt("created_at", new Date(Date.now() - STALE_CLAIM_MS).toISOString());
     // Claim this person for this week: a second run (or a parallel one) skips them.
     const { error: claimErr } = await db.from("digest_log").insert({
       user_id: row.user_id,
@@ -676,6 +691,7 @@ Deno.serve(async (req: Request) => {
       status: "sending",
       message_count: content.messageCount,
       request_count: content.requestCount,
+      covered_until: row.as_of || new Date(started).toISOString(),
     });
     if (claimErr) {
       if (claimErr.code !== "23505") console.error("messages-digest: claim failed:", claimErr.code || "", claimErr.message || "");
@@ -703,7 +719,12 @@ Deno.serve(async (req: Request) => {
     try {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": `messages-digest-${row.week_start}-${row.user_id}`,
+        },
         body: JSON.stringify({
           from: SENDER_EMAIL,
           to: [email],
@@ -718,7 +739,7 @@ Deno.serve(async (req: Request) => {
       ok = res.ok;
       if (!ok) console.error("messages-digest: Resend error", res.status, body.slice(0, 300));
     } catch (e) {
-      console.error("messages-digest: Resend unreachable:", (e as { message?: string })?.message || String(e));
+      console.error("messages-digest: Resend unreachable or too slow:", (e as { message?: string })?.message || String(e));
     }
 
     if (ok) {

@@ -15,6 +15,9 @@
 --                                because the two companies' sectors overlap.
 --  2. BEFORE INSERT trigger trg_partner_requests_msg_insert (fires after the
 --     existing trg_partner_requests_before_insert, triggers run by name):
+--       * every insert by a signed-in client: created_at and updated_at = now() (a
+--         request dated in the past would escape the daily limit, one dated in the
+--         future would stay unread and first in every list; no client sends them);
 --       * every self-service insert (role authenticated, not a verified moderator):
 --           - partner_user_id must be the caller (the old and new clients always
 --             send it so; it stops anyone forging a request "from" someone else,
@@ -37,9 +40,14 @@
 --             organization_service_sectors), the request is accepted at once:
 --             status 'accepted', answered_by_user_id null, answered_at now(),
 --             auto_connected true. No e-mail is sent for it (the client sends none).
+--             The sectors are what each company ticked itself: at most 5 automatic
+--             connections per sending company in 24 hours, then its messages wait
+--             for an answer like the others;
 --       * auto_connected is always computed here; whatever a client sends is ignored.
 --     BEFORE UPDATE trigger trg_partner_requests_msg_update, self-service updates:
 --       * origin and auto_connected cannot be changed;
+--       * message and sector_id cannot be changed (the first message is the first of
+--         the conversation, under its author's name; both clients only send status);
 --       * an accepted or declined request is FINAL. The UPDATE policy of 20261008200000
 --         lets the sender set 'withdrawn' or 'pending' from any status: the sender
 --         could make a conversation vanish for both teams (and escape a report), or
@@ -57,8 +65,9 @@
 --                              either company, as they are NOW (msg_side: someone who
 --                              left a company no longer reads or writes as it, even
 --                              when they wrote or received the first message). Write:
---                              the same, as themselves, for their own side; the author's
---                              company is set by trigger. 60 messages per author per hour.
+--                              the same, as themselves, for their own side, unless M3
+--                              suspended their company; the author's company is set by
+--                              trigger. 60 messages per author per hour.
 --                              No update or delete for members (deleted_at is for M3).
 --       conversation_reads     (request, user, last_read_at): what each person has read.
 --                              Written by msg_mark_read() only; a user reads their rows.
@@ -66,11 +75,15 @@
 --                              reports a conversation, or a first message whatever its
 --                              status (msg_can_report), with a reason; the trigger keeps
 --                              an excerpt of the last 30 messages for M3 (who otherwise
---                              cannot read conversations). 10 reports per person per day.
---                              Reporters read their reports; verified moderators read
---                              all and close them (B2B requests page of the admin).
+--                              cannot read conversations; only the first message when
+--                              the request is not accepted). 10 reports per person per
+--                              day. Reporters read their reports; verified moderators
+--                              read all and close them (B2B requests page of the admin).
+--                              A report outlives its request (deleted with an account):
+--                              partner_request_id becomes null, the excerpt stays.
 --       digest_log             one row per person and week for the Friday digest
---                              (messages-digest edge function); service role only.
+--                              (messages-digest edge function), with covered_until (the
+--                              next digest starts there); service role only.
 --  5. RPCs for the new client (SECURITY DEFINER, each checks the caller):
 --       msg_conversations()         the caller's conversations with the other company,
 --                                   last message, unread count
@@ -91,11 +104,12 @@
 --     after a manual acceptance it was already read as a request.
 --  6. Friday digest: msg_digest_batch() (service role only) lists, per verified person
 --     whose "B2B connections" e-mails are on (profiles.notification_prefs ->> 'b2b' not
---     'false', send-notification's TYPE_TO_CATEGORY category) and who has no digest_log
---     row for this ISO week: the messages they have not read since their last digest
---     (at most 30 days back; 7 days for a first digest) with up to 3 previews, and the
---     pending requests sent to their company in that time (up to 5). The edge function
---     messages-digest sends one e-mail per person and logs it in digest_log.
+--     'false', send-notification's TYPE_TO_CATEGORY category) and who has no digest
+--     sent (or being sent) for this ISO week: the messages they have not read since
+--     their last digest's covered_until (at most 30 days back; 7 days for a first
+--     digest) with up to 3 previews, and the pending requests sent to their company in
+--     that time (up to 5). The edge function messages-digest sends one e-mail per
+--     person and logs it in digest_log.
 --     public.invoke_messages_digest() POSTs the function with the Vault service key (the
 --     pattern of invoke_send_profile_reminders), only on Fridays between 10:00 and 10:59
 --     in Monaco (msg_digest_due, summer and winter time alike).
@@ -114,8 +128,10 @@
 --  The only changes it can meet: a 21st request by the same person within 24 h is
 --  refused (the most anyone sent in a day so far is 10), and a request already
 --  accepted or declined can no longer be withdrawn or re-opened by its sender (it
---  has no screen for either). The new tables and functions are unknown to it, and
---  nothing in this file sends an e-mail or schedules a job.
+--  has no screen for either). It never sends created_at, updated_at, or anything but
+--  status on an update, so the other new rules do not touch it. The new tables and
+--  functions are unknown to it, and nothing in this file sends an e-mail or
+--  schedules a job.
 --
 -- No sm_* or gl_* object is read or written. Idempotent (IF NOT EXISTS, OR REPLACE,
 -- DROP POLICY IF EXISTS).
@@ -129,6 +145,8 @@
 --   select count(*) from public.partner_requests where auto_connected;            -> 0
 --   select count(*) from cron.job where jobname = 'messages-digest-friday';      -> 0 (launch file)
 --   select has_function_privilege('authenticated', 'public.msg_digest_batch(date, integer)', 'execute'); -> false
+--   select is_nullable from information_schema.columns
+--    where table_name = 'conversation_reports' and column_name = 'partner_request_id';         -> YES
 --   select has_function_privilege('anon', 'public.msg_conversations()', 'execute');                       -> false
 --
 -- UNDO: supabase/migrations/down/20261009190000_company_messaging.down.sql
@@ -263,7 +281,8 @@ AS $function$
            false);
 $function$;
 
--- A message may be written as this company in this conversation.
+-- A message may be written as this company in this conversation. A company M3 has
+-- suspended still reads its conversations but writes no more.
 CREATE OR REPLACE FUNCTION public.msg_can_write(p_request uuid, p_org uuid)
  RETURNS boolean
  LANGUAGE sql
@@ -272,7 +291,9 @@ CREATE OR REPLACE FUNCTION public.msg_can_write(p_request uuid, p_org uuid)
  SET search_path TO ''
 AS $function$
   select public.msg_can_access(p_request)
-     and p_org is not distinct from public.msg_my_side_org(p_request);
+     and p_org is not distinct from public.msg_my_side_org(p_request)
+     and not exists (select 1 from public.organizations o
+                      where o.id = p_org and o.access_status = 'suspended');
 $function$;
 
 -- The sector rule (src/lib/sector-matching.ts, checkSectorMatch with an overlap):
@@ -345,6 +366,14 @@ declare
 begin
   new.auto_connected := false;
 
+  -- A signed-in client never dates its own request: a request dated in the past
+  -- would escape the 24-hour limit below, one dated in the future would stay unread
+  -- and on top of every list for ever (neither client sends these columns).
+  if current_user = 'authenticated' then
+    new.created_at := now();
+    new.updated_at := now();
+  end if;
+
   if v_self then
     -- Nobody writes in someone else's name (both clients always send themselves).
     if new.partner_user_id is distinct from auth.uid() then
@@ -398,9 +427,16 @@ begin
         using errcode = '23505', hint = 'already_connected';
     end if;
 
-    -- Sectors match: connected at once.
+    -- Sectors match: connected at once. The sectors are what each company ticked
+    -- itself, so a company that ticks every sector is not connected with everyone:
+    -- at most 5 automatic connections per sending company in 24 hours; after that
+    -- its messages wait for the other company's answer like any other.
     if new.status = 'pending'
-       and public.msg_orgs_sectors_match(new.partner_organization_id, new.marina_organization_id) then
+       and public.msg_orgs_sectors_match(new.partner_organization_id, new.marina_organization_id)
+       and (select count(*) from public.partner_requests r
+             where r.partner_organization_id = new.partner_organization_id
+               and r.auto_connected
+               and r.created_at > now() - interval '24 hours') < 5 then
       new.status := 'accepted';
       new.answered_by_user_id := null;
       new.answered_at := now();
@@ -412,7 +448,7 @@ end
 $function$;
 
 COMMENT ON FUNCTION public.partner_requests_msg_before_insert() IS
-  'BEFORE INSERT on partner_requests (after trg_partner_requests_before_insert): own name and 20 per 24 h for self-service inserts; for origin = message: 1-500 characters, validated sender company, one open conversation per pair of companies, accepted at once when the sectors match (auto_connected). 2026-10-09.';
+  'BEFORE INSERT on partner_requests (after trg_partner_requests_before_insert): created_at/updated_at = now() for signed-in clients; own name and 20 per 24 h for self-service inserts; for origin = message: 1-500 characters, validated sender company, one open conversation per pair of companies, accepted at once when the sectors match (auto_connected; at most 5 per sending company in 24 h). 2026-10-09.';
 
 DROP TRIGGER IF EXISTS trg_partner_requests_msg_insert ON public.partner_requests;
 CREATE TRIGGER trg_partner_requests_msg_insert
@@ -430,7 +466,11 @@ CREATE TRIGGER trg_partner_requests_msg_insert
 --     side was already limited to one answer (partner_requests_before_update). No
 --     screen of the old or the new site withdraws or re-opens a request;
 --   * a withdrawn request re-opened by its sender must not make a second open
---     request between the two companies.
+--     request between the two companies;
+--   * the first message (and the sector of an RFP interest) never changes: it is
+--     the first message of the conversation, shown under its author's name and
+--     copied into M3's reports, and its 500 characters are checked at insert.
+--     Both clients only ever send {status}.
 CREATE OR REPLACE FUNCTION public.partner_requests_msg_before_update()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -440,6 +480,10 @@ begin
   if current_user = 'authenticated' and not public.is_moderator() then
     new.origin := old.origin;
     new.auto_connected := old.auto_connected;
+    if new.message is distinct from old.message or new.sector_id is distinct from old.sector_id then
+      raise exception 'Only the status of a request can change'
+        using errcode = '42501';
+    end if;
     if new.status is distinct from old.status then
       if old.status in ('accepted', 'rejected') then
         raise exception 'This request has already been answered and can no longer be changed'
@@ -458,7 +502,7 @@ end
 $function$;
 
 COMMENT ON FUNCTION public.partner_requests_msg_before_update() IS
-  'BEFORE UPDATE on partner_requests, self-service only: origin and auto_connected stay as they are; an accepted or declined request is final; a re-opened request must not duplicate an open one between the same companies. 2026-10-09.';
+  'BEFORE UPDATE on partner_requests, self-service only: origin and auto_connected stay as they are; message and sector_id cannot change; an accepted or declined request is final; a re-opened request must not duplicate an open one between the same companies. 2026-10-09.';
 
 DROP TRIGGER IF EXISTS trg_partner_requests_msg_update ON public.partner_requests;
 CREATE TRIGGER trg_partner_requests_msg_update
@@ -503,9 +547,12 @@ COMMENT ON TABLE public.conversation_reads IS
 
 CREATE INDEX IF NOT EXISTS conversation_reads_user_idx ON public.conversation_reads (user_id);
 
+-- partner_request_id is SET NULL, not CASCADE: a request goes when the account that
+-- sent or received it is deleted (partner_requests' user columns cascade from
+-- profiles), and the report, with its excerpt, must stay for M3.
 CREATE TABLE IF NOT EXISTS public.conversation_reports (
   id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  partner_request_id uuid NOT NULL REFERENCES public.partner_requests(id) ON DELETE CASCADE,
+  partner_request_id uuid REFERENCES public.partner_requests(id) ON DELETE SET NULL,
   message_id         uuid REFERENCES public.conversation_messages(id) ON DELETE SET NULL,
   reporter_user_id   uuid REFERENCES public.profiles(user_id) ON DELETE SET NULL,
   reporter_org_id    uuid REFERENCES public.organizations(id) ON DELETE SET NULL,
@@ -522,7 +569,7 @@ CREATE TABLE IF NOT EXISTS public.conversation_reports (
 );
 
 COMMENT ON TABLE public.conversation_reports IS
-  '"Report to M3" on a conversation. excerpt = the last 30 messages at the time of the report (M3 cannot read conversations otherwise). Moderators read and close them. 2026-10-09.';
+  '"Report to M3" on a conversation. excerpt = the last 30 messages at the time of the report (M3 cannot read conversations otherwise; only the first message when the request is not accepted). Moderators read and close them. partner_request_id becomes null when the request is deleted; the report stays. 2026-10-09.';
 
 CREATE INDEX IF NOT EXISTS conversation_reports_status_created_idx
   ON public.conversation_reports (status, created_at DESC);
@@ -536,12 +583,13 @@ CREATE TABLE IF NOT EXISTS public.digest_log (
   request_count integer NOT NULL DEFAULT 0,
   created_at    timestamptz NOT NULL DEFAULT now(),
   sent_at       timestamptz,
+  covered_until timestamptz,
   PRIMARY KEY (user_id, kind, week_start),
   CONSTRAINT digest_log_status_check CHECK (status IN ('sending', 'sent'))
 );
 
 COMMENT ON TABLE public.digest_log IS
-  'One row per person, kind and ISO week (Monday) of a digest e-mail: claimed (sending) before the e-mail, sent after, deleted when the send failed so a re-run retries. A re-run in the same week skips everyone with a row. Service role only. 2026-10-09.';
+  'One row per person, kind and ISO week (Monday) of a digest e-mail: claimed (sending) before the e-mail, sent after, deleted when the send failed so a re-run retries. A re-run in the same week skips everyone with a sent row, or a sending row less than 15 minutes old (an older one is a run that died: retried). covered_until = the time msg_digest_batch read the data (as_of): the next digest starts there. Service role only. 2026-10-09.';
 
 -- ─── 6. Table triggers ─────────────────────────────────────────────────────
 
@@ -583,7 +631,10 @@ CREATE TRIGGER trg_conversation_messages_before_insert
   FOR EACH ROW EXECUTE FUNCTION public.conversation_messages_before_insert();
 
 -- What M3 receives with a report: the last 30 messages of the conversation (the
--- first message included), oldest first, one line each. Internal.
+-- first message included), oldest first, one line each. Internal. When the request
+-- is not (or no longer) accepted, only the first message: a conversation M3 has
+-- closed must not come back through a report filed by someone who can no longer
+-- read it.
 CREATE OR REPLACE FUNCTION public.msg_report_excerpt(p_request uuid)
  RETURNS text
  LANGUAGE sql
@@ -608,6 +659,8 @@ AS $function$
         select m.author_user_id, m.author_org_id, m.body, m.created_at, m.deleted_at
           from public.conversation_messages m
          where m.partner_request_id = p_request
+           and exists (select 1 from public.partner_requests r2
+                        where r2.id = p_request and r2.status = 'accepted')
       ) a
       order by a.created_at desc
       limit 30
@@ -996,6 +1049,14 @@ $function$;
 -- ─── 9. Friday digest ──────────────────────────────────────────────────────
 
 -- Who gets this week's digest, and what it says. Service role only.
+--   since  where this person's digest starts: covered_until of their last digest
+--          sent (7 days back for a first one, never more than 30);
+--   as_of  when this batch read the data: the edge function stores it as the
+--          digest's covered_until, so whatever arrives while the e-mails go out is in
+--          the next digest, never lost between two.
+-- A person is left out when this week's digest was sent, or is being sent by a run
+-- that started less than 15 minutes ago; an older 'sending' row is a run that died
+-- (the function deletes it before claiming the person again).
 CREATE OR REPLACE FUNCTION public.msg_digest_batch(p_week_start date DEFAULT NULL, p_limit integer DEFAULT 500)
  RETURNS TABLE (
    user_id uuid,
@@ -1003,6 +1064,7 @@ CREATE OR REPLACE FUNCTION public.msg_digest_batch(p_week_start date DEFAULT NUL
    first_name text,
    week_start date,
    since timestamptz,
+   as_of timestamptz,
    message_count integer,
    previews jsonb,
    request_count integer,
@@ -1022,7 +1084,7 @@ AS $function$
            p.first_name,
            public.msg_user_org_ids(p.user_id) as orgs,
            greatest(
-             coalesce((select max(d.sent_at) from public.digest_log d
+             coalesce((select max(coalesce(d.covered_until, d.sent_at)) from public.digest_log d
                         where d.user_id = p.user_id and d.kind = 'messages' and d.status = 'sent'),
                       now() - interval '7 days'),
              now() - interval '30 days') as since
@@ -1032,7 +1094,8 @@ AS $function$
      where p.access_status = 'verified'
        and coalesce(p.notification_prefs ->> 'b2b', 'true') <> 'false'
        and not exists (select 1 from public.digest_log d
-                        where d.user_id = p.user_id and d.kind = 'messages' and d.week_start = wk.w)
+                        where d.user_id = p.user_id and d.kind = 'messages' and d.week_start = wk.w
+                          and (d.status = 'sent' or d.created_at > now() - interval '15 minutes'))
   ),
   msgs as (
     select pe.user_id, x.author_user_id, x.author_org_id, x.body, x.created_at,
@@ -1080,7 +1143,7 @@ AS $function$
       left join public.organizations so on so.id = q.partner_organization_id
      group by q.user_id
   )
-  select pe.user_id, pe.email, pe.first_name, wk.w, pe.since,
+  select pe.user_id, pe.email, pe.first_name, wk.w, pe.since, now(),
          coalesce(ma.n, 0), coalesce(ma.previews, '[]'::jsonb),
          coalesce(ra.n, 0), coalesce(ra.requests, '[]'::jsonb)
     from people pe

@@ -557,7 +557,9 @@ export function OpportunitiesPage() {
         setExistingInterests((prev) => new Set([...prev, interestKey(interestTarget.marina_user_id, interestTarget.sector_id)]));
         toast({
           title: t('opportunities.interestSent', 'Interest expressed successfully'),
-          description: t('opportunities.interestInConversation', 'It was added to your conversation with this marina, in Messages.'),
+          description: existing.repeated
+            ? t('opportunities.interestAlreadyInConversation', 'You already told this marina, in your conversation in Messages.')
+            : t('opportunities.interestInConversation', 'It was added to your conversation with this marina, in Messages.'),
         });
         setInterestOpen(false);
         return;

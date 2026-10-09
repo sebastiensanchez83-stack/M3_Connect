@@ -16,14 +16,16 @@ import { cn } from '@/lib/utils';
  * report (M3 cannot read conversations otherwise).
  *
  * Shown at the top of the admin's B2B requests page. Until the migration is
- * applied the table does not exist and the panel shows nothing.
+ * applied the table does not exist and the panel shows nothing. A report outlives
+ * its conversation (deleted with an account): it then has no request, but keeps
+ * its excerpt.
  */
 
 interface OrgName { name: string | null }
 
 interface ReportRow {
   id: string;
-  partner_request_id: string;
+  partner_request_id: string | null;
   reason: string;
   excerpt: string | null;
   status: 'open' | 'closed';
@@ -122,6 +124,7 @@ export function ConversationReportsPanel() {
                       {when(r.created_at)}
                       {between && <> · {between}</>}
                       {r.request?.status && r.request.status !== 'accepted' && <> · {t('adminReports.requestStatus', { status: r.request.status, defaultValue: 'first message {{status}}' })}</>}
+                      {!r.partner_request_id && <> · {t('adminReports.requestGone', 'conversation deleted since (an account was removed)')}</>}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -150,11 +153,13 @@ export function ConversationReportsPanel() {
                     <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-field bg-page p-3 font-sans text-[13px] leading-5 text-ink [overflow-wrap:anywhere]">{r.excerpt}</pre>
                   </details>
                 )}
-                <p className="mt-2 text-[13px]">
-                  <Link to={`/admin/partner-requests/${r.partner_request_id}`} className="text-navy underline decoration-navy/30 underline-offset-[3px] hover:decoration-gold">
-                    {t('adminReports.openRequest', 'Open the request')}
-                  </Link>
-                </p>
+                {r.partner_request_id && (
+                  <p className="mt-2 text-[13px]">
+                    <Link to={`/admin/partner-requests/${r.partner_request_id}`} className="text-navy underline decoration-navy/30 underline-offset-[3px] hover:decoration-gold">
+                      {t('adminReports.openRequest', 'Open the request')}
+                    </Link>
+                  </p>
+                )}
               </li>
             );
           })}

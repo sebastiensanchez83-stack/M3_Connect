@@ -1,14 +1,15 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, Loader2, Users } from 'lucide-react';
+import { CheckCircle, Lightbulb, Loader2, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { requireFreshSession } from '@/lib/session';
-import { sectorsMatch } from '@/lib/sector-matching';
+import { memberHomeHref } from '@/lib/accountNav';
+import { mySectorsMissing, sectorsMatch } from '@/lib/sector-matching';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { FIRST_MESSAGE_MAX, sendFirstMessage } from './messagesApi';
@@ -21,8 +22,13 @@ import { FIRST_MESSAGE_MAX, sendFirstMessage } from './messagesApi';
  * Before sending, the window says what will happen: when the two companies'
  * activities match (the database's sector rule) they are connected at once and the
  * conversation starts; otherwise the company decides whether to connect. After
- * sending it says what did happen, with the way to the conversation. No e-mail is
- * sent for it: the company sees it in Messages (and in its Friday summary).
+ * sending it says what did happen, with the way to the conversation (connected) or
+ * to Messages, where it waits in "Sent" (not connected). No e-mail is sent for it:
+ * the company sees it in Messages (and in its Friday summary).
+ *
+ * Few companies have ticked their sectors yet (9 Oct 2026), so most messages wait
+ * for an answer. When the sender's own company has none, the "sent" screen says that
+ * adding them connects it at once with the companies that match.
  */
 export interface SentFirstMessage {
   id: string;
@@ -37,14 +43,15 @@ export function SendMessageDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The company written to, and the person the message is filed under (its owner, or a member). */
-  org: { id: string; name: string; contactUserId: string };
+  /** The company written to (and its type), and the person the message is filed under (its owner, or a member). */
+  org: { id: string; name: string; contactUserId: string; type?: string | null };
   onSent: (sent: SentFirstMessage) => void;
 }) {
   const { t } = useTranslation();
   const { user, organization } = useAuth();
   const uid = user?.id ?? null;
   const myOrgId = organization?.id ?? null;
+  const myOrgType = organization?.organization_type ?? null;
   const fieldId = useId();
   const hintId = useId();
   const [text, setText] = useState('');
@@ -52,6 +59,8 @@ export function SendMessageDialog({
   // Set before any await: a double click must not send the message twice.
   const sendingRef = useRef(false);
   const [match, setMatch] = useState<boolean | null>(null);
+  // My company has ticked no sectors on its side (the sector rule could never match).
+  const [noSectors, setNoSectors] = useState(false);
   const [done, setDone] = useState<SentFirstMessage | null>(null);
   const [problem, setProblem] = useState<{ message: string; already: boolean } | null>(null);
 
@@ -62,9 +71,11 @@ export function SendMessageDialog({
     setDone(null);
     setProblem(null);
     setMatch(null);
+    setNoSectors(false);
     sectorsMatch(myOrgId, org.id).then((m) => { if (alive) setMatch(m); }, () => {});
+    mySectorsMissing(myOrgId, myOrgType, org.type).then((m) => { if (alive) setNoSectors(m); }, () => {});
     return () => { alive = false; };
-  }, [open, myOrgId, org.id]);
+  }, [open, myOrgId, myOrgType, org.id, org.type]);
 
   const left = FIRST_MESSAGE_MAX - text.length;
   const ready = text.trim().length > 0 && left >= 0;
@@ -95,7 +106,9 @@ export function SendMessageDialog({
     }
   };
 
-  const threadHref = done ? `/?open=inbox&thread=${done.id}` : '/?open=inbox';
+  // Connected: straight into the conversation. Not connected: Messages, where the
+  // message waits under "Sent" (it is not a conversation yet).
+  const threadHref = done?.connected ? `/?open=inbox&thread=${done.id}` : '/?open=inbox';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -117,6 +130,20 @@ export function SendMessageDialog({
                   : t('messages.first.sentBody', '{{name}} will decide whether to connect. You will see their answer in Messages.', { name: org.name })}
               </DialogDescription>
             </DialogHeader>
+            {!done.connected && noSectors && (
+              <p className="mt-5 flex items-start gap-2.5 rounded-field bg-page px-3.5 py-3 text-left text-[14px] leading-5 text-ink">
+                <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-meta" aria-hidden="true" />
+                <span>
+                  {myOrgType === 'marina'
+                    ? t('messages.first.tipInterests', 'Tip: tick the sectors your company is interested in. Companies whose activities match are then connected with you straight away.')
+                    : t('messages.first.tipServices', 'Tip: tick the sectors your company works in. Companies interested in them are then connected with you straight away.')}
+                  {' '}
+                  <Link to={memberHomeHref('company')} onClick={() => onOpenChange(false)} className="font-semibold text-navy underline decoration-navy/30 underline-offset-[3px] hover:decoration-gold">
+                    {t('messages.first.tipLink', 'Add them now')}
+                  </Link>
+                </span>
+              </p>
+            )}
             <div className="mt-6 flex flex-col-reverse justify-center gap-3 sm:flex-row">
               <Button variant="ctaOutline" size="sm" arrow={false} className="min-h-11" onClick={() => onOpenChange(false)}>
                 {t('common.close', 'Close')}

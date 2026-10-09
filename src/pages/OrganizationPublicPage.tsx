@@ -45,7 +45,7 @@ import { supabase } from '@/lib/supabase';
 import { SendMessageDialog } from '@/components/messages/SendMessageDialog';
 import { findCompanyConnection, type CompanyConnection } from '@/components/messages/messagesApi';
 import { THEMES, getTheme, themeForSector, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
-import { accountHref } from '@/lib/accountNav';
+import { accountHref, memberHomeHref } from '@/lib/accountNav';
 import { boardDate } from '@/lib/boardDate';
 import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
@@ -891,6 +891,8 @@ export function OrganizationPublicPage() {
     ? 'connect'
     : !isVerified
     ? 'unverified'
+    : !organization
+    ? 'noCompany'
     : !companyValidated
     ? 'companyPending'
     : null;
@@ -1489,7 +1491,7 @@ export function OrganizationPublicPage() {
         <SendMessageDialog
           open={connectOpen}
           onOpenChange={setConnectOpen}
-          org={{ id: org.id, name, contactUserId: org.owner_user_id }}
+          org={{ id: org.id, name, contactUserId: org.owner_user_id, type: org.organization_type }}
           onSent={handleMessageSent}
         />
       )}
@@ -1779,7 +1781,7 @@ function ProfileSection({
   );
 }
 
-type TouchState = 'own' | 'sent' | 'received' | 'connected' | 'visitor' | 'connect' | 'unverified' | 'companyPending';
+type TouchState = 'own' | 'sent' | 'received' | 'connected' | 'visitor' | 'connect' | 'unverified' | 'noCompany' | 'companyPending';
 
 /**
  * Beside "About" on a claimed page: how to get in touch with the company, by who is
@@ -1827,6 +1829,10 @@ function TouchCard({
       title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
       body: t('orgProfile.touch.unverifiedMessageBody', 'Once the M3 team has checked your account, you can send {{name}} a message.', { name }),
     },
+    noCompany: {
+      title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
+      body: t('orgProfile.touch.noCompanyBody', 'Messages go from one company to another. Add your company to your profile to send {{name}} a message.', { name }),
+    },
     companyPending: {
       title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
       body: t('orgProfile.touch.companyPendingBody', 'Once the M3 team has validated your company, you can send {{name}} a message.', { name }),
@@ -1864,6 +1870,9 @@ function TouchCard({
         )}
         {state === 'sent' && (
           <UnderlineLink to="/?open=inbox" className="!text-[14px]">{t('orgProfile.goToMessages', 'Go to my messages')}</UnderlineLink>
+        )}
+        {state === 'noCompany' && (
+          <UnderlineLink to={memberHomeHref('company')} className="!text-[14px]">{t('orgProfile.addYourCompany', 'Add your company')}</UnderlineLink>
         )}
         {(state === 'unverified' || state === 'companyPending') && (
           <UnderlineLink to={accountHref('dashboard')} className="!text-[14px]">{t('orgProfile.checkStatus', 'Check your account status')}</UnderlineLink>

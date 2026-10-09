@@ -20,7 +20,8 @@ import { fetchPeopleOrgs, type PersonOrg } from '@/lib/personOrg';
  *
  * Database side: supabase/migrations/20261009190000_company_messaging.sql. Until it
  * is applied, the reads here fail softly (no conversations, no unread count) and a
- * first message is sent the old way (a pending request, no automatic connection).
+ * first message is NOT sent: the sender is told Messages are not open yet (sending
+ * it the old way would file a request nobody is told about).
  */
 
 const MAX_FIRST_MESSAGE = 500;
@@ -317,8 +318,8 @@ export async function findCompanyConnection(uid: string, myOrgIds: string[], tar
 }
 
 export type ExistingContact =
-  /** Already connected: the text was added to that conversation. */
-  | { kind: 'posted'; id: string }
+  /** Already connected: the text was added to that conversation (or was already in it, from my side: `repeated`). */
+  | { kind: 'posted'; id: string; repeated?: boolean }
   /** A first message is already waiting between the two companies (sent: ours; received: theirs). */
   | { kind: 'waiting'; direction: 'sent' | 'received' }
   /** Already connected, but the message could not be added. */
@@ -346,7 +347,19 @@ export async function routeToExistingConversation(args: {
   const conn = await findCompanyConnection(args.uid, myOrgIds, args.targetOrgId);
   if (!conn) return { kind: 'none' };
   if (conn.status === 'pending') return { kind: 'waiting', direction: conn.direction };
-  const { error } = await supabase.from('conversation_messages').insert({ partner_request_id: conn.id, body: text.slice(0, THREAD_MESSAGE_MAX) });
+  const body = text.slice(0, THREAD_MESSAGE_MAX);
+  // The same text already written from my side (the same RFP's "Express interest"
+  // pressed again after a reload): not a second time.
+  const { data: same } = await supabase
+    .from('conversation_messages')
+    .select('id')
+    .eq('partner_request_id', conn.id)
+    .eq('body', body)
+    .in('author_org_id', myOrgIds)
+    .is('deleted_at', null)
+    .limit(1);
+  if (same && same.length > 0) return { kind: 'posted', id: conn.id, repeated: true };
+  const { error } = await supabase.from('conversation_messages').insert({ partner_request_id: conn.id, body });
   if (!error) return { kind: 'posted', id: conn.id };
   // Before the messaging migration there is no conversation to add to: the old way.
   if (error.code === '42P01' || error.code === 'PGRST205') return { kind: 'none' };
@@ -360,7 +373,7 @@ export async function routeToExistingConversation(args: {
 
 export type FirstMessageResult =
   | { ok: true; id: string; connected: boolean }
-  | { ok: false; reason: 'already' | 'rate_limited' | 'length' | 'not_validated' | 'own' | 'no_team' | 'error'; message: string };
+  | { ok: false; reason: 'already' | 'rate_limited' | 'length' | 'not_validated' | 'own' | 'no_team' | 'unavailable' | 'error'; message: string };
 
 /**
  * Sends a first message to a company. `targetUserId` is a person of that company
@@ -388,16 +401,17 @@ export async function sendFirstMessage(args: {
     sector_id: null,
     status: 'pending',
   };
-  let res = await supabase.from('partner_requests').insert({ ...row, origin: 'message' }).select('id, status, auto_connected').single();
-  // Before the messaging migration the column does not exist: send it the old way.
-  if (res.error && (res.error.code === 'PGRST204' || res.error.code === '42703')) {
-    res = await supabase.from('partner_requests').insert(row).select('id, status').single();
-  }
+  const res = await supabase.from('partner_requests').insert({ ...row, origin: 'message' }).select('id, status, auto_connected').single();
   const { data, error } = res as { data: { id: string; status: string; auto_connected?: boolean } | null; error: { code?: string; hint?: string; message: string } | null };
   if (!error && data) return { ok: true, id: data.id, connected: data.status === 'accepted' };
 
   const hint = error?.hint || '';
   const t = (key: string, fallback: string) => i18n.t(key, fallback);
+  // Before the messaging migration the column does not exist. Nothing is sent the old
+  // way: the company would get a request nobody tells them about.
+  if (error?.code === 'PGRST204' || error?.code === '42703') {
+    return { ok: false, reason: 'unavailable', message: t('messages.err.unavailable', 'Messages are not open yet. Please try again in a few days, or write to events@m3monaco.com.') };
+  }
   if (hint === 'already_connected') return { ok: false, reason: 'already', message: t('messages.err.already', 'Your companies are already in touch. Open the conversation in Messages.') };
   if (hint === 'rate_limited') return { ok: false, reason: 'rate_limited', message: t('messages.err.tooManyPerDay', 'You have reached the limit of 20 new messages to companies in 24 hours. Please try again tomorrow.') };
   if (hint === 'message_length') return { ok: false, reason: 'length', message: lengthMessage };

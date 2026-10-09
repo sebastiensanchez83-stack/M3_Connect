@@ -37,10 +37,13 @@ import {
  * People asking to join the company are not here: they are answered in My team
  * (and the dashboard's to-do), so the Messages count holds only what Messages shows.
  *
- * Opening a conversation shows it beside the list on wide screens, in place of the
- * list on phones (with a way back). /?open=inbox&thread=<id> opens one directly
- * (the company page's "Open the conversation"); the address parameter is then
- * dropped, so closing and reopening the tile starts from the list.
+ * Opening a conversation shows it beside the list on wide screens (scrolled into
+ * view when its top is out of sight), in place of the list on phones (with a way
+ * back). /?open=inbox&thread=<id> opens one directly (the company page's "Open the
+ * conversation"); the address parameter is then dropped, so closing and reopening
+ * the tile starts from the list. When that id is a first message still waiting (in
+ * "Requests waiting for your answer" or "Sent"), the list shows with that row
+ * marked, never a "not available" card.
  *
  * Wording is plain and every target is at least 44 px: the members are marina and
  * maritime business people, often not at ease with technology.
@@ -81,7 +84,10 @@ export function MessagesView() {
   const [acting, setActing] = useState<string | null>(null);
   const [confirmDecline, setConfirmDecline] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const paneRef = useRef<HTMLDivElement>(null);
   const lastLoad = useRef(0);
+  // A waiting first message asked for in the address: its row is marked and scrolled to.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!uid) return;
@@ -125,21 +131,49 @@ export function MessagesView() {
   }, [wantedThread, setSearchParams]);
 
   const selected = conversations?.find((c) => c.id === selectedId) ?? null;
-  // A conversation asked for in the address but not (or not yet) in the list.
-  const selectedMissing = loaded && !!selectedId && !selected;
+  // Asked for in the address, not a conversation, but a first message still waiting
+  // (received or sent): the list, with that row marked.
+  const selectedWaiting = !!selectedId && !selected
+    && (received.some((r) => r.data.id === selectedId) || sent.some((r) => r.data.id === selectedId));
+  // A conversation asked for in the address but not (or not yet) in any list.
+  const selectedMissing = loaded && !!selectedId && !selected && !selectedWaiting;
+
+  useEffect(() => {
+    if (!loaded || !selectedWaiting || !selectedId) return;
+    setHighlightId(selectedId);
+    setSelectedId(null);
+  }, [loaded, selectedWaiting, selectedId]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(`msg-item-${highlightId}`)?.scrollIntoView({ block: 'center' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [highlightId]);
 
   // On a phone the thread replaces the list: start at its top, its header (Back, the
-  // company, Report) in view. scrollIntoView keeps clear of the sticky site header
-  // (the page's scroll-padding-top, src/index.css), which stays put on working
-  // screens such as this one. Done right after React has shown the thread.
+  // company, Report) in view. On a wide screen it sits beside the list, at the top of
+  // its column: when the row clicked was further down (after the requests), its top
+  // is above the screen, so it is brought into view too. scrollIntoView keeps clear
+  // of the sticky site header (the page's scroll-padding-top, src/index.css), which
+  // stays put on working screens such as this one. Done right after React has shown
+  // the thread.
   const [scrollToThread, setScrollToThread] = useState(0);
   useLayoutEffect(() => {
     if (!scrollToThread) return;
-    const el = rootRef.current;
-    if (el && window.matchMedia('(max-width: 1023px)').matches) el.scrollIntoView({ block: 'start' });
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      rootRef.current?.scrollIntoView({ block: 'start' });
+      return;
+    }
+    const pane = paneRef.current;
+    if (!pane) return;
+    const pad = parseFloat(getComputedStyle(document.documentElement).scrollPaddingTop) || 0;
+    if (pane.getBoundingClientRect().top < pad + 8) pane.scrollIntoView({ block: 'start' });
   }, [scrollToThread]);
 
   const open = (id: string) => {
+    setHighlightId(null);
     setSelectedId(id);
     setScrollToThread((n) => n + 1);
   };
@@ -236,6 +270,7 @@ export function MessagesView() {
               <RequestCard
                 key={item.data.id}
                 item={item}
+                highlighted={highlightId === item.data.id}
                 acting={acting === item.data.id}
                 confirming={confirmDecline === item.data.id}
                 onAccept={() => answer(item, 'accepted')}
@@ -274,7 +309,7 @@ export function MessagesView() {
           <SectionTitle id="msg-sent" count={sent.length}>{t('messages.sentTitle', 'Sent')}</SectionTitle>
           <CardShell as="div">
             <ul className="divide-y divide-rule">
-              {[...sentWaiting, ...sentDeclined].map((s) => <SentRow key={s.data.id} item={s} />)}
+              {[...sentWaiting, ...sentDeclined].map((s) => <SentRow key={s.data.id} item={s} highlighted={highlightId === s.data.id} />)}
             </ul>
           </CardShell>
         </section>
@@ -327,7 +362,7 @@ export function MessagesView() {
   return (
     <div ref={rootRef} className="min-w-0 [contain:inline-size] lg:grid lg:grid-cols-[minmax(0,400px)_minmax(0,1fr)] lg:items-start lg:gap-6">
       <div className={cn('min-w-0', threadOpen && 'hidden lg:block')}>{list}</div>
-      <div className={cn('min-w-0', !threadOpen && 'hidden lg:block')}>{pane}</div>
+      <div ref={paneRef} className={cn('min-w-0', !threadOpen && 'hidden lg:block')}>{pane}</div>
       {reporting && (
         <ReportDialog
           open
@@ -397,9 +432,11 @@ function ConversationRow({ conversation: c, selected, onOpen }: { conversation: 
 
 /** A first message to decide: who wrote it (name, job title, company), the message, Accept / Decline. */
 function RequestCard({
-  item, acting, confirming, onAccept, onDecline, onConfirmDecline, onCancelDecline, onReport,
+  item, highlighted = false, acting, confirming, onAccept, onDecline, onConfirmDecline, onCancelDecline, onReport,
 }: {
   item: ConnectionRequest;
+  /** The one the address asked for. */
+  highlighted?: boolean;
   acting: boolean;
   confirming: boolean;
   onAccept: () => void;
@@ -420,8 +457,8 @@ function RequestCard({
     <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-pill bg-chip text-[15px] font-semibold text-navy">{(person || '?').slice(0, 1).toUpperCase()}</span>
   );
   return (
-    <li>
-      <CardShell className="border-gold/60">
+    <li id={`msg-item-${item.data.id}`}>
+      <CardShell className={cn('border-gold/60', highlighted && 'ring-2 ring-gold')}>
         <div className="flex gap-3 p-4 sm:gap-4 sm:p-5">
           {visual}
           <div className="min-w-0 flex-1">
@@ -475,13 +512,13 @@ function RequestCard({
 }
 
 /** A first message my company sent: to whom, by whom, when, and where it stands. */
-function SentRow({ item }: { item: ConnectionRequest }) {
+function SentRow({ item, highlighted = false }: { item: ConnectionRequest; highlighted?: boolean }) {
   const { t } = useTranslation();
   const company = orgName(item.org) || t('messages.aCompany', 'A company');
   const by = item.person?.name ? t('messages.sentBy', { name: item.person.name, defaultValue: 'Sent by {{name}}' }) : t('messages.sentByYou', 'Sent by you');
   const waiting = item.data.status === 'pending';
   return (
-    <li className="flex items-start gap-3 px-4 py-3.5">
+    <li id={`msg-item-${item.data.id}`} className={cn('flex items-start gap-3 px-4 py-3.5', highlighted && 'bg-foam')}>
       {item.org
         ? <LogoTile src={item.org.logo_url} name={company} type={item.org.organization_type} size={40} />
         : <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-field bg-chip text-navy"><MessageSquare className="h-4 w-4" /></span>}

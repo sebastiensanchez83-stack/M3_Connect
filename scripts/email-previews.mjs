@@ -383,7 +383,8 @@ try {
   for (const id of ["digest-1-messages-and-requests", "digest-2-request-only"]) {
     const it = items.find((x) => x.id === id);
     if (!it.html.includes(`href="${digestUnsub}"`) || !it.text.includes(digestUnsub)) fail(`${id}: the unsubscribe link is missing`);
-    if (!it.html.includes(`${SITE}/?open=inbox`)) fail(`${id}: the button does not open Messages`);
+    // /inbox, not /?open=inbox: signed out, /inbox asks to sign in first, then shows Messages.
+    if (!it.html.includes(`href="${SITE}/inbox"`) || !it.text.includes(`${SITE}/inbox`) || it.html.includes('open=inbox')) fail(`${id}: the button does not open Messages (${SITE}/inbox)`);
   }
   if (items.find((x) => x.id === "digest-1-messages-and-requests").subject !== "This week you received 5 messages") fail("digest-1: unexpected subject");
 }

@@ -203,27 +203,30 @@ export function ThreadView({
           <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </button>
         {conversation.otherOrg
-          ? <LogoTile src={conversation.otherOrg.logo_url} name={otherName} type={conversation.otherOrg.organization_type} size={44} />
-          : <span aria-hidden="true" className="grid h-11 w-11 shrink-0 place-items-center rounded-field bg-chip text-[15px] font-semibold text-navy">{otherName.slice(0, 1).toUpperCase()}</span>}
+          ? <span className="hidden shrink-0 sm:block"><LogoTile src={conversation.otherOrg.logo_url} name={otherName} type={conversation.otherOrg.organization_type} size={44} /></span>
+          : <span aria-hidden="true" className="hidden h-11 w-11 shrink-0 place-items-center rounded-field bg-chip text-[15px] font-semibold text-navy sm:grid">{otherName.slice(0, 1).toUpperCase()}</span>}
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-[16px] font-semibold leading-6 text-navy">
+          {/* Two lines for a long name: on a phone the reader must see whom they talk to. */}
+          <h3 className="line-clamp-2 text-[16px] font-semibold leading-6 text-navy [overflow-wrap:anywhere]">
             {conversation.otherOrg?.slug ? (
               <Link to={`/organizations/${conversation.otherOrg.slug}`} className="rounded-sm underline decoration-navy/25 underline-offset-[3px] hover:decoration-gold focus:outline-none focus-visible:shadow-focus">
                 {otherName}
               </Link>
             ) : otherName}
           </h3>
-          <p className="truncate text-[13px] leading-[18px] text-meta">{connectedLine}</p>
+          <p className="text-[13px] leading-[18px] text-meta">{connectedLine}</p>
         </div>
+        {/* On a phone, the flag alone (44 px): the company's name needs the room. */}
         <Button
           type="button"
           variant="ghost"
           onClick={() => setReportOpen(true)}
-          className="h-11 min-w-11 shrink-0 gap-1.5 rounded-pill px-3 text-meta hover:bg-chip hover:text-navy"
+          className="h-11 w-11 shrink-0 gap-1.5 rounded-pill px-0 text-meta hover:bg-chip hover:text-navy sm:w-auto sm:px-3"
           title={t('messages.report.buttonSr', 'Report this conversation to M3')}
+          aria-label={t('messages.report.buttonSr', 'Report this conversation to M3')}
         >
           <Flag className="h-4 w-4" aria-hidden="true" />
-          {t('messages.report.button', 'Report')}
+          <span className="hidden sm:inline">{t('messages.report.button', 'Report')}</span>
         </Button>
       </div>
 

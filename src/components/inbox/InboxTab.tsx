@@ -14,6 +14,10 @@ import { fetchPeopleOrgs, type PersonOrg } from '@/lib/personOrg';
 import { displayCase } from '@/lib/displayCase';
 import { cn } from '@/lib/utils';
 import { myOrganizationIds, needsAction } from './inboxCounts';
+import {
+  answerConnectionRequest, fetchPeople, loadPartnerRows,
+  type OrgRef, type PartnerRequestData, type PartnerStatus, type PersonRef,
+} from './inboxActions';
 import type { LucideIcon } from 'lucide-react';
 import {
   Inbox, Link2, Award, Users, Check, X, Clock, MailCheck, Undo2,
@@ -34,35 +38,6 @@ import {
  */
 
 type FilterCategory = 'all' | 'b2b' | 'recommendations' | 'team';
-type PartnerStatus = 'pending' | 'accepted' | 'rejected' | 'withdrawn';
-
-interface OrgRef {
-  id: string;
-  name: string;
-  slug: string | null;
-  logo_url: string | null;
-  organization_type?: string | null;
-}
-
-interface PersonRef {
-  name: string;
-  avatar_url: string | null;
-  job_title: string | null;
-}
-
-interface PartnerRequestData {
-  id: string;
-  partner_user_id: string;
-  marina_user_id: string;
-  partner_organization_id: string | null;
-  marina_organization_id: string | null;
-  message: string | null;
-  status: PartnerStatus;
-  created_at: string;
-  answered_by_user_id?: string | null;
-  answered_at?: string | null;
-}
-
 interface ReferenceData {
   id: string;
   reference_id: string;
@@ -129,37 +104,6 @@ function shortDate(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-const PR_COLUMNS = `
-  id, partner_user_id, marina_user_id, partner_organization_id, marina_organization_id,
-  message, status, created_at`;
-const PR_ORGS = `
-  partner_org:organizations!partner_requests_partner_organization_id_fkey (id, name, slug, logo_url, organization_type),
-  marina_org:organizations!partner_requests_marina_organization_id_fkey (id, name, slug, logo_url, organization_type)`;
-
-type PRRow = PartnerRequestData & { partner_org: OrgRef | null; marina_org: OrgRef | null };
-
-/**
- * Connection requests I sent, received, or that reached one of my organisations.
- * The answer columns only exist once the 8 Oct 2026 migration is applied: until
- * then the same read runs without them (and nobody can show who answered).
- */
-async function loadPartnerRows(userId: string, orgIds: string[]): Promise<PRRow[]> {
-  const audience = [
-    `partner_user_id.eq.${userId}`,
-    `marina_user_id.eq.${userId}`,
-    ...(orgIds.length ? [`marina_organization_id.in.(${orgIds.join(',')})`] : []),
-  ].join(',');
-  const run = (cols: string) => supabase
-    .from('partner_requests')
-    .select(`${cols},${PR_ORGS}`)
-    .or(audience)
-    .order('created_at', { ascending: false });
-  const withAnswer = await run(`${PR_COLUMNS}, answered_by_user_id, answered_at`);
-  if (!withAnswer.error) return (withAnswer.data ?? []) as unknown as PRRow[];
-  const plain = await run(PR_COLUMNS);
-  return (plain.data ?? []) as unknown as PRRow[];
-}
-
 export function InboxTab() {
   const { user, profile, organization, orgRole } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -193,17 +137,7 @@ export function InboxTab() {
       if (r.partner_user_id !== uid) personIds.add(r.partner_user_id);
       if (r.answered_by_user_id && r.answered_by_user_id !== uid) personIds.add(r.answered_by_user_id);
     }
-    const people: Record<string, PersonRef> = {};
-    if (personIds.size > 0) {
-      const { data } = await supabase.rpc('get_public_profiles', { target_user_ids: [...personIds] });
-      for (const p of (data ?? []) as { user_id: string; first_name: string | null; last_name: string | null; avatar_url: string | null; job_title: string | null }[]) {
-        people[p.user_id] = {
-          name: displayCase([p.first_name, p.last_name].filter(Boolean).join(' ')),
-          avatar_url: p.avatar_url,
-          job_title: p.job_title,
-        };
-      }
-    }
+    const people: Record<string, PersonRef> = await fetchPeople([...personIds]);
     const missingOrgFor = prRows
       .map((r) => (r.partner_user_id === uid ? (r.marina_org ? null : r.marina_user_id) : (r.partner_org ? null : r.partner_user_id)))
       .filter((x): x is string => !!x);
@@ -303,20 +237,16 @@ export function InboxTab() {
     if (!freshUid) return;
     setActingOn(item.data.id);
     // Only a request still pending: a colleague may have answered in the meantime
-    // (the database refuses a second answer too).
-    const { data: updated, error } = await supabase
-      .from('partner_requests')
-      .update({ status: newStatus })
-      .eq('id', item.data.id)
-      .eq('status', 'pending')
-      .select('id');
-    if (error || !updated || updated.length === 0) {
+    // (the database refuses a second answer too). The e-mail to the sender follows.
+    const result = await answerConnectionRequest(item.data, newStatus, {
+      email: user?.email, firstName: profile?.first_name, lastName: profile?.last_name, orgName,
+    });
+    if (!result.ok) {
       // No row (it was no longer pending) or the database's "already answered":
       // a colleague was first. Anything else is a real failure.
-      const taken = !error || /already been answered/i.test(error.message);
-      toast(taken
+      toast(result.taken
         ? { title: 'Already answered', description: 'Someone in your team has already answered this request.' }
-        : { title: 'Failed', description: error.message, variant: 'destructive' });
+        : { title: 'Failed', description: result.message, variant: 'destructive' });
       setActingOn(null);
       load(false);
       return;
@@ -327,26 +257,6 @@ export function InboxTab() {
         : i,
     ));
 
-    // Fire-and-forget notification. The server takes the company name from the
-    // database and checks that this account answered the request.
-    const companyName = orgName || profile?.first_name || 'A member';
-    if (newStatus === 'accepted') {
-      sendNotification({
-        type: 'partner_request_accepted',
-        userId: item.data.partner_user_id,
-        data: {
-          marina_name: companyName,
-          acceptor_email: user?.email || '',
-          acceptor_name: `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || companyName,
-        },
-      });
-    } else {
-      sendNotification({
-        type: 'partner_request_rejected',
-        userId: item.data.partner_user_id,
-        data: { marina_name: companyName },
-      });
-    }
     toast({
       title: newStatus === 'accepted' ? 'Request accepted' : 'Request declined',
       description: newStatus === 'accepted' ? 'We are introducing you both by e-mail.' : undefined,

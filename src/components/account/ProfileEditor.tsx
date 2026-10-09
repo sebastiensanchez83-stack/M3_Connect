@@ -12,14 +12,13 @@ import { Label } from '@/components/ui/label';
 import { LogoBadge } from '@/components/ui/CoverImage';
 import { BTN, BTN_OUTLINE, MemberPanel } from '@/components/member/MemberUI';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
 import { toast } from '@/hooks/use-toast';
-import { resizeImage, fileMeta } from '@/lib/image';
 import { requireFreshSession } from '@/lib/session';
 import { externalUrl } from '@/lib/externalUrl';
 import { memberHomeHref } from '@/lib/accountNav';
 import { cn } from '@/lib/utils';
 import { Field } from './accountUi';
+import { avatarProblem, saveProfileFields, sendPasswordLink as emailPasswordLink, uploadAvatar as storeAvatar } from './profileActions';
 import { formatDay, humanize, uiLocale } from './format';
 
 /**
@@ -74,15 +73,11 @@ export function ProfileEditor({ onOpenOrganization }: { onOpenOrganization?: () 
     if (!freshUid) return;
     setSavingProfile(true);
     try {
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          first_name: profileForm.firstName.trim(),
-          last_name: profileForm.lastName.trim(),
-          job_title: profileForm.jobTitle.trim() || null,
-        })
-        .eq('user_id', user.id);
-      if (updateError) throw updateError;
+      await saveProfileFields(user.id, {
+        first_name: profileForm.firstName.trim(),
+        last_name: profileForm.lastName.trim(),
+        job_title: profileForm.jobTitle.trim() || null,
+      });
       toast({ title: t('accountArea.toast.profileUpdated', 'Profile updated'), description: t('accountArea.toast.profileUpdatedDesc', 'Your personal information has been saved.') });
       setEditingProfile(false);
       await refreshProfile();
@@ -94,11 +89,12 @@ export function ProfileEditor({ onOpenOrganization }: { onOpenOrganization?: () 
   };
 
   const uploadAvatar = async (file: File) => {
-    if (!file.type.startsWith('image/')) {
+    const problem = avatarProblem(file);
+    if (problem === 'type') {
       toast({ title: t('accountArea.toast.invalidFile', 'Invalid file type'), description: t('accountArea.toast.invalidFileDesc', 'Please upload an image (JPEG, PNG, WebP)'), variant: 'destructive' });
       return;
     }
-    if (file.size > 25 * 1024 * 1024) {
+    if (problem === 'size') {
       toast({ title: t('accountArea.toast.fileTooLarge', 'File too large'), description: t('accountArea.toast.fileTooLargeDesc', 'Maximum 25 MB'), variant: 'destructive' });
       return;
     }
@@ -106,16 +102,7 @@ export function ProfileEditor({ onOpenOrganization }: { onOpenOrganization?: () 
     if (!freshUid) return;
     setUploadingAvatar(true);
     try {
-      const meta = await fileMeta(file);
-      const blob = await resizeImage(file, 600, 600); // shrink big files; keep PNG/SVG transparency
-      const ctype = (blob as Blob).type || file.type;
-      const ext = ctype === 'image/svg+xml' ? 'svg' : ctype === 'image/png' ? 'png' : 'jpg';
-      // The storage RLS policy requires the first path segment to be the user's id.
-      const fileName = `${user.id}/avatar-${Date.now()}.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from('profile-images').upload(fileName, blob, { cacheControl: '3600', upsert: true, contentType: ctype });
-      if (uploadErr) throw uploadErr;
-      const { data: urlData } = supabase.storage.from('profile-images').getPublicUrl(fileName);
-      await supabase.from('profiles').update({ avatar_url: urlData.publicUrl }).eq('user_id', user.id);
+      const { meta } = await storeAvatar(user.id, file);
       toast({ title: t('accountArea.toast.avatarUpdated', 'Profile image updated'), description: meta });
       await refreshProfile();
     } catch (err: unknown) {
@@ -126,16 +113,13 @@ export function ProfileEditor({ onOpenOrganization }: { onOpenOrganization?: () 
 
   const sendPasswordLink = async () => {
     if (!user.email) return;
-    // /reset-password redeems the e-mailed link (any device) and shows the
-    // new-password form; `next` brings them back here afterwards, still signed in.
-    const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-      redirectTo: `${window.location.origin}/reset-password?next=${encodeURIComponent(memberHomeHref('profile'))}`,
-    });
-    if (error) {
-      toast({ title: t('accountArea.toast.error', 'Error'), description: error.message, variant: 'destructive' });
-    } else {
-      toast({ title: t('memberHome.profile.passwordSent', 'Password reset email sent'), description: t('memberHome.profile.passwordSentDesc', 'Check your inbox for a link to reset your password.') });
+    try {
+      await emailPasswordLink(user.email);
+    } catch (error: unknown) {
+      toast({ title: t('accountArea.toast.error', 'Error'), description: error instanceof Error ? error.message : String(error), variant: 'destructive' });
+      return;
     }
+    toast({ title: t('memberHome.profile.passwordSent', 'Password reset email sent'), description: t('memberHome.profile.passwordSentDesc', 'Check your inbox for a link to reset your password.') });
   };
 
   const personaMeta = PERSONA_META[profile.persona as string];
@@ -271,7 +255,7 @@ export function ProfileEditor({ onOpenOrganization }: { onOpenOrganization?: () 
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Button>
           ) : (
-            <Link to={memberHomeHref('organization')} className="inline-flex min-h-10 items-center gap-1 text-sm font-medium text-navy underline-offset-2 hover:underline">
+            <Link to={memberHomeHref('company')} className="inline-flex min-h-10 items-center gap-1 text-sm font-medium text-navy underline-offset-2 hover:underline">
               {t('accountArea.profile.manageOrg', 'Manage organisation')}
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>

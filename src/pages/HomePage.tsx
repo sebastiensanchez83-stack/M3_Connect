@@ -5,6 +5,7 @@ import { Seo } from '@/components/seo/Seo';
 import { AlertCircle, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
+import { Sm26WelcomeBadge } from '@/components/home/Sm26WelcomeBadge';
 import { supabase } from '@/lib/supabase';
 import { SITE_IMAGES } from '@/lib/siteMedia';
 import { THEMES, themesForSectors, type ThemeKey } from '@/lib/themes';
@@ -416,6 +417,8 @@ export function HomePage() {
                 <Link to="/resources">{t('home.exploreResources', 'Explore resources')}</Link>
               </Button>
             </HeroIn>
+            {/* Took part in Smart Marina 2026: a small mark, linked to My events. Last, so nothing above it moves when it arrives. */}
+            <div><Sm26WelcomeBadge /></div>
           </div>
         )}
       </SplitHero>

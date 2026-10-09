@@ -183,7 +183,7 @@ function CompleteRegistration({ awaitingReview }: { awaitingReview: boolean }) {
                   {t('accountArea.onboarding.reviewTime', 'Typical review time: 24 to 48 business hours')}
                 </p>
                 <div className="flex flex-col items-center gap-2 pt-5">
-                  <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-2')} onClick={() => navigate(memberHomeHref('organization'), { replace: true })}>
+                  <Button variant="outline" className={cn(BTN_OUTLINE, 'gap-2')} onClick={() => navigate(memberHomeHref('company'), { replace: true })}>
                     <Pencil className="h-4 w-4" aria-hidden="true" />
                     {t('accountArea.onboarding.editRegistration', 'Edit my registration')}
                   </Button>

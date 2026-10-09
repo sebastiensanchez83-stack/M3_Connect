@@ -267,6 +267,7 @@ export function Navbar() {
   const memberSections = HOME_SECTIONS.filter((s) => homeSectionVisible(s.key, {
     persona: profile?.persona,
     orgType: organization?.organization_type ?? null,
+    hasOrganization: !!organization,
     access: access ? { media: access.media, sponsor: access.sponsorIds.length > 0, manager: access.manager } : null,
   }));
   const inboxLabel = inbox.total > 0

@@ -3,62 +3,70 @@ import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { LucideIcon } from 'lucide-react';
 import {
-  AlertCircle, Award, BookOpen, Briefcase, Building2, CalendarDays, Check, CheckCircle2, ClipboardList, Clock,
-  ImageIcon, ImagePlus, Inbox, Link2, MessageSquare, PenLine, Plus, Ship, ShieldCheck, TrendingUp, UserCircle,
-  UserPlus, Video, XCircle,
+  AlertCircle, Award, BookOpen, ClipboardList, Clock, ImageIcon, ImagePlus, Inbox, ListChecks,
+  MessageSquare, PenLine, Plus, Ship, ShieldCheck, TrendingUp, UserCircle, UserPlus, Video, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { CoverImage, LogoBadge } from '@/components/ui/CoverImage';
+import { CoverImage } from '@/components/ui/CoverImage';
 import { CardMedia, CardShell, StretchedLink } from '@/components/brand/CardShell';
 import { Eyebrow } from '@/components/brand/Eyebrow';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
-import { RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
 import {
-  BlockSkeleton, MemberBanner, MemberEmpty, MemberPanel, MemberRow, RowSkeleton, StatusPill, type PillTone,
+  BlockSkeleton, MemberBanner, MemberEmpty, MemberPanel, RowSkeleton, StatusPill,
 } from '@/components/member/MemberUI';
+import { useMediaQuery } from '@/components/motion/useReducedMotion';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEntitlements } from '@/hooks/useEntitlements';
 import { useInboxCount } from '@/hooks/useInboxCount';
 import { useMemberAccess } from '@/hooks/useMemberAccess';
+import { sm26Kind, sm26TeamWent, useSm26Participation } from '@/hooks/useSm26Participation';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import { CREATE_ACTIONS, canCreate } from '@/lib/nav';
 import {
-  HOME_GROUPS, HOME_SECTIONS, accountHref, getHomeSection, homeSectionVisible, isHomePanel,
-  type HomeGroupKey, type HomePanel, type RequestKind,
+  accountHref, getHomeSection, homeSectionVisible, isHomePanel, legacyOpenTarget,
+  type HomePanel,
 } from '@/lib/accountNav';
 import { scrollTopUnderBars } from '@/lib/scrollTarget';
 import { cn } from '@/lib/utils';
-import { CardLink, CountBadge, DashCard, DashGroup, MiniRow, PanelRegion, PanelToggle } from './dashboard/DashboardKit';
+import { CardLink, MiniRow, PanelRegion, Tile, type TileTone } from './dashboard/DashboardKit';
 import { ComingUpList, NextEventCard } from './dashboard/EventBlocks';
+import { TodoList, type TodoItem } from './dashboard/TodoList';
+import { PublishDialog } from './dashboard/teamDialogs';
 import { useDashboardData } from './dashboard/useDashboardData';
 
 /**
  * The signed-in member's dashboard, right under "Welcome back" on the home
- * page. It answers, in order: is anything blocking me (the account alerts),
- * what is waiting for me (to-do, my next event), then everything this member
- * can manage, in four groups — profile & company, registrations & events,
- * requests & messages, things for me — one card per block, only the blocks
- * that apply to them.
+ * page (Victor's feedback, 9 Oct 2026: "the people who use it are not good
+ * with technology: it must be really simple, despite the many features").
  *
- * Edit in place: a card's Edit / Manage / Open button opens the REAL editor
- * (the old account tabs, now src/components/account/*) full width under its
- * group's cards. One at a time; the open block is in the address
- * (/?open=<block>[&section=…], replaced, never pushed), so it can be linked and
- * survives a reload. The old /dashboard and /account?tab=… addresses land here.
+ * From top to bottom: what blocks the account (the alerts), what waits
+ * (To do, my next event), then a few big tiles: My profile, My company, My
+ * team, My events, Messages, My requests, and the ones that only apply to
+ * some members (Saved companies, Deal flow, Sponsorship, Press room,
+ * References). Each tile says in one line where things stand ("2 waiting for
+ * your answer", "Logo missing", "All set") and opens its panel in place,
+ * right under its row. Inside, the information reads as rows with a "Change"
+ * button that opens a small window with that one thing. Everything else the
+ * old editors did stays behind "More settings". Last, lighter: events coming
+ * up, opportunities for service providers, articles.
  *
- * Drafts (sign-up not finished) only get the way back to their registration:
- * every block would send them there anyway.
+ * One panel at a time; the open one is in the address (/?open=<tile>
+ * [&section=…], replaced, never pushed), so it can be linked and survives a
+ * reload. The old /dashboard and /account?tab=… addresses land here
+ * (src/lib/accountNav.ts); so do the first October panel keys
+ * (/?open=organization, /?open=notifications).
  *
+ * Drafts (sign-up not finished) only get the way back to their registration.
  * Nothing here is wrapped in a reveal: the dashboard shows at once.
  */
 
-// The editors load when a block opens: none of them weighs on the home page.
-const ProfileEditor = lazyWithRetry(() => import('@/components/account/ProfileEditor').then((m) => ({ default: m.ProfileEditor })));
-const OrganizationWorkspace = lazyWithRetry(() => import('@/components/account/OrganizationWorkspace').then((m) => ({ default: m.OrganizationWorkspace })));
-const MyEvents = lazyWithRetry(() => import('@/components/account/MyEvents').then((m) => ({ default: m.MyEvents })));
+// The panels load when a tile opens: none of them weighs on the home page.
+const ProfilePanel = lazyWithRetry(() => import('./dashboard/ProfilePanel').then((m) => ({ default: m.ProfilePanel })));
+const CompanyPanel = lazyWithRetry(() => import('./dashboard/CompanyPanel').then((m) => ({ default: m.CompanyPanel })));
+const TeamPanel = lazyWithRetry(() => import('./dashboard/TeamPanel').then((m) => ({ default: m.TeamPanel })));
+const EventsPanel = lazyWithRetry(() => import('./dashboard/EventsPanel').then((m) => ({ default: m.EventsPanel })));
 const MyRequests = lazyWithRetry(() => import('@/components/account/MyRequests').then((m) => ({ default: m.MyRequests })));
 const PressRoom = lazyWithRetry(() => import('@/components/account/PressRoom').then((m) => ({ default: m.PressRoom })));
-const NotificationPreferencesTab = lazyWithRetry(() => import('@/components/notifications/NotificationPreferencesTab').then((m) => ({ default: m.NotificationPreferencesTab })));
 const InboxTab = lazyWithRetry(() => import('@/components/inbox/InboxTab').then((m) => ({ default: m.InboxTab })));
 const ShortlistTab = lazyWithRetry(() => import('@/components/shortlist/ShortlistTab').then((m) => ({ default: m.ShortlistTab })));
 const ReferenceRequestForm = lazyWithRetry(() => import('@/components/references/ReferenceRequestForm').then((m) => ({ default: m.ReferenceRequestForm })));
@@ -69,30 +77,37 @@ const SUPPLY_PERSONAS = ['partner', 'media_partner'];
 
 const RESOURCE_ICON: Record<string, LucideIcon> = { replay: Video, article: BookOpen, guide: BookOpen, whitepaper: BookOpen, case_study: BookOpen };
 
-const REQUEST_ICON: Record<RequestKind, LucideIcon> = { projects: Ship, rfps: ClipboardList, consultations: MessageSquare, webinars: Video };
-
-type OrgSection = 'branding' | 'gallery' | 'details' | 'team';
-
-interface Todo {
+interface TileDef {
   key: string;
-  title: string;
-  hint: string;
+  panel?: HomePanel;
+  to?: string;
   icon: LucideIcon;
-  urgent: boolean;
-  open: () => void;
+  title: string;
+  count?: { value: number; label: string } | null;
+  status: ReactNode;
+  tone: TileTone;
+}
+
+/** Tiles per row: 1 on phones, 2 on tablets, 3 on desktops (the grid's own breakpoints). */
+function useColumns(): number {
+  const sm = useMediaQuery('(min-width: 640px)');
+  const lg = useMediaQuery('(min-width: 1024px)');
+  return lg ? 3 : sm ? 2 : 1;
 }
 
 export default function MemberDashboard() {
   const { t, i18n } = useTranslation();
-  const { user, profile, organization, organizations, setActiveOrganization, orgRole, isVerified } = useAuth();
+  const { user, profile, organization, orgRole, isVerified } = useAuth();
   const { isFeatureEnabled } = useEntitlements();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
+  const columns = useColumns();
 
   const isDraft = profile?.onboarding_status === 'draft';
   const active = !!user && !!profile && !isDraft;
   const access = useMemberAccess(active);
   const inbox = useInboxCount(active);
+  const sm26 = useSm26Participation(active);
 
   const uid = user?.id;
   const orgId = organization?.id;
@@ -111,14 +126,16 @@ export default function MemberDashboard() {
   const sectionCtx = useMemo(() => ({
     persona,
     orgType,
+    hasOrganization: !!orgId,
     access: access ? { media: access.media, sponsor: access.sponsorIds.length > 0, manager: access.manager } : null,
-  }), [persona, orgType, access]);
+  }), [persona, orgType, orgId, access]);
   const visible = (key: HomePanel) => homeSectionVisible(key, sectionCtx);
 
-  // A version bump reloads the cards' summaries (after an editor closes).
+  // A version bump reloads the tiles' summaries (after a change, or a panel closing).
   const [version, setVersion] = useState(0);
+  const bump = useCallback(() => setVersion((v) => v + 1), []);
   const data = useDashboardData({
-    uid, orgId, orgType, persona, isOwner, isDemand, isSupply, canSeeOpportunities,
+    uid, orgId, orgType, persona, isDemand, isSupply, canSeeOpportunities,
     canProjects, canRFPs, canConsultations,
     isPartnerOrg: orgType === 'partner',
     hasShortlist: visible('shortlist'),
@@ -126,44 +143,51 @@ export default function MemberDashboard() {
     version,
   });
 
-  /* ---------------------------------------------------------- the open block */
+  /* ---------------------------------------------------------- the open panel */
 
   const rawOpen = searchParams.get('open');
+  const section = searchParams.get('section');
   const requested = isHomePanel(rawOpen) ? rawOpen : null;
   // Sponsorship and the press room depend on the server's answer: wait for it before judging.
   const accessPending = access === null && (requested === 'sponsorship' || requested === 'press');
   const openPanel: HomePanel | null = requested && !accessPending && homeSectionVisible(requested, sectionCtx) ? requested : null;
 
-  const setPanel = useCallback((key: HomePanel | null, section?: string) => {
+  const setPanel = useCallback((key: HomePanel | null, sub?: string) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       next.delete('open');
       next.delete('section');
       if (key) {
         next.set('open', key);
-        if (section) next.set('section', section);
+        if (sub) next.set('section', sub);
       }
       return next;
     }, { replace: true });
   }, [setSearchParams]);
 
-  // An unknown block, or one that does not apply to this member: the plain home page.
+  // The first October panels (/?open=organization, /?open=notifications) land on their new tile and row.
+  // Otherwise an unknown panel, or one that does not apply to this member: the plain home page.
   useEffect(() => {
     if (!active || !rawOpen || accessPending) return;
+    const legacy = legacyOpenTarget(rawOpen, section);
+    if (legacy) { setPanel(legacy.panel, legacy.section); return; }
+    // My team without a company: where the company is added.
+    if (requested === 'team' && !sectionCtx.hasOrganization) { setPanel('company'); return; }
     if (!requested || !homeSectionVisible(requested, sectionCtx)) setPanel(null);
-  }, [active, rawOpen, requested, accessPending, sectionCtx, setPanel]);
+  }, [active, rawOpen, section, requested, accessPending, sectionCtx, setPanel]);
 
-  const toggleRefs = useRef<Partial<Record<HomePanel, HTMLButtonElement | null>>>({});
+  const tileRefs = useRef<Partial<Record<string, HTMLButtonElement | null>>>({});
   const closePanel = useCallback((key: HomePanel) => {
     setPanel(null);
-    if (key === 'inbox') inbox.refresh();
-    setVersion((v) => v + 1);
-    // Back to the card that opened it.
-    requestAnimationFrame(() => toggleRefs.current[key]?.focus());
-  }, [setPanel, inbox]);
-  const togglePanel = (key: HomePanel, section?: string) => {
-    if (openPanel === key && !section) closePanel(key);
-    else setPanel(key, section);
+    // Requests may have been answered there (My team answers join requests too).
+    if (key === 'inbox' || key === 'team') inbox.refresh();
+    bump();
+    // Back to the tile that opened it.
+    requestAnimationFrame(() => tileRefs.current[key]?.focus());
+  }, [setPanel, inbox, bump]);
+  const togglePanel = (key: HomePanel) => {
+    if (openPanel === key) closePanel(key);
+    else setPanel(key);
   };
 
   // /#dashboard (the avatar menu's "My dashboard"): the top of the dashboard, under the header.
@@ -172,6 +196,16 @@ export default function MemberDashboard() {
     const el = document.getElementById('dashboard');
     if (el) window.scrollTo({ top: scrollTopUnderBars(el, 0, 0) });
   }, [location.key, location.hash]);
+
+  const [publishOpen, setPublishOpen] = useState(false);
+
+  // The to-do list waits for the inbox count too (its answers come first), but
+  // never for ever: the count is a hint, and it stays empty if its read fails.
+  const [inboxWait, setInboxWait] = useState(true);
+  useEffect(() => {
+    const id = window.setTimeout(() => setInboxWait(false), 6000);
+    return () => window.clearTimeout(id);
+  }, []);
 
   /* ---------------------------------------------------------- not yet */
 
@@ -212,135 +246,245 @@ export default function MemberDashboard() {
     const s = getHomeSection(key);
     return s ? t(s.descKey, s.descFallback) : '';
   };
-  const groupLabel = (key: HomeGroupKey) => {
-    const g = HOME_GROUPS.find((x) => x.key === key);
-    return g ? t(g.labelKey, g.fallback) : '';
-  };
 
-  // Branding as stored now when we have it, else the auth context's copy.
+  // The company's page as stored now when we have it, else the auth context's copy.
   const brandSrc = data.brand && data.brand.id === orgId ? data.brand : organization;
+  const counts = data.orgCounts && data.orgCounts.orgId === orgId ? data.orgCounts : null;
+  const companyReady = !!organization && !data.loading;
   const brand = {
     logo: !!brandSrc?.logo_url,
     banner: !!brandSrc?.banner_url,
     description: !!brandSrc?.description?.trim(),
-    gallery: Array.isArray(brandSrc?.gallery) && (brandSrc?.gallery as unknown[]).length > 0,
+    sectors: (counts?.sectors ?? 0) > 0,
   };
-  const openOrg = (section?: OrgSection) => setPanel('organization', section);
 
-  // To do: answers someone is waiting for, then nudges only the owner can act on.
-  const todos: Todo[] = [];
+  // To do: answers someone is waiting for, then what the owner can complete, then my own profile.
+  const todos: TodoItem[] = [];
   if (inbox.connections > 0) {
     todos.push({
-      key: 'connections', urgent: true, icon: Inbox, open: () => setPanel('inbox'),
-      title: t('dashboard.todoConnections', { count: inbox.connections }), hint: t('dashboard.todoConnectionsHint'),
+      key: 'connections', urgent: true, icon: Inbox,
+      title: t('dash.todo.connections', { count: inbox.connections, defaultValue_one: 'Answer {{count}} connection request', defaultValue_other: 'Answer {{count}} connection requests' }),
+      hint: t('dash.todo.connectionsHint', 'Members would like to get in touch with you.'),
     });
   }
   if (inbox.joins > 0) {
     todos.push({
-      key: 'join', urgent: true, icon: UserPlus, open: () => setPanel('inbox'),
-      title: t('dashboard.todoJoin', { count: inbox.joins, org: orgName }), hint: t('dashboard.todoJoinHint'),
+      key: 'join', urgent: true, icon: UserPlus,
+      title: t('dash.todo.join', { count: inbox.joins, defaultValue_one: 'Answer {{count}} person who wants to join your company', defaultValue_other: 'Answer {{count}} people who want to join your company' }),
+      hint: t('dash.todo.joinHint', { org: orgName, defaultValue: 'They say they work at {{org}}.' }),
     });
   }
-  if (organization && isOwner && !data.loading) {
-    if (!brand.logo) todos.push({ key: 'logo', urgent: false, icon: ImagePlus, open: () => openOrg('branding'), title: t('dashboard.todoLogo', { org: orgName }), hint: t('dashboard.todoLogoHint') });
-    if (!brand.banner) todos.push({ key: 'banner', urgent: false, icon: ImageIcon, open: () => openOrg('branding'), title: t('dashboard.todoBanner', { org: orgName }), hint: t('dashboard.todoBannerHint') });
-    if (!brand.description) todos.push({ key: 'description', urgent: false, icon: PenLine, open: () => openOrg('details'), title: t('dashboard.todoDescription', { org: orgName }), hint: t('dashboard.todoDescriptionHint') });
+  if (organization && isOwner && companyReady) {
+    if (!brand.logo) todos.push({ key: 'logo', urgent: false, icon: ImagePlus, title: t('dash.todo.logo', 'Add your company logo'), hint: t('dash.todo.logoHint', 'Companies with a logo are easier to recognise.') });
+    if (!brand.description) todos.push({ key: 'description', urgent: false, icon: PenLine, title: t('dash.todo.description', 'Add a description of your company'), hint: t('dash.todo.descriptionHint', 'A few sentences about what you do.') });
+    if (counts && !brand.sectors) {
+      todos.push({
+        key: 'sectors', urgent: false, icon: ListChecks,
+        title: orgType === 'marina' ? t('dash.todo.interests', 'Choose what you are interested in') : t('dash.todo.sectors', 'Choose what your company does'),
+        hint: t('dash.todo.sectorsHint', 'So the right members find you.'),
+      });
+    }
+    if (!brand.banner) todos.push({ key: 'banner', urgent: false, icon: ImageIcon, title: t('dash.todo.banner', 'Add a cover photo'), hint: t('dash.todo.bannerHint', 'The wide picture at the top of your company page.') });
   }
-  if (!profile.avatar_url || !profile.job_title) {
-    todos.push({ key: 'profile', urgent: false, icon: UserCircle, open: () => setPanel('profile'), title: t('dashboard.todoProfile'), hint: t('dashboard.todoProfileHint') });
-  }
-
-  // The organisation profile meter (the owner's): logo, cover, description, sectors, a colleague, pictures.
-  const counts = data.orgCounts && data.orgCounts.orgId === orgId ? data.orgCounts : null;
-  const isMarinaOrgType = orgType === 'marina' || orgType === 'developer';
-  const maxSeats = organization?.max_seats ?? 0;
-  // Inviting is blocked when a non-marina organisation has used its seats: a one-seat plan isn't asked for a colleague.
-  const teamPossible = (counts?.members ?? 0) >= 2 || isMarinaOrgType || !maxSeats || maxSeats > 1;
-  const meter = [brand.logo, brand.banner, brand.description, (counts?.sectors ?? 0) > 0, ...(teamPossible ? [(counts?.members ?? 0) >= 2] : []), brand.gallery];
-  const meterDone = meter.filter(Boolean).length;
-  const showMeter = !!organization && isOwner && !data.loading && !!counts;
+  if (!profile.avatar_url) todos.push({ key: 'photo', urgent: false, icon: UserCircle, title: t('dash.todo.photo', 'Add your photo'), hint: t('dash.todo.photoHint', 'People like to see who they talk to.') });
+  if (!profile.job_title) todos.push({ key: 'job', urgent: false, icon: UserCircle, title: t('dash.todo.job', 'Add your job title'), hint: t('dash.todo.jobHint', 'It shows next to your name.') });
 
   const createCtx = { isVerified, orgVerified, persona, isFeatureEnabled };
   const createActions = CREATE_ACTIONS.filter((a) => canCreate(a.capability, createCtx));
-  const requestKinds: RequestKind[] = [
-    ...(canProjects ? ['projects' as const] : []),
-    ...(canRFPs ? ['rfps' as const] : []),
-    ...(canConsultations ? ['consultations' as const] : []),
-    'webinars',
-  ];
-  const kindLabel = (kind: RequestKind, count: number) => {
-    switch (kind) {
-      case 'projects': return t('memberHome.requests.projects', { count, defaultValue_one: '{{count}} project', defaultValue_other: '{{count}} projects' });
-      case 'rfps': return t('memberHome.requests.rfps', { count, defaultValue_one: '{{count}} RFP', defaultValue_other: '{{count}} RFPs' });
-      case 'consultations': return t('memberHome.requests.consultations', { count, defaultValue_one: '{{count}} consultation', defaultValue_other: '{{count}} consultations' });
-      default: return t('memberHome.requests.webinars', { count, defaultValue_one: '{{count}} webinar proposal', defaultValue_other: '{{count}} webinar proposals' });
-    }
-  };
-  const kindName = (kind: RequestKind) => (
-    kind === 'projects' ? t('dashboard.project') : kind === 'rfps' ? t('dashboard.rfp') : kind === 'consultations' ? t('dashboard.consultation') : t('memberHome.requests.webinar', 'Webinar proposal')
-  );
-
-  const notifOff = Object.values((profile.notification_prefs ?? {}) as Record<string, unknown>).filter((v) => v === false).length;
+  const requestTotal = data.requestCounts.projects + data.requestCounts.rfps + data.requestCounts.consultations + data.requestCounts.webinars;
   const sponsorIds = access?.sponsorIds ?? [];
   const isSponsor = sponsorIds.length > 0;
   const isManager = access?.manager === true;
   const layoutReady = !data.loading;
-  const displayName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || user.email?.split('@')[0] || '';
-  const initials = `${(profile.first_name?.[0] || '').toUpperCase()}${(profile.last_name?.[0] || '').toUpperCase()}` || (user.email?.[0] || '?').toUpperCase();
+  const nextReg = data.nextRegistered;
+  const sm26What = sm26Kind(sm26);
+  // How many of my team went (the accounts My team marks "Attended"): never the whole team by default.
+  const sm26Went = sm26TeamWent(sm26);
 
-  /** A card's open / close button, remembered so closing the editor gives the focus back to it. */
-  const toggle = (key: HomePanel, labelText: string) => (
-    <PanelToggle
-      ref={(el) => { toggleRefs.current[key] = el; }}
-      panelKey={key}
-      open={openPanel === key}
-      label={labelText}
-      context={label(key)}
-      onToggle={() => togglePanel(key)}
-    />
-  );
+  /* ---------------------------------------------------------- the tiles */
 
-  /** The editor of the open block, if it belongs to this group. */
-  const panelFor = (group: HomeGroupKey): ReactNode => {
-    if (!openPanel) return null;
-    const section = HOME_SECTIONS.find((s) => s.key === openPanel);
-    if (!section || section.group !== group) return null;
-    return (
-      <PanelRegion
-        key={openPanel}
-        panelKey={openPanel}
-        eyebrow={groupLabel(group)}
-        title={label(openPanel)}
-        desc={descOf(openPanel)}
-        actions={panelActions(openPanel)}
-        layoutReady={layoutReady}
-        onClose={() => closePanel(openPanel)}
-      >
-        <Suspense fallback={<div className="rounded-card border border-rule bg-white"><RowSkeleton rows={3} /></div>}>
-          {panelBody(openPanel)}
-        </Suspense>
-      </PanelRegion>
-    );
-  };
+  const loadingLine = t('dash.loadingShort', 'Loading…');
+  const tiles: TileDef[] = [];
+
+  // My profile
+  {
+    const noPhoto = !profile.avatar_url;
+    const noJob = !profile.job_title;
+    tiles.push({
+      key: 'profile', panel: 'profile', icon: UserCircle, title: label('profile'),
+      tone: noPhoto || noJob ? 'missing' : 'done',
+      status: noPhoto && noJob
+        ? t('dash.st.photoJob', 'Photo and job title missing')
+        : noPhoto ? t('dash.st.photo', 'Photo missing')
+          : noJob ? t('dash.st.job', 'Job title missing')
+            : t('dash.st.allSet', 'All set'),
+    });
+  }
+
+  // My company
+  {
+    let status: string;
+    let tone: TileTone = 'plain';
+    if (!organization) {
+      status = t('dash.st.noCompany', 'Add your company');
+      tone = 'missing';
+    } else if (!companyReady) {
+      status = loadingLine;
+    } else {
+      // Say WHAT is missing, in a few words: "Logo and cover photo missing".
+      const missing = [
+        !brand.logo && t('dash.st.n.logo', 'logo'),
+        !brand.description && t('dash.st.n.description', 'description'),
+        counts && !brand.sectors && (orgType === 'marina' ? t('dash.st.n.interests', 'interests') : t('dash.st.n.sectors', 'sectors')),
+        !brand.banner && t('dash.st.n.cover', 'cover photo'),
+      ].filter(Boolean) as string[];
+      const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+      if (missing.length === 1) {
+        status = cap(t('dash.st.oneMissing', { a: missing[0], defaultValue: '{{a}} missing' }));
+        tone = 'missing';
+      } else if (missing.length === 2) {
+        status = cap(t('dash.st.twoMissing', { a: missing[0], b: missing[1], defaultValue: '{{a}} and {{b}} missing' }));
+        tone = 'missing';
+      } else if (missing.length > 2) {
+        status = cap(t('dash.st.manyMissing', { a: missing[0], b: missing[1], count: missing.length - 2, defaultValue: '{{a}}, {{b}} and {{count}} more missing' }));
+        tone = 'missing';
+      } else if (!orgVerified) status = t('dash.st.checking', 'The M3 team is checking it');
+      else { status = t('dash.st.allSet', 'All set'); tone = 'done'; }
+    }
+    tiles.push({ key: 'company', panel: 'company', icon: getHomeSection('company')!.icon, title: label('company'), status, tone });
+  }
+
+  // My team (a company is needed). The number of people is said in words, not repeated in a pill.
+  if (visible('team')) {
+    const members = counts?.members ?? 0;
+    const maxSeats = organization?.max_seats ?? 0;
+    const unlimited = orgType === 'marina' || orgType === 'developer';
+    // Most companies have one place: never prompt them to invite (the team panel says how to get more).
+    const roomForMore = unlimited || !maxSeats || members < maxSeats;
+    let status: string;
+    let tone: TileTone = 'plain';
+    if (isOwner && inbox.joins > 0) {
+      status = t('dash.st.joinWaiting', { count: inbox.joins, defaultValue_one: '{{count}} person waiting to join', defaultValue_other: '{{count}} people waiting to join' });
+      tone = 'action';
+    } else if (!counts) {
+      status = loadingLine;
+    } else if (members <= 1) {
+      status = isOwner && roomForMore ? t('dash.st.onlyYouInvite', 'Only you so far. Invite a colleague') : t('dash.st.onlyYou', 'Only you so far');
+    } else {
+      status = t('dash.st.people', { count: members, defaultValue_one: '{{count}} person', defaultValue_other: '{{count}} people' });
+      if (sm26Went > 0) {
+        status += ` · ${sm26Went >= members
+          ? t('dash.st.allWent', 'Everyone went to Smart Marina 2026')
+          : t('dash.st.teamWent', { count: sm26Went, defaultValue_one: '{{count}} went to Smart Marina 2026', defaultValue_other: '{{count}} went to Smart Marina 2026' })}`;
+      }
+    }
+    tiles.push({ key: 'team', panel: 'team', icon: getHomeSection('team')!.icon, title: label('team'), status, tone });
+  }
+
+  // My events
+  {
+    const parts: string[] = [];
+    if (data.upcomingCount > 0) parts.push(t('dash.st.upcoming', { count: data.upcomingCount, defaultValue_one: '{{count}} upcoming event', defaultValue_other: '{{count}} upcoming events' }));
+    if (sm26What === 'you') parts.push(t('dash.st.sm26You', 'You attended Smart Marina 2026'));
+    else if (sm26What === 'team') parts.push(t('dash.st.sm26Team', 'Your team attended Smart Marina 2026'));
+    else if (sm26What === 'company') parts.push(t('dash.st.sm26Company', 'Your company took part in Smart Marina 2026'));
+    const status = data.loading ? loadingLine : parts.length > 0 ? parts.join(' · ')
+      : data.pastCount > 0 ? t('dash.st.pastOnly', { count: data.pastCount, defaultValue_one: '{{count}} past event', defaultValue_other: '{{count}} past events' })
+        : t('dash.st.noEvents', 'No registration yet');
+    tiles.push({ key: 'registrations', panel: 'registrations', icon: getHomeSection('registrations')!.icon, title: label('registrations'), status, tone: sm26What ? 'done' : 'plain' });
+  }
+
+  // Messages
+  tiles.push({
+    key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, title: label('inbox'),
+    tone: inbox.total > 0 ? 'action' : 'plain',
+    // The pill already gives the number.
+    status: !inbox.loaded ? loadingLine : inbox.total > 0
+      ? t('dash.st.waitingNoCount', 'Waiting for your answer')
+      : t('dash.st.nothingWaiting', 'Nothing waiting for you'),
+    count: { value: inbox.total, label: t('dash.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' }) },
+  });
+
+  // My requests
+  tiles.push({
+    key: 'requests', panel: 'requests', icon: getHomeSection('requests')!.icon, title: label('requests'), tone: 'plain',
+    // Every request sent, whatever M3 decided: the panel says where each one stands.
+    status: data.loading ? loadingLine : requestTotal > 0
+      ? t('dash.st.requestsSent', { count: requestTotal, defaultValue_one: '{{count}} request sent', defaultValue_other: '{{count}} requests sent' })
+      : createActions.length > 0 ? t('dash.st.publishFirst', 'Nothing yet. Publish a need') : t('dash.st.nothingPublished', 'Nothing published yet'),
+  });
+
+  // Only for some members
+  if (visible('shortlist')) {
+    tiles.push({
+      key: 'shortlist', panel: 'shortlist', icon: getHomeSection('shortlist')!.icon, title: label('shortlist'), tone: 'plain',
+      status: data.shortlistCount === null || data.loading ? loadingLine : data.shortlistCount === 0
+        ? t('dash.st.noneSaved', 'None saved yet')
+        : t('dash.st.saved', { count: data.shortlistCount, defaultValue_one: '{{count}} company saved', defaultValue_other: '{{count}} companies saved' }),
+    });
+  }
+  if (isInvestor) {
+    tiles.push({ key: 'dealflow', to: '/investments', icon: TrendingUp, title: t('dash.tiles.dealflow', 'Deal flow'), tone: 'plain', status: t('dash.st.dealflow', 'Marina projects looking for investors') });
+  }
+  if (visible('sponsorship')) {
+    tiles.push({
+      key: 'sponsorship', panel: 'sponsorship', icon: Award, tone: 'plain',
+      title: isSponsor ? label('sponsorship') : t('dash.tiles.sponsorshipHub', 'Sponsorship hub'),
+      status: isSponsor ? t('dash.st.sponsor', 'Your package and what to send us') : t('dash.st.hub', 'Agreements and follow-up for every sponsor'),
+    });
+  }
+  if (visible('press')) {
+    tiles.push({ key: 'press', panel: 'press', icon: getHomeSection('press')!.icon, title: label('press'), tone: 'plain', status: t('dash.st.press', 'Media kits and your articles') });
+  }
+  if (visible('references')) {
+    tiles.push({
+      key: 'references', panel: 'references', icon: getHomeSection('references')!.icon, title: label('references'), tone: 'plain',
+      status: !data.references || data.references.total === 0
+        ? t('dash.st.noRefs', 'Ask marinas you worked with to vouch for you')
+        : t('dash.st.refs', { confirmed: data.references.confirmed, waiting: data.references.waiting, defaultValue: '{{confirmed}} confirmed · {{waiting}} waiting' }),
+    });
+  }
+
+  /* ---------------------------------------------------------- the open panel's content */
 
   const panelActions = (key: HomePanel): ReactNode => {
-    if (key === 'organization' && organization?.slug) {
-      return <CardLink to={`/organizations/${organization.slug}`}>{t('memberHome.org.viewPage', 'View my company page')}</CardLink>;
-    }
-    if (key === 'registrations') return <CardLink to="/events">{t('accountArea.events.browse', 'Browse events')}</CardLink>;
-    if (key === 'sponsorship' && isManager) return <CardLink to="/sponsorship">{t('dashboard.everything.sponsorshipHub', 'Sponsorship hub')}</CardLink>;
+    if (key === 'company' && organization?.slug) return <CardLink to={`/organizations/${organization.slug}`}>{t('dash.viewCompanyPage', 'View my company page')}</CardLink>;
+    if (key === 'registrations') return <CardLink to="/events">{t('dash.browseEvents', 'Browse events')}</CardLink>;
+    if (key === 'inbox') return <CardLink to="/inbox">{t('dash.inboxPage', 'Open as a full page')}</CardLink>;
+    if (key === 'shortlist') return <CardLink to="/directory">{t('dash.findCompanies', 'Find companies')}</CardLink>;
+    if (key === 'sponsorship' && isManager) return <CardLink to="/sponsorship">{t('dash.sponsorshipHub', 'Sponsorship hub')}</CardLink>;
     return null;
   };
 
   const panelBody = (key: HomePanel): ReactNode => {
     switch (key) {
-      case 'profile': return <ProfileEditor onOpenOrganization={() => setPanel('organization')} />;
-      case 'notifications': return <NotificationPreferencesTab />;
-      case 'organization': return <OrganizationWorkspace />;
-      case 'registrations': return <MyEvents />;
+      case 'profile': return <ProfilePanel initialSection={section} onChanged={bump} />;
+      case 'company': return <CompanyPanel initialSection={section} version={version} onChanged={bump} />;
+      case 'team': return <TeamPanel sm26UserIds={sm26?.team.userIds ?? []} version={version} onChanged={bump} onInboxChanged={inbox.refresh} />;
+      case 'registrations': return <EventsPanel sm26={sm26} />;
       case 'inbox': return <InboxTab />;
-      case 'requests': return <MyRequests />;
-      case 'references': return <ReferenceRequestForm onReferenceSubmitted={() => setVersion((v) => v + 1)} />;
+      case 'requests':
+        return (
+          <div className="space-y-4">
+            {createActions.length > 0 ? (
+              <div className="flex flex-col gap-4 rounded-card border border-rule bg-white px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                <p className="text-[16px] leading-6 text-ink">
+                  {t('dash.publishLead', 'Looking for a supplier, an expert or a speaker? Tell the network.')}
+                </p>
+                <Button type="button" variant="cta" size="sm" arrow={false} className="shrink-0 justify-center" onClick={() => setPublishOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+                  {t('dash.publishNeed', 'Publish a new need')}
+                </Button>
+              </div>
+            ) : (
+              <p className="rounded-card border border-rule bg-white px-4 py-3 text-[15px] leading-6 text-meta sm:px-5">
+                {t('dash.publishWhenVerified', 'You can publish once the M3 team has checked your company.')}
+              </p>
+            )}
+            <MyRequests />
+          </div>
+        );
+      case 'references': return <ReferenceRequestForm onReferenceSubmitted={bump} />;
       case 'press': return <PressRoom />;
       case 'shortlist': return <ShortlistTab />;
       case 'sponsorship':
@@ -362,388 +506,46 @@ export default function MemberDashboard() {
     }
   };
 
-  /* ---------------------------------------------------------- the groups' cards */
+  // The open panel goes right after the last tile of its row.
+  const openIndex = openPanel ? tiles.findIndex((tile) => tile.panel === openPanel) : -1;
+  const rowEnd = openIndex >= 0 ? Math.min(tiles.length, Math.ceil((openIndex + 1) / columns) * columns) - 1 : -1;
+  const panelNode = openPanel && openIndex >= 0 ? (
+    <PanelRegion
+      key={`panel-${openPanel}`}
+      panelKey={openPanel}
+      title={tiles[openIndex].title}
+      desc={descOf(openPanel)}
+      actions={panelActions(openPanel)}
+      layoutReady={layoutReady}
+      onClose={() => closePanel(openPanel)}
+      className="col-span-full"
+    >
+      <Suspense fallback={<div className="rounded-card border border-rule bg-white"><RowSkeleton rows={3} /></div>}>
+        {panelBody(openPanel)}
+      </Suspense>
+    </PanelRegion>
+  ) : null;
 
-  const companyCards: ReactNode[] = [
-    <DashCard
-      key="profile"
-      icon={UserCircle}
-      title={label('profile')}
-      titleId="dash-card-profile"
-      desc={descOf('profile')}
-      active={openPanel === 'profile'}
-      footer={toggle('profile', t('memberHome.edit', 'Edit'))}
-    >
-      <div className="flex items-center gap-3">
-        {profile.avatar_url ? (
-          <img src={profile.avatar_url} alt="" className="h-12 w-12 shrink-0 rounded-full object-cover ring-1 ring-rule" />
-        ) : (
-          <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-navy text-[15px] font-semibold text-white">{initials}</span>
-        )}
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-navy">{displayName}</p>
-          <p className="truncate text-[13px] text-meta">{profile.job_title || t('memberHome.profile.noJobTitle', 'No job title yet')}</p>
-        </div>
-      </div>
-    </DashCard>,
-    <DashCard
-      key="notifications"
-      icon={getHomeSection('notifications')?.icon ?? UserCircle}
-      title={label('notifications')}
-      titleId="dash-card-notifications"
-      desc={descOf('notifications')}
-      active={openPanel === 'notifications'}
-      footer={toggle('notifications', t('memberHome.manage', 'Manage'))}
-    >
-      <p className="text-meta">
-        {notifOff === 0
-          ? t('memberHome.notifications.allOn', 'Every kind of email is on.')
-          : t('memberHome.notifications.someOff', { count: notifOff, defaultValue_one: '{{count}} kind of email is turned off.', defaultValue_other: '{{count}} kinds of email are turned off.' })}
-      </p>
-    </DashCard>,
-    <DashCard
-      key="organization"
-      icon={Building2}
-      title={label('organization')}
-      titleId="dash-card-organization"
-      desc={descOf('organization')}
-      active={openPanel === 'organization'}
-      footer={(
-        <>
-          {toggle('organization', organization ? t('memberHome.manage', 'Manage') : t('memberHome.org.add', 'Add my organisation'))}
-          {organization?.slug && <CardLink to={`/organizations/${organization.slug}`}>{t('memberHome.org.viewPage', 'View my company page')}</CardLink>}
-        </>
-      )}
-    >
-      {organization ? (
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <LogoBadge src={brandSrc?.logo_url} name={organization.name} size="md" />
-            <div className="min-w-0">
-              <p className="truncate font-semibold text-navy">{organization.name}</p>
-              {orgVerified
-                ? <StatusPill tone="success" icon={ShieldCheck}>{t('dashboard.verified')}</StatusPill>
-                : <StatusPill tone="warning" icon={Clock}>{t('dashboard.underReview')}</StatusPill>}
-            </div>
-          </div>
-          {showMeter && (
-            <div>
-              <div className="flex items-baseline justify-between gap-3 text-[13px]">
-                <span className="font-medium text-meta">{t('dashboard.profileMeter.title', 'Organisation profile')}</span>
-                <span className="font-semibold tabular-nums text-navy">
-                  {t('dashboard.profileMeter.score', { done: meterDone, total: meter.length, defaultValue: '{{done}} of {{total}} done' })}
-                </span>
-              </div>
-              <div className="mt-1.5 flex gap-1" aria-hidden="true">
-                {meter.map((done, i) => <span key={i} className={cn('h-1.5 flex-1 rounded-pill', i < meterDone ? 'bg-teal' : 'bg-chip')} />)}
-              </div>
-            </div>
-          )}
-          <ul className="flex flex-wrap gap-1.5" aria-label={t('accountArea.org.subnavLabel', 'Organisation sections')}>
-            {([
-              ['branding', t('accountArea.org.branding', 'Logo & cover')],
-              ['details', t('accountArea.org.details', 'Company details')],
-              ['team', t('accountArea.org.team', 'Team & invitations')],
-              ['gallery', t('accountArea.org.gallery', 'Product images')],
-            ] as [OrgSection, string][]).map(([key, text]) => (
-              <li key={key}>
-                <button
-                  type="button"
-                  onClick={() => openOrg(key)}
-                  className="inline-flex min-h-9 items-center rounded-pill bg-chip px-3 text-[13px] font-medium text-navy transition-colors hover:bg-rule focus:outline-none focus-visible:shadow-focus"
-                >
-                  {text}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : (
-        <p className="text-meta">{t('memberHome.org.none', 'You are not attached to an organisation yet. Add yours to unlock the whole platform.')}</p>
-      )}
-    </DashCard>,
-  ];
-  if (organizations.length > 1) {
-    companyCards.push(
-      <DashCard key="switch" icon={Building2} title={t('memberHome.switch.title', 'Switch company')} titleId="dash-card-switch" desc={t('memberHome.switch.desc', 'You belong to several organisations: choose the one you act for.')}>
-        <ul className="space-y-1" aria-label={t('memberHome.switch.title', 'Switch company')}>
-          {organizations.map((m) => {
-            const current = organization?.id === m.organization.id;
-            return (
-              <li key={m.organization.id}>
-                <button
-                  type="button"
-                  aria-pressed={current}
-                  onClick={() => { if (!current) setActiveOrganization(m.organization.id); }}
-                  className={cn('flex min-h-11 w-full items-center gap-3 rounded-field px-2 text-left transition-colors focus:outline-none focus-visible:shadow-focus', current ? 'bg-chip' : 'hover:bg-page')}
-                >
-                  <LogoBadge src={m.organization.logo_url} name={m.organization.name} size="sm" />
-                  <span className="min-w-0 flex-1 truncate text-[14px] font-medium text-navy">{m.organization.name}</span>
-                  {current && <Check className="h-4 w-4 shrink-0 text-teal" aria-hidden="true" />}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </DashCard>,
+  const grid: ReactNode[] = [];
+  tiles.forEach((tile, i) => {
+    grid.push(
+      <div key={tile.key} className="min-w-0">
+        <Tile
+          ref={(el) => { tileRefs.current[tile.key] = el; }}
+          panelKey={tile.key}
+          icon={tile.icon}
+          title={tile.title}
+          count={tile.count}
+          status={tile.status}
+          tone={tile.tone}
+          to={tile.to}
+          open={!!tile.panel && openPanel === tile.panel}
+          onClick={tile.panel ? () => togglePanel(tile.panel!) : undefined}
+        />
+      </div>,
     );
-  }
-
-  const nextReg = data.nextRegistered;
-  const eventCards: ReactNode[] = [
-    <DashCard
-      key="registrations"
-      icon={CalendarDays}
-      title={label('registrations')}
-      titleId="dash-card-registrations"
-      desc={descOf('registrations')}
-      active={openPanel === 'registrations'}
-      footer={toggle('registrations', t('memberHome.manage', 'Manage'))}
-    >
-      {data.loading ? <BlockSkeleton className="h-12" /> : (
-        <div className="space-y-3">
-          <p className="text-meta">
-            {data.upcomingCount + data.pastCount === 0
-              ? t('memberHome.events.none', 'No event registration yet.')
-              : t('memberHome.events.counts', { upcoming: data.upcomingCount, past: data.pastCount, defaultValue: '{{upcoming}} upcoming · {{past}} past' })}
-          </p>
-          {nextReg && (
-            <p className="text-[14px]">
-              <span className="text-meta">{t('memberHome.events.next', 'Next:')} </span>
-              <Link to={`/events/${nextReg.id}`} className="font-semibold text-navy underline-offset-4 hover:underline">{nextReg.title}</Link>
-            </p>
-          )}
-          {/* Smart Marina 2026 is over: its participants get a mark, nothing to manage. */}
-          {access?.sm26 && (
-            <div className="flex items-start gap-2.5 rounded-field bg-foam p-3 text-[14px] leading-5 text-navy">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-teal" aria-hidden="true" />
-              <p>
-                {t('memberHome.events.sm26', 'You took part in the Monaco Smart & Sustainable Marina Rendezvous 2026.')}{' '}
-                <Link to={RENDEZVOUS_2026_PATH} className="font-semibold underline underline-offset-2 hover:text-teal-text">
-                  {t('memberHome.events.sm26Link', 'Event page')}
-                </Link>
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-    </DashCard>,
-    <DashCard
-      key="coming-up"
-      icon={Clock}
-      title={t('dashboard.upcomingTitle')}
-      titleId="dash-card-coming-up"
-      desc={t('memberHome.events.comingUpDesc', 'M3 events and webinars ahead')}
-      className="xl:col-span-2"
-      footer={<CardLink to="/events">{t('dashboard.seeAllEvents')}</CardLink>}
-    >
-      <ComingUpList registeredIds={data.registeredIds} />
-    </DashCard>,
-  ];
-
-  const requestCards: ReactNode[] = [
-    <DashCard
-      key="inbox"
-      icon={Inbox}
-      title={label('inbox')}
-      titleId="dash-card-inbox"
-      desc={descOf('inbox')}
-      badge={<CountBadge value={inbox.total} label={t('memberHome.inbox.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' })} />}
-      active={openPanel === 'inbox'}
-      footer={toggle('inbox', t('memberHome.open', 'Open'))}
-    >
-      <p className={cn('font-medium', inbox.total > 0 ? 'text-navy' : 'text-meta')}>
-        {inbox.total > 0
-          ? t('memberHome.inbox.waiting', { count: inbox.total, defaultValue_one: '{{count}} request waiting for your answer', defaultValue_other: '{{count}} requests waiting for your answer' })
-          : t('memberHome.inbox.clear', 'Nothing is waiting for your answer.')}
-      </p>
-      {data.inboxLatest.length > 0 && (
-        <ul className="mt-2">
-          {data.inboxLatest.map((r) => (
-            <MiniRow
-              key={r.id}
-              icon={Link2}
-              title={r.org ?? t('memberHome.inbox.request', 'Connection request')}
-              meta={shortDate(r.created_at, lang)}
-              aside={<RequestPill status={r.status} label={t(`memberHome.inbox.status.${r.status}`, r.status === 'pending' ? 'Pending' : r.status === 'accepted' ? 'Accepted' : 'Declined')} />}
-              onClick={() => setPanel('inbox')}
-            />
-          ))}
-        </ul>
-      )}
-    </DashCard>,
-    <DashCard
-      key="requests"
-      icon={ClipboardList}
-      title={label('requests')}
-      titleId="dash-card-requests"
-      desc={descOf('requests')}
-      active={openPanel === 'requests'}
-      footer={toggle('requests', t('memberHome.manage', 'Manage'))}
-    >
-      {data.loading ? <BlockSkeleton className="h-12" /> : (
-        <div className="space-y-3">
-          <p className="text-meta">{requestKinds.map((k) => kindLabel(k, data.requestCounts[k])).join(' · ')}</p>
-          {data.latestRequests.length > 0 && (
-            <ul>
-              {data.latestRequests.map((r) => (
-                <MiniRow
-                  key={`${r.kind}-${r.id}`}
-                  icon={REQUEST_ICON[r.kind]}
-                  title={r.title}
-                  meta={kindName(r.kind)}
-                  aside={<RequestPill status={r.status} label={t(`dashboard.status_${r.status}`, r.status.replace(/_/g, ' '))} />}
-                  onClick={() => setPanel('requests', r.kind)}
-                />
-              ))}
-            </ul>
-          )}
-          {/* Publish or propose: the Create menu's forms this member may use, compact. */}
-          {createActions.length > 0 ? (
-            <ul className="flex flex-wrap gap-1.5" aria-label={t('dashboard.everything.create', 'Publish or propose')}>
-              {createActions.map((a) => (
-                <li key={a.href}>
-                  <Link
-                    to={a.href}
-                    className="inline-flex min-h-9 items-center gap-1.5 rounded-pill bg-chip px-3 text-[13px] font-semibold text-navy transition-colors hover:bg-rule focus:outline-none focus-visible:shadow-focus"
-                  >
-                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                    {t(a.labelKey, a.fallback)}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-[13px] text-meta">{t('accountArea.publishWhenVerified', 'You can publish once your organisation is verified')}</p>
-          )}
-        </div>
-      )}
-    </DashCard>,
-  ];
-  if (visible('references')) {
-    requestCards.push(
-      <DashCard
-        key="references"
-        icon={getHomeSection('references')?.icon ?? Award}
-        title={label('references')}
-        titleId="dash-card-references"
-        desc={descOf('references')}
-        active={openPanel === 'references'}
-        footer={toggle('references', t('memberHome.manage', 'Manage'))}
-      >
-        <p className="text-meta">
-          {!data.references || data.references.total === 0
-            ? t('memberHome.references.none', 'Ask the marinas you worked with to vouch for you.')
-            : t('memberHome.references.counts', { confirmed: data.references.confirmed, waiting: data.references.waiting, defaultValue: '{{confirmed}} confirmed · {{waiting}} waiting' })}
-        </p>
-      </DashCard>,
-    );
-  }
-  if (visible('sponsorship')) {
-    requestCards.push(
-      <DashCard
-        key="sponsorship"
-        icon={Award}
-        title={isSponsor ? label('sponsorship') : t('dashboard.everything.sponsorshipHub', 'Sponsorship hub')}
-        titleId="dash-card-sponsorship"
-        desc={isSponsor ? descOf('sponsorship') : t('dashboard.everything.sponsorshipHubDesc', 'Agreements and fulfilment for every sponsor')}
-        active={openPanel === 'sponsorship'}
-        footer={(
-          <>
-            {isSponsor && toggle('sponsorship', t('memberHome.open', 'Open'))}
-            {isManager && <CardLink to="/sponsorship">{t('memberHome.sponsorship.openHub', 'Open the hub')}</CardLink>}
-          </>
-        )}
-      />,
-    );
-  }
-  if (visible('press')) {
-    requestCards.push(
-      <DashCard
-        key="press"
-        icon={getHomeSection('press')?.icon ?? Award}
-        title={label('press')}
-        titleId="dash-card-press"
-        desc={descOf('press')}
-        active={openPanel === 'press'}
-        footer={toggle('press', t('memberHome.open', 'Open'))}
-      />,
-    );
-  }
-
-  const forMeCards: ReactNode[] = [];
-  if (visible('shortlist')) {
-    forMeCards.push(
-      <DashCard
-        key="shortlist"
-        icon={getHomeSection('shortlist')?.icon ?? Award}
-        title={label('shortlist')}
-        titleId="dash-card-shortlist"
-        desc={descOf('shortlist')}
-        active={openPanel === 'shortlist'}
-        footer={(
-          <>
-            {toggle('shortlist', t('memberHome.open', 'Open'))}
-            <CardLink to="/directory">{t('memberHome.shortlist.find', 'Find companies')}</CardLink>
-          </>
-        )}
-      >
-        <p className="text-meta">
-          {data.shortlistCount === null || data.loading ? '' : data.shortlistCount === 0
-            ? t('memberHome.shortlist.none', 'Save companies from the directory to find them here.')
-            : t('memberHome.shortlist.count', { count: data.shortlistCount, defaultValue_one: '{{count}} company saved', defaultValue_other: '{{count}} companies saved' })}
-        </p>
-      </DashCard>,
-    );
-  }
-  if (isInvestor) {
-    forMeCards.push(
-      <DashCard
-        key="dealflow"
-        icon={TrendingUp}
-        title={t('dashboard.dealFlowTitle')}
-        titleId="dash-card-dealflow"
-        desc={t('dashboard.dealFlowBody')}
-        footer={<CardLink to="/investments">{t('dashboard.dealFlowCta')}</CardLink>}
-      />,
-    );
-  }
-  if (isSupply) {
-    forMeCards.push(
-      <DashCard
-        key="opportunities"
-        icon={Briefcase}
-        title={t('dashboard.opportunitiesTitle')}
-        titleId="dash-card-opportunities"
-        className={forMeCards.length === 0 ? undefined : 'xl:col-span-2'}
-        footer={canSeeOpportunities ? <CardLink to="/opportunities">{t('dashboard.seeAllOpportunities')}</CardLink> : undefined}
-      >
-        {!canSeeOpportunities ? (
-          <p className="text-meta">{t('dashboard.opportunitiesLocked')}</p>
-        ) : data.loading ? <BlockSkeleton className="h-16" /> : data.opportunities.length === 0 ? (
-          <p className="text-meta">{t('dashboard.opportunitiesEmpty')}</p>
-        ) : (
-          <ul>
-            {data.opportunities.map((o) => (
-              <MiniRow
-                key={`${o.kind}-${o.id}`}
-                icon={o.kind === 'rfp' ? Ship : MessageSquare}
-                title={o.title}
-                meta={(
-                  <>
-                    {t(`dashboard.${o.kind}`)}
-                    {o.deadline && ` · ${t('dashboard.deadline', { date: new Date(o.deadline).toLocaleDateString(lang, { day: 'numeric', month: 'short' }) })}`}
-                  </>
-                )}
-                aside={o.matches ? <StatusPill tone="info" className="hidden sm:inline-flex">{t('dashboard.opportunitiesMatch')}</StatusPill> : undefined}
-                to={`/opportunities?kind=${o.kind === 'rfp' ? 'rfps' : 'consultations'}`}
-              />
-            ))}
-          </ul>
-        )}
-      </DashCard>,
-    );
-  }
+    if (i === rowEnd && panelNode) grid.push(panelNode);
+  });
 
   const resourcesMatched = data.resources.some((r) => r.matches);
 
@@ -773,22 +575,13 @@ export default function MemberDashboard() {
         {/* ── What is waiting: the to-do list, and my next event when I have one ── */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           <div className={nextReg ? 'lg:col-span-2' : 'lg:col-span-5'}>
-            <MemberPanel title={t('dashboard.todoTitle')} className="h-full">
-              {data.loading && !inbox.loaded ? (
-                <RowSkeleton rows={2} />
-              ) : todos.length === 0 ? (
-                <div className="flex items-center gap-3 px-5 py-5 text-[15px] text-meta">
-                  <CheckCircle2 className="h-5 w-5 shrink-0 text-teal" aria-hidden="true" />
-                  {t('dashboard.todoEmpty')}
-                </div>
-              ) : (
-                <ul className={cn('divide-y divide-rule', !nextReg && 'lg:grid lg:grid-cols-2 lg:divide-y-0')}>
-                  {todos.map((todo) => (
-                    <MemberRow key={todo.key} onClick={todo.open} icon={todo.icon} title={todo.title} hint={todo.hint} urgent={todo.urgent} />
-                  ))}
-                </ul>
-              )}
-            </MemberPanel>
+            <TodoList
+              items={todos}
+              loading={data.loading || (!inbox.loaded && inboxWait)}
+              onChanged={bump}
+              onInboxChanged={inbox.refresh}
+              compact={!!nextReg}
+            />
           </div>
           {nextReg && (
             <div className="lg:col-span-3">
@@ -797,83 +590,108 @@ export default function MemberDashboard() {
           )}
         </div>
 
-        {/* ── Everything this member can manage, edited in place ── */}
-        <div className="mt-10 space-y-10 md:mt-12 md:space-y-12">
-          <DashGroup id="dash-group-company" title={groupLabel('company')} cardCount={companyCards.length} panel={panelFor('company')}>
-            {companyCards}
-          </DashGroup>
-          <DashGroup id="dash-group-events" title={groupLabel('events')} cardCount={3} panel={panelFor('events')}>
-            {eventCards}
-          </DashGroup>
-          <DashGroup id="dash-group-requests" title={groupLabel('requests')} cardCount={requestCards.length} panel={panelFor('requests')}>
-            {requestCards}
-          </DashGroup>
-          <section aria-labelledby="dash-group-forme-title">
-            <Eyebrow as="h3" className="mb-4">
-              <span id="dash-group-forme-title">{groupLabel('forMe')}</span>
-            </Eyebrow>
-            {forMeCards.length > 0 && (
-              <div className={cn('mb-6 grid grid-cols-1 gap-4', forMeCards.length >= 2 ? 'sm:grid-cols-2 xl:grid-cols-3' : 'sm:grid-cols-2')}>
-                {forMeCards}
-              </div>
-            )}
-            {panelFor('forMe')}
+        {/* ── The tiles: everything this member manages, each opened in place ── */}
+        <section aria-labelledby="dash-tiles-title" className="mt-10 md:mt-12">
+          <Eyebrow as="h3" className="mb-4">
+            <span id="dash-tiles-title">{t('dash.tilesTitle', 'Your account')}</span>
+          </Eyebrow>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {grid}
+          </div>
+        </section>
 
-            {/* Resources: the library's own cards — sector matches first, else the newest. */}
-            <div className={cn('flex items-center justify-between gap-4', (forMeCards.length > 0 || openPanel === 'shortlist') && 'mt-6')}>
-              <p className="text-[15px] font-semibold text-navy">{resourcesMatched ? t('dashboard.resourcesForYou') : t('dashboard.resourcesLatest')}</p>
-              <UnderlineLink to="/resources" className="!text-[14px] !leading-5">{t('dashboard.seeAllResources')}</UnderlineLink>
-            </div>
-            {data.loading ? (
-              <div className="mt-4 grid grid-cols-2 gap-4 xl:grid-cols-4" aria-hidden="true">
-                {[0, 1, 2, 3].map((i) => <BlockSkeleton key={i} className="aspect-[3/4] rounded-card" />)}
+        {/* ── Worth a look: events ahead, opportunities, articles ── */}
+        <section aria-labelledby="dash-forme-title" className="mt-12 md:mt-14">
+          <Eyebrow as="h3" className="mb-4">
+            <span id="dash-forme-title">{t('dash.forYou', 'For you')}</span>
+          </Eyebrow>
+          <div className={cn('grid grid-cols-1 gap-4', isSupply && 'lg:grid-cols-2')}>
+            <CardShell as="article" className="p-5">
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <h4 className="text-card-title text-navy">{t('dash.comingUp', 'Coming up')}</h4>
+                <CardLink to="/events">{t('dash.allEvents', 'All events')}</CardLink>
               </div>
-            ) : data.resources.length === 0 ? (
-              <CardShell className="mt-4">
-                <MemberEmpty icon={BookOpen} title={t('dashboard.noResources')} className="py-8" />
+              <ComingUpList registeredIds={data.registeredIds} />
+            </CardShell>
+            {isSupply && (
+              <CardShell as="article" className="p-5">
+                <div className="mb-3 flex items-center justify-between gap-4">
+                  <h4 className="text-card-title text-navy">{t('dashboard.opportunitiesTitle', 'Opportunities')}</h4>
+                  {canSeeOpportunities && <CardLink to="/opportunities">{t('dashboard.seeAllOpportunities', 'See all')}</CardLink>}
+                </div>
+                {!canSeeOpportunities ? (
+                  <p className="text-meta">{t('dashboard.opportunitiesLocked')}</p>
+                ) : data.loading ? <BlockSkeleton className="h-16" /> : data.opportunities.length === 0 ? (
+                  <p className="text-meta">{t('dashboard.opportunitiesEmpty')}</p>
+                ) : (
+                  <ul>
+                    {data.opportunities.map((o) => (
+                      <MiniRow
+                        key={`${o.kind}-${o.id}`}
+                        icon={o.kind === 'rfp' ? Ship : MessageSquare}
+                        title={o.title}
+                        meta={(
+                          <>
+                            {t(`dashboard.${o.kind}`)}
+                            {o.deadline && ` · ${t('dashboard.deadline', { date: new Date(o.deadline).toLocaleDateString(lang, { day: 'numeric', month: 'short' }) })}`}
+                          </>
+                        )}
+                        aside={o.matches ? <StatusPill tone="info" className="hidden sm:inline-flex">{t('dashboard.opportunitiesMatch')}</StatusPill> : undefined}
+                        to={`/opportunities?kind=${o.kind === 'rfp' ? 'rfps' : 'consultations'}`}
+                      />
+                    ))}
+                  </ul>
+                )}
               </CardShell>
-            ) : (
-              <div className="mt-4 grid grid-cols-2 gap-4 xl:grid-cols-4">
-                {data.resources.map((r) => (
-                  <CardShell key={r.id} interactive>
-                    <CardMedia>
-                      <CoverImage src={r.thumbnail_url} alt="" seed={r.id} icon={RESOURCE_ICON[r.type] ?? BookOpen} aspect="wide">
-                        <span className="absolute left-3 top-3 rounded-pill bg-white/95 px-2.5 py-0.5 text-[12px] font-semibold text-navy">
-                          {t(`resources.types.${r.type}`, r.type)}
-                        </span>
-                      </CoverImage>
-                    </CardMedia>
-                    <div className="flex flex-1 flex-col p-4">
-                      <h4 className="text-[15px] font-semibold leading-5 text-navy">
-                        <StretchedLink to={`/resources/${r.id}`} arrow={false} className="[overflow-wrap:anywhere]">{r.title}</StretchedLink>
-                      </h4>
-                      {r.summary && <p className="mt-1.5 line-clamp-2 text-[13px] leading-[18px] text-meta">{r.summary}</p>}
-                    </div>
-                  </CardShell>
-                ))}
-              </div>
             )}
-          </section>
-        </div>
+          </div>
+
+          {/* Resources: the library's own cards — sector matches first, else the newest. */}
+          <div className="mt-8 flex items-center justify-between gap-4">
+            <p className="text-[16px] font-semibold text-navy">{resourcesMatched ? t('dashboard.resourcesForYou') : t('dashboard.resourcesLatest')}</p>
+            <UnderlineLink to="/resources" className="min-h-11 !text-[15px] !leading-5">{t('dashboard.seeAllResources')}</UnderlineLink>
+          </div>
+          {data.loading ? (
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
+              {[0, 1, 2, 3].map((i) => <BlockSkeleton key={i} className="aspect-[4/3] rounded-card" />)}
+            </div>
+          ) : data.resources.length === 0 ? (
+            <CardShell className="mt-4">
+              <MemberEmpty icon={BookOpen} title={t('dashboard.noResources')} className="py-8" />
+            </CardShell>
+          ) : (
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {data.resources.map((r) => (
+                <CardShell key={r.id} interactive>
+                  <CardMedia>
+                    <CoverImage src={r.thumbnail_url} alt="" seed={r.id} icon={RESOURCE_ICON[r.type] ?? BookOpen} aspect="wide">
+                      <span className="absolute left-3 top-3 rounded-pill bg-white/95 px-2.5 py-0.5 text-[12px] font-semibold text-navy">
+                        {t(`resources.types.${r.type}`, r.type)}
+                      </span>
+                    </CoverImage>
+                  </CardMedia>
+                  <div className="flex flex-1 flex-col p-4">
+                    <h4 className="text-[16px] font-semibold leading-6 text-navy">
+                      <StretchedLink to={`/resources/${r.id}`} arrow={false} className="[overflow-wrap:anywhere]">{r.title}</StretchedLink>
+                    </h4>
+                    {r.summary && <p className="mt-1.5 line-clamp-2 text-[14px] leading-5 text-meta">{r.summary}</p>}
+                  </div>
+                </CardShell>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
+
+      <PublishDialog open={publishOpen} onOpenChange={setPublishOpen} actions={createActions} />
     </section>
   );
 }
 
-/** State of a request, in the one pill vocabulary. */
-function RequestPill({ status, label }: { status: string; label: string }) {
-  const tone: PillTone =
-    status === 'approved' || status === 'accepted' ? 'success'
-      : status === 'rejected' ? 'danger'
-        : status === 'closed' ? 'neutral'
-          : 'warning';
-  return <StatusPill tone={tone}>{label}</StatusPill>;
-}
-
 /**
  * The account-state alerts: pending review (with what to do meanwhile),
- * rejected, the organisation under verification, and the profile-completion
- * banner (no organisation, or a sign-up not completed outside a review).
+ * rejected, the company under verification, and the completion banner (no
+ * company, or a sign-up not completed outside a review).
  */
 function Alerts({
   onOpen,
@@ -893,7 +711,7 @@ function Alerts({
   const rejected = profile.access_status === 'rejected';
   // Not repeated under the review or rejection banners, which already say what to do.
   const incomplete = !rejected && (!hasOrganization || (profile.onboarding_status !== 'completed' && !pending));
-  const linkCls = '!text-[14px] !leading-5';
+  const linkCls = '!text-[15px] !leading-5';
   return (
     <>
       {pending && (
@@ -933,22 +751,16 @@ function Alerts({
         <MemberBanner
           tone="info"
           icon={AlertCircle}
-          title={t('home.completeOrgBanner', 'Complete your organisation profile to unlock all platform features.')}
+          title={hasOrganization
+            ? t('home.completeOrgBanner', 'Complete your organisation profile to unlock all platform features.')
+            : t('dash.noCompanyBanner', 'Add your company to unlock the whole platform.')}
           action={(
-            <Button type="button" variant="outline" size="sm" className="h-10 rounded-pill border-navy/25 bg-white px-4 text-navy hover:border-navy hover:bg-chip" onClick={() => onOpen('organization')}>
-              {hasOrganization ? t('homeSections.completeProfileCta', 'Complete my profile') : t('memberHome.org.add', 'Add my organisation')}
+            <Button type="button" variant="outline" size="sm" className="h-11 rounded-pill border-navy/25 bg-white px-5 text-[15px] text-navy hover:border-navy hover:bg-chip" onClick={() => onOpen('company')}>
+              {hasOrganization ? t('homeSections.completeProfileCta', 'Complete my profile') : t('dash.addCompany', 'Add my company')}
             </Button>
           )}
         />
       )}
     </>
   );
-}
-
-
-/** "12 Oct", or nothing for a date that cannot be read. */
-function shortDate(iso: string | null | undefined, lang: string): string | undefined {
-  if (!iso) return undefined;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? undefined : d.toLocaleDateString(lang, { day: 'numeric', month: 'short' });
 }

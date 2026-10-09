@@ -353,8 +353,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── signUp ─────────────────────────────────────────────────────────
   const signUp = async (email: string, password: string, persona?: string, firstName?: string, lastName?: string, companyName?: string, companyWebsite?: string, detectedOrgId?: string, jobTitle?: string, captchaToken?: string | null) => {
-    // The activation link lands on /welcome first (forced password step: closes the
-    // pre-registration takeover once "Confirm email" is ON), then goes on there.
+    // The activation link lands on /welcome first (forced password step), then goes
+    // on there. The send-email hook enforces the same for every caller (see
+    // src/lib/confirmationLink.ts); this keeps the app's own request consistent.
     const emailRedirectTo = throughWelcome(getStoredInvite()
       ? `${window.location.origin}/join/${getStoredInvite()}?email_confirmed=true`
       : `${window.location.origin}/onboarding?email_confirmed=true`)

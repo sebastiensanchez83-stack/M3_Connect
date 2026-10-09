@@ -8,7 +8,8 @@
 -- statements did NOT run in one transaction and the migration may have been
 -- committed: check to_regclass('public.payment_email_log') at once.
 --
--- Expected report: every line PASS.
+-- Expected report: every line PASS. The last checks (T10) run the down script
+-- too, inside the same transaction.
 --
 -- Real ids, looked up read-only on 9 Oct 2026:
 --   member, verified, not staff: 0f8c900e-5e63-404c-96ca-58a0718541a8
@@ -157,6 +158,18 @@ begin
     exception when insufficient_privilege then
       r := r || nl || 'PASS member delete refused (42501)';
     end;
+    begin
+      update public.payment_email_log set created_at = now() where payment_id = pay;
+      r := r || nl || 'FAIL member could update payment_email_log';
+    exception when insufficient_privilege then
+      r := r || nl || 'PASS member update refused (42501)';
+    end;
+    begin
+      truncate public.payment_email_log;
+      r := r || nl || 'FAIL member could truncate payment_email_log';
+    exception when insufficient_privilege then
+      r := r || nl || 'PASS member truncate refused (42501)';
+    end;
     -- The member still sees their own payment as before (payments policies untouched).
     select count(*) into n from public.payments where id = pay;
     r := r || nl || case when n = 1 then 'PASS ' else 'FAIL ' end || 'member still reads own payment (' || n || ')';
@@ -265,6 +278,19 @@ begin
               || 'payments policies unchanged';
   exception when others then
     r := r || nl || 'FAIL payments policies: ' || sqlstate || ' ' || sqlerrm;
+  end;
+
+  -- T10 the DOWN script, verbatim: the table goes, nothing else moves
+  begin
+    drop table if exists public.payment_email_log;
+    r := r || nl || case when to_regclass('public.payment_email_log') is null then 'PASS ' else 'FAIL ' end
+              || 'down script drops payment_email_log';
+    select md5(coalesce(string_agg(format('%s|%s|%s|%s|%s', policyname, cmd, roles, qual, with_check), ';' order by policyname), ''))
+      into v from pg_policies where schemaname = 'public' and tablename = 'payments';
+    r := r || nl || case when v = current_setting('smc_dryrun.payments_policies_before', true) then 'PASS ' else 'FAIL ' end
+              || 'payments policies unchanged after the down script';
+  exception when others then
+    r := r || nl || 'FAIL down script: ' || sqlstate || ' ' || sqlerrm;
   end;
 
   raise exception 'DRYRUN %', coalesce(r, '(report lost: a NULL was concatenated)');

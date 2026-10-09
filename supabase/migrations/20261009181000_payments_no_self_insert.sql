@@ -1,0 +1,39 @@
+-- Members can no longer create payments rows themselves.
+--
+-- NOT APPLIED. Written by the reliability lane (branch rf-rel, 9 Oct 2026). Independent of
+-- 20261009180000_payment_email_log.sql (either order). Down script:
+-- supabase/migrations/down/20261009181000_payments_no_self_insert.down.sql. Dry run:
+-- supabase/dryrun/20261009181000_payments_no_self_insert.dryrun.sql.
+--
+-- ════════════════════════════════════════════════════════════════════════════
+-- Why
+-- ════════════════════════════════════════════════════════════════════════════
+-- RLS policy payments_insert_own (created outside the migrations) let ANY signed-in
+-- account insert a payments row with any amount, any type, any organization_id, any
+-- reference_id and any status, "paid" included: its only check was user_id = auth.uid().
+-- Consequences:
+--   - fake "paid" rows count as revenue in the admin dashboard (AdminDashboard sums
+--     status = 'paid');
+--   - with the payment-ipn deployed until now (v12: Lyra's public demo key as a fallback
+--     and the old "membership" branch), a member could insert a membership payment for
+--     any organisation, sign a fake PAID notification with the public key and get that
+--     organisation and its members verified. The new payment-ipn closes that half; this
+--     migration closes the other one;
+--   - M3 acts by hand on paid payments now (the platform is free): a fake row could lead
+--     M3 to grant something.
+-- Nothing legitimate inserts as a member: on main, refonte and this branch the only
+-- writers of public.payments are the edge functions create-payment and payment-ipn,
+-- both with the service role (which bypasses RLS); the clients only SELECT
+-- (AdminDashboard). No SQL function writes to payments. public.payments had 0 rows on
+-- 9 Oct 2026.
+--
+-- ════════════════════════════════════════════════════════════════════════════
+-- What
+-- ════════════════════════════════════════════════════════════════════════════
+-- Drops that one policy. Kept as they are: payments_select_own / users_read_own_payments
+-- (a member still reads their own payments), admin_read_all_payments,
+-- admin_update_payments and payments_admin (verified admins and moderators keep every
+-- right through is_moderator()), and the table grants (the admin policies need them).
+-- Invisible to the live client (main), which never inserts into payments.
+
+drop policy if exists payments_insert_own on public.payments;

@@ -33,6 +33,11 @@ function isSessionGone(error: AuthErrorLike): boolean {
   return error.name === 'AuthSessionMissingError' || SESSION_GONE_CODES.has(error.code ?? '') || error.status === 401;
 }
 
+/** GoTrue refuses to "change" a password to the one already set. */
+function isSamePassword(error: AuthErrorLike): boolean {
+  return error.code === 'same_password' || /different from the old password/i.test(error.message || '');
+}
+
 // Where /welcome sends an account that still owes its password step (see WelcomePage).
 const EVENT_HUB = '/sm26/me';
 const AFTER_SIGNUP = '/onboarding';
@@ -85,6 +90,9 @@ export function ResetPasswordPage() {
   const accountEmail = useRef('');
   // Where a pw_pending account goes once its password is saved (pendingDestination).
   const [pendingNext, setPendingNext] = useState<string | null>(null);
+  // A sign-up still owing its password step: its password may have been typed by
+  // someone else (see WelcomePage), so saving one here ends the other sessions.
+  const [pendingSignup, setPendingSignup] = useState(false);
   const redirectTimer = useRef<number | undefined>(undefined);
   // Where to go after saving: the link's own ?next= first, else the pw_pending fallback.
   const destination = next ?? pendingNext;
@@ -114,6 +122,7 @@ export function ResetPasswordPage() {
       if (!mounted || lost.current) return;
       if (user?.email) accountEmail.current = user.email;
       setPendingNext(pendingDestination(user?.user_metadata));
+      setPendingSignup(user?.user_metadata?.pw_pending === true && user?.user_metadata?.pw_pending_reason === 'signup');
       setSessionReady(true);
       setChecking(false);
       scrubUrl();
@@ -261,10 +270,15 @@ export function ResetPasswordPage() {
       // an event-provisioned account that resets its password here has done the
       // welcome step's job, and AuthRedirector would otherwise keep bouncing it
       // back to /welcome to "set a password" on every navigation.
-      const { error: updateError } = await supabase.auth.updateUser({
-        password,
-        data: { pw_pending: false, pw_pending_reason: null, pw_pending_next: null },
-      });
+      const done = { pw_pending: false, pw_pending_reason: null, pw_pending_next: null };
+      let { error: updateError } = await supabase.auth.updateUser({ password, data: done });
+      // An account still owing its password step that types the password it already
+      // has (a sign-up typing the one from the sign-up form): GoTrue refuses that as
+      // a "change" and drops `data` with it. Knowing it is proof enough, as on
+      // /welcome: record the step as done and go on.
+      if (updateError && pendingNext && isSamePassword(updateError)) {
+        ({ error: updateError } = await supabase.auth.updateUser({ data: done }));
+      }
 
       if (updateError) {
         logAuthError('Password could not be updated:', updateError);
@@ -280,6 +294,12 @@ export function ResetPasswordPage() {
         }
         setError(updateErrorMessage(updateError));
         return;
+      }
+
+      if (pendingSignup) {
+        // As on /welcome: end any other session of this account (best effort).
+        const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
+        if (othersError) logAuthError('Other sessions could not be ended:', othersError);
       }
 
       setSuccess(true);
@@ -392,7 +412,10 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <AuthShell title={t('resetPassword.title', 'Reset your password')} points={false}>
+    <AuthShell
+      title={pendingNext ? t('resetPassword.chooseTitle', 'Choose your password') : t('resetPassword.title', 'Reset your password')}
+      points={false}
+    >
       <div className="space-y-5">
         {error && (
           <AuthNotice tone="error" role="alert">
@@ -430,6 +453,8 @@ export function ResetPasswordPage() {
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {t('resetPassword.updating', 'Updating...')}
               </>
+            ) : pendingNext ? (
+              t('resetPassword.submitChoose', 'Save my password')
             ) : (
               t('resetPassword.submit', 'Update password')
             )}

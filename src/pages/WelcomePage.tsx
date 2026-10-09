@@ -6,6 +6,8 @@ import { AlertTriangle, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AuthLoading, AuthShell, AuthStatus } from '@/components/auth/AuthShell';
+import { AuthDialog } from '@/components/auth/AuthDialog';
+import { LoginForm } from '@/components/auth/LoginForm';
 import { AuthInput, AuthLabel, AuthNotice, CTA_WRAP, FieldHint, PasswordInput } from '@/components/auth/fields';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -133,6 +135,9 @@ export function WelcomePage() {
   const [busy, setBusy] = useState(false);
   const [resendEmail, setResendEmail] = useState('');
   const [resent, setResent] = useState(false);
+  // Logged out: "Already have a password? Sign in" opens the sign-in window here
+  // (the header's Sign in sits in the menu on a phone).
+  const [loginOpen, setLoginOpen] = useState(false);
   // Set when this session cannot save a password (see needsFreshSession): the
   // way out is a password link e-mailed to the account.
   const [freshLink, setFreshLink] = useState<'needed' | 'sent' | null>(null);
@@ -294,6 +299,14 @@ export function WelcomePage() {
       });
       return;
     }
+    if (mustSetPassword) {
+      // A sign-up's password may have been typed by someone else (pre-registration
+      // takeover): end every other session of this account, e.g. one opened with
+      // that password between the confirmation and this step. This browser stays
+      // signed in. Best effort: the password itself is saved already.
+      const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
+      if (othersError) console.error('Other sessions could not be ended:', othersError);
+    }
     toast({
       title: confirmed
         ? t('welcome.passwordConfirmed', 'Password confirmed — welcome aboard!')
@@ -412,12 +425,21 @@ export function WelcomePage() {
               <Button type="submit" variant="cta" roll={false} className={cn('w-full justify-between', CTA_WRAP)} disabled={busy || !resendEmail.trim()}>
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />} {t('welcome.reauthSend', 'E-mail me a link to set my password')}
               </Button>
-              <FieldHint className="text-center">
-                {t('welcome.haveLogin', 'Already have a password? Use {{login}} (top-right) instead.', { login: t('nav.login', 'Login') })}
-              </FieldHint>
+              <p className="text-center text-sm leading-6 text-meta">
+                {t('welcome.havePassword', 'Already have a password?')}{' '}
+                <UnderlineLink arrow={false} className="min-h-11 !text-sm" onClick={() => setLoginOpen(true)}>
+                  {t('auth.login', 'Sign in')}
+                </UnderlineLink>
+              </p>
             </form>
           )}
         </AuthStatus>
+        <AuthDialog mode="login" open={loginOpen} onOpenChange={setLoginOpen} switchTo={{ onClick: () => { setLoginOpen(false); navigate('/?signup=true'); } }}>
+          <LoginForm
+            next={explicitNext ?? undefined}
+            onSuccess={() => { setLoginOpen(false); navigate(explicitNext ?? MEMBER_HOME, { replace: true }); }}
+          />
+        </AuthDialog>
       </WelcomeShell>
     );
   }
@@ -427,17 +449,26 @@ export function WelcomePage() {
   // verified address is shown instead.
   const firstName = mustSetPassword ? '' : (profile?.first_name || (meta.first_name as string | undefined) || '');
   // Worded so it holds whether or not the account still carries a password typed
-  // on the sign-up form (see setPassword's same-password note).
-  const title = mustSetPassword
-    ? t('welcome.forcedTitle', 'Choose your password')
-    : firstName
-      ? t('welcome.secureTitleNamed', '{{name}}, secure your account', { name: firstName })
-      : t('welcome.secureTitle', 'Secure your account');
-  const description = mustSetPassword
-    ? t('welcome.forcedDesc', 'Your e-mail address is confirmed. Choose a password to finish creating your account.')
-    : isEvent
-      ? t('welcome.eventDesc', 'Your Smart Marina Connect account is ready. Choose a password so you can sign back in anytime — then head to your event hub to complete your participation.')
-      : t('welcome.neutralDesc', 'You are signed in. Choose a password so you can sign back in anytime with your e-mail address.');
+  // on the sign-up form (see setPassword's same-password note). A claim-code
+  // account (app_metadata.claim_org_id: set by claim-code-signup only, never by the
+  // user) never had a password of its own; any other sign-up typed one on the form
+  // moments ago, so it is asked to type it once more (or to choose a new one).
+  const claimSignup = typeof (user?.app_metadata as Record<string, unknown> | undefined)?.claim_org_id === 'string';
+  const retype = mustSetPassword && !claimSignup;
+  const title = retype
+    ? t('welcome.retypeTitle', 'Confirm your password')
+    : mustSetPassword
+      ? t('welcome.forcedTitle', 'Choose your password')
+      : firstName
+        ? t('welcome.secureTitleNamed', '{{name}}, secure your account', { name: firstName })
+        : t('welcome.secureTitle', 'Secure your account');
+  const description = retype
+    ? t('welcome.retypeDesc', 'Your e-mail address is confirmed. To finish, type your password once more: the one you chose when you signed up, or a new one. Did someone else sign up with your address? Choose a new password: the other one stops working.')
+    : mustSetPassword
+      ? t('welcome.forcedDesc', 'Your e-mail address is confirmed. Choose a password to finish creating your account.')
+      : isEvent
+        ? t('welcome.eventDesc', 'Your Smart Marina Connect account is ready. Choose a password so you can sign back in anytime — then head to your event hub to complete your participation.')
+        : t('welcome.neutralDesc', 'You are signed in. Choose a password so you can sign back in anytime with your e-mail address.');
 
   return (
     <WelcomeShell event={isEvent}>
@@ -500,7 +531,9 @@ export function WelcomePage() {
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {isEvent
               ? t('welcome.ctaEvent', 'Set password & open my event hub')
-              : t('welcome.ctaContinue', 'Set password & continue')}
+              : retype
+                ? t('welcome.ctaRetype', 'Confirm and continue')
+                : t('welcome.ctaContinue', 'Set password & continue')}
           </Button>
           {mustSetPassword ? (
             <FieldHint className="text-center">

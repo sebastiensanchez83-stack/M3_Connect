@@ -11,12 +11,18 @@
  *
  *  1. FAILS CLOSED. The key used to fall back to Lyra's PUBLIC demo key when the
  *     secret was missing, so anyone could sign a fake "PAID" notification. Now:
- *       kr-hash-key "password"    (what Lyra sends with an IPN) -> LYRA_API_PASSWORD
- *       kr-hash-key "sha256_hmac" (a browser-return payload)   -> LYRA_HMAC_KEY
- *     Missing secret, or a value that is one of Lyra's public demo keys: the IPN is
- *     refused with 503 and a clear log line; Lyra retries it later, so nothing is
- *     lost once the secret is set. Any other kr-hash-key or algorithm: 400.
- *     The signature is compared in constant time.
+ *       - only a server-to-server IPN is accepted: kr-hash-key "password", signed
+ *         with LYRA_API_PASSWORD. A browser-return payload (kr-hash-key
+ *         "sha256_hmac") is refused with 400: nothing on the platform posts one
+ *         here, and accepting it would only widen what a mis-set key lets through;
+ *       - LYRA_SHOP_ID and LYRA_API_PASSWORD must be set (and the password must not
+ *         be one of Lyra's public demo keys), else 503 and a clear log line;
+ *       - the notification must be for M3's shop (answer.shopId = LYRA_SHOP_ID) and
+ *         in the expected mode: PRODUCTION unless LYRA_MODE is TEST (an unset mode
+ *         counts as PRODUCTION). Anything else is acknowledged and ignored.
+ *     Lyra re-sends a refused (non-2xx) IPN a few times over about an hour, ONLY if
+ *     "automatic retry" is on for the IPN rule in the Lyra back office. Any other
+ *     algorithm: 400. The signature is compared in constant time.
  *
  *  2. E-MAILS ARE SENT. The confirmation used to go to send-notification with the
  *     anon key and no Authorization header, which send-notification refuses (401),
@@ -37,13 +43,17 @@
  *         the e-mail cannot be sent for a passing reason, the key is released and the
  *         IPN answered 500 so that Lyra's retry sends it; the retry changes nothing
  *         else. Without the table (migration not applied yet) no payment e-mail is
- *         sent and the log says so: never a duplicate.
+ *         sent, the log says so and the IPN is answered 503, so that a retry after
+ *         the migration sends it: never a duplicate.
+ *       - if marking the event registration paid fails, the payment is put back to
+ *         its previous status and the IPN answered 500, so that the retry redoes
+ *         both; if even that fails, M3's admins are alerted.
  *
  *  4. THE AMOUNT COMES FROM THE DATABASE. The e-mail shows payments.amount_cents and
  *     payments.currency. The amount Lyra reports is only compared with them: a "PAID"
  *     notification whose amount or currency differs is NOT applied (the payment stays
- *     as it was, the mismatch is logged and kept in payments.metadata.ipn_mismatch for
- *     M3 to review).
+ *     as it was, the mismatch is kept in payments.metadata.ipn_mismatch) and M3's
+ *     admins get an e-mail (notify-admins), since the customer has been charged.
  *
  *  5. NO AUTOMATIC RIGHTS. The platform is free (Victor, 6 Oct 2026) and M3 validates
  *     every company and person: the old "membership" branch (organisation and every
@@ -59,11 +69,13 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-// Lyra signs an IPN with the REST API password (the one create-payment uses for Basic
-// auth), and the browser-return payload with the HMAC-SHA-256 key.
+// Lyra signs an IPN with the REST API password of the shop (the one create-payment
+// uses for Basic auth). LYRA_HMAC_KEY (browser returns) is not used here.
 const LYRA_API_PASSWORD = (Deno.env.get('LYRA_API_PASSWORD') || '').trim();
-const LYRA_HMAC_KEY = (Deno.env.get('LYRA_HMAC_KEY') || '').trim();
-const LYRA_MODE = (Deno.env.get('LYRA_MODE') || '').trim().toUpperCase();
+const LYRA_SHOP_ID = (Deno.env.get('LYRA_SHOP_ID') || '').trim();
+// PRODUCTION unless explicitly TEST: an unset or mistyped mode never lets a TEST
+// notification mark a payment paid.
+const EXPECTED_MODE = (Deno.env.get('LYRA_MODE') || '').trim().toUpperCase() === 'TEST' ? 'TEST' : 'PRODUCTION';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Lyra's documentation keys ("...DEMOPRIVATEKEY..."): public, so never a valid secret. */
@@ -76,11 +88,41 @@ function text(body: string, status: number): Response {
   return new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 }
 
-/** The configured secret for this kind of signature, or null (missing / public demo key). */
-function keyFor(hashKey: string): string | null {
-  const key = hashKey === 'password' ? LYRA_API_PASSWORD : hashKey === 'sha256_hmac' ? LYRA_HMAC_KEY : '';
-  if (!key || PUBLIC_DEMO_KEY_RE.test(key)) return null;
-  return key;
+/** The IPN signing secret, or null (missing / public demo key). */
+function ipnKey(): string | null {
+  if (!LYRA_API_PASSWORD || PUBLIC_DEMO_KEY_RE.test(LYRA_API_PASSWORD)) return null;
+  return LYRA_API_PASSWORD;
+}
+
+/** Only what a reference looks like (ids, amounts, currency codes): safe in any e-mail. */
+function plain(value: unknown, max = 100): string {
+  return String(value ?? '').replace(/[^0-9A-Za-z._:-]/g, '').slice(0, max);
+}
+
+/**
+ * An e-mail to M3's admins (and the contact inbox) through notify-admins, as the
+ * service caller. Awaited, but never throws: the IPN answer does not depend on it.
+ */
+async function alertM3(subject: string, details: string[]): Promise<void> {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/notify-admins`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+        apikey: SUPABASE_SERVICE_KEY,
+      },
+      body: JSON.stringify({
+        submission_type: subject,
+        submitter: 'Payment notifications (payment-ipn)',
+        details: details.join('\n'),
+        include_contact_inbox: true,
+      }),
+    });
+    if (!res.ok) console.error(`IPN: admin alert "${subject}" not sent (${res.status}): ${(await res.text().catch(() => '')).slice(0, 200)}`);
+  } catch (e) {
+    console.error(`IPN: admin alert "${subject}" not sent:`, e instanceof Error ? e.message : String(e));
+  }
 }
 
 function sameText(a: string, b: string): boolean {
@@ -179,14 +221,15 @@ Deno.serve(async (req) => {
     console.error(`IPN refused: unsupported kr-hash-algorithm "${krHashAlgorithm.slice(0, 40)}"`);
     return text('Bad Request', 400);
   }
-  if (krHashKey !== 'password' && krHashKey !== 'sha256_hmac') {
-    console.error(`IPN refused: unsupported kr-hash-key "${krHashKey.slice(0, 40)}"`);
+  if (krHashKey !== 'password') {
+    // "sha256_hmac" is a browser-return payload: never posted here by the platform.
+    console.error(`IPN refused: kr-hash-key "${krHashKey.slice(0, 40)}" (only server-to-server IPNs, kr-hash-key "password", are accepted)`);
     return text('Bad Request', 400);
   }
-  const key = keyFor(krHashKey);
-  if (!key) {
-    const name = krHashKey === 'password' ? 'LYRA_API_PASSWORD' : 'LYRA_HMAC_KEY';
-    console.error(`IPN REFUSED: ${name} is not set (or is a public demo key). Set it in the Supabase dashboard (Edge Functions > Secrets); Lyra will retry this notification.`);
+  const key = ipnKey();
+  if (!key || !LYRA_SHOP_ID) {
+    const missing = [!key ? 'LYRA_API_PASSWORD (missing or a public demo key)' : '', !LYRA_SHOP_ID ? 'LYRA_SHOP_ID' : ''].filter(Boolean).join(' and ');
+    console.error(`IPN REFUSED: ${missing} not set. Set it in the Supabase dashboard (Edge Functions > Secrets); Lyra retries this notification only if automatic retry is on in its back office.`);
     return text('Payment notifications are not configured', 503);
   }
   const computed = await hmacHex(key, krAnswer);
@@ -209,9 +252,15 @@ Deno.serve(async (req) => {
     console.warn('IPN ignored: no payment id in the order (not created by create-payment)');
     return text('Ignored', 200);
   }
+  const answerShop = plain(answer?.shopId, 40);
+  if (answerShop && answerShop !== LYRA_SHOP_ID) {
+    console.error(`IPN ignored for payment ${paymentId}: notification for shop ${answerShop}, not LYRA_SHOP_ID`);
+    return text('Ignored', 200);
+  }
+  if (!answerShop) console.warn(`IPN for payment ${paymentId}: no shopId in the answer (signature checked with this shop's password)`);
   const answerMode = String(answer?.orderDetails?.mode || '').toUpperCase();
-  if (LYRA_MODE === 'PRODUCTION' && answerMode === 'TEST') {
-    console.warn(`IPN ignored for payment ${paymentId}: TEST-mode notification while LYRA_MODE is PRODUCTION`);
+  if (answerMode && answerMode !== EXPECTED_MODE) {
+    console.warn(`IPN ignored for payment ${paymentId}: ${plain(answerMode, 20)}-mode notification, ${EXPECTED_MODE} expected (LYRA_MODE)`);
     return text('Ignored', 200);
   }
   const transactions: Json[] = Array.isArray(answer?.transactions) ? answer.transactions : [];
@@ -234,7 +283,7 @@ Deno.serve(async (req) => {
 
   const { data: payment, error: loadError } = await db
     .from('payments')
-    .select('id, user_id, payment_type, amount_cents, currency, status, reference_id, reference_type, metadata')
+    .select('id, user_id, payment_type, amount_cents, currency, status, paid_at, reference_id, reference_type, metadata')
     .eq('id', paymentId)
     .maybeSingle();
   if (loadError) {
@@ -256,6 +305,8 @@ Deno.serve(async (req) => {
     if (!Number.isInteger(reportedCents) || reportedCents !== payment.amount_cents || reportedCurrency !== dbCurrency) {
       console.error(`IPN AMOUNT MISMATCH for payment ${paymentId}: Lyra reports ${reportedCents} ${reportedCurrency}, the database expects ${payment.amount_cents} ${dbCurrency}. Not marked paid; M3 must review it.`);
       const meta = (payment.metadata && typeof payment.metadata === 'object' && !Array.isArray(payment.metadata)) ? payment.metadata : {};
+      // The same transaction reported again (a second IPN for it): M3 already knows.
+      const alreadyFlagged = !!txUuid && meta?.ipn_mismatch?.transaction_uuid === txUuid;
       const { error: flagError } = await db
         .from('payments')
         .update({
@@ -272,6 +323,16 @@ Deno.serve(async (req) => {
         })
         .eq('id', paymentId);
       if (flagError) console.error(`IPN: could not record the mismatch on payment ${paymentId}:`, flagError.message);
+      // The customer has been charged and nothing tells them so: M3 must look at it.
+      // Only references and figures go in the e-mail (plain() keeps [0-9A-Za-z._:-]).
+      if (!alreadyFlagged) await alertM3('payment needs review', [
+        `A payment notification from Lyra does not match the payment it names, so it was NOT marked paid.`,
+        `Payment: ${paymentId}`,
+        `Lyra reports: ${Number.isFinite(reportedCents) ? reportedCents : 'no amount'} cents, currency ${plain(reportedCurrency, 10) || 'none'}`,
+        `The database expects: ${payment.amount_cents} cents, currency ${plain(dbCurrency, 10)}`,
+        `Lyra transaction: ${plain(txUuid) || 'n/a'}`,
+        `Check the transaction in the Lyra back office, then correct or refund it.`,
+      ]);
       return text('OK', 200);
     }
   }
@@ -311,7 +372,31 @@ Deno.serve(async (req) => {
         .from('event_registrations')
         .update({ payment_status: 'paid' })
         .eq('id', payment.reference_id);
-      if (regError) console.error(`IPN: payment ${paymentId} paid, but event registration ${payment.reference_id} could not be marked paid:`, regError.message);
+      if (regError) {
+        console.error(`IPN: payment ${paymentId} paid, but event registration ${payment.reference_id} could not be marked paid:`, regError.message);
+        // Put the payment back as it was (only if nothing moved it since), so that
+        // Lyra's retry makes the change again and redoes this step.
+        const { data: undone, error: undoError } = await db
+          .from('payments')
+          .update({ status: payment.status, paid_at: payment.paid_at ?? null, updated_at: new Date().toISOString() })
+          .eq('id', paymentId)
+          .eq('status', 'paid')
+          .eq('paid_at', now)
+          .select('id');
+        const putBack = !undoError && (undone?.length ?? 0) > 0;
+        if (!putBack) console.error(`IPN: payment ${paymentId} could not be put back to ${payment.status}:`, undoError?.message || 'no row');
+        // Told either way: Lyra re-sends the notification only if automatic retry is
+        // on in its back office.
+        await alertM3('payment needs review', [
+          `Lyra reported a payment as paid, but its event registration could not be marked paid (database error).`,
+          `Payment: ${paymentId}`,
+          `Event registration: ${plain(payment.reference_id)}`,
+          putBack
+            ? `The payment was put back to "${plain(payment.status, 20)}" so that Lyra's next notification redoes both. If it still shows "${plain(payment.status, 20)}" in an hour, mark the payment and the registration paid by hand.`
+            : `The payment shows "paid". Mark the registration paid by hand in the admin.`,
+        ]);
+        if (putBack) return text('Registration not updated yet', 500);
+      }
     } else if (payment.payment_type === 'membership' || payment.payment_type === 'additional_seats') {
       console.warn(`IPN: ${payment.payment_type} payment ${paymentId} paid. No automatic change (platform free, M3 validates): review it in the admin.`);
     }
@@ -326,9 +411,11 @@ Deno.serve(async (req) => {
     if (claimError.code === '23505') return text('OK', 200); // already e-mailed (or being e-mailed)
     const missing = claimError.code === '42P01' || claimError.code === 'PGRST205' || /does not exist|could not find the table/i.test(claimError.message || '');
     console.error(missing
-      ? `IPN: no ${emailStatus} e-mail for payment ${paymentId}: table public.${EMAIL_LOG_TABLE} is missing (apply migration 20261009180000_payment_email_log.sql)`
-      : `IPN: no ${emailStatus} e-mail for payment ${paymentId}: could not record it (${claimError.code || ''} ${claimError.message || ''})`);
-    return text('OK', 200);
+      ? `IPN: no ${emailStatus} e-mail for payment ${paymentId} yet: table public.${EMAIL_LOG_TABLE} is missing (apply migration 20261009180000_payment_email_log.sql); answering 503 so that Lyra's retry sends it`
+      : `IPN: no ${emailStatus} e-mail for payment ${paymentId} yet: could not record it (${claimError.code || ''} ${claimError.message || ''}); answering 503 so that Lyra's retry sends it`);
+    // The status change is already saved; a retry changes nothing else and sends the
+    // e-mail once the key can be recorded.
+    return text('E-mail not sent yet', 503);
   }
 
   const amount = formatAmount(payment.amount_cents, payment.currency);

@@ -249,6 +249,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   if (forgotMode) {
     return (
       <form onSubmit={handleForgotPassword} className="space-y-5">
+        <h3 className="text-h3 text-navy">{t('auth.passwordLink.title', 'Get a link to set your password')}</h3>
         <p className="text-sm leading-6 text-meta">
           {t('auth.passwordLink.desc', "Enter your e-mail address. We'll send you a link to choose a new password. It also works if you have never set one, for example when your account was created for an event.")}
         </p>
@@ -273,8 +274,8 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
                 {t('auth.passwordLink.sentHint', 'If an account exists for this address, the link is on its way. It opens on any device, phone or computer. Nothing after a few minutes? Check your spam folder.')}
               </p>
             </AuthNotice>
-            <UnderlineLink arrow={false} onClick={() => { setForgotMode(false); setForgotSent(false); }}>
-              {t('auth.backToLogin', 'Back to login')}
+            <UnderlineLink arrow={false} className="min-h-11" onClick={() => { setForgotMode(false); setForgotSent(false); }}>
+              {t('auth.backToSignIn', 'Back to sign in')}
             </UnderlineLink>
           </div>
         ) : (
@@ -288,8 +289,8 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
               {forgotLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.passwordLink.send', 'Send me the link')}
             </Button>
             <div className="text-center">
-              <UnderlineLink arrow={false} onClick={() => { setForgotMode(false); setForgotError(null); }}>
-                {t('auth.backToLogin', 'Back to login')}
+              <UnderlineLink arrow={false} className="min-h-11" onClick={() => { setForgotMode(false); setForgotError(null); }}>
+                {t('auth.backToSignIn', 'Back to sign in')}
               </UnderlineLink>
             </div>
           </div>
@@ -330,7 +331,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <AuthLabel htmlFor="password">{t('auth.password')}</AuthLabel>
-          <UnderlineLink arrow={false} onClick={() => { setForgotMode(true); setSignInError(null); }} className="!text-[13px] !font-medium">
+          <UnderlineLink arrow={false} onClick={() => { setForgotMode(true); setSignInError(null); }} className="-my-2.5 min-h-11 !text-[13px] !font-medium">
             {t('auth.forgotPassword')}
           </UnderlineLink>
         </div>

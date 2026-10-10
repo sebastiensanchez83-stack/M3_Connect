@@ -278,8 +278,8 @@ export function Navbar() {
     access: access ? { media: access.media, sponsor: access.sponsorIds.length > 0, manager: access.manager } : null,
   }));
   const inboxLabel = inbox.total > 0
-    ? t('nav.inboxWaiting', { count: inbox.total, defaultValue_one: 'Inbox, {{count}} request waiting', defaultValue_other: 'Inbox, {{count}} requests waiting' })
-    : t('nav.inbox', 'Inbox');
+    ? t('nav.messagesWaiting', { count: inbox.total, defaultValue_one: 'Messages, {{count}} waiting', defaultValue_other: 'Messages, {{count}} waiting' })
+    : t('nav.messages', 'Messages');
 
   // ---------------------------------------------------------------- nav model
   const navItems: NavItem[] = user
@@ -713,10 +713,12 @@ export function Navbar() {
                                 >
                                   <s.icon className="h-4 w-4 text-meta" aria-hidden="true" />
                                   <span className="flex-1">{t(s.labelKey, s.fallback)}</span>
-                                  {s.key === 'inbox' && inbox.total > 0 && (
+                                  {/* Messages: unread messages + requests (the dot's count). My team: people
+                                      asking to join (counted apart, they are answered there). */}
+                                  {((s.key === 'inbox' && inbox.total > 0) || (s.key === 'team' && inbox.joins > 0)) && (
                                     <span className="grid h-5 min-w-5 place-items-center rounded-pill bg-navy px-1.5 text-[12px] font-semibold leading-none tabular-nums text-white">
-                                      <span aria-hidden="true">{inbox.total}</span>
-                                      <span className="sr-only">{t('nav.waiting', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' })}</span>
+                                      <span aria-hidden="true">{s.key === 'team' ? inbox.joins : inbox.total}</span>
+                                      <span className="sr-only">{t('nav.waiting', { count: s.key === 'team' ? inbox.joins : inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' })}</span>
                                     </span>
                                   )}
                                 </Link>

@@ -10,14 +10,12 @@ import type { LucideIcon } from 'lucide-react';
 import {
   Anchor, Award, BadgeCheck, Building2, CalendarClock, Camera, CheckCircle, ChevronLeft, ChevronRight,
   ClipboardList, Clock, ConciergeBell, Droplets, ExternalLink, GraduationCap, PencilLine, HardHat, Info, Landmark,
-  Layers, Leaf, Link2, Loader2, Lock, MapPin, Newspaper, Ruler, Sailboat, Ship, Tag, Target,
+  Layers, Leaf, Link2, Lock, MapPin, Newspaper, Ruler, Sailboat, Ship, Tag, Target,
   TrendingUp, Users, UtensilsCrossed, Wrench,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import {
-  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogTitle,
 } from '@/components/ui/dialog';
 import { CoverImage } from '@/components/ui/CoverImage';
 import { SponsorBadge } from '@/components/ui/SponsorBadge';
@@ -44,17 +42,15 @@ import { LogoTile, OrgCard, TYPE_RGB, VerifiedBadge, orgTypeTone, seedOf } from 
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { requireFreshSession } from '@/lib/session';
-import { sendNotification } from '@/lib/notifications';
-import { checkSectorMatch } from '@/lib/sector-matching';
+import { SendMessageDialog } from '@/components/messages/SendMessageDialog';
+import { findCompanyConnection, type CompanyConnection } from '@/components/messages/messagesApi';
 import { THEMES, getTheme, themeForSector, themesForSectors, type Theme, type ThemeKey } from '@/lib/themes';
-import { accountHref } from '@/lib/accountNav';
+import { accountHref, memberHomeHref } from '@/lib/accountNav';
 import { boardDate } from '@/lib/boardDate';
 import { cn } from '@/lib/utils';
 import { withSiteSuffix } from '@/lib/seoText';
 import { displayCase } from '@/lib/displayCase';
 import { englishCountryName } from '@/lib/countryNames';
-import { toast } from '@/hooks/use-toast';
 import { HOLD_PERIODS } from '@/types/database';
 import type { Organization, OrganizationMarinaDetails, Sector, OrgTier } from '@/types/database';
 import { registerOrgRefonteStrings } from '@/i18n/refonte-org';
@@ -106,6 +102,14 @@ registerOrgRefonteStrings();
  * so with a next step instead of leaving a void. The team is photo, name and job
  * title, with no link: people have no page of their own. A connection request
  * goes to the whole company (marina_organization_id), and any member answers.
+ *
+ * Messaging (Victor, 9 Oct 2026): "Request to connect" became "Send a message", a
+ * short first message (500 characters) open to any verified member of a company
+ * M3 validated, whatever the sectors (the old sector gate is gone). When the two
+ * companies' activities match they are connected at once; otherwise the company
+ * decides. Once connected, the page offers "Open the conversation"; when they wrote
+ * first, "Answer their message" (src/components/messages). No e-mail is sent for
+ * the message itself.
  */
 
 /** The section bar: 48 px tabs plus its bottom border. */
@@ -346,7 +350,7 @@ export function OrganizationPublicPage() {
   const { slug } = useParams<{ slug: string }>();
   const { t } = useTranslation();
   const seoTr = useSeoTr();
-  const { user, profile, organization, isVerified } = useAuth();
+  const { user, profile, organization, organizations, isVerified } = useAuth();
   const [org, setOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [marinaDetails, setMarinaDetails] = useState<OrganizationMarinaDetails | null>(null);
@@ -359,11 +363,11 @@ export function OrganizationPublicPage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
 
-  // Connect request state
+  // "Send a message": the window, and where my company already stands with this one
+  // (a message waiting either way, or a conversation).
   const [connectOpen, setConnectOpen] = useState(false);
-  const [connectMessage, setConnectMessage] = useState('');
-  const [connectSending, setConnectSending] = useState(false);
-  const [hasExistingRequest, setHasExistingRequest] = useState(false);
+  const [connection, setConnection] = useState<CompanyConnection | null>(null);
+  const hasExistingRequest = connection !== null;
 
   // Gallery lightbox: index of the open photo, null when closed.
   const [lightbox, setLightbox] = useState<number | null>(null);
@@ -499,30 +503,22 @@ export function OrganizationPublicPage() {
     return () => { alive = false; };
   }, [slug, loadAttempt]);
 
-  // Existing connect request — keyed on ids, not on the user/org objects. A request
-  // is made to the company (marina_organization_id); older rows only name its owner.
+  // Where my company stands with this one: a message waiting (either way) or a
+  // conversation, from me or a colleague. Keyed on ids, not on the user/org objects.
   const userId = user?.id ?? null;
   const orgOwnerId = org?.owner_user_id ?? null;
   const targetOrgId = org?.id ?? null;
+  const myOrgIdsKey = [...new Set([...(organizations ?? []).map((m) => m.organization.id), ...(organization?.id ? [organization.id] : [])])].sort().join(',');
   useEffect(() => {
     if (!userId || !orgOwnerId || !targetOrgId) {
-      setHasExistingRequest(false);
+      setConnection(null);
       return;
     }
     let alive = true;
-    const checkExisting = async () => {
-      const { data } = await supabase
-        .from('partner_requests')
-        .select('id')
-        .eq('partner_user_id', userId)
-        .or(`marina_organization_id.eq.${targetOrgId},marina_user_id.eq.${orgOwnerId}`)
-        .in('status', ['pending', 'accepted'])
-        .limit(1);
-      if (alive) setHasExistingRequest(!!data && data.length > 0);
-    };
-    checkExisting();
+    findCompanyConnection(userId, myOrgIdsKey ? myOrgIdsKey.split(',') : [], targetOrgId)
+      .then((c) => { if (alive) setConnection(c); }, () => {});
     return () => { alive = false; };
-  }, [userId, orgOwnerId, targetOrgId]);
+  }, [userId, orgOwnerId, targetOrgId, myOrgIdsKey]);
 
   // Team names. RLS on profiles only lets a viewer read their own profile and
   // their co-members', so the members query above comes back with
@@ -641,63 +637,16 @@ export function OrganizationPublicPage() {
     return () => { alive = false; };
   }, [loading, extrasOrgId, sectorSlugsKey]);
 
-  const handleSendConnectRequest = async () => {
-    if (!user || !org || !org.owner_user_id) return;
-    const uid = await requireFreshSession();
-    if (!uid) return;
-    setConnectSending(true);
-    try {
-      // Sector matching gate: marinas and partners must have overlapping
-      // sectors of interest / service for the connection to be relevant.
-      if (organization?.id && org.id) {
-        const match = await checkSectorMatch(organization.id, org.id);
-        if (!match.allowed) {
-          toast({
-            title: t('orgProfile.connectBlockedTitle', 'Connection blocked'),
-            description: match.reason || t('orgProfile.connectBlockedBody', 'No overlapping sectors between your organisation and theirs.'),
-            variant: 'destructive',
-          });
-          setConnectSending(false);
-          return;
-        }
-      }
-      // To the whole company: marina_organization_id is what every member of it reads
-      // and answers from (20261008200000_partner_requests_whole_company.sql). The owner
-      // stays marina_user_id, as older clients and the e-mail expect.
-      const { error } = await supabase.from('partner_requests').insert({
-        partner_user_id: user.id,
-        marina_user_id: org.owner_user_id,
-        marina_organization_id: org.id,
-        partner_organization_id: organization?.id ?? null,
-        message: connectMessage.trim() || null,
-        sector_id: null,
-        status: 'pending',
-      });
-      if (error) throw error;
-      // partner_name must be the REQUESTER's organization (the one initiating contact),
-      // not the recipient's org. The email tells the marina who is reaching out.
-      const requesterOrgName = organization?.name || [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || 'A member';
-      sendNotification({ type: 'partner_request_received', userId: org.owner_user_id!, data: { partner_name: requesterOrgName, message: connectMessage.trim() } });
-      toast({
-        title: t('orgProfile.connectSentTitle', 'Connection request sent!'),
-        description: t('orgProfile.connectSentBodyTeam', 'Your request has been sent to the team of {{name}}.', { name: displayCase(org.name) }),
-      });
-      setConnectOpen(false);
-      setConnectMessage('');
-      setHasExistingRequest(true);
-    } catch (err: unknown) {
-      toast({
-        title: t('orgProfile.errorTitle', 'Error'),
-        description: err instanceof Error ? err.message : t('orgProfile.errorBody', 'An unexpected error occurred.'),
-        variant: 'destructive',
-      });
-    } finally {
-      setConnectSending(false);
-    }
+  // After "Send a message": connected at once (sectors match) or waiting for their answer.
+  const handleMessageSent = (sent: { id: string; connected: boolean }) => {
+    setConnection({ id: sent.id, status: sent.connected ? 'accepted' : 'pending', direction: 'sent' });
   };
 
   const isMemberOfThisOrg = organization?.id === org?.id;
-  const canConnect = user && isVerified && !isMemberOfThisOrg && !hasExistingRequest;
+  // A verified member of a company M3 validated (Victor, 9 Oct 2026), not yet in touch with this one.
+  const companyValidated = organization?.access_status === 'verified';
+  const canConnect = user && isVerified && companyValidated && !isMemberOfThisOrg && !hasExistingRequest;
+  const conversationHref = connection ? `/?open=inbox&thread=${connection.id}` : '/?open=inbox';
   const canEdit = !!organization && !!org && isMemberOfThisOrg;
 
   // ------------------------------------------------------------------ sections
@@ -930,6 +879,10 @@ export function OrganizationPublicPage() {
     ? null
     : canEdit
     ? (thin ? null : 'own') // a thin page already asks its members to complete it
+    : connection?.status === 'accepted'
+    ? 'connected'
+    : connection?.direction === 'received'
+    ? 'received'
     : hasExistingRequest
     ? 'sent'
     : !user
@@ -938,6 +891,10 @@ export function OrganizationPublicPage() {
     ? 'connect'
     : !isVerified
     ? 'unverified'
+    : !organization
+    ? 'noCompany'
+    : !companyValidated
+    ? 'companyPending'
     : null;
   const aside: ReactNode = showClaimCard
     ? <ClaimCard name={name} slug={org.slug} isMarina={isMarina} />
@@ -946,6 +903,7 @@ export function OrganizationPublicPage() {
       <TouchCard
         state={touch}
         name={name}
+        conversationHref={conversationHref}
         onSignup={() => setSignupOpen(true)}
         onConnect={() => setConnectOpen(true)}
       />
@@ -1004,7 +962,7 @@ export function OrganizationPublicPage() {
       membersOnlyItems.push({ key: 'team', icon: Users, label: t('orgProfile.membersOnlyTeam', 'The team behind {{name}}', { name }) });
     }
     if (org.owner_user_id && !isMemberOfThisOrg) {
-      membersOnlyItems.push({ key: 'connect', icon: Link2, label: t('orgProfile.membersOnlyConnect', 'A direct connection request to {{name}}', { name }) });
+      membersOnlyItems.push({ key: 'connect', icon: Link2, label: t('orgProfile.membersOnlyMessage', 'A direct message to {{name}}', { name }) });
     }
   }
 
@@ -1015,8 +973,9 @@ export function OrganizationPublicPage() {
 
   // The one primary action, by who is reading: a visitor is invited to sign up to
   // contact the company (only a claimed page has someone to contact), a verified
-  // member of another company sends a connection request, the company's own members
-  // edit the page. The website is a secondary link: it sends people off the platform.
+  // member of another company sends a message (or, once connected, opens the
+  // conversation), the company's own members edit the page. The website is a
+  // secondary link: it sends people off the platform.
   const primaryAction: ReactNode = canEdit ? (
     <Button asChild variant="cta">
       <Link to={accountHref('organization')}>{t('orgProfile.editPage', 'Edit your company page')}</Link>
@@ -1025,9 +984,17 @@ export function OrganizationPublicPage() {
     <Button variant="cta" onClick={() => setSignupOpen(true)}>
       {t('orgProfile.signupToContact', 'Sign up to contact {{name}}', { name })}
     </Button>
+  ) : connection?.status === 'accepted' ? (
+    <Button asChild variant="cta">
+      <Link to={conversationHref}>{t('orgProfile.openConversation', 'Open the conversation')}</Link>
+    </Button>
+  ) : connection?.direction === 'received' ? (
+    <Button asChild variant="cta">
+      <Link to="/?open=inbox">{t('orgProfile.answerTheirMessage', 'Answer their message')}</Link>
+    </Button>
   ) : canConnect && org.owner_user_id ? (
     <Button variant="cta" onClick={() => setConnectOpen(true)}>
-      {t('orgProfile.connect', 'Request to connect')}
+      {t('orgProfile.sendMessage', 'Send a message')}
     </Button>
   ) : null;
 
@@ -1090,10 +1057,10 @@ export function OrganizationPublicPage() {
                   a request, so nothing about connecting is shown there at all. */}
               <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
                 {primaryAction}
-                {hasExistingRequest && (
+                {connection && connection.status === 'pending' && connection.direction === 'sent' && (
                   <span className="inline-flex min-h-11 items-center gap-1.5 rounded-pill bg-foam px-4 text-sm font-semibold text-teal-text">
                     <CheckCircle className="h-4 w-4" aria-hidden="true" />
-                    {t('orgProfile.requestSent', 'Connection request sent')}
+                    {t('orgProfile.messageSent', 'Message sent, waiting for their answer')}
                   </span>
                 )}
                 <BookmarkButton
@@ -1519,36 +1486,15 @@ export function OrganizationPublicPage() {
         name={name}
       />
 
-      {/* Connect Request Dialog */}
-      <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
-        <DialogContent className="max-w-md rounded-card">
-          <DialogHeader>
-            <DialogTitle className="text-navy">{t('orgProfile.connectTitle', 'Request to connect')}</DialogTitle>
-            <DialogDescription>
-              {t('orgProfile.connectDescTeam', 'Your request goes to everyone in the {{name}} team; any of them can answer.', { name })}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="mt-2 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="connect-message">{t('orgProfile.connectMessage', 'Message (optional)')}</Label>
-              <Textarea
-                id="connect-message"
-                value={connectMessage}
-                onChange={(e) => setConnectMessage(e.target.value)}
-                placeholder={t('orgProfile.connectPlaceholder', "Introduce yourself and explain why you'd like to connect...")}
-                rows={4}
-              />
-            </div>
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <Button variant="ctaOutline" size="sm" arrow={false} onClick={() => setConnectOpen(false)}>{t('common.cancel', 'Cancel')}</Button>
-              <Button variant="cta" size="sm" roll={!connectSending} arrow={!connectSending} onClick={handleSendConnectRequest} disabled={connectSending}>
-                {connectSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />}
-                {t('orgProfile.connectSend', 'Send request')}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* "Send a message": a short first message to the whole company (src/components/messages). */}
+      {org.owner_user_id && (
+        <SendMessageDialog
+          open={connectOpen}
+          onOpenChange={setConnectOpen}
+          org={{ id: org.id, name, contactUserId: org.owner_user_id, type: org.organization_type }}
+          onSent={handleMessageSent}
+        />
+      )}
 
       {/* Sign in / sign up without leaving the page: the shared window (AuthDialog). */}
       <AuthDialog
@@ -1564,7 +1510,7 @@ export function OrganizationPublicPage() {
         open={signupOpen}
         onOpenChange={setSignupOpen}
         title={t('orgProfile.signupTitle', 'Sign up to contact {{name}}', { name })}
-        description={t('orgProfile.signupIntro', 'Create your free account. Once the M3 team has checked it, you can send {{name}} a connection request.', { name })}
+        description={t('orgProfile.signupIntroMessage', 'Create your free account. Once the M3 team has checked it, you can send {{name}} a message.', { name })}
         switchTo={{ onClick: () => { setSignupOpen(false); setLoginOpen(true); } }}
       >
         <SignupForm onSuccess={() => { setSignupOpen(false); navigate('/onboarding'); }} />
@@ -1835,18 +1781,21 @@ function ProfileSection({
   );
 }
 
-type TouchState = 'own' | 'sent' | 'visitor' | 'connect' | 'unverified';
+type TouchState = 'own' | 'sent' | 'received' | 'connected' | 'visitor' | 'connect' | 'unverified' | 'noCompany' | 'companyPending';
 
 /**
  * Beside "About" on a claimed page: how to get in touch with the company, by who is
- * reading. A request reaches everyone in its team (any of them answers), which is
- * said here once. Its own members get the way to keep the page up to date.
+ * reading. A message reaches everyone in its team (any of them answers), which is
+ * said here once. Once connected, the way to the conversation; when they wrote
+ * first, the way to answer. Its own members get the way to keep the page up to date.
  */
 function TouchCard({
-  state, name, onSignup, onConnect,
+  state, name, conversationHref, onSignup, onConnect,
 }: {
   state: TouchState;
   name: string;
+  /** The conversation (connected), or Messages. */
+  conversationHref: string;
   onSignup: () => void;
   onConnect: () => void;
 }) {
@@ -1857,23 +1806,39 @@ function TouchCard({
       body: t('orgProfile.touch.ownBody', 'Keep it up to date: description, sectors, photos and team are how other members find you.'),
     },
     sent: {
-      title: t('orgProfile.touch.sentTitle', 'Request sent'),
-      body: t('orgProfile.touch.sentBody', 'Everyone in the {{name}} team has received your request. When one of them accepts, M3 introduces you by e-mail.', { name }),
+      title: t('orgProfile.touch.messageSentTitle', 'Message sent'),
+      body: t('orgProfile.touch.messageSentBody', 'Everyone in the {{name}} team can read your message. When one of them accepts, you can talk in Messages.', { name }),
+    },
+    received: {
+      title: t('orgProfile.touch.receivedTitle', '{{name}} wrote to you', { name }),
+      body: t('orgProfile.touch.receivedBody', 'Their message is waiting in your Messages: accept it to start the conversation.'),
+    },
+    connected: {
+      title: t('orgProfile.touch.connectedTitle', 'You are connected'),
+      body: t('orgProfile.touch.connectedBody', 'Your company and {{name}} have a conversation in Messages. Everyone in both teams can read and reply.', { name }),
     },
     visitor: {
       title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
-      body: t('orgProfile.touch.visitorBody', 'Sign up for free to send a connection request. It reaches everyone in their team, and M3 introduces you by e-mail once they accept.'),
+      body: t('orgProfile.touch.visitorMessageBody', 'Sign up for free to send them a message. It reaches everyone in their team.'),
     },
     connect: {
       title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
-      body: t('orgProfile.touch.connectBody', 'Your request reaches everyone in their team; any of them can answer. Once accepted, M3 introduces you by e-mail.'),
+      body: t('orgProfile.touch.connectMessageBody', 'Send a short message: everyone in their team can read it, and any of them can answer.'),
     },
     unverified: {
       title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
-      body: t('orgProfile.touch.unverifiedBody', 'Once the M3 team has checked your account, you can send {{name}} a connection request.', { name }),
+      body: t('orgProfile.touch.unverifiedMessageBody', 'Once the M3 team has checked your account, you can send {{name}} a message.', { name }),
+    },
+    noCompany: {
+      title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
+      body: t('orgProfile.touch.noCompanyBody', 'Messages go from one company to another. Add your company to your profile to send {{name}} a message.', { name }),
+    },
+    companyPending: {
+      title: t('orgProfile.touch.title', 'Get in touch with {{name}}', { name }),
+      body: t('orgProfile.touch.companyPendingBody', 'Once the M3 team has validated your company, you can send {{name}} a message.', { name }),
     },
   };
-  const Icon = state === 'own' ? PencilLine : state === 'sent' ? CheckCircle : Link2;
+  const Icon = state === 'own' ? PencilLine : state === 'sent' || state === 'connected' ? CheckCircle : Link2;
   return (
     <aside aria-labelledby="org-touch-heading" className={cn(CARD, 'p-6 md:p-7')}>
       <span aria-hidden="true" className="grid h-11 w-11 place-items-center rounded-pill bg-foam text-teal">
@@ -1891,9 +1856,25 @@ function TouchCard({
           <Button variant="cta" size="sm" onClick={onSignup}>{t('orgProfile.touch.signup', 'Sign up for free')}</Button>
         )}
         {state === 'connect' && (
-          <Button variant="cta" size="sm" onClick={onConnect}>{t('orgProfile.connect', 'Request to connect')}</Button>
+          <Button variant="cta" size="sm" onClick={onConnect}>{t('orgProfile.sendMessage', 'Send a message')}</Button>
         )}
-        {state === 'unverified' && (
+        {state === 'connected' && (
+          <Button asChild variant="ctaNavy" size="sm">
+            <Link to={conversationHref}>{t('orgProfile.openConversation', 'Open the conversation')}</Link>
+          </Button>
+        )}
+        {state === 'received' && (
+          <Button asChild variant="cta" size="sm">
+            <Link to="/?open=inbox">{t('orgProfile.answerTheirMessage', 'Answer their message')}</Link>
+          </Button>
+        )}
+        {state === 'sent' && (
+          <UnderlineLink to="/?open=inbox" className="!text-[14px]">{t('orgProfile.goToMessages', 'Go to my messages')}</UnderlineLink>
+        )}
+        {state === 'noCompany' && (
+          <UnderlineLink to={memberHomeHref('company')} className="!text-[14px]">{t('orgProfile.addYourCompany', 'Add your company')}</UnderlineLink>
+        )}
+        {(state === 'unverified' || state === 'companyPending') && (
           <UnderlineLink to={accountHref('dashboard')} className="!text-[14px]">{t('orgProfile.checkStatus', 'Check your account status')}</UnderlineLink>
         )}
       </div>

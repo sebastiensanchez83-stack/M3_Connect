@@ -260,11 +260,14 @@ export default function MemberDashboard() {
 
   // To do: answers someone is waiting for, then what the owner can complete, then my own profile.
   const todos: TodoItem[] = [];
+  // Messages from companies are answered in Messages (one place, the same words as
+  // its tile): the item opens that panel.
   if (inbox.connections > 0) {
     todos.push({
       key: 'connections', urgent: true, icon: Inbox,
-      title: t('dash.todo.connections', { count: inbox.connections, defaultValue_one: 'Answer {{count}} connection request', defaultValue_other: 'Answer {{count}} connection requests' }),
-      hint: t('dash.todo.connectionsHint', 'Members would like to get in touch with you.'),
+      title: t('dash.todo.companyMessages', { count: inbox.connections, defaultValue_one: 'Answer {{count}} message from a company', defaultValue_other: 'Answer {{count}} messages from companies' }),
+      hint: t('dash.todo.companyMessagesHint', 'Accept to start the conversation, or decline.'),
+      onSelect: () => setPanel('inbox'),
     });
   }
   if (inbox.joins > 0) {
@@ -281,7 +284,9 @@ export default function MemberDashboard() {
       todos.push({
         key: 'sectors', urgent: false, icon: ListChecks,
         title: orgType === 'marina' ? t('dash.todo.interests', 'Choose what you are interested in') : t('dash.todo.sectors', 'Choose what your company does'),
-        hint: t('dash.todo.sectorsHint', 'So the right members find you.'),
+        hint: orgType === 'marina' || orgType === 'partner' || orgType === 'media_partner'
+          ? t('dash.todo.sectorsConnectHint', 'Companies whose activities match yours are then connected with you straight away.')
+          : t('dash.todo.sectorsHint', 'So the right members find you.'),
       });
     }
     if (!brand.banner) todos.push({ key: 'banner', urgent: false, icon: ImageIcon, title: t('dash.todo.banner', 'Add a cover photo'), hint: t('dash.todo.bannerHint', 'The wide picture at the top of your company page.') });
@@ -394,16 +399,20 @@ export default function MemberDashboard() {
     tiles.push({ key: 'registrations', panel: 'registrations', icon: getHomeSection('registrations')!.icon, title: label('registrations'), status, tone: sm26What ? 'done' : 'plain' });
   }
 
-  // Messages
-  tiles.push({
-    key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, title: label('inbox'),
-    tone: inbox.total > 0 ? 'action' : 'plain',
-    // The pill already gives the number.
-    status: !inbox.loaded ? loadingLine : inbox.total > 0
-      ? t('dash.st.waitingNoCount', 'Waiting for your answer')
-      : t('dash.st.nothingWaiting', 'Nothing waiting for you'),
-    count: { value: inbox.total, label: t('dash.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' }) },
-  });
+  // Messages: "3 unread messages · 1 request waiting" (useInboxCount, the navbar dot's count).
+  {
+    const parts: string[] = [];
+    if (inbox.messages > 0) parts.push(t('dash.st.unreadMessages', { count: inbox.messages, defaultValue_one: '{{count}} unread message', defaultValue_other: '{{count}} unread messages' }));
+    if (inbox.requests > 0) parts.push(t('dash.st.requestsWaiting', { count: inbox.requests, defaultValue_one: '{{count}} request waiting', defaultValue_other: '{{count}} requests waiting' }));
+    tiles.push({
+      key: 'inbox', panel: 'inbox', icon: getHomeSection('inbox')!.icon, title: label('inbox'),
+      tone: inbox.total > 0 ? 'action' : 'plain',
+      status: !inbox.loaded ? loadingLine : parts.length > 0
+        ? parts.join(' · ')
+        : t('dash.st.noNewMessages', 'No new messages'),
+      count: { value: inbox.total, label: t('dash.waitingSr', { count: inbox.total, defaultValue_one: '{{count}} waiting', defaultValue_other: '{{count}} waiting' }) },
+    });
+  }
 
   // My requests
   tiles.push({

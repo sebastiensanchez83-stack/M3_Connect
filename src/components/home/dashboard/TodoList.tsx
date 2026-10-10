@@ -11,7 +11,7 @@ import {
 } from '@/components/organization/orgActions';
 import { cn } from '@/lib/utils';
 import { FieldsDialog, PictureDialog, SectorsDialog } from './fieldDialogs';
-import { ConnectionsDialog, JoinRequestsDialog } from './teamDialogs';
+import { JoinRequestsDialog } from './teamDialogs';
 
 /**
  * "To do" (Victor, 9 Oct 2026: "when you click a to-do it should open exactly
@@ -34,6 +34,12 @@ export interface TodoItem {
   icon: LucideIcon;
   /** Someone waits for an answer. */
   urgent: boolean;
+  /**
+   * Opens something else than a small window (messages from companies are answered
+   * in Messages, the one place for them, Oct 2026). The item leaves the list when
+   * the data no longer lists it.
+   */
+  onSelect?: () => void;
 }
 
 type Phase = 'ticking' | 'leaving';
@@ -137,7 +143,12 @@ export function TodoList({
               >
                 <button
                   type="button"
-                  onClick={() => { if (!p) { allAnswered.current = false; setOpen(item.key); } }}
+                  onClick={() => {
+                    if (p) return;
+                    if (item.onSelect) { item.onSelect(); return; }
+                    allAnswered.current = false;
+                    setOpen(item.key);
+                  }}
                   aria-disabled={!!p}
                   className={cn('group flex min-h-[72px] w-full items-center gap-4 px-5 py-3.5 text-left transition-colors hover:bg-page', ROW_FOCUS)}
                 >
@@ -190,16 +201,6 @@ export function TodoList({
       {/* The small windows, one per kind of item. */}
       {user && profile && (
         <>
-          <ConnectionsDialog
-            open={open === 'connections'}
-            onOpenChange={(o) => {
-              if (o) return;
-              setOpen(null);
-              onInboxChanged();
-              if (allAnswered.current) tick('connections');
-            }}
-            onAnswered={(remaining) => { allAnswered.current = remaining === 0; }}
-          />
           <PictureDialog
             open={open === 'photo'}
             onOpenChange={(o) => { if (!o) setOpen(null); }}

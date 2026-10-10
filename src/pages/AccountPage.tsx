@@ -208,7 +208,7 @@ function CompleteRegistration({ awaitingReview }: { awaitingReview: boolean }) {
 function InboxScreen() {
   const { t } = useTranslation();
   const { user, organization } = useAuth();
-  const title = t('memberHome.sections.inbox', 'Inbox');
+  const title = t('dash.tiles.messages', 'Messages');
   return (
     <div className="min-h-screen bg-page pb-20">
       <Helmet>
@@ -221,7 +221,7 @@ function InboxScreen() {
         title={title}
         back={<BackLink to="/#dashboard">{t('memberHome.backToDashboard', 'My dashboard')}</BackLink>}
       >
-        <span>{t('memberHome.sections.inboxDesc', 'Connection and team requests')}</span>
+        <span>{t('memberHome.sections.messagesDesc', 'Your conversations with other companies')}</span>
       </MemberHeader>
       <div className="mx-auto w-full max-w-5xl px-4 pt-6 sm:px-6 sm:pt-8 md:pt-10">
         <InboxTab />

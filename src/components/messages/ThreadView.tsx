@@ -682,7 +682,7 @@ export function ThreadView({
       </div>
 
       {/* The composer */}
-      <form onSubmit={send} className="shrink-0 border-t border-rule bg-white px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-3">
+      <form onSubmit={send} data-help-avoid className="shrink-0 border-t border-rule bg-white px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-3">
         {fileError && (
           <p role="alert" className="mb-2 flex items-start gap-2 rounded-field bg-red-50 px-3 py-2 text-[14px] leading-5 text-red-800">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

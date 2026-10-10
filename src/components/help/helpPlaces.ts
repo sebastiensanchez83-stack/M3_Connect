@@ -105,7 +105,7 @@ export interface HelpPlace {
 // Signed out on a members' page: the page asks to sign in first.
 const SIGN_IN: HelpPlace = { key: 'sign-in', ids: ['account-password', 'account-sign-up', 'emails-missing'] };
 const SIGN_UP: HelpPlace = { key: 'sign-up', ids: ['verification-time', 'verification-what', 'developer-or-marina'], keepPage: true };
-const MESSAGES: HelpPlace = { key: 'messages', ids: ['messages-connected', 'messages-team', 'messages-emails'], keepPage: true };
+const MESSAGES: HelpPlace = { key: 'messages', ids: ['messages-files', 'messages-seen', 'messages-emails'], keepPage: true };
 
 /** The home dashboard with no panel open: getting started, or what the account waits for. */
 function homePlace(r: HelpReader): HelpPlace {

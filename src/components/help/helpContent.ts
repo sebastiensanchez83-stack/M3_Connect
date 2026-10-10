@@ -318,8 +318,18 @@ export function buildHelpSections(t: TFunction): HelpSection[] {
       item('messages-team', 'Who sees the conversation?', [
         'Both teams. Everyone in the two companies can read and reply, and each message shows who wrote it, their company and the time.',
       ], { keywords: ['colleagues', 'private', 'thread'] }),
+      item('messages-files', 'Can I send a photo or a PDF?', [
+        'Yes. In a conversation, press the paperclip next to the message box, or drag the file onto the conversation. PDF, JPG, PNG or WebP, up to 10 MB each, 5 at a time. Large phone photos are made smaller for you.',
+        'Only the people of the two companies can open the files, and only once the message is sent.',
+      ], { keywords: ['attachment', 'attach', 'file', 'photo', 'picture', 'pdf', 'document', 'brochure', 'quote', 'plan'] }),
+      item('messages-seen', 'What does “Seen” mean?', [
+        '“Seen” under your last message means someone in the other company has opened the conversation since you wrote. Point at it, or tap it, to see who.',
+      ], { keywords: ['read', 'read receipt', 'opened', 'seen'] }),
+      item('messages-alerts', 'What is the small window that appears at the bottom of the page?', [
+        'When a message arrives while you are elsewhere on the platform, a small window shows who wrote and the start of the message. Press Reply to answer at once, or close it: the message waits in Messages. There is no sound.',
+      ], { keywords: ['alert', 'notification', 'popup', 'new message', 'toast'] }),
       item('messages-where', 'Where do I find my messages?', [
-        'In the Messages tile of your dashboard. On a computer, a number on the inbox icon next to your name, at the top of the page, tells you when something waits for you. On a phone, it shows next to Messages in the menu.',
+        'In the Messages tile of your dashboard. A number on the envelope icon at the top of every page, next to your name, tells you when something waits for you.',
       ], { links: [{ label: 'Open Messages', to: memberHomeHref('inbox'), members: true }], keywords: ['inbox', 'notifications', 'unread'] }),
       item('messages-emails', 'Do I get an e-mail for each message?', [
         'No. If something waits for you, you get one summary on Friday.',

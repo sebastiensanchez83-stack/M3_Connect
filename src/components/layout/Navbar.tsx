@@ -451,7 +451,7 @@ export function Navbar() {
                 variant="ghost"
                 size="sm"
                 asChild
-                className={cn('relative hidden sm:flex', iconBtn, inboxOpen && !transparent && 'bg-chip text-navy')}
+                className={cn('relative flex', iconBtn, inboxOpen && !transparent && 'bg-chip text-navy')}
               >
                 <Link to={accountHref('inbox')} aria-label={inboxLabel}>
                   <Inbox className="h-[18px] w-[18px]" aria-hidden="true" />

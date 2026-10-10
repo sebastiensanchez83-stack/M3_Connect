@@ -320,6 +320,7 @@ export function MessageAlerts() {
     <div
       role="status"
       aria-live="polite"
+      data-help-avoid
       className={cn(
         'pointer-events-none fixed inset-x-3 z-[60] flex sm:inset-x-auto sm:left-6',
         // Under the conversation's header (its back arrow and Report stay free), clear of the composer.

@@ -113,7 +113,8 @@
 --     on_email_proven also re-queues the person's provisioning jobs left
 --     'pending_link' (the account existed but had not proved the address), so
 --     M3's choices are applied once the proof arrives (/welcome and
---     /reset-password call mark_email_proven as soon as they open).
+--     /reset-password call mark_email_proven once a new password is saved
+--     from the e-mailed link's session).
 --     trg_link_guest_registrations is KEPT (integration review, 10 Oct 2026):
 --     it is the only auto-link the live main site has (legacy webinar guest
 --     rows -> a new account typed with the same address), and with Confirm

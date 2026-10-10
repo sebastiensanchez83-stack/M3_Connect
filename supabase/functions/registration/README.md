@@ -71,8 +71,8 @@ Event selector (every action that names an event): `gl_event_id`, or `slug`, or 
 - A signed-in account whose address is not PROVEN (contract §2; Confirm email is off) never
   takes over a cancelled or declined registration of that address that it does not hold:
   the row comes back to life unlinked (as for an anonymous registration) and the answer is
-  the public `{ ok: true }`. DB lane: `gl_register_v2` should link on reactivation only when
-  proven; this function undoes the link until then.
+  the public `{ ok: true }`. `gl_register_v2` links on reactivation only when proven (one
+  statement); this function only gives the public answer.
 - Error codes: `invalid_email, terms_required, rate_limited (429), captcha, busy (429),
   missing_fields (+ fields[]), invalid_answers (+ keys[]), ticket_required, unknown_ticket,
   ticket_invite_only, ticket_not_allowed, account_suspended (403), not_found (404),
@@ -193,7 +193,8 @@ Event settings read (`gl_event.settings`): `timezone` (IANA, default Europe/Mona
   `review_log` (action `provisioned`) says `proven: false` and what was not applied. Once the
   person proved the address, a staff `run` of that job applies them (a `done` job whose row
   is still `pending_link` is queued again). The proof re-queues it by itself: `on_email_proven`
-  (auth trigger, or `mark_email_proven` called by /welcome and /reset-password) puts the
+  (auth trigger, or `mark_email_proven`, called by /welcome and /reset-password once a new
+  password is saved from the e-mailed link) puts the
   person's `pending_link` jobs back to `queued`, and the next provisioning run applies them.
 - Retries: a job is tried at most 5 times by the cron (a run that crashed counts); then it
   is `failed` and only a staff `run` retries it. An account e-mail that failed 5 times is

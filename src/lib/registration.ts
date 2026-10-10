@@ -165,8 +165,9 @@ export interface RegForm {
   prefill?: RegPrefill | null;
   mine?: RegMine | null;
   /**
-   * Ask the image-rights consent on the last step. NOT sent by the function
-   * yet (reported to the integrator): without it the question is never asked.
+   * Ask the image-rights consent on the last step. Not sent by the function in
+   * Phase 1 (contract §2, gl_event settings): image rights are asked, when an
+   * event needs them, with one of its own questions of kind `consent`.
    */
   ask_image_consent?: boolean;
 }

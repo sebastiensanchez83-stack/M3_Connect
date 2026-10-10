@@ -101,6 +101,9 @@ export function ResetPasswordPage() {
   // someone else (see WelcomePage), so saving one here ends the other sessions.
   const [pendingSignup, setPendingSignup] = useState(false);
   const redirectTimer = useRef<number | undefined>(undefined);
+  // The session was opened from an e-mailed link (not an in-app password change):
+  // once a new password is saved, the address counts as proven (markEmailProven).
+  const linkSession = useRef(false);
   // Where to go after saving: the link's own ?next= first, else the pw_pending fallback.
   const destination = next ?? pendingNext;
 
@@ -124,8 +127,6 @@ export function ResetPasswordPage() {
     // Once the credential is spent, take it out of the address bar so a
     // copied or bookmarked URL carries nothing usable.
     const scrubUrl = () => window.history.replaceState({}, '', window.location.pathname);
-    // ready() may run twice (the recovery event and the call below): one proof call is enough.
-    let proofAsked = false;
 
     const ready = (user?: { email?: string | null; user_metadata?: Record<string, unknown> } | null) => {
       if (!mounted || lost.current) return;
@@ -135,9 +136,7 @@ export function ResetPasswordPage() {
       setSessionReady(true);
       setChecking(false);
       scrubUrl();
-      // Opened from an e-mailed link: the database records that the address is proven
-      // (registrations sent to it join the account). Never blocks the page.
-      if (fromLink && !proofAsked) { proofAsked = true; markEmailProven(); }
+      linkSession.current = fromLink;
     };
 
     // supabase-js re-announces a session that was already here as SIGNED_IN
@@ -284,6 +283,8 @@ export function ResetPasswordPage() {
       // back to /welcome to "set a password" on every navigation.
       const done = { pw_pending: false, pw_pending_reason: null, pw_pending_next: null };
       let { error: updateError } = await supabase.auth.updateUser({ password, data: done });
+      // False when the password typed is the one the account already had (below).
+      const passwordChanged = !updateError;
       // An account still owing its password step that types the password it already
       // has (a sign-up typing the one from the sign-up form): GoTrue refuses that as
       // a "change" and drops `data` with it. Knowing it is proof enough, as on
@@ -312,6 +313,20 @@ export function ResetPasswordPage() {
         // As on /welcome: end any other session of this account (best effort).
         const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
         if (othersError) logAuthError('Other sessions could not be ended:', othersError);
+      }
+
+      // Opened from an e-mailed link, and the password is now one the mailbox owner chose:
+      // the database records the address as proven (registrations sent to it join the
+      // account). Only now, not when the link opened: until this save the password may have
+      // been someone else's (an account made with this address by another person), and the
+      // change ends their sessions (GoTrue; the sign-out below makes sure). Awaited: it needs
+      // this session, which the sign-out further down ends.
+      if (linkSession.current && passwordChanged) {
+        if (!pendingSignup) {
+          const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
+          if (othersError) logAuthError('Other sessions could not be ended:', othersError);
+        }
+        await markEmailProven();
       }
 
       setSuccess(true);

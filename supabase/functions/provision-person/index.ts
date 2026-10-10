@@ -49,7 +49,8 @@
 //   6. Done: status 'done'. email_due_at = null unless an account was created (no
 //      account e-mail for linked / pending_link / skipped). email_proven_at is never
 //      written here: the set-password link proves the address when it is clicked
-//      (auth trigger on email_confirmed_at, or mark_email_proven on /welcome).
+//      (auth trigger on email_confirmed_at, or mark_email_proven on /welcome and
+//      /reset-password once the new password is saved).
 //   One review_log row per processed job (subject 'registration', action 'provisioned').
 // Account e-mail (account_ready_set_password) at email_due_at: the link is generated at
 // send time (auth.admin.generateLink 'invite' while the user is unconfirmed, else

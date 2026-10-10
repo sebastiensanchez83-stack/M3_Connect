@@ -182,9 +182,6 @@ export function WelcomePage() {
         setRedeemFailed(true);
       } else {
         setRedeemedType(type);
-        // The link was opened from the mailbox: the database records that the address is
-        // proven (registrations sent to it join the account). Never blocks the page.
-        markEmailProven();
         // A sign-up link confirms an account whose password was chosen by
         // whoever filled in the sign-up form — not necessarily the owner of
         // this mailbox. Record that the password step is still owed, so a
@@ -317,6 +314,20 @@ export function WelcomePage() {
       // signed in. Best effort: the password itself is saved already.
       const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
       if (othersError) console.error('Other sessions could not be ended:', othersError);
+    }
+    if (redeemedType && !confirmed) {
+      // This visit redeemed an e-mailed link and the password is now one the mailbox owner
+      // chose: the database records the address as proven (registrations sent to it join
+      // the account). Only now, not when the link opened: until this save the password may
+      // have been someone else's (an account made with this address by another person).
+      // Their sessions end with the change (GoTrue; signed out here too, best effort).
+      setBusy(true);
+      if (!mustSetPassword) {
+        const { error: othersError } = await supabase.auth.signOut({ scope: 'others' }).catch((e: unknown) => ({ error: e as AuthErrorLike }));
+        if (othersError) console.error('Other sessions could not be ended:', othersError);
+      }
+      await markEmailProven();
+      setBusy(false);
     }
     toast({
       title: confirmed

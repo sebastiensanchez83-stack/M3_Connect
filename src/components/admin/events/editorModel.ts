@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import {
   DEFAULT_TIMEZONE, RESERVED_SLUGS, SLUG_RE, STANDARD_FIELDS, emailList, isEmail, isHttpsUrl, isoToWall,
   wallToIso, type EventKind, type FieldRule, type LoadedEvent, type QuestionRow, type RegistrationMode,
@@ -52,7 +53,6 @@ export interface EmailsForm {
   reminders: string[];
   replayUrl: string;
   replayPublic: boolean;
-  followupNote: string;
   notifyEmail: string;
   staffAlertMode: 'each' | 'digest';
   contactEmail: string;
@@ -70,6 +70,9 @@ export const SECTIONS: FormSection[] = ['basics', 'registration', 'questions', '
 
 /** What the reminder e-mails send by default (registration-cron, when the list is empty). */
 export const DEFAULT_REMINDERS: Record<EventKind, string[]> = { webinar: ['P7D', 'P1D', 'PT1H'], onsite: ['P7D'] };
+
+/** Who at M3 hears about new registrations by default (also the reply-to fallback of the e-mails). */
+export const M3_EVENTS_EMAIL = 'events@m3monaco.com';
 
 /** A webinar without an account asks name, e-mail and (optionally) company (Victor, 6 Oct). */
 const NEW_WEBINAR_FIELDS: Record<StandardField, FieldRule> = {
@@ -102,8 +105,8 @@ export function newForm(kind: EventKind): EditorForm {
       reminders: [...DEFAULT_REMINDERS[kind]],
       replayUrl: '',
       replayPublic: false,
-      followupNote: '',
-      notifyEmail: '',
+      // Someone at M3 must hear about requests: an empty address alerts nobody.
+      notifyEmail: M3_EVENTS_EMAIL,
       staffAlertMode: 'each',
       contactEmail: '',
     },
@@ -160,7 +163,6 @@ export function formFromLoaded(l: LoadedEvent): EditorForm {
       reminders: [...reminders],
       replayUrl: replay,
       replayPublic: !!replay && (c?.replay_url || '') === replay,
-      followupNote: str(s.followup_note),
       notifyEmail: gl.notify_email || '',
       staffAlertMode: gl.staff_alert_mode === 'digest' ? 'digest' : 'each',
       contactEmail: str(s.contact_email),
@@ -182,78 +184,84 @@ export interface FormIssue { tab: FormSection; field: string; message: string }
 
 const wholeNumber = (v: string) => /^\d+$/.test(v.trim());
 
-export function checkForm(form: EditorForm, isNew: boolean): FormIssue[] {
+/**
+ * What must be fixed before saving. Only the tabs the editor shows are checked: an
+ * on-site event (Basics only until Phase 3) never gets an issue on a tab it cannot open.
+ */
+export function checkForm(form: EditorForm, t: TFunction): FormIssue[] {
   const out: FormIssue[] = [];
   const b = form.basics;
   const r = form.registration;
   const e = form.emails;
   const tz = b.timezone;
-  const t = (wall: string) => (wall ? wallToIso(wall, tz) : null);
+  const at = (wall: string) => (wall ? wallToIso(wall, tz) : null);
+  const notComplete = t('adminEvents.check.dateIncomplete', 'This date is not complete.');
 
-  if (!b.title.trim()) out.push({ tab: 'basics', field: 'title', message: 'Give the event a title.' });
+  if (!b.title.trim()) out.push({ tab: 'basics', field: 'title', message: t('adminEvents.err.title', 'Give the event a title.') });
   const slug = b.slug.trim();
-  if (!slug) out.push({ tab: 'basics', field: 'slug', message: 'Give the event a web address.' });
+  if (!slug) out.push({ tab: 'basics', field: 'slug', message: t('adminEvents.err.slug', 'Give the event a web address.') });
   else if (!SLUG_RE.test(slug) || slug.length > 60) {
-    out.push({ tab: 'basics', field: 'slug', message: 'Use lower-case letters, numbers and single dashes only (60 characters at most).' });
+    out.push({ tab: 'basics', field: 'slug', message: t('adminEvents.check.slug', 'Use lower-case letters, numbers and single dashes only (60 characters at most).') });
   } else if (RESERVED_SLUGS.includes(slug)) {
-    out.push({ tab: 'basics', field: 'slug', message: 'This web address is reserved for another page. Choose another one.' });
+    out.push({ tab: 'basics', field: 'slug', message: t('adminEvents.err.slugReserved', 'This web address is reserved for another page. Choose another one.') });
   }
-  if (b.start && !t(b.start)) out.push({ tab: 'basics', field: 'start', message: 'The start date is not complete.' });
+  if (b.start && !at(b.start)) out.push({ tab: 'basics', field: 'start', message: t('adminEvents.check.startIncomplete', 'The start date is not complete.') });
   if (b.end && !b.isFullDay) {
-    const s = t(b.start);
-    const en = t(b.end);
-    if (!en) out.push({ tab: 'basics', field: 'end', message: 'The end date is not complete.' });
-    else if (s && en <= s) out.push({ tab: 'basics', field: 'end', message: 'The end must be after the start.' });
+    const s = at(b.start);
+    const en = at(b.end);
+    if (!en) out.push({ tab: 'basics', field: 'end', message: t('adminEvents.check.endIncomplete', 'The end date is not complete.') });
+    else if (s && en <= s) out.push({ tab: 'basics', field: 'end', message: t('adminEvents.check.endAfter', 'The end must be after the start.') });
   }
   if (b.visibility === 'published' && !b.start) {
-    out.push({ tab: 'basics', field: 'start', message: 'Set the date before publishing the event.' });
+    out.push({ tab: 'basics', field: 'start', message: t('adminEvents.check.dateFirst', 'Set the date before publishing the event.') });
   }
   if (b.kind === 'webinar' && b.meetingUrl.trim() && !isHttpsUrl(b.meetingUrl)) {
-    out.push({ tab: 'basics', field: 'meetingUrl', message: 'The join link must be a full address starting with https://' });
+    out.push({ tab: 'basics', field: 'meetingUrl', message: t('adminEvents.check.meetingUrl', 'The join link must be a full address starting with https://') });
   }
   if (b.website.trim() && !/^https?:\/\/\S+\.\S+/i.test(b.website.trim())) {
-    out.push({ tab: 'basics', field: 'website', message: 'The website must be a full address starting with https://' });
+    out.push({ tab: 'basics', field: 'website', message: t('adminEvents.check.website', 'The website must be a full address starting with https://') });
   }
   b.speakers.forEach((sp, i) => {
-    if (!sp.name.trim() && sp.title.trim()) out.push({ tab: 'basics', field: `speaker${i}`, message: 'A speaker needs a name.' });
+    if (!sp.name.trim() && sp.title.trim()) out.push({ tab: 'basics', field: `speaker${i}`, message: t('adminEvents.check.speaker', 'A speaker needs a name.') });
   });
 
-  if (!isNew || b.kind === 'webinar') {
-    if (r.capacity.trim() && (!wholeNumber(r.capacity) || Number(r.capacity) < 1)) {
-      out.push({ tab: 'registration', field: 'capacity', message: 'Write a whole number of places, or leave it empty for no limit.' });
-    }
-    const opens = r.opensAt ? t(r.opensAt) : null;
-    const closes = r.closesAt ? t(r.closesAt) : null;
-    if (r.opensAt && !opens) out.push({ tab: 'registration', field: 'opensAt', message: 'This date is not complete.' });
-    if (r.closesAt && !closes) out.push({ tab: 'registration', field: 'closesAt', message: 'This date is not complete.' });
-    if (opens && closes && closes <= opens) {
-      out.push({ tab: 'registration', field: 'closesAt', message: 'Registration must close after it opens.' });
-    }
-    if (r.editLocksAt && !t(r.editLocksAt)) out.push({ tab: 'registration', field: 'editLocksAt', message: 'This date is not complete.' });
-    if (r.mode === 'instant' && b.kind !== 'webinar') {
-      out.push({ tab: 'registration', field: 'mode', message: 'Open registration works for webinars only.' });
-    }
+  // The other tabs exist for webinars only in Phase 1.
+  if (b.kind !== 'webinar') return out;
+
+  if (r.capacity.trim() && (!wholeNumber(r.capacity) || Number(r.capacity) < 1)) {
+    out.push({ tab: 'registration', field: 'capacity', message: t('adminEvents.check.capacity', 'Write a whole number of places, or leave it empty for no limit.') });
   }
+  const opens = r.opensAt ? at(r.opensAt) : null;
+  const closes = r.closesAt ? at(r.closesAt) : null;
+  if (r.opensAt && !opens) out.push({ tab: 'registration', field: 'opensAt', message: notComplete });
+  if (r.closesAt && !closes) out.push({ tab: 'registration', field: 'closesAt', message: notComplete });
+  if (opens && closes && closes <= opens) {
+    out.push({ tab: 'registration', field: 'closesAt', message: t('adminEvents.check.closeAfterOpen', 'Registration must close after it opens.') });
+  }
+  if (r.editLocksAt && !at(r.editLocksAt)) out.push({ tab: 'registration', field: 'editLocksAt', message: notComplete });
 
   form.questions.list.forEach((q, i) => {
-    if (!q.label.trim()) out.push({ tab: 'questions', field: `q${i}`, message: `Question ${i + 1} needs a wording.` });
+    if (!q.label.trim()) out.push({ tab: 'questions', field: `q${i}`, message: t('adminEvents.check.qWording', 'Question {{n}} needs a wording.', { n: i + 1 }) });
     if ((q.kind === 'select' || q.kind === 'multiselect') && (q.options?.length ?? 0) < 2) {
-      out.push({ tab: 'questions', field: `q${i}`, message: `Question ${i + 1} needs at least two choices.` });
+      out.push({ tab: 'questions', field: `q${i}`, message: t('adminEvents.check.qChoices', 'Question {{n}} needs at least two choices.', { n: i + 1 }) });
     }
   });
 
   if (e.remindersOn && e.reminders.length === 0) {
-    out.push({ tab: 'emails', field: 'reminders', message: 'Tick at least one reminder, or switch reminders off.' });
+    out.push({ tab: 'emails', field: 'reminders', message: t('adminEvents.check.reminders', 'Tick at least one reminder, or switch reminders off.') });
   }
   if (e.replayUrl.trim() && !isHttpsUrl(e.replayUrl)) {
-    out.push({ tab: 'emails', field: 'replayUrl', message: 'The replay link must be a full address starting with https://' });
+    out.push({ tab: 'emails', field: 'replayUrl', message: t('adminEvents.check.replayUrl', 'The replay link must be a full address starting with https://') });
   }
   // One address: the registration function sends staff alerts to exactly one recipient.
   if (e.notifyEmail.trim() && (emailList(e.notifyEmail).length !== 1 || !isEmail(e.notifyEmail))) {
-    out.push({ tab: 'emails', field: 'notifyEmail', message: 'Write one e-mail address (a shared mailbox works best).' });
+    out.push({ tab: 'emails', field: 'notifyEmail', message: t('adminEvents.check.notifyOne', 'Write one e-mail address (a shared mailbox works best).') });
+  } else if (!e.notifyEmail.trim() && r.mode !== 'instant') {
+    // M3 accepts each person: without an alert, requests wait with nobody knowing.
+    out.push({ tab: 'emails', field: 'notifyEmail', message: t('adminEvents.check.notifyNeeded', 'Choose who at M3 is told about new requests, or people will wait without anyone knowing.') });
   }
   if (e.contactEmail.trim() && !isEmail(e.contactEmail)) {
-    out.push({ tab: 'emails', field: 'contactEmail', message: 'This e-mail address is not valid.' });
+    out.push({ tab: 'emails', field: 'contactEmail', message: t('adminEvents.check.contactEmail', 'This e-mail address is not valid.') });
   }
   return out;
 }
@@ -301,6 +309,9 @@ export function buildPayload(form: EditorForm, initial: EditorForm, glEventId: s
   if (isNew) {
     reg.kind = b.kind;
     if (!event.language) event.language = 'EN';
+    // registration-cron sends "Sorry we missed you" only once staff say attendance is
+    // complete (Registrations tab). Without this key it would guess from the marks.
+    if (b.kind === 'webinar') settings.attendance_recorded = false;
   }
 
   // Registration dates are wall-clock times in the event's zone: re-sent when it changes.
@@ -342,7 +353,6 @@ export function buildPayload(form: EditorForm, initial: EditorForm, glEventId: s
     reg.notify_email = e.notifyEmail.trim();
     reg.staff_alert_mode = e.staffAlertMode;
     settings.no_reminders = !e.remindersOn;
-    settings.followup_note = e.followupNote.trim();
     settings.contact_email = e.contactEmail.trim();
     // The public page shows the replay only when asked; registrants always get it by e-mail.
     if (e.replayPublic) event.replay_url = e.replayUrl.trim();

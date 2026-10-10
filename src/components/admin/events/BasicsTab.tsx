@@ -12,7 +12,7 @@ import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { ADMIN_BTN } from '../AdminUI';
 import { Block, ChoiceCards, Field, INPUT, Note, TEXTAREA } from './editorUi';
-import { TIMEZONES, addMinutesToWall, formatInZone, slugify, wallToIso } from './eventAdmin';
+import { TIMEZONE_VALUES, addMinutesToWall, formatInZone, slugify, timezoneLabel, wallToIso } from './eventAdmin';
 import type { BasicsForm, FormIssue, Visibility } from './editorModel';
 
 interface SectorRow { id: string; label: string }
@@ -29,6 +29,8 @@ export function BasicsTab({
   slugLocked,
   canPublish,
   eventId,
+  savedVisibility,
+  kindOpensOldEditor,
 }: {
   value: BasicsForm;
   onChange: (next: BasicsForm) => void;
@@ -39,6 +41,10 @@ export function BasicsTab({
   /** The registration switch of this kind is on, or the event is already published. */
   canPublish: boolean;
   eventId: string | null;
+  /** How the event is saved now (null for a new event): the registration link is shown once it works. */
+  savedVisibility: Visibility | null;
+  /** New event, editor not forced: a type whose switch is off opens the current editor instead. */
+  kindOpensOldEditor: { webinar: boolean; onsite: boolean } | null;
 }) {
   const { t } = useTranslation();
   const v = value;
@@ -82,7 +88,9 @@ export function BasicsTab({
       title: t('adminEvents.basics.published', 'Published'),
       body: canPublish
         ? t('adminEvents.basics.publishedBody', 'Listed on the site. People can register.')
-        : t('adminEvents.basics.publishedLater', 'Opens once the new event pages are live.'),
+        : webinar
+          ? t('adminEvents.basics.publishedLater', 'Opens once the new event pages are live.')
+          : t('adminEvents.basics.publishedLaterOnsite', 'On-site events can be published from a later update.'),
       disabled: !canPublish && v.visibility !== 'published',
     },
     {
@@ -106,8 +114,20 @@ export function BasicsTab({
               value={v.kind}
               onChange={(kind) => set('kind', kind)}
               options={[
-                { value: 'webinar', title: t('adminEvents.basics.webinar', 'Webinar'), body: t('adminEvents.basics.webinarBody', 'Online. People join with a link.') },
-                { value: 'onsite', title: t('adminEvents.basics.onsite', 'On-site event'), body: t('adminEvents.basics.onsiteBody', 'In a venue. M3 checks each registration.') },
+                {
+                  value: 'webinar',
+                  title: t('adminEvents.basics.webinar', 'Webinar'),
+                  body: kindOpensOldEditor?.webinar
+                    ? t('adminEvents.basics.webinarOld', 'Online. Opens the current webinar editor.')
+                    : t('adminEvents.basics.webinarBody', 'Online. People join with a link.'),
+                },
+                {
+                  value: 'onsite',
+                  title: t('adminEvents.basics.onsite', 'On-site event'),
+                  body: kindOpensOldEditor?.onsite
+                    ? t('adminEvents.basics.onsiteOld', 'In a venue. Opens the current on-site editor.')
+                    : t('adminEvents.basics.onsiteBody', 'In a venue. M3 checks each registration.'),
+                },
               ]}
             />
           </Field>
@@ -145,22 +165,32 @@ export function BasicsTab({
               spellCheck={false}
             />
           </div>
-          {!isNew && regLink && (
-            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2 text-[13px] text-meta">
-              <span className="min-w-0 break-all">{regLink}</span>
+          {!isNew && regLink && (savedVisibility === 'published' || savedVisibility === 'hidden') && (
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 text-[13px] text-meta">
+              <span className="mr-1 min-w-0 break-all">{regLink}</span>
               <button
                 type="button"
                 onClick={() => { void navigator.clipboard?.writeText(regLink); toast({ title: t('adminEvents.basics.copied', 'Link copied') }); }}
-                className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 font-semibold text-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus"
+                className="inline-flex min-h-11 items-center gap-1 rounded-pill px-3 font-semibold text-navy hover:bg-chip focus:outline-none focus-visible:shadow-focus"
               >
                 <Copy className="h-3.5 w-3.5" aria-hidden="true" /> {t('adminEvents.basics.copy', 'Copy')}
               </button>
               {eventId && (
-                <a href={`/events/${eventId}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-navy underline-offset-2 hover:underline">
+                <a
+                  href={`/events/${eventId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 items-center rounded-pill px-3 font-semibold text-navy underline-offset-2 hover:underline focus:outline-none focus-visible:shadow-focus"
+                >
                   {t('adminEvents.basics.viewPage', 'Event page')}
                 </a>
               )}
             </div>
+          )}
+          {!isNew && savedVisibility === 'draft' && (
+            <p className="mt-2 text-[13px] leading-[18px] text-meta">
+              {t('adminEvents.basics.linkLater', 'The registration link appears here once the event is published (or saved as a hidden test).')}
+            </p>
           )}
         </Field>
 
@@ -185,8 +215,8 @@ export function BasicsTab({
             <Select value={v.timezone} onValueChange={(tz) => set('timezone', tz)}>
               <SelectTrigger className={INPUT} aria-label={t('adminEvents.basics.timezone', 'Time zone')}><SelectValue /></SelectTrigger>
               <SelectContent>
-                {(TIMEZONES.some((z) => z.value === v.timezone) ? TIMEZONES : [{ value: v.timezone, label: v.timezone }, ...TIMEZONES]).map((z) => (
-                  <SelectItem key={z.value} value={z.value}>{z.label}</SelectItem>
+                {(TIMEZONE_VALUES.includes(v.timezone) ? TIMEZONE_VALUES : [v.timezone, ...TIMEZONE_VALUES]).map((z) => (
+                  <SelectItem key={z} value={z}>{timezoneLabel(z, t)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -270,7 +300,9 @@ export function BasicsTab({
         />
         {!canPublish && v.visibility !== 'published' && (
           <Note>
-            {t('adminEvents.basics.publishNote', 'Publishing opens once the new event pages are live on the site. Until then, prepare the event as a draft, or test it as a hidden event.')}
+            {webinar
+              ? t('adminEvents.basics.publishNote', 'Publishing opens once the new event pages are live on the site. Until then, prepare the event as a draft, or test it as a hidden event.')
+              : t('adminEvents.basics.publishNoteOnsite', 'On-site events made here can be published from a later update. Until then, prepare the event as a draft, or test it as a hidden event.')}
           </Note>
         )}
       </Block>
@@ -350,7 +382,7 @@ export function BasicsTab({
                     aria-pressed={on}
                     onClick={() => set('sectorIds', on ? v.sectorIds.filter((x) => x !== s.id) : [...v.sectorIds, s.id].sort())}
                     className={cn(
-                      'rounded-pill border px-3 py-1.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:shadow-focus',
+                      'rounded-pill border px-3.5 py-2.5 text-[13px] font-medium transition-colors focus:outline-none focus-visible:shadow-focus',
                       on ? 'border-navy bg-navy text-white' : 'border-rule bg-white text-navy hover:border-navy/40',
                     )}
                   >

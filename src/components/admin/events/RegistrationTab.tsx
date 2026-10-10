@@ -14,6 +14,7 @@ export function RegistrationTab({
   issues,
   timezone,
   eventStart,
+  invitationAllowed,
 }: {
   value: RegistrationForm;
   onChange: (next: RegistrationForm) => void;
@@ -21,6 +22,8 @@ export function RegistrationTab({
   timezone: string;
   /** The event's start (wall clock), to explain the default closing time. */
   eventStart: string;
+  /** "By invitation" stays selectable only for an event already saved that way (sending invitations comes later). */
+  invitationAllowed: boolean;
 }) {
   const { t } = useTranslation();
   const v = value;
@@ -55,8 +58,15 @@ export function RegistrationTab({
           onChange={(mode) => set('mode', mode)}
           options={[
             { value: 'instant', title: t('adminEvents.reg.instant', 'Open'), body: t('adminEvents.reg.instantBody', 'Registration is confirmed at once. They get the e-mail with the calendar file straight away.') },
-            { value: 'review', title: t('adminEvents.reg.review', 'On request'), body: t('adminEvents.reg.reviewBody', 'M3 accepts each person in the Registrations tab. They are told by e-mail.') },
-            { value: 'invitation', title: t('adminEvents.reg.invitation', 'By invitation'), body: t('adminEvents.reg.invitationBody', 'Only for people M3 invites, or who ask for an invitation.') },
+            { value: 'review', title: t('adminEvents.reg.review', 'On request'), body: t('adminEvents.reg.reviewBody', 'M3 accepts each person in People registered. They are told by e-mail.') },
+            {
+              value: 'invitation',
+              title: t('adminEvents.reg.invitation', 'By invitation'),
+              body: invitationAllowed
+                ? t('adminEvents.reg.invitationBody', 'Only for people M3 invites, or who ask for an invitation.')
+                : t('adminEvents.reg.invitationLater', 'Comes with invitations, in a later update.'),
+              disabled: !invitationAllowed,
+            },
           ]}
         />
         {v.mode === 'invitation' && (
@@ -65,7 +75,7 @@ export function RegistrationTab({
               checked={v.publicRequests}
               onChange={(on) => set('publicRequests', on)}
               title={t('adminEvents.reg.publicRequests', 'People can ask for an invitation')}
-              body={t('adminEvents.reg.publicRequestsBody', 'The event page shows "Request an invitation". You accept each request in the Registrations tab.')}
+              body={t('adminEvents.reg.publicRequestsBody', 'The event page shows "Request an invitation". You accept each request in People registered.')}
             />
             <Note tone="warning">
               {v.publicRequests
@@ -109,7 +119,7 @@ export function RegistrationTab({
           checked={v.waitlist}
           onChange={(on) => set('waitlist', on)}
           title={t('adminEvents.reg.waitlist', 'Waiting list when full')}
-          body={t('adminEvents.reg.waitlistBody', 'Once all places are taken, new people join a waiting list. You move them up in the Registrations tab.')}
+          body={t('adminEvents.reg.waitlistBody', 'Once all places are taken, new people join a waiting list. You move them up in People registered.')}
         />
       </Block>
 

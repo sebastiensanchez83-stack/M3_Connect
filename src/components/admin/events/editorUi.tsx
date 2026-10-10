@@ -1,4 +1,5 @@
 import { useId, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
@@ -29,11 +30,12 @@ export function Field({
   optional?: boolean;
   className?: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className={cn('space-y-1.5', className)}>
       <label htmlFor={htmlFor} className="block text-[14px] font-semibold leading-5 text-navy">
         {label}
-        {optional && <span className="ml-1.5 font-normal text-meta">(optional)</span>}
+        {optional && <span className="ml-1.5 font-normal text-meta">{t('adminEvents.optional', '(optional)')}</span>}
       </label>
       {children}
       {hint && !error && <p className="text-[13px] leading-[18px] text-meta">{hint}</p>}
@@ -177,7 +179,7 @@ export function PillChoice<T extends string>({
             aria-checked={active}
             onClick={() => onChange(o.value)}
             className={cn(
-              'h-8 rounded-pill px-3 text-[13px] font-semibold transition-colors focus:outline-none focus-visible:shadow-focus',
+              'h-10 rounded-pill px-3 text-[13px] font-semibold transition-colors focus:outline-none focus-visible:shadow-focus sm:h-8',
               active ? 'bg-navy text-white' : 'text-meta hover:bg-chip hover:text-navy',
             )}
           >

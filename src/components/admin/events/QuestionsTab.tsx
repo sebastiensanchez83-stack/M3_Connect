@@ -10,8 +10,8 @@ import { cn } from '@/lib/utils';
 import { ADMIN_BTN, AdminStatusPill } from '../AdminUI';
 import { Block, Field, INPUT, Note, TEXTAREA, ToggleRow } from './editorUi';
 import {
-  PROFILE_FIELD_WORDS, QUESTION_KIND_WORDS, questionKey,
-  type EventKind, type ProfileField, type QuestionKind, type QuestionRow,
+  profileFieldWord, questionKey, questionKindWord,
+  type EventKind, type ProfileField, type QuestionKind, type QuestionOption, type QuestionRow,
 } from './eventAdmin';
 import type { FormIssue, QuestionsForm } from './editorModel';
 
@@ -29,6 +29,37 @@ const blank = (key: string, order: number): QuestionRow => ({
 });
 
 interface Preset { key: string; label: string; make: () => Omit<QuestionRow, 'display_order'> }
+
+/**
+ * The choices of a list question after an edit. Answers are stored as the choice's
+ * VALUE, so a value never changes once given:
+ *   1. a line whose wording is unchanged keeps its value;
+ *   2. an edited line (a typo fixed) keeps the value of the choice that stood at the same
+ *      place, when that choice's wording is gone from the list;
+ *   3. only a truly new line gets a new value (its wording, made unique).
+ */
+function mergeChoices(prev: QuestionOption[], labels: string[]): QuestionOption[] {
+  const out: (QuestionOption | null)[] = labels.map(() => null);
+  const used = new Set<string>();
+  labels.forEach((label, i) => {
+    const same = prev.find((o) => o.label === label && !used.has(o.value));
+    if (same) { out[i] = { value: same.value, label }; used.add(same.value); }
+  });
+  labels.forEach((label, i) => {
+    if (out[i]) return;
+    const old = prev[i];
+    if (old && !labels.includes(old.label) && !used.has(old.value)) { out[i] = { value: old.value, label }; used.add(old.value); }
+  });
+  const reserved = new Set([...used, ...prev.map((o) => o.value)]);
+  labels.forEach((label, i) => {
+    if (out[i]) return;
+    let value = label.slice(0, 200);
+    for (let n = 2; reserved.has(value); n++) value = `${label.slice(0, 190)} (${n})`;
+    reserved.add(value);
+    out[i] = { value, label };
+  });
+  return out as QuestionOption[];
+}
 
 /**
  * Questions: the event's own questions, after name, e-mail and the standard fields.
@@ -62,7 +93,14 @@ export function QuestionsTab({
       label: t('adminEvents.q.presetHeard', 'How did you hear about this event?'),
       make: () => ({
         ...blank('heard_about', 0), label: t('adminEvents.q.presetHeard', 'How did you hear about this event?'), kind: 'select',
-        options: ['Smart Marina Connect newsletter', 'LinkedIn', 'Smart Marina Connect website', 'A colleague', 'Other'].map((s) => ({ value: s, label: s })),
+        // Values stay in English for good (answers are stored as values); labels can be reworded.
+        options: [
+          { value: 'Smart Marina Connect newsletter', label: t('adminEvents.q.heardNewsletter', 'Smart Marina Connect newsletter') },
+          { value: 'LinkedIn', label: t('adminEvents.q.heardLinkedin', 'LinkedIn') },
+          { value: 'Smart Marina Connect website', label: t('adminEvents.q.heardWebsite', 'Smart Marina Connect website') },
+          { value: 'A colleague', label: t('adminEvents.q.heardColleague', 'A colleague') },
+          { value: 'Other', label: t('adminEvents.q.heardOther', 'Other') },
+        ],
       }),
     },
     {
@@ -129,7 +167,9 @@ export function QuestionsTab({
       ...d,
       label: d.label.trim().slice(0, 300),
       help: d.help?.trim() ? d.help.trim().slice(0, 500) : null,
-      options: isList ? unique.map((s) => ({ value: s.slice(0, 200), label: s.slice(0, 200) })) : null,
+      options: isList
+        ? mergeChoices(editing.index === null ? [] : (list[editing.index].options || []), unique.map((s) => s.slice(0, 200)))
+        : null,
       profile_field: d.profile_field && allowedProfile.includes(d.profile_field) ? d.profile_field : null,
     };
     if (editing.index === null) {
@@ -148,11 +188,11 @@ export function QuestionsTab({
       <div className="min-w-0 space-y-6">
         <Block
           title={t('adminEvents.q.title', 'Questions')}
-          description={t('adminEvents.q.body', 'Asked after name, e-mail and the fields of the Registration tab. Keep it short: every extra question loses a few registrations.')}
+          description={t('adminEvents.q.body', 'Asked after name, e-mail and the fields of the How to register tab. Keep it short: every extra question loses a few registrations.')}
         >
           {hasRegistrations && (
             <Note tone="warning">
-              {t('adminEvents.q.hasRegs', 'People have already registered. Answers already given stay, even if you remove or change a question.')}
+              {t('adminEvents.q.hasRegs2', 'People have already registered. Their answers are kept if you change or remove a question; answers to a removed question appear under its internal name in the export and in the details of each person.')}
             </Note>
           )}
           {list.length === 0 ? (
@@ -167,7 +207,7 @@ export function QuestionsTab({
                         <span className="mr-1.5 tabular-nums text-meta">{i + 1}.</span>{q.label || t('adminEvents.q.untitled', 'Untitled question')}
                       </p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        <AdminStatusPill>{QUESTION_KIND_WORDS[q.kind]}</AdminStatusPill>
+                        <AdminStatusPill>{questionKindWord(q.kind, t)}</AdminStatusPill>
                         {q.required && <AdminStatusPill tone="warning">{t('adminEvents.q.required', 'Required')}</AdminStatusPill>}
                         {q.profile_field && <AdminStatusPill tone="info">{t('adminEvents.q.toProfile', 'Saved to profile')}</AdminStatusPill>}
                         {!q.editable_after_submit && <AdminStatusPill>{t('adminEvents.q.final', 'Cannot be changed later')}</AdminStatusPill>}
@@ -224,6 +264,7 @@ export function QuestionsTab({
       >
         {editing && (
           <QuestionFields
+            answered={hasRegistrations && editing.index !== null}
             draft={editing.draft}
             choices={editing.choices}
             kinds={kinds}
@@ -255,12 +296,15 @@ function IconBtn({ label, onClick, disabled, danger, children }: { label: string
 }
 
 function QuestionFields({
+  answered,
   draft,
   choices,
   kinds,
   onDraft,
   onChoices,
 }: {
+  /** An existing question of an event that already has registrations. */
+  answered: boolean;
   draft: QuestionRow;
   choices: string;
   kinds: QuestionKind[];
@@ -280,7 +324,7 @@ function QuestionFields({
         <Select value={draft.kind} onValueChange={(k) => set('kind', k as QuestionKind)}>
           <SelectTrigger className={INPUT} aria-label={t('adminEvents.q.type', 'Type of answer')}><SelectValue /></SelectTrigger>
           <SelectContent>
-            {kinds.map((k) => <SelectItem key={k} value={k}>{QUESTION_KIND_WORDS[k]}</SelectItem>)}
+            {kinds.map((k) => <SelectItem key={k} value={k}>{questionKindWord(k, t)}</SelectItem>)}
           </SelectContent>
         </Select>
       </Field>
@@ -288,6 +332,11 @@ function QuestionFields({
         <Field label={t('adminEvents.q.choices', 'Choices')} htmlFor="q-choices" hint={t('adminEvents.q.choicesHint', 'One choice per line.')}>
           <Textarea id="q-choices" rows={5} value={choices} onChange={(e) => onChoices(e.target.value)} className={TEXTAREA} />
         </Field>
+      )}
+      {isList && answered && (
+        <Note tone="warning">
+          {t('adminEvents.q.answeredChoices', 'People have already answered. Fixing the wording of a choice keeps their answers. If you remove a choice, someone who picked it must choose again the next time they change their answers.')}
+        </Note>
       )}
       <Field label={t('adminEvents.q.help', 'Help text under the question')} htmlFor="q-help" optional>
         <Input id="q-help" value={draft.help || ''} onChange={(e) => set('help', e.target.value)} className={INPUT} maxLength={500} />
@@ -308,7 +357,7 @@ function QuestionFields({
           checked={!!draft.profile_field}
           onChange={(on) => set('profile_field', on ? profileChoices[0] : null)}
           title={t('adminEvents.q.saveProfile', 'Save the answer to their profile')}
-          body={t('adminEvents.q.saveProfileBody', 'Fills the "{{field}}" of a member\'s profile when it is still empty.', { field: PROFILE_FIELD_WORDS[profileChoices[0]] })}
+          body={t('adminEvents.q.saveProfileBody', 'Fills the "{{field}}" of a member\'s profile when it is still empty.', { field: profileFieldWord(profileChoices[0], t) })}
         />
       )}
     </div>

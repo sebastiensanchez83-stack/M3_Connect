@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import { supabase } from '@/lib/supabase';
 
 /**
@@ -135,42 +136,45 @@ export class EditorError extends Error {
   }
 }
 
-/** admin_save_event / admin_clone_event codes (contract §4.1) in plain English. */
-const SAVE_ERRORS: Record<string, string> = {
-  forbidden: 'You need an M3 admin account to change events.',
-  bad_input: 'Something in the form could not be read. Check the fields and try again.',
-  event_not_found: 'This event no longer exists. Go back to the list and open it again.',
-  guest_list_event: 'This event runs on the guest list. Change it from its guest-list page.',
-  title_required: 'Give the event a title.',
-  slug_required: 'Give the event a web address.',
-  slug_invalid: 'The web address can only use lower-case letters, numbers and single dashes (60 characters at most).',
-  slug_reserved: 'This web address is reserved for another page. Choose another one.',
-  slug_taken: 'Another event already uses this web address. Choose another one.',
-  slug_locked: 'The web address cannot change once the event is published.',
-  bad_kind: 'Choose webinar or on-site event.',
-  bad_mode: 'Choose how people register.',
-  instant_needs_webinar: 'Open registration works for webinars only. On-site events are checked by M3.',
-  bad_access: 'Choose who can register.',
-  bad_capacity: 'The number of places must be a whole number.',
-  bad_standard_fields: 'One of the form fields has a setting the system does not accept.',
-  bad_reminders: 'One of the reminder times is not valid.',
-  publish_needs_flag: 'Publishing opens once the new event pages are live. Keep the event as a draft, or as a hidden test, until then.',
-  bad_tickets: 'The participation types could not be read.',
-  bad_ticket_key: 'A participation type has an internal name the system does not accept.',
-  duplicate_ticket_key: 'Two participation types have the same internal name.',
-  bad_questions: 'The questions could not be read.',
-  bad_question_key: 'A question has an internal name the system does not accept.',
-  duplicate_question_key: 'Two questions have the same internal name. Rename one of them.',
-  not_installed: 'The new registration system is not installed on the database yet. Ask the developer to finish the set-up.',
-  network: 'The connection failed. Check your internet connection and try again.',
-};
-
-export function editorErrorText(err: unknown): string {
-  if (err instanceof EditorError) {
-    return SAVE_ERRORS[err.code] ?? (err.message || 'Something went wrong. Try again in a moment.');
+/** admin_save_event / admin_clone_event codes (contract §4.1), and the read errors, in plain English. */
+function saveErrorText(code: string, t: TFunction): string | null {
+  switch (code) {
+    case 'forbidden': return t('adminEvents.err.forbidden', 'You need an M3 admin account to change events.');
+    case 'bad_input': return t('adminEvents.err.badInput', 'Something in the form could not be read. Check the fields and try again.');
+    case 'event_not_found': return t('adminEvents.err.notFound', 'This event no longer exists. Go back to the list and open it again.');
+    case 'guest_list_event': return t('adminEvents.err.guestList', 'This event runs on the guest list. Change it from its guest-list page.');
+    case 'title_required': return t('adminEvents.err.title', 'Give the event a title.');
+    case 'slug_required': return t('adminEvents.err.slug', 'Give the event a web address.');
+    case 'slug_invalid': return t('adminEvents.err.slugInvalid', 'The web address can only use lower-case letters, numbers and single dashes (60 characters at most).');
+    case 'slug_reserved': return t('adminEvents.err.slugReserved', 'This web address is reserved for another page. Choose another one.');
+    case 'slug_taken': return t('adminEvents.err.slugTaken', 'Another event already uses this web address. Choose another one.');
+    case 'slug_locked': return t('adminEvents.err.slugLocked', 'The web address cannot change once the event is published.');
+    case 'bad_kind': return t('adminEvents.err.kind', 'Choose webinar or on-site event.');
+    case 'bad_mode': return t('adminEvents.err.mode', 'Choose how people register.');
+    case 'instant_needs_webinar': return t('adminEvents.err.instant', 'Open registration works for webinars only. On-site events are checked by M3.');
+    case 'bad_access': return t('adminEvents.err.access', 'Choose who can register.');
+    case 'bad_capacity': return t('adminEvents.err.capacity', 'The number of places must be a whole number.');
+    case 'bad_standard_fields': return t('adminEvents.err.fields', 'One of the form fields has a setting the system does not accept.');
+    case 'bad_reminders': return t('adminEvents.err.reminders', 'One of the reminder times is not valid.');
+    case 'publish_needs_flag': return t('adminEvents.err.publishFlag', 'Publishing opens once the new event pages are live. Keep the event as a draft, or as a hidden test, until then.');
+    case 'bad_tickets': return t('adminEvents.err.tickets', 'The participation types could not be read.');
+    case 'bad_ticket_key': return t('adminEvents.err.ticketKey', 'A participation type has an internal name the system does not accept.');
+    case 'duplicate_ticket_key': return t('adminEvents.err.ticketDup', 'Two participation types have the same internal name.');
+    case 'bad_questions': return t('adminEvents.err.questions', 'The questions could not be read.');
+    case 'bad_question_key': return t('adminEvents.err.questionKey', 'A question has an internal name the system does not accept.');
+    case 'duplicate_question_key': return t('adminEvents.err.questionDup', 'Two questions have the same internal name. Rename one of them.');
+    case 'check': return t('adminEvents.err.check', 'A question or a setting has a value the system does not accept. Check the question types.');
+    case 'not_installed': return t('adminEvents.err.notInstalled', 'The new registration system is not installed on the database yet. Ask the developer to finish the set-up.');
+    case 'network': return t('adminEvents.err.network', 'The connection failed. Check your internet connection and try again.');
+    case 'catalogue_missing': return t('adminEvents.err.catalogue', 'The event page of this event could not be found. Reload the page; if it keeps happening, ask the developer.');
+    default: return null;
   }
-  if (err instanceof Error && err.message) return err.message;
-  return 'Something went wrong. Try again in a moment.';
+}
+
+export function editorErrorText(err: unknown, t: TFunction): string {
+  const fallback = t('adminEvents.err.generic', 'Something went wrong. Try again in a moment.');
+  if (err instanceof EditorError) return saveErrorText(err.code, t) ?? fallback;
+  return fallback;
 }
 
 type PgError = { code?: string; message?: string; details?: string; hint?: string } | null;
@@ -183,11 +187,10 @@ function fromPg(error: PgError): EditorError {
     return new EditorError('not_installed', msg);
   }
   if (code === '42501') return new EditorError('forbidden', msg);
-  if (code === '23514') {
-    return new EditorError('check', 'A question or a setting has a value the system does not accept. Check the question types.', error?.details);
-  }
+  if (code === '23514') return new EditorError('check', msg, error?.details);
   if (code === '22023' && msg) return new EditorError(msg, msg, error?.details);
-  if (!code && /fetch|network/i.test(msg)) return new EditorError('network', msg);
+  // No database code: the request never reached Postgres (offline, gateway, timeout).
+  if (!code) return new EditorError('network', msg);
   return new EditorError(msg || 'unknown', msg, error?.details);
 }
 
@@ -200,19 +203,23 @@ export interface LoadedEvent {
   sectorIds: string[];
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * The gl_event behind a catalogue id. Falls back to a gl_event id (the hidden canaries
- * have no catalogue row). Null when the event has no core registration, or before the
- * registration migration is applied (the query then fails on the missing columns).
+ * have no catalogue row). Null ONLY when the read succeeded and found no row (the event
+ * has no registration of its own, or the id is not an id at all).
+ * A failed read THROWS: the caller must never guess "old editor" for a core_v2 event
+ * (the old editor writes the join link into the public catalogue row and can delete it).
  */
 export async function findGlEvent(id: string): Promise<GlEventRow | null> {
+  if (!UUID_RE.test(id)) return null;
   const byCatalogue = await supabase.from('gl_event').select('*').eq('legacy_event_id', id).maybeSingle();
-  if (byCatalogue.error) return null;
+  if (byCatalogue.error) throw fromPg(byCatalogue.error);
   if (byCatalogue.data) return byCatalogue.data as GlEventRow;
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
   const byId = await supabase.from('gl_event').select('*').eq('id', id).maybeSingle();
-  if (byId.error || !byId.data) return null;
-  return byId.data as GlEventRow;
+  if (byId.error) throw fromPg(byId.error);
+  return (byId.data as GlEventRow | null) ?? null;
 }
 
 export async function loadEvent(gl: GlEventRow): Promise<LoadedEvent> {
@@ -225,7 +232,12 @@ export async function loadEvent(gl: GlEventRow): Promise<LoadedEvent> {
       ? supabase.from('event_sectors').select('sector_id').eq('event_id', gl.legacy_event_id)
       : Promise.resolve({ data: [], error: null }),
   ]);
+  // Any failed read stops here: an editable form built from a missing catalogue row
+  // would save an empty description, no date and "unpublished" over the real event.
+  if (cat.error) throw fromPg(cat.error);
   if (qs.error) throw fromPg(qs.error);
+  if (secs.error) throw fromPg(secs.error);
+  if (gl.legacy_event_id && !cat.data) throw new EditorError('catalogue_missing', 'catalogue row missing');
   return {
     catalogue: (cat.data as CatalogueRow | null) ?? null,
     gl,
@@ -241,14 +253,24 @@ function normaliseQuestion(q: QuestionRow): QuestionRow {
   return { ...q, options };
 }
 
+/** Every registration of the event, read 1,000 at a time (the API caps one read at 1,000 rows). */
 export async function loadGuests(glEventId: string): Promise<GuestRow[]> {
-  const { data, error } = await supabase
-    .from('gl_guest')
-    .select(GUEST_COLUMNS)
-    .eq('event_id', glEventId)
-    .order('created_at', { ascending: false });
-  if (error) throw fromPg(error);
-  return (data || []) as unknown as GuestRow[];
+  const PAGE = 1000;
+  const out: GuestRow[] = [];
+  for (let from = 0; from < 100000; from += PAGE) {
+    const { data, error } = await supabase
+      .from('gl_guest')
+      .select(GUEST_COLUMNS)
+      .eq('event_id', glEventId)
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, from + PAGE - 1);
+    if (error) throw fromPg(error);
+    const rows = (data || []) as unknown as GuestRow[];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ writes */
@@ -307,48 +329,51 @@ export async function registrationStaff<T = Record<string, unknown>>(body: Recor
 }
 
 /** registration function codes a staff screen can meet, in plain English. */
-export function staffErrorText(code: string | undefined): string {
+export function staffErrorText(code: string | undefined, t: TFunction): string {
   switch (code) {
     case 'forbidden':
     case 'session_expired':
-      return 'Your session has ended or your account cannot do this. Sign in again as M3 staff.';
+      return t('adminEvents.staffErr.session', 'Your session has ended or your account cannot do this. Sign in again as M3 staff.');
     case 'not_found':
-      return 'This event or registration no longer exists. Reload the page.';
+      return t('adminEvents.staffErr.notFound', 'This event or registration no longer exists. Reload the page.');
     case 'wrong_engine':
-      return 'This event runs on the guest list. Use its guest-list page.';
+      return t('adminEvents.staffErr.engine', 'This event runs on the guest list. Use its guest-list page.');
     case 'info_request_required':
-      return 'Write what you need to know before sending.';
+      return t('adminEvents.staffErr.info', 'Write what you need to know before sending.');
     case 'bad_decision':
     case 'bad_input':
-      return 'The request could not be read. Reload the page and try again.';
+      return t('adminEvents.staffErr.input', 'The request could not be read. Reload the page and try again.');
     case 'rate_limited':
     case 'busy':
-      return 'Too many actions at once. Wait a minute and try again.';
+      return t('adminEvents.staffErr.busy', 'Too many actions at once. Wait a minute and try again.');
     case 'NOT_FOUND':
     case 'unavailable':
-      return 'The registration service is not installed yet. Ask the developer to deploy it.';
+      return t('adminEvents.staffErr.notInstalled', 'The registration service is not installed yet. Ask the developer to deploy it.');
     case 'network':
     case 'Failed to send a request to the Edge Function':
-      return 'The registration service could not be reached. Check your connection; if it keeps failing, it is not installed yet.';
+      return t('adminEvents.staffErr.network', 'The registration service could not be reached. Check your connection; if it keeps failing, it is not installed yet.');
     default:
-      return 'Something went wrong. Try again in a moment.';
+      return t('adminEvents.err.generic', 'Something went wrong. Try again in a moment.');
   }
 }
 
 /* ------------------------------------------------------------------ words */
 
-/** Status words for M3 staff (the registrant sees the contract's own words). */
-export const STATUS_WORDS: Record<GuestStatus, string> = {
-  requested: 'To review',
-  needs_info: 'Detail asked',
-  waitlisted: 'Waiting list',
-  invited: 'Invited',
-  approved: 'Approved, payment due',
-  confirmed: 'Confirmed',
-  declined: 'Declined',
-  rejected: 'Not accepted',
-  cancelled: 'Cancelled',
-};
+/** Status words for M3 staff, in the spec's vocabulary (§2.3) seen from M3's side. */
+export function statusWord(status: GuestStatus | string, t: TFunction): string {
+  switch (status) {
+    case 'requested': return t('adminEvents.status.requested', 'To review');
+    case 'needs_info': return t('adminEvents.status.needsInfo', 'Information needed');
+    case 'waitlisted': return t('adminEvents.status.waitlisted', 'Waiting list');
+    case 'invited': return t('adminEvents.status.invited', 'Invited');
+    case 'approved': return t('adminEvents.status.approved', 'Approved, payment due');
+    case 'confirmed': return t('adminEvents.status.confirmed', 'Confirmed');
+    case 'declined': return t('adminEvents.status.declined', 'They declined');
+    case 'rejected': return t('adminEvents.status.rejected', 'Not accepted');
+    case 'cancelled': return t('adminEvents.status.cancelled', 'Cancelled');
+    default: return String(status);
+  }
+}
 
 export const STATUS_TONE: Record<GuestStatus, 'success' | 'warning' | 'danger' | 'neutral' | 'info'> = {
   requested: 'warning',
@@ -362,26 +387,32 @@ export const STATUS_TONE: Record<GuestStatus, 'success' | 'warning' | 'danger' |
   cancelled: 'neutral',
 };
 
-export const QUESTION_KIND_WORDS: Record<QuestionKind, string> = {
-  text: 'Short answer',
-  textarea: 'Long answer',
-  select: 'One choice from a list',
-  multiselect: 'Several choices from a list',
-  checkbox: 'Yes / no tick box',
-  url: 'Web link',
-  phone: 'Phone number',
-  country: 'Country',
-  sectors: 'Sectors of interest',
-  parts: 'Parts of the event',
-  consent: 'Agreement to a statement',
-};
+export function questionKindWord(kind: QuestionKind, t: TFunction): string {
+  switch (kind) {
+    case 'text': return t('adminEvents.qkind.text', 'Short answer');
+    case 'textarea': return t('adminEvents.qkind.textarea', 'Long answer');
+    case 'select': return t('adminEvents.qkind.select', 'One choice from a list');
+    case 'multiselect': return t('adminEvents.qkind.multiselect', 'Several choices from a list');
+    case 'checkbox': return t('adminEvents.qkind.checkbox', 'Yes / no tick box');
+    case 'url': return t('adminEvents.qkind.url', 'Web link');
+    case 'phone': return t('adminEvents.qkind.phone', 'Phone number');
+    case 'country': return t('adminEvents.qkind.country', 'Country');
+    case 'sectors': return t('adminEvents.qkind.sectors', 'Sectors of interest');
+    case 'parts': return t('adminEvents.qkind.parts', 'Parts of the event');
+    case 'consent': return t('adminEvents.qkind.consent', 'Agreement to a statement');
+    default: return String(kind);
+  }
+}
 
-export const PROFILE_FIELD_WORDS: Record<ProfileField, string> = {
-  job_title: 'Job title',
-  country: 'Country',
-  phone: 'Phone',
-  linkedin_url: 'LinkedIn profile',
-};
+export function profileFieldWord(field: ProfileField, t: TFunction): string {
+  switch (field) {
+    case 'job_title': return t('adminEvents.pfield.jobTitle', 'Job title');
+    case 'country': return t('adminEvents.pfield.country', 'Country');
+    case 'phone': return t('adminEvents.pfield.phone', 'Phone');
+    case 'linkedin_url': return t('adminEvents.pfield.linkedin', 'LinkedIn profile');
+    default: return String(field);
+  }
+}
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -425,18 +456,27 @@ export function isHttpsUrl(v: string): boolean {
 
 export const DEFAULT_TIMEZONE = 'Europe/Monaco';
 
-export const TIMEZONES: { value: string; label: string }[] = [
-  { value: 'Europe/Monaco', label: 'Monaco, Paris, Rome' },
-  { value: 'Europe/London', label: 'London' },
-  { value: 'Europe/Lisbon', label: 'Lisbon' },
-  { value: 'Europe/Athens', label: 'Athens' },
-  { value: 'Asia/Dubai', label: 'Dubai' },
-  { value: 'Asia/Singapore', label: 'Singapore' },
-  { value: 'Australia/Sydney', label: 'Sydney' },
-  { value: 'America/New_York', label: 'New York, Miami' },
-  { value: 'America/Los_Angeles', label: 'Los Angeles' },
-  { value: 'UTC', label: 'UTC' },
+export const TIMEZONE_VALUES = [
+  'Europe/Monaco', 'Europe/London', 'Europe/Lisbon', 'Europe/Athens', 'Asia/Dubai', 'Asia/Singapore',
+  'Australia/Sydney', 'America/New_York', 'America/Los_Angeles', 'UTC',
 ];
+
+/** The time zones offered in the editor, with their city names. Any other zone shows as itself. */
+export function timezoneLabel(tz: string, t: TFunction): string {
+  switch (tz) {
+    case 'Europe/Monaco': return t('adminEvents.tz.monaco', 'Monaco, Paris, Rome');
+    case 'Europe/London': return t('adminEvents.tz.london', 'London');
+    case 'Europe/Lisbon': return t('adminEvents.tz.lisbon', 'Lisbon');
+    case 'Europe/Athens': return t('adminEvents.tz.athens', 'Athens');
+    case 'Asia/Dubai': return t('adminEvents.tz.dubai', 'Dubai');
+    case 'Asia/Singapore': return t('adminEvents.tz.singapore', 'Singapore');
+    case 'Australia/Sydney': return t('adminEvents.tz.sydney', 'Sydney');
+    case 'America/New_York': return t('adminEvents.tz.newYork', 'New York, Miami');
+    case 'America/Los_Angeles': return t('adminEvents.tz.losAngeles', 'Los Angeles');
+    case 'UTC': return t('adminEvents.tz.utc', 'UTC');
+    default: return tz;
+  }
+}
 
 export function isValidTimeZone(tz: string): boolean {
   try {
@@ -503,9 +543,10 @@ export function addMinutesToWall(local: string, minutes: number): string {
 
 export function csvCell(v: unknown): string {
   const s = v === null || v === undefined ? '' : String(v);
-  // A cell starting with = + - @ would run as a formula in Excel.
-  const safe = /^[=+\-@]/.test(s) ? `'${s}` : s;
-  return /[",\n\r;]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  // A cell starting with = + - @ (or a tab / carriage return, or spaces before one of
+  // them) would run as a formula in Excel or LibreOffice (OWASP CSV injection).
+  const safe = /^[=+\-@\t\r]/.test(s) || /^\s+[=+\-@]/.test(s) ? `'${s}` : s;
+  return /[",\n\r;\t]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 export function downloadCsv(filename: string, rows: unknown[][]): void {
@@ -522,14 +563,17 @@ export function downloadCsv(filename: string, rows: unknown[][]): void {
 }
 
 /** Where a registration came from (gl_guest.source_detail), in words. */
-const ENTRY_WORDS: Record<string, string> = {
-  signup: 'Sign-up page',
-  event_page: 'Event page',
-  deep_link: 'Direct link',
-  campaign: 'E-mail campaign',
-};
-export function sourceText(d: Record<string, unknown> | null | undefined): string {
+function entryWord(entry: string, t: TFunction): string {
+  switch (entry) {
+    case 'signup': return t('adminEvents.entry.signup', 'Sign-up page');
+    case 'event_page': return t('adminEvents.entry.eventPage', 'Event page');
+    case 'deep_link': return t('adminEvents.entry.deepLink', 'Direct link');
+    case 'campaign': return t('adminEvents.entry.campaign', 'E-mail campaign');
+    default: return entry;
+  }
+}
+export function sourceText(d: Record<string, unknown> | null | undefined, t: TFunction): string {
   if (!d) return '';
-  const entry = typeof d.entry === 'string' ? ENTRY_WORDS[d.entry] ?? d.entry : '';
+  const entry = typeof d.entry === 'string' ? entryWord(d.entry, t) : '';
   return [entry, d.utm_source, d.utm_campaign].filter((x) => typeof x === 'string' && x).join(' / ');
 }

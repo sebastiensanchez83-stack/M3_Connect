@@ -31,12 +31,13 @@ import {
 /**
  * The event editor of the registration core (spec §8.2): /admin/events/new and
  * /admin/events/:id for events that register through gl_* (engine core_v2).
- * Webinars in full; on-site events get Basics and Registrations until Phase 3.
+ * Webinars in full; on-site events get Basics and the list of people registered
+ * (no decisions) until Phase 3.
  *
  * One Save button sends ONE admin_save_event call with the tabs that changed. Sectors
  * stay in event_sectors (written after the call, as in the old editor).
  */
-export function EventEditor({ routeId, initialKind }: { routeId: string; initialKind: EventKind }) {
+export function EventEditor({ routeId, initialKind, forced = false }: { routeId: string; initialKind: EventKind; forced?: boolean }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -56,16 +57,21 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
   const [dup, setDup] = useState<{ title: string; slug: string; start: string; error: string | null; busy: boolean } | null>(null);
 
   const kind = form.basics.kind;
+  // A test event of the contract scripts (canary): no catalogue row. Saving any tab would
+  // create one (and its date would then override the runbook's settings.starts_at), so
+  // this page only lists its registrations.
+  const isCanary = !isNew && !!loaded && !loaded.gl.legacy_event_id;
   const tabParam = params.get('tab') as EditorTab | null;
   const tabs = useMemo<EditorTab[]>(() => {
+    if (isCanary) return ['registrations'];
     const list: EditorTab[] = kind === 'webinar' ? ['basics', 'registration', 'questions', 'emails'] : ['basics'];
     if (!isNew) list.push('registrations');
     return list;
-  }, [kind, isNew]);
-  const tab: EditorTab = tabParam && tabs.includes(tabParam) ? tabParam : 'basics';
+  }, [kind, isNew, isCanary]);
+  const tab: EditorTab = tabParam && tabs.includes(tabParam) ? tabParam : tabs[0];
   const setTab = (next: EditorTab) => {
     const p = new URLSearchParams(params);
-    if (next === 'basics') p.delete('tab'); else p.set('tab', next);
+    if (next === tabs[0]) p.delete('tab'); else p.set('tab', next);
     setParams(p, { replace: true });
   };
 
@@ -95,7 +101,7 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
           if (alive) setRegCount(count ?? 0);
         }
       } catch (e) {
-        if (alive) setLoadError(editorErrorText(e));
+        if (alive) setLoadError(editorErrorText(e, t));
       }
       if (alive) setLoading(false);
     })();
@@ -113,18 +119,49 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
 
   const dirty = useMemo(() => dirtySections(form, initial), [form, initial]);
   const hasChanges = isNew || dirty.length > 0;
-  const issues: FormIssue[] = useMemo(() => (showIssues ? checkForm(form, isNew) : []), [showIssues, form, isNew]);
+  const unsaved = isNew ? !!form.basics.title.trim() : dirty.length > 0;
+  const issues: FormIssue[] = useMemo(() => (showIssues ? checkForm(form, t) : []), [showIssues, form, t]);
 
   // Leaving the page with unsaved changes: the browser asks first.
   useEffect(() => {
-    if (isNew ? !form.basics.title : dirty.length === 0) return;
+    if (!unsaved) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [dirty.length, isNew, form.basics.title]);
+  }, [unsaved]);
+
+  // And inside the site (sidebar, back link, any other link): ask before leaving. Runs in
+  // the capture phase, before the router's own click handler.
+  useEffect(() => {
+    if (!unsaved) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target instanceof Element ? e.target.closest('a[href]') : null) as HTMLAnchorElement | null;
+      if (!a || (a.target && a.target !== '_self') || a.hasAttribute('download')) return;
+      let url: URL;
+      try { url = new URL(a.href, window.location.href); } catch { return; }
+      if (url.origin !== window.location.origin || url.pathname === window.location.pathname) return;
+      if (!window.confirm(t('adminEvents.leaveConfirm', 'You have changes that are not saved. Leave this page anyway?'))) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener('click', onClick, true);
+    return () => document.removeEventListener('click', onClick, true);
+  }, [unsaved, t]);
+
+  const kindOn = (k: EventKind) => (k === 'webinar' ? flags.webinar_v2 : flags.onsite_v2);
 
   const setSection = <S extends FormSection>(s: S, value: EditorForm[S]) => {
     setSaveError(null);
+    if (s === 'basics' && isNew) {
+      const nextKind = (value as EditorForm['basics']).kind;
+      // The other type's switch is off: its events are still made in the current editor.
+      if (nextKind !== form.basics.kind && !forced && !kindOn(nextKind)) {
+        navigate(`/admin/events/new?type=${nextKind === 'onsite' ? 'on_site' : 'webinar'}`, { replace: true });
+        return;
+      }
+    }
     setForm((f) => {
       // A new event that changes type starts from that type's registration defaults.
       if (s === 'basics' && isNew && (value as EditorForm['basics']).kind !== f.basics.kind) {
@@ -138,10 +175,11 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
   const glId = loaded?.gl.id ?? null;
   const eventId = loaded?.gl.legacy_event_id ?? null;
   const wasPublished = initial.basics.visibility === 'published';
-  const canPublish = (kind === 'webinar' ? flags.webinar_v2 : flags.onsite_v2) || wasPublished;
+  const canPublish = kindOn(kind) || wasPublished;
 
   const save = async () => {
-    const found = checkForm(form, isNew);
+    if (isCanary) return;
+    const found = checkForm(form, t);
     if (found.length) {
       setShowIssues(true);
       const first = found[0].tab;
@@ -159,52 +197,67 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
     }
     setSaving(true);
     setSaveError(null);
+    let res: { gl_event_id: string; event_id: string; slug: string };
     try {
-      const res = onlyId && glId && eventId ? { gl_event_id: glId, event_id: eventId, slug: form.basics.slug } : await saveEvent(payload);
-      if (sectorsChanged) {
-        try {
-          await saveSectors(res.event_id, form.basics.sectorIds);
-        } catch {
-          toast({ title: t('adminEvents.sectorsFailed', 'Saved, but the sectors could not be updated'), description: t('adminEvents.tryAgain', 'Try again in a moment.'), variant: 'destructive' });
-        }
-      }
-      if (isNew) {
-        toast({
-          title: t('adminEvents.created', 'Event created'),
-          description: form.basics.visibility === 'published' ? undefined : t('adminEvents.createdDraft', 'It stays invisible to the public until you publish it.'),
-        });
-        navigate(`/admin/events/${res.event_id}${kind === 'webinar' ? '?tab=registration' : ''}`, { replace: true });
-        return;
-      }
-      const gl = await findGlEvent(res.event_id);
-      if (gl) applyLoaded(await loadEvent(gl));
-      // A canary without a catalogue row gets one on its first save: follow the new id.
-      if (routeId !== res.event_id) navigate(`/admin/events/${res.event_id}${tab === 'basics' ? '' : `?tab=${tab}`}`, { replace: true });
-      toast({ title: t('adminEvents.saved', 'Changes saved') });
+      res = onlyId && glId && eventId ? { gl_event_id: glId, event_id: eventId, slug: form.basics.slug } : await saveEvent(payload);
     } catch (e) {
-      const msg = editorErrorText(e);
-      setSaveError(msg);
+      setSaveError(editorErrorText(e, t));
       if (e instanceof EditorError && /^slug_|^title_|publish_needs_flag/.test(e.code)) setTab('basics');
       if (e instanceof EditorError && e.code === 'not_installed') setNotInstalled(true);
+      setSaving(false);
+      return;
+    }
+    if (sectorsChanged) {
+      try {
+        await saveSectors(res.event_id, form.basics.sectorIds);
+      } catch {
+        toast({ title: t('adminEvents.sectorsFailed', 'Saved, but the sectors could not be updated'), description: t('adminEvents.tryAgain', 'Try again in a moment.'), variant: 'destructive' });
+      }
+    }
+    if (isNew) {
+      setSaving(false);
+      toast({
+        title: t('adminEvents.created', 'Event created'),
+        description: form.basics.visibility === 'published' ? undefined : t('adminEvents.createdDraft', 'It stays invisible to the public until you publish it.'),
+      });
+      navigate(`/admin/events/${res.event_id}${kind === 'webinar' ? '?tab=registration' : ''}`, { replace: true });
+      return;
+    }
+    // Saved. Re-read what the database now holds (it normalises some values).
+    try {
+      const gl = await findGlEvent(res.event_id);
+      if (gl) applyLoaded(await loadEvent(gl));
+      toast({ title: t('adminEvents.saved', 'Changes saved') });
+    } catch {
+      setInitial(form);
+      toast({ title: t('adminEvents.saved', 'Changes saved'), description: t('adminEvents.savedReload', 'Reload the page to see the latest version.') });
     }
     setSaving(false);
+  };
+
+  /** "Attendance is complete" (Registrations tab): read by registration-cron for the absentee e-mail. */
+  const setAttendanceRecorded = async (value: boolean) => {
+    if (!glId || isCanary) return;
+    await saveEvent({ id: glId, registration: { settings: { attendance_recorded: value } } });
+    setLoaded((l) => (l ? { ...l, gl: { ...l.gl, settings: { ...(l.gl.settings || {}), attendance_recorded: value } } } : l));
   };
 
   /* ---------------------------------------------------------- duplicate */
 
   const openDuplicate = () => {
-    const title = `${form.basics.title} (copy)`;
-    setDup({ title, slug: slugify(`${form.basics.slug}-copy`), start: form.basics.start, error: null, busy: false });
+    // The copy is made from the SAVED event: propose its saved title, address and date.
+    const title = `${initial.basics.title} (${t('adminEvents.dup.copyWord', 'copy')})`;
+    setDup({ title, slug: slugify(`${initial.basics.slug}-copy`), start: initial.basics.start, error: null, busy: false });
   };
   const runDuplicate = async () => {
-    if (!dup || !glId) return;
+    if (!dup || !glId || !loaded) return;
     const slug = slugify(dup.slug);
     if (!dup.title.trim()) { setDup({ ...dup, error: t('adminEvents.dup.needTitle', 'Give the copy a title.') }); return; }
     if (!slug || !SLUG_RE.test(slug) || RESERVED_SLUGS.includes(slug)) {
       setDup({ ...dup, error: t('adminEvents.dup.needSlug', 'Give the copy its own web address (letters, numbers and dashes).') });
       return;
     }
-    const tz = form.basics.timezone;
+    const tz = initial.basics.timezone;
     const event: Record<string, unknown> = { title: dup.title.trim() };
     if (dup.start) {
       const startIso = wallToIso(dup.start, tz);
@@ -216,14 +269,18 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
         ? new Date(new Date(startIso).getTime() + (new Date(oldEnd).getTime() - new Date(oldStart).getTime())).toISOString()
         : null;
     }
+    const registration: Record<string, unknown> = { slug };
+    // The copy's attendance is not recorded yet, whatever the original's state (the clone
+    // copies the settings, and `settings` given here replaces them as a whole).
+    if (loaded.gl.kind === 'webinar') registration.settings = { ...(loaded.gl.settings || {}), attendance_recorded: false };
     setDup({ ...dup, busy: true, error: null });
     try {
-      const res = await cloneEvent(glId, { event, registration: { slug } });
+      const res = await cloneEvent(glId, { event, registration });
       setDup(null);
       toast({ title: t('adminEvents.dup.done', 'Copy created as a draft'), description: t('adminEvents.dup.doneBody', 'Check the dates and the online link before publishing it.') });
       navigate(`/admin/events/${res.event_id}`);
     } catch (e) {
-      setDup((d) => (d ? { ...d, busy: false, error: editorErrorText(e) } : d));
+      setDup((d) => (d ? { ...d, busy: false, error: editorErrorText(e, t) } : d));
     }
   };
 
@@ -234,7 +291,10 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
     return (
       <div className="mx-auto max-w-3xl">
         <AdminDetailHeader back={{ to: '/admin/events', label: t('adminEvents.back', 'Events') }} title={t('adminEvents.editTitle', 'Event')} />
-        <Note tone="danger">{loadError}</Note>
+        <Note tone="danger"><span role="alert">{loadError}</span></Note>
+        <Button type="button" variant="outline" size="sm" className={cn(ADMIN_BTN, 'mt-4')} onClick={() => window.location.reload()}>
+          {t('adminEvents.tryAgainBtn', 'Try again')}
+        </Button>
       </div>
     );
   }
@@ -242,20 +302,45 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
   const b = form.basics;
   const tabWords: Record<EditorTab, string> = {
     basics: t('adminEvents.tab.basics', 'Basics'),
-    registration: t('adminEvents.tab.registration', 'Registration'),
+    registration: t('adminEvents.tab.howToRegister', 'How to register'),
     questions: t('adminEvents.tab.questions', 'Questions'),
     emails: t('adminEvents.tab.emails', 'E-mails'),
     registrations: regCount
-      ? t('adminEvents.tab.registrationsN', 'Registrations ({{n}})', { n: regCount })
-      : t('adminEvents.tab.registrations', 'Registrations'),
+      ? t('adminEvents.tab.peopleN', 'People registered ({{n}})', { n: regCount })
+      : t('adminEvents.tab.people', 'People registered'),
   };
   const tabHasIssue = (x: EditorTab) => issues.some((i) => i.tab === x);
   const startIso = b.start ? wallToIso(b.start, b.timezone) : null;
+  const savedStartIso = initial.basics.start ? wallToIso(initial.basics.start, initial.basics.timezone) : null;
   const visibilityPill = b.visibility === 'published'
     ? <AdminStatusPill tone="success">{t('adminEvents.basics.published', 'Published')}</AdminStatusPill>
     : b.visibility === 'hidden'
       ? <AdminStatusPill>{t('adminEvents.basics.hidden', 'Hidden test')}</AdminStatusPill>
       : <AdminStatusPill tone="warning">{t('adminEvents.basics.draft', 'Draft')}</AdminStatusPill>;
+  const showSave = !isCanary && tab !== 'registrations';
+  const canDuplicate = !isNew && !!glId && !isCanary;
+  const canView = !isNew && !!eventId;
+
+  const saveButton = (
+    <Button type="button" variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={save} disabled={saving || !hasChanges}>
+      {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="mr-1.5 h-4 w-4" aria-hidden="true" />}
+      {isNew ? t('adminEvents.create', 'Create the event') : t('adminEvents.save', 'Save changes')}
+    </Button>
+  );
+  const viewButton = (extra?: string) => (
+    <Button asChild variant="outline" size="sm" className={cn(ADMIN_BTN, extra)}>
+      <a href={`/events/${eventId}`} target="_blank" rel="noopener noreferrer">
+        <ExternalLink className="mr-1.5 h-4 w-4" aria-hidden="true" />
+        {t('adminEvents.view', 'View page')}
+      </a>
+    </Button>
+  );
+  const duplicateButton = (extra?: string) => (
+    <Button type="button" variant="outline" size="sm" className={cn(ADMIN_BTN, extra)} onClick={openDuplicate}>
+      <Copy className="mr-1.5 h-4 w-4" aria-hidden="true" />
+      {t('adminEvents.duplicate', 'Duplicate')}
+    </Button>
+  );
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -263,7 +348,10 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
         back={{ to: `/admin/events?type=${kind === 'webinar' ? 'webinar' : 'on_site'}`, label: t('adminEvents.back', 'Events') }}
         title={isNew
           ? (kind === 'webinar' ? t('adminEvents.newWebinar', 'New webinar') : t('adminEvents.newOnsite', 'New on-site event'))
-          : b.title || t('adminEvents.untitled', 'Untitled event')}
+          : (
+            // Phones: one line, so the sticky header keeps the form in view.
+            <span className="line-clamp-1 sm:line-clamp-none" title={b.title}>{b.title || t('adminEvents.untitled', 'Untitled event')}</span>
+          )}
         badges={(
           <>
             <AdminStatusPill tone={kind === 'onsite' ? 'navy' : 'neutral'}>{kind === 'onsite' ? t('adminEvents.basics.onsite', 'On-site event') : t('adminEvents.basics.webinar', 'Webinar')}</AdminStatusPill>
@@ -272,28 +360,14 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
           </>
         )}
         subtitle={startIso ? formatInZone(startIso, b.timezone, !b.isFullDay) : t('adminEvents.noDate', 'Date to be set')}
-        actions={(
+        actions={(canView || canDuplicate || showSave) ? (
           <>
-            {!isNew && eventId && (
-              <Button asChild variant="outline" size="sm" className={ADMIN_BTN}>
-                <a href={`/events/${eventId}`} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 sm:mr-1.5" aria-hidden="true" />
-                  <span className="sr-only sm:not-sr-only">{t('adminEvents.view', 'View page')}</span>
-                </a>
-              </Button>
-            )}
-            {!isNew && glId && (
-              <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} onClick={openDuplicate}>
-                <Copy className="h-4 w-4 sm:mr-1.5" aria-hidden="true" />
-                <span className="sr-only sm:not-sr-only">{t('adminEvents.duplicate', 'Duplicate')}</span>
-              </Button>
-            )}
-            <Button type="button" variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={save} disabled={saving || !hasChanges}>
-              {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="mr-1.5 h-4 w-4" aria-hidden="true" />}
-              {isNew ? t('adminEvents.create', 'Create the event') : t('adminEvents.save', 'Save changes')}
-            </Button>
+            {/* Phones: only Save stays in the sticky header; the others sit at the bottom, with words. */}
+            {canView && viewButton('hidden sm:inline-flex')}
+            {canDuplicate && duplicateButton('hidden sm:inline-flex')}
+            {showSave && saveButton}
           </>
-        )}
+        ) : undefined}
       />
 
       <div className="space-y-5">
@@ -343,14 +417,14 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
           </div>
         )}
 
-        {!isNew && loaded && !loaded.gl.legacy_event_id && tab === 'basics' && (
+        {isCanary && (
           <Note>
-            {t('adminEvents.noCatalogue', 'This test event has no event page yet. Saving creates one, kept unpublished.')}
+            {t('adminEvents.canary', 'This is a test event of the set-up scripts, without an event page. Change it with the runbook, not here: saving from this page would create an event page for it. Its registrations are listed below.')}
           </Note>
         )}
         {kind === 'onsite' && tab === 'basics' && (
           <Note>
-            {t('adminEvents.onsiteLater', 'For on-site events, this page sets the basics. Registration settings, participation types and questions arrive in a later update. Meanwhile people register with their name, e-mail and the usual fields, and M3 checks each registration in the Registrations tab.')}
+            {t('adminEvents.onsiteLater', 'For on-site events, this page sets the basics. Registration settings, participation types, questions and decisions arrive with the on-site editor, in a later update. Meanwhile people register with their name, e-mail and the usual fields, and you can see them in People registered.')}
           </Note>
         )}
 
@@ -363,6 +437,8 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
             slugLocked={!isNew && wasPublished}
             canPublish={canPublish}
             eventId={eventId}
+            savedVisibility={isNew ? null : initial.basics.visibility}
+            kindOpensOldEditor={isNew && !forced ? { webinar: !flags.webinar_v2, onsite: !flags.onsite_v2 } : null}
           />
         )}
         {tab === 'registration' && (
@@ -372,6 +448,7 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
             issues={issues}
             timezone={b.timezone}
             eventStart={b.start}
+            invitationAllowed={initial.registration.mode === 'invitation'}
           />
         )}
         {tab === 'questions' && (
@@ -384,32 +461,37 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
           />
         )}
         {tab === 'emails' && (
-          <EmailsTab value={form.emails} onChange={(v) => setSection('emails', v)} issues={issues} kind={kind} />
+          <EmailsTab value={form.emails} onChange={(v) => setSection('emails', v)} issues={issues} kind={kind} mode={form.registration.mode} />
         )}
         {tab === 'registrations' && glId && loaded && (
           <EventRegistrationsPanel
             glEventId={glId}
             kind={kind}
-            mode={loaded.gl.registration_mode ?? (kind === 'webinar' ? 'instant' : 'review')}
             capacity={loaded.gl.capacity}
             slug={loaded.gl.slug}
             timezone={initial.basics.timezone}
+            startIso={savedStartIso}
             questions={loaded.questions}
             onCount={setRegCount}
+            attendanceRecorded={(loaded.gl.settings || {}).attendance_recorded === true}
+            onAttendanceRecorded={isCanary ? undefined : setAttendanceRecorded}
           />
         )}
 
-        {tab !== 'registrations' && (
-          <div className="flex flex-col-reverse gap-3 border-t border-rule pt-5 sm:flex-row sm:items-center sm:justify-end">
-            {!isNew && dirty.length > 0 && (
+        {(showSave || canView || canDuplicate) && (
+          <div className={cn('flex flex-col-reverse gap-3 border-t border-rule pt-5 sm:flex-row sm:items-center sm:justify-end', !showSave && 'sm:hidden')}>
+            {(canView || canDuplicate) && (
+              <div className="flex flex-wrap gap-2 sm:hidden">
+                {canView && viewButton()}
+                {canDuplicate && duplicateButton()}
+              </div>
+            )}
+            {showSave && !isNew && dirty.length > 0 && (
               <Button type="button" variant="outline" size="sm" className={ADMIN_BTN} disabled={saving} onClick={() => { setForm(initial); setShowIssues(false); setSaveError(null); }}>
                 {t('adminEvents.discard', 'Undo my changes')}
               </Button>
             )}
-            <Button type="button" variant="secondary" size="sm" className={ADMIN_BTN_PRIMARY} onClick={save} disabled={saving || !hasChanges}>
-              {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" aria-hidden="true" /> : <Save className="mr-1.5 h-4 w-4" aria-hidden="true" />}
-              {isNew ? t('adminEvents.create', 'Create the event') : t('adminEvents.save', 'Save changes')}
-            </Button>
+            {showSave && saveButton}
           </div>
         )}
       </div>
@@ -435,14 +517,14 @@ export function EventEditor({ routeId, initialKind }: { routeId: string; initial
               <Input id="dup-slug" value={dup.slug} onChange={(e) => setDup({ ...dup, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 60) })} className={INPUT} autoCapitalize="none" spellCheck={false} />
             </Field>
             <Field
-              label={b.isFullDay ? t('adminEvents.basics.day', 'Day') : t('adminEvents.basics.start', 'Starts')}
+              label={initial.basics.isFullDay ? t('adminEvents.basics.day', 'Day') : t('adminEvents.basics.start', 'Starts')}
               htmlFor="dup-start"
               hint={t('adminEvents.dup.startHint', 'In the same time zone as this event. You can change it later.')}
             >
               <Input
                 id="dup-start"
-                type={b.isFullDay ? 'date' : 'datetime-local'}
-                value={b.isFullDay ? dup.start.slice(0, 10) : dup.start}
+                type={initial.basics.isFullDay ? 'date' : 'datetime-local'}
+                value={initial.basics.isFullDay ? dup.start.slice(0, 10) : dup.start}
                 onChange={(e) => setDup({ ...dup, start: e.target.value })}
                 className={INPUT}
               />

@@ -1,34 +1,40 @@
 import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-import { Block, ChoiceCards, Field, INPUT, Note, TEXTAREA, ToggleRow } from './editorUi';
-import type { EventKind } from './eventAdmin';
+import { Block, ChoiceCards, Field, INPUT, Note, ToggleRow } from './editorUi';
+import type { EventKind, RegistrationMode } from './eventAdmin';
 import type { EmailsForm, FormIssue } from './editorModel';
 
-/** The reminder times staff can tick (ISO-8601 durations before the start). */
+/**
+ * The reminder times staff can tick (ISO-8601 durations before the start).
+ * registration-cron runs once an hour (at :10) and sends a reminder up to 30 minutes
+ * early, so nothing shorter than one hour can be promised: no "15 minutes before".
+ * A duration stored by SQL still shows (see `extra`), so a save never drops it.
+ */
 const REMINDER_CHOICES: { value: string; kinds: EventKind[] }[] = [
   { value: 'P7D', kinds: ['webinar', 'onsite'] },
   { value: 'P1D', kinds: ['webinar', 'onsite'] },
   { value: 'PT1H', kinds: ['webinar'] },
-  { value: 'PT15M', kinds: ['webinar'] },
 ];
 
 /**
  * E-mails: the automatic messages around the event. Confirmation e-mails always go;
- * here staff choose the reminders, the replay follow-up and who at M3 is told.
+ * here staff choose the reminders, the replay and who at M3 is told.
  */
 export function EmailsTab({
   value,
   onChange,
   issues,
   kind,
+  mode,
 }: {
   value: EmailsForm;
   onChange: (next: EmailsForm) => void;
   issues: FormIssue[];
   kind: EventKind;
+  /** How people register (the How to register tab, saved or not): what the first e-mail says. */
+  mode: RegistrationMode;
 }) {
   const { t } = useTranslation();
   const v = value;
@@ -39,8 +45,8 @@ export function EmailsTab({
   const reminderWords: Record<string, string> = {
     P7D: t('adminEvents.mail.week', 'One week before'),
     P1D: t('adminEvents.mail.day', 'The day before'),
-    PT1H: t('adminEvents.mail.hour', 'One hour before, with the join link'),
-    PT15M: t('adminEvents.mail.quarter', '15 minutes before, with the join link'),
+    PT1H: t('adminEvents.mail.hour', 'About one hour before, with the join link'),
+    PT15M: t('adminEvents.mail.quarter', '15 minutes before (not reliable: better untick it)'),
   };
   const choices = REMINDER_CHOICES.filter((c) => c.kinds.includes(kind));
   // Durations set elsewhere (by SQL) stay listed so a save never drops them silently.
@@ -53,9 +59,11 @@ export function EmailsTab({
   return (
     <div className="space-y-6">
       <Note>
-        {webinar
-          ? t('adminEvents.mail.always', 'Every registrant gets a confirmation e-mail with a calendar file and their personal link. Those cannot be switched off.')
-          : t('adminEvents.mail.alwaysOnsite', 'Every registrant gets an e-mail when they register and when M3 decides. Those cannot be switched off.')}
+        {!webinar
+          ? t('adminEvents.mail.alwaysOnsite', 'Every registrant gets an e-mail when they register and when M3 decides. Those cannot be switched off.')
+          : mode === 'instant'
+            ? t('adminEvents.mail.always', 'Every registrant gets a confirmation e-mail with a calendar file and their personal link. Those cannot be switched off.')
+            : t('adminEvents.mail.alwaysReview', 'Every registrant first gets an e-mail saying their request was received, then one when M3 decides (with the calendar file and their personal link once confirmed). Those cannot be switched off.')}
       </Note>
 
       <Block
@@ -98,7 +106,10 @@ export function EmailsTab({
       {webinar && (
         <Block
           title={t('adminEvents.mail.afterTitle', 'After the webinar')}
-          description={t('adminEvents.mail.afterBody', 'One hour after the end, people who did not attend get a "Sorry we missed you" e-mail with the replay. Mark who attended in the Registrations tab first. Added later, the replay link is sent to them too.')}
+          description={t(
+            'adminEvents.mail.afterBody2',
+            'In People registered, mark who attended (paste the list from Zoom or Teams), then press "Attendance is complete". From one hour after the end, the others get a "Sorry we missed you" e-mail with the replay link (without a replay link, it waits two days). Until you press it, nobody gets "Sorry we missed you": once the replay link is here, everyone gets a simple "The replay is available" e-mail instead. So mark attendance first, then add the replay link.',
+          )}
         >
           <Field
             label={t('adminEvents.mail.replay', 'Replay link')}
@@ -126,20 +137,6 @@ export function EmailsTab({
             title={t('adminEvents.mail.replayPublic', 'Also show the replay on the public event page')}
             body={t('adminEvents.mail.replayPublicBody', 'Off: only registrants get it, by e-mail.')}
           />
-          <Field
-            label={t('adminEvents.mail.followup', 'A few words in the follow-up e-mail')}
-            htmlFor="mail-followup"
-            optional
-            hint={t('adminEvents.mail.followupHint', 'For example the slides, a contact, or the next webinar. Plain text, 1,000 characters at most.')}
-          >
-            <Textarea
-              id="mail-followup"
-              rows={4}
-              value={v.followupNote}
-              onChange={(e) => set('followupNote', e.target.value.slice(0, 1000))}
-              className={TEXTAREA}
-            />
-          </Field>
         </Block>
       )}
 
@@ -151,8 +148,10 @@ export function EmailsTab({
           label={t('adminEvents.mail.notify', 'Tell this address about new registrations')}
           htmlFor="mail-notify"
           error={err('notifyEmail')}
-          optional
-          hint={t('adminEvents.mail.notifyHint', 'One e-mail address. A shared mailbox works best. Empty: nobody is told.')}
+          optional={mode === 'instant'}
+          hint={mode === 'instant'
+            ? t('adminEvents.mail.notifyHint', 'One e-mail address. A shared mailbox works best. Empty: nobody at M3 is told.')
+            : t('adminEvents.mail.notifyHintReview', 'One e-mail address. A shared mailbox works best. Needed when M3 accepts each person, so requests never wait unseen.')}
         >
           <Input
             id="mail-notify"

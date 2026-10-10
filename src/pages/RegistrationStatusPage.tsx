@@ -29,7 +29,7 @@ import { toast } from '@/hooks/use-toast';
 import { accountHref } from '@/lib/accountNav';
 import { openSignup } from '@/lib/authModal';
 import {
-  INFO_ANSWER_MAX, attachRegistration, cancelRegistration, displayOf, fetchMyParticipations, getRegistrationStatus,
+  INFO_ANSWER_MAX, attachRegistration, cancelRegistration, displayOf, getRegistrationStatus,
   questionOptions, registrationErrorText, setRegistrationReminders, updateRegistration, useReviewSla,
   type RegChanges, type RegFailure, type RegStatusView, type RegTarget,
 } from '@/lib/registration';
@@ -194,8 +194,6 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
   const [loginOpen, setLoginOpen] = useState(false);
   // Answering M3: the details form is open under the answer (then the "Your details" card steps aside).
   const [replyDetailsOpen, setReplyDetailsOpen] = useState(false);
-  // Signed in, opened from a personal link of a registration linked to an account: is it this one?
-  const [linkedToMe, setLinkedToMe] = useState<boolean | null>(null);
   const token = 'token' in target ? target.token : null;
 
   // Read again when the account changes (signing in here may make the page the owner's).
@@ -209,18 +207,9 @@ function StatusContent({ target, remindersOff }: { target: RegTarget; remindersO
     return () => { alive = false; };
   }, [target, version, userId]);
 
-  // The function says "linked" without saying to whom (an account that has not confirmed its e-mail
-  // keeps the link editable): the member's own list tells (my_participations, rows by account).
-  const regId = view?.registration.id ?? null;
-  const askLinked = !!userId && !!token && !!view && view.registration.linked === true && !view.read_only;
-  useEffect(() => {
-    if (!askLinked || !regId) { setLinkedToMe(null); return; }
-    let alive = true;
-    fetchMyParticipations().then(({ rows, failed }) => {
-      if (alive) setLinkedToMe(failed ? null : rows.some((r) => r.registration_id === regId && r.linked));
-    });
-    return () => { alive = false; };
-  }, [askLinked, regId, userId]);
+  // Signed in, opened from a personal link of a registration linked to an account: is it this one?
+  // The function says so (linked_to_me). An account that has not confirmed its e-mail keeps the link editable.
+  const linkedToMe = view ? view.registration.linked_to_me === true : null;
 
   const qrText = view?.pass?.qr_text ?? null;
   useEffect(() => {

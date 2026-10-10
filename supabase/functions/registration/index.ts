@@ -1706,6 +1706,7 @@ type Target = {
   via: "token" | "session" | "guest_link";
   readOnly: boolean; // linked to an account and not opened by that account: "Sign in to manage"
   showPass: boolean; // door QR may be shown (inbox holder, or a proven owner)
+  callerId: string | null; // the signed-in account that asked (null: signed out)
 };
 
 /** Contract §2 for one row: the account proved an address (email_proven_at, profiles.email =
@@ -1732,7 +1733,7 @@ async function resolveTarget(body: Json, caller: Caller | null, flags: Flags, o:
       const ctx = await loadEventById(g.event_id);
       // A core_v2 gl_guest.token is never a key (contract §1).
       if (!ctx || ctx.ev.engine !== "guest_list_v1") throw new HttpError(404, "not_found");
-      return { g, ctx, via: "guest_link", readOnly: false, showPass: false };
+      return { g, ctx, via: "guest_link", readOnly: false, showPass: false, callerId: caller?.id ?? null };
     }
     if (!ACCESS_TOKEN_RE.test(token)) throw new HttpError(404, "not_found");
     const { data: gid, error } = await db.rpc("gl_resolve_access_token", { p_token: token, p_touch: o.touch });
@@ -1745,7 +1746,7 @@ async function resolveTarget(body: Json, caller: Caller | null, flags: Flags, o:
     // The token proves the mailbox. Only an account that PROVED this row's address
     // outranks it (Confirm email is off: an unproven account may not be the inbox owner).
     const readOnly = !!g.user_id && g.user_id !== caller?.id && (await accountProvenFor(g.user_id, String(g.email || "")));
-    return { g, ctx, via: "token", readOnly, showPass: true };
+    return { g, ctx, via: "token", readOnly, showPass: true, callerId: caller?.id ?? null };
   }
   if (!caller) throw new HttpError(401, "sign_in_required");
   // The account's rows, or (proven address only) a row of that address no account holds yet:
@@ -1772,7 +1773,7 @@ async function resolveTarget(body: Json, caller: Caller | null, flags: Flags, o:
   const ctx = await loadEventById(g.event_id);
   if (!ctx || ctx.ev.engine !== "core_v2") throw new HttpError(404, "not_found");
   // Door codes go to a session only when its address is proven (contract §5).
-  return { g, ctx, via: "session", readOnly: false, showPass: caller.proven };
+  return { g, ctx, via: "session", readOnly: false, showPass: caller.proven, callerId: caller.id };
 }
 
 // ─── Public: status ──────────────────────────────────────────────────────────
@@ -1835,6 +1836,8 @@ async function statusView(t: Target): Promise<Json> {
       info_request: status === "needs_info" ? g.info_request : null,
       created_at: g.created_at,
       linked: !!g.user_id,
+      // Linked to the account that is asking (a status link opened while signed in).
+      linked_to_me: !!t.callerId && g.user_id === t.callerId,
     },
     timeline,
     fields,

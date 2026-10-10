@@ -333,6 +333,7 @@ export function staffErrorText(code: string | undefined, t: TFunction): string {
   switch (code) {
     case 'forbidden':
     case 'session_expired':
+    case 'sign_in_required':
       return t('adminEvents.staffErr.session', 'Your session has ended or your account cannot do this. Sign in again as M3 staff.');
     case 'not_found':
       return t('adminEvents.staffErr.notFound', 'This event or registration no longer exists. Reload the page.');

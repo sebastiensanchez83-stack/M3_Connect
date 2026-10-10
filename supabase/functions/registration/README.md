@@ -89,11 +89,13 @@ Status view (`status`, `update`):
   event: { gl_event_id, event_id, slug, title, kind, mode, starts_at, ends_at, timezone, location, image_url, ended },
   registration: { id, status, status_display, payment_display, first_name, last_name, email_masked,
                   company, job_title, phone, country, ticket_key, ticket_label, answers, info_request,
-                  created_at, linked },
+                  created_at, linked, linked_to_me },
   timeline: [{ step: received|needs_info|confirmed|not_accepted|waitlisted|cancelled|checked_in, at }],
   fields, questions: [{ ..., editable }], can_edit, can_edit_names, can_cancel, edit_locks_at,
   reminders_on, meeting_url, replay_url, pass: { qr_text } | null, calendar: { title, starts_at, ends_at, location, url } | null }
 ```
+- `linked`: the registration is linked to an account; `linked_to_me`: to the account that is
+  asking (a status link opened while signed in), so the page can say "In your account".
 - `read_only: true`: the registration is linked to an account whose address is PROVEN and
   the page was not opened by that account: show "Sign in to manage"; `update` / `cancel`
   answer 403 `sign_in_required`. A row linked to an account that has not proved its address

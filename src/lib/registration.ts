@@ -200,6 +200,8 @@ export interface RegStatusView {
     info_request?: string | null;
     created_at?: string | null;
     linked?: boolean;
+    /** Linked to the account that is asking (a status link opened while signed in). */
+    linked_to_me?: boolean;
   };
   timeline: { step: TimelineStep; at: string }[];
   fields?: StandardFields;

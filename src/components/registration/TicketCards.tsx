@@ -1,15 +1,16 @@
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Lock } from 'lucide-react';
 import { FieldError } from '@/components/auth/fields';
-import type { RegTicket } from '@/lib/registration';
+import { ticketOpen, type RegTicket } from '@/lib/registration';
 import { cn } from '@/lib/utils';
 import { companyTypeLabel } from './RegistrationUI';
 
 /**
  * "How will you take part?": one big card per participation type (gl_ticket),
  * with its description and its price or note (display only: nothing is paid on
- * the platform yet). A type given by invitation, or one that is full, is shown
- * but cannot be chosen, with the reason in words.
+ * the platform yet). A type given by invitation, or kept for company types the
+ * person's validated companies are not, is shown but cannot be chosen, with
+ * the reason in words.
  */
 
 export function ticketPrice(tk: RegTicket, locale: string, freeLabel: string): string | null {
@@ -48,9 +49,9 @@ export function TicketCards({
       <div className="grid gap-3 sm:grid-cols-2">
         {tickets.map((tk) => {
           const on = value === tk.key;
-          const blocked = !!tk.invite_only || !!tk.full;
+          const blocked = !ticketOpen(tk);
           const price = ticketPrice(tk, locale, t('reg.ticket.free', 'Free'));
-          const types = (tk.allowed_company_types ?? []).map((ty) => companyTypeLabel(t, ty));
+          const types = (tk.restricted_to ?? []).map((ty) => companyTypeLabel(t, ty));
           return (
             <label
               key={tk.key}
@@ -78,9 +79,10 @@ export function TicketCards({
               <span className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-2 text-sm">
                 {price && <span className={cn('font-semibold tabular-nums', blocked ? 'text-meta' : 'text-navy')}>{price}</span>}
                 {tk.invite_only && <span>{t('reg.ticket.inviteOnly', 'By invitation only')}</span>}
-                {!tk.invite_only && tk.full && <span>{t('reg.ticket.full', 'Full')}</span>}
-                {!blocked && types.length > 0 && (
-                  <span className="text-meta">{t('reg.ticket.forTypes', { types: types.join(', '), defaultValue: 'For validated companies: {{types}}' })}</span>
+                {!tk.invite_only && types.length > 0 && (
+                  <span className={blocked ? undefined : 'text-meta'}>
+                    {t('reg.ticket.forTypes', { types: types.join(', '), defaultValue: 'For companies validated by M3: {{types}}' })}
+                  </span>
                 )}
               </span>
             </label>

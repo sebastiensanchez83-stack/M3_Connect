@@ -65,7 +65,9 @@ export function IdentityBlock({
   standardFields,
   emailLocked,
   standardOnly = false,
+  hideEmail = false,
   idPrefix = 'reg',
+  companySuggestions,
 }: {
   values: IdentityValues;
   onChange: (key: IdentityKey, value: string) => void;
@@ -75,7 +77,11 @@ export function IdentityBlock({
   emailLocked: boolean;
   /** Only the event's fields (company, job title, phone, country): names and e-mail are not shown. */
   standardOnly?: boolean;
+  /** Names without the e-mail (changing a registration: the address never changes). */
+  hideEmail?: boolean;
   idPrefix?: string;
+  /** Signed in with several companies: their names, offered as the company field is typed. */
+  companySuggestions?: string[];
 }) {
   const { t } = useTranslation();
   const id = (k: string) => `${idPrefix}-${k}`;
@@ -123,7 +129,7 @@ export function IdentityBlock({
             {text('last_name', t('reg.field.lastName', 'Last name'), true, { autoComplete: 'family-name', maxLength: 80 })}
           </div>
 
-          {emailLocked ? (
+          {hideEmail ? null : emailLocked ? (
             <div className="space-y-2">
               <AuthLabel htmlFor={id('email')}>{t('reg.field.email', 'E-mail')}</AuthLabel>
               <div className="relative">
@@ -140,7 +146,10 @@ export function IdentityBlock({
 
       {(shown('company') || shown('job_title')) && (
         <div className="grid gap-5 sm:grid-cols-2">
-          {shown('company') && text('company', t('reg.field.company', 'Company'), req('company'), { autoComplete: 'organization' })}
+          {shown('company') && text('company', t('reg.field.company', 'Company'), req('company'), {
+            autoComplete: 'organization',
+            list: companySuggestions?.length ? `${idPrefix}-companies` : undefined,
+          })}
           {shown('job_title') && text('job_title', t('reg.field.jobTitle', 'Job title'), req('job_title'), { autoComplete: 'organization-title' })}
         </div>
       )}
@@ -150,6 +159,11 @@ export function IdentityBlock({
           {shown('phone') && text('phone', t('reg.field.phone', 'Phone'), req('phone'), { type: 'tel', autoComplete: 'tel', inputMode: 'tel', maxLength: 40 })}
           {shown('country') && text('country', t('reg.field.country', 'Country'), req('country'), { autoComplete: 'country-name', list: `${idPrefix}-countries`, maxLength: 80 })}
         </div>
+      )}
+      {shown('company') && !!companySuggestions?.length && (
+        <datalist id={`${idPrefix}-companies`}>
+          {companySuggestions.map((c) => <option key={c} value={c} />)}
+        </datalist>
       )}
       {shown('country') && (
         <datalist id={`${idPrefix}-countries`}>

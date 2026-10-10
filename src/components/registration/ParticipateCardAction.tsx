@@ -70,7 +70,7 @@ export function ParticipateCardAction({
     if (signedIn && reg.kind === 'webinar' && reg.registration_mode !== 'invitation' && reg.event_id) {
       const tap = async () => {
         setBusy(true);
-        const res = await registerForEvent({ event_id: reg.event_id!, source_detail: { entry: 'event_page', ref: 'events_list' } });
+        const res = await registerForEvent({ event_id: reg.event_id! }, { source_detail: { entry: 'event_page', ref: 'events_list' } });
         setBusy(false);
         if (res.ok) {
           toast({

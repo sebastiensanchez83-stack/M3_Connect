@@ -12,11 +12,12 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/lib/supabase';
 import { RENDEZVOUS_2026_PATH } from '@/components/brand/m3Events';
 import {
-  GUEST_LIST_PAGES, cancelRegistration, fetchMyEventAccess, fetchMyParticipations, registrationErrorText,
+  GUEST_LIST_PAGES, cancelRegistration, fetchMyEventAccess, fetchMyParticipations, registrationErrorText, statusPagePath,
   type Participation,
 } from '@/lib/registration';
 import { cn, type CalendarEventInput } from '@/lib/utils';
 import { ConfirmInline, PaymentPill, RegStatusPill, regLocale, whenLine } from './RegistrationUI';
+import { ResendLinksForm } from './ResendLinksForm';
 
 /**
  * My events, every registration in one list whatever the way it was made
@@ -124,8 +125,7 @@ export function MyParticipations({ hideSm26 = false, onUnavailable }: {
   const reload = useCallback(() => setVersion((v) => v + 1), []);
 
   const cancel = async (p: Participation) => {
-    const target = p.event_id ? { event_id: p.event_id } : p.slug ? { slug: p.slug } : null;
-    if (!target) return;
+    const target = { registration_id: p.registration_id };
     setBusyId(p.registration_id);
     const res = await cancelRegistration(target);
     setBusyId(null);
@@ -166,10 +166,13 @@ export function MyParticipations({ hideSm26 = false, onUnavailable }: {
   }
 
   const hint = (
-    <p className="flex items-start gap-2 px-1 text-[13px] leading-5 text-meta">
-      <Inbox className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-      <span>{t('reg.my.missingHint', 'Registered with another address, or without an account? Open the link in your confirmation e-mail and choose "Add this to my account".')}</span>
-    </p>
+    <div className="space-y-3 rounded-card border border-rule bg-white p-4 sm:p-5">
+      <p className="flex items-start gap-2 text-[13px] leading-5 text-meta">
+        <Inbox className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <span>{t('reg.my.missingHint', 'Registered with another address, or without an account? Open the link in your confirmation e-mail and choose "Add this to my account".')}</span>
+      </p>
+      {user?.email && <ResendLinksForm compact lockedEmail={user.email} idPrefix="my-resend" />}
+    </div>
   );
 
   if (shown.length === 0) {
@@ -263,6 +266,8 @@ function ParticipationCard({
   const v2 = p.engine === 'core_v2';
   // The personal page of the World Yachting Summit: only for a proven address (the database decides).
   const personal = v1 && p.status_url ? p.status_url : null;
+  // A new registration linked to the account: its own page, managed with the session.
+  const mine = v2 && p.linked;
 
   return (
     <li className={cn('p-4 sm:p-5', (display === 'needs_info' || display === 'invited' || display === 'payment_due') && !past && 'bg-amber-50/40')}>
@@ -333,8 +338,8 @@ function ParticipationCard({
           <p className="flex items-start gap-2 text-sm leading-5 text-ink">
             <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
             {display === 'invited'
-              ? t('reg.my.answerInvite', 'You are invited: answer on the event page.')
-              : t('reg.my.answerInfo', 'M3 needs a detail from you: reply on the event page.')}
+              ? t('reg.my.answerInvite', 'You are invited: the M3 team will contact you to confirm.')
+              : t('reg.my.answerInfo', 'M3 needs a detail from you: open your registration to answer.')}
           </p>
         )}
         {!past && v1 && !personal && !closed && (
@@ -353,17 +358,31 @@ function ParticipationCard({
               </Link>
             </Button>
           )}
+          {mine && (
+            <Button asChild variant="outline" size="sm" className={BTN_OUTLINE}>
+              <Link to={statusPagePath(p.registration_id)}>
+                {!past && !closed ? t('reg.my.manage', 'See or change') : t('reg.block.viewMine', 'See my registration')}
+                <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
+              </Link>
+            </Button>
+          )}
           {href && !personal && p.engine !== 'sm26' && (
             <Button asChild variant="outline" size="sm" className={BTN_OUTLINE}>
               <Link to={href}>
-                {v2 && !past && !closed ? t('reg.my.manage', 'Manage') : t('accountArea.events.eventPage', 'Event page')}
+                {t('accountArea.events.eventPage', 'Event page')}
                 <ArrowRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           )}
         </div>
+        {v2 && !p.linked && !past && !closed && (
+          <p className="flex items-start gap-2 text-xs leading-5 text-meta">
+            <Link2 className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {t('reg.my.v2Link', 'Made before you had an account: change or cancel it from the link in your confirmation e-mail.')}
+          </p>
+        )}
 
-        {v2 && p.can_cancel && !past && !closed && (
+        {mine && p.can_cancel && !past && !closed && (
           <div className="max-w-sm">
           <ConfirmInline
             label={display === 'under_review' || display === 'needs_info' ? t('reg.block.cancelRequest', 'Cancel my request')

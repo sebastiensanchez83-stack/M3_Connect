@@ -5,10 +5,10 @@ import type { TFunction } from 'i18next';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlertCircle, CalendarClock, CalendarDays, CalendarPlus, CheckCircle2, Clock, CreditCard, Hourglass, ListChecks,
-  Loader2, Lock, LogIn, Mail, MapPin, MessageSquare, Play, Radio, RefreshCw, Ticket, Video, X, XCircle,
+  Loader2, Lock, LogIn, Mail, MapPin, MessageSquare, PauseCircle, Play, Radio, RefreshCw, Ticket, Video, X, XCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { AuthLabel, AuthNotice, AuthTextarea, FieldError } from '@/components/auth/fields';
+import { AuthNotice } from '@/components/auth/fields';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
@@ -17,9 +17,8 @@ import { toast } from '@/hooks/use-toast';
 import { accountHref } from '@/lib/accountNav';
 import {
   GUEST_LIST_PAGES, cancelRegistration, fetchMyEventAccess, getRegistrationForm, questionsFor,
-  registerForEvent, registrationErrorText, resendRegistrationLinks, respondToInvitation, sortedTickets,
-  updateRegistration, useReviewSla,
-  type RegForm, type RegStatus,
+  registerForEvent, registrationErrorText, resendRegistrationLinks, statusPagePath, ticketOpen, useReviewSla,
+  type RegForm, type RegStatus, type RegTarget,
 } from '@/lib/registration';
 import { cn, downloadICS, type CalendarEventInput } from '@/lib/utils';
 import { ruleOf } from './IdentityBlock';
@@ -172,43 +171,43 @@ export type ParticipateView =
   | { k: 'legacy' }
   | { k: 'ended' }
   | { k: 'guest_list'; path: string | null }
-  | { k: 'mine'; status: RegStatus }
+  | { k: 'mine'; status: RegStatus; id: string | null }
   | { k: 'one_tap'; waitlist: boolean }
   | { k: 'quick'; waitlist: boolean }
   | { k: 'form'; waitlist: boolean }
   | { k: 'members_only' }
   | { k: 'not_yet_open' }
+  | { k: 'paused' }
   | { k: 'closed' }
   | { k: 'full' }
   | { k: 'invitation_only' }
   | { k: 'not_published' };
 
-/**
- * Nothing more to ask than the four quick fields: no choice of participation
- * type, no required question, no required job title, phone or country.
- */
-export function quickEligible(form: RegForm): boolean {
-  if (form.event.mode === 'invitation') return false;
-  const tickets = sortedTickets(form.tickets);
-  if (tickets.length > 1) return false;
+/** A participation type to choose, or a question to answer, before a registration can go: the form is needed. */
+function needsChoices(form: RegForm): boolean {
+  const tickets = form.tickets ?? [];
+  if (tickets.length > 1) return true;
   const only = tickets[0] ?? null;
-  if (only && (only.invite_only || (only.allowed_company_types?.length ?? 0) > 0)) return false;
-  if (questionsFor(form.questions, only?.key ?? null).some((q) => q.required)) return false;
-  return (['job_title', 'phone', 'country'] as const).every((k) => ruleOf(form.standard_fields, k) !== 'required');
+  if (only && !ticketOpen(only)) return true;
+  return questionsFor(form.questions, only?.key ?? null).some((q) => q.required);
 }
 
-/** Signed in: one tap when the account already holds everything the event requires. */
+/**
+ * Signed out, a webinar: nothing more to ask than the four quick fields (no
+ * choice of participation type, no required question, no required job title,
+ * phone or country).
+ */
+export function quickEligible(form: RegForm): boolean {
+  if (form.event.mode === 'invitation' || needsChoices(form)) return false;
+  return (['job_title', 'phone', 'country'] as const).every((k) => ruleOf(form.fields, k) !== 'required');
+}
+
+/** Signed in, a webinar: one tap when the account already holds everything the event requires. */
 export function oneTapEligible(form: RegForm): boolean {
-  if (form.event.kind !== 'webinar') return false;
-  if (form.event.mode === 'invitation') return false;
-  const tickets = sortedTickets(form.tickets);
-  if (tickets.length > 1) return false;
-  const only = tickets[0] ?? null;
-  if (only?.invite_only) return false;
-  if (questionsFor(form.questions, only?.key ?? null).some((q) => q.required)) return false;
+  if (form.event.kind !== 'webinar' || form.event.mode === 'invitation' || needsChoices(form)) return false;
   const p = form.prefill ?? {};
   if (!p.first_name?.trim() || !p.last_name?.trim()) return false;
-  return (['company', 'job_title', 'phone', 'country'] as const).every((k) => ruleOf(form.standard_fields, k) !== 'required' || !!p[k]?.trim());
+  return (['company', 'job_title', 'phone', 'country'] as const).every((k) => ruleOf(form.fields, k) !== 'required' || !!p[k]?.trim());
 }
 
 export function participationView(model: ParticipationModel, signedIn: boolean): ParticipateView {
@@ -217,9 +216,10 @@ export function participationView(model: ParticipationModel, signedIn: boolean):
   if (model.noEngine) return { k: 'legacy' };
   if (!model.form) return model.failed ? { k: 'error' } : { k: 'loading' };
   const form = model.form;
-  if (form.event.engine === 'guest_list_v1') return { k: 'guest_list', path: GUEST_LIST_PAGES[form.event.slug] ?? null };
+  if (form.engine === 'guest_list_v1') return { k: 'guest_list', path: GUEST_LIST_PAGES[form.event.slug] ?? null };
   const mine = form.mine;
-  if (mine && mine.status !== 'cancelled' && mine.status !== 'declined') return { k: 'mine', status: mine.status };
+  if (mine && mine.status !== 'cancelled' && mine.status !== 'declined') return { k: 'mine', status: mine.status, id: mine.registration_id ?? null };
+  if (form.paused) return { k: 'paused' };
   switch (form.state) {
     case 'open':
     case 'waitlist': {
@@ -229,7 +229,7 @@ export function participationView(model: ParticipationModel, signedIn: boolean):
     }
     case 'registered':
       // The function said registered without the details: what the member's links say.
-      return { k: 'mine', status: model.accessRegistered ? 'confirmed' : 'requested' };
+      return { k: 'mine', status: model.accessRegistered ? 'confirmed' : 'requested', id: null };
     case 'members_only': return { k: 'members_only' };
     case 'not_yet_open': return { k: 'not_yet_open' };
     case 'closed': return { k: 'closed' };
@@ -275,22 +275,24 @@ export function ParticipateBlock({
   const { user, profile } = useAuth();
   const signedIn = !!user;
   const locale = regLocale(i18n.language);
-  const sla = useReviewSla();
+  const sla = useReviewSla(model.form?.review_sla_text);
   const [busy, setBusy] = useState(false);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [reply, setReply] = useState('');
-  const [replyError, setReplyError] = useState<string | null>(null);
 
   const view = participationView(model, signedIn);
   if (view.k === 'legacy') return <>{legacy ?? null}</>;
 
   const ev = model.event;
   const form = model.form;
-  const isWebinar = form ? form.event.kind === 'webinar' : ev?.event_type === 'webinar';
+  const isWebinar = form?.event.kind ? form.event.kind === 'webinar' : ev?.event_type === 'webinar';
   const slug = form?.event.slug ?? null;
   const registerPath = slug ? `/register/${slug}?from=event` : null;
-  const target = ev ? { event_id: ev.id } : null;
+  const eventTarget = ev ? { event_id: ev.id } : null;
+  // The member's own registration: by its id when the function gave it, else by the event.
+  const mineId = view.k === 'mine' ? view.id : null;
+  const mineTarget: RegTarget | null = mineId ? { registration_id: mineId } : eventTarget;
+  const minePage = mineId ? statusPagePath(mineId) : null;
 
   const calendarEvent: CalendarEventInput | null = ev?.date_time ? {
     title: ev.title,
@@ -318,9 +320,9 @@ export function ParticipateBlock({
   };
 
   const oneTap = () => {
-    if (!target) return;
+    if (!eventTarget) return;
     void run(
-      () => registerForEvent({ ...target, source_detail: { entry: 'event_page' } }),
+      () => registerForEvent(eventTarget, { source_detail: { entry: 'event_page' } }),
       view.k === 'one_tap' && view.waitlist
         ? t('reg.toast.waitlisted', 'You are on the waiting list. We sent you an e-mail.')
         : form?.event.mode === 'review'
@@ -338,24 +340,30 @@ export function ParticipateBlock({
     );
   };
 
-  const cancel = () => target && void run(() => cancelRegistration(target), t('reg.toast.cancelled', 'Your registration is cancelled.'));
-  const respond = (answer: 'accept' | 'decline') => target && void run(
-    () => respondToInvitation(target, answer),
-    answer === 'accept' ? t('reg.toast.accepted', 'Thank you. Your place is confirmed.') : t('reg.toast.declined', 'Thank you for letting us know.'),
+  const cancel = () => mineTarget && void run(
+    () => cancelRegistration(mineTarget),
+    t('reg.toast.cancelled', 'Your registration is cancelled.'),
+    (res) => {
+      // A registration found through the e-mail but not linked to the account yet: its e-mail link manages it.
+      if ((res as { error?: string }).error === 'not_found') {
+        setInlineError(t('reg.block.cancelByLink', 'Please cancel from the personal link in your confirmation e-mail. Lost it? Open My events and choose "Send me my links".'));
+        return true;
+      }
+      return false;
+    },
   );
-  const sendReply = () => {
-    if (!target) return;
-    if (!reply.trim()) { setReplyError(t('reg.field.required', 'Please fill this in.')); return; }
-    setReplyError(null);
-    void run(() => updateRegistration(target, { info_reply: reply.trim() }), t('reg.toast.replied', 'Thank you. M3 has your answer.'));
-  };
-  const resendPass = () => {
+  const resendLinks = () => {
     const email = user?.email;
     if (!email) return;
     void run(() => resendRegistrationLinks(email), t('reg.toast.linksSent', 'We have e-mailed your links again.'));
   };
 
-  const viewMyEvents = (
+  // The member's registration in full (answers, timeline, pass): its own page, else My events.
+  const viewMine = minePage ? (
+    <Button asChild variant="ctaOutline" size="sm" className={MAIN_BTN}>
+      <Link to={minePage}>{t('reg.block.viewMine', 'See my registration')}</Link>
+    </Button>
+  ) : (
     <Button variant="ctaOutline" size="sm" className={MAIN_BTN} onClick={() => navigate(accountHref('registrations'))}>
       {t('eventsPage.viewMyRegistrations', 'View my registrations')}
     </Button>
@@ -459,7 +467,8 @@ export function ParticipateBlock({
     case 'mine': {
       const s = view.status;
       const live = model.phase === 'live';
-      const canCancel = form?.mine?.can_cancel !== false && !live;
+      // Cancelling stops at the start (the function refuses it once the event is over).
+      const canCancel = !live && ['requested', 'needs_info', 'waitlisted', 'invited', 'approved', 'confirmed'].includes(s);
       const cancelBlock = canCancel ? (
         <ConfirmInline
           label={s === 'requested' || s === 'needs_info' ? t('reg.block.cancelRequest', 'Cancel my request')
@@ -491,7 +500,7 @@ export function ParticipateBlock({
                 </li>
               ) : (
                 <>
-                  <li><NoteLine icon={Mail}>{t('reg.block.passByEmail', 'Your entry pass is in your confirmation e-mail. Show it at the entrance.')}</NoteLine></li>
+                  <li><NoteLine icon={Ticket}>{t('reg.block.passWhere', 'Your entry pass is in your confirmation e-mail and on your registration page. Show it at the entrance.')}</NoteLine></li>
                   <li><NoteLine icon={MapPin}>{t('eventsPage.nextVenue', 'On the day, come to the venue — the address and map are on this page.')}</NoteLine></li>
                 </>
               )}
@@ -502,6 +511,11 @@ export function ParticipateBlock({
                 <a href={model.meetingUrl} target="_blank" rel="noopener noreferrer">{live ? t('eventsPage.joinNow', 'Join now') : t('eventsPage.joinWebinar', 'Join the webinar')}</a>
               </Button>
             )}
+            {!isWebinar && minePage && (
+              <Button asChild variant="cta" className={MAIN_BTN}>
+                <Link to={minePage}>{t('reg.block.showPass', 'Show my entry pass')}</Link>
+              </Button>
+            )}
             {calendarEvent && !live && (
               <div className="space-y-2">
                 <p className="text-meta-caps">{t('events.addToCalendar', 'Add to calendar')}</p>
@@ -509,11 +523,11 @@ export function ParticipateBlock({
               </div>
             )}
             {!isWebinar && (
-              <Button variant="ctaOutline" size="sm" arrow={false} className={MAIN_BTN} onClick={resendPass} disabled={busy}>
-                <Mail className="mr-2 h-4 w-4" aria-hidden="true" />{t('reg.block.resendPass', 'E-mail me my pass again')}
+              <Button variant="ctaOutline" size="sm" arrow={false} className={MAIN_BTN} onClick={resendLinks} disabled={busy}>
+                <Mail className="mr-2 h-4 w-4" aria-hidden="true" />{t('reg.block.resendLinks', 'E-mail me my link again')}
               </Button>
             )}
-            {viewMyEvents}
+            {(isWebinar || !minePage) && viewMine}
             {errorLine}
             {cancelBlock}
           </div>
@@ -529,8 +543,8 @@ export function ParticipateBlock({
                 ? t('reg.block.requestReceived', { sla, defaultValue: 'Your request is with the M3 team. They reply {{sla}}, by e-mail.' })
                 : t('reg.block.reviewReceived', { sla, defaultValue: 'Your registration is with the M3 team. They reply {{sla}}, by e-mail.' })}
             </p>
-            <NoteLine icon={Mail}>{t('reg.block.followLink', 'The e-mail we sent you has a personal link to follow it or change your answers.')}</NoteLine>
-            {viewMyEvents}
+            <NoteLine icon={Mail}>{t('reg.block.followLink', 'You can follow it, or change your answers, from your registration page or the link in our e-mail.')}</NoteLine>
+            {viewMine}
             {errorLine}
             {cancelBlock}
           </div>
@@ -541,27 +555,14 @@ export function ParticipateBlock({
         tone = 'gold';
         body = (
           <div className="space-y-4">
-            <p className="text-sm leading-[22px] text-ink">{t('reg.block.infoAsked', 'The M3 team needs one more detail before deciding:')}</p>
-            {form?.mine?.info_request && (
-              <blockquote className="rounded-field border-l-4 border-gold bg-page px-4 py-3 text-[15px] leading-6 text-navy [overflow-wrap:anywhere]">
-                {form.mine.info_request}
-              </blockquote>
+            <p className="text-sm leading-[22px] text-ink">{t('reg.block.infoAskedShort', 'The M3 team needs one more detail before deciding. Their question is on your registration page.')}</p>
+            {minePage ? (
+              <Button asChild variant="cta" className={MAIN_BTN}>
+                <Link to={minePage}>{t('reg.block.answerM3', 'Answer the M3 team')}</Link>
+              </Button>
+            ) : (
+              <NoteLine icon={Mail}>{t('reg.block.answerByLink', 'Open the link in the e-mail we sent you to answer.')}</NoteLine>
             )}
-            <div className="space-y-2">
-              <AuthLabel htmlFor="reg-reply">{t('reg.block.yourAnswer', 'Your answer')}</AuthLabel>
-              <AuthTextarea
-                id="reg-reply"
-                rows={3}
-                value={reply}
-                onChange={(e) => { setReply(e.target.value.slice(0, 2000)); setReplyError(null); }}
-                aria-invalid={!!replyError}
-                aria-describedby={replyError ? 'reg-reply-err' : undefined}
-              />
-              {replyError && <FieldError id="reg-reply-err">{replyError}</FieldError>}
-            </div>
-            <Button variant="cta" className={MAIN_BTN} onClick={sendReply} disabled={busy} arrow={!busy} roll={!busy}>
-              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</> : t('reg.block.sendAnswer', 'Send my answer')}
-            </Button>
             {errorLine}
             {cancelBlock}
           </div>
@@ -573,7 +574,7 @@ export function ParticipateBlock({
         body = (
           <div className="space-y-4">
             <p className="text-sm leading-[22px] text-ink">{t('reg.block.waitlistBody', 'The event is full for now. We e-mail you as soon as a place frees up.')}</p>
-            {viewMyEvents}
+            {viewMine}
             {errorLine}
             {cancelBlock}
           </div>
@@ -584,19 +585,8 @@ export function ParticipateBlock({
         tone = 'gold';
         body = (
           <div className="space-y-4">
-            <p className="text-sm leading-[22px] text-ink">{t('reg.block.invitedBody', 'The organisers have invited you. Will you take part?')}</p>
-            <Button variant="cta" className={MAIN_BTN} onClick={() => respond('accept')} disabled={busy} arrow={!busy} roll={!busy}>
-              {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</> : t('reg.block.accept', 'Yes, I will take part')}
-            </Button>
-            <ConfirmInline
-              label={t('reg.block.decline', 'I cannot take part')}
-              question={t('reg.block.declineQuestion', 'Decline this invitation?')}
-              confirmLabel={t('reg.block.declineYes', 'Yes, decline')}
-              keepLabel={t('reg.block.declineKeep', 'Not now')}
-              onConfirm={() => respond('decline')}
-              busy={busy}
-              tone="neutral"
-            />
+            <p className="text-sm leading-[22px] text-ink">{t('reg.block.invitedByEmail', 'The organisers have invited you. Please reply from your invitation e-mail.')}</p>
+            {viewMine}
             {errorLine}
           </div>
         );
@@ -607,7 +597,7 @@ export function ParticipateBlock({
         body = (
           <div className="space-y-4">
             <p className="text-sm leading-[22px] text-ink">{t('reg.block.paymentDue', 'The M3 team has approved your registration. They send you the payment details by e-mail.')}</p>
-            {viewMyEvents}
+            {viewMine}
             {errorLine}
             {cancelBlock}
           </div>
@@ -643,11 +633,12 @@ export function ParticipateBlock({
           <Button variant="cta" className={MAIN_BTN} onClick={oneTap} disabled={busy} arrow={!busy} roll={!busy}>
             {busy
               ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</>
-              : view.waitlist ? t('reg.submit.waitlist', 'Join the waiting list') : t('reg.block.saveSeat', 'Save my seat')}
+              : view.waitlist ? t('reg.submit.waitlist', 'Join the waiting list')
+                : form?.event.mode === 'review' ? t('reg.submit.review', 'Send my registration') : t('reg.block.saveSeat', 'Save my seat')}
           </Button>
           {(name || email) && (
             <p className="text-[13px] leading-5 text-meta [overflow-wrap:anywhere]">
-              {t('reg.block.asWho', { who: [name, email && `(${email})`].filter(Boolean).join(' '), defaultValue: 'One tap: you are registered as {{who}}. The details come by e-mail.' })}
+              {t('reg.block.asWho', { who: [name, email && `(${email})`].filter(Boolean).join(' '), defaultValue: 'One tap, with your account: {{who}}. The details come by e-mail.' })}
             </p>
           )}
           {errorLine}
@@ -718,7 +709,7 @@ export function ParticipateBlock({
     }
 
     case 'members_only': {
-      const pending = signedIn && profile?.access_status !== 'verified';
+      const pending = signedIn && (form?.prefill ? form.prefill.verified !== true : profile?.access_status !== 'verified');
       title = t('reg.block.membersTitle', 'For validated members');
       icon = Lock;
       tone = 'navy';
@@ -759,8 +750,8 @@ export function ParticipateBlock({
       body = (
         <div className="space-y-4">
           <p className="text-sm leading-[22px] text-ink">
-            {form?.opens_at
-              ? t('reg.block.opensOn', { date: longDate(form.opens_at, locale), defaultValue: 'Registration opens on {{date}}.' })
+            {form?.event.opens_at
+              ? t('reg.block.opensOn', { date: longDate(form.event.opens_at, locale), defaultValue: 'Registration opens on {{date}}.' })
               : t('reg.block.opensLater', 'Registration is not open yet.')}
           </p>
           {calendarEvent && (
@@ -769,6 +760,21 @@ export function ParticipateBlock({
               <AddToCalendarButtons event={calendarEvent} />
             </div>
           )}
+        </div>
+      );
+      break;
+
+    case 'paused':
+      title = t('reg.block.pausedTitle', 'Registration closed for now');
+      icon = PauseCircle;
+      tone = 'gray';
+      body = (
+        <div className="space-y-3">
+          <p className="text-sm leading-[22px] text-ink">{t('reg.block.pausedBody', 'Registration for this event is paused for a short while. Please come back later.')}</p>
+          <p className="text-sm leading-[22px] text-meta">
+            {t('reg.block.questions', 'A question? Write to')}{' '}
+            <UnderlineLink href={`mailto:${M3_PUBLIC_EMAIL}`} arrow={false} className="!text-sm">{M3_PUBLIC_EMAIL}</UnderlineLink>
+          </p>
         </div>
       );
       break;
@@ -899,6 +905,7 @@ export function participateBarAction(view: ParticipateView, model: Participation
     case 'full':
       return <span className="shrink-0 text-sm font-medium text-amber-800">{t('eventsPage.fullTitle', 'Fully booked')}</span>;
     case 'closed':
+    case 'paused':
       return <span className={quiet}>{t('reg.bar.closed', 'Closed')}</span>;
     case 'invitation_only':
       return <span className={quiet}>{t('eventsPage.invitationOnly', 'By invitation')}</span>;

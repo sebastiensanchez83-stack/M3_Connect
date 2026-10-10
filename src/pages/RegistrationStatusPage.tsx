@@ -4,17 +4,18 @@ import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-do
 import { useTranslation } from 'react-i18next';
 import QRCode from 'qrcode';
 import {
-  CalendarPlus, Link2, Link2Off, Loader2, LogIn, Mail, Maximize2, MessageSquare, Pencil, Play,
+  BellOff, BellRing, CalendarPlus, Link2, Link2Off, Loader2, LogIn, Mail, Maximize2, MessageSquare, Pencil, Play,
   Sun, Video, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { AuthDialog } from '@/components/auth/AuthDialog';
 import { LoginForm } from '@/components/auth/LoginForm';
-import { AuthLabel, AuthNotice, AuthTextarea, FieldError } from '@/components/auth/fields';
+import { AuthNotice } from '@/components/auth/fields';
 import { CardShell } from '@/components/brand/CardShell';
-import { ContactCard } from '@/components/brand/ContactCard';
+import { ContactCard, M3_PUBLIC_EMAIL } from '@/components/brand/ContactCard';
 import { Eyebrow } from '@/components/brand/Eyebrow';
+import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AddToCalendarButtons } from '@/components/events/AddToCalendarButtons';
 import { IdentityBlock, identityErrors, ruleOf, type IdentityKey, type IdentityValues } from '@/components/registration/IdentityBlock';
 import { QuestionField, answerError, isAnswered, type AnswerValue } from '@/components/registration/QuestionField';
@@ -28,31 +29,40 @@ import { toast } from '@/hooks/use-toast';
 import { accountHref } from '@/lib/accountNav';
 import { openSignup } from '@/lib/authModal';
 import {
-  attachRegistration, cancelRegistration, getRegistrationStatus, questionOptions, questionsFor,
-  registrationErrorText, respondToInvitation, updateRegistration, useReviewSla,
-  type RegFailure, type RegStatusView, type StandardFieldKey,
+  attachRegistration, cancelRegistration, displayOf, getRegistrationStatus, questionOptions,
+  registrationErrorText, setRegistrationReminders, updateRegistration, useReviewSla,
+  type RegChanges, type RegFailure, type RegStatusView, type RegTarget,
 } from '@/lib/registration';
 import { withSiteSuffix } from '@/lib/seoText';
 import { Seo } from '@/components/seo/Seo';
 
 /**
- * /registration?t=<personal link> — a registration seen from the link in its
- * e-mails, with no account (spec §6): where it stands (a short timeline), the
- * answers (changeable while the event allows it), the reply when M3 asks for a
- * detail, accept or decline an invitation, cancel, the calendar, the joining
- * link of a confirmed webinar, the entry pass of a confirmed on-site event
- * (full screen, with a brightness tip), and "Add this to my account" when signed
- * in. Once the registration is linked to an account, the link only shows it:
- * the account manages it.
+ * /registration — one registration, in two ways (spec §6):
+ *
+ *   ?t=<personal link>  from its e-mails, with no account: where it stands (a
+ *       short timeline), the details (changeable while the event allows it),
+ *       the reply when M3 asks for a detail, cancel, the calendar, the joining
+ *       link of a confirmed webinar, the entry pass of a confirmed on-site
+ *       event (full screen, with a brightness tip), the reminder e-mails on or
+ *       off, and "Add this to my account" when signed in. Once the
+ *       registration is linked to an account, the link only shows it: the
+ *       account manages it.
+ *   ?id=<registration id>  the same page for its signed-in owner (My events and
+ *       the event page link here: a new registration has no other page).
  *
  * Every change is a POST made on a click, never on opening the page: mail
- * scanners open links on their own. The token is never shown, logged or sent
- * on (no referrer). An unknown or expired link offers new links by e-mail.
+ * scanners open links on their own (`&reminders=off` only offers the button).
+ * The token is never shown, logged or sent on (no referrer). An unknown or
+ * expired link offers new links by e-mail.
  */
 export function RegistrationStatusPage() {
   const [params] = useSearchParams();
   const token = (params.get('t') || '').trim();
-  return token ? <StatusContent token={token} /> : <FindMyLinks />;
+  const id = (params.get('id') || '').trim();
+  const remindersOff = params.get('reminders') === 'off';
+  if (token) return <StatusContent target={{ token }} remindersOff={remindersOff} />;
+  if (id) return <OwnerStatus id={id} />;
+  return <FindMyLinks />;
 }
 
 const NO_REFERRER = (
@@ -85,7 +95,7 @@ function FindMyLinks({ invalid = false }: { invalid?: boolean }) {
           <ResendLinksForm defaultEmail={user?.email ?? ''} />
           {user && (
             <p className="mt-6 border-t border-rule pt-5 text-sm leading-6 text-meta">
-              {t('reg.status.signedInHint', 'Signed in? Your registrations are also in')}{' '}
+              {t('reg.status.signedInHint', 'Your registrations are also in')}{' '}
               <Link to={accountHref('registrations')} className="font-semibold text-navy underline underline-offset-4">{t('reg.myEvents', 'My events')}</Link>.
             </p>
           )}
@@ -96,13 +106,70 @@ function FindMyLinks({ invalid = false }: { invalid?: boolean }) {
   );
 }
 
+/* ------------------------------------------------------------------ signed-in owner */
+
+function OwnerStatus({ id }: { id: string }) {
+  const { user, loading } = useAuth();
+  const target = useMemo(() => ({ registration_id: id }), [id]);
+  if (loading) return <PageSpinner />;
+  if (user) return <StatusContent target={target} remindersOff={false} />;
+  return <SignInPrompt />;
+}
+
+/** The owner's page, signed out (or with an expired session): sign in, or ask for the e-mail links. */
+function SignInPrompt() {
+  const { t } = useTranslation();
+  const location = useLocation();
+  const [loginOpen, setLoginOpen] = useState(false);
+  return (
+    <div className="min-h-screen bg-page">
+      <Seo title={withSiteSuffix(t('reg.status.seoTitle', 'Your registration'))} noindex />
+      {NO_REFERRER}
+      <EventBand eyebrow={t('reg.status.eyebrow', 'Your registration')} title={t('reg.status.signInTitle', 'Sign in to see your registration')} webinar={false} seed="registration" />
+      <div className="relative z-10 mx-auto -mt-10 w-full max-w-xl space-y-6 px-4 pb-14 sm:px-6">
+        <CardShell className="p-6 sm:p-8">
+          <p className="text-[15px] leading-6 text-ink">{t('reg.status.signInBody', 'This page shows a registration of your account. Sign in to see it, or open the personal link in your confirmation e-mail.')}</p>
+          <Button variant="cta" className="mt-5" onClick={() => setLoginOpen(true)}>
+            <LogIn className="mr-2 h-4 w-4" aria-hidden="true" />{t('reg.signIn', 'Sign in')}
+          </Button>
+        </CardShell>
+        <CardShell className="p-6 sm:p-8">
+          <h2 className="text-card-title text-navy">{t('reg.status.lostLink', 'Lost the e-mail?')}</h2>
+          <div className="mt-3"><ResendLinksForm compact idPrefix="owner-resend" /></div>
+        </CardShell>
+      </div>
+      <AuthDialog
+        mode="login"
+        open={loginOpen}
+        onOpenChange={setLoginOpen}
+        description={t('reg.status.signInDesc', 'Sign in to manage your registrations.')}
+        switchTo={{ onClick: () => { setLoginOpen(false); openSignup(); } }}
+      >
+        <LoginForm onSuccess={() => setLoginOpen(false)} next={`${location.pathname}${location.search}`} />
+      </AuthDialog>
+    </div>
+  );
+}
+
+function PageSpinner() {
+  const { t } = useTranslation();
+  return (
+    <div role="status" className="flex min-h-[60vh] items-center justify-center bg-page">
+      {NO_REFERRER}
+      <Loader2 className="h-8 w-8 animate-spin text-navy" aria-hidden="true" />
+      <span className="sr-only">{t('reg.status.loading', 'Loading your registration')}</span>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ the registration */
 
-function StatusContent({ token }: { token: string }) {
+function StatusContent({ target, remindersOff }: { target: RegTarget; remindersOff: boolean }) {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const locale = regLocale(i18n.language);
   const sla = useReviewSla();
   const [view, setView] = useState<RegStatusView | null>(null);
@@ -112,13 +179,12 @@ function StatusContent({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
-  const [reply, setReply] = useState('');
-  const [replyError, setReplyError] = useState<string | null>(null);
   const [qr, setQr] = useState<string | null>(null);
   const [passOpen, setPassOpen] = useState(false);
   const [loginOpen, setLoginOpen] = useState(false);
-  const target = useMemo(() => ({ token }), [token]);
+  const token = 'token' in target ? target.token : null;
 
+  // Read again when the account changes (signing in here may make the page the owner's).
   useEffect(() => {
     let alive = true;
     getRegistrationStatus(target).then((res) => {
@@ -127,27 +193,20 @@ function StatusContent({ token }: { token: string }) {
       setLoading(false);
     });
     return () => { alive = false; };
-  }, [target, version]);
+  }, [target, version, userId]);
 
-  const checkinUrl = view?.registration.checkin_url ?? null;
+  const qrText = view?.pass?.qr_text ?? null;
   useEffect(() => {
-    if (!checkinUrl) { setQr(null); return; }
-    QRCode.toDataURL(checkinUrl, { margin: 2, width: 560, errorCorrectionLevel: 'M' }).then(setQr).catch(() => setQr(null));
-  }, [checkinUrl]);
+    if (!qrText) { setQr(null); return; }
+    QRCode.toDataURL(qrText, { margin: 2, width: 560, errorCorrectionLevel: 'M' }).then(setQr).catch(() => setQr(null));
+  }, [qrText]);
 
-  if (loading) {
-    return (
-      <div role="status" className="flex min-h-[60vh] items-center justify-center bg-page">
-        {NO_REFERRER}
-        <Loader2 className="h-8 w-8 animate-spin text-navy" aria-hidden="true" />
-        <span className="sr-only">{t('reg.status.loading', 'Loading your registration')}</span>
-      </div>
-    );
-  }
+  if (loading) return <PageSpinner />;
 
   if (!view) {
-    const invalid = !failure || ['not_found', 'expired', 'wrong_engine', 'bad_input', 'forbidden'].includes(failure.error ?? '');
-    if (invalid) return <FindMyLinks invalid />;
+    const err = failure?.error ?? '';
+    if (!failure || ['not_found', 'wrong_engine', 'bad_input', 'forbidden'].includes(err)) return <FindMyLinks invalid />;
+    if (err === 'sign_in_required' || err === 'session_expired') return <SignInPrompt />;
     return (
       <div className="min-h-[60vh] bg-page px-4 py-16">
         {NO_REFERRER}
@@ -165,16 +224,17 @@ function StatusContent({ token }: { token: string }) {
   const { event: ev, registration: reg } = view;
   const isWebinar = ev.kind === 'webinar';
   const now = Date.now();
-  const ended = !!ev.ends_at && new Date(ev.ends_at).getTime() < now;
+  const ended = ev.ended === true || (!!ev.ends_at && new Date(ev.ends_at).getTime() < now);
   const live = !!ev.starts_at && new Date(ev.starts_at).getTime() <= now && !ended;
-  const readOnly = !!reg.read_only;
+  const readOnly = view.read_only;
   const active = !['cancelled', 'declined', 'rejected'].includes(reg.status);
   const when = whenLine(ev.starts_at, ev.ends_at, locale, t('reg.dateTbd', 'Date to be announced'));
   const where = isWebinar ? t('reg.online', 'Online') : ev.location || t('reg.venueTbd', 'Venue to be announced');
   const eventHref = ev.event_id ? `/events/${ev.event_id}` : null;
-  const questions = questionsFor(view.questions, reg.ticket_key ?? null);
+  const title = ev.title ?? t('reg.status.eyebrow', 'Your registration');
+  const needsInfo = reg.status === 'needs_info' && !readOnly;
 
-  const run = async (fn: () => Promise<{ ok: boolean }>, success: string) => {
+  const run = async (fn: () => Promise<{ ok: boolean }>, success: string): Promise<boolean> => {
     setBusy(true);
     setActionError(null);
     const res = await fn();
@@ -182,29 +242,40 @@ function StatusContent({ token }: { token: string }) {
     if (res.ok) {
       toast({ title: success });
       setEditing(false);
-      setVersion((v) => v + 1);
+      if ((res as unknown as RegStatusView).registration) setView(res as unknown as RegStatusView);
+      else setVersion((v) => v + 1);
       return true;
     }
-    setActionError(registrationErrorText(t, res as RegFailure));
+    const f = res as unknown as RegFailure;
+    setActionError(registrationErrorText(t, f));
+    if (f.error === 'changed' || f.error === 'locked') setVersion((v) => v + 1);
     return false;
   };
 
-  const sendReply = () => {
-    if (!reply.trim()) { setReplyError(t('reg.field.required', 'Please fill this in.')); return; }
-    setReplyError(null);
-    void run(() => updateRegistration(target, { info_reply: reply.trim() }), t('reg.toast.replied', 'Thank you. M3 has your answer.')).then((ok) => { if (ok) setReply(''); });
-  };
+  const attach = () => token && void run(() => attachRegistration(token), t('reg.toast.attached', 'Added to your account. You find it in My events.'));
+  const save = (changes: RegChanges) => void run(
+    () => updateRegistration(target, changes),
+    needsInfo ? t('reg.toast.replied', 'Thank you. The M3 team has your answer.') : t('reg.toast.saved', 'Your changes are saved.'),
+  );
+  const reminders = (on: boolean) => void run(
+    () => setRegistrationReminders(target, on),
+    on ? t('reg.toast.remindersOn', 'Reminder e-mails are back on.') : t('reg.toast.remindersOff', 'We will not send you more e-mails about this event.'),
+  );
 
-  const attach = () => void run(() => attachRegistration(token), t('reg.toast.attached', 'Added to your account. You find it in My events.'));
-
-  const calendar = reg.status === 'confirmed' && ev.starts_at && !ended ? {
-    title: ev.title, description: ev.description ?? null, date_time: ev.starts_at, end_date_time: ev.ends_at, location: ev.location ?? null, url: reg.meeting_url ?? null,
+  const calendar = reg.status === 'confirmed' && view.calendar && !ended ? {
+    title: view.calendar.title,
+    description: null,
+    date_time: view.calendar.starts_at,
+    end_date_time: view.calendar.ends_at,
+    location: view.calendar.location ?? null,
+    url: view.meeting_url ?? view.calendar.url ?? null,
   } : null;
 
-  // The answers, as shown (and as edited).
+  // The details, as shown.
   const answers = reg.answers ?? {};
+  const questions = view.questions ?? [];
   const answerText = (key: string, v: unknown): string => {
-    const q = (view.questions ?? []).find((x) => x.key === key);
+    const q = questions.find((x) => x.key === key);
     if (typeof v === 'boolean') return v ? t('reg.summary.yes', 'Yes') : t('reg.summary.no', 'No');
     const opts = q ? questionOptions(q) : [];
     const label = (x: string) => opts.find((o) => o.value === x)?.label ?? x;
@@ -222,16 +293,19 @@ function StatusContent({ token }: { token: string }) {
     ...questions.filter((q) => isAnswered(answers[q.key] as AnswerValue)).map((q) => ({ label: q.label, value: answerText(q.key, answers[q.key]) })),
   ].filter((r) => r.value);
 
-  const canEdit = !!reg.can_edit && !readOnly && active && !ended;
+  const canEdit = view.can_edit && !readOnly;
+  const display = displayOf(reg.status_display ?? reg.status);
 
   return (
     <div className="min-h-screen bg-page">
-      <Seo title={withSiteSuffix(t('reg.status.seoTitleEvent', { title: ev.title, defaultValue: 'Your registration: {{title}}' }))} noindex />
+      <Seo title={withSiteSuffix(t('reg.status.seoTitleEvent', { title, defaultValue: 'Your registration: {{title}}' }))} noindex />
       {NO_REFERRER}
       <EventBand
-        back={eventHref ? { to: eventHref, label: t('reg.page.eventPage', 'Event page') } : null}
+        back={view.via === 'session'
+          ? { to: accountHref('registrations'), label: t('reg.status.backToMyEvents', 'My events') }
+          : eventHref ? { to: eventHref, label: t('reg.page.eventPage', 'Event page') } : null}
         eyebrow={t('reg.status.eyebrow', 'Your registration')}
-        title={ev.title}
+        title={title}
         when={when}
         where={where}
         webinar={isWebinar}
@@ -245,7 +319,7 @@ function StatusContent({ token }: { token: string }) {
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <Eyebrow as="h2"><span id="reg-st-title">{t('reg.status.whereTitle', 'Where it stands')}</span></Eyebrow>
             <div className="flex flex-wrap gap-1.5">
-              <RegStatusPill display={reg.status_display ?? null} status={reg.status} />
+              <RegStatusPill display={display} status={reg.status} />
               <PaymentPill payment={reg.payment_display ?? null} />
             </div>
           </div>
@@ -258,10 +332,7 @@ function StatusContent({ token }: { token: string }) {
               status={reg.status}
               mode={ev.mode}
               kind={ev.kind}
-              createdAt={reg.created_at}
-              decidedAt={reg.decided_at}
-              infoRequestedAt={reg.info_requested_at}
-              cancelledAt={reg.cancelled_at}
+              timeline={view.timeline ?? []}
               eventStart={ev.starts_at}
               sla={sla}
               locale={locale}
@@ -269,49 +340,37 @@ function StatusContent({ token }: { token: string }) {
           </div>
 
           <div className="mt-6 space-y-4">
-            {/* M3 needs a detail. */}
-            {reg.status === 'needs_info' && !readOnly && (
-              <div className="space-y-3 rounded-field border border-gold/60 bg-gold/10 p-4">
+            {/* M3 needs a detail: the question, then the details to complete and one button. */}
+            {needsInfo && (
+              <div className="space-y-4 rounded-field border border-gold/60 bg-gold/10 p-4">
                 <p className="flex items-center gap-2 text-[15px] font-semibold text-navy">
-                  <MessageSquare className="h-4 w-4" aria-hidden="true" />{t('reg.block.infoAsked', 'The M3 team needs one more detail before deciding:')}
+                  <MessageSquare className="h-4 w-4 shrink-0" aria-hidden="true" />{t('reg.block.infoAsked', 'The M3 team needs one more detail before deciding:')}
                 </p>
                 {reg.info_request && <blockquote className="rounded-field bg-white px-4 py-3 text-[15px] leading-6 text-navy [overflow-wrap:anywhere]">{reg.info_request}</blockquote>}
-                <div className="space-y-2">
-                  <AuthLabel htmlFor="st-reply">{t('reg.block.yourAnswer', 'Your answer')}</AuthLabel>
-                  <AuthTextarea id="st-reply" rows={3} value={reply} onChange={(e) => { setReply(e.target.value.slice(0, 2000)); setReplyError(null); }}
-                    aria-invalid={!!replyError} aria-describedby={replyError ? 'st-reply-err' : undefined} />
-                  {replyError && <FieldError id="st-reply-err">{replyError}</FieldError>}
-                </div>
-                <Button variant="cta" className="w-full justify-between sm:w-auto" onClick={sendReply} disabled={busy} arrow={!busy} roll={!busy}>
-                  {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</> : t('reg.block.sendAnswer', 'Send my answer')}
-                </Button>
+                {canEdit ? (
+                  <>
+                    <p className="text-sm leading-6 text-ink">{t('reg.status.infoHow', 'Complete or correct your details below if that answers it, then press "Send my answer".')}</p>
+                    <EditDetails view={view} busy={busy} reply onSave={save} />
+                  </>
+                ) : (
+                  <p className="text-sm leading-6 text-ink">{t('reg.status.infoByEmail', 'Please reply to the M3 team by e-mail.')}</p>
+                )}
+                <p className="text-sm leading-6 text-meta">
+                  {t('reg.status.infoOrEmail', 'You can also answer by e-mail:')}{' '}
+                  <UnderlineLink href={`mailto:${M3_PUBLIC_EMAIL}`} arrow={false} className="!text-sm">{M3_PUBLIC_EMAIL}</UnderlineLink>
+                </p>
               </div>
             )}
 
-            {/* An invitation: the answer, on a click only. */}
             {reg.status === 'invited' && !readOnly && (
-              <div className="space-y-3">
-                <p className="text-[15px] leading-6 text-ink">{t('reg.block.invitedBody', 'The organisers have invited you. Will you take part?')}</p>
-                <Button variant="cta" className="w-full justify-between" onClick={() => void run(() => respondToInvitation(target, 'accept'), t('reg.toast.accepted', 'Thank you. Your place is confirmed.'))} disabled={busy} arrow={!busy} roll={!busy}>
-                  {t('reg.block.accept', 'Yes, I will take part')}
-                </Button>
-                <ConfirmInline
-                  label={t('reg.block.decline', 'I cannot take part')}
-                  question={t('reg.block.declineQuestion', 'Decline this invitation?')}
-                  confirmLabel={t('reg.block.declineYes', 'Yes, decline')}
-                  keepLabel={t('reg.block.declineKeep', 'Not now')}
-                  onConfirm={() => void run(() => respondToInvitation(target, 'decline'), t('reg.toast.declined', 'Thank you for letting us know.'))}
-                  busy={busy}
-                  tone="neutral"
-                />
-              </div>
+              <NoteLine icon={Mail}>{t('reg.status.invitedNote', 'The organisers have invited you. The M3 team will contact you to confirm your place.')}</NoteLine>
             )}
 
-            {/* Confirmed webinar: the link and the calendar. */}
+            {/* Confirmed webinar: the link. */}
             {reg.status === 'confirmed' && isWebinar && !ended && (
-              reg.meeting_url ? (
+              view.meeting_url ? (
                 <Button asChild variant="cta" className="w-full justify-between">
-                  <a href={reg.meeting_url} target="_blank" rel="noopener noreferrer">
+                  <a href={view.meeting_url} target="_blank" rel="noopener noreferrer">
                     {live ? t('eventsPage.joinNow', 'Join now') : t('eventsPage.joinWebinar', 'Join the webinar')}
                   </a>
                 </Button>
@@ -319,9 +378,9 @@ function StatusContent({ token }: { token: string }) {
                 <NoteLine icon={Video}>{t('reg.status.joinLater', 'The joining link will appear here, and in a reminder e-mail, before the webinar starts.')}</NoteLine>
               )
             )}
-            {ended && reg.replay_url && (
+            {ended && view.replay_url && (
               <Button asChild variant="cta" className="w-full justify-between">
-                <a href={reg.replay_url} target="_blank" rel="noopener noreferrer"><Play className="mr-2 h-4 w-4" aria-hidden="true" />{t('events.watchReplay', 'Watch the replay')}</a>
+                <a href={view.replay_url} target="_blank" rel="noopener noreferrer"><Play className="mr-2 h-4 w-4" aria-hidden="true" />{t('events.watchReplay', 'Watch the replay')}</a>
               </Button>
             )}
             {calendar && (
@@ -331,9 +390,12 @@ function StatusContent({ token }: { token: string }) {
               </div>
             )}
 
-            {/* Confirmed on site, no pass to draw here: it is in the e-mail. */}
-            {reg.status === 'confirmed' && !isWebinar && !checkinUrl && !ended && (
-              <NoteLine icon={Mail}>{t('reg.block.passByEmail', 'Your entry pass is in your confirmation e-mail. Show it at the entrance.')}</NoteLine>
+            {/* Confirmed on site, no pass to draw here (an account whose e-mail is not confirmed yet): it is in the e-mail. */}
+            {reg.status === 'confirmed' && !isWebinar && !qrText && !ended && (
+              <div className="space-y-3">
+                <NoteLine icon={Mail}>{t('reg.block.passByEmail', 'Your entry pass is in your confirmation e-mail. Show it at the entrance.')}</NoteLine>
+                {user?.email && <ResendLinksForm compact lockedEmail={user.email} idPrefix="pass-resend" />}
+              </div>
             )}
 
             {actionError && <AuthNotice tone="error" role="alert"><p>{actionError}</p></AuthNotice>}
@@ -366,20 +428,20 @@ function StatusContent({ token }: { token: string }) {
               <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-foam text-teal-text"><Link2 className="h-5 w-5" /></span>
               <div className="min-w-0">
                 <h2 className="text-card-title text-navy">{t('reg.status.linkedTitle', 'Linked to an account')}</h2>
-                <p className="mt-1 text-sm leading-6 text-ink">{t('reg.status.linkedBody', 'This registration belongs to a Smart Marina Connect account. Sign in to change or cancel it.')}</p>
-                <div className="mt-4">
-                  {user ? (
-                    <Button variant="cta" size="sm" onClick={() => navigate(accountHref('registrations'))}>{t('reg.status.toMyEvents', 'Go to My events')}</Button>
-                  ) : (
-                    <Button variant="cta" size="sm" onClick={() => setLoginOpen(true)}>
+                {user ? (
+                  <p className="mt-1 text-sm leading-6 text-ink">{t('reg.status.linkedOther', 'This registration belongs to another Smart Marina Connect account. Sign in with that account to change or cancel it.')}</p>
+                ) : (
+                  <>
+                    <p className="mt-1 text-sm leading-6 text-ink">{t('reg.status.linkedBody', 'This registration belongs to a Smart Marina Connect account. Sign in to change or cancel it.')}</p>
+                    <Button variant="cta" size="sm" className="mt-4" onClick={() => setLoginOpen(true)}>
                       <LogIn className="mr-2 h-4 w-4" aria-hidden="true" />{t('reg.status.signInToManage', 'Sign in to manage')}
                     </Button>
-                  )}
-                </div>
+                  </>
+                )}
               </div>
             </div>
           </CardShell>
-        ) : user && active ? (
+        ) : user && token && active && !reg.linked ? (
           // Signed in, a registration made without the account (or with another address): one click to keep it there.
           <CardShell as="section" className="p-6 sm:p-8">
             <h2 className="text-card-title text-navy">{t('reg.status.attachTitle', 'Keep it in your account')}</h2>
@@ -388,6 +450,12 @@ function StatusContent({ token }: { token: string }) {
               {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</> : t('reg.status.attach', 'Add this to my account')}
             </Button>
           </CardShell>
+        ) : user && reg.linked && view.via === 'token' ? (
+          <p className="flex items-center justify-center gap-2 text-center text-sm leading-6 text-meta">
+            <Link2 className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {t('reg.status.inAccount', 'This registration is in your account.')}{' '}
+            <Link to={accountHref('registrations')} className="font-semibold text-navy underline underline-offset-4">{t('reg.myEvents', 'My events')}</Link>
+          </p>
         ) : null}
 
         {/* What was sent, and changing it. */}
@@ -395,19 +463,14 @@ function StatusContent({ token }: { token: string }) {
           <CardShell as="section" aria-labelledby="reg-st-details" className="p-6 sm:p-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 id="reg-st-details" className="text-card-title text-navy">{t('reg.status.detailsTitle', 'Your details')}</h2>
-              {canEdit && !editing && (
+              {canEdit && !editing && !needsInfo && (
                 <Button variant="outline" size="sm" className="h-10 rounded-pill border-navy/25 px-4 text-navy" onClick={() => setEditing(true)}>
                   <Pencil className="mr-1.5 h-4 w-4" aria-hidden="true" />{t('reg.change', 'Change')}
                 </Button>
               )}
             </div>
-            {editing ? (
-              <EditAnswers
-                view={view}
-                busy={busy}
-                onCancel={() => { setEditing(false); setActionError(null); }}
-                onSave={(fields, ans) => void run(() => updateRegistration(target, { fields, answers: ans }), t('reg.toast.saved', 'Your changes are saved.'))}
-              />
+            {editing && !needsInfo ? (
+              <EditDetails view={view} busy={busy} onCancel={() => { setEditing(false); setActionError(null); }} onSave={save} />
             ) : (
               <dl className="mt-4 divide-y divide-rule rounded-field ring-1 ring-inset ring-rule">
                 {detailRows.map((row, i) => (
@@ -418,16 +481,46 @@ function StatusContent({ token }: { token: string }) {
                 ))}
               </dl>
             )}
-            {!canEdit && active && !readOnly && reg.edit_locks_at && new Date(reg.edit_locks_at).getTime() < now && (
-              <p className="mt-3 text-sm text-meta">{t('reg.error.locked', 'Your answers can no longer be changed for this event.')}</p>
+            {!canEdit && active && !readOnly && !ended && (
+              <p className="mt-3 text-sm text-meta">{t('reg.status.noMoreChanges', 'Your details can no longer be changed for this event. A correction? Write to the M3 team.')}</p>
             )}
           </CardShell>
         )}
 
+        {/* Reminder e-mails about this event: offered from the reminder's own link, or when they are off. */}
+        {!readOnly && active && !ended && (remindersOff || !view.reminders_on) && (
+          <CardShell as="section" className="p-6 sm:p-8">
+            <div className="flex items-start gap-3">
+              <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-page text-navy">
+                {view.reminders_on ? <BellRing className="h-5 w-5" /> : <BellOff className="h-5 w-5" />}
+              </span>
+              <div className="min-w-0">
+                <h2 className="text-card-title text-navy">{t('reg.status.remindersTitle', 'E-mails about this event')}</h2>
+                <p className="mt-1 text-sm leading-6 text-ink">
+                  {view.reminders_on
+                    ? t('reg.status.remindersOnBody', 'We send a reminder before the event, with the practical details.')
+                    : t('reg.status.remindersOffBody', 'You will not receive reminders about this event. Your registration stays as it is.')}
+                </p>
+                <Button
+                  variant={view.reminders_on ? 'ctaNavy' : 'ctaOutline'}
+                  size="sm"
+                  arrow={false}
+                  className="mt-4"
+                  onClick={() => reminders(!view.reminders_on)}
+                  disabled={busy}
+                >
+                  {view.reminders_on ? t('reg.status.remindersStop', 'Stop e-mails about this event') : t('reg.status.remindersStart', 'Send me reminders again')}
+                </Button>
+              </div>
+            </div>
+          </CardShell>
+        )}
+
         {/* Cancel, at the bottom, asked twice. */}
-        {reg.can_cancel && !readOnly && active && !ended && (
+        {view.can_cancel && !readOnly && (
           <ConfirmInline
-            label={reg.status === 'requested' || reg.status === 'needs_info' ? t('reg.block.cancelRequest', 'Cancel my request') : t('eventsPage.cancelMine', 'Cancel my registration')}
+            label={reg.status === 'requested' || reg.status === 'needs_info' ? t('reg.block.cancelRequest', 'Cancel my request')
+              : reg.status === 'waitlisted' ? t('reg.block.leaveWaitlist', 'Leave the waiting list') : t('eventsPage.cancelMine', 'Cancel my registration')}
             question={t('reg.block.cancelQuestion', 'Cancel your registration for this event?')}
             confirmLabel={t('reg.block.cancelYes', 'Yes, cancel')}
             keepLabel={t('reg.block.cancelKeep', 'No, keep it')}
@@ -454,7 +547,7 @@ function StatusContent({ token }: { token: string }) {
       <Dialog open={passOpen} onOpenChange={setPassOpen}>
         <DialogContent className="left-0 top-0 flex h-[100dvh] max-h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 flex-col items-center justify-center gap-5 rounded-none border-0 bg-white p-6 sm:rounded-none">
           <DialogTitle className="text-center text-h3 text-navy">{[reg.first_name, reg.last_name].filter(Boolean).join(' ') || t('reg.status.passLabel', 'Entry pass')}</DialogTitle>
-          <DialogDescription className="text-center text-[15px] leading-6 text-meta">{ev.title}</DialogDescription>
+          <DialogDescription className="text-center text-[15px] leading-6 text-meta">{title}</DialogDescription>
           {qr && <img src={qr} alt={t('reg.status.qrAlt', 'Your entry QR code')} className="h-auto w-full max-w-[min(88vw,70vh)]" />}
           <p className="flex items-center gap-2 text-center text-sm leading-5 text-ink">
             <Sun className="h-4 w-4 shrink-0 text-gold-text" aria-hidden="true" />
@@ -471,31 +564,36 @@ function StatusContent({ token }: { token: string }) {
         description={t('reg.status.signInDesc', 'Sign in to manage your registrations.')}
         switchTo={{ onClick: () => { setLoginOpen(false); openSignup(); } }}
       >
-        <LoginForm onSuccess={() => setLoginOpen(false)} next={`${location.pathname}${location.search}`} />
+        <LoginForm onSuccess={() => { setLoginOpen(false); navigate(`${location.pathname}${location.search}`, { replace: true }); }} next={`${location.pathname}${location.search}`} />
       </AuthDialog>
-
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ changing the answers */
+/* ------------------------------------------------------------------ changing the details */
 
-function EditAnswers({
+const STD = ['company', 'job_title', 'phone', 'country'] as const;
+
+function EditDetails({
   view,
   busy,
+  reply = false,
   onCancel,
   onSave,
 }: {
   view: RegStatusView;
   busy: boolean;
-  onCancel: () => void;
-  onSave: (fields: Partial<Record<StandardFieldKey, string>>, answers: Record<string, AnswerValue>) => void;
+  /** Answering an information request: always open, one "Send my answer" button. */
+  reply?: boolean;
+  onCancel?: () => void;
+  onSave: (changes: RegChanges) => void;
 }) {
   const { t } = useTranslation();
   const reg = view.registration;
-  const std = view.standard_fields;
-  const editableQs = questionsFor(view.questions, reg.ticket_key ?? null).filter((q) => q.editable_after_submit !== false);
-  const [values, setValues] = useState<IdentityValues>({
+  const std = view.fields;
+  const names = view.can_edit_names;
+  const editableQs = (view.questions ?? []).filter((q) => q.editable !== false);
+  const initial: IdentityValues = {
     first_name: reg.first_name ?? '',
     last_name: reg.last_name ?? '',
     email: reg.email_masked ?? '',
@@ -503,7 +601,8 @@ function EditAnswers({
     job_title: reg.job_title ?? '',
     phone: reg.phone ?? '',
     country: reg.country ?? '',
-  });
+  };
+  const [values, setValues] = useState<IdentityValues>(initial);
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>(() => {
     const out: Record<string, AnswerValue> = {};
     for (const q of editableQs) {
@@ -516,31 +615,45 @@ function EditAnswers({
   const [qErrors, setQErrors] = useState<Record<string, string>>({});
 
   const save = () => {
-    // Names and e-mail are not changed through the link: only the event's fields and answers.
-    const idErrs = identityErrors({ ...values, first_name: 'x', last_name: 'x', email: 'x@x.xx' }, std, t);
+    // The e-mail never changes here; the names only while the registration is not decided.
+    const idErrs = identityErrors({ ...values, ...(names ? {} : { first_name: 'x', last_name: 'x' }), email: 'x@x.xx' }, std, t);
     const qe: Record<string, string> = {};
     for (const q of editableQs) { const e = answerError(q, answers[q.key], t); if (e) qe[q.key] = e; }
     setErrors(idErrs);
     setQErrors(qe);
     if (Object.keys(idErrs).length > 0 || Object.keys(qe).length > 0) return;
-    const fields: Partial<Record<StandardFieldKey, string>> = {};
-    for (const k of ['company', 'job_title', 'phone', 'country'] as const) if (ruleOf(std, k) !== 'hidden') fields[k] = values[k].trim();
-    onSave(fields, answers);
+    // Only the keys that changed.
+    const changes: RegChanges = {};
+    if (names) {
+      if (values.first_name.trim() !== initial.first_name) changes.first_name = values.first_name.trim();
+      if (values.last_name.trim() !== initial.last_name) changes.last_name = values.last_name.trim();
+    }
+    for (const k of STD) if (ruleOf(std, k) !== 'hidden' && values[k].trim() !== initial[k]) changes[k] = values[k].trim();
+    const changedAnswers: Record<string, unknown> = {};
+    for (const q of editableQs) {
+      const before = JSON.stringify(reg.answers?.[q.key] ?? null);
+      const now = answers[q.key];
+      const after = JSON.stringify(isAnswered(now) ? now : null);
+      if (before !== after) changedAnswers[q.key] = isAnswered(now) ? now : null;
+    }
+    if (Object.keys(changedAnswers).length > 0) changes.answers = changedAnswers;
+    onSave(changes);
   };
 
-  const shownStd = (['company', 'job_title', 'phone', 'country'] as const).some((k) => ruleOf(std, k) !== 'hidden');
+  const shownStd = STD.some((k) => ruleOf(std, k) !== 'hidden');
 
   return (
-    <div className="mt-5 space-y-6">
-      {shownStd && (
+    <div className={reply ? 'space-y-6' : 'mt-5 space-y-6'}>
+      {(names || shownStd) && (
         <IdentityBlock
           values={values}
           onChange={(k, v) => { setValues((cur) => ({ ...cur, [k]: v })); setErrors((e) => ({ ...e, [k]: undefined })); }}
           errors={errors}
           standardFields={std}
           emailLocked
-          standardOnly
-          idPrefix="st"
+          hideEmail
+          standardOnly={!names}
+          idPrefix={reply ? 'sti' : 'st'}
         />
       )}
       {editableQs.map((q) => (
@@ -550,17 +663,26 @@ function EditAnswers({
           value={answers[q.key]}
           onChange={(v) => { setAnswers((cur) => ({ ...cur, [q.key]: v })); setQErrors((e) => { const n = { ...e }; delete n[q.key]; return n; }); }}
           error={qErrors[q.key]}
-          idPrefix="stq"
+          idPrefix={reply ? 'stiq' : 'stq'}
         />
       ))}
-      <p className="text-[13px] leading-5 text-meta">{t('reg.status.namesFixed', 'Your name and e-mail stay as registered. To change them, write to the M3 team.')}</p>
+      {!reply && (
+        <p className="text-[13px] leading-5 text-meta">
+          {names
+            ? t('reg.status.emailFixed', 'Your e-mail stays as registered. To change it, write to the M3 team.')
+            : t('reg.status.namesFixed', 'Your name and e-mail stay as registered. To change them, write to the M3 team.')}
+        </p>
+      )}
       <div className="flex flex-wrap gap-3">
         <Button variant="cta" size="sm" onClick={save} disabled={busy} arrow={!busy} roll={!busy}>
-          {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</> : t('reg.save', 'Save')}
+          {busy ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />{t('reg.sending', 'Sending…')}</>
+            : reply ? t('reg.block.sendAnswer', 'Send my answer') : t('reg.save', 'Save')}
         </Button>
-        <Button variant="ghost" size="sm" className="h-11 rounded-pill px-4 text-navy hover:bg-chip" onClick={onCancel} disabled={busy}>
-          {t('reg.cancelEdit', 'Cancel')}
-        </Button>
+        {onCancel && (
+          <Button variant="ghost" size="sm" className="h-11 rounded-pill px-4 text-navy hover:bg-chip" onClick={onCancel} disabled={busy}>
+            {t('reg.cancelEdit', 'Cancel')}
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -307,6 +307,16 @@ export function EventsPage() {
     for (const [eventId, p] of myParts) if (isActiveStatus(p.status)) set.add(eventId);
     return set;
   }, [registeredEvents, myParts]);
+  // The cards' "Registered" mark: a place held. A request still under review, or a waiting
+  // list, is not one (the card's button says where it stands).
+  const placeSet = useMemo(() => {
+    const set = new Set(registeredEvents);
+    for (const [eventId, p] of myParts) {
+      if (p.status_display === 'confirmed') set.add(eventId);
+      else set.delete(eventId);
+    }
+    return set;
+  }, [registeredEvents, myParts]);
 
   const themesByEvent = useMemo(() => {
     const m: Record<string, ThemeKey[]> = {};
@@ -595,7 +605,7 @@ export function EventsPage() {
   const viewProps = (e: Event, phase: Phase) => ({
     event: e,
     phase,
-    registered: registeredSet.has(e.id),
+    registered: placeSet.has(e.id),
     themes: themesByEvent[e.id] ?? [],
     themeLabel,
     kindLabel,

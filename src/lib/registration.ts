@@ -3,8 +3,9 @@ import type { TFunction } from 'i18next';
 import { supabase } from '@/lib/supabase';
 
 /**
- * The client of the unified registration (spec §4.1, §6; database contract
- * docs/registration-contract.md of the DB lane).
+ * The client of the unified registration (spec §4.1, §6; the DB lane's contract
+ * docs/registration-contract.md and the EDGE lane's API,
+ * supabase/functions/registration/README.md).
  *
  * Every public read and write of an event registration goes through ONE edge
  * function, `registration` (verify_jwt false: it reads the session itself when
@@ -18,7 +19,8 @@ import { supabase } from '@/lib/supabase';
  *
  * The public answers never say whether an address is already registered: a
  * duplicate gets the same `{ ok: true }` as a new registration (the e-mail
- * differs). Nothing here ever receives a token: status links travel by e-mail.
+ * differs). Nothing here ever receives a status token: status links travel by
+ * e-mail.
  */
 
 /* ------------------------------------------------------------------ types */
@@ -28,7 +30,7 @@ export type RegKind = 'webinar' | 'onsite';
 export type RegMode = 'instant' | 'review' | 'invitation';
 export type RegAccess = 'public' | 'members';
 
-/** What a visitor can do on an event now (gl_registration_state, plus not_found). */
+/** What a visitor can do on an event now (gl_registration_state). */
 export type RegState =
   | 'open' | 'not_published' | 'not_yet_open' | 'closed' | 'full' | 'waitlist'
   | 'members_only' | 'invitation_only' | 'registered' | 'not_found';
@@ -38,7 +40,7 @@ export type RegStatus =
   | 'requested' | 'needs_info' | 'waitlisted' | 'invited' | 'approved'
   | 'confirmed' | 'declined' | 'rejected' | 'cancelled';
 
-/** The one vocabulary of the screens and e-mails (spec §2.3; my_participations.status_display). */
+/** The one vocabulary of the screens and e-mails (spec §2.3; contract §5 REG). */
 export type StatusDisplay =
   | 'under_review' | 'needs_info' | 'waitlisted' | 'invited' | 'payment_due'
   | 'confirmed' | 'not_accepted' | 'declined' | 'cancelled' | 'event_ended';
@@ -47,6 +49,7 @@ export type PaymentDisplay = 'none' | 'due' | 'pending' | 'invoiced' | 'paid' | 
 
 export type FieldRule = 'required' | 'optional' | 'hidden';
 export type StandardFieldKey = 'company' | 'job_title' | 'phone' | 'country';
+/** The event's standard fields, each required, optional or hidden (a missing key is optional). */
 export type StandardFields = Partial<Record<StandardFieldKey, FieldRule>>;
 
 export type QuestionKind =
@@ -55,6 +58,7 @@ export type QuestionKind =
 
 export interface QuestionOption { value: string; label: string }
 
+/** One of the event's own questions (gl_question), in the order the function sends them. */
 export interface RegQuestion {
   key: string;
   label: string;
@@ -64,13 +68,16 @@ export interface RegQuestion {
   options?: (QuestionOption | string)[] | null;
   max_length?: number | null;
   required?: boolean;
-  /** Null or empty: asked for every ticket. */
+  /** Null or empty: asked for every participation type. */
   ticket_keys?: string[] | null;
+  /** Not sent by the function today: only used for the autocomplete hint when present. */
   profile_field?: 'job_title' | 'country' | 'phone' | 'linkedin_url' | null;
   editable_after_submit?: boolean;
-  display_order?: number;
+  /** Status view only: this answer can be changed now. */
+  editable?: boolean;
 }
 
+/** A participation type (gl_ticket), as the function shows it to this caller. */
 export interface RegTicket {
   key: string;
   label: string;
@@ -79,80 +86,105 @@ export interface RegTicket {
   currency?: string | null;
   price_note?: string | null;
   invite_only?: boolean;
-  capacity?: number | null;
-  allowed_company_types?: string[] | null;
   parts?: string[] | null;
-  display_order?: number;
-  /** When the function says so: no seat left on this ticket. */
-  full?: boolean;
+  /** Company types this type is kept for (organization_type values), or null. */
+  restricted_to?: string[] | null;
+  /** False: given by invitation, or kept for company types the caller's validated companies are not. */
+  allowed?: boolean;
 }
 
-/** The event as the registration function describes it (catalogue data joined from `events`). */
+/**
+ * The event as the registration function describes it. A core_v2 event that
+ * takes registrations has every field; a guest list (wys26) or a draft only
+ * the first ones: read the rest with a fallback.
+ */
 export interface RegEvent {
   gl_event_id: string;
   /** events.id; null for an event without a catalogue row (the canaries). */
-  event_id: string | null;
+  event_id?: string | null;
   slug: string;
-  engine: RegEngine;
-  kind: RegKind;
-  mode: RegMode;
-  access: RegAccess;
+  title?: string;
+  kind?: RegKind;
+  mode?: RegMode;
+  access?: RegAccess;
   public_requests?: boolean;
   waitlist?: boolean;
-  title: string;
-  description?: string | null;
-  starts_at: string | null;
-  ends_at: string | null;
+  starts_at?: string | null;
+  ends_at?: string | null;
+  opens_at?: string | null;
+  closes_at?: string | null;
+  edit_locks_at?: string | null;
+  /** IANA zone of the event (default Europe/Monaco). */
+  timezone?: string | null;
   location?: string | null;
   image_url?: string | null;
+  hidden?: boolean;
+  /** Status view only: the event is over. */
+  ended?: boolean;
 }
 
-/** What the signed-in caller already knows about this person (spec §4.1 `form`). */
+/** What the platform knows about the signed-in caller (spec §4.1 `form`). */
 export interface RegPrefill {
   first_name?: string | null;
   last_name?: string | null;
-  /** The account's e-mail: the registration is always made with it (locked). */
+  /** The account's e-mail: the registration is always made with it. */
   email?: string | null;
-  company?: string | null;
+  email_locked?: boolean;
   job_title?: string | null;
-  phone?: string | null;
   country?: string | null;
-  organization_id?: string | null;
+  phone?: string | null;
+  /** The only company's name, else the declared affiliation. */
+  company?: string | null;
+  organizations?: { id: string; name: string }[];
+  /** The person is validated by M3. */
+  verified?: boolean;
 }
 
 /** The signed-in caller's own registration for this event (never given to anyone else). */
 export interface RegMine {
+  registration_id?: string;
   status: RegStatus;
-  ticket_key?: string | null;
-  payment_status?: PaymentDisplay | null;
-  can_cancel?: boolean;
-  info_request?: string | null;
-  created_at?: string | null;
+  status_display?: StatusDisplay | string;
 }
 
+/** The answer of `form`. */
 export interface RegForm {
   ok: true;
-  event: RegEvent;
+  engine: RegEngine;
   state: RegState;
-  opens_at?: string | null;
-  closes_at?: string | null;
-  edit_locks_at?: string | null;
-  standard_fields?: StandardFields;
+  /** The switch of this kind of event is off: "Registration is closed for now". */
+  paused?: boolean;
+  /** Guest list only: the /wys26 form posts to `registration` (flag wys_form_v2). */
+  parity?: boolean;
+  event: RegEvent;
+  fields?: StandardFields;
   tickets?: RegTicket[];
   questions?: RegQuestion[];
-  /** Ask the image-rights consent on the last step. */
-  ask_image_consent?: boolean;
+  /** "within 2 working days". */
+  review_sla_text?: string;
   prefill?: RegPrefill | null;
   mine?: RegMine | null;
+  /**
+   * Ask the image-rights consent on the last step. NOT sent by the function
+   * yet (reported to the integrator): without it the question is never asked.
+   */
+  ask_image_consent?: boolean;
 }
 
-/** A registration seen through its status link (or by its signed-in owner). */
+export type TimelineStep = 'received' | 'needs_info' | 'confirmed' | 'not_accepted' | 'waitlisted' | 'cancelled' | 'checked_in';
+
+/** A registration seen through its status link, or by its signed-in owner (`status`, `update`). */
 export interface RegStatusView {
   ok: true;
+  engine: RegEngine;
+  via: 'token' | 'session';
+  /** Linked to an account and not opened by it: the link shows the registration, the account manages it. */
+  read_only: boolean;
   event: RegEvent;
   registration: {
+    id: string;
     status: RegStatus;
-    status_display?: StatusDisplay;
+    status_display?: StatusDisplay | string;
     payment_display?: PaymentDisplay;
     first_name?: string | null;
     last_name?: string | null;
@@ -164,23 +196,25 @@ export interface RegStatusView {
     ticket_key?: string | null;
     ticket_label?: string | null;
     answers?: Record<string, unknown>;
-    created_at?: string | null;
-    decided_at?: string | null;
+    /** What M3 asked (needs_info only). */
     info_request?: string | null;
-    info_requested_at?: string | null;
-    cancelled_at?: string | null;
-    can_cancel?: boolean;
-    can_edit?: boolean;
-    edit_locks_at?: string | null;
-    /** Linked to an account: the link shows the registration, the account manages it. */
-    read_only?: boolean;
-    meeting_url?: string | null;
-    replay_url?: string | null;
-    /** On-site, confirmed: the entry pass (the door's check-in address, drawn as a QR). */
-    checkin_url?: string | null;
+    created_at?: string | null;
+    linked?: boolean;
   };
+  timeline: { step: TimelineStep; at: string }[];
+  fields?: StandardFields;
+  /** The questions of this registration's participation type. */
   questions?: RegQuestion[];
-  standard_fields?: StandardFields;
+  can_edit: boolean;
+  can_edit_names: boolean;
+  can_cancel: boolean;
+  edit_locks_at?: string | null;
+  reminders_on: boolean;
+  meeting_url?: string | null;
+  replay_url?: string | null;
+  /** Confirmed on site: the entry pass, to draw as a QR code. */
+  pass?: { qr_text: string } | null;
+  calendar?: { title: string; starts_at: string; ends_at: string; location?: string | null; url?: string | null } | null;
 }
 
 /** Every refusal of the function, as one shape. */
@@ -188,6 +222,7 @@ export interface RegFailure {
   ok: false;
   error?: string;
   state?: RegState;
+  paused?: boolean;
   /** missing_fields: which identity fields. */
   fields?: string[];
   /** invalid_answers: which question keys. */
@@ -207,9 +242,10 @@ export interface SourceDetail {
   utm_content?: string;
 }
 
+/** An event, by its slug or its catalogue id. */
+export type EventSelector = { slug: string } | { event_id: string };
+
 export interface RegisterInput {
-  slug?: string;
-  event_id?: string;
   first_name?: string;
   last_name?: string;
   email?: string;
@@ -219,8 +255,10 @@ export interface RegisterInput {
   country?: string;
   ticket_key?: string | null;
   answers?: Record<string, unknown>;
-  consents?: { terms_at?: string; image?: boolean; marketing_at?: string };
+  /** Booleans: the function stamps the dates. `terms` is required without an account. */
+  consents?: { terms?: boolean; image?: boolean; marketing?: boolean };
   source_detail?: SourceDetail;
+  /** Signed in: the company the registration is made for (one of prefill.organizations). */
   organization_id?: string | null;
   /** Honeypot: always empty from a person. */
   website?: string;
@@ -228,8 +266,27 @@ export interface RegisterInput {
   captcha?: string | null;
 }
 
-/** A registration addressed either by its status link or, signed in, by its event. */
-export type RegTarget = { token: string } | { event_id: string } | { slug: string };
+/** Signed in: where the registration landed. Anonymous answers are only `{ ok: true }`. */
+export interface RegisterDone {
+  ok: true;
+  status?: RegStatus;
+  duplicate?: boolean;
+  registration_id?: string;
+}
+
+/** A registration addressed by its status link or, signed in, by its id or its event. */
+export type RegTarget = { token: string } | { registration_id: string } | EventSelector;
+
+/** What can be changed after sending (`update`): only the keys that change. */
+export interface RegChanges {
+  first_name?: string;
+  last_name?: string;
+  company?: string;
+  job_title?: string;
+  phone?: string;
+  country?: string;
+  answers?: Record<string, unknown>;
+}
 
 /* ------------------------------------------------------------------ the call */
 
@@ -238,9 +295,9 @@ function isFailure(x: unknown): x is RegFailure {
 }
 
 /**
- * Calls the registration function. Always resolves: a refusal (any status
- * code) comes back as its JSON body `{ ok: false, error | state }`, a network
- * failure as `{ ok: false, error: 'network' }`.
+ * Calls the registration function. Always resolves: a refusal (an HTTP 4xx
+ * `{ error }`, or a 200 `{ ok: false, state }`) comes back as one failure
+ * shape, a network failure as `{ ok: false, error: 'network' }`.
  */
 export async function callRegistration<T>(body: Record<string, unknown>): Promise<RegResult<T>> {
   try {
@@ -248,8 +305,8 @@ export async function callRegistration<T>(body: Record<string, unknown>): Promis
     if (!error) {
       if (data && typeof data === 'object') {
         const d = data as Record<string, unknown>;
-        if (d.ok === false || typeof d.error === 'string') return { ok: false, ...(d as object) } as RegFailure;
-        return { ok: true, ...(d as object) } as T;
+        if (d.ok === false || typeof d.error === 'string') return { ...(d as object), ok: false } as RegFailure;
+        return { ...(d as object), ok: true } as T;
       }
       return { ok: false, error: 'bad_response' };
     }
@@ -259,14 +316,15 @@ export async function callRegistration<T>(body: Record<string, unknown>): Promis
         const payload = await ctx.json();
         if (payload && typeof payload === 'object') {
           return {
-            ok: false,
             ...(payload as object),
+            ok: false,
             error: (payload as { error?: string }).error ?? (ctx.status === 429 ? 'rate_limited' : undefined),
           } as RegFailure;
         }
       } catch { /* not JSON */ }
       if (ctx.status === 429) return { ok: false, error: 'rate_limited' };
       if (ctx.status === 404) return { ok: false, error: 'not_found' };
+      if (ctx.status === 401) return { ok: false, error: 'session_expired' };
     }
     return { ok: false, error: 'network' };
   } catch {
@@ -276,43 +334,41 @@ export async function callRegistration<T>(body: Record<string, unknown>): Promis
 
 export const regFailed = isFailure;
 
-export function getRegistrationForm(target: { slug: string } | { event_id: string }): Promise<RegResult<RegForm>> {
-  return callRegistration<RegForm>({ action: 'form', ...target });
+export function getRegistrationForm(event: EventSelector): Promise<RegResult<RegForm>> {
+  return callRegistration<RegForm>({ action: 'form', ...event });
 }
 
-/** Public: `{ ok: true }` whether the address was new or already registered. Signed in, `status` may come too. */
-export function registerForEvent(input: RegisterInput): Promise<RegResult<{ ok: true; status?: RegStatus }>> {
-  return callRegistration<{ ok: true; status?: RegStatus }>({ action: 'register', ...input });
+/** Signed in with nothing else: one click (the function fills in what the account knows). */
+export function registerForEvent(event: EventSelector, input: RegisterInput = {}): Promise<RegResult<RegisterDone>> {
+  return callRegistration<RegisterDone>({ action: 'register', ...event, ...input });
 }
 
 export function getRegistrationStatus(target: RegTarget): Promise<RegResult<RegStatusView>> {
   return callRegistration<RegStatusView>({ action: 'status', ...target });
 }
 
-export function updateRegistration(
-  target: RegTarget,
-  changes: { fields?: Partial<Record<StandardFieldKey, string>>; answers?: Record<string, unknown>; info_reply?: string },
-): Promise<RegResult<{ ok: true }>> {
-  return callRegistration<{ ok: true }>({ action: 'update', ...target, ...changes });
+/** Saves the changed keys; a registration waiting for information goes back to review. Answers the new view. */
+export function updateRegistration(target: RegTarget, changes: RegChanges): Promise<RegResult<RegStatusView>> {
+  return callRegistration<RegStatusView>({ action: 'update', ...target, ...changes });
 }
 
-export function cancelRegistration(target: RegTarget): Promise<RegResult<{ ok: true }>> {
-  return callRegistration<{ ok: true }>({ action: 'cancel', ...target });
+export function cancelRegistration(target: RegTarget): Promise<RegResult<{ ok: true; status: 'cancelled' }>> {
+  return callRegistration<{ ok: true; status: 'cancelled' }>({ action: 'cancel', ...target });
 }
 
-/** An invitation (core_v2): accept or decline, only ever on a click. */
-export function respondToInvitation(target: RegTarget, answer: 'accept' | 'decline'): Promise<RegResult<{ ok: true }>> {
-  return callRegistration<{ ok: true }>({ action: 'respond', ...target, answer });
+/** Reminder e-mails about this one event, on or off (off also stops the follow-up after a webinar). */
+export function setRegistrationReminders(target: RegTarget, on: boolean): Promise<RegResult<{ ok: true; reminders_on: boolean }>> {
+  return callRegistration<{ ok: true; reminders_on: boolean }>({ action: 'reminders', ...target, on });
 }
 
-/** Always `{ ok: true }`: e-mails fresh status links for the upcoming registrations of that address, if any. */
-export function resendRegistrationLinks(email: string, captcha?: string | null): Promise<RegResult<{ ok: true }>> {
-  return callRegistration<{ ok: true }>({ action: 'resend_links', email: email.trim().toLowerCase(), ...(captcha ? { captcha } : {}) });
+/** Always `{ ok: true }` for a valid address: e-mails fresh status links for its upcoming registrations, if any. */
+export function resendRegistrationLinks(email: string, honeypot = ''): Promise<RegResult<{ ok: true }>> {
+  return callRegistration<{ ok: true }>({ action: 'resend_links', email: email.trim().toLowerCase(), ...(honeypot ? { website: honeypot } : {}) });
 }
 
 /** Signed in, with a status link: links that one registration to the account (never proves the address). */
-export function attachRegistration(token: string): Promise<RegResult<{ ok: true }>> {
-  return callRegistration<{ ok: true }>({ action: 'attach', token });
+export function attachRegistration(token: string): Promise<RegResult<{ ok: true; already?: boolean }>> {
+  return callRegistration<{ ok: true; already?: boolean }>({ action: 'attach', token });
 }
 
 /* ------------------------------------------------------------------ RPCs */
@@ -335,9 +391,13 @@ export interface Participation {
   status: string;
   status_display: StatusDisplay | null;
   payment_display: PaymentDisplay | null;
-  /** guest_list_v1 (proven address): the personal page; legacy: the event page; SM26: /sm26/me; core_v2: null (managed signed in). */
+  /**
+   * guest_list_v1 (proven address only): the personal page; legacy: the event
+   * page; SM26: /sm26/me; core_v2: null (managed signed in, statusPagePath).
+   */
   status_url: string | null;
   can_cancel: boolean;
+  /** The row is linked to an account (a row found by the proven e-mail may not be yet). */
   linked: boolean;
 }
 
@@ -397,13 +457,14 @@ export async function fetchMyEventAccess(eventIds: string[] | null): Promise<Eve
 
 /* ------------------------------------------------------------------ the promised delay */
 
+const DEFAULT_SLA = 'within 2 working days';
 let slaCache: string | null = null;
 
 /** "within 2 working days": the delay M3 promises (platform_settings.review_sla_text). */
-export function useReviewSla(): string {
-  const [sla, setSla] = useState<string>(slaCache ?? 'within 2 working days');
+export function useReviewSla(known?: string | null): string {
+  const [sla, setSla] = useState<string>(slaCache ?? DEFAULT_SLA);
   useEffect(() => {
-    if (slaCache) return;
+    if (known || slaCache) return;
     let alive = true;
     (async () => {
       try {
@@ -416,15 +477,20 @@ export function useReviewSla(): string {
       } catch { /* keep the default */ }
     })();
     return () => { alive = false; };
-  }, []);
-  return sla;
+  }, [known]);
+  return known?.trim() || sla;
 }
 
 /* ------------------------------------------------------------------ words */
 
 export type StatusTone = 'success' | 'warning' | 'danger' | 'neutral' | 'info';
 
-/** A raw status in the shared vocabulary (the same mapping as my_participations). */
+const DISPLAYS: StatusDisplay[] = [
+  'under_review', 'needs_info', 'waitlisted', 'invited', 'payment_due',
+  'confirmed', 'not_accepted', 'declined', 'cancelled', 'event_ended',
+];
+
+/** A raw status, or a display value, in the shared vocabulary (the same mapping as my_participations). */
 export function displayOf(status: string | null | undefined): StatusDisplay | null {
   switch (status) {
     case 'requested': return 'under_review';
@@ -436,7 +502,7 @@ export function displayOf(status: string | null | undefined): StatusDisplay | nu
     case 'rejected': return 'not_accepted';
     case 'declined': return 'declined';
     case 'cancelled': return 'cancelled';
-    default: return null;
+    default: return status && (DISPLAYS as string[]).includes(status) ? status as StatusDisplay : null;
   }
 }
 
@@ -490,6 +556,7 @@ export function isActiveStatus(status: string | null | undefined): boolean {
 /** One sentence for any refusal of the function. Never says whether an address is known. */
 export function registrationErrorText(t: TFunction, failure: RegFailure | null | undefined): string {
   if (!failure) return t('reg.error.generic', 'Something went wrong. Please try again.');
+  if (failure.paused) return t('reg.error.paused', 'Registration is closed for now. Please try again later.');
   switch (failure.state) {
     case 'not_published': return t('reg.error.notPublished', 'Registration for this event is not open yet.');
     case 'not_yet_open': return t('reg.error.notYetOpen', 'Registration for this event has not opened yet.');
@@ -502,20 +569,25 @@ export function registrationErrorText(t: TFunction, failure: RegFailure | null |
   switch (failure.error) {
     case 'missing_fields': return t('reg.error.missingFields', 'Please fill in the fields marked with a star.');
     case 'invalid_email': return t('reg.error.invalidEmail', 'Please check your e-mail address.');
+    case 'terms_required': return t('reg.confirm.termsNeeded', 'Please accept the terms to send your registration.');
     case 'invalid_answers': return t('reg.error.invalidAnswers', 'Please check the answers marked in red.');
     case 'ticket_required': return t('reg.error.ticketRequired', 'Please choose how you will take part.');
     case 'unknown_ticket': return t('reg.error.unknownTicket', 'This type of participation is no longer offered. Please choose another one.');
     case 'ticket_invite_only': return t('reg.error.ticketInviteOnly', 'This type of participation is by invitation only.');
-    case 'ticket_not_allowed': return t('reg.error.ticketNotAllowed', 'This type of participation is reserved for some companies validated by M3.');
+    case 'ticket_not_allowed': return t('reg.error.ticketNotAllowed', 'This type of participation is kept for some companies validated by M3.');
     case 'account_suspended': return t('reg.error.suspended', 'Your account is suspended. Please contact the M3 team.');
-    case 'rate_limited':
-    case 'too_many': return t('reg.error.rateLimited', 'Too many attempts. Please wait a few minutes and try again.');
+    case 'rate_limited': return t('reg.error.rateLimited', 'Too many attempts. Please wait a few minutes and try again.');
+    case 'busy': return t('reg.error.busy', 'Many people are registering right now. Please try again in a few minutes.');
     case 'captcha': return t('reg.error.captcha', 'The security check did not go through. Please wait a moment and try again.');
+    case 'session_expired': return t('reg.error.sessionExpired', 'You have been signed out. Please sign in again and retry.');
+    case 'sign_in_required': return t('reg.error.signInRequired', 'This registration belongs to an account. Please sign in to change it.');
     case 'not_found':
     case 'wrong_engine': return t('reg.error.notFound', 'This registration could not be found.');
-    case 'expired': return t('reg.error.expired', 'This link has expired. Ask for a new one below.');
-    case 'locked': return t('reg.error.locked', 'Your answers can no longer be changed for this event.');
-    case 'not_allowed':
+    case 'locked': return t('reg.error.locked', 'This registration can no longer be changed.');
+    case 'changed': return t('reg.error.changed', 'This registration was just changed somewhere else. The page now shows the latest version.');
+    case 'linked_elsewhere': return t('reg.error.linkedElsewhere', 'This registration already belongs to another account.');
+    case 'already_registered': return t('reg.error.alreadyRegistered', 'Your account already has a registration for this event.');
+    case 'not_available':
     case 'forbidden': return t('reg.error.notAllowed', 'This action is not available for this registration.');
     case 'network': return t('reg.error.network', 'The connection failed. Please check your internet and try again.');
     default: return t('reg.error.generic', 'Something went wrong. Please try again.');
@@ -527,16 +599,14 @@ export function questionOptions(q: RegQuestion): QuestionOption[] {
   return (q.options ?? []).map((o) => (typeof o === 'string' ? { value: o, label: o } : { value: String(o.value), label: String(o.label ?? o.value) }));
 }
 
-/** The questions asked for a ticket (all of them when the event has no tickets), in their order. */
+/** The questions asked for a participation type (all of them when there is none), in the function's order. */
 export function questionsFor(questions: RegQuestion[] | undefined, ticketKey: string | null): RegQuestion[] {
-  return (questions ?? [])
-    .filter((q) => !q.ticket_keys || q.ticket_keys.length === 0 || (ticketKey !== null && q.ticket_keys.includes(ticketKey)))
-    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.key.localeCompare(b.key));
+  return (questions ?? []).filter((q) => !q.ticket_keys || q.ticket_keys.length === 0 || (ticketKey !== null && q.ticket_keys.includes(ticketKey)));
 }
 
-/** The tickets a person can choose, in their order (inactive ones are never sent). */
-export function sortedTickets(tickets: RegTicket[] | undefined): RegTicket[] {
-  return [...(tickets ?? [])].sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || a.label.localeCompare(b.label));
+/** Whether a participation type can be chosen by this caller. */
+export function ticketOpen(tk: RegTicket): boolean {
+  return tk.allowed !== false && !tk.invite_only;
 }
 
 /** Where the visitor came from, for source_detail: the campaign tags of the address, else `fallback`. */
@@ -555,3 +625,8 @@ export function sourceFromUrl(search: string, fallback: SourceDetail['entry']): 
 
 /** Guest-list (guest_list_v1) events that have a public page of their own. */
 export const GUEST_LIST_PAGES: Record<string, string> = { wys26: '/wys26' };
+
+/** The page of one registration for its signed-in owner (core_v2 rows of My events have no link of their own). */
+export function statusPagePath(registrationId: string): string {
+  return `/registration?id=${encodeURIComponent(registrationId)}`;
+}

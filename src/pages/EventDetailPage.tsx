@@ -635,7 +635,9 @@ function EventDetailContent() {
       : fmtShort(event.date_time) + (event.is_full_day ? '' : ` · ${fmtTime(event.date_time)}`))
     : t('eventsPage.dateTbd', 'Date to be announced');
 
-  const accessText = event.access_level === 'members'
+  // A new registration event keeps its catalogue row public: who may register is the registration's own rule.
+  const regAccess = v2On ? participationModel.form?.event.access : undefined;
+  const accessText = event.access_level === 'members' || regAccess === 'members'
     ? t('eventsPage.access.members', 'Members only')
     : event.access_level === 'marina'
       ? t('eventsPage.access.marina', 'Marinas only')

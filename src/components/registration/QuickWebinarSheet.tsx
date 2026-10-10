@@ -43,7 +43,7 @@ export function QuickWebinarSheet({
   const { t, i18n } = useTranslation();
   const locale = regLocale(i18n.language);
   const ev = form.event;
-  const companyRule = ruleOf(form.standard_fields, 'company');
+  const companyRule = ruleOf(form.fields, 'company');
   const [v, setV] = useState({ first_name: '', last_name: '', email: '', company: '' });
   const [terms, setTerms] = useState(false);
   const [honeypot, setHoneypot] = useState('');
@@ -73,13 +73,12 @@ export function QuickWebinarSheet({
 
     setSending(true);
     const email = v.email.trim().toLowerCase();
-    const res = await registerForEvent({
-      slug: ev.slug,
+    const res = await registerForEvent({ slug: ev.slug }, {
       first_name: v.first_name.trim(),
       last_name: v.last_name.trim(),
       email,
       ...(companyRule !== 'hidden' && v.company.trim() ? { company: v.company.trim() } : {}),
-      consents: { terms_at: new Date().toISOString() },
+      consents: { terms: true },
       source_detail: { entry: 'event_page', ref: 'quick' },
       website: honeypot,
       captcha: captcha.token,

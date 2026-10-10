@@ -7,7 +7,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { AuthNotice, FieldError } from '@/components/auth/fields';
 import { Turnstile, useTurnstile } from '@/components/security/Turnstile';
 import {
-  questionOptions, questionsFor, registerForEvent, registrationErrorText, sortedTickets,
+  questionOptions, questionsFor, registerForEvent, registrationErrorText, ticketOpen,
   type RegFailure, type RegForm, type RegQuestion, type RegStatus, type SourceDetail, type StandardFieldKey,
 } from '@/lib/registration';
 import { cn } from '@/lib/utils';
@@ -73,13 +73,13 @@ export function RegistrationForm({
   const { t, i18n } = useTranslation();
   const locale = regLocale(i18n.language);
   const ev = form.event;
-  const std = form.standard_fields;
-  const tickets = useMemo(() => sortedTickets(form.tickets), [form.tickets]);
+  const std = form.fields;
+  const tickets = useMemo(() => form.tickets ?? [], [form.tickets]);
   const prefill = form.prefill ?? null;
 
   const [values, setValues] = useState<IdentityValues>(EMPTY_IDENTITY);
   const [ticketKey, setTicketKey] = useState<string | null>(() => {
-    const open = tickets.filter((tk) => !tk.invite_only && !tk.full);
+    const open = tickets.filter(ticketOpen);
     return tickets.length === 1 && open.length === 1 ? open[0].key : null;
   });
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>({});
@@ -105,12 +105,21 @@ export function RegistrationForm({
     setValues((cur) => {
       const next = { ...cur };
       for (const key of Object.keys(EMPTY_IDENTITY) as IdentityKey[]) {
-        const known = (prefill as Record<string, string | null | undefined>)[key];
-        if (known && (!next[key] || (key === 'email' && signedIn))) next[key] = known;
+        const known = (prefill as Record<string, unknown>)[key];
+        if (typeof known === 'string' && known && (!next[key] || (key === 'email' && signedIn))) next[key] = known;
       }
       return next;
     });
   }, [prefill, signedIn]);
+
+  // Signed in with companies: the one named in the company field (or the only one), for the registration.
+  const orgs = useMemo(() => prefill?.organizations ?? [], [prefill]);
+  const companyOrgId = (): string | null => {
+    const typed = values.company.trim().toLowerCase();
+    const match = orgs.find((o) => o.name.trim().toLowerCase() === typed);
+    if (match) return match.id;
+    return orgs.length === 1 && !typed ? orgs[0].id : null;
+  };
 
   const asked = questionsFor(form.questions, tickets.length > 0 ? ticketKey : null);
   const anyQuestions = tickets.length > 0
@@ -191,9 +200,12 @@ export function RegistrationForm({
       for (const k of f.keys ?? []) errs[k] = t('reg.q.check', 'Please check this answer.');
       setQErrors(errs);
       if (needParticipation) setStep('participation');
-    } else if (f.error && f.error.startsWith('ticket') || f.error === 'unknown_ticket') {
+    } else if ((f.error ?? '').startsWith('ticket') || f.error === 'unknown_ticket') {
       setTicketError(registrationErrorText(t, f));
       if (needParticipation) setStep('participation');
+    } else if (f.error === 'terms_required') {
+      setTerms(false);
+      setTermsError(registrationErrorText(t, f));
     }
     setFailure(registrationErrorText(t, f));
   };
@@ -209,15 +221,13 @@ export function RegistrationForm({
     if (!checkYou()) { setStep('you'); return; }
     if (needParticipation && !checkParticipation()) { setStep('participation'); return; }
 
-    const now = new Date().toISOString();
     const fields: Partial<Record<StandardFieldKey, string>> = {};
     for (const k of STD_KEYS) if (ruleOf(std, k) !== 'hidden' && values[k].trim()) fields[k] = values[k].trim();
     const sentAnswers: Record<string, AnswerValue> = {};
     for (const q of asked) if (isAnswered(answers[q.key])) sentAnswers[q.key] = answers[q.key];
 
     setSending(true);
-    const res = await registerForEvent({
-      slug: ev.slug,
+    const res = await registerForEvent({ slug: ev.slug }, {
       first_name: values.first_name.trim(),
       last_name: values.last_name.trim(),
       email: values.email.trim().toLowerCase(),
@@ -225,12 +235,12 @@ export function RegistrationForm({
       ticket_key: tickets.length > 0 ? ticketKey : null,
       answers: sentAnswers,
       consents: {
-        terms_at: now,
+        terms: true,
         ...(form.ask_image_consent ? { image: imageOk } : {}),
-        ...(news ? { marketing_at: now } : {}),
+        ...(news ? { marketing: true } : {}),
       },
       source_detail: source,
-      organization_id: prefill?.organization_id ?? null,
+      organization_id: signedIn ? companyOrgId() : null,
       website: honeypot,
       captcha: signedIn ? null : captcha.token,
     });
@@ -315,6 +325,7 @@ export function RegistrationForm({
           errors={idErrors}
           standardFields={std}
           emailLocked={signedIn && !!prefill?.email}
+          companySuggestions={orgs.length > 1 ? orgs.map((o) => o.name) : undefined}
         />
       )}
 

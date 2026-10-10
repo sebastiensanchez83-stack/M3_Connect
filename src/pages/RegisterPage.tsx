@@ -20,7 +20,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { accountHref } from '@/lib/accountNav';
 import { openSignup } from '@/lib/authModal';
 import {
-  GUEST_LIST_PAGES, getRegistrationForm, registrationErrorText, sourceFromUrl, useReviewSla,
+  GUEST_LIST_PAGES, getRegistrationForm, registrationErrorText, sourceFromUrl, statusPagePath, useReviewSla,
   type RegFailure, type RegForm,
 } from '@/lib/registration';
 import { withSiteSuffix } from '@/lib/seoText';
@@ -54,8 +54,8 @@ function RegisterContent({ slug }: { slug: string }) {
   const { user } = useAuth();
   const userId = user?.id ?? null;
   const locale = regLocale(i18n.language);
-  const sla = useReviewSla();
   const [form, setForm] = useState<RegForm | null>(null);
+  const sla = useReviewSla(form?.review_sla_text);
   const [failure, setFailure] = useState<RegFailure | null>(null);
   const [loading, setLoading] = useState(true);
   const [attempt, setAttempt] = useState(0);
@@ -78,7 +78,7 @@ function RegisterContent({ slug }: { slug: string }) {
 
   // A guest-list event reached by its slug: its own page when it has one.
   useEffect(() => {
-    if (form?.event.engine === 'guest_list_v1') {
+    if (form?.engine === 'guest_list_v1') {
       const page = GUEST_LIST_PAGES[form.event.slug];
       if (page) navigate(page, { replace: true });
     }
@@ -127,18 +127,23 @@ function RegisterContent({ slug }: { slug: string }) {
   } else if (done) {
     main = <DoneView form={form} done={done} signedIn={!!user} sla={sla} eventHref={eventHref} />;
   } else if (form.mine && !['cancelled', 'declined'].includes(form.mine.status)) {
+    const mineId = form.mine.registration_id;
     main = (
       <div className="space-y-5">
         <AuthNotice tone="success" icon={<CheckCircle2 className="h-4 w-4" />} title={t('reg.page.alreadyTitle', 'You are already registered')}>
           <p>{t('reg.page.alreadyBody', 'Your registration for this event is in My events, with where it stands.')}</p>
         </AuthNotice>
         <div className="flex flex-wrap gap-3">
-          <Button variant="cta" size="sm" onClick={() => navigate(accountHref('registrations'))}>{t('eventsPage.viewMyRegistrations', 'View my registrations')}</Button>
+          {mineId ? (
+            <Button asChild variant="cta" size="sm"><Link to={statusPagePath(mineId)}>{t('reg.block.viewMine', 'See my registration')}</Link></Button>
+          ) : (
+            <Button variant="cta" size="sm" onClick={() => navigate(accountHref('registrations'))}>{t('eventsPage.viewMyRegistrations', 'View my registrations')}</Button>
+          )}
           {eventHref && <Button asChild variant="ctaOutline" size="sm" arrow={false}><Link to={eventHref}>{t('reg.page.eventPage', 'Event page')}</Link></Button>}
         </div>
       </div>
     );
-  } else if (form.state === 'open' || form.state === 'waitlist') {
+  } else if (form.engine === 'core_v2' && !form.paused && (form.state === 'open' || form.state === 'waitlist')) {
     main = (
       <RegistrationForm
         form={form}
@@ -235,7 +240,7 @@ function DoneView({ form, done, signedIn, sla, eventHref }: { form: RegForm; don
       : t('reg.done.instantTitle', 'Thank you, you are registered');
 
   const calendar = confirmed && ev.starts_at ? {
-    title: ev.title, description: ev.description ?? null, date_time: ev.starts_at, end_date_time: ev.ends_at, location: ev.location ?? null,
+    title: ev.title ?? '', description: null, date_time: ev.starts_at, end_date_time: ev.ends_at, location: ev.location ?? null,
   } : null;
 
   return (
@@ -294,20 +299,25 @@ function DoneView({ form, done, signedIn, sla, eventHref }: { form: RegForm; don
 function ClosedView({ form, signedIn, onSignIn, locale }: { form: RegForm; signedIn: boolean; onSignIn: () => void; locale: string }) {
   const { t } = useTranslation();
   const { profile } = useAuth();
-  const state = form.state;
+  // A guest list without a page of its own takes no registration here: the organisers invite.
+  const state = form.engine === 'guest_list_v1' ? 'invitation_only' : form.paused ? 'paused' : form.state;
   let title: string;
   let body: string;
   switch (state) {
     case 'members_only':
       title = t('reg.block.membersTitle', 'For validated members');
-      body = signedIn && profile?.access_status !== 'verified'
+      body = signedIn && (form.prefill ? form.prefill.verified !== true : profile?.access_status !== 'verified')
         ? t('reg.block.membersPending', 'Your account is being reviewed by the M3 team. You can register as soon as it is validated.')
         : t('reg.block.membersBody', 'This event is for members validated by M3. Sign in with your account to register.');
       break;
+    case 'paused':
+      title = t('reg.block.pausedTitle', 'Registration closed for now');
+      body = t('reg.block.pausedBody', 'Registration for this event is paused for a short while. Please come back later.');
+      break;
     case 'not_yet_open':
       title = t('reg.block.notYetTitle', 'Registration opens soon');
-      body = form.opens_at
-        ? t('reg.block.opensOn', { date: new Date(form.opens_at).toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), defaultValue: 'Registration opens on {{date}}.' })
+      body = form.event.opens_at
+        ? t('reg.block.opensOn', { date: new Date(form.event.opens_at).toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }), defaultValue: 'Registration opens on {{date}}.' })
         : t('reg.block.opensLater', 'Registration is not open yet.');
       break;
     case 'full':

@@ -119,7 +119,7 @@ export function RegistrationTab({
           checked={v.waitlist}
           onChange={(on) => set('waitlist', on)}
           title={t('adminEvents.reg.waitlist', 'Waiting list when full')}
-          body={t('adminEvents.reg.waitlistBody', 'Once all places are taken, new people join a waiting list. You move them up in People registered.')}
+          body={t('adminEvents.reg.waitlistBody2', 'Once all places are taken, new people join a waiting list. Nobody is moved up automatically: when a place frees up, press Confirm next to them in People registered.')}
         />
       </Block>
 

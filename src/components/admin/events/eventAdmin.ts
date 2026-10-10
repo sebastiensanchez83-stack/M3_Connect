@@ -61,6 +61,8 @@ export interface GlEventRow {
   reminders?: string[] | null;
   staff_alert_mode?: 'each' | 'digest';
   hidden?: boolean;
+  /** Stamped by admin_save_event on every save: tells the editor someone saved since it loaded. */
+  updated_at?: string | null;
 }
 
 export type QuestionKind =
@@ -273,6 +275,66 @@ export async function loadGuests(glEventId: string): Promise<GuestRow[]> {
   return out;
 }
 
+/**
+ * Every answer key ever stored for the event (gl_guest.answers), so a NEW question never
+ * takes the internal name of a removed one: its old answers would come back under it.
+ */
+export async function loadAnswerKeys(glEventId: string): Promise<string[]> {
+  const PAGE = 1000;
+  const keys = new Set<string>();
+  for (let from = 0; from < 100000; from += PAGE) {
+    const { data, error } = await supabase
+      .from('gl_guest')
+      .select('answers')
+      .eq('event_id', glEventId)
+      .order('id')
+      .range(from, from + PAGE - 1);
+    if (error) throw fromPg(error);
+    const rows = (data || []) as { answers: Record<string, unknown> | null }[];
+    for (const r of rows) for (const k of Object.keys(r.answers || {})) keys.add(k);
+    if (rows.length < PAGE) break;
+  }
+  return [...keys];
+}
+
+/** One line of a registration's history (review_log, staff RLS): decisions and the person's answers. */
+export interface HistoryRow {
+  action: string;
+  note: string | null;
+  details: Record<string, unknown> | null;
+  created_at: string;
+}
+
+/** The latest 20 history lines of one registration, newest first. */
+export async function loadHistory(guestId: string): Promise<HistoryRow[]> {
+  const { data, error } = await supabase
+    .from('review_log')
+    .select('action, note, details, created_at')
+    .eq('subject_type', 'registration')
+    .eq('subject_id', guestId)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) throw fromPg(error);
+  return (data || []) as HistoryRow[];
+}
+
+/**
+ * What another save would have changed since the editor loaded: gl_event.updated_at
+ * (stamped by admin_save_event) and the catalogue's published flag (the old events list
+ * writes it directly). Null when it cannot be read: the caller then saves as usual.
+ */
+export async function readEventStamp(glEventId: string, eventId: string | null): Promise<{ updatedAt: string | null; published: boolean | null } | null> {
+  const [gl, cat] = await Promise.all([
+    supabase.from('gl_event').select('updated_at').eq('id', glEventId).maybeSingle(),
+    eventId ? supabase.from('events').select('published').eq('id', eventId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+  ]);
+  if (gl.error || cat.error || !gl.data) return null;
+  return {
+    updatedAt: (gl.data as { updated_at?: string | null }).updated_at ?? null,
+    published: cat.data ? !!(cat.data as { published?: boolean | null }).published : null,
+  };
+}
+
 /* ------------------------------------------------------------------ writes */
 
 export interface SaveResult { gl_event_id: string; event_id: string; slug: string }
@@ -378,7 +440,21 @@ export function statusWord(status: GuestStatus | string, t: TFunction): string {
   }
 }
 
-export const STATUS_TONE: Record<GuestStatus, 'success' | 'warning' | 'danger' | 'neutral' | 'info'> = {
+/** A history line (review_log.action) in words. */
+export function historyWord(action: string, t: TFunction): string {
+  switch (action) {
+    case 'approve': return t('adminEvents.hist.approve', 'Confirmed by M3');
+    case 'reject': return t('adminEvents.hist.reject', 'Turned down by M3');
+    case 'waitlist': return t('adminEvents.hist.waitlist', 'Put on the waiting list');
+    case 'request_info': return t('adminEvents.hist.requestInfo', 'M3 asked for more information');
+    case 'info_provided': return t('adminEvents.hist.infoProvided', 'They answered');
+    case 'attach': return t('adminEvents.hist.attach', 'Added to their account');
+    case 'provisioned': return t('adminEvents.hist.provisioned', 'Account set up');
+    default: return action;
+  }
+}
+
+export const STATUS_TONE: Record<GuestStatus,'success' | 'warning' | 'danger' | 'neutral' | 'info'> = {
   requested: 'warning',
   needs_info: 'warning',
   waitlisted: 'info',

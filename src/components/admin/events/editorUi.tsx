@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Check } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { ADMIN_BTN, ADMIN_BTN_PRIMARY } from '../AdminUI';
 
 /**
  * Small building blocks of the event editor, in the admin kit's register (AdminUI):
@@ -12,6 +13,10 @@ import { cn } from '@/lib/utils';
 
 export const INPUT = 'h-11 rounded-field border-rule bg-white text-[15px] md:h-11 md:text-[15px]';
 export const TEXTAREA = 'rounded-field border-rule bg-white text-[15px] leading-6 md:text-[15px]';
+
+/** The admin kit's buttons, 44 px tall on phones (touch), 40 px from sm up. */
+export const EDITOR_BTN = cn(ADMIN_BTN, 'h-11 sm:h-10');
+export const EDITOR_BTN_PRIMARY = cn(ADMIN_BTN_PRIMARY, 'h-11 sm:h-10');
 
 export function Field({
   label,
@@ -179,7 +184,7 @@ export function PillChoice<T extends string>({
             aria-checked={active}
             onClick={() => onChange(o.value)}
             className={cn(
-              'h-10 rounded-pill px-3 text-[13px] font-semibold transition-colors focus:outline-none focus-visible:shadow-focus sm:h-8',
+              'h-11 rounded-pill px-3 text-[13px] font-semibold transition-colors focus:outline-none focus-visible:shadow-focus sm:h-8',
               active ? 'bg-navy text-white' : 'text-meta hover:bg-chip hover:text-navy',
             )}
           >

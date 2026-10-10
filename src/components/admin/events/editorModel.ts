@@ -7,8 +7,20 @@ import {
 
 /**
  * The editor's form, tab by tab, and how it becomes ONE admin_save_event payload.
- * Only the tabs that changed are sent (a key left out keeps its stored value), so two
- * people working on different tabs do not overwrite each other.
+ * Only the FIELDS that changed since the form was loaded are sent (a key left out keeps
+ * its stored value): a form left open in another tab or by another person never puts
+ * back an old "published", join link or replay link it did not touch.
+ *
+ * gl_event.settings keys written here and read by registration-cron / registration
+ * (not listed in the DB contract, which says only "settings (merged)"):
+ *   timezone            IANA zone of the event's wall-clock times (default Europe/Monaco)
+ *   no_reminders        true = no reminder e-mails for this event
+ *   contact_email       reply-to of the registrants' e-mails (empty = events@m3monaco.com)
+ *   attendance_recorded true = staff pressed "Attendance is complete" (absentees get
+ *                       "Sorry we missed you"); false = not yet (never); ABSENT = the cron
+ *                       guesses: absentees known 30 minutes after the last attendance mark.
+ *                       The editor writes false on create, on duplicate, and before the first
+ *                       mark of an event that has no value yet.
  */
 
 export type EditorTab = 'basics' | 'registration' | 'questions' | 'emails' | 'registrations';
@@ -81,7 +93,17 @@ const NEW_WEBINAR_FIELDS: Record<StandardField, FieldRule> = {
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
+/**
+ * Staff alerts by default: open registration needs no decision, so one summary a day
+ * (a popular webinar would otherwise send hundreds of alerts); when M3 accepts each
+ * person, one e-mail per request.
+ */
+export function defaultAlertMode(mode: RegistrationMode): 'each' | 'digest' {
+  return mode === 'instant' ? 'digest' : 'each';
+}
+
 export function newForm(kind: EventKind): EditorForm {
+  const mode: RegistrationMode = kind === 'webinar' ? 'instant' : 'review';
   return {
     basics: {
       title: '', slug: '', kind, timezone: DEFAULT_TIMEZONE, start: '', end: '', isFullDay: false,
@@ -89,7 +111,7 @@ export function newForm(kind: EventKind): EditorForm {
       visibility: 'draft', sectorIds: [],
     },
     registration: {
-      mode: kind === 'webinar' ? 'instant' : 'review',
+      mode,
       publicRequests: true,
       access: 'public',
       capacity: '',
@@ -107,7 +129,7 @@ export function newForm(kind: EventKind): EditorForm {
       replayPublic: false,
       // Someone at M3 must hear about requests: an empty address alerts nobody.
       notifyEmail: M3_EVENTS_EMAIL,
-      staffAlertMode: 'each',
+      staffAlertMode: defaultAlertMode(mode),
       contactEmail: '',
     },
   };
@@ -269,18 +291,22 @@ export function checkForm(form: EditorForm, t: TFunction): FormIssue[] {
 /* ----------------------------------------------------------------- payload */
 
 /**
- * The admin_save_event payload for the changed tabs (every tab when creating).
- * `glEventId` is omitted to create. Dates are read in the event's own time zone.
+ * The admin_save_event payload: every field when creating, otherwise ONLY the fields
+ * that differ from `initial` (the form as loaded or last saved). `glEventId` is omitted
+ * to create. Dates are read in the event's own time zone, so a new zone re-sends them.
  */
 export function buildPayload(form: EditorForm, initial: EditorForm, glEventId: string | null): Record<string, unknown> {
   const isNew = !glEventId;
-  const dirty = new Set<FormSection>(isNew ? SECTIONS : dirtySections(form, initial));
-  const tzChanged = form.basics.timezone !== initial.basics.timezone;
   const b = form.basics;
   const r = form.registration;
   const e = form.emails;
   const tz = b.timezone;
+  const tzChanged = b.timezone !== initial.basics.timezone;
   const iso = (wall: string) => (wall ? wallToIso(wall, tz) : null);
+  const same = (x: unknown, y: unknown) => JSON.stringify(x) === JSON.stringify(y);
+  const bChanged = (k: keyof BasicsForm) => isNew || !same(b[k], initial.basics[k]);
+  const rChanged = (k: keyof RegistrationForm) => isNew || !same(r[k], initial.registration[k]);
+  const eChanged = (k: keyof EmailsForm) => isNew || !same(e[k], initial.emails[k]);
 
   const event: Record<string, unknown> = {};
   const reg: Record<string, unknown> = {};
@@ -288,50 +314,52 @@ export function buildPayload(form: EditorForm, initial: EditorForm, glEventId: s
   const p: Record<string, unknown> = {};
   if (glEventId) p.id = glEventId;
 
-  if (dirty.has('basics')) {
-    event.title = b.title.trim();
-    event.description = b.description.trim();
-    event.date_time = iso(b.start);
-    event.end_date_time = b.isFullDay ? null : iso(b.end);
-    event.is_full_day = b.kind === 'onsite' ? b.isFullDay : false;
-    event.location = b.kind === 'onsite' ? b.location.trim() : '';
-    event.image_url = b.imageUrl;
+  /* Basics */
+  if (bChanged('title')) event.title = b.title.trim();
+  if (bChanged('description')) event.description = b.description.trim();
+  if (bChanged('start') || tzChanged) event.date_time = iso(b.start);
+  if (bChanged('end') || bChanged('isFullDay') || tzChanged) event.end_date_time = b.isFullDay ? null : iso(b.end);
+  if (bChanged('isFullDay')) event.is_full_day = b.kind === 'onsite' ? b.isFullDay : false;
+  if (bChanged('location')) event.location = b.kind === 'onsite' ? b.location.trim() : '';
+  if (bChanged('imageUrl')) event.image_url = b.imageUrl;
+  if (bChanged('speakers')) {
     event.speakers = b.speakers
       .filter((sp) => sp.name.trim())
       .map((sp) => ({ name: sp.name.trim(), title: sp.title.trim() }));
-    event.event_website_url = b.website.trim();
-    event.published = b.visibility === 'published';
-    reg.slug = b.slug.trim();
-    reg.hidden = b.visibility === 'hidden';
-    reg.meeting_url = b.kind === 'webinar' ? b.meetingUrl.trim() : '';
-    settings.timezone = tz;
   }
+  if (bChanged('website')) event.event_website_url = b.website.trim();
+  // Published and hidden go together, and only when the choice itself changed: a stale
+  // form must never unpublish an event someone else published meanwhile.
+  if (bChanged('visibility')) {
+    event.published = b.visibility === 'published';
+    reg.hidden = b.visibility === 'hidden';
+  }
+  if (bChanged('slug')) reg.slug = b.slug.trim();
+  if (bChanged('meetingUrl')) reg.meeting_url = b.kind === 'webinar' ? b.meetingUrl.trim() : '';
+  if (bChanged('timezone')) settings.timezone = tz;
   if (isNew) {
     reg.kind = b.kind;
-    if (!event.language) event.language = 'EN';
+    event.language = 'EN';
     // registration-cron sends "Sorry we missed you" only once staff say attendance is
-    // complete (Registrations tab). Without this key it would guess from the marks.
+    // complete (People registered tab). Without this key it would guess from the marks.
     if (b.kind === 'webinar') settings.attendance_recorded = false;
   }
 
-  // Registration dates are wall-clock times in the event's zone: re-sent when it changes.
-  if (dirty.has('registration') || (tzChanged && !isNew)) {
-    reg.opens_at = iso(r.opensAt);
-    reg.closes_at = iso(r.closesAt);
-    reg.edit_locks_at = iso(r.editLocksAt);
-  }
-  if (dirty.has('registration') && (!isNew || b.kind === 'webinar')) {
-    reg.registration_mode = r.mode;
-    reg.public_requests = r.publicRequests;
-    reg.access = r.access;
-    reg.capacity = r.capacity.trim() ? Number(r.capacity.trim()) : null;
-    reg.waitlist = r.waitlist;
-    reg.standard_fields = { ...r.fields };
-  } else if (isNew) {
-    reg.registration_mode = r.mode;
+  /* How to register (webinars only in Phase 1; a new on-site event takes its mode) */
+  if (rChanged('opensAt') || tzChanged) reg.opens_at = iso(r.opensAt);
+  if (rChanged('closesAt') || tzChanged) reg.closes_at = iso(r.closesAt);
+  if (rChanged('editLocksAt') || tzChanged) reg.edit_locks_at = iso(r.editLocksAt);
+  if (rChanged('mode')) reg.registration_mode = r.mode;
+  if (!isNew || b.kind === 'webinar') {
+    if (rChanged('publicRequests')) reg.public_requests = r.publicRequests;
+    if (rChanged('access')) reg.access = r.access;
+    if (rChanged('capacity')) reg.capacity = r.capacity.trim() ? Number(r.capacity.trim()) : null;
+    if (rChanged('waitlist')) reg.waitlist = r.waitlist;
+    if (rChanged('fields')) reg.standard_fields = { ...r.fields };
   }
 
-  if (dirty.has('questions')) {
+  /* Questions: the full list (upsert by key; a question left out is deleted) */
+  if (isNew || !same(form.questions, initial.questions)) {
     p.questions = form.questions.list.map((q, i) => ({
       key: q.key,
       label: q.label.trim(),
@@ -347,17 +375,18 @@ export function buildPayload(form: EditorForm, initial: EditorForm, glEventId: s
     }));
   }
 
-  if (dirty.has('emails')) {
-    reg.reminders = e.reminders;
-    reg.replay_url = e.replayUrl.trim();
-    reg.notify_email = e.notifyEmail.trim();
-    reg.staff_alert_mode = e.staffAlertMode;
-    settings.no_reminders = !e.remindersOn;
-    settings.contact_email = e.contactEmail.trim();
-    // The public page shows the replay only when asked; registrants always get it by e-mail.
+  /* E-mails */
+  if (eChanged('reminders')) reg.reminders = e.reminders;
+  if (eChanged('remindersOn')) settings.no_reminders = !e.remindersOn;
+  if (eChanged('replayUrl')) reg.replay_url = e.replayUrl.trim();
+  // The public page shows the replay only when asked; registrants always get it by e-mail.
+  if (eChanged('replayUrl') || eChanged('replayPublic')) {
     if (e.replayPublic) event.replay_url = e.replayUrl.trim();
     else if (initial.emails.replayPublic) event.replay_url = '';
   }
+  if (eChanged('notifyEmail')) reg.notify_email = e.notifyEmail.trim();
+  if (eChanged('staffAlertMode')) reg.staff_alert_mode = e.staffAlertMode;
+  if (eChanged('contactEmail')) settings.contact_email = e.contactEmail.trim();
 
   if (Object.keys(settings).length) reg.settings = settings;
   if (Object.keys(event).length) p.event = event;

@@ -9,18 +9,26 @@
 //
 // Callers (verify_jwt = TRUE; the caller is checked again here):
 //   service role (registration-cron, every 5 min)  {action:"run"}
-//       up to 25 jobs (queued, or failed with attempts < 5), then up to 50 due account
-//       e-mails. Only while flag registration_flags.provisioning is on ({force:true}
-//       from registration-cron's manual run skips that check).
-//   verified staff JWT  {action:"run", job_ids:[...]}         those jobs now
+//       up to 25 jobs (queued or failed, attempts < 5; a queued job with 5 attempts, i.e.
+//       a run that kept crashing, is marked failed), then up to 50 due account e-mails
+//       (an e-mail that failed 5 times is given up: email_due_at cleared, last_error
+//       "e-mail: gave up ..."). Only while flag registration_flags.provisioning is on
+//       ({force:true} from registration-cron's manual run skips that check).
+//   verified staff JWT  {action:"run", job_ids:[...]}         those jobs now (whatever
+//                                                             their attempts; a 'done'
+//                                                             job left 'pending_link'
+//                                                             runs again)
 //                       {action:"send_emails", job_ids:[...]} their account e-mails now,
-//                                                             whatever the due date
+//                                                             whatever the due date (also
+//                                                             one the run gave up on)
 //       With the flag off, staff may only run jobs of hidden (test) events.
 //
 // One job, idempotent (a job is claimed by bumping attempts; a retry finds its own work):
 //   1. The registration is gone or no longer confirmed -> status 'skipped'.
-//   2. The row is already linked to an account (signed-in registration, attach) ->
-//      'linked'. If that account is PROVEN and pending, and validate_person: verified.
+//   2. The row is already linked to an account (signed-in registration, attach):
+//        PROVEN     -> 'linked'; verify a pending person if validate_person; org_action.
+//        not proven -> 'pending_link': nothing applied (review_log says what was not);
+//                      a staff run of the job once the address is proven applies it.
 //   3. An account has the address (lower(auth.users.email); profiles.email is only used
 //      to find candidates, each checked against auth):
 //        PROVEN  -> link the row ('linked'), verify a pending person if validate_person;
@@ -480,12 +488,12 @@ function renderAccountReady(firstName: string, eventTitle: string, url: string):
 }
 
 /** team_member_added_fyi: to the owner of the company M3 linked a new member to. */
-function renderTeamMemberAdded(ownerFirst: string, personName: string, personEmail: string, orgName: string, eventTitle: string): Mail {
+function renderTeamMemberAdded(ownerFirst: string, personName: string, personEmail: string, orgName: string, eventTitle: string, site = SITE_URL): Mail {
   const greeting = `Hello ${clean(ownerFirst, 80) || "there"},`;
   const via = eventTitle ? ` after confirming their registration for ${eventTitle}` : "";
   const a = `M3 added ${personName} (${personEmail}) to ${orgName} on Smart Marina Connect${via}.`;
   const b = "If this person is not part of your team, you can remove them in your company settings.";
-  const url = `${REG_SITE}/account?tab=organization`;
+  const url = `${site}/account?tab=organization`;
   return {
     subject: `${personName} joined ${orgName} on Smart Marina Connect`,
     html: emailLayout({
@@ -565,7 +573,7 @@ async function verifyIfPending(userId: string): Promise<boolean> {
 const slugify = (s: string) =>
   s.toLowerCase().normalize("NFKD").replace(/\p{M}+/gu, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "org";
 
-async function applyOrgAction(job: Json, userId: string, created: boolean, eventTitle: string, personName: string): Promise<Json> {
+async function applyOrgAction(job: Json, userId: string, created: boolean, eventTitle: string, personName: string, site = SITE_URL): Promise<Json> {
   const oa = obj(job.org_action);
   const mode = String(oa.mode || "none");
   if (mode === "none") return { mode };
@@ -600,7 +608,7 @@ async function applyOrgAction(job: Json, userId: string, created: boolean, event
         const ownerEmail = (ou?.user?.email || "").trim();
         const op = await profileOf(fyiTo);
         if (EMAIL_RE.test(ownerEmail)) {
-          await sendMail(ownerEmail, renderTeamMemberAdded(String(op?.first_name || ""), personName, String(job.email), String(o.name || "your company"), eventTitle));
+          await sendMail(ownerEmail, renderTeamMemberAdded(String(op?.first_name || ""), personName, String(job.email), String(o.name || "your company"), eventTitle, site));
         }
       }
     }
@@ -687,6 +695,12 @@ async function linkGuest(job: Json, userId: string, action: string): Promise<str
   return action;
 }
 
+async function guestActionOf(job: Json): Promise<string | null> {
+  if (job.source_kind !== "gl_guest" || !job.source_id) return null;
+  const { data } = await db.from("gl_guest").select("account_action").eq("id", job.source_id).maybeSingle();
+  return (data as Json | null)?.account_action || null;
+}
+
 async function setGuestAction(job: Json, action: string) {
   if (job.source_kind !== "gl_guest" || !job.source_id) return;
   const { error } = await db.from("gl_guest").update({ account_action: action, provisioned_at: new Date().toISOString() }).eq("id", job.source_id);
@@ -712,7 +726,9 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
       }
     }
     if (!EMAIL_RE.test(email)) throw new Error("job without a valid e-mail");
-    const { title: eventTitle } = await eventTitleOf(j);
+    const { title: eventTitle, hidden } = await eventTitleOf(j);
+    // Links: the live site, or REGISTRATION_SITE_URL for hidden test events only.
+    const site = hidden ? REG_SITE : SITE_URL;
     const personName = `${clean(pl.first_name, 80)} ${clean(pl.last_name, 80)}`.trim() || email;
 
     // 2. Already linked to an account.
@@ -720,15 +736,26 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
       const { data: u } = await db.auth.admin.getUserById(guest.user_id);
       const user = u?.user as AuthUser | undefined;
       const p = user ? await profileOf(user.id) : null;
-      let verified = false;
-      let org: Json = { mode: "none" };
-      if (user && isProven(p, user.email || "")) {
-        if (j.validate_person) verified = await verifyIfPending(user.id);
-        org = await applyOrgAction(j, user.id, false, eventTitle, personName);
+      if (!user || !isProven(p, user.email || "")) {
+        // Linked by a signed-in registration, but the account has not proved its address
+        // (Confirm email is off): M3's choices (validate the person, company action) are
+        // NOT applied. 'pending_link' + review_log say so in the queue; a staff run of the
+        // job after the proof applies them ({action:"run", job_ids}; nothing re-runs it
+        // by itself: on_email_proven only attaches records).
+        await setGuestAction(j, "pending_link");
+        await finish(j, { email_due_at: null });
+        await logReview(j, by, {
+          account_action: "pending_link", already_linked: true, proven: false,
+          not_applied: { validate_person: !!j.validate_person, org_action: String(obj(j.org_action).mode || "none") },
+        });
+        return { id: j.id, result: "pending_link" };
       }
+      let verified = false;
+      if (j.validate_person) verified = await verifyIfPending(user.id);
+      const org = await applyOrgAction(j, user.id, false, eventTitle, personName, site);
       await setGuestAction(j, "linked");
       await finish(j, { email_due_at: null });
-      await logReview(j, by, { account_action: "linked", already_linked: true, verified, org });
+      await logReview(j, by, { account_action: "linked", already_linked: true, proven: true, verified, org });
       return { id: j.id, result: "linked" };
     }
 
@@ -749,7 +776,7 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
       let org: Json = { mode: "none" };
       if (action === "linked") {
         if (j.validate_person) verified = await verifyIfPending(user.id);
-        org = await applyOrgAction(j, user.id, false, eventTitle, personName);
+        org = await applyOrgAction(j, user.id, false, eventTitle, personName, site);
       }
       await finish(j, { email_due_at: null });
       await logReview(j, by, { account_action: action, verified, org });
@@ -792,7 +819,7 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
     const { error: profErr } = await db.from("profiles").update(patch).eq("user_id", user.id);
     if (profErr) throw new Error(`profile: ${profErr.message}`);
     const action = await linkGuest(j, user.id, "created");
-    const org = await applyOrgAction(j, user.id, true, eventTitle, personName);
+    const org = await applyOrgAction(j, user.id, true, eventTitle, personName, site);
     await finish(j, {}); // email_due_at kept: the account e-mail goes at its time
     await logReview(j, by, { account_action: action, created: true, verified: !!j.validate_person, org });
     return { id: j.id, result: "created" };
@@ -805,8 +832,15 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
 }
 
 // ─── Account e-mail ──────────────────────────────────────────────────────────
+const EMAIL_GAVE_UP = "e-mail: gave up";
+const emailAttemptsOf = (lastError: unknown) => Number(/^e-mail \(attempt ([0-9]+)\)/.exec(String(lastError || ""))?.[1] || 0);
+
 async function sendAccountEmail(job: Json, force: boolean): Promise<Json> {
   const now = new Date().toISOString();
+  // Staff "Send account e-mails now" on an e-mail the run gave up on: due again now.
+  if (force && !job.email_due_at && !job.email_sent_at && String(job.last_error || "").startsWith(EMAIL_GAVE_UP)) {
+    await db.from("account_provision_job").update({ email_due_at: now }).eq("id", job.id).is("email_due_at", null).is("email_sent_at", null);
+  }
   let q = db.from("account_provision_job").update({ email_sent_at: now }).eq("id", job.id).eq("status", "done").is("email_sent_at", null).not("email_due_at", "is", null);
   if (!force) q = q.lte("email_due_at", now);
   const { data: claimed } = await q.select("*").maybeSingle();
@@ -842,8 +876,9 @@ async function sendAccountEmail(job: Json, force: boolean): Promise<Json> {
     const props = obj((link as Json | null)?.properties);
     const hashed = clean(props.hashed_token, 500);
     if (error || !hashed) throw new Error(`generateLink: ${error?.message || "no token"}`);
-    const url = `${REG_SITE}/welcome?token_hash=${encodeURIComponent(hashed)}&type=${encodeURIComponent(clean(props.verification_type, 20) || type)}&next=${encodeURIComponent("/dashboard")}`;
-    const { title } = await eventTitleOf(j);
+    const { title, hidden } = await eventTitleOf(j);
+    // The live site's /welcome for real events (wys26 included); the preview only for hidden tests.
+    const url = `${hidden ? REG_SITE : SITE_URL}/welcome?token_hash=${encodeURIComponent(hashed)}&type=${encodeURIComponent(clean(props.verification_type, 20) || type)}&next=${encodeURIComponent("/dashboard")}`;
     const p = await profileOf(userId);
     const ok = await sendMail(user.email, renderAccountReady(String(p?.first_name || obj(j.payload).first_name || ""), title, url));
     if (!ok) throw new Error("resend refused the account e-mail");
@@ -851,8 +886,12 @@ async function sendAccountEmail(job: Json, force: boolean): Promise<Json> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("provision-person: account e-mail failed", j.id, msg);
-    await release({ last_error: `e-mail: ${msg}`.slice(0, 500) });
-    return { id: j.id, email: "failed" };
+    // Counted in last_error; after MAX_ATTEMPTS failures the run stops trying (email_due_at
+    // cleared) so one bad address never holds the batch. Staff can still send it by hand.
+    const n = emailAttemptsOf(j.last_error) + 1;
+    if (n >= MAX_ATTEMPTS) await release({ email_due_at: null, last_error: `${EMAIL_GAVE_UP} after ${n} attempts: ${msg}`.slice(0, 500) });
+    else await release({ last_error: `e-mail (attempt ${n}): ${msg}`.slice(0, 500) });
+    return { id: j.id, email: n >= MAX_ATTEMPTS ? "failed_gave_up" : "failed" };
   }
 }
 
@@ -887,7 +926,12 @@ Deno.serve(async (req: Request) => {
       if (action === "run") {
         for (const j of jobs) {
           if (["queued", "failed"].includes(j.status)) results.push(await processJob(j, staff));
-          else results.push({ id: j.id, result: j.status });
+          else if (j.status === "done" && (await guestActionOf(j)) === "pending_link") {
+            // "Run again" once the person proved the address: the job goes back to the queue.
+            const { data: again } = await db.from("account_provision_job").update({ status: "queued", done_at: null, last_error: null })
+              .eq("id", j.id).eq("status", "done").select("*").maybeSingle();
+            results.push(again ? await processJob(again as Json, staff) : { id: j.id, result: "busy" });
+          } else results.push({ id: j.id, result: j.status });
         }
       } else if (action === "send_emails") {
         for (const j of jobs) results.push(await sendAccountEmail(j, true));
@@ -899,8 +943,14 @@ Deno.serve(async (req: Request) => {
 
     // Service role (registration-cron).
     if (!flagOn && body.force !== true) return json(req, { ok: true, skipped: "flag provisioning is off" });
+    // A job whose run crashed or timed out stays 'queued' with its attempts counted: after
+    // MAX_ATTEMPTS it is marked failed (staff can still run it by hand), never retried forever.
+    const { error: capErr } = await db.from("account_provision_job")
+      .update({ status: "failed", last_error: `stopped after ${MAX_ATTEMPTS} attempts (the run never finished)` })
+      .eq("status", "queued").gte("attempts", MAX_ATTEMPTS);
+    if (capErr) console.error("provision-person: attempts cap failed", capErr.message);
     const { data: jobs } = await db.from("account_provision_job").select("*")
-      .or(`status.eq.queued,and(status.eq.failed,attempts.lt.${MAX_ATTEMPTS})`)
+      .in("status", ["queued", "failed"]).lt("attempts", MAX_ATTEMPTS)
       .order("created_at", { ascending: true }).limit(BATCH_JOBS);
     const results: Json[] = [];
     for (const j of (jobs as Json[] | null) || []) results.push(await processJob(j, null));

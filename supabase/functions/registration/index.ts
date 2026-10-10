@@ -37,9 +37,9 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
 // Live site: the wys26 pages and the guest-list links (the frozen guest-list uses SITE_URL).
 const SITE_URL = (Deno.env.get("SITE_URL") || "https://smartmarinaconnect.com").replace(/\/+$/, "");
-// Site that serves the new pages (/registration, /events/:id, the v2 door console).
-// Same as SITE_URL once the redesign is live; set REGISTRATION_SITE_URL to the
-// preview while it is not (canary tests).
+// Site of the links of HIDDEN test events only (canaries, before the redesign is live):
+// set REGISTRATION_SITE_URL to the preview for canary tests. Real events always link to
+// SITE_URL (siteFor below), so a forgotten preview setting never reaches a real pass.
 const REG_SITE = (Deno.env.get("REGISTRATION_SITE_URL") || SITE_URL).replace(/\/+$/, "");
 const FROM_ADDRESS = "noreply@smartmarinaconnect.com";
 const PLATFORM_FROM = `Smart Marina Connect <${FROM_ADDRESS}>`;
@@ -49,6 +49,12 @@ const TURNSTILE_ENFORCE = (Deno.env.get("TURNSTILE_ENFORCE") || "").trim().toLow
 // Limits (spec §4.1)
 const REG_IP_PER_HOUR = 5;
 const REG_EMAIL_PER_HOUR = 3;
+// Signed-in callers skip the captcha but not the limits: Confirm email is off, so an
+// account's address can be anyone's, and every register can e-mail it and the staff.
+const REG_AUTH_ACCOUNT_PER_HOUR = 10;
+const REG_AUTH_IP_PER_HOUR = 20;
+const ALREADY_REGISTERED_MAIL_GAP_MS = 60 * 60000; // one "already registered" e-mail per hour and row
+const STAFF_NEW_MAIL_GAP_MS = 24 * 3600000; // one staff alert per day and row (cancel + register again)
 const RESEND_EMAIL_PER_DAY = 3;
 const RESEND_IP_PER_HOUR = 10;
 const FLOOD_PER_10_MIN = 40;
@@ -56,6 +62,19 @@ const MAX_BODY_BYTES = 64 * 1024;
 const MAX_DECIDE_IDS = 200;
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
+
+/** Runs after the answer when the edge runtime allows it (EdgeRuntime.waitUntil), so the
+ *  response time never tells whether an address is registered; else awaited. Never throws. */
+function inBackground(label: string, task: () => Promise<unknown>): Promise<void> {
+  const p = task().then(() => undefined, (e) => console.error(`registration: ${label} failed`, e instanceof Error ? e.message : e));
+  // deno-lint-ignore no-explicit-any
+  const rt = (globalThis as any).EdgeRuntime;
+  if (rt && typeof rt.waitUntil === "function") {
+    rt.waitUntil(p);
+    return Promise.resolve();
+  }
+  return p;
+}
 
 // ─── HTTP ────────────────────────────────────────────────────────────────────
 const ALLOWED_ORIGINS = [
@@ -96,6 +115,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const ACCESS_TOKEN_RE = /^[A-Za-z0-9_-]{20,100}$/;
 const obj = (v: unknown): Json => (v && typeof v === "object" && !Array.isArray(v) ? (v as Json) : {});
 const isUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
+/** An ilike pattern that matches exactly this text, any case (escapes the backslash, % and _). */
+const likeExact = (s: string) => s.replace(/[\\%_]/g, (c) => "\\" + c);
 
 async function sha256Hex(input: string): Promise<string> {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(input));
@@ -241,10 +262,14 @@ const replayUrlOf = (ctx: Ctx): string | null => {
   const u = clean(ctx.ev.replay_url, 1000) || clean(ctx.cat?.replay_url, 1000);
   return /^https:\/\//i.test(u) ? u : null;
 };
-const eventPageUrl = (ctx: Ctx): string | null => (ctx.eventId ? `${REG_SITE}/events/${ctx.eventId}` : null);
-const statusUrl = (raw: string) => `${REG_SITE}/registration?t=${encodeURIComponent(raw)}`;
-const passUrl = (ctx: Ctx, checkinToken: string) => `${REG_SITE}/admin/guest-list/${ctx.ev.slug}/checkin?token=${checkinToken}`;
-const adminUrl = (ctx: Ctx) => (ctx.eventId ? `${REG_SITE}/admin/events/${ctx.eventId}` : `${REG_SITE}/admin/events`);
+// Links of an event's e-mails: the live site for every real event (the door QR is
+// printed and must never point at a preview); REGISTRATION_SITE_URL only for hidden
+// test events (canaries), so a forgotten preview setting cannot leak into real passes.
+const siteFor = (ctx: Ctx) => (ctx.ev.hidden === true ? REG_SITE : SITE_URL);
+const eventPageUrl = (ctx: Ctx): string | null => (ctx.eventId ? `${siteFor(ctx)}/events/${ctx.eventId}` : null);
+const statusUrl = (ctx: Ctx, raw: string) => `${siteFor(ctx)}/registration?t=${encodeURIComponent(raw)}`;
+const passUrl = (ctx: Ctx, checkinToken: string) => `${siteFor(ctx)}/admin/guest-list/${ctx.ev.slug}/checkin?token=${checkinToken}`;
+const adminUrl = (ctx: Ctx) => (ctx.eventId ? `${siteFor(ctx)}/admin/events/${ctx.eventId}` : `${siteFor(ctx)}/admin/events`);
 const practicalInfo = (ctx: Ctx): string => clean(ctx.ev.settings?.practical_info, 2000) || clean(ctx.ev.settings?.programme_note, 2000);
 
 // ─── Dates ───────────────────────────────────────────────────────────────────
@@ -986,7 +1011,7 @@ function renderNotAccepted(ctx: Ctx, g: Json): Mail {
     greeting: hello(g),
     body: emP(`Thank you for your interest in ${strong(ctx.title)}. Unfortunately we are not able to confirm your place for this event.`) + emP(h(b)),
     text: [a, b].join("\n\n"),
-    cta: { label: "See upcoming events", url: `${REG_SITE}/events` },
+    cta: { label: "See upcoming events", url: `${siteFor(ctx)}/events` },
   });
 }
 
@@ -1000,7 +1025,7 @@ function renderCancelled(ctx: Ctx, g: Json): Mail {
     greeting: hello(g),
     body: emP(`Your registration for ${strong(ctx.title)} is cancelled. Thank you for letting us know.`) + emP(h(b)),
     text: [a, b].join("\n\n"),
-    cta: page ? { label: "Open the event page", url: page } : { label: "See upcoming events", url: `${REG_SITE}/events` },
+    cta: page ? { label: "Open the event page", url: page } : { label: "See upcoming events", url: `${siteFor(ctx)}/events` },
   });
 }
 
@@ -1067,18 +1092,27 @@ function renderStaffNewRegistration(ctx: Ctx, g: Json, questions: Json[], ticket
   });
 }
 
-/** admin_info_provided: the person answered a needs_info question. */
-function renderStaffInfoProvided(ctx: Ctx, g: Json, questions: Json[], ticketLabel: string | null): Mail {
+/** admin_info_provided: the person answered a needs_info question (their message, what they changed). */
+function renderStaffInfoProvided(ctx: Ctx, g: Json, questions: Json[], ticketLabel: string | null, reply: { answer: string; changed: string[] } = { answer: "", changed: [] }): Mail {
   const rows = staffRows(g, questions, ticketLabel);
   const asked = clean(g.info_request, 2000);
+  const answer = clean(reply.answer, 2000);
+  const changed = reply.changed.length
+    ? `Details changed: ${reply.changed.join(", ")}.`
+    : "No details were changed.";
+  const intro = `${fullName(g)} answered your question. The registration is back in your review list.`;
   return regMail(ctx, `Information provided: ${fullName(g)} — ${ctx.title}`, {
     title: "Information provided",
-    body: emP(`${strong(fullName(g))} updated their registration after your question. It is back in your review list.`, 10) +
+    body: emP(`${strong(fullName(g))} answered your question. The registration is back in your review list.`, 10) +
       (asked ? emNote(h(asked).replace(/\n/g, "<br>"), "Your question") : "") +
+      (answer ? emNote(h(answer).replace(/\n/g, "<br>"), "Their answer") : "") +
+      emP(h(changed), 10) +
       emInfoTable(rows.map(([k, v]): [string, string] => [h(k), h(v).replace(/\n/g, "<br>")])),
     text: [
-      `${fullName(g)} updated their registration after your question. It is back in your review list.`,
+      intro,
       asked ? `Your question: ${asked}` : "",
+      answer ? `Their answer: ${answer}` : "",
+      changed,
       rows.map(([k, v]) => `${k}: ${v}`).join("\n"),
     ].filter(Boolean).join("\n\n"),
     cta: { label: "Review in the admin", url: adminUrl(ctx) },
@@ -1253,13 +1287,13 @@ async function qrPngBase64(text: string): Promise<string> {
 }
 
 /** A fresh status link (raw token only in the e-mail), or null. */
-async function mintStatusUrl(guestId: string): Promise<string | null> {
+async function mintStatusUrl(ctx: Ctx, guestId: string): Promise<string | null> {
   const { data, error } = await db.rpc("gl_issue_access_token", { p_guest_id: guestId });
   if (error || typeof data !== "string" || !data) {
     console.error("registration: status token not issued", error?.message || "empty");
     return null;
   }
-  return statusUrl(data);
+  return statusUrl(ctx, data);
 }
 
 async function loadGuest(id: string): Promise<Json | null> {
@@ -1276,7 +1310,7 @@ async function ticketLabelOf(ctx: Ctx, key: string | null): Promise<string | nul
 /** The e-mail that matches the row's current status (registration, staff decision, resend). */
 async function sendStatusMail(ctx: Ctx, g: Json, by: string | null, sla?: string): Promise<boolean> {
   const status = String(g.status);
-  const link = await mintStatusUrl(g.id);
+  const link = await mintStatusUrl(ctx, g.id);
   const base = { from: eventFrom(ctx.title), to: String(g.email), replyTo: replyToOf(ctx.ev.settings) };
   if (status === "confirmed" && ctx.ev.kind === "webinar") {
     const join = joinUrlOf(ctx);
@@ -1331,9 +1365,23 @@ async function sendStatusMail(ctx: Ctx, g: Json, by: string | null, sla?: string
   return false;
 }
 
-async function notifyStaffNew(ctx: Ctx, g: Json) {
+/** An e-mail of this kind was logged for this registration within the last `ms`. */
+async function sentRecently(guestId: string, kind: string, ms: number): Promise<boolean> {
+  const since = new Date(Date.now() - ms).toISOString();
+  const { count, error } = await db.from("gl_email_log").select("id", { count: "exact", head: true })
+    .eq("guest_id", guestId).eq("kind", kind).gte("sent_at", since);
+  if (error) {
+    console.error("registration: e-mail log read failed", error.message);
+    return false;
+  }
+  return (count || 0) > 0;
+}
+
+async function notifyStaffNew(ctx: Ctx, g: Json, reactivated = false) {
   const to = clean(ctx.ev.notify_email, 200);
   if (!EMAIL_RE.test(to)) return;
+  // Cancel then register again: one alert per day and registration is enough.
+  if (reactivated && (await sentRecently(g.id, "admin_new_registration", STAFF_NEW_MAIL_GAP_MS))) return;
   const questions = (await questionsOf(ctx.ev.id)).filter((q) => appliesTo(q, g.ticket_key || null));
   const ticket = await ticketLabelOf(ctx, g.ticket_key || null);
   await sendMail({
@@ -1453,9 +1501,10 @@ async function actionForm(req: Request, body: Json, caller: Caller | null, flags
       invite_only: t.invite_only,
       parts: t.parts,
       restricted_to: Array.isArray(t.allowed_company_types) && t.allowed_company_types.length ? t.allowed_company_types : null,
-      allowed: Array.isArray(t.allowed_company_types) && t.allowed_company_types.length
+      // Same order as gl_register_v2: invite-only first, then the company types.
+      allowed: !t.invite_only && (Array.isArray(t.allowed_company_types) && t.allowed_company_types.length
         ? (allowedTypes ? t.allowed_company_types.some((x: string) => allowedTypes!.has(x)) : false)
-        : !t.invite_only,
+        : true),
     })),
     questions: questions.map((q) => ({
       key: q.key, label: q.label, help: q.help, kind: q.kind, options: q.options, max_length: q.max_length,
@@ -1481,19 +1530,23 @@ async function actionRegister(req: Request, body: Json, caller: Caller | null, f
   const anon = !caller;
   const email = anon ? clean(body.email, 200).toLowerCase() : caller!.email;
   const ip = clientIp(req);
-  let ipHash = "";
-  let emailHash = "";
+  const scope = anon ? "reg_register" : "reg_register_auth";
   if (anon) {
     if (!EMAIL_RE.test(email)) return json(req, { error: "invalid_email" }, 400);
     const c = obj(body.consents);
     if (!(c.terms === true || (typeof c.terms_at === "string" && c.terms_at.trim()))) return json(req, { error: "terms_required" }, 400);
-    ipHash = await ipHashOf(ip);
-    emailHash = await emailHashOf(email);
-    const [byIp, byEmail] = await Promise.all([
-      rateCount("reg_register", "ip_hash", ipHash, 3600000),
-      rateCount("reg_register", "email_hash", emailHash, 3600000),
-    ]);
-    if (byIp >= REG_IP_PER_HOUR || byEmail >= REG_EMAIL_PER_HOUR) return json(req, { error: "rate_limited" }, 429);
+  }
+  // Limits for everyone (signed in: per account address and per IP, looser; no captcha).
+  const ipHash = await ipHashOf(ip);
+  const emailHash = await emailHashOf(email);
+  const [byIp, byEmail] = await Promise.all([
+    rateCount(scope, "ip_hash", ipHash, 3600000),
+    rateCount(scope, "email_hash", emailHash, 3600000),
+  ]);
+  if (anon ? byIp >= REG_IP_PER_HOUR || byEmail >= REG_EMAIL_PER_HOUR : byIp >= REG_AUTH_IP_PER_HOUR || byEmail >= REG_AUTH_ACCOUNT_PER_HOUR) {
+    return json(req, { error: "rate_limited" }, 429);
+  }
+  if (anon) {
     if (!(await turnstileAllows(body.captcha, ip, TURNSTILE_ENFORCE || flags.turnstile === true))) return json(req, { error: "captcha" }, 400);
     // Flood guard (contract §5): anonymous callers wait, members and invitations go on.
     const since = new Date(Date.now() - 10 * 60000).toISOString();
@@ -1501,6 +1554,20 @@ async function actionRegister(req: Request, body: Json, caller: Caller | null, f
     if ((count || 0) > FLOOD_PER_10_MIN) {
       await floodAlert(ctx, count || 0);
       return json(req, { error: "busy" }, 429);
+    }
+  }
+
+  // An account that has not PROVED its address must not take over a cancelled or declined
+  // registration of that address made by someone else (signed out, or another account):
+  // gl_register_v2 would link it. Noted here, undone right after (DB lane: link on
+  // reactivation only when proven).
+  let foreignRow: Json | null = null;
+  if (caller && !caller.proven) {
+    const { data: own } = await db.from("gl_guest").select("id").eq("event_id", ctx.ev.id).eq("user_id", caller.id).limit(1);
+    if (!((own as Json[] | null) || []).length) {
+      const { data: same } = await db.from("gl_guest").select("id, user_id, status").eq("event_id", ctx.ev.id)
+        .ilike("email", likeExact(caller.email)).limit(5);
+      foreignRow = ((same as Json[] | null) || []).find((x) => ["cancelled", "declined"].includes(String(x.status))) || null;
     }
   }
 
@@ -1529,28 +1596,41 @@ async function actionRegister(req: Request, body: Json, caller: Caller | null, f
     const status = code === "account_suspended" ? 403 : code === "not_found" ? 404 : 400;
     return json(req, { error: code, ...(r.fields ? { fields: r.fields } : {}), ...(r.keys ? { keys: r.keys } : {}) }, status);
   }
-  if (anon) await rateRecord("reg_register", ipHash, emailHash);
+  await rateRecord(scope, ipHash, emailHash);
 
-  const g = await loadGuest(String(r.guest_id));
-  if (g) {
+  let g = await loadGuest(String(r.guest_id));
+  // Undo the link gl_register_v2 made to an unproven account on someone else's row.
+  if (g && caller && foreignRow && r.reactivated === true && g.id === foreignRow.id && foreignRow.user_id !== caller.id && g.user_id === caller.id) {
+    const { data: undone, error: undoErr } = await db.from("gl_guest").update({ user_id: null })
+      .eq("id", g.id).eq("user_id", caller.id).select("*").maybeSingle();
+    if (undoErr) console.error("registration: unlink after reactivation failed", undoErr.message);
+    else if (undone) g = undone as Json;
+  }
+
+  // E-mails after the answer: the timing must not tell a new registration from a repeat.
+  const row = g;
+  await inBackground("register e-mails", async () => {
+    if (!row) return;
     if (r.duplicate === true) {
-      const link = await mintStatusUrl(g.id);
+      // Repeated clicks: one "already registered" e-mail per hour is plenty.
+      if (await sentRecently(row.id, "reg_already_registered", ALREADY_REGISTERED_MAIL_GAP_MS)) return;
+      const link = await mintStatusUrl(ctx, row.id);
       await sendMail({
         from: eventFrom(ctx.title),
-        to: String(g.email),
+        to: String(row.email),
         replyTo: replyToOf(ctx.ev.settings),
-        mail: renderAlreadyRegistered(ctx, g, { status: link }),
-        log: { guestId: g.id, eventId: ctx.ev.id, kind: "reg_already_registered" },
+        mail: renderAlreadyRegistered(ctx, row, { status: link }),
+        log: { guestId: row.id, eventId: ctx.ev.id, kind: "reg_already_registered" },
       });
     } else {
-      await sendStatusMail(ctx, g, null);
-      if (ctx.ev.staff_alert_mode !== "digest") await notifyStaffNew(ctx, g);
+      await sendStatusMail(ctx, row, null);
+      if (ctx.ev.staff_alert_mode !== "digest") await notifyStaffNew(ctx, row, r.reactivated === true);
     }
-  }
+  });
   // Public answer: identical for a new and a repeated registration (no token, no status).
   if (anon) return json(req, { ok: true });
-  // A repeat found through the address of an account that has not proved it: same public answer.
-  if (r.duplicate === true && g?.user_id !== caller!.id && !caller!.proven) return json(req, { ok: true });
+  // A row that is not this account's and whose address the account has not proved: same public answer.
+  if (g?.user_id !== caller!.id && !(caller!.proven && !g?.user_id)) return json(req, { ok: true });
   return json(req, { ok: true, status: r.status, duplicate: r.duplicate === true, registration_id: r.guest_id });
 }
 
@@ -1573,28 +1653,48 @@ async function parityRegister(req: Request, body: Json, caller: Caller | null, f
   const { count } = await db.from("gl_guest").select("id", { count: "exact", head: true })
     .eq("event_id", ev.id).eq("source", "request").gte("created_at", since);
   if ((count || 0) > 40) return json(req, { error: "busy" }, 429);
-  const { data: existing } = await db.from("gl_guest").select("id").eq("event_id", ev.id).eq("email", g.email).maybeSingle();
-  // Same answer as a new request, whatever the existing status: this form must not reveal who is on the list.
-  if (existing) return json(req, { ok: true });
+  const { data: existing } = await db.from("gl_guest").select("id, source, status, decided_by, user_id").eq("event_id", ev.id).eq("email", g.email).maybeSingle();
   const extra: Json = { consents: consentsFrom(body.consents) };
   // Linked only to an account that PROVED this very address (the DB guard drops anything else).
-  if (caller && caller.proven && caller.email === g.email) extra.user_id = caller.id;
-  const { data: row, error } = await db.from("gl_guest")
-    .insert({ ...g, ...extra, event_id: ev.id, source: "request", status: "requested" }).select("*").single();
-  if (error) {
-    if (error.code === "23505") return json(req, { ok: true });
-    console.error("registration: parity insert failed", error.code, error.message);
-    return json(req, { error: "server" }, 500);
+  const proven = !!caller && caller.proven && caller.email === g.email;
+  let row: Json | null = null;
+  if (existing) {
+    // Same answer as a new request, whatever the existing status: this form must not reveal
+    // who is on the list. One exception: a request its author cancelled from the personal
+    // link (wys_status_edit; never touched by staff, whose cancel sets decided_by) comes back
+    // to life as a new request (same token, legacy values only).
+    const e = existing as Json;
+    if (e.source !== "request" || e.status !== "cancelled" || e.decided_by) return json(req, { ok: true });
+    const { data: revived, error: reviveErr } = await db.from("gl_guest")
+      .update({ ...g, ...extra, ...(proven && !e.user_id ? { user_id: caller!.id } : {}), status: "requested", cancelled_at: null })
+      .eq("id", e.id).eq("status", "cancelled").is("decided_by", null).select("*").maybeSingle();
+    if (reviveErr) {
+      console.error("registration: parity revive failed", reviveErr.code, reviveErr.message);
+      return json(req, { ok: true });
+    }
+    if (!revived) return json(req, { ok: true });
+    row = revived as Json;
+  } else {
+    if (proven) extra.user_id = caller!.id;
+    const { data: inserted, error } = await db.from("gl_guest")
+      .insert({ ...g, ...extra, event_id: ev.id, source: "request", status: "requested" }).select("*").single();
+    if (error) {
+      if (error.code === "23505") return json(req, { ok: true });
+      console.error("registration: parity insert failed", error.code, error.message);
+      return json(req, { error: "server" }, 500);
+    }
+    row = inserted as Json;
   }
   const evRow: Ev = { id: ev.id, slug: ev.slug, title: ev.title, capacity: ev.capacity, notify_email: ev.notify_email, requests_open: ev.requests_open, settings: ev.settings || {} };
   const from = `${evRow.title.replace(/[<>"]/g, "")} <${FROM_ADDRESS}>`;
   const replyTo = evRow.settings?.contact_email || EM.contact;
-  await Promise.all([
-    sendMail({ from, to: row.email, replyTo, mail: renderParityAck(evRow, row), log: { guestId: row.id, eventId: evRow.id, kind: "request_ack" } }),
+  const sent = row as Json;
+  await inBackground("wys26 request e-mails", () => Promise.all([
+    sendMail({ from, to: sent.email, replyTo, mail: renderParityAck(evRow, sent), log: { guestId: sent.id, eventId: evRow.id, kind: "request_ack" } }),
     evRow.notify_email
-      ? sendMail({ from, to: evRow.notify_email, replyTo, mail: renderParityStaffNotice(evRow, row), log: { guestId: row.id, eventId: evRow.id, kind: "staff_notify" } })
+      ? sendMail({ from, to: evRow.notify_email, replyTo, mail: renderParityStaffNotice(evRow, sent), log: { guestId: sent.id, eventId: evRow.id, kind: "staff_notify" } })
       : Promise.resolve(false),
-  ]);
+  ]));
   return json(req, { ok: true });
 }
 
@@ -1606,6 +1706,17 @@ type Target = {
   readOnly: boolean; // linked to an account and not opened by that account: "Sign in to manage"
   showPass: boolean; // door QR may be shown (inbox holder, or a proven owner)
 };
+
+/** Contract §2 for one row: the account proved an address (email_proven_at, profiles.email =
+ *  auth e-mail) and that address is the row's. */
+async function accountProvenFor(userId: string, rowEmail: string): Promise<boolean> {
+  const { data: p } = await db.from("profiles").select("email, email_proven_at").eq("user_id", userId).maybeSingle();
+  const prof = p as Json | null;
+  const email = rowEmail.trim().toLowerCase();
+  if (!prof?.email_proven_at || String(prof.email || "").trim().toLowerCase() !== email) return false;
+  const { data: u } = await db.auth.admin.getUserById(userId);
+  return (u?.user?.email || "").trim().toLowerCase() === email;
+}
 
 async function resolveTarget(body: Json, caller: Caller | null, flags: Flags, o: { touch: boolean; allowGuestLink: boolean }): Promise<Target> {
   const token = typeof body.token === "string" ? body.token.trim() : "";
@@ -1630,19 +1741,30 @@ async function resolveTarget(body: Json, caller: Caller | null, flags: Flags, o:
     if (!g) throw new HttpError(404, "not_found");
     const ctx = await loadEventById(g.event_id);
     if (!ctx || ctx.ev.engine !== "core_v2") throw new HttpError(404, "not_found");
-    const readOnly = !!g.user_id && g.user_id !== caller?.id;
+    // The token proves the mailbox. Only an account that PROVED this row's address
+    // outranks it (Confirm email is off: an unproven account may not be the inbox owner).
+    const readOnly = !!g.user_id && g.user_id !== caller?.id && (await accountProvenFor(g.user_id, String(g.email || "")));
     return { g, ctx, via: "token", readOnly, showPass: true };
   }
   if (!caller) throw new HttpError(401, "sign_in_required");
+  // The account's rows, or (proven address only) a row of that address no account holds yet:
+  // `form` and `register` report those too, so the person can manage them.
+  const mineOrProven = (x: Json | null) =>
+    !!x && (x.user_id === caller.id || (caller.proven && !x.user_id && String(x.email || "").trim().toLowerCase() === caller.email));
   let g: Json | null = null;
   if (isUuid(body.registration_id)) {
-    const { data } = await db.from("gl_guest").select("*").eq("id", body.registration_id).eq("user_id", caller.id).maybeSingle();
-    g = (data as Json | null) || null;
+    const { data } = await db.from("gl_guest").select("*").eq("id", body.registration_id).maybeSingle();
+    g = mineOrProven(data as Json | null) ? (data as Json) : null;
   } else {
     const ctx0 = await loadEvent(body);
     if (ctx0) {
       const { data } = await db.from("gl_guest").select("*").eq("event_id", ctx0.ev.id).eq("user_id", caller.id).maybeSingle();
       g = (data as Json | null) || null;
+      if (!g && caller.proven) {
+        const { data: byEmail } = await db.from("gl_guest").select("*").eq("event_id", ctx0.ev.id).is("user_id", null)
+          .ilike("email", likeExact(caller.email)).limit(1);
+        g = ((byEmail as Json[] | null) || [])[0] || null;
+      }
     }
   }
   if (!g) throw new HttpError(404, "not_found");
@@ -1786,7 +1908,10 @@ async function actionUpdate(req: Request, body: Json, caller: Caller | null, fla
     if (bad.length) return json(req, { error: "invalid_answers", keys: bad }, 400);
     patch.answers = answers;
   }
+  // needs_info: sending the form is the answer (changed details, and/or a message to M3 in
+  // `info_answer`; confirming the details as they are is an answer too).
   const answeredInfo = status === "needs_info";
+  const infoAnswer = answeredInfo && typeof body.info_answer === "string" ? body.info_answer.trim().slice(0, 2000) : "";
   if (answeredInfo) patch.status = "requested";
   if (!Object.keys(patch).length) return json(req, await statusView(t));
 
@@ -1795,19 +1920,45 @@ async function actionUpdate(req: Request, body: Json, caller: Caller | null, fla
   if (error) throw error;
   if (!up) throw new HttpError(409, "changed");
   if (answeredInfo) {
+    const allQuestions = await questionsOf(ev.id);
+    const changed = changedLabels(g, up as Json, allQuestions);
+    // The answer is kept in the registration's history (staff read review_log).
+    const { error: logErr } = await db.from("review_log").insert({
+      subject_type: "registration",
+      subject_id: g.id,
+      action: "info_provided",
+      note: infoAnswer || null,
+      details: { gl_event_id: ev.id, info_request: clean(g.info_request, 2000) || null, changed, via: t.via },
+      actor_id: caller?.id ?? null,
+    });
+    if (logErr) console.error("registration: review_log failed", logErr.message);
     const to = clean(ev.notify_email, 200);
     if (EMAIL_RE.test(to)) {
-      const questions = (await questionsOf(ev.id)).filter((q) => appliesTo(q, up.ticket_key || null));
+      const questions = allQuestions.filter((q) => appliesTo(q, up.ticket_key || null));
       await sendMail({
         from: eventFrom(ctx.title),
         to,
         replyTo: EM.contact,
-        mail: renderStaffInfoProvided(ctx, up, questions, await ticketLabelOf(ctx, up.ticket_key || null)),
+        mail: renderStaffInfoProvided(ctx, up, questions, await ticketLabelOf(ctx, up.ticket_key || null), { answer: infoAnswer, changed }),
         log: { guestId: up.id, eventId: ev.id, kind: "admin_info_provided" },
       });
     }
   }
   return json(req, await statusView({ ...t, g: up as Json }));
+}
+
+/** Names of what an update changed (staff e-mail of an answered question). */
+function changedLabels(before: Json, after: Json, questions: Json[]): string[] {
+  const LABELS: Record<string, string> = { first_name: "First name", last_name: "Last name", company: "Company", job_title: "Job title", phone: "Phone", country: "Country" };
+  const norm = (v: unknown) => (v === undefined || v === null || v === "" ? null : v);
+  const out: string[] = [];
+  for (const [k, label] of Object.entries(LABELS)) if (norm(before[k]) !== norm(after[k])) out.push(label);
+  const a = obj(before.answers);
+  const b = obj(after.answers);
+  for (const q of questions) {
+    if (JSON.stringify(norm(a[q.key])) !== JSON.stringify(norm(b[q.key]))) out.push(String(q.label || q.key).slice(0, 80));
+  }
+  return out;
 }
 
 /** wys26 request edited from its personal link (flag wys_status_edit): only while requested. */
@@ -1891,31 +2042,35 @@ async function actionResendLinks(req: Request, body: Json, _caller: Caller | nul
   // Same answer whatever happens: this form never says whether an address registered.
   if (byEmail >= RESEND_EMAIL_PER_DAY || byIp >= RESEND_IP_PER_HOUR) return json(req, { ok: true });
 
-  const { data: rows } = await db.from("gl_guest").select("id, event_id, status, token, first_name, email")
-    .eq("email", email).not("status", "in", "(cancelled,declined,rejected)").limit(50);
-  const list = (rows as Json[] | null) || [];
-  if (!list.length) return json(req, { ok: true });
-  const v1Links = flags.wys_status_edit === true || flags.wys_form_v2 === true;
-  const items: Array<{ title: string; when: string; url: string; label: string; guestId: string; eventId: string }> = [];
-  const ctxCache = new Map<string, Ctx | null>();
-  for (const g of list) {
-    if (!ctxCache.has(g.event_id)) ctxCache.set(g.event_id, await loadEventById(g.event_id));
-    const ctx = ctxCache.get(g.event_id);
-    if (!ctx || ended(ctx)) continue;
-    if (ctx.ev.engine === "core_v2") {
-      const url = await mintStatusUrl(g.id);
-      if (url) items.push({ title: ctx.title, when: whenText(ctx), url, label: "View my registration", guestId: g.id, eventId: ctx.ev.id });
-    } else if (v1Links && g.token) {
-      const label = g.status === "requested" ? "View my request" : "Open my invitation";
-      items.push({ title: ctx.title, when: clean(ctx.ev.settings?.date_label, 120) || whenText(ctx), url: `${SITE_URL}/${ctx.ev.slug}/guest?t=${g.token}`, label, guestId: g.id, eventId: ctx.ev.id });
+  // The lookup and the e-mail run after the answer: its timing must not tell a known
+  // address from an unknown one (spec §5).
+  await inBackground("resend links", async () => {
+    const { data: rows } = await db.from("gl_guest").select("id, event_id, status, token, first_name, email")
+      .eq("email", email).not("status", "in", "(cancelled,declined,rejected)").limit(50);
+    const list = (rows as Json[] | null) || [];
+    if (!list.length) return;
+    const v1Links = flags.wys_status_edit === true || flags.wys_form_v2 === true;
+    const items: Array<{ title: string; when: string; url: string; label: string; guestId: string; eventId: string }> = [];
+    const ctxCache = new Map<string, Ctx | null>();
+    for (const g of list) {
+      if (!ctxCache.has(g.event_id)) ctxCache.set(g.event_id, await loadEventById(g.event_id));
+      const ctx = ctxCache.get(g.event_id);
+      if (!ctx || ended(ctx)) continue;
+      if (ctx.ev.engine === "core_v2") {
+        const url = await mintStatusUrl(ctx, g.id);
+        if (url) items.push({ title: ctx.title, when: whenText(ctx), url, label: "View my registration", guestId: g.id, eventId: ctx.ev.id });
+      } else if (v1Links && g.token) {
+        const label = g.status === "requested" ? "View my request" : "Open my invitation";
+        items.push({ title: ctx.title, when: clean(ctx.ev.settings?.date_label, 120) || whenText(ctx), url: `${SITE_URL}/${ctx.ev.slug}/guest?t=${g.token}`, label, guestId: g.id, eventId: ctx.ev.id });
+      }
     }
-  }
-  if (!items.length) return json(req, { ok: true });
-  const sent = await sendMail({ from: PLATFORM_FROM, to: email, replyTo: EM.contact, mail: renderStatusLinks(String(list[0].first_name || ""), items) });
-  if (sent) {
-    const { error } = await db.from("gl_email_log").insert(items.map((i) => ({ guest_id: i.guestId, event_id: i.eventId, kind: "reg_status_links", to_email: email })));
-    if (error) console.error("registration: e-mail log failed", error.message);
-  }
+    if (!items.length) return;
+    const sent = await sendMail({ from: PLATFORM_FROM, to: email, replyTo: EM.contact, mail: renderStatusLinks(String(list[0].first_name || ""), items) });
+    if (sent) {
+      const { error } = await db.from("gl_email_log").insert(items.map((i) => ({ guest_id: i.guestId, event_id: i.eventId, kind: "reg_status_links", to_email: email })));
+      if (error) console.error("registration: e-mail log failed", error.message);
+    }
+  });
   return json(req, { ok: true });
 }
 
@@ -2010,7 +2165,7 @@ async function actionSendStatusLink(req: Request, body: Json, caller: Caller | n
   if (!ctx) return json(req, { error: "not_found" }, 404);
   let item: { title: string; when: string; url: string; label: string } | null = null;
   if (ctx.ev.engine === "core_v2") {
-    const url = await mintStatusUrl(g.id);
+    const url = await mintStatusUrl(ctx, g.id);
     if (url) item = { title: ctx.title, when: whenText(ctx), url, label: "View my registration" };
   } else if (g.token) {
     item = {

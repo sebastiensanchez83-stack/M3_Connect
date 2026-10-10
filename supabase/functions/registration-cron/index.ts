@@ -17,19 +17,25 @@
 //   gl_event.reminders = ISO-8601 durations before the start. Empty = the default of the
 //   kind: webinar P7D, P1D, PT1H (the join link) / on-site P7D (practical information and
 //   the entry QR). gl_event.settings.no_reminders = true turns them off for one event.
-//   Only CONFIRMED rows. When several reminders are due at once (a late registration),
-//   only the nearest is sent; a reminder whose window started before the person was
-//   confirmed is skipped (they just got the confirmation). Each duration is stamped in
+//   Only CONFIRMED rows. A reminder is due 30 minutes early (the job runs hourly: "1 hour
+//   before" arrives 30 to 90 minutes before the start). When several reminders are due at
+//   once (a late registration), only the nearest is sent; a reminder whose window started
+//   before the person was confirmed (decided_at, created_at, or the latest confirmation
+//   e-mail for a reactivated row) is skipped: they just got the confirmation. Each duration is stamped in
 //   gl_guest.reminders_sent before sending (claimed with updated_at, so two runs never
 //   send the same reminder) and unstamped if the send fails.
-//   Flags: webinar_v2 for webinars, onsite_v2 for on-site events (hidden test events:
-//   always).
+//   Flags: webinar_v2 for webinars, onsite_v2 for on-site events. Hidden test events are
+//   served whenever the job runs, but pg_cron wakes it only when one of those flags is on:
+//   a canary test with both flags off needs a manual POST {"job":"reminders","force":true}
+//   with the service key.
 // Absentee follow-up (webinars, Victor 9 Oct): after the end, confirmed registrants who
 //   were not checked in get "Sorry we missed you" with the replay link
 //   (gl_event.replay_url, else events.replay_url). No replay yet: the follow-up waits
 //   48 h, then goes without it, and "The replay is available" follows if the link is
-//   added within 14 days. When nobody was checked in (attendance not recorded), only the
-//   replay is sent, worded for everyone. Stamped as reminders_sent.followup / .replay.
+//   added within 14 days. Absentees are known only once staff mark the attendance list as
+//   complete (gl_event.settings.attendance_recorded = true; those who came have
+//   checked_in_at). Until then only the replay is sent, worded for everyone, and nothing
+//   goes without a replay. Stamped as reminders_sent.followup / .replay.
 // Opt-out: reminders_sent.off (the "Stop reminders" link of the status page, action
 //   "reminders" of the registration function) and, for a registration linked to an
 //   account, notification_prefs.events = false (the signed unsubscribe link).
@@ -54,6 +60,9 @@ const DEFAULT_REMINDERS: Record<string, string[]> = { webinar: ["P7D", "P1D", "P
 const FOLLOWUP_AFTER_MS = 3600000; // 1 h after the end
 const FOLLOWUP_NO_REPLAY_AFTER_MS = 48 * 3600000;
 const FOLLOWUP_WINDOW_MS = 14 * 86400000;
+// The job runs at :10 every hour: a reminder is due this much before its exact time, so
+// "1 hour before" arrives 30 to 90 minutes before the start (never 5 minutes before).
+const REMINDER_LEAD_MS = 30 * 60000;
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
 
@@ -178,9 +187,12 @@ const replayUrlOf = (ctx: Ctx): string | null => {
   const u = clean(ctx.ev.replay_url, 1000) || clean(ctx.cat?.replay_url, 1000);
   return /^https:\/\//i.test(u) ? u : null;
 };
-const eventPageUrl = (ctx: Ctx): string | null => (ctx.eventId ? `${REG_SITE}/events/${ctx.eventId}` : null);
-const passUrl = (ctx: Ctx, checkinToken: string) => `${REG_SITE}/admin/guest-list/${ctx.ev.slug}/checkin?token=${checkinToken}`;
-const adminUrl = (ctx: Ctx) => (ctx.eventId ? `${REG_SITE}/admin/events/${ctx.eventId}` : `${REG_SITE}/admin/events`);
+// Links of an event's e-mails: the live site for every real event (the door QR is printed);
+// REGISTRATION_SITE_URL only for hidden test events (canaries before the redesign is live).
+const siteFor = (ctx: Ctx) => (ctx.ev.hidden === true ? REG_SITE : SITE_URL);
+const eventPageUrl = (ctx: Ctx): string | null => (ctx.eventId ? `${siteFor(ctx)}/events/${ctx.eventId}` : null);
+const passUrl = (ctx: Ctx, checkinToken: string) => `${siteFor(ctx)}/admin/guest-list/${ctx.ev.slug}/checkin?token=${checkinToken}`;
+const adminUrl = (ctx: Ctx) => (ctx.eventId ? `${siteFor(ctx)}/admin/events/${ctx.eventId}` : `${siteFor(ctx)}/admin/events`);
 const practicalInfo = (ctx: Ctx): string => clean(ctx.ev.settings?.practical_info, 2000) || clean(ctx.ev.settings?.programme_note, 2000);
 
 function fmtDate(d: Date, tz: string): string {
@@ -743,7 +755,7 @@ function renderReminder(ctx: Ctx, g: Json, r: { key: string; ms: number }, links
 /** reg_followup: after a webinar, to confirmed registrants who were not checked in. */
 function renderFollowup(ctx: Ctx, g: Json, o: { replay: string | null; attendanceKnown: boolean; optOut: OptOut }): Mail {
   const date = ctx.startsAt ? fmtDate(ctx.startsAt, ctx.tz) : "";
-  const upcoming = `${REG_SITE}/events`;
+  const upcoming = `${siteFor(ctx)}/events`;
   if (o.attendanceKnown) {
     const a = `We missed you at ${ctx.title}${date ? ` on ${date}` : ""}.`;
     const b = o.replay
@@ -822,13 +834,13 @@ function renderReviewDigest(d: DigestData): Mail {
   }
   if (d.people.pending) {
     const v = `${d.people.pending} waiting (${d.people.submitted} submitted, oldest: ${ageText(d.people.oldestDays)})`;
-    rows.push([h("People"), `${h(v)}<br>${emLink(h("Open"), h(`${REG_SITE}/admin/users`))}`]);
-    textRows.push(`People: ${v}\n  ${REG_SITE}/admin/users`);
+    rows.push([h("People"), `${h(v)}<br>${emLink(h("Open"), h(`${SITE_URL}/admin/users`))}`]);
+    textRows.push(`People: ${v}\n  ${SITE_URL}/admin/users`);
   }
   if (d.companies.pending) {
     const v = `${d.companies.pending} waiting${d.companies.byVerifiedMembers ? ` (${d.companies.byVerifiedMembers} created by validated members)` : ""}, oldest: ${ageText(d.companies.oldestDays)}`;
-    rows.push([h("Companies"), `${h(v)}<br>${emLink(h("Open"), h(`${REG_SITE}/admin/organizations`))}`]);
-    textRows.push(`Companies: ${v}\n  ${REG_SITE}/admin/organizations`);
+    rows.push([h("Companies"), `${h(v)}<br>${emLink(h("Open"), h(`${SITE_URL}/admin/organizations`))}`]);
+    textRows.push(`Companies: ${v}\n  ${SITE_URL}/admin/organizations`);
   }
   if (d.provisioning.failed || d.provisioning.queued) {
     const v = `${d.provisioning.failed} failed, ${d.provisioning.queued} waiting`;
@@ -843,13 +855,13 @@ function renderReviewDigest(d: DigestData): Mail {
       eyebrow: "M3 daily review",
       title: "What is waiting for you",
       bodyHtml: emP(h(a), 10) + emInfoTable(rows),
-      cta: { label: "Open the admin", url: h(`${REG_SITE}/admin`) },
+      cta: { label: "Open the admin", url: h(`${SITE_URL}/admin`) },
       footerNote: h("Sent every morning at 08:00 (Monaco time) to the review digest recipients set in the platform settings."),
     }),
     text: emText({
       title: "What is waiting for you",
       body: [a, textRows.join("\n")].join("\n\n"),
-      cta: { label: "Open the admin", url: `${REG_SITE}/admin` },
+      cta: { label: "Open the admin", url: `${SITE_URL}/admin` },
       footerNote: "Sent every morning at 08:00 (Monaco time) to the review digest recipients set in the platform settings.",
     }),
   };
@@ -932,11 +944,14 @@ async function mintStatus(guestId: string): Promise<string | null> {
 }
 
 /** Account: signed unsubscribe from "events" (+ one-click header). Guest: "Stop reminders" on the status page. */
-async function optOutFor(g: Json, rawToken: string | null): Promise<{ optOut: OptOut; headers?: Record<string, string> }> {
+async function optOutFor(ctx: Ctx, g: Json, rawToken: string | null): Promise<{ optOut: OptOut; headers?: Record<string, string> }> {
+  // Same site as the other links of the e-mail (the live site has /unsubscribe once the
+  // redesign is live; real events only send after their flag, i.e. after that).
+  const site = siteFor(ctx);
   if (g.user_id && SERVICE_ROLE) {
     const t = await signUnsubToken(SERVICE_ROLE, g.user_id, "events");
     return {
-      optOut: { label: "Unsubscribe from event e-mails", url: `${SITE_URL}/unsubscribe?t=${t}` },
+      optOut: { label: "Unsubscribe from event e-mails", url: `${site}/unsubscribe?t=${t}` },
       headers: {
         "List-Unsubscribe": `<${SUPABASE_URL.replace(/\/+$/, "")}/functions/v1/unsubscribe?t=${t}>, <mailto:unsubscribe@smartmarinaconnect.com>`,
         "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
@@ -944,9 +959,9 @@ async function optOutFor(g: Json, rawToken: string | null): Promise<{ optOut: Op
     };
   }
   if (rawToken) {
-    return { optOut: { label: "Stop e-mails about this event", url: `${REG_SITE}/registration?t=${encodeURIComponent(rawToken)}&reminders=off` } };
+    return { optOut: { label: "Stop e-mails about this event", url: `${site}/registration?t=${encodeURIComponent(rawToken)}&reminders=off` } };
   }
-  return { optOut: { label: "Unsubscribe", url: `${SITE_URL}/unsubscribe` } };
+  return { optOut: { label: "Unsubscribe", url: `${site}/unsubscribe` } };
 }
 
 /** notification_prefs.events of the accounts linked to these rows (false = opted out). */
@@ -980,6 +995,17 @@ async function unstamp(g: Json, keys: string[]) {
 
 const G_COLS = "id, event_id, status, email, first_name, last_name, company, user_id, reminders_sent, created_at, decided_at, updated_at, checkin_token, checked_in_at, ticket_key";
 
+/** When the row was (last) confirmed: decided_at, created_at, or its latest confirmation
+ *  e-mail (a reactivated registration keeps its old created_at and has no decided_at). */
+async function confirmedAtOf(g: Json): Promise<Date | null> {
+  let at = tryDate(g.decided_at) || tryDate(g.created_at);
+  const { data } = await db.from("gl_email_log").select("sent_at").eq("guest_id", g.id)
+    .in("kind", ["reg_webinar_confirmed", "reg_confirmed"]).order("sent_at", { ascending: false }).limit(1);
+  const last = tryDate(((data as Json[] | null) || [])[0]?.sent_at);
+  if (last && (!at || last.getTime() > at.getTime())) at = last;
+  return at;
+}
+
 // ─── Job: reminders, follow-ups, event digests ───────────────────────────────
 async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
   const out = { events: 0, reminders: 0, followups: 0, replays: 0, digests: 0, skipped: 0, failed: 0 };
@@ -994,7 +1020,7 @@ async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
     const end = (ctx.endsAt || ctx.startsAt).getTime();
     const reminders = remindersOf(ctx);
     const maxLead = reminders.length ? reminders[reminders.length - 1].ms : 0;
-    const inReminderWindow = now < start && now >= start - maxLead;
+    const inReminderWindow = reminders.length > 0 && now < start && now >= start - maxLead - REMINDER_LEAD_MS;
     const inFollowupWindow = ev.kind === "webinar" && now >= end + FOLLOWUP_AFTER_MS && now < end + FOLLOWUP_WINDOW_MS;
     const digestDue = ev.staff_alert_mode === "digest" && monacoHour === 8 && EMAIL_RE.test(clean(ev.notify_email, 200));
     if (!inReminderWindow && !inFollowupWindow && !digestDue) continue;
@@ -1007,12 +1033,15 @@ async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
       const join = joinUrlOf(ctx);
       for (const g of rows) {
         const rs = obj(g.reminders_sent);
-        const due = reminders.filter((r) => now >= start - r.ms && !rs[r.key]);
+        // Due a little early (REMINDER_LEAD_MS): the job runs hourly, so "1 hour before"
+        // goes 30 to 90 minutes before the start, never 5 minutes before.
+        const due = reminders.filter((r) => now >= start - r.ms - REMINDER_LEAD_MS && !rs[r.key]);
         if (!due.length) continue;
         const nearest = due[0];
         const keys = due.map((r) => r.key);
-        const confirmedAt = tryDate(g.decided_at) || tryDate(g.created_at);
-        const justConfirmed = !!confirmedAt && confirmedAt.getTime() > start - nearest.ms;
+        // Confirmed inside this reminder's window: they just got the confirmation e-mail.
+        const confirmedAt = await confirmedAtOf(g);
+        const justConfirmed = !!confirmedAt && confirmedAt.getTime() > start - nearest.ms - REMINDER_LEAD_MS;
         if (rs.off || (g.user_id && optedOut.has(g.user_id)) || justConfirmed) {
           if (await stamp(g, keys, nowIso)) out.skipped++;
           continue;
@@ -1020,7 +1049,7 @@ async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
         const claimed = await stamp(g, keys, nowIso);
         if (!claimed) continue;
         const raw = await mintStatus(g.id);
-        const { optOut, headers } = await optOutFor(g, raw);
+        const { optOut, headers } = await optOutFor(ctx, g, raw);
         const attachments: Attachment[] = [];
         let qr = false;
         if (ev.kind === "onsite" && g.checkin_token) {
@@ -1043,7 +1072,7 @@ async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
           from: eventFrom(ctx.title),
           to: String(g.email),
           replyTo: replyToOf(ev.settings),
-          mail: renderReminder(ctx, g, nearest, { status: raw ? `${REG_SITE}/registration?t=${encodeURIComponent(raw)}` : null, join, qr, optOut }),
+          mail: renderReminder(ctx, g, nearest, { status: raw ? `${siteFor(ctx)}/registration?t=${encodeURIComponent(raw)}` : null, join, qr, optOut }),
           attachments,
           headers,
           log: { guestId: g.id, eventId: ev.id, kind: `reg_reminder_${nearest.key}` },
@@ -1057,8 +1086,11 @@ async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
     }
 
     if (inFollowupWindow) {
-      const { count: attended } = await db.from("gl_guest").select("id", { count: "exact", head: true }).eq("event_id", ev.id).not("checked_in_at", "is", null);
-      const attendanceKnown = (attended || 0) > 0;
+      // Absentees are known only when staff said the attendance list is complete
+      // (gl_event.settings.attendance_recorded = true, with checked_in_at on those who came).
+      // A few rows marked by hand must not turn every other registrant into an absentee.
+      // Until then only the replay goes out, worded for everyone.
+      const attendanceKnown = ev.settings?.attendance_recorded === true;
       const replay = replayUrlOf(ctx);
       let q = db.from("gl_guest").select(G_COLS).eq("event_id", ev.id).eq("status", "confirmed");
       if (attendanceKnown) q = q.is("checked_in_at", null);
@@ -1086,7 +1118,7 @@ async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
         const claimed = await stamp(g, keys, nowIso);
         if (!claimed) continue;
         const raw = await mintStatus(g.id);
-        const { optOut, headers } = await optOutFor(g, raw);
+        const { optOut, headers } = await optOutFor(ctx, g, raw);
         const mail = kind === "followup"
           ? renderFollowup(ctx, g, { replay, attendanceKnown, optOut })
           : renderReplayAvailable(ctx, g, { replay: replay as string, optOut });
@@ -1166,7 +1198,7 @@ async function collectDigest(): Promise<DigestData> {
         requested: e.requested,
         needs_info: e.needs_info,
         oldestDays: daysSince(e.oldest, now),
-        url: ev.engine === "guest_list_v1" || !ev.legacy_event_id ? `${REG_SITE}/admin/guest-list/${ev.slug}` : `${REG_SITE}/admin/events/${ev.legacy_event_id}`,
+        url: ev.engine === "guest_list_v1" || !ev.legacy_event_id ? `${SITE_URL}/admin/guest-list/${ev.slug}` : `${SITE_URL}/admin/events/${ev.legacy_event_id}`,
       });
     }
     d.registrations.sort((a, b) => b.oldestDays - a.oldestDays);

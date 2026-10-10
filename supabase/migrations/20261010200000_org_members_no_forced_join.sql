@@ -49,9 +49,15 @@
 --    admin_add_org_member          verified admin (AdminUserOrgs, both clients)
 --    admin_set_org_owner / transfer_org_ownership: promote an EXISTING member only.
 --  Service role (bypasses RLS): sm26-provision (staff), sm26-attendee-invite (staff or
---    the SM26 registration's owner/members while the roster is open), sponsor-invite
---    (staff or Yacht Club manager), claim-code-signup; provision-person (registration
---    Phase 1, not deployed yet).
+--    the SM26 registration's owner/members while the roster is open; for non-staff it
+--    fails closed since the SM26 roster lock passed on 21 Sep 2026), sponsor-invite
+--    (staff or Yacht Club manager), claim-code-signup (claim_organization_for_user,
+--    EXECUTE for service_role only); provision-person (registration Phase 1, not
+--    deployed yet).
+--  Invitations that the invitee then accepts: owners (client INSERT, below) and staff
+--    (admin_invite_org_member, SECURITY DEFINER, is_admin()).
+--  No trigger inserts members (triggers on organizations, organization_members,
+--    organization_invitations and auth.users checked).
 --  Direct client INSERTs: none live. OnboardingPage (main and refonte) still has two
 --    inserts of the user themself into a "detected" company, but detectedOrg is only
 --    set from an existing join request and never carries auto_approve, so both are
@@ -79,13 +85,21 @@
 -- 3. approve_join_request: refuses a row with invited_by_user_id set (an owner-written
 --    invitation is accepted by the invitee, never "approved" by the owner). Defence in
 --    depth for any row forged before this migration; production had no join request at
---    all on 10 Oct 2026 (7 invitations, all owner-sent: 5 accepted, 1 pending,
---    1 cancelled).
+--    all on 10 Oct 2026 (7 invitations, all signed by the owner or staff member who
+--    sent them: 5 accepted, 1 pending, 1 cancelled).
 --
 -- organization_members UPDATE: there is NO update policy, so a direct UPDATE changes no
 -- row (a member cannot promote themself, an owner cannot rewrite someone's row).
 -- organizations.owner_user_id is frozen for self-service by guard_org_sensitive_columns.
 -- Left as they are; the dry run proves both.
+--
+-- Existing rows (read-only, 10 Oct 2026; nothing here changes them): 136 memberships.
+--   114 owner rows, all equal to organizations.owner_user_id (no forced owner row).
+--   22 collaborator rows: 19 have a trace (16 SM26 roster/registration of that company,
+--   2 accepted invitations, 1 creator who later handed the company over); 3 have no
+--   invitation, claim, creation, SM26, sponsor or audit-log trace. All 3 joined in July
+--   2026, before company messaging existed, in companies and profiles M3 had verified.
+--   Their ids are in the lane report, not in this public file.
 --
 -- Unchanged: org_members_delete, org_members_select_*, the other invitation policies,
 -- every RPC except approve_join_request, the table grants. No data is touched.

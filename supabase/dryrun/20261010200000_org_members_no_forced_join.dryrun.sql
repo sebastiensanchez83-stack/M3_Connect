@@ -22,7 +22,7 @@
 -- in no company, own or created none, have no invitation and no failed claim attempt
 -- (oldest first), and one verified admin. No id or address is written in this file.
 --
--- Expected report: every line PASS, the last one "SUMMARY 59 PASS, 0 FAIL".
+-- Expected report: every line PASS, the last one "SUMMARY 66 PASS, 0 FAIL".
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- 0. Before
@@ -221,6 +221,7 @@ declare
   e_invitee text;
   e_requester text;
   f uuid;
+  g uuid;
   inv uuid;
   code text;
 begin
@@ -624,13 +625,18 @@ begin
     if sqlerrm is distinct from undo then r := r || nl || 'FAIL T9 block: ' || sqlstate || ' ' || sqlerrm; end if;
   end;
 
-  -- ── T10 the service role (sm26-provision, sm26-attendee-invite, sponsor-invite, ...) ──
+  -- ── T10 the service role (sm26-provision, sm26-attendee-invite, sponsor-invite,
+  --        claim-code-signup -> claim_organization_for_user) ──────────────────
   begin
     f := null;
+    g := null;
     inv := null;
     insert into public.organizations (name, slug, owner_user_id, created_by_user_id)
     values ('DRYRUN T10', 'dryrun-t10-' || gen_random_uuid(), u_owner, u_owner) returning id into f;
     insert into public.organization_members (organization_id, user_id, role) values (f, u_owner, 'owner');
+    code := 'DRYRUN-' || upper(substr(md5(random()::text || clock_timestamp()::text), 1, 12));
+    insert into public.organizations (name, slug, claim_code)
+    values ('DRYRUN T10 claim', 'dryrun-t10c-' || gen_random_uuid(), code) returning id into g;
 
     perform set_config('request.jwt.claims', json_build_object('role', 'service_role')::text, true);
     set local role service_role;
@@ -640,8 +646,32 @@ begin
     exception when others then
       r := r || nl || 'FAIL T10 service_role insert: ' || sqlstate || ' ' || sqlerrm;
     end;
+    begin
+      select public.claim_organization_for_user(u_claimer, code) into j;
+      r := r || nl || case when j->>'role' = 'owner' and j->>'organization_id' = g::text then 'PASS ' else 'FAIL ' end
+                || 'T10 claim_organization_for_user (claim-code-signup) still works (' || coalesce(j::text, 'null') || ')';
+    exception when others then
+      r := r || nl || 'FAIL T10 claim_organization_for_user: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    reset role;
+    perform set_config('request.jwt.claims', json_build_object('sub', u_stranger, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    begin
+      perform public.claim_organization_for_user(u_stranger, code);
+      r := r || nl || 'FAIL T10 a signed-in person could call claim_organization_for_user';
+    exception
+      when insufficient_privilege then r := r || nl || 'PASS T10 claim_organization_for_user is not callable by a signed-in person (42501)';
+      when others then r := r || nl || 'FAIL T10 claim_organization_for_user as authenticated: ' || sqlstate || ' ' || sqlerrm;
+    end;
     reset role;
     perform set_config('request.jwt.claims', '', true);
+    select count(*) into n from public.organization_members m
+      join public.organizations o on o.id = m.organization_id
+     where m.organization_id = g and m.user_id = u_claimer and m.role = 'owner' and o.owner_user_id = u_claimer;
+    r := r || nl || case when n = 1 then 'PASS ' else 'FAIL ' end
+              || 'T10 the claimer is owner member and owner of record (' || n || ')';
+    select count(*) into n from public.organization_members m where m.organization_id = g;
+    r := r || nl || case when n = 1 then 'PASS ' else 'FAIL ' end || 'T10 the claimed company has one member (' || n || ')';
     raise exception '%', undo;
   exception when others then
     if sqlerrm is distinct from undo then r := r || nl || 'FAIL T10 block: ' || sqlstate || ' ' || sqlerrm; end if;
@@ -703,6 +733,13 @@ begin
       when others then r := r || nl || 'FAIL T12 upsert: ' || sqlstate || ' ' || sqlerrm;
     end;
     begin
+      insert into public.organization_members (organization_id, user_id, role) values (f, u_stranger, 'collaborator');
+      r := r || nl || 'FAIL T12 a collaborator could add a stranger';
+    exception
+      when insufficient_privilege then r := r || nl || 'PASS T12 a collaborator adding a stranger is refused (42501)';
+      when others then r := r || nl || 'FAIL T12 collaborator adds stranger: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    begin
       update public.organizations set owner_user_id = u_invitee where id = f;
     exception when others then
       null; -- either way, the check below is what counts
@@ -728,6 +765,22 @@ begin
               || 'T12 the owner of record is unchanged after the member''s attempt (' || n || ')';
     select count(*) into n from public.organization_members m where m.organization_id = f and m.user_id = u_stranger;
     r := r || nl || case when n = 0 then 'PASS ' else 'FAIL ' end || 'T12 the stranger is not a member (' || n || ')';
+    -- The legitimate way to make a member owner is unchanged (OrganizationTab, both clients).
+    perform set_config('request.jwt.claims', json_build_object('sub', u_owner, 'role', 'authenticated')::text, true);
+    set local role authenticated;
+    begin
+      perform public.transfer_org_ownership(f, u_invitee);
+      r := r || nl || 'PASS T12 the owner hands the company to a member (transfer_org_ownership)';
+    exception when others then
+      r := r || nl || 'FAIL T12 transfer_org_ownership: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    reset role;
+    perform set_config('request.jwt.claims', '', true);
+    select count(*) into n from public.organization_members m
+      join public.organizations o on o.id = m.organization_id
+     where m.organization_id = f and m.user_id = u_invitee and m.role = 'owner' and o.owner_user_id = u_invitee;
+    r := r || nl || case when n = 1 then 'PASS ' else 'FAIL ' end
+              || 'T12 after the transfer the member is owner member and owner of record (' || n || ')';
     raise exception '%', undo;
   exception when others then
     if sqlerrm is distinct from undo then r := r || nl || 'FAIL T12 block: ' || sqlstate || ' ' || sqlerrm; end if;

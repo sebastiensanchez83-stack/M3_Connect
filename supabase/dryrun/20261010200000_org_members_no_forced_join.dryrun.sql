@@ -3,14 +3,18 @@
 --
 -- Run it as ONE query text (one implicit transaction), in ONE execute_sql call. The last
 -- statement ends with RAISE EXCEPTION 'DRYRUN ...': the report is the error message, and
--- everything (policies, function, test companies, memberships, invitations, profile
--- changes) rolls back.
+-- everything (policies, grants, comments, function, test companies, memberships,
+-- invitations, profile changes) rolls back.
 -- Tripwire: if the report starts with "FAIL T0 before-snapshot missing", the statements
 -- did NOT run in one transaction and the migration AND the down script may have been
--- committed: check pg_policies and md5(approve_join_request) at once.
+-- committed: check pg_policies, the organization_invitations grants and
+-- md5(approve_join_request) at once.
+-- Locks: like the migration, it holds ACCESS EXCLUSIVE on organization_members and
+-- organization_invitations from step 1 to the final rollback (a few seconds): run it at
+-- a quiet time.
 --
 -- Order:
---   0. before-snapshot (fingerprints, test people);
+--   0. before-snapshot (fingerprints, grants, test people);
 --   1. the migration, verbatim from its precondition to the end;
 --   2. checks on the migrated state (T0-T12);
 --   3. the down script, verbatim from its precondition to the end;
@@ -22,7 +26,7 @@
 -- in no company, own or created none, have no invitation and no failed claim attempt
 -- (oldest first), and one verified admin. No id or address is written in this file.
 --
--- Expected report: every line PASS, the last one "SUMMARY 66 PASS, 0 FAIL".
+-- Expected report: every line PASS, the last one "SUMMARY 76 PASS, 0 FAIL".
 
 -- ════════════════════════════════════════════════════════════════════════════
 -- 0. Before
@@ -41,6 +45,18 @@ begin
       from pg_policies
      where schemaname = 'public' and tablename in ('organization_members', 'organization_invitations')
        and policyname not in ('org_members_insert', 'owners_can_create_invitations', 'owners_can_update_invitations')), true);
+  perform set_config('smc_dryrun.pol_comments_before', (
+    select count(*)::text from pg_description d
+      join pg_policy pp on pp.oid = d.objoid
+     where d.classoid = 'pg_policy'::regclass
+       and pp.polrelid in ('public.organization_members'::regclass, 'public.organization_invitations'::regclass)), true);
+  perform set_config('smc_dryrun.inv_acl_before', (
+    select c.relacl::text from pg_class c where c.oid = 'public.organization_invitations'::regclass), true);
+  perform set_config('smc_dryrun.inv_colacl_before', (
+    select coalesce(string_agg(a.attname || '=' || a.attacl::text, ';' order by a.attnum), '')
+      from pg_attribute a
+     where a.attrelid = 'public.organization_invitations'::regclass and a.attnum > 0
+       and not a.attisdropped and a.attacl is not null), true);
   perform set_config('smc_dryrun.fn_md5_before', (
     select md5(replace(p.prosrc, chr(13), '')) from pg_proc p
      where p.oid = 'public.approve_join_request(uuid)'::regprocedure), true);
@@ -78,12 +94,18 @@ $before$;
 -- ════════════════════════════════════════════════════════════════════════════
 -- 1. The migration, verbatim
 -- ════════════════════════════════════════════════════════════════════════════
--- ─── 0. Precondition: approve_join_request is the body this file was built from ────
+-- ─── 0. Preconditions ───────────────────────────────────────────────────────────
 do $pre$
 declare
   v_md5 text;
+  v_bad text;
+  v_sp text := current_setting('search_path');
+  n int;
 begin
-  -- chr(13) stripped: a CRLF working copy of this file must not look like drift.
+  lock table public.organization_members, public.organization_invitations in access exclusive mode;
+
+  -- a) approve_join_request is the body this file was built from (or this file's).
+  --    chr(13) stripped: a CRLF working copy of this file must not look like drift.
   select md5(replace(p.prosrc, chr(13), '')) into v_md5
     from pg_proc p
    where p.oid = 'public.approve_join_request(uuid)'::regprocedure;
@@ -91,20 +113,48 @@ begin
      and v_md5 is distinct from '6fb0ce33247218c832d738c97bb59f2d' then -- this file (re-run)
     raise exception 'org_members_no_forced_join: approve_join_request changed since 10 Oct 2026 (md5 %); re-read it with pg_get_functiondef and rebuild this migration', v_md5;
   end if;
+
+  -- b) The three policies are production's of 10 Oct 2026 (fingerprint) or this file's
+  --    (step 5 comment, whose fingerprint must still match). Anything else, e.g. the
+  --    rf-msg stash draft, stops here. Fingerprints are read with search_path = public,
+  --    as they were computed.
+  perform set_config('search_path', 'public', true);
+  select string_agg(x.tbl || '.' || x.pol, ', ' order by x.tbl, x.pol) into v_bad
+    from (values ('organization_members',     'org_members_insert',            '31863c5e9aefa74adbc150e4a909ac80'),
+                 ('organization_invitations', 'owners_can_create_invitations', 'cc091f67c22b733d80ecc6df298112bc'),
+                 ('organization_invitations', 'owners_can_update_invitations', 'a83f9f8723e90315326baf1d564f4a2e')) x(tbl, pol, fp)
+    left join pg_policies p
+      on p.schemaname = 'public' and p.tablename = x.tbl and p.policyname = x.pol
+    left join pg_policy pp
+      on pp.polrelid = ('public.' || x.tbl)::regclass and pp.polname = x.pol
+   where p.policyname is null
+      or (md5(format('%s|%s|%s|%s|%s', p.permissive, p.cmd, p.roles, p.qual, p.with_check)) <> x.fp
+          and coalesce(obj_description(pp.oid, 'pg_policy'), '')
+              <> 'org_members_no_forced_join '
+                 || md5(format('%s|%s|%s|%s|%s', p.permissive, p.cmd, p.roles, p.qual, p.with_check)));
+  perform set_config('search_path', v_sp, true);
+  if v_bad is not null then
+    raise exception 'org_members_no_forced_join: policy % is neither the production one of 10 Oct 2026 nor this file''s; read pg_policies and rebuild this migration', v_bad;
+  end if;
+
+  -- c) First apply only (function still the production body): no join request may
+  --    exist, because an unsigned row an owner forged before this migration cannot be
+  --    told apart from a real one and would stay approvable.
+  if v_md5 = '7ba3768346ea5130dfe05ad115d3ef62' then
+    select count(*) into n from public.organization_invitations where status = 'join_requested';
+    if n > 0 then
+      raise exception 'org_members_no_forced_join: % join request(s) exist; review them before applying (select id, organization_id, created_at from organization_invitations where status = ''join_requested''): let the owner approve the genuine ones, have staff set the others to ''cancelled''', n;
+    end if;
+  end if;
 end
 $pre$;
 
--- ─── 1. organization_members: self (owner of record) or staff only ─────────────
+-- ─── 1. organization_members: verified admin only ──────────────────────────────
 -- Was: WITH CHECK (is_org_owner(organization_id))
 drop policy if exists org_members_insert on public.organization_members;
 create policy org_members_insert on public.organization_members
   for insert to authenticated
-  with check (
-    (user_id = (select auth.uid())
-     and role = 'owner'
-     and public.is_org_owner(organization_id))
-    or (select public.is_moderator())
-  );
+  with check ((select public.is_admin()));
 
 -- ─── 2. organization_invitations: owners write invitations, not join requests ──
 -- Was: WITH CHECK (EXISTS (owner membership of the row's company))
@@ -138,7 +188,12 @@ create policy owners_can_update_invitations on public.organization_invitations
     and status in ('pending', 'cancelled')
   );
 
--- ─── 3. approve_join_request: only a request the requester filed ───────────────
+-- ─── 3. organization_invitations: a person may UPDATE the status column only ────
+-- Was: UPDATE on the whole table for anon and authenticated (arwdDxtm), no column grant.
+revoke update on public.organization_invitations from anon, authenticated;
+grant update (status) on public.organization_invitations to authenticated;
+
+-- ─── 4. approve_join_request: only a request the requester filed ───────────────
 -- Production body (md5 7ba3768346ea5130dfe05ad115d3ef62) plus invited_by_user_id in the
 -- SELECT and ONE check after the owner check (marked "-- 10 Oct 2026"). Signature,
 -- return type, language, SECURITY DEFINER, search_path, owner and ACL unchanged
@@ -198,6 +253,30 @@ BEGIN
   END IF;
 END;
 $function$;
+
+-- ─── 5. Mark the three policies with their fingerprint (read by step 0 on a re-run
+--        and by the down script's precondition) ──────────────────────────────────
+do $mark$
+declare
+  x record;
+  v_sp text := current_setting('search_path');
+begin
+  perform set_config('search_path', 'public', true);
+  for x in
+    select p.tablename, p.policyname,
+           md5(format('%s|%s|%s|%s|%s', p.permissive, p.cmd, p.roles, p.qual, p.with_check)) as fp
+      from pg_policies p
+     where p.schemaname = 'public'
+       and (p.tablename, p.policyname) in (('organization_members', 'org_members_insert'),
+                                          ('organization_invitations', 'owners_can_create_invitations'),
+                                          ('organization_invitations', 'owners_can_update_invitations'))
+  loop
+    execute format('comment on policy %I on public.%I is %L',
+                   x.policyname, x.tablename, 'org_members_no_forced_join ' || x.fp);
+  end loop;
+  perform set_config('search_path', v_sp, true);
+end
+$mark$;
 -- ════════════════════════════════════════════════════════════════════════════
 -- 2. Checks on the migrated state
 -- ════════════════════════════════════════════════════════════════════════════
@@ -208,6 +287,7 @@ declare
   r text := '';
   v text;
   v2 text;
+  v_sp text;
   n int;
   j jsonb;
   pick uuid[];
@@ -246,9 +326,9 @@ begin
   -- ── T1 the new rules are in place, everything else is identical ─────────
   select p.with_check, p.roles::text into v, v2 from pg_policies p
    where p.schemaname = 'public' and p.tablename = 'organization_members' and p.policyname = 'org_members_insert';
-  r := r || nl || case when v like '%is_org_owner(organization_id)%' and v like '%auth.uid()%'
-                         and v like '%''owner''::text%' and v like '%is_moderator()%' and v2 = '{authenticated}'
-                       then 'PASS T1 org_members_insert = own owner row of a company one owns, or staff'
+  r := r || nl || case when v like '%is_admin()%' and v not like '%is_org_owner%' and v not like '%is_moderator%'
+                         and v not like '%auth.uid()%' and v2 = '{authenticated}'
+                       then 'PASS T1 org_members_insert = verified admin only'
                        else 'FAIL T1 org_members_insert is ' || coalesce(v2, '?') || ' ' || coalesce(v, 'missing') end;
   select count(*) into n from pg_policies p
    where p.schemaname = 'public' and p.tablename = 'organization_members' and p.cmd = 'UPDATE';
@@ -284,6 +364,35 @@ begin
             || 'T1 approve_join_request body is the patched one (' || coalesce(v, '?') || ')';
   r := r || nl || case when v2 = current_setting('smc_dryrun.fn_meta_before', true) then 'PASS ' else 'FAIL ' end
             || 'T1 approve_join_request keeps SECURITY DEFINER, search_path, owner, ACL, return type';
+  r := r || nl || case when not has_table_privilege('authenticated', 'public.organization_invitations', 'UPDATE')
+                         and has_column_privilege('authenticated', 'public.organization_invitations', 'status', 'UPDATE')
+                         and not has_column_privilege('authenticated', 'public.organization_invitations', 'invited_by_user_id', 'UPDATE')
+                         and not has_column_privilege('authenticated', 'public.organization_invitations', 'email', 'UPDATE')
+                         and not has_column_privilege('authenticated', 'public.organization_invitations', 'organization_id', 'UPDATE')
+                         and not has_any_column_privilege('anon', 'public.organization_invitations', 'UPDATE')
+                         and has_table_privilege('service_role', 'public.organization_invitations', 'UPDATE')
+                       then 'PASS ' else 'FAIL ' end
+            || 'T1 organization_invitations: a person may UPDATE status only, anon nothing, service_role all';
+  select c.relacl::text into v from pg_class c where c.oid = 'public.organization_invitations'::regclass;
+  r := r || nl || case when v = replace(replace(current_setting('smc_dryrun.inv_acl_before', true),
+                                                'anon=arwdDxtm/', 'anon=ardDxtm/'),
+                                        'authenticated=arwdDxtm/', 'authenticated=ardDxtm/')
+                       then 'PASS ' else 'FAIL ' end
+            || 'T1 every other privilege on organization_invitations is unchanged (' || coalesce(v, '?') || ')';
+  v_sp := current_setting('search_path');
+  perform set_config('search_path', 'public', true);
+  select count(*) into n
+    from pg_policies p
+    join pg_policy pp on pp.polname = p.policyname and pp.polrelid = ('public.' || p.tablename)::regclass
+   where p.schemaname = 'public'
+     and (p.tablename, p.policyname) in (('organization_members', 'org_members_insert'),
+                                        ('organization_invitations', 'owners_can_create_invitations'),
+                                        ('organization_invitations', 'owners_can_update_invitations'))
+     and obj_description(pp.oid, 'pg_policy')
+         = 'org_members_no_forced_join ' || md5(format('%s|%s|%s|%s|%s', p.permissive, p.cmd, p.roles, p.qual, p.with_check));
+  perform set_config('search_path', v_sp, true);
+  r := r || nl || case when n = 3 then 'PASS ' else 'FAIL ' end
+            || 'T1 the three policies carry their fingerprint comment (' || n || ')';
 
   -- ── T2 the owner of a company adds a stranger: refused ───────────────────
   begin
@@ -352,31 +461,38 @@ begin
     if sqlerrm is distinct from undo then r := r || nl || 'FAIL T3 block: ' || sqlstate || ' ' || sqlerrm; end if;
   end;
 
-  -- ── T4 self-service: create a company directly, then join it as its owner ──
+  -- ── T4 no self-service way in: no direct company insert, no direct self-join ──
   begin
     f := null;
     inv := null;
+    -- An owner of record without their own member row (none today; e.g. after leaving),
+    -- written as the table owner: a person cannot insert a company (checked below).
+    insert into public.organizations (name, slug, owner_user_id, created_by_user_id)
+    values ('DRYRUN T4', 'dryrun-t4-' || gen_random_uuid(), u_owner, u_owner) returning id into f;
+
     perform set_config('request.jwt.claims', json_build_object('sub', u_owner, 'role', 'authenticated')::text, true);
     set local role authenticated;
     begin
       insert into public.organizations (name, slug, owner_user_id, created_by_user_id)
-      values ('DRYRUN T4', 'dryrun-t4-' || gen_random_uuid(), u_owner, u_owner) returning id into f;
-      r := r || nl || 'PASS T4 a person creates a company directly (org_insert, unchanged)';
-    exception when others then
-      r := r || nl || 'FAIL T4 direct company insert: ' || sqlstate || ' ' || sqlerrm;
+      values ('DRYRUN T4 direct', 'dryrun-t4d-' || gen_random_uuid(), u_owner, u_owner);
+      r := r || nl || 'FAIL T4 a person could insert a company directly';
+    exception
+      when insufficient_privilege then r := r || nl || 'PASS T4 a person cannot insert a company directly (INSERT revoked 7 Oct, 42501)';
+      when others then r := r || nl || 'FAIL T4 direct company insert: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    begin
+      insert into public.organization_members (organization_id, user_id, role) values (f, u_owner, 'owner');
+      r := r || nl || 'FAIL T4 the owner of record could add their own owner row directly';
+    exception
+      when insufficient_privilege then r := r || nl || 'PASS T4 the owner of record adding their own owner row is refused (admin or RPC only, 42501)';
+      when others then r := r || nl || 'FAIL T4 self as owner: ' || sqlstate || ' ' || sqlerrm;
     end;
     begin
       insert into public.organization_members (organization_id, user_id, role) values (f, u_owner, 'collaborator');
       r := r || nl || 'FAIL T4 the owner of record could join their company as collaborator';
     exception
-      when insufficient_privilege then r := r || nl || 'PASS T4 the owner of record joining as collaborator is refused (owner row only)';
+      when insufficient_privilege then r := r || nl || 'PASS T4 the owner of record joining as collaborator is refused (42501)';
       when others then r := r || nl || 'FAIL T4 self as collaborator: ' || sqlstate || ' ' || sqlerrm;
-    end;
-    begin
-      insert into public.organization_members (organization_id, user_id, role) values (f, u_owner, 'owner');
-      r := r || nl || 'PASS T4 the owner of record joins their own company as owner';
-    exception when others then
-      r := r || nl || 'FAIL T4 self as owner: ' || sqlstate || ' ' || sqlerrm;
     end;
     reset role;
     perform set_config('request.jwt.claims', json_build_object('sub', u_stranger, 'role', 'authenticated')::text, true);
@@ -391,7 +507,7 @@ begin
     reset role;
     perform set_config('request.jwt.claims', '', true);
     select count(*) into n from public.organization_members m where m.organization_id = f;
-    r := r || nl || case when n = 1 then 'PASS ' else 'FAIL ' end || 'T4 the company has exactly its owner (' || n || ')';
+    r := r || nl || case when n = 0 then 'PASS ' else 'FAIL ' end || 'T4 the company has no member (' || n || ')';
     raise exception '%', undo;
   exception when others then
     if sqlerrm is distinct from undo then r := r || nl || 'FAIL T4 block: ' || sqlstate || ' ' || sqlerrm; end if;
@@ -470,7 +586,7 @@ begin
     if sqlerrm is distinct from undo then r := r || nl || 'FAIL T6 block: ' || sqlstate || ' ' || sqlerrm; end if;
   end;
 
-  -- ── T7 forged join requests: refused at the table and at approve_join_request ──
+  -- ── T7 forged join requests and rewritten invitations: refused ─────────────
   begin
     f := null;
     inv := null;
@@ -518,6 +634,27 @@ begin
       r := r || nl || 'PASS T7 a pending invitation signed by the owner goes in (setup)';
     exception when others then
       r := r || nl || 'FAIL T7 pending invitation: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    begin
+      update public.organization_invitations set invited_by_user_id = u_stranger where id = inv;
+      r := r || nl || 'FAIL T7 an owner could re-sign an invitation with someone else''s id';
+    exception
+      when insufficient_privilege then r := r || nl || 'PASS T7 re-signing an invitation with someone else''s id is refused (no column grant, 42501)';
+      when others then r := r || nl || 'FAIL T7 re-sign: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    begin
+      update public.organization_invitations set email = e_invitee where id = inv;
+      r := r || nl || 'FAIL T7 an owner could change the address of an invitation';
+    exception
+      when insufficient_privilege then r := r || nl || 'PASS T7 changing the address of an invitation is refused (no column grant, 42501)';
+      when others then r := r || nl || 'FAIL T7 address change: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    begin
+      update public.organization_invitations set organization_id = f where id = inv;
+      r := r || nl || 'FAIL T7 an owner could move an invitation to another company';
+    exception
+      when insufficient_privilege then r := r || nl || 'PASS T7 moving an invitation to another company is refused (no column grant, 42501)';
+      when others then r := r || nl || 'FAIL T7 company change: ' || sqlstate || ' ' || sqlerrm;
     end;
     begin
       update public.organization_invitations set status = 'join_requested' where id = inv;
@@ -594,7 +731,7 @@ begin
     if sqlerrm is distinct from undo then r := r || nl || 'FAIL T8 block: ' || sqlstate || ' ' || sqlerrm; end if;
   end;
 
-  -- ── T9 staff ─────────────────────────────────────────────────────────────
+  -- ── T9 staff (verified admin) ────────────────────────────────────────────
   begin
     f := null;
     inv := null;
@@ -606,7 +743,7 @@ begin
     set local role authenticated;
     begin
       insert into public.organization_members (organization_id, user_id, role) values (f, u_stranger, 'collaborator');
-      r := r || nl || 'PASS T9 a verified admin adds a member directly (is_moderator)';
+      r := r || nl || 'PASS T9 a verified admin adds a member directly (is_admin)';
     exception when others then
       r := r || nl || 'FAIL T9 staff insert: ' || sqlstate || ' ' || sqlerrm;
     end;
@@ -684,6 +821,8 @@ begin
     insert into public.organizations (name, slug, owner_user_id, created_by_user_id)
     values ('DRYRUN T11', 'dryrun-t11-' || gen_random_uuid(), u_owner, u_owner) returning id into f;
     insert into public.organization_members (organization_id, user_id, role) values (f, u_owner, 'owner');
+    insert into public.organization_invitations (organization_id, email, invited_by_user_id)
+    values (f, e_invitee, u_owner);
 
     perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
     set local role anon;
@@ -701,6 +840,13 @@ begin
     exception
       when insufficient_privilege then r := r || nl || 'PASS T11 anon writing an invitation is refused (42501)';
       when others then r := r || nl || 'FAIL T11 anon invitation insert: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    begin
+      update public.organization_invitations set status = 'cancelled' where organization_id = f;
+      r := r || nl || 'FAIL T11 anon could update an invitation';
+    exception
+      when insufficient_privilege then r := r || nl || 'PASS T11 anon updating an invitation is refused (no UPDATE grant, 42501)';
+      when others then r := r || nl || 'FAIL T11 anon invitation update: ' || sqlstate || ' ' || sqlerrm;
     end;
     reset role;
     perform set_config('request.jwt.claims', '', true);
@@ -793,17 +939,42 @@ $dryrun$;
 -- ════════════════════════════════════════════════════════════════════════════
 -- 3. The down script, verbatim
 -- ════════════════════════════════════════════════════════════════════════════
--- ─── 0. Precondition: approve_join_request is the patched body or already restored ──
+-- ─── 0. Precondition: the up file's state (or already restored) ────────────────
 do $pre$
 declare
   v_md5 text;
+  v_bad text;
+  v_sp text := current_setting('search_path');
 begin
+  lock table public.organization_members, public.organization_invitations in access exclusive mode;
+
   select md5(replace(p.prosrc, chr(13), '')) into v_md5
     from pg_proc p
    where p.oid = 'public.approve_join_request(uuid)'::regprocedure;
   if v_md5 is distinct from '6fb0ce33247218c832d738c97bb59f2d'   -- the up file
      and v_md5 is distinct from '7ba3768346ea5130dfe05ad115d3ef62' then -- production before
     raise exception 'org_members_no_forced_join DOWN: approve_join_request changed since the up migration (md5 %); restore it by hand', v_md5;
+  end if;
+
+  -- Each policy is the up file's (its fingerprint comment still matches) or already the
+  -- production one of 10 Oct 2026. Anything else was changed by someone since: stop.
+  perform set_config('search_path', 'public', true);
+  select string_agg(x.tbl || '.' || x.pol, ', ' order by x.tbl, x.pol) into v_bad
+    from (values ('organization_members',     'org_members_insert',            '31863c5e9aefa74adbc150e4a909ac80'),
+                 ('organization_invitations', 'owners_can_create_invitations', 'cc091f67c22b733d80ecc6df298112bc'),
+                 ('organization_invitations', 'owners_can_update_invitations', 'a83f9f8723e90315326baf1d564f4a2e')) x(tbl, pol, fp)
+    left join pg_policies p
+      on p.schemaname = 'public' and p.tablename = x.tbl and p.policyname = x.pol
+    left join pg_policy pp
+      on pp.polrelid = ('public.' || x.tbl)::regclass and pp.polname = x.pol
+   where p.policyname is null
+      or (md5(format('%s|%s|%s|%s|%s', p.permissive, p.cmd, p.roles, p.qual, p.with_check)) <> x.fp
+          and coalesce(obj_description(pp.oid, 'pg_policy'), '')
+              <> 'org_members_no_forced_join '
+                 || md5(format('%s|%s|%s|%s|%s', p.permissive, p.cmd, p.roles, p.qual, p.with_check)));
+  perform set_config('search_path', v_sp, true);
+  if v_bad is not null then
+    raise exception 'org_members_no_forced_join DOWN: policy % changed since the up migration; restore it by hand', v_bad;
   end if;
 end
 $pre$;
@@ -835,7 +1006,11 @@ create policy owners_can_update_invitations on public.organization_invitations
                and om.role = 'owner')
   );
 
--- ─── 3. approve_join_request: production body of 10 Oct 2026 ────────────────────
+-- ─── 3. organization_invitations grants ─────────────────────────────────────────
+revoke update (status) on public.organization_invitations from authenticated;
+grant update on public.organization_invitations to anon, authenticated;
+
+-- ─── 4. approve_join_request: production body of 10 Oct 2026 ────────────────────
 CREATE OR REPLACE FUNCTION public.approve_join_request(p_invitation_id uuid)
  RETURNS void
  LANGUAGE plpgsql
@@ -911,12 +1086,27 @@ begin
   u_requester := pick[4];
   select lower(btrim(u.email)) into e_requester from auth.users u where u.id = u_requester;
 
-  -- ── T13 the down script restores the policies and the function exactly ──
+  -- ── T13 the down script restores the policies, grants and function exactly ──
   select md5(coalesce(string_agg(format('%s|%s|%s|%s|%s|%s|%s', tablename, policyname, permissive, cmd, roles, qual, with_check), ';' order by tablename, policyname), ''))
     into v from pg_policies
    where schemaname = 'public' and tablename in ('organization_members', 'organization_invitations');
   r := r || nl || case when v = current_setting('smc_dryrun.pol_all_before', true) then 'PASS ' else 'FAIL ' end
             || 'T13 down script: every policy of both tables is back exactly';
+  select count(*) into n from pg_description d
+    join pg_policy pp on pp.oid = d.objoid
+   where d.classoid = 'pg_policy'::regclass
+     and pp.polrelid in ('public.organization_members'::regclass, 'public.organization_invitations'::regclass);
+  r := r || nl || case when n::text = current_setting('smc_dryrun.pol_comments_before', true) then 'PASS ' else 'FAIL ' end
+            || 'T13 down script: no fingerprint comment left on the policies (' || n || ')';
+  select c.relacl::text || ' / ' || coalesce((select string_agg(a.attname || '=' || a.attacl::text, ';' order by a.attnum)
+                                                from pg_attribute a
+                                               where a.attrelid = c.oid and a.attnum > 0
+                                                 and not a.attisdropped and a.attacl is not null), '')
+    into v from pg_class c where c.oid = 'public.organization_invitations'::regclass;
+  r := r || nl || case when v = current_setting('smc_dryrun.inv_acl_before', true) || ' / '
+                                || current_setting('smc_dryrun.inv_colacl_before', true)
+                       then 'PASS ' else 'FAIL ' end
+            || 'T13 down script: organization_invitations table and column grants are back exactly (' || coalesce(v, '?') || ')';
   select md5(replace(p.prosrc, chr(13), '')) into v from pg_proc p
    where p.oid = 'public.approve_join_request(uuid)'::regprocedure;
   r := r || nl || case when v = current_setting('smc_dryrun.fn_md5_before', true) and v = '7ba3768346ea5130dfe05ad115d3ef62'
@@ -928,7 +1118,7 @@ begin
   r := r || nl || case when v = current_setting('smc_dryrun.fn_meta_before', true) then 'PASS ' else 'FAIL ' end
             || 'T13 down script: approve_join_request attributes unchanged';
 
-  -- ── T14 after the down script both holes are back (so T2 and T7 do detect them) ──
+  -- ── T14 after the down script the holes are back (so T2, T7 and T1 do detect them) ──
   begin
     f := null;
     inv := null;
@@ -951,6 +1141,14 @@ begin
       r := r || nl || 'PASS T14 after the down script a forged join request is approved again (old behaviour back)';
     exception when others then
       r := r || nl || 'FAIL T14 old forged join request: ' || sqlstate || ' ' || sqlerrm;
+    end;
+    begin
+      update public.organization_invitations set invited_by_user_id = u_stranger where id = inv;
+      get diagnostics n = row_count;
+      r := r || nl || case when n = 1 then 'PASS ' else 'FAIL ' end
+                || 'T14 after the down script an owner can re-sign an invitation again (old behaviour back, ' || n || ' row)';
+    exception when others then
+      r := r || nl || 'FAIL T14 old re-sign: ' || sqlstate || ' ' || sqlerrm;
     end;
     reset role;
     perform set_config('request.jwt.claims', '', true);

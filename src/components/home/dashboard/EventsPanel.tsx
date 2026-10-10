@@ -85,13 +85,18 @@ export function Sm26Block({ sm26 }: { sm26: Sm26Participation }) {
   );
 }
 
-/** My events: Smart Marina 2026 first when it applies, then every registration (MyEvents, unchanged). */
+/**
+ * My events: Smart Marina 2026 first when it applies, then every registration
+ * (MyEvents). With the unified registration on, the list also holds the SM26
+ * rows: they are left out while the mark above says it (or is still loading),
+ * so the edition never shows twice.
+ */
 export function EventsPanel({ sm26 }: { sm26: Sm26Participation | null }) {
   return (
     <div className="space-y-4">
       {sm26 && <Sm26Block sm26={sm26} />}
       <Suspense fallback={<div className="rounded-card border border-rule bg-white"><RowSkeleton rows={2} /></div>}>
-        <MyEvents />
+        <MyEvents hideSm26={sm26 === null || !!sm26Kind(sm26)} />
       </Suspense>
     </div>
   );

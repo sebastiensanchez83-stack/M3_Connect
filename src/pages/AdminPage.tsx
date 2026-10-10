@@ -1,11 +1,12 @@
 import { useEffect, useState, Suspense } from 'react';
-import { Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Routes, Route, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Menu, X } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { AdminLoading } from '@/components/admin/AdminUI';
+import { ReviewCountContext, useReviewCountSource } from '@/components/admin/reviewQueueCount';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
 import '@/styles/admin-skin.css';
 
@@ -73,6 +74,7 @@ const AdminSM26Import = lazyWithRetry(() => import('@/components/admin/AdminSM26
 const AdminMediaDownloads = lazyWithRetry(() => import('@/components/admin/AdminMediaDownloads').then(m => ({ default: m.AdminMediaDownloads })));
 const AdminGuestList = lazyWithRetry(() => import('@/components/admin/AdminGuestList').then(m => ({ default: m.AdminGuestList })));
 const AdminGuestCheckin = lazyWithRetry(() => import('@/components/admin/AdminGuestCheckin').then(m => ({ default: m.AdminGuestCheckin })));
+const AdminReviewQueue = lazyWithRetry(() => import('@/components/admin/AdminReviewQueue').then(m => ({ default: m.AdminReviewQueue })));
 
 /* ─── Admin-only Route Guard ─── */
 function AdminOnlyGuard({ children }: { children: React.ReactNode }) {
@@ -108,9 +110,12 @@ function AdminLazyFallback() {
 /* ─── Admin / Moderator Page ─── */
 export function AdminPage() {
   const { t } = useTranslation();
-  const { loading, isAdmin, isModerator } = useAuth();
+  const { loading, isAdmin, isModerator, user } = useAuth();
   const { pathname } = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // One figure for the whole admin area (sidebar badge, phone bar, dashboard card).
+  const review = useReviewCountSource(isModerator, user?.id, pathname);
+  const reviewCount = review.count;
 
   // Escape closes the phone menu.
   useEffect(() => {
@@ -129,8 +134,9 @@ export function AdminPage() {
   const frozen = pathname.startsWith('/admin/sm26');
 
   return (
+    <ReviewCountContext.Provider value={review}>
     <div className="flex min-h-[calc(100vh-4rem)] bg-page">
-      <AdminSidebar />
+      <AdminSidebar reviewCount={reviewCount} />
       <div className="min-w-0 flex-1">
         {/* Phone bar: opens the menu (the rail is hidden below md) */}
         <div className="sticky top-16 z-30 flex h-12 items-center gap-2 border-b border-rule bg-white px-3 md:hidden">
@@ -144,13 +150,24 @@ export function AdminPage() {
             {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
           <span className="text-[14px] font-semibold text-navy">{isAdmin ? t('adminUi.adminArea') : t('adminUi.moderatorArea')}</span>
+          {/* The rail is hidden on a phone: say here that items are waiting. */}
+          {!!reviewCount && !pathname.startsWith('/admin/review') && (
+            <Link
+              to="/admin/review"
+              aria-label={t('adminReview.card.count', { count: reviewCount, defaultValue_one: '{{count}} item to review', defaultValue_other: '{{count}} items to review' })}
+              className="ml-auto inline-flex h-11 shrink-0 items-center gap-1.5 rounded-pill bg-gold px-3 text-[13px] font-bold text-navy transition-colors hover:bg-gold/80 focus:outline-none focus-visible:shadow-focus"
+            >
+              {t('adminReview.nav', 'To review')}
+              <span className="tabular-nums">{reviewCount}</span>
+            </Link>
+          )}
         </div>
         {/* Phone menu */}
         {sidebarOpen && (
           <div className="fixed inset-x-0 bottom-0 top-16 z-40 md:hidden" role="dialog" aria-modal="true" aria-label={t('adminUi.menu')}>
             <div className="absolute inset-0 bg-navy-deep/45" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
             <div className="relative h-full w-64 max-w-[85vw] shadow-drawer">
-              <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} />
+              <AdminSidebar mobile onNavigate={() => setSidebarOpen(false)} reviewCount={reviewCount} />
             </div>
           </div>
         )}
@@ -158,6 +175,8 @@ export function AdminPage() {
         <Suspense fallback={<AdminLazyFallback />}>
           <Routes>
             <Route path="/" element={<AdminDashboard />} />
+            {/* Moderators too: admin_review_queue() gives them only what their screens can open. */}
+            <Route path="/review" element={<AdminReviewQueue />} />
             <Route path="/users" element={<AdminOnlyGuard><AdminUsers /></AdminOnlyGuard>} />
             <Route path="/users/:id" element={<AdminOnlyGuard><AdminUserDetail /></AdminOnlyGuard>} />
             <Route path="/organizations" element={<AdminOnlyGuard><AdminOrganizations /></AdminOnlyGuard>} />
@@ -217,5 +236,6 @@ export function AdminPage() {
         </div>
       </div>
     </div>
+    </ReviewCountContext.Provider>
   );
 }

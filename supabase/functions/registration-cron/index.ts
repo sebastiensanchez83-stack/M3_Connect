@@ -32,10 +32,14 @@
 //   were not checked in get "Sorry we missed you" with the replay link
 //   (gl_event.replay_url, else events.replay_url). No replay yet: the follow-up waits
 //   48 h, then goes without it, and "The replay is available" follows if the link is
-//   added within 14 days. Absentees are known only once staff mark the attendance list as
-//   complete (gl_event.settings.attendance_recorded = true; those who came have
-//   checked_in_at). Until then only the replay is sent, worded for everyone, and nothing
-//   goes without a replay. Stamped as reminders_sent.followup / .replay.
+//   added within 14 days. Who came = checked_in_at (staff mark the attendees in the
+//   event's Registrations tab, gl_checkin_v2, e.g. from the webinar tool's list).
+//   Absentees are known when gl_event.settings.attendance_recorded is true, or, when that
+//   setting is absent, once at least one person is marked AND nobody was marked in the
+//   last 30 minutes (the marking is over: a list half marked never turns everyone else
+//   into an absentee). attendance_recorded = false: never. Until absentees are known only
+//   the replay is sent, worded for everyone, and nothing goes without a replay.
+//   Stamped as reminders_sent.followup / .replay.
 // Opt-out: reminders_sent.off (the "Stop reminders" link of the status page, action
 //   "reminders" of the registration function) and, for a registration linked to an
 //   account, notification_prefs.events = false (the signed unsubscribe link).
@@ -63,6 +67,8 @@ const FOLLOWUP_WINDOW_MS = 14 * 86400000;
 // The job runs at :10 every hour: a reminder is due this much before its exact time, so
 // "1 hour before" arrives 30 to 90 minutes before the start (never 5 minutes before).
 const REMINDER_LEAD_MS = 30 * 60000;
+// Attendance marks older than this = the marking is over (absentee follow-up).
+const ATTENDANCE_SETTLE_MS = 30 * 60000;
 
 const db = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { autoRefreshToken: false, persistSession: false } });
 
@@ -1006,6 +1012,22 @@ async function confirmedAtOf(g: Json): Promise<Date | null> {
   return at;
 }
 
+/** Absentees of a webinar are known: settings.attendance_recorded (true / false) wins;
+ *  absent, someone was marked as attended and the last mark is ATTENDANCE_SETTLE_MS old. */
+async function attendanceKnownOf(ev: Json, now: number): Promise<boolean> {
+  const set = obj(ev.settings).attendance_recorded;
+  if (set === true) return true;
+  if (set === false) return false;
+  const { data, error } = await db.from("gl_guest").select("checked_in_at").eq("event_id", ev.id)
+    .not("checked_in_at", "is", null).order("checked_in_at", { ascending: false }).limit(1);
+  if (error) {
+    console.error("registration-cron: attendance read failed", error.message);
+    return false;
+  }
+  const last = tryDate(((data as Json[] | null) || [])[0]?.checked_in_at);
+  return !!last && now - last.getTime() >= ATTENDANCE_SETTLE_MS;
+}
+
 // ─── Job: reminders, follow-ups, event digests ───────────────────────────────
 async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
   const out = { events: 0, reminders: 0, followups: 0, replays: 0, digests: 0, skipped: 0, failed: 0 };
@@ -1086,11 +1108,9 @@ async function jobReminders(flags: Flags, force: boolean): Promise<Json> {
     }
 
     if (inFollowupWindow) {
-      // Absentees are known only when staff said the attendance list is complete
-      // (gl_event.settings.attendance_recorded = true, with checked_in_at on those who came).
-      // A few rows marked by hand must not turn every other registrant into an absentee.
+      // Absentees known (see the header): explicit setting, else marks done and settled.
       // Until then only the replay goes out, worded for everyone.
-      const attendanceKnown = ev.settings?.attendance_recorded === true;
+      const attendanceKnown = await attendanceKnownOf(ev, now);
       const replay = replayUrlOf(ctx);
       let q = db.from("gl_guest").select(G_COLS).eq("event_id", ev.id).eq("status", "confirmed");
       if (attendanceKnown) q = q.is("checked_in_at", null);

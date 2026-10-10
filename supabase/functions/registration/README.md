@@ -31,7 +31,7 @@ Event selector (every action that names an event): `gl_event_id`, or `slug`, or 
 | `form` | selector | `{ ok, engine, state, paused?, event, fields, tickets, questions, review_sla_text, prefill?, mine? }` (below) |
 | `register` | selector, `first_name, last_name, email, company, job_title, phone, country, ticket_key, answers, consents, source_detail, organization_id, captcha, website` | anonymous: `{ ok: true }` (new and repeated registrations look the same); signed in: `{ ok: true, status, duplicate, registration_id }`; or `{ ok: false, state }` |
 | `status` | `token` (status link) or, signed in, `registration_id` or a selector | the status view (below) |
-| `update` | same keys as `status` + the changed fields: `first_name, last_name` (only while requested / needs_info / waitlisted), `company, job_title, phone, country`, `answers` (only the keys that change) | the status view |
+| `update` | same keys as `status` + the changed fields: `first_name, last_name` (only while requested / needs_info / waitlisted), `company, job_title, phone, country`, `answers` (only the keys that change); while `needs_info`: `info_answer` (free text to M3, up to 2000 characters) | the status view |
 | `cancel` | same keys as `status` | `{ ok: true, status: "cancelled" }` |
 | `reminders` | same keys as `status` + `on: boolean` | `{ ok: true, reminders_on }` (false also stops the absentee follow-up) |
 | `resend_links` | `email` | always `{ ok: true }` ("Get my links": one e-mail with a fresh link per upcoming registration) |
@@ -64,6 +64,15 @@ Event selector (every action that names an event): `gl_event_id`, or `slug`, or 
 - Anonymous: `consents.terms === true` is required (`terms_required`). `consents` takes
   booleans `{ terms, image, marketing }`; the function stamps `terms_at` / `marketing_at`.
   `source_detail`: `{ entry: signup|event_page|deep_link|campaign, ref, utm_* }`.
+- Limits: anonymous 5 per hour per IP and 3 per hour per address (+ Turnstile, + the flood
+  guard); signed in (no captcha) 10 per hour per account address and 20 per hour per IP.
+  Above them: 429 `rate_limited`. A repeated registration e-mails "already registered" at
+  most once an hour; a registration cancelled then made again alerts the staff once a day.
+- A signed-in account whose address is not PROVEN (contract §2; Confirm email is off) never
+  takes over a cancelled or declined registration of that address that it does not hold:
+  the row comes back to life unlinked (as for an anonymous registration) and the answer is
+  the public `{ ok: true }`. DB lane: `gl_register_v2` should link on reactivation only when
+  proven; this function undoes the link until then.
 - Error codes: `invalid_email, terms_required, rate_limited (429), captcha, busy (429),
   missing_fields (+ fields[]), invalid_answers (+ keys[]), ticket_required, unknown_ticket,
   ticket_invite_only, ticket_not_allowed, account_suspended (403), not_found (404),
@@ -85,8 +94,18 @@ Status view (`status`, `update`):
   fields, questions: [{ ..., editable }], can_edit, can_edit_names, can_cancel, edit_locks_at,
   reminders_on, meeting_url, replay_url, pass: { qr_text } | null, calendar: { title, starts_at, ends_at, location, url } | null }
 ```
-- `read_only: true`: the registration is linked to an account and the page was not opened
-  by that account: show "Sign in to manage"; `update` / `cancel` answer 403 `sign_in_required`.
+- `read_only: true`: the registration is linked to an account whose address is PROVEN and
+  the page was not opened by that account: show "Sign in to manage"; `update` / `cancel`
+  answer 403 `sign_in_required`. A row linked to an account that has not proved its address
+  stays editable by the status link (the token proves the mailbox).
+- Signed in without a token, a registration is found by account, or (proven address only)
+  by the address when no account holds it yet: the `registration_id` that `form` / `register`
+  report always works with `status`, `update`, `cancel` and `reminders`.
+- `needs_info`: saving the form answers M3 (status back to `requested`, staff alerted with
+  the question, `info_answer` and the list of changed details; the answer is also kept in
+  `review_log`, action `info_provided`, as `note`). Show a "Your answer" text box and send it
+  as `info_answer`; saving without any change and without an answer still counts as "my
+  details are correct".
 - `pass.qr_text` (confirmed on-site): draw it as a QR code, full screen, with a brightness
   hint. Given to a status link, or to a signed-in owner whose e-mail is proven.
 - `status_display` words: contract §5 REG.
@@ -102,7 +121,11 @@ wys26 personal page `/wys26/guest?t=<gl_guest.token>`, flag `wys_status_edit` (e
 `not_available`): `update` (only while `requested`: `phone, company, job_title, country,
 motivation, wants_conference, wants_gala`), `cancel` (a request only), `attach` (signed in,
 "Add to my account"). The e-mail address is never editable. `status` does not take this token
-(the page keeps guest-list's `guest` action).
+(the page keeps guest-list's `guest` action). A request cancelled from this page comes back
+as a new request when the person sends the `/wys26` form again, but ONLY through the parity
+form (`wys_form_v2` on): while it is off, `/wys26` posts to the frozen guest-list, which
+answers `{ ok: true }` and records nothing. Label the cancel button accordingly ("You will
+not be able to send a new request from this page") while `wys_form_v2` is off.
 
 ### Staff (verified admin or moderator session)
 
@@ -118,7 +141,10 @@ motivation, wants_conference, wants_gala`), `cancel` (a request only), `attach` 
 - `org_action` / `validate_person` are stored on the provisioning job (on-site confirmations):
   `{ mode: none|link|create, org_id, type, name, website, country, as_owner }`.
 - Not built here (needs the DB lane): `invite` for core_v2 invitation events, and the RSVP of
-  such invitations; `export` (read `gl_guest` directly: staff RLS).
+  such invitations; `export` (read `gl_guest` directly: staff RLS); the waiting-list
+  promotion when a confirmed person cancels (spec §7 `reg_seat_available`: nobody on the
+  waiting list is moved up or told today; staff approve waitlisted rows with `decide`). It
+  needs a system actor for `gl_decide_v2` (or a dedicated promote RPC) from the DB lane.
 
 ## `registration-cron`
 
@@ -131,6 +157,17 @@ motivation, wants_conference, wants_gala`), `cancel` (a request only), `attach` 
   `staff_alert_mode = digest` (08:10 Monaco). Opt-outs: `reminders_sent.off`, and
   `notification_prefs.events = false` for a linked account (signed unsubscribe link).
   `reminders_sent` keys: the durations, `off`, `followup`, `replay`.
+  A reminder goes up to 30 minutes early (hourly job: "1 hour before" arrives 30 to 90
+  minutes before the start). One that falls due right after a (re)confirmation is skipped.
+- Absentee follow-up (webinars, 1 hour after the end): who came = `checked_in_at` (ADMIN
+  lane: "mark as attended" through `gl_checkin_v2`). Absentees are known when
+  `gl_event.settings.attendance_recorded` is true, or, without that setting, once someone is
+  marked and nobody was marked in the last 30 minutes; `attendance_recorded: false` = never.
+  Known: "Sorry we missed you" (+ replay) to the others. Not known: only the replay, worded
+  for everyone, and nothing while there is no replay link.
+- Canary tests: pg_cron wakes `reminders` only when `webinar_v2` or `onsite_v2` is on. With
+  both off, run it by hand: `POST {"job":"reminders","force":true}` with the service key
+  (hidden events are always served when the job runs).
 - `digest` (08:00 Monaco, flag `review_queue`): counts and oldest age of registrations to
   review (all events, wys26 included), pending people, pending companies, failed account
   creations, to `platform_settings.review_digest_recipients`.
@@ -146,12 +183,34 @@ Event settings read (`gl_event.settings`): `timezone` (IANA, default Europe/Mona
   e-mails now", whatever the due date). With `provisioning` off, staff may only run jobs of
   hidden events.
 - Results per job: `created | linked | pending_link | skipped | failed | busy`; e-mails:
-  `sent | not_needed | no_account | failed | busy`.
+  `sent | not_needed | no_account | failed | failed_gave_up | busy`.
+- `pending_link` = an account has the address (or already holds the registration) but has
+  not PROVED it: M3's choices (validate the person, company action) are NOT applied;
+  `review_log` (action `provisioned`) says `proven: false` and what was not applied. Once the
+  person proved the address, a staff `run` of that job applies them (a `done` job whose row
+  is still `pending_link` is queued again). Nothing re-runs it by itself (see the integrator
+  notes: the DB lane's proof hook could re-queue it).
+- Retries: a job is tried at most 5 times by the cron (a run that crashed counts); then it
+  is `failed` and only a staff `run` retries it. An account e-mail that failed 5 times is
+  given up (`email_due_at` cleared, `last_error` "e-mail: gave up ..."); staff "Send account
+  e-mails now" (`send_emails`) still sends it.
 
 ## Environment
 
 Existing secrets: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`,
 `RESEND_API_KEY`, `SITE_URL`, `TURNSTILE_SECRET_KEY` (optional), `TURNSTILE_ENFORCE` (optional).
-New, optional: `REGISTRATION_SITE_URL`, the site that serves `/registration`, `/welcome` and
-`/events/:id` in the links of these e-mails. Leave it unset once the redesign is live; set it to
-the preview address only for canary tests before that.
+New, optional: `REGISTRATION_SITE_URL`, the site of the links (`/registration`, `/welcome`,
+`/events/:id`, the door QR, `/unsubscribe`) in the e-mails of HIDDEN test events only (canary
+tests on the preview before the redesign is live). Every real event always links to
+`SITE_URL`, so a preview address left there by mistake never reaches a real pass or link.
+Real events send nothing before their flag (`webinar_v2` / `onsite_v2`), and those flags go
+on only once the redesign (with `/registration` and `/unsubscribe`) is live.
+
+## Deviations to confirm
+
+- `send-profile-reminders`: spec §4.7 (Phase 1) leaves every persona `individual` account
+  out of the company reminders. Built: only accounts made by the registration flows
+  (`signup_source` webinar / onsite / invitation / provisioned) or that chose "No company"
+  are left out now; persona `individual` is left out once `account_signup_v2` is on (today
+  "individual" is also the default persona of the old sign-up wizard). To follow the spec
+  now: `individualsToo = true` in `participantIds`' caller. Needs Victor's choice.

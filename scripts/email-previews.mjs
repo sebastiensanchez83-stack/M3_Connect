@@ -400,7 +400,8 @@ const STATUS_LINK = `${SITE}/registration?t=EXAMPLE_STATUS_TOKEN_EXAMPLE_STATUS_
     { title: "World Yachting Summit 2026", when: "27 November 2026", url: `${SITE}/wys26/guest?t=${GUEST_TOKEN}`, label: "View my request" },
   ]), { noButton: true });
   add("reg-11-staff-new", "registration · staff alert, new registration", "events@m3monaco.com", reg.renderStaffNewRegistration(octx, { ...regGuest, status: "requested" }, regQuestions, "Visitor"));
-  add("reg-12-staff-info", "registration · staff alert, information provided", "events@m3monaco.com", reg.renderStaffInfoProvided(octx, { ...regGuest, status: "requested" }, regQuestions, null));
+  add("reg-12-staff-info", "registration · staff alert, information provided (answer + changed details)", "events@m3monaco.com", reg.renderStaffInfoProvided(octx, { ...regGuest, status: "requested" }, regQuestions, null, { answer: "We work with Port Azur Marina, I manage their shore power project.", changed: ["Company", "What would you like to get from the day?"] }));
+  add("reg-12b-staff-info-unchanged", "registration · staff alert, information provided (details confirmed as they are)", "events@m3monaco.com", reg.renderStaffInfoProvided(octx, { ...regGuest, status: "requested" }, regQuestions, null));
   add("reg-13-flood", "registration · staff alert, unusual activity", "events@m3monaco.com", reg.renderFloodAlert(wctx, 57));
   add("reg-14-wys-parity-ack", "registration · wys26 request acknowledgement (parity, + View my request)", wysGuest.email, reg.renderParityAck(wys, wysGuest));
   add("reg-15-wys-parity-staff", "registration · wys26 staff notification (parity)", "events@m3monaco.com", reg.renderParityStaffNotice(wys, wysGuest));
@@ -532,6 +533,14 @@ for (const it of items) {
   if (pAck.text.replace(`View my request: ${personal}\n\n`, "") !== glAck.text) fail("registration: the wys26 acknowledgement text differs from guest-list's (apart from the button)");
   if (!pAck.html.includes(`href="${personal}"`)) fail("registration: the wys26 acknowledgement has no View my request link");
 
+  // The staff alert of an answered question carries the answer and what changed.
+  {
+    const it = items.find((i) => i.id === "reg-12-staff-info");
+    if (!it || !it.html.includes("Port Azur Marina, I manage") || !it.text.includes("Their answer:") || !it.text.includes("Details changed: Company")) fail("reg-12-staff-info: the answer or the changed details are missing");
+    const un = items.find((i) => i.id === "reg-12b-staff-info-unchanged");
+    if (!un || !un.text.includes("No details were changed.")) fail("reg-12b-staff-info-unchanged: no 'No details were changed.' line");
+  }
+
   // No status token, QR or personal link in a subject line.
   for (const it of items.filter((i) => /^(reg|cron|account-5|account-6)-/.test(i.id))) {
     if (/registration\?t=|guest\?t=|token|EXAMPLE_/i.test(it.subject)) fail(`${it.id}: a link or token in the subject`);
@@ -591,7 +600,7 @@ for (const it of items) {
     "registration onsite": reg.renderOnsiteConfirmed(evilCtx, evilG, { status: STATUS_LINK, ticket: evilImg }).html,
     "registration info": reg.renderInfoRequested(evilCtx, evilG, { status: STATUS_LINK }, evilImg).html,
     "registration links": reg.renderStatusLinks(bad, [{ title: evilImg, when: bad, url: `${SITE}/?a="${bad}"`, label: evilImg }]).html,
-    "registration staff": reg.renderStaffNewRegistration(evilCtx, evilG, evilQ, evilImg).html + reg.renderStaffInfoProvided(evilCtx, evilG, evilQ, bad).html,
+    "registration staff": reg.renderStaffNewRegistration(evilCtx, evilG, evilQ, evilImg).html + reg.renderStaffInfoProvided(evilCtx, evilG, evilQ, bad, { answer: evilImg, changed: [bad, evilImg] }).html,
     "registration cancelled": reg.renderCancelled(evilCtx, evilG).html + reg.renderNotAccepted(evilCtx, evilG).html + reg.renderWaitlisted(evilCtx, evilG, { status: null }).html,
     "registration-cron reminder": regCron.renderReminder(evilCron, evilG, { key: "P7D", ms: 7 * D }, { status: STATUS_LINK, join: null, qr: true, optOut: { label: evilImg, url: `${SITE}/?a="${bad}"` } }).html,
     "registration-cron follow-up": regCron.renderFollowup(evilCron, evilG, { replay: null, attendanceKnown: true, optOut: { label: "x", url: SITE } }).html,

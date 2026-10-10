@@ -768,7 +768,10 @@ async function processJob(job: Json, by: string | null): Promise<Json> {
       if (!isProven(p, user.email || "")) {
         await setGuestAction(j, "pending_link");
         await finish(j, { email_due_at: null });
-        await logReview(j, by, { account_action: "pending_link" });
+        await logReview(j, by, {
+          account_action: "pending_link", proven: false,
+          not_applied: { validate_person: !!j.validate_person, org_action: String(obj(j.org_action).mode || "none") },
+        });
         return { id: j.id, result: "pending_link" };
       }
       const action = await linkGuest(j, user.id, "linked");
@@ -882,6 +885,10 @@ async function sendAccountEmail(job: Json, force: boolean): Promise<Json> {
     const p = await profileOf(userId);
     const ok = await sendMail(user.email, renderAccountReady(String(p?.first_name || obj(j.payload).first_name || ""), title, url));
     if (!ok) throw new Error("resend refused the account e-mail");
+    // Sent: the count of earlier failed tries is no longer an error to show staff.
+    if (String(j.last_error || "").startsWith("e-mail")) {
+      await db.from("account_provision_job").update({ last_error: null }).eq("id", j.id).not("email_sent_at", "is", null);
+    }
     return { id: j.id, email: "sent" };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

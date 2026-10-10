@@ -1097,8 +1097,9 @@ function renderStaffInfoProvided(ctx: Ctx, g: Json, questions: Json[], ticketLab
   const rows = staffRows(g, questions, ticketLabel);
   const asked = clean(g.info_request, 2000);
   const answer = clean(reply.answer, 2000);
+  const list = reply.changed.join(", ");
   const changed = reply.changed.length
-    ? `Details changed: ${reply.changed.join(", ")}.`
+    ? `Details changed: ${list}${/[.?!]$/.test(list) ? "" : "."}`
     : "No details were changed.";
   const intro = `${fullName(g)} answered your question. The registration is back in your review list.`;
   return regMail(ctx, `Information provided: ${fullName(g)} — ${ctx.title}`, {

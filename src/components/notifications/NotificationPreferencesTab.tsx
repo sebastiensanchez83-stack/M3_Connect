@@ -53,8 +53,8 @@ export const CATEGORIES: CategoryDef[] = [
     key: 'payments',
     icon: <CreditCard className="h-5 w-5 text-rose-500" />,
     title: 'Payments & invoices',
-    description: 'Sponsorship and exhibition invoices, payment confirmations, sponsor level changes.',
-    examples: 'Examples: sponsorship_invoice_sent, sponsorship_approved, payment_confirmed.',
+    description: 'Sponsorship and exhibition invoices, sponsor level changes. Payment receipts are always sent.',
+    examples: 'Examples: sponsorship_invoice_sent, sponsorship_approved.',
   },
   {
     key: 'team',

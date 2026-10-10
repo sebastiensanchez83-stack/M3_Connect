@@ -133,6 +133,9 @@ export function WelcomePage() {
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [busy, setBusy] = useState(false);
+  // Why the password could not be saved, shown under the boxes: a toast in a corner
+  // is easy to miss on the one step every new account must pass.
+  const [formError, setFormError] = useState('');
   const [resendEmail, setResendEmail] = useState('');
   const [resent, setResent] = useState(false);
   // Logged out: "Already have a password? Sign in" opens the sign-in window here
@@ -273,10 +276,11 @@ export function WelcomePage() {
 
   const setPassword = async () => {
     if (busy) return;
-    if (pw.length < 8) { toast({ title: t('auth.passwordTooShort', 'Password too short (min. 8 characters).'), variant: 'destructive' }); return; }
+    if (pw.length < 8) { setFormError(t('auth.passwordTooShort', 'Password too short (min. 8 characters).')); return; }
     // GoTrue refuses more than 72 bytes (bcrypt); say so before the round trip.
-    if (new TextEncoder().encode(pw).length > 72) { toast({ title: t('welcome.passwordTooLong', 'Password too long (max. 72 characters).'), variant: 'destructive' }); return; }
-    if (pw !== pw2) { toast({ title: t('auth.passwordMismatch', 'Passwords do not match.'), variant: 'destructive' }); return; }
+    if (new TextEncoder().encode(pw).length > 72) { setFormError(t('welcome.passwordTooLong', 'Password too long (max. 72 characters).')); return; }
+    if (pw !== pw2) { setFormError(t('welcome.passwordMismatchInline', 'The two passwords are not the same. Type the same password in both boxes.')); return; }
+    setFormError('');
     setBusy(true);
     const done = { pw_pending: false, pw_pending_reason: null, pw_pending_next: null };
     let { error } = await supabase.auth.updateUser({ password: pw, data: done });
@@ -297,13 +301,9 @@ export function WelcomePage() {
       // Nothing to retry from here: offer the e-mailed way out instead of a
       // dead end (AuthRedirector keeps a pw_pending account on this page).
       if (needsFreshSession(error)) { setFreshLink('needed'); return; }
-      toast({
-        title: t('welcome.setFailed', 'Could not set your password'),
-        description: error.code === 'weak_password'
-          ? t('welcome.weakPassword', 'This password is too weak or too common. Choose a longer, less predictable one.')
-          : t('welcome.tryAgain', 'Please try again in a moment.'),
-        variant: 'destructive',
-      });
+      setFormError(error.code === 'weak_password'
+        ? t('welcome.weakPassword', 'This password is too weak or too common. Choose a longer, less predictable one.')
+        : t('welcome.setFailedInline', 'Your password could not be saved. Please try again in a moment.'));
       return;
     }
     if (mustSetPassword) {
@@ -497,7 +497,7 @@ export function WelcomePage() {
             <PasswordInput
               id="welcome-password"
               value={pw}
-              onChange={e => setPw(e.target.value)}
+              onChange={e => { setPw(e.target.value); setFormError(''); }}
               placeholder={retype ? undefined : t('authRefonte.signup.passwordPlaceholder', 'At least 8 characters')}
               autoComplete="new-password"
             />
@@ -507,10 +507,15 @@ export function WelcomePage() {
             <PasswordInput
               id="welcome-password2"
               value={pw2}
-              onChange={e => setPw2(e.target.value)}
+              onChange={e => { setPw2(e.target.value); setFormError(''); }}
               autoComplete="new-password"
             />
           </div>
+          {formError && (
+            <AuthNotice tone="error" role="alert">
+              <p>{formError}</p>
+            </AuthNotice>
+          )}
           {freshLink && (
             <AuthNotice
               tone={freshLink === 'sent' ? 'success' : 'warning'}

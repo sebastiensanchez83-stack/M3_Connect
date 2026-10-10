@@ -165,6 +165,9 @@ const TYPE_TO_CATEGORY: Record<NotificationType, NotificationCategory> = {
   admin_new_submission: "admin",
 };
 
+/** Sent whatever the recipient's preferences say (payment-ipn's receipts, see the opt-out check). */
+const ALWAYS_SENT_TYPES = new Set<NotificationType>(["payment_confirmed", "payment_failed"]);
+
 interface EmailContent {
   subject: string;
   greeting: string;
@@ -1499,12 +1502,16 @@ Deno.serve(async (req: Request) => {
     // Only applies when the recipient has a profile (user_id provided).
     // Anonymous sends (team invitations to non-users, claim codes, etc.) bypass
     // the check — they have no profile to express a preference yet.
+    // Payment receipts are transactional: the confirmation is the customer's proof
+    // of payment and the failure notice says M3 will be in touch, so neither can be
+    // switched off ("Messages about ... your payments are always sent", /unsubscribe).
     const category = TYPE_TO_CATEGORY[ntype];
+    const alwaysSent = ALWAYS_SENT_TYPES.has(ntype);
     let sent = 0;
     let optedOut = 0;
     let providerError = false;
     for (const target of targets) {
-      if (target.prefs && category && target.prefs[category] === false) {
+      if (target.prefs && category && !alwaysSent && target.prefs[category] === false) {
         console.log(`Notification [${type}] (${category}) skipped — user ${target.recipientUserId} opted out`);
         optedOut++;
         continue;

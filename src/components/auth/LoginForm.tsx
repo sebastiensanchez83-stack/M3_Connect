@@ -6,6 +6,7 @@ import { getStoredInvite } from '@/lib/invite-store';
 import { Button } from '@/components/ui/button';
 import { UnderlineLink } from '@/components/brand/UnderlineLink';
 import { AuthInput, AuthLabel, AuthNotice, PasswordInput } from '@/components/auth/fields';
+import { useAuthDialogTitle } from '@/components/auth/AuthDialog';
 import { throughWelcome } from '@/lib/confirmationLink';
 import { type AuthErrorLike, isInvalidCredentials, isNetworkError, isRateLimited, signInErrorMessage } from '@/lib/authErrors';
 import { toast } from '@/hooks/use-toast';
@@ -95,7 +96,7 @@ export function ResendConfirmationButton({ email, redirectTo, label, justSent = 
     if (sending || cooldown > 0) return;
     const address = email.trim();
     if (!address) {
-      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your e-mail address'), variant: 'destructive' });
+      toast({ title: t('common.error', 'Error'), description: t('auth.enterEmailFirst', 'Please enter your e-mail address'), variant: 'destructive' });
       return;
     }
     setSending(true);
@@ -149,6 +150,10 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   const [wrongCredentials, setWrongCredentials] = useState(false);
   // The address a sign-in was refused for because it is not confirmed yet.
   const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
+  // In the sign-in window, the "forgot password" step takes over the window's title
+  // (instead of "Sign in" above a second heading); on a page, it keeps its own.
+  const forgotTitle = t('auth.passwordLink.title', 'Get a link to set your password');
+  const inDialog = useAuthDialogTitle(forgotMode ? forgotTitle : null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,7 +175,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       setWrongCredentials(isInvalidCredentials(error));
     } else {
       toast({
-        title: t('auth.loginSuccess'),
+        title: t('auth.loginSuccess', 'Welcome back!'),
       });
       onSuccess?.();
     }
@@ -181,7 +186,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) {
-      toast({ title: t('common.error'), description: t('auth.enterEmailFirst', 'Please enter your e-mail address'), variant: 'destructive' });
+      toast({ title: t('common.error', 'Error'), description: t('auth.enterEmailFirst', 'Please enter your e-mail address'), variant: 'destructive' });
       return;
     }
     setForgotLoading(true);
@@ -214,12 +219,12 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
   if (forgotMode) {
     return (
       <form onSubmit={handleForgotPassword} className="space-y-5">
-        <h3 className="text-h3 text-navy">{t('auth.passwordLink.title', 'Get a link to set your password')}</h3>
+        {!inDialog && <h3 className="text-h3 text-navy">{forgotTitle}</h3>}
         <p className="text-sm leading-6 text-meta">
           {t('auth.passwordLink.desc', "Enter your e-mail address. We'll send you a link to choose a new password. It also works if you have never set one, for example when your account was created for an event.")}
         </p>
         <div className="space-y-2">
-          <AuthLabel htmlFor="forgot-email">{t('auth.email')}</AuthLabel>
+          <AuthLabel htmlFor="forgot-email">{t('auth.email', 'E-mail')}</AuthLabel>
           <AuthInput
             id="forgot-email"
             type="email"
@@ -251,7 +256,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
               </AuthNotice>
             )}
             <Button type="submit" variant="cta" className="w-full justify-between" disabled={forgotLoading}>
-              {forgotLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading')}</> : t('auth.passwordLink.send', 'Send me the link')}
+              {forgotLoading ? <><Loader2 className="h-4 w-4 animate-spin" />{t('common.loading', 'Loading...')}</> : t('auth.passwordLink.send', 'Send me the link')}
             </Button>
             <div className="text-center">
               <UnderlineLink arrow={false} className="min-h-11" onClick={() => { setForgotMode(false); setForgotError(null); }}>
@@ -282,7 +287,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
         </AuthNotice>
       )}
       <div className="space-y-2">
-        <AuthLabel htmlFor="email">{t('auth.email')}</AuthLabel>
+        <AuthLabel htmlFor="email">{t('auth.email', 'E-mail')}</AuthLabel>
         <AuthInput
           id="email"
           type="email"
@@ -295,9 +300,9 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3">
-          <AuthLabel htmlFor="password">{t('auth.password')}</AuthLabel>
+          <AuthLabel htmlFor="password">{t('auth.password', 'Password')}</AuthLabel>
           <UnderlineLink arrow={false} onClick={() => { setForgotMode(true); setSignInError(null); }} className="-my-2.5 min-h-11 !text-[13px] !font-medium">
-            {t('auth.forgotPassword')}
+            {t('auth.forgotPassword', 'Forgot password?')}
           </UnderlineLink>
         </div>
         <PasswordInput
@@ -325,7 +330,7 @@ export function LoginForm({ onSuccess, defaultEmail, showConfirmedBanner, linkEr
       )}
 
       <Button type="submit" variant="cta" className="w-full justify-between" disabled={loading}>
-        {loading ? t('common.loading') : t('auth.login')}
+        {loading ? t('common.loading', 'Loading...') : t('auth.login', 'Sign in')}
       </Button>
 
       {unconfirmedEmail !== null && unconfirmedEmail === email && (

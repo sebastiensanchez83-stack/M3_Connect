@@ -7,6 +7,7 @@ import { AUTH_FIELD_ERROR, AuthInput, AuthLabel, AuthNotice, FieldError, Passwor
 import { supabase } from '@/lib/supabase';
 import { safeNext } from '@/lib/safeNext';
 import { MEMBER_HOME } from '@/lib/signInDestination';
+import { SIGNIN_EMAIL_KEY } from '@/lib/authModal';
 import type { EmailOtpType } from '@supabase/supabase-js';
 import { Loader2, CheckCircle } from 'lucide-react';
 
@@ -73,6 +74,8 @@ export function ResetPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  // They typed the password the account already has: nothing to change, and that is fine.
+  const [alreadyTheirs, setAlreadyTheirs] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -278,12 +281,15 @@ export function ResetPasswordPage() {
       // back to /welcome to "set a password" on every navigation.
       const done = { pw_pending: false, pw_pending_reason: null, pw_pending_next: null };
       let { error: updateError } = await supabase.auth.updateUser({ password, data: done });
-      // An account still owing its password step that types the password it already
-      // has (a sign-up typing the one from the sign-up form): GoTrue refuses that as
-      // a "change" and drops `data` with it. Knowing it is proof enough, as on
-      // /welcome: record the step as done and go on.
-      if (updateError && pendingNext && isSamePassword(updateError)) {
+      // They typed the password the account already has: someone who asked for a link
+      // and then remembered it, or a sign-up still owing its password step typing the
+      // one from the sign-up form. GoTrue refuses that as a "change" and drops `data`
+      // with it. Knowing it is proof enough, as on /welcome: record the step as done
+      // and go on, rather than make them invent (and then forget) a new one.
+      let same = false;
+      if (updateError && isSamePassword(updateError)) {
         ({ error: updateError } = await supabase.auth.updateUser({ data: done }));
+        same = !updateError;
       }
 
       if (updateError) {
@@ -308,6 +314,7 @@ export function ResetPasswordPage() {
         if (othersError) logAuthError('Other sessions could not be ended:', othersError);
       }
 
+      setAlreadyTheirs(same);
       setSuccess(true);
 
       if (destination) {
@@ -323,7 +330,11 @@ export function ResetPasswordPage() {
       } else {
         // Recovery from an email link: sign out so the new password gets used once,
         // which confirms to them that it works. ?signin=true opens the sign-in window
-        // on the home page (Navbar), so they do not have to look for it.
+        // on the home page (Navbar), so they do not have to look for it; the Navbar
+        // fills in the address it finds in this tab's sessionStorage (never the URL).
+        try {
+          if (accountEmail.current) window.sessionStorage.setItem(SIGNIN_EMAIL_KEY, accountEmail.current);
+        } catch { /* storage blocked: they type their address */ }
         await supabase.auth.signOut();
         redirectTimer.current = window.setTimeout(() => { window.location.href = '/?signin=true'; }, 2000);
       }
@@ -408,12 +419,16 @@ export function ResetPasswordPage() {
       <AuthShell
         layout="centered"
         icon={<CheckCircle className="h-6 w-6" />}
-        title={pendingNext ? t('resetPassword.savedTitle', 'Password saved') : t('resetPassword.successTitle', 'Password updated!')}
+        title={alreadyTheirs
+          ? t('resetPassword.sameOkTitle', 'That is already your password')
+          : pendingNext ? t('resetPassword.savedTitle', 'Password saved') : t('resetPassword.successTitle', 'Password updated!')}
         lead={next
           ? t('resetPassword.takingYouBack', 'Taking you back...')
           : destination
             ? t('resetPassword.takingYouOn', 'Taking you to the next step...')
-          : t('resetPassword.signInWithNew', 'Now sign in with your new password. Opening the sign-in window...')}
+          : alreadyTheirs
+            ? t('resetPassword.sameOk', 'You can sign in with it. Opening the sign-in window...')
+            : t('resetPassword.signInWithNew', 'Now sign in with your new password. Opening the sign-in window...')}
       />
     );
   }

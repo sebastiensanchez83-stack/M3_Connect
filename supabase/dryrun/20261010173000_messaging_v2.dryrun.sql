@@ -1917,8 +1917,10 @@ begin
       begin
         perform set_config('request.jwt.claims', json_build_object('sub', v_s, 'role', 'authenticated')::text, true);
         set local role authenticated;
-        insert into public.conversation_messages (partner_request_id, body, attachments)
-        values (v_req, '', jsonb_build_array(jsonb_build_object('path', v_png)));
+        -- Text only: v_png was removed by M3 in F18, and a missing file would be refused by the
+        -- trigger (22023) before the policy is even checked; a plain text shows the suspension rule.
+        insert into public.conversation_messages (partner_request_id, body)
+        values (v_req, 'Dry run: written while the company is suspended');
         reset role;
       exception when others then
         get stacked diagnostics v_state = returned_sqlstate;
@@ -1942,7 +1944,7 @@ begin
       when sqlstate 'DRY02' then null;
     end;
     v_ok := v_t = 'S upload 42501, S message 42501, R upload ACCEPTED';
-    results := results || pg_temp.dr('F21', v_ok, 'a suspended company sends no file; the other company still can: ' || coalesce(v_t, 'crashed'));
+    results := results || pg_temp.dr('F21', v_ok, 'a suspended company sends no file and no message; the other company still can: ' || coalesce(v_t, 'crashed'));
     n_pass := n_pass + coalesce(v_ok, false)::int; n_fail := n_fail + (not coalesce(v_ok, false))::int;
 
     -- F22: upload quotas: 100 files an hour, 300 a day per person (test rows rolled back).
